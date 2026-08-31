@@ -4,7 +4,7 @@
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 mod assertions;
-mod config;
+pub(crate) mod config;
 #[cfg(test)]
 mod enum_field_classification_tests;
 mod helpers;

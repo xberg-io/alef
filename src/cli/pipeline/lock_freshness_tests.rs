@@ -282,6 +282,137 @@ fn check_generated_lock_freshness_ignores_non_manifest_paths() {
     assert!(check_generated_lock_freshness(&generated).is_none());
 }
 
+/// Coverage for [`check_generated_lock_freshness_tolerating_pending_publish`]'s exemption for a
+/// disagreement fully explained by this crate's own not-yet-published release version -- the
+/// `html-to-markdown` incident this exists for: `test_apps/rust/Cargo.toml` requires
+/// `html-to-markdown-rs` at the exact version being released, but the registry still only has the
+/// previous one, so `cargo update` cannot resolve it until publish. Reuses
+/// [`registry_dependencies_on_local_crates`]'s exact shape (a registry, not path, dependency on a
+/// local crate pinned at exactly its own canonical version) rather than inventing a new fixture
+/// pattern.
+mod pending_publish {
+    use super::*;
+
+    const CANONICAL: &str = "3.12.0";
+    const PUBLISHED: &str = "3.11.6";
+    const LOCAL_CRATE: &str = "sample-core";
+    const GENERATED_RELATIVE_DIR: &str = "test_apps/rust";
+
+    fn write_root_crate(root: &Path, version: &str) {
+        std::fs::write(
+            root.join("Cargo.toml"),
+            format!("[package]\nname = \"{LOCAL_CRATE}\"\nversion = \"{version}\"\nedition = \"2024\"\n"),
+        )
+        .expect("write root Cargo.toml");
+    }
+
+    /// A `test_apps`/e2e manifest requiring the crate under test at `required_version` through
+    /// the registry -- no `path = `, matching `test_apps/rust/Cargo.toml`'s real shape exactly
+    /// (`registry_dependencies_on_local_crates` skips any dependency declared with `path`).
+    fn write_test_app_manifest(root: &Path, required_version: &str) -> PathBuf {
+        let dir = root.join(GENERATED_RELATIVE_DIR);
+        std::fs::create_dir_all(&dir).expect("create test_apps dir");
+        let manifest = dir.join("Cargo.toml");
+        std::fs::write(
+            &manifest,
+            format!(
+                "[workspace]\n\n[package]\nname = \"{LOCAL_CRATE}-e2e-rust\"\nversion = \"0.0.0\"\nedition = \
+                 \"2024\"\n\n[dependencies]\n{LOCAL_CRATE} = {{ version = \"{required_version}\" }}\n"
+            ),
+        )
+        .expect("write test-app Cargo.toml");
+        manifest
+    }
+
+    /// A committed lock pinning `locked_version`, marked registry-sourced -- `unpublished_dependency`
+    /// only counts a resolved entry that carries a `source` at all, exactly like a real
+    /// `cargo update`-produced lock.
+    fn write_test_app_lock(root: &Path, locked_version: &str) {
+        std::fs::write(
+            root.join(GENERATED_RELATIVE_DIR).join("Cargo.lock"),
+            format!(
+                "version = 3\n\n[[package]]\nname = \"{LOCAL_CRATE}\"\nversion = \"{locked_version}\"\nsource = \
+                 \"registry+https://github.com/rust-lang/crates.io-index\"\n"
+            ),
+        )
+        .expect("write test-app Cargo.lock");
+    }
+
+    /// Control proving the exemption is doing real work: without it, this exact shape must still
+    /// fail -- otherwise the tolerating variant's `None` below would prove nothing.
+    #[test]
+    fn plain_check_still_fails_on_a_pending_publish_disagreement() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        write_root_crate(root, CANONICAL);
+        let manifest = write_test_app_manifest(root, CANONICAL);
+        write_test_app_lock(root, PUBLISHED);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+        assert!(
+            check_generated_lock_freshness(&generated).is_some(),
+            "control: the plain check has no pending-publish exemption and must still fail here"
+        );
+    }
+
+    #[test]
+    fn tolerating_variant_warns_instead_of_failing_on_a_pending_publish_disagreement() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        write_root_crate(root, CANONICAL);
+        let manifest = write_test_app_manifest(root, CANONICAL);
+        write_test_app_lock(root, PUBLISHED);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+        let result = check_generated_lock_freshness_tolerating_pending_publish(&generated, root, Some(CANONICAL));
+        assert!(
+            result.is_none(),
+            "a disagreement fully explained by this crate's own not-yet-published version must not fail the \
+             run: {result:?}"
+        );
+    }
+
+    /// Without a canonical version, nothing can be classified as pending -- must behave exactly
+    /// like the plain check rather than silently exempting everything.
+    #[test]
+    fn tolerating_variant_without_canonical_behaves_like_the_plain_check() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        write_root_crate(root, CANONICAL);
+        let manifest = write_test_app_manifest(root, CANONICAL);
+        write_test_app_lock(root, PUBLISHED);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+        assert!(
+            check_generated_lock_freshness_tolerating_pending_publish(&generated, root, None).is_some(),
+            "no canonical version means no exemption is possible; this must still fail"
+        );
+    }
+
+    /// The false-negative guard: a genuinely stale THIRD-PARTY pin (the `tower-http`-shaped
+    /// incident, reusing the exact fixture from `check_generated_lock_freshness_names_the_dependency_and_the_remedy`
+    /// above) has nothing to do with this crate's own pending release and must still fail even
+    /// when a canonical version is supplied -- the exemption must not blanket-suppress every
+    /// finding just because generation happens to know its own version.
+    #[test]
+    fn tolerating_variant_still_fails_on_a_disagreement_not_explained_by_pending_publish() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        write_root_manifest(
+            root,
+            &format!("[dependencies]\n{REGISTRY_DEPENDENCY} = \"{REQUIREMENT}\"\n"),
+        );
+        let manifest = write_generated_e2e_manifest(root);
+        write_lock(root, STALE_PIN);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+        assert!(
+            check_generated_lock_freshness_tolerating_pending_publish(&generated, root, Some(CANONICAL)).is_some(),
+            "a third-party lock drift unrelated to this crate's own version must still fail the run"
+        );
+    }
+}
+
 /// Coverage for [`check_generated_node_lock_freshness`] / [`stale_node_lock_findings`], the pnpm
 /// sibling of the checks above. Unlike the Rust fixtures, there is no path-dependency indirection
 /// to reproduce: the specifiers being compared live in the one `package.json` alef generated, so
@@ -528,6 +659,123 @@ mod node {
         let generated: HashSet<PathBuf> = [node_dir(root).join("src/index.ts")].into_iter().collect();
 
         assert!(check_generated_node_lock_freshness(&generated, root).is_none());
+    }
+
+    /// Coverage for [`check_generated_node_lock_freshness_tolerating_pending_publish`]'s
+    /// exemption -- the npm sibling of the cargo `pending_publish` module above. Reproduces the
+    /// `@xberg-io/html-to-markdown` shape: `test_apps/typescript/package.json` requires the
+    /// crate's own published npm package at the exact range `[crates.e2e.registry.packages.node]`
+    /// currently declares, but the registry has not published it yet.
+    mod pending_publish {
+        use super::*;
+        use crate::core::config::ResolvedCrateConfig;
+        use crate::core::config::e2e::{E2eConfig, PackageRef, RegistryConfig};
+
+        /// A crate whose `[crates.e2e.registry.packages.node]` explicitly names `pkg_name` at
+        /// `pkg_version` -- the only shape [`registry_self_dependency`] ever vouches for.
+        fn resolved_cfg_with_node_registry_package(pkg_name: &str, pkg_version: &str) -> ResolvedCrateConfig {
+            let e2e = E2eConfig {
+                registry: RegistryConfig {
+                    packages: [(
+                        "node".to_string(),
+                        PackageRef {
+                            name: Some(pkg_name.to_string()),
+                            version: Some(pkg_version.to_string()),
+                            ..PackageRef::default()
+                        },
+                    )]
+                    .into_iter()
+                    .collect(),
+                    ..RegistryConfig::default()
+                },
+                ..E2eConfig::default()
+            };
+            ResolvedCrateConfig {
+                e2e: Some(e2e),
+                ..ResolvedCrateConfig::default()
+            }
+        }
+
+        /// Control proving the exemption does real work: without it, this exact shape must still
+        /// fail.
+        #[test]
+        fn plain_check_still_fails_on_a_pending_publish_disagreement() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_package_json(root, NODE_STALE_SPEC);
+            write_pnpm_lock_v9(root, NODE_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+            assert!(
+                check_generated_node_lock_freshness(&generated, root).is_some(),
+                "control: the plain check has no pending-publish exemption and must still fail here"
+            );
+        }
+
+        #[test]
+        fn tolerating_variant_warns_instead_of_failing_when_the_requirement_matches_the_configured_registry_package() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_package_json(root, NODE_STALE_SPEC);
+            write_pnpm_lock_v9(root, NODE_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+            let resolved_cfg = resolved_cfg_with_node_registry_package(NODE_DEPENDENCY, NODE_STALE_SPEC);
+
+            let result = check_generated_node_lock_freshness_tolerating_pending_publish(
+                &generated,
+                root,
+                Some(&resolved_cfg),
+            );
+            assert!(
+                result.is_none(),
+                "a disagreement fully explained by this crate's own configured registry \
+                 self-dependency must not fail the run: {result:?}"
+            );
+        }
+
+        /// Without a resolved config, nothing can be classified as pending -- must behave exactly
+        /// like the plain check.
+        #[test]
+        fn tolerating_variant_without_resolved_cfg_behaves_like_the_plain_check() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_package_json(root, NODE_STALE_SPEC);
+            write_pnpm_lock_v9(root, NODE_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+            assert!(
+                check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, None).is_some(),
+                "no resolved config means no exemption is possible; this must still fail"
+            );
+        }
+
+        /// The false-negative guard: a genuinely stale THIRD-PARTY pin has nothing to do with this
+        /// crate's own registry self-dependency and must still fail even when a resolved config is
+        /// supplied -- the exemption must not blanket-suppress every finding just because
+        /// generation happens to know its own registry package identity.
+        #[test]
+        fn tolerating_variant_still_fails_on_a_disagreement_not_explained_by_pending_publish() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_package_json(root, NODE_STALE_SPEC);
+            write_pnpm_lock_v9(root, NODE_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+            // The configured registry package name/version do NOT match the finding's own
+            // dependency/requirement at all -- an unrelated self-dependency identity, so nothing
+            // here explains this drift.
+            let resolved_cfg = resolved_cfg_with_node_registry_package("unrelated-package", "9.9.9");
+
+            assert!(
+                check_generated_node_lock_freshness_tolerating_pending_publish(
+                    &generated,
+                    root,
+                    Some(&resolved_cfg),
+                )
+                .is_some(),
+                "a third-party lock drift unrelated to this crate's own registry self-dependency \
+                 must still fail the run"
+            );
+        }
     }
 }
 
@@ -803,5 +1051,117 @@ mod uv {
         let generated: HashSet<PathBuf> = [uv_dir(root).join("tests/test_basic.py")].into_iter().collect();
 
         assert!(check_generated_uv_lock_freshness(&generated).is_none());
+    }
+
+    /// Coverage for [`check_generated_uv_lock_freshness_tolerating_pending_publish`]'s exemption
+    /// -- the uv sibling of the cargo `pending_publish` module above, and the actual
+    /// `html-to-markdown` incident this closes: `test_apps/python/pyproject.toml` requires
+    /// `html-to-markdown>=3.12.0` while PyPI still only has `3.11.6` published.
+    mod pending_publish {
+        use super::*;
+        use crate::core::config::ResolvedCrateConfig;
+        use crate::core::config::e2e::{E2eConfig, PackageRef, RegistryConfig};
+
+        /// A crate whose `[crates.e2e.registry.packages.python]` explicitly names `pkg_name` at
+        /// `pkg_version` -- the only shape [`registry_self_dependency`] ever vouches for.
+        fn resolved_cfg_with_python_registry_package(pkg_name: &str, pkg_version: &str) -> ResolvedCrateConfig {
+            let e2e = E2eConfig {
+                registry: RegistryConfig {
+                    packages: [(
+                        "python".to_string(),
+                        PackageRef {
+                            name: Some(pkg_name.to_string()),
+                            version: Some(pkg_version.to_string()),
+                            ..PackageRef::default()
+                        },
+                    )]
+                    .into_iter()
+                    .collect(),
+                    ..RegistryConfig::default()
+                },
+                ..E2eConfig::default()
+            };
+            ResolvedCrateConfig {
+                e2e: Some(e2e),
+                ..ResolvedCrateConfig::default()
+            }
+        }
+
+        /// Control proving the exemption does real work: without it, this exact shape must still
+        /// fail.
+        #[test]
+        fn plain_check_still_fails_on_a_pending_publish_disagreement() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_pyproject(root, UV_STALE_SPEC);
+            write_uv_lock_project_shape(root, UV_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+            assert!(
+                check_generated_uv_lock_freshness(&generated).is_some(),
+                "control: the plain check has no pending-publish exemption and must still fail here"
+            );
+        }
+
+        #[test]
+        fn tolerating_variant_warns_instead_of_failing_when_the_requirement_matches_the_configured_registry_package() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_pyproject(root, UV_STALE_SPEC);
+            write_uv_lock_project_shape(root, UV_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+            // `UV_STALE_SPEC` already carries a PEP 508 comparator (">="), so
+            // `normalize_python_version` passes it through unchanged -- this is exactly what
+            // alef's own e2e generator would have written for this registry package.
+            let resolved_cfg = resolved_cfg_with_python_registry_package(UV_DEPENDENCY, UV_STALE_SPEC);
+
+            let result =
+                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg));
+            assert!(
+                result.is_none(),
+                "a disagreement fully explained by this crate's own configured registry \
+                 self-dependency must not fail the run: {result:?}"
+            );
+        }
+
+        /// Without a resolved config, nothing can be classified as pending -- must behave exactly
+        /// like the plain check.
+        #[test]
+        fn tolerating_variant_without_resolved_cfg_behaves_like_the_plain_check() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_pyproject(root, UV_STALE_SPEC);
+            write_uv_lock_project_shape(root, UV_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+
+            assert!(
+                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, None).is_some(),
+                "no resolved config means no exemption is possible; this must still fail"
+            );
+        }
+
+        /// The false-negative guard: a genuinely stale THIRD-PARTY pin has nothing to do with this
+        /// crate's own registry self-dependency and must still fail even when a resolved config is
+        /// supplied -- the exemption must not blanket-suppress every finding just because
+        /// generation happens to know its own registry package identity.
+        #[test]
+        fn tolerating_variant_still_fails_on_a_disagreement_not_explained_by_pending_publish() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_pyproject(root, UV_STALE_SPEC);
+            write_uv_lock_project_shape(root, UV_FRESH_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+            // The configured registry package name/version do NOT match the finding's own
+            // dependency/requirement at all -- an unrelated self-dependency identity, so nothing
+            // here explains this drift.
+            let resolved_cfg = resolved_cfg_with_python_registry_package("unrelated-package", ">=9.9.9");
+
+            assert!(
+                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg))
+                    .is_some(),
+                "a third-party lock drift unrelated to this crate's own registry self-dependency \
+                 must still fail the run"
+            );
+        }
     }
 }

@@ -55,6 +55,16 @@ pub(crate) fn handle_generate(
     // other phase's frozen files. ~keep
     let mut refusals = pipeline::WriteReport::default();
     let mut grand_total_generated: usize = 0;
+    // Per-category grand totals, aggregated purely for the always-printed summary below -- see
+    // its doc comment for why a single flat total made a 98-file per-language run
+    // indistinguishable from a ~278-file full regen and why zeros are printed rather than
+    // omitted. ~keep
+    let mut grand_binding_count: usize = 0;
+    let mut grand_service_api_count: usize = 0;
+    let mut grand_public_api_count: usize = 0;
+    let mut grand_stub_count: usize = 0;
+    let mut grand_scaffold_count: usize = 0;
+    let mut crates_with_e2e: usize = 0;
     // A post-build failure (below) must not skip this crate's terminal `finalize_hashes` call,
     // and must not deny every later crate its own regeneration -- see the doc on the
     // `complete_generated_artifacts` call site for the exact hazard this closes. ~keep
@@ -149,6 +159,7 @@ pub(crate) fn handle_generate(
         // matched what was already on disk was not generated this run in any sense a
         // reader of that line would expect, so it must not inflate the count. ~keep
         let mut written_count: usize = 0;
+        let mut binding_count: usize = 0;
         let mut any_written = false;
         for (lang, lang_files) in &files {
             let lang_str = lang.to_string();
@@ -178,6 +189,7 @@ pub(crate) fn handle_generate(
             let report = pipeline::write_files_report(&single, &base_dir)?;
             refusals.absorb_unwritten(&report);
             written_count += report.changed_count();
+            binding_count += report.changed_count();
             if report.changed_count() > 0 {
                 any_written = true;
                 changed_languages.insert(*lang);
@@ -207,6 +219,7 @@ pub(crate) fn handle_generate(
                 refusals.absorb_unwritten(&report);
                 let svc_count = report.changed_count();
                 written_count += svc_count;
+                grand_service_api_count += svc_count;
                 tracing::info!("Generated {svc_count} service API files");
                 if svc_count > 0 {
                     any_written = true;
@@ -262,6 +275,7 @@ pub(crate) fn handle_generate(
                     refusals.absorb_unwritten(&report);
                     let api_count = report.changed_count();
                     written_count += api_count;
+                    grand_public_api_count += api_count;
                     tracing::info!("Generated {api_count} public API files");
                     any_written |= api_count > 0;
                     let _ = cache::write_generation_hashes(&api_cache_key, &api_hashes);
@@ -319,6 +333,7 @@ pub(crate) fn handle_generate(
                 refusals.absorb_unwritten(&report);
                 let stub_count = report.changed_count();
                 written_count += stub_count;
+                grand_stub_count += stub_count;
                 tracing::info!("Generated {stub_count} type stub files");
                 any_written |= stub_count > 0;
                 let _ = cache::write_generation_hashes(&stubs_cache_key, &stub_hashes);
@@ -338,7 +353,9 @@ pub(crate) fn handle_generate(
 
         let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
         let report = pipeline::reconcile_managed_scaffold_manifests(&scaffold_files, &base_dir)?;
-        if report.changed_count() > 0 {
+        let scaffold_count = report.changed_count();
+        grand_scaffold_count += scaffold_count;
+        if scaffold_count > 0 {
             any_written = true;
             // A scaffold-managed manifest (`packages/java/pom.xml`,
             // `crates/<name>-ffi/cmake/*.cmake`, `packages/python/pyproject.toml`) can change with
@@ -521,8 +538,14 @@ pub(crate) fn handle_generate(
         // leave exactly the same committed lock unresolvable and must stop exiting 0 over it.
         // Calling the one function rather than restating the rule is deliberate -- two sites
         // deriving "is this lock stale" independently is how the relock hook and the validator
-        // came to disagree in the first place. ~keep
-        if let Some(error) = pipeline::check_generated_lock_freshness(&current_gen_paths) {
+        // came to disagree in the first place. Tolerating-variant, not the plain check: a
+        // `test_apps`/e2e manifest requiring this crate's own not-yet-published version cannot
+        // resolve until release and must warn, not fail -- see that function's doc. ~keep
+        if let Some(error) = pipeline::check_generated_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            resolved_cfg.resolved_version().as_deref(),
+        ) {
             stage_failures.record(
                 &format!("[{}] generated Cargo.lock freshness", resolved_cfg.name),
                 error,
@@ -532,8 +555,12 @@ pub(crate) fn handle_generate(
         // call site, for the Node ecosystem's equivalent: a generated `package.json` whose
         // specifiers a committed `pnpm-lock.yaml` no longer matches fails `pnpm install` under
         // the default frozen lockfile in CI just as surely as a stale `Cargo.lock` fails `cargo
-        // build --locked`. ~keep
-        if let Some(error) = pipeline::check_generated_node_lock_freshness(&current_gen_paths, &base_dir) {
+        // build --locked`. Tolerating-variant, same rationale as the Cargo.lock check above. ~keep
+        if let Some(error) = pipeline::check_generated_node_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            Some(resolved_cfg),
+        ) {
             stage_failures.record(
                 &format!("[{}] generated pnpm-lock.yaml freshness", resolved_cfg.name),
                 error,
@@ -543,8 +570,11 @@ pub(crate) fn handle_generate(
         // call site, for the Python/uv ecosystem's equivalent: a generated `pyproject.toml` whose
         // dependency specifiers a committed `uv.lock` no longer records fails `uv sync --locked`
         // under CI's default frozen lockfile just as surely as a stale `Cargo.lock` or
-        // `pnpm-lock.yaml` fails their own frozen-install commands. ~keep
-        if let Some(error) = pipeline::check_generated_uv_lock_freshness(&current_gen_paths) {
+        // `pnpm-lock.yaml` fails their own frozen-install commands. Tolerating-variant, same
+        // rationale as the Cargo.lock check above. ~keep
+        if let Some(error) =
+            pipeline::check_generated_uv_lock_freshness_tolerating_pending_publish(&current_gen_paths, Some(resolved_cfg))
+        {
             stage_failures.record(&format!("[{}] generated uv.lock freshness", resolved_cfg.name), error);
         }
 
@@ -602,13 +632,44 @@ pub(crate) fn handle_generate(
             // An [e2e] block is a correct, intentional configuration; this is advice on
             // the next command to run, not a problem with the current one. ~keep
             tracing::info!("[e2e] block detected — run 'alef e2e generate' to regenerate e2e test suites");
+            crates_with_e2e += 1;
         }
 
         grand_total_generated += written_count;
+        grand_binding_count += binding_count;
     }
     pipeline::report_refused_writes(&refusals);
     pipeline::report_user_owned_skips(&refusals);
-    tracing::info!("Generated {grand_total_generated} files");
+    // Structured and always printed, zeros included, deliberately not folded into one flat
+    // number: a per-language `alef generate --lang X` run touching a handful of files used to
+    // print the exact same "Generated N files. exit 0" shape as a full regeneration, with no
+    // signal that docs-site and e2e output -- both real categories a full `alef all` regen
+    // produces -- were never in scope here at all. That gap caused a real misdiagnosis: a
+    // 98-file per-language result was read as a full regen for a repo whose real one is ~278
+    // files including `docs-site/src` and `e2e/`, both silently zero, because the exit code and
+    // the one-line summary carried no information to contradict that reading. Printing every
+    // category's count -- including zero -- every time, plus naming the categories this command
+    // structurally cannot touch, is the "most honest thing" this run can do: a genuine no-op
+    // regen (everything already current) legitimately reports zeros here too, so this is not a
+    // pass/fail guard, it is the evidence a human or CI needs to tell the two apart themselves.
+    // ~keep
+    tracing::info!(
+        binding_files = grand_binding_count,
+        service_api_files = grand_service_api_count,
+        public_api_files = grand_public_api_count,
+        stub_files = grand_stub_count,
+        scaffold_files = grand_scaffold_count,
+        total_files = grand_total_generated,
+        crates_processed = crates_to_process.len(),
+        crates_with_e2e_configured = crates_with_e2e,
+        "Generate summary: {grand_binding_count} binding, {grand_service_api_count} service-api, \
+         {grand_public_api_count} public-api, {grand_stub_count} stub, {grand_scaffold_count} scaffold files \
+         ({grand_total_generated} total). `alef generate` never generates docs or e2e/test-app output ({} of {} \
+         processed crate(s) here have an [e2e] block configured) -- run `alef docs`, `alef e2e generate`, or `alef \
+         all` for those, and do not read this command's totals as evidence of a full regen.",
+        crates_with_e2e,
+        crates_to_process.len(),
+    );
     // Every crate's write, format and finalize-hash phases already ran and already wrote their
     // output by the time we reach here, deferred post-build failures included -- see
     // `stage_failures`'s doc comment above the loop. Surfacing them now (instead of at the point

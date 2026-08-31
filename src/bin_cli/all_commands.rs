@@ -817,8 +817,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // so it must not deny the remaining crates their regeneration -- the run simply
                 // must not keep exiting 0 over a lock cargo would reject. See
                 // `cli::pipeline::lock_freshness` for why the pre-existing relock hook cannot
-                // observe this. ~keep
-                if let Some(error) = pipeline::check_generated_lock_freshness(&current_gen_paths) {
+                // observe this. Tolerating-variant, not the plain check: a `test_apps`/e2e
+                // manifest requiring this crate's own not-yet-published version cannot resolve
+                // until release and must warn, not fail -- see that function's doc. ~keep
+                if let Some(error) = pipeline::check_generated_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    resolved_cfg.resolved_version().as_deref(),
+                ) {
                     stage_failures.record(
                         &format!("[{}] generated Cargo.lock freshness", resolved_cfg.name),
                         error,
@@ -829,8 +835,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // whose specifiers a committed `pnpm-lock.yaml` no longer matches, which fails
                 // `pnpm install` under the default frozen lockfile in CI. See
                 // `cli::pipeline::lock_freshness::check_generated_node_lock_freshness`'s doc
-                // comment for why this is a sibling check rather than a shared one. ~keep
-                if let Some(error) = pipeline::check_generated_node_lock_freshness(&current_gen_paths, &base_dir) {
+                // comment for why this is a sibling check rather than a shared one.
+                // Tolerating-variant, same rationale as the Cargo.lock check above. ~keep
+                if let Some(error) = pipeline::check_generated_node_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    Some(resolved_cfg),
+                ) {
                     stage_failures.record(
                         &format!("[{}] generated pnpm-lock.yaml freshness", resolved_cfg.name),
                         error,
@@ -841,8 +852,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // whose dependency specifiers a committed `uv.lock` no longer records, which fails
                 // `uv sync --locked` under CI's default frozen lockfile. See
                 // `cli::pipeline::lock_freshness::check_generated_uv_lock_freshness`'s doc comment
-                // for why this is a sibling check rather than a shared one. ~keep
-                if let Some(error) = pipeline::check_generated_uv_lock_freshness(&current_gen_paths) {
+                // for why this is a sibling check rather than a shared one. Tolerating-variant,
+                // same rationale as the Cargo.lock check above. ~keep
+                if let Some(error) = pipeline::check_generated_uv_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    Some(resolved_cfg),
+                ) {
                     stage_failures.record(&format!("[{}] generated uv.lock freshness", resolved_cfg.name), error);
                 }
 

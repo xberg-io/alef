@@ -569,6 +569,8 @@ pub(super) fn ensure_generation_completed(incomplete_crates: &[String], report_o
 #[cfg(test)]
 mod format_scope_tests;
 #[cfg(test)]
+mod generate_summary_tests;
+#[cfg(test)]
 mod post_build_failure_stamp_tests;
 #[cfg(test)]
 mod post_build_format_order_tests;

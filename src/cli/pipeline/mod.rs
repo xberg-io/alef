@@ -44,7 +44,9 @@ pub(crate) use generate::{
 };
 pub use helpers::{init, run_optional};
 pub(crate) use lock_freshness::{
-    check_generated_lock_freshness, check_generated_node_lock_freshness, check_generated_uv_lock_freshness,
+    check_generated_lock_freshness_tolerating_pending_publish,
+    check_generated_node_lock_freshness_tolerating_pending_publish,
+    check_generated_uv_lock_freshness_tolerating_pending_publish,
 };
 pub use version::sync_versions;
 pub use version_core::{set_version, verify_versions};

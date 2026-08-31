@@ -463,7 +463,7 @@ fn relock_one(dir: &Path, lock_path: &Path) {
 /// disagreement reachable from the same lock -- a stale third-party pin reached through a
 /// hand-written path dependency, [`super::lock_freshness`]'s own founding `tower-http` incident --
 /// is not explained by this and must still fail the gate.
-fn explained_by_pending_publish(finding: &StaleLockFinding, blocked: &HashMap<PathBuf, String>) -> bool {
+pub(super) fn explained_by_pending_publish(finding: &StaleLockFinding, blocked: &HashMap<PathBuf, String>) -> bool {
     let Some(waiting_on) = blocked.get(&finding.lock) else {
         return false;
     };

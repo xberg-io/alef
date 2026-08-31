@@ -36,7 +36,12 @@ fn format_toml_array(entries: &[String]) -> String {
 /// we prepend `==` so the resulting PEP 508 requirement is valid.
 const PEP508_COMPARATORS: &[&str] = &["==", "!=", ">=", "<=", "~=", "===", ">", "<"];
 
-fn normalize_python_version(pkg_version: &str) -> String {
+// ~keep `pub(crate)`, not private: `cli::pipeline::lock_freshness::registry_self_dependency`
+// reuses this exact rendering to compute the requirement text alef's own registry-mode
+// `pyproject.toml` would carry for its pending-publish exemption, so this function's behavior is
+// no longer scoped to `render_pyproject` alone -- a change here changes what that exemption
+// matches too.
+pub(crate) fn normalize_python_version(pkg_version: &str) -> String {
     let trimmed = pkg_version.trim_start();
     if PEP508_COMPARATORS.iter().any(|c| trimmed.starts_with(c)) {
         pkg_version.to_string()

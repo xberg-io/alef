@@ -63,6 +63,16 @@ struct DeclaredRequirement {
 /// the manifests alef vouches for and nothing else — a lock beside a manifest alef did not write
 /// is none of its business.
 pub(crate) fn check_generated_lock_freshness(generated_paths: &HashSet<PathBuf>) -> Option<anyhow::Error> {
+    // `workspace_root`/`canonical` are unused whenever `canonical` is `None`: the tolerating
+    // variant returns before either is read, so this dummy root is never dereferenced. ~keep
+    check_generated_lock_freshness_tolerating_pending_publish(generated_paths, Path::new("."), None)
+}
+
+/// The directories this run generated a `Cargo.toml` in, paired with every requirement in that
+/// tree a committed `Cargo.lock` cannot satisfy — the shared collection step behind both
+/// [`check_generated_lock_freshness`] and
+/// [`check_generated_lock_freshness_tolerating_pending_publish`].
+fn collect_generated_lock_findings(generated_paths: &HashSet<PathBuf>) -> Vec<StaleLockFinding> {
     let mut directories = BTreeSet::new();
     for path in generated_paths {
         if path.file_name().and_then(|name| name.to_str()) != Some("Cargo.toml") {
@@ -81,10 +91,113 @@ pub(crate) fn check_generated_lock_freshness(generated_paths: &HashSet<PathBuf>)
         findings = findings.len(),
         "checked generated Rust manifests against their committed lockfiles"
     );
+    findings
+}
+
+/// Same check as [`check_generated_lock_freshness`], except a finding fully explained by this
+/// crate's own pending, not-yet-published release version is downgraded to a `tracing::warn!`
+/// instead of failing the stage.
+///
+/// ~keep `alef generate`/`alef all` run this immediately after `sync_versions`'s own
+/// `relock_cargo_lockfiles` -- which already treats exactly this disagreement as unresolvable and
+/// best-effort (a warn-only skip, see that function's doc) -- and immediately before `alef
+/// validate versions`, the actual release gate, which tolerates it too via
+/// `checks_pass`/`check_release_lock_freshness`. Only this generation-time check disagreed,
+/// hard-failing on the one disagreement every other stage in the same pipeline already treats as
+/// expected and temporary: a `test_apps`/e2e manifest requiring this crate's own version at the
+/// exact number being released, which cannot resolve until the release is published. That made it
+/// structurally impossible for a version-bumped-but-unpublished repo to run `alef all` clean, with
+/// no distinction from a genuine third-party lock drift (the `tower-http` incident
+/// [`super::version_lockfiles`] was built for), which must still fail. Reuses
+/// [`super::version_lockfiles::explained_by_pending_publish`] and
+/// [`crate::cli::commands::version_manifests::discover_cargo_locks`] -- the exact same read-only
+/// classification the release gate already relies on -- rather than a second, independently
+/// derived notion of "blocked", so the two can only ever agree on what counts as pending.
+pub(crate) fn check_generated_lock_freshness_tolerating_pending_publish(
+    generated_paths: &HashSet<PathBuf>,
+    workspace_root: &Path,
+    canonical: Option<&str>,
+) -> Option<anyhow::Error> {
+    let findings = collect_generated_lock_findings(generated_paths);
     if findings.is_empty() {
         return None;
     }
-    Some(anyhow::anyhow!(stale_lock_message(&findings)))
+    let Some(canonical) = canonical else {
+        return Some(anyhow::anyhow!(stale_lock_message(&findings)));
+    };
+
+    let tracked = crate::cli::git::tracked_paths_under(workspace_root);
+    let blocked: std::collections::HashMap<PathBuf, String> =
+        crate::cli::commands::version_manifests::discover_cargo_locks(workspace_root, canonical, tracked.as_ref())
+            .into_iter()
+            .filter_map(|lock| lock.blocked_on_publish.map(|waiting_on| (lock.path, waiting_on)))
+            .collect();
+
+    let (pending, real): (Vec<_>, Vec<_>) = findings
+        .into_iter()
+        .partition(|finding| super::version_lockfiles::explained_by_pending_publish(finding, &blocked));
+
+    if !pending.is_empty() {
+        tracing::warn!(
+            "{} of the committed Cargo.lock pin(s) below cannot resolve only because they require this \
+             crate's own version, which has not been published to the registry yet -- expected right after a \
+             version bump and not a defect; it resolves itself once the release publishes:\n{}",
+            pending.len(),
+            stale_lock_message(&pending)
+        );
+    }
+    if real.is_empty() {
+        None
+    } else {
+        Some(anyhow::anyhow!(stale_lock_message(&real)))
+    }
+}
+
+/// The exact `(name, requirement)` alef's own registry-mode `test_apps` generator would write
+/// for `lang`'s self-dependency on this crate's own published package -- the uv/pnpm sibling of
+/// the cargo path's `discover_cargo_locks`/`registry_dependencies_on_local_crates`.
+///
+/// Reuses [`crate::core::config::e2e::E2eConfig::resolve_package`] -- the exact function
+/// [`crate::e2e::codegen::python::PythonE2eCodegen`] and
+/// [`crate::e2e::codegen::typescript::TypeScriptCodegen`] call to resolve their own `pkg_name`/
+/// `pkg_version` in `DependencyMode::Registry` -- rather than re-deriving the package identity
+/// from `[python]`/`[node]` config (`python_pip_name`/`node_package_name`), which is a DIFFERENT
+/// knob: `packages/python/pyproject.toml`'s own `[project] name` and
+/// `test_apps/python/pyproject.toml`'s dependency name are independently configurable and are not
+/// guaranteed to agree (the e2e/test_apps package can be renamed, repathed, or version-pinned
+/// separately from the published package's own manifest). `normalize` mirrors each generator's
+/// own requirement-text rendering (`python`: `normalize_python_version`, PEP 508 comparator
+/// handling; `node`: passed through verbatim, matching `render_package_json`'s "never strip an
+/// explicit range operator" comment) so the returned `requirement` is byte-identical to what the
+/// generator itself would have written, not a semver-equivalent reconstruction.
+///
+/// Deliberately conservative, returning `None` (never an exemption) unless BOTH `name` and
+/// `version` are explicitly set on `[crates.e2e.registry.packages.<lang>]` (falling back to the
+/// base `[crates.e2e.packages.<lang>]` only as `resolve_package` itself already does): the real
+/// generators have a further fallback of their own for an unset name (derived from the e2e call's
+/// `module`) and version (`resolved_version()`, then `"0.1.0"`), but registry-mode test apps are
+/// only ever meaningful with an explicit, publishable package identity in practice, and guessing
+/// at that derived fallback here risks matching a name this check has no real authority over.
+fn registry_self_dependency(
+    resolved_cfg: &crate::core::config::ResolvedCrateConfig,
+    lang: &str,
+    normalize: impl Fn(&str) -> String,
+) -> Option<RegistrySelfDependency> {
+    let mut e2e_config = resolved_cfg.e2e.clone()?;
+    e2e_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
+    let package = e2e_config.resolve_package(lang)?;
+    let name = package.name?;
+    let version = package.version?;
+    Some(RegistrySelfDependency {
+        name,
+        requirement: normalize(&version),
+    })
+}
+
+/// See [`registry_self_dependency`].
+struct RegistrySelfDependency {
+    name: String,
+    requirement: String,
 }
 
 /// Every requirement reachable from `manifest_dir/Cargo.toml` that the sibling
@@ -439,6 +552,13 @@ pub(crate) fn check_generated_node_lock_freshness(
     generated_paths: &HashSet<PathBuf>,
     base_dir: &Path,
 ) -> Option<anyhow::Error> {
+    check_generated_node_lock_freshness_tolerating_pending_publish(generated_paths, base_dir, None)
+}
+
+/// The shared collection step behind [`check_generated_node_lock_freshness`] and
+/// [`check_generated_node_lock_freshness_tolerating_pending_publish`] -- see the former's doc
+/// comment for the `registered_unmarkable_manifest_dirs` rationale.
+fn collect_generated_node_lock_findings(generated_paths: &HashSet<PathBuf>, base_dir: &Path) -> Vec<StaleNodeLockFinding> {
     let mut directories = BTreeSet::new();
     for path in generated_paths {
         if path.file_name().and_then(|name| name.to_str()) != Some("package.json") {
@@ -461,10 +581,47 @@ pub(crate) fn check_generated_node_lock_freshness(
         findings = findings.len(),
         "checked generated package.json files against their committed pnpm-lock.yaml"
     );
+    findings
+}
+
+/// Same check as [`check_generated_node_lock_freshness`], except a finding fully explained by
+/// this crate's own pending, not-yet-published registry-mode `test_apps` self-dependency is
+/// downgraded to a `tracing::warn!` instead of failing the stage -- the npm sibling of
+/// [`check_generated_lock_freshness_tolerating_pending_publish`]. See
+/// [`registry_self_dependency`]'s doc for what "explained" means here and why it is deliberately
+/// conservative.
+pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
+    generated_paths: &HashSet<PathBuf>,
+    base_dir: &Path,
+    resolved_cfg: Option<&crate::core::config::ResolvedCrateConfig>,
+) -> Option<anyhow::Error> {
+    let findings = collect_generated_node_lock_findings(generated_paths, base_dir);
     if findings.is_empty() {
         return None;
     }
-    Some(anyhow::anyhow!(stale_node_lock_message(&findings)))
+    let Some(self_dependency) = resolved_cfg.and_then(|cfg| registry_self_dependency(cfg, "node", str::to_string))
+    else {
+        return Some(anyhow::anyhow!(stale_node_lock_message(&findings)));
+    };
+
+    let (pending, real): (Vec<_>, Vec<_>) = findings.into_iter().partition(|finding| {
+        finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
+    });
+
+    if !pending.is_empty() {
+        tracing::warn!(
+            "{} of the committed pnpm-lock.yaml pin(s) below cannot resolve only because they require this \
+             crate's own version, which has not been published to the registry yet -- expected right after a \
+             version bump and not a defect; it resolves itself once the release publishes:\n{}",
+            pending.len(),
+            stale_node_lock_message(&pending)
+        );
+    }
+    if real.is_empty() {
+        None
+    } else {
+        Some(anyhow::anyhow!(stale_node_lock_message(&real)))
+    }
 }
 
 /// Directories holding a `file_name` manifest that [`GeneratedFile::carries_alef_marker`] can
@@ -690,6 +847,12 @@ pub(crate) struct StaleUvLockFinding {
 /// the node check's doc comment for why forcing ecosystem-specific lock reading through one
 /// function is how a later change to one silently drifts another.
 pub(crate) fn check_generated_uv_lock_freshness(generated_paths: &HashSet<PathBuf>) -> Option<anyhow::Error> {
+    check_generated_uv_lock_freshness_tolerating_pending_publish(generated_paths, None)
+}
+
+/// The shared collection step behind [`check_generated_uv_lock_freshness`] and
+/// [`check_generated_uv_lock_freshness_tolerating_pending_publish`].
+fn collect_generated_uv_lock_findings(generated_paths: &HashSet<PathBuf>) -> Vec<StaleUvLockFinding> {
     let mut directories = BTreeSet::new();
     for path in generated_paths {
         if path.file_name().and_then(|name| name.to_str()) != Some("pyproject.toml") {
@@ -708,10 +871,50 @@ pub(crate) fn check_generated_uv_lock_freshness(generated_paths: &HashSet<PathBu
         findings = findings.len(),
         "checked generated pyproject.toml files against their committed uv.lock"
     );
+    findings
+}
+
+/// Same check as [`check_generated_uv_lock_freshness`], except a finding fully explained by this
+/// crate's own pending, not-yet-published registry-mode `test_apps` self-dependency is downgraded
+/// to a `tracing::warn!` instead of failing the stage -- the uv sibling of
+/// [`check_generated_lock_freshness_tolerating_pending_publish`]. See
+/// [`registry_self_dependency`]'s doc for what "explained" means here and why it is deliberately
+/// conservative, and [`crate::e2e::codegen::python::config::normalize_python_version`] for why the
+/// requirement text needs PEP 508 normalization before comparison (the html-to-markdown incident
+/// this closes: `test_apps/python/pyproject.toml` requires `html-to-markdown>=3.12.0` while PyPI
+/// still only has `3.11.6` published).
+pub(crate) fn check_generated_uv_lock_freshness_tolerating_pending_publish(
+    generated_paths: &HashSet<PathBuf>,
+    resolved_cfg: Option<&crate::core::config::ResolvedCrateConfig>,
+) -> Option<anyhow::Error> {
+    let findings = collect_generated_uv_lock_findings(generated_paths);
     if findings.is_empty() {
         return None;
     }
-    Some(anyhow::anyhow!(stale_uv_lock_message(&findings)))
+    let Some(self_dependency) = resolved_cfg.and_then(|cfg| {
+        registry_self_dependency(cfg, "python", crate::e2e::codegen::python::config::normalize_python_version)
+    }) else {
+        return Some(anyhow::anyhow!(stale_uv_lock_message(&findings)));
+    };
+
+    let (pending, real): (Vec<_>, Vec<_>) = findings.into_iter().partition(|finding| {
+        finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
+    });
+
+    if !pending.is_empty() {
+        tracing::warn!(
+            "{} of the committed uv.lock pin(s) below cannot resolve only because they require this crate's \
+             own version, which has not been published to the registry yet -- expected right after a version \
+             bump and not a defect; it resolves itself once the release publishes:\n{}",
+            pending.len(),
+            stale_uv_lock_message(&pending)
+        );
+    }
+    if real.is_empty() {
+        None
+    } else {
+        Some(anyhow::anyhow!(stale_uv_lock_message(&real)))
+    }
 }
 
 /// Every `[project.dependencies]` specifier declared in `pyproject_dir/pyproject.toml` that the
