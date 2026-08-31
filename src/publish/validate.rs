@@ -37,7 +37,17 @@ pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<
             Language::Python => vec!["pyproject.toml"],
             Language::Node => vec!["package.json"],
             Language::Ruby => vec![],
-            Language::Php => vec!["composer.json"],
+            // ~keep PHP has NO package-local manifest to require. `scaffold_php` emits exactly one
+            // `composer.json` per layout (c159e2dc0), and the layout a real consumer resolves is
+            // always the co-located one: that branch keys off `output_paths.contains_key("php")`,
+            // and `resolve_output_paths` inserts an entry for every ENABLED language, so the key is
+            // present whenever php is enabled -- which `resolve_languages` requires before php can
+            // be generated at all. Requiring `{pkg_dir}/composer.json` here therefore reported a
+            // file the generator no longer writes: it failed every repository that had been
+            // regenerated since c159e2dc0, and passed only where a pre-c159e2dc0 leftover happened
+            // to survive. The manifest that does exist is the repository-root one, and
+            // `validate_php_manifests` is what checks it.
+            Language::Php => vec![],
             Language::Elixir => vec!["mix.exs"],
             Language::Go => vec!["go.mod"],
             Language::Java => vec!["pom.xml"],
@@ -93,14 +103,57 @@ fn validate_elixir_manifest(config: &ResolvedCrateConfig, pkg_dir: &str, pkg_pat
     let Ok(content) = std::fs::read_to_string(&mix_path) else {
         return;
     };
-    let targets = elixir_nif_targets(config).join(" ");
-    if !content.contains(&format!("targets: ~w({targets})")) {
+    let expected = elixir_nif_targets(config);
+    if parse_mix_nif_targets(&content).as_deref() != Some(expected.as_slice()) {
         issues.push(format!(
-            "elixir: {pkg_dir}/mix.exs rustler_crates targets must match configured nif_targets: {targets}"
+            "elixir: {pkg_dir}/mix.exs rustler_crates targets must match configured nif_targets: {targets}",
+            targets = expected.join(" ")
         ));
     }
 }
 
+/// Extract the `rustler_crates` NIF target list from a `mix.exs`.
+///
+/// The Elixir scaffold renders the list as a multi-line list of quoted strings
+/// (`targets: [\n  "aarch64-apple-darwin",\n  ...\n]`), so a literal comparison against a
+/// single-line `~w(...)` sigil never matches generated output. Both spellings are accepted
+/// here: the sigil form still appears in hand-maintained manifests predating the scaffold.
+fn parse_mix_nif_targets(content: &str) -> Option<Vec<String>> {
+    let after_crates = content.split_once("rustler_crates")?.1;
+    let after_targets = after_crates.split_once("targets:")?.1.trim_start();
+
+    if let Some(sigil_body) = after_targets.strip_prefix("~w(") {
+        let inner = sigil_body.split_once(')')?.0;
+        return Some(inner.split_whitespace().map(str::to_string).collect());
+    }
+
+    let list_body = after_targets.strip_prefix('[')?;
+    let inner = list_body.split_once(']')?.0;
+    Some(
+        inner
+            .split(',')
+            .map(|entry| entry.trim().trim_matches('"').to_string())
+            .filter(|entry| !entry.is_empty())
+            .collect(),
+    )
+}
+
+/// Validate the `composer.json` a PHP layout actually has, plus any package-local manifest that
+/// is still on disk.
+///
+/// ~keep The repository-root manifest is read FIRST and checked unconditionally. This function
+/// used to bail out early when `{pkg_dir}/composer.json` could not be read, and since
+/// `scaffold_php` stopped emitting that file for the co-located layout (c159e2dc0) -- the only
+/// layout a real consumer resolves -- every check below that early `return` silently never ran:
+/// the missing-root report, the root PSR-4 check, and the root/package metadata comparison alike.
+/// The root manifest is the published package (Packagist reads the repository root), so it is the
+/// one this must never skip.
+///
+/// The package-local block stays conditional on the file being present, and that is not the same
+/// dead branch: the co-located layout genuinely has nothing there to check -- the classes live in
+/// `pkg_dir` itself, the root manifest autoloads them directly, and `php_package_psr4_target`
+/// returns `None` by design -- while a nested class directory (`[crates.php.stubs] output` under
+/// `pkg_dir`) does have a package-local manifest worth validating.
 fn validate_php_manifests(
     config: &ResolvedCrateConfig,
     pkg_dir: &str,
@@ -108,17 +161,21 @@ fn validate_php_manifests(
     workspace_root: &Path,
     issues: &mut Vec<String>,
 ) {
-    let package_manifest = pkg_path.join("composer.json");
     let root_manifest = workspace_root.join("composer.json");
-    // A missing package-local manifest is not an error to report here: the co-located default
-    // (the common case, since `pkg_dir` resolves to the class output directory whenever no split
-    // layout is configured) never has one, and `validate()`'s generic `expected_files` check
-    // already reports a genuinely missing manifest when `pkg_dir` exists without one. ~keep
-    let Ok(package_json) = read_json(&package_manifest) else {
-        return;
-    };
     let Ok(root_json) = read_json(&root_manifest) else {
         issues.push("php: missing root composer.json".to_string());
+        return;
+    };
+
+    let expected_root_psr4 = php_psr4_target(config);
+    if psr4_path(&root_json) != Some(expected_root_psr4.as_str()) {
+        issues.push(format!(
+            "php: root composer.json PSR-4 path must be {expected_root_psr4}"
+        ));
+    }
+
+    let package_manifest = pkg_path.join("composer.json");
+    let Ok(package_json) = read_json(&package_manifest) else {
         return;
     };
 
@@ -127,12 +184,6 @@ fn validate_php_manifests(
     {
         issues.push(format!(
             "php: {pkg_dir}/composer.json PSR-4 path must be {expected_package_psr4}"
-        ));
-    }
-    let expected_root_psr4 = php_psr4_target(config);
-    if psr4_path(&root_json) != Some(expected_root_psr4.as_str()) {
-        issues.push(format!(
-            "php: root composer.json PSR-4 path must be {expected_root_psr4}"
         ));
     }
 
@@ -145,7 +196,9 @@ fn validate_php_manifests(
         obj.remove("autoload");
     }
     if package_without_autoload != root_without_autoload {
-        issues.push("php: root composer.json metadata must stay in sync with packages/php/composer.json".to_string());
+        issues.push(format!(
+            "php: root composer.json metadata must stay in sync with {pkg_dir}/composer.json"
+        ));
     }
 }
 
@@ -188,14 +241,26 @@ fn validate_csharp_project(
         issues.push(format!("csharp: missing {}", project_file.display()));
         return;
     };
+    // The meta csproj is deliberately THIN: it packs the managed assembly plus `runtime.json`
+    // (NuGet's RID-fallback graph) and no native payload. Packing `runtimes/**` here pushes the
+    // package past NuGet's size limit and the upload fails with HTTP 413; the native closures
+    // ship in the per-RID `<PackageId>.runtime.<rid>` packages instead. Keep this list in sync
+    // with `scaffold::render_csharp_csproj`, which is what actually renders the file. ~keep
     for required in [
         r#"<None Include="../../../LICENSE" Pack="true" PackagePath="/" />"#,
-        r#"<None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />"#,
+        r#"<None Include="runtime.json" Pack="true" PackagePath="/" Condition="Exists('runtime.json')" />"#,
         r#"<Compile Include="../src/**/*.cs" />"#,
     ] {
         if !content.contains(required) {
             issues.push(format!("csharp: {namespace}.csproj missing expected item: {required}"));
         }
+    }
+    if content.contains(r#"Include="runtimes/**""#) {
+        issues.push(format!(
+            "csharp: {namespace}.csproj must not pack the runtimes/** native payload; \
+             the meta-package exceeds NuGet's size limit (HTTP 413) with it. \
+             Natives ship in the per-RID runtime packages."
+        ));
     }
 }
 

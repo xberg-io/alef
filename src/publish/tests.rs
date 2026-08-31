@@ -437,6 +437,160 @@ fn validate_csharp_reports_stale_root_project() {
     );
 }
 
+/// Regression: `validate_csharp_project` kept requiring the `runtimes/**` item after
+/// `render_csharp_csproj` deliberately dropped it (thin meta-package, HTTP 413 fix), so every
+/// freshly generated csproj failed validation. The validator must accept the generator's own
+/// output verbatim.
+#[test]
+fn validate_csharp_accepts_the_generated_thin_meta_package() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"my-lib\"\nversion = \"1.2.3\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("packages/csharp/MyLib")).unwrap();
+    let config = validate_config_for(root, "csharp", "");
+    let project = crate::scaffold::render_csharp_csproj(&config, "1.2.3");
+    std::fs::write(root.join("packages/csharp/MyLib/MyLib.csproj"), &project).unwrap();
+
+    let issues = validate(&config, &[Language::Csharp]).unwrap();
+
+    assert_eq!(
+        issues,
+        Vec::<String>::new(),
+        "the csproj rendered by render_csharp_csproj must validate cleanly; got: {issues:?}"
+    );
+}
+
+/// The inverse guard: a csproj that *does* pack `runtimes/**` is the HTTP 413 regression and
+/// must be reported.
+#[test]
+fn validate_csharp_rejects_a_csproj_that_packs_the_native_payload() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"my-lib\"\nversion = \"1.2.3\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("packages/csharp/MyLib")).unwrap();
+    let config = validate_config_for(root, "csharp", "");
+    let fat = crate::scaffold::render_csharp_csproj(&config, "1.2.3").replace(
+        r#"<None Include="runtime.json" Pack="true" PackagePath="/" Condition="Exists('runtime.json')" />"#,
+        r#"<None Include="runtimes/**" Pack="true" PackagePath="runtimes/" CopyToOutputDirectory="PreserveNewest" />"#,
+    );
+    std::fs::write(root.join("packages/csharp/MyLib/MyLib.csproj"), &fat).unwrap();
+
+    let issues = validate(&config, &[Language::Csharp]).unwrap();
+
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.contains("must not pack the runtimes/** native payload")),
+        "a csproj packing runtimes/** must be reported as the 413 regression; got: {issues:?}"
+    );
+}
+
+/// Regression: `validate_elixir_manifest` compared against a single-line `targets: ~w(...)`
+/// sigil, but the Elixir scaffold renders a multi-line list of quoted strings. Every generated
+/// `mix.exs` therefore failed validation even when its targets matched `nif_targets` exactly.
+#[test]
+fn validate_elixir_accepts_the_generated_multiline_nif_target_list() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"my-lib\"\nversion = \"1.2.3\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("packages/elixir")).unwrap();
+    // Verbatim shape rendered by `scaffold::languages::elixir`. ~keep
+    std::fs::write(
+        root.join("packages/elixir/mix.exs"),
+        r#"defmodule MyLib.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :my_lib,
+      version: "1.2.3",
+      rustler_crates: [
+        my_lib_nif: [
+          mode: :release,
+          targets: [
+            "aarch64-apple-darwin",
+            "x86_64-unknown-linux-gnu"
+          ]
+        ]
+      ]
+    ]
+  end
+end
+"#,
+    )
+    .unwrap();
+
+    let config = validate_config_for(
+        root,
+        "elixir",
+        "[crates.elixir]\nnif_targets = [\"aarch64-apple-darwin\", \"x86_64-unknown-linux-gnu\"]\n",
+    );
+    let issues = validate(&config, &[Language::Elixir]).unwrap();
+
+    assert!(
+        issues.iter().all(|issue| !issue.contains("nif_targets")),
+        "a multi-line targets list matching nif_targets must validate cleanly; got: {issues:?}"
+    );
+}
+
+/// The inverse guard: a genuine target mismatch must still be reported.
+#[test]
+fn validate_elixir_reports_a_genuine_nif_target_mismatch() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"my-lib\"\nversion = \"1.2.3\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("packages/elixir")).unwrap();
+    std::fs::write(
+        root.join("packages/elixir/mix.exs"),
+        r#"defmodule MyLib.MixProject do
+  def project do
+    [
+      rustler_crates: [
+        my_lib_nif: [
+          mode: :release,
+          targets: [
+            "aarch64-apple-darwin"
+          ]
+        ]
+      ]
+    ]
+  end
+end
+"#,
+    )
+    .unwrap();
+
+    let config = validate_config_for(
+        root,
+        "elixir",
+        "[crates.elixir]\nnif_targets = [\"aarch64-apple-darwin\", \"x86_64-unknown-linux-gnu\"]\n",
+    );
+    let issues = validate(&config, &[Language::Elixir]).unwrap();
+
+    assert!(
+        issues
+            .iter()
+            .any(|issue| issue.contains("nif_targets: aarch64-apple-darwin x86_64-unknown-linux-gnu")),
+        "a targets list missing a configured NIF target must be reported; got: {issues:?}"
+    );
+}
+
 #[test]
 fn validate_dart_and_zig_check_central_metadata() {
     let temp_dir = TempDir::new().unwrap();

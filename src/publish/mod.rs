@@ -17,6 +17,8 @@ mod release_asset_guard_tests;
 #[cfg(test)]
 mod tests;
 mod validate;
+#[cfg(test)]
+mod validate_php_tests;
 
 pub use validate::validate;
 
