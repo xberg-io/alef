@@ -1,5 +1,21 @@
 use super::*;
 
+/// Whether `mix` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a PATH-only check would take the "mix installed" branch below without mix
+/// actually having reformatted anything, failing the assert that branch makes. ~keep
+fn mix_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("mix")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 /// The Windows CI failure this guards is a shell-quoting defect, not a Windows one:
 /// the residual step used to be `sh -c "(cd {dir} && mix format)"` with `{dir}`
 /// interpolated raw. On Windows `{dir}` is `\\?\C:\...`, which POSIX `cd` rejects;
@@ -631,7 +647,7 @@ fn default_path_formats_elixir_with_mix() {
     // poly excludes `.ex`/`.exs`, so mix alone decides whether this file is rewritten --
     // independently of whether poly itself is installed. Each absent tool is asserted on
     // its own deferral record. ~keep
-    if which::which("mix").is_ok() {
+    if mix_is_runnable() {
         assert_ne!(
             formatted, unformatted,
             "with mix installed, the elixir residual must reformat the over-long call"

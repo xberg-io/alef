@@ -9,6 +9,16 @@ use alef::core::ir::{
     PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
+/// Whether `dotnet` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a spawn-only check (`.output().is_err()`) would leave the skip below unreachable
+/// and fire the assert everywhere the .NET SDK is absent. ~keep
+fn dotnet_is_runnable() -> bool {
+    std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 #[test]
 fn test_basic_generation() {
     let backend = CsharpBackend;
@@ -3747,7 +3757,7 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
 /// generated output is free of type errors (e.g. passing `int` to a `bool` P/Invoke param).
 #[test]
 fn test_bool_param_record_method_compiles_with_dotnet() {
-    if std::process::Command::new("dotnet").arg("--version").output().is_err() {
+    if !dotnet_is_runnable() {
         assert!(
             std::env::var_os("ALEF_REQUIRE_DOTNET").is_none(),
             "ALEF_REQUIRE_DOTNET is set but dotnet is unavailable"

@@ -192,6 +192,24 @@ pub(crate) fn maven_local_repo_dir() -> PathBuf {
         .join("mvn-repo-cache-test")
 }
 
+/// Whether `mvn` runs, not merely resolves: a version-manager shim (e.g. sdkman, asdf) spawns
+/// fine then exits non-zero, so a spawn-only check (`.output().is_err()`) leaves the skip in
+/// `java_pom_compiler.rs`'s and `java_checkstyle.rs`'s real-`mvn` bite tests unreachable and
+/// fires their assertions everywhere Maven is absent. Shared here rather than duplicated per
+/// file because both already route their real `mvn` spawns through [`spawn_from_stable_dir`]. ~keep
+pub(crate) fn mvn_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        spawn_from_stable_dir("mvn")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 /// Build a [`std::process::Command`] for `program`, pre-pinned to [`std::env::temp_dir`].
 ///
 /// `cargo test` runs every test as a thread in one process (see the module docs), so a spawn

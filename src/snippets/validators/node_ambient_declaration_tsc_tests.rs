@@ -57,7 +57,7 @@ fn check(code: &str) -> (SnippetStatus, Option<String>) {
 /// inline as a value, immediately awaited and called.
 #[test]
 fn node_fs_promises_expression_form_typechecks_without_a_types_node_dependency() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -76,7 +76,7 @@ void main();
 /// assigned onto a builder's field, the shape used across every `Wasm*` builder IIFE.
 #[test]
 fn node_fs_promises_assignment_form_typechecks_without_a_types_node_dependency() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -98,7 +98,7 @@ void main();
 /// batch's own `tsconfig.json` `files` list, not just the single-snippet overlay.
 #[test]
 fn node_fs_promises_typechecks_in_a_batch_without_a_types_node_dependency() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let uses_node_import = snippet(
@@ -127,7 +127,7 @@ void main();
 /// builder field.
 #[test]
 fn buffer_from_base64_typechecks_without_a_types_node_dependency() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -143,7 +143,7 @@ console.log(bytes.length);
 /// the single-snippet overlay, mirroring `node_fs_promises_typechecks_in_a_batch_without_a_types_node_dependency`.
 #[test]
 fn buffer_from_base64_typechecks_in_a_batch_without_a_types_node_dependency() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let uses_buffer = snippet(
@@ -168,7 +168,7 @@ console.log(bytes.length);
 /// or introduce one of its own.
 #[test]
 fn a_snippet_without_a_node_import_is_unaffected_by_the_ambient_declaration() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -186,7 +186,7 @@ console.log(add(1, 2));
 /// no node import must still fail -- the fix must not paper over real defects.
 #[test]
 fn an_unrelated_type_error_still_fails_with_the_ambient_declaration_present() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check("const value: number = \"not a number\";\nconsole.log(value);\n");

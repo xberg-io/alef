@@ -6,6 +6,22 @@ use std::path::PathBuf;
 
 const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
 
+/// Whether `python3` runs, not merely resolves: a version-manager shim (e.g. pyenv, asdf, uv)
+/// spawns fine then exits non-zero, so `PythonValidator::is_available`'s PATH-only check would
+/// leave the skip below unreachable and fire the assert everywhere Python is absent. ~keep
+fn python3_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("python3")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 fn python_snippet(code: &str) -> Snippet {
     Snippet {
         id: None,
@@ -36,7 +52,7 @@ fn batch_declines_run_so_each_snippet_executes_on_its_own() {
 
 #[test]
 fn batch_returns_one_result_per_snippet_in_input_order() {
-    if !PythonValidator.is_available() {
+    if !python3_is_runnable() {
         return;
     }
     let first = python_snippet("first = 1\n");
@@ -63,7 +79,7 @@ fn batch_returns_one_result_per_snippet_in_input_order() {
 
 #[test]
 fn batch_syntax_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-    if !PythonValidator.is_available() {
+    if !python3_is_runnable() {
         return;
     }
     let first = python_snippet("value = 1\n");
@@ -94,7 +110,7 @@ fn batch_syntax_fails_only_the_broken_snippet_and_passes_its_neighbours() {
 
 #[test]
 fn batch_compile_fails_only_the_broken_snippet() {
-    if !PythonValidator.is_available() {
+    if !python3_is_runnable() {
         return;
     }
     let first = python_snippet("value = 1\n");
@@ -369,7 +385,7 @@ fn syntax_validation_rejects_malformed_imports_and_indentation() {
 
 #[test]
 fn run_session_resolves_local_binding_from_working_directory() {
-    if !PythonValidator.is_available() {
+    if !python3_is_runnable() {
         return;
     }
     let directory = tempfile::tempdir().expect("temp directory");
@@ -416,7 +432,7 @@ fn run_session_resolves_local_binding_from_working_directory() {
 /// gone whether the snippet passes or fails. ~keep
 #[test]
 fn session_scratch_resolves_under_the_cache_root_and_is_removed_on_pass_and_fail() {
-    if !PythonValidator.is_available() {
+    if !python3_is_runnable() {
         return;
     }
     let directory = tempfile::tempdir().expect("temp directory");

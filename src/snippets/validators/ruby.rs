@@ -242,6 +242,22 @@ mod tests {
     use crate::snippets::types::{SnippetMetadata, SourceOrigin};
     use crate::snippets::validators::ValidatorRegistry;
 
+    /// Whether `ruby` runs, not merely resolves: a version-manager shim (e.g. rbenv, rvm, asdf)
+    /// spawns fine then exits non-zero, so `RubyValidator::is_available`'s PATH-only check would
+    /// leave the skip below unreachable and fire the assert everywhere Ruby is absent. ~keep
+    fn ruby_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("ruby")
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     fn undefined_symbol_snippet() -> Snippet {
         Snippet {
             id: None,
@@ -280,7 +296,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let first = ruby_snippet("puts \"one\"\n");
@@ -303,7 +319,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let first = ruby_snippet("puts \"one\"\n");
@@ -333,7 +349,7 @@ mod tests {
     /// judged independently. ~keep
     #[test]
     fn batch_passes_two_snippets_defining_the_same_class() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let first = ruby_snippet("class Same\n  def value\n    1\n  end\nend\n");
@@ -349,7 +365,7 @@ mod tests {
     /// so the batch must hold its slot rather than shift every later snippet's verdict up by one. ~keep
     #[test]
     fn batch_keeps_input_order_when_a_snippet_never_reaches_the_interpreter() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let signature = ruby_snippet("value(name) -> String\n");
@@ -415,7 +431,7 @@ mod tests {
     /// a claim of `typecheck`. ~keep
     #[test]
     fn typecheck_request_for_an_undefined_symbol_does_not_pass_as_typecheck() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();
@@ -448,7 +464,7 @@ mod tests {
     /// silent downgrade this validator must never produce again. ~keep
     #[test]
     fn compile_request_for_an_undefined_symbol_does_not_pass_as_compile() {
-        if !RubyValidator.is_available() {
+        if !ruby_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();

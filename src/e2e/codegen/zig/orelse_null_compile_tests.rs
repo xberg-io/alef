@@ -32,6 +32,22 @@ use std::path::PathBuf;
 
 const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
 
+/// Whether `zig` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a PATH-only check would leave the skip below unreachable and fire the assert
+/// everywhere Zig is absent. ~keep
+fn zig_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("zig")
+            .arg("version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 /// Wraps a generated assertion body in a standalone `pub fn main` compiled the same way
 /// `ZigValidator` compiles a doc snippet (`zig build-exe -fno-emit-bin`) -- proof the emitted
 /// expression is code `zig` accepts, not just text a snapshot expects.
@@ -71,7 +87,7 @@ fn zig_snippet(code: String) -> Snippet {
 /// position that broke under a bare `.null` fallback.
 #[test]
 fn nested_wire_optional_key_assertion_compiles_under_real_zig() {
-    if which::which("zig").is_err() {
+    if !zig_is_runnable() {
         return;
     }
     let wire_optional: HashSet<String> = ["children".to_string()].into_iter().collect();

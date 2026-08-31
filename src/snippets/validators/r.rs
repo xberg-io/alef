@@ -239,6 +239,22 @@ mod tests {
     use crate::snippets::types::{SnippetMetadata, SourceOrigin};
     use crate::snippets::validators::ValidatorRegistry;
 
+    /// Whether `Rscript` runs, not merely resolves: a version-manager shim (e.g. rig, asdf)
+    /// spawns fine then exits non-zero, so `RValidator::is_available`'s PATH-only check would
+    /// leave the skip below unreachable and fire the assert everywhere R is absent. ~keep
+    fn rscript_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("Rscript")
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     fn undefined_function_snippet() -> Snippet {
         Snippet {
             id: None,
@@ -277,7 +293,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let first = r_snippet("value <- 1\n");
@@ -300,7 +316,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let first = r_snippet("value <- 1\n");
@@ -330,7 +346,7 @@ mod tests {
     /// the second silently overwrite — are judged independently. ~keep
     #[test]
     fn batch_passes_two_snippets_binding_the_same_global_name() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let first = r_snippet("shared <- function(x) x + 1\n");
@@ -399,7 +415,7 @@ mod tests {
     /// capability-capped `Pass`, not a claim of `typecheck`. ~keep
     #[test]
     fn typecheck_request_for_an_undefined_function_does_not_pass_as_typecheck() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();
@@ -433,7 +449,7 @@ mod tests {
     /// precisely the silent downgrade this validator must never produce again. ~keep
     #[test]
     fn compile_request_for_an_undefined_function_does_not_pass_as_compile() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();
@@ -471,7 +487,7 @@ mod tests {
     /// instead, and stay gone whether the snippet passes or fails. ~keep
     #[test]
     fn session_scratch_resolves_under_the_cache_root_and_is_removed_on_pass_and_fail() {
-        if !RValidator.is_available() {
+        if !rscript_is_runnable() {
             return;
         }
         let directory = tempfile::tempdir().expect("temp directory");

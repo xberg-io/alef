@@ -424,6 +424,37 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
+    /// Whether `go` runs, not merely resolves: a version-manager shim spawns fine then exits
+    /// non-zero, so a PATH-only check leaves the skip below unreachable and fires the assert
+    /// everywhere Go is absent. ~keep
+    fn go_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("go")
+                .arg("version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
+    /// Whether `gofmt` runs, not merely resolves: same shim hazard as [`go_is_runnable`], for the
+    /// batch syntax check that shells out to `gofmt` directly rather than `go`. ~keep
+    fn gofmt_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("gofmt")
+                .arg("-h")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
 
     #[test]
@@ -448,7 +479,7 @@ mod tests {
 
     #[test]
     fn compiles_a_snippet_under_the_sanitized_environment() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let snippet = snippet("package main\n\nfunc main() {}\n");
@@ -467,7 +498,7 @@ mod tests {
 
     #[test]
     fn session_manifest_resolves_a_local_module_outside_the_working_directory() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let root = tempfile::tempdir().expect("temporary root");
@@ -531,7 +562,7 @@ mod tests {
     /// every run. It must nest under that project's own `.alef/snippets/tmp` cache root instead. ~keep
     #[test]
     fn session_scratch_resolves_under_the_cache_root_not_the_project_directory() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().expect("project directory");
@@ -559,7 +590,7 @@ mod tests {
     /// one does.
     #[test]
     fn session_scratch_is_removed_after_a_run_that_fails() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().expect("project directory");
@@ -601,7 +632,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let first = snippet("package main\n\nfunc main() { _ = 1 }\n");
@@ -631,7 +662,7 @@ mod tests {
     /// judged. ~keep
     #[test]
     fn batch_build_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let first = snippet("package main\n\nfunc main() { _ = 1 }\n");
@@ -662,7 +693,7 @@ mod tests {
 
     #[test]
     fn batch_vet_fails_only_the_snippet_the_toolchain_names() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let first = snippet("package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Printf(\"%d\\n\", 1) }\n");
@@ -685,7 +716,7 @@ mod tests {
 
     #[test]
     fn batch_syntax_fails_only_the_snippet_gofmt_cannot_parse() {
-        if which::which("gofmt").is_err() {
+        if !gofmt_is_runnable() {
             return;
         }
         let first = snippet("package main\n\nfunc main() { _ = 1 }\n");
@@ -708,7 +739,7 @@ mod tests {
 
     #[test]
     fn batch_in_a_session_resolves_the_local_module_the_manifest_declares() {
-        if which::which("go").is_err() {
+        if !go_is_runnable() {
             return;
         }
         let root = tempfile::tempdir().expect("temporary root");

@@ -78,9 +78,23 @@ fn tool_available(tool: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// An independent presence check for the skip guard below, deliberately not implemented by
+/// calling [`tool_available`] itself: this test exists to prove `tool_available` agrees with a
+/// real toolchain probe, so the guard must probe kotlinc a second, separate way rather than
+/// trivially agreeing with the function under test. Checks exit status, not merely that the
+/// process spawned -- a version-manager shim spawns fine then exits non-zero, so a spawn-only
+/// check here would leave the skip unreachable and fail the assertion below on every machine
+/// that has the shim but not a real kotlinc. ~keep
+fn kotlinc_is_genuinely_installed() -> bool {
+    Command::new("kotlinc")
+        .arg("-version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 #[test]
 fn installed_kotlinc_is_detected_by_the_availability_probe() {
-    if Command::new("kotlinc").arg("-version").output().is_err() {
+    if !kotlinc_is_genuinely_installed() {
         eprintln!("SKIPPED: kotlinc is not installed; its availability probe was not verified");
         return;
     }
@@ -401,7 +415,7 @@ fn ci_installs_and_requires_javac_for_runtime_regressions() {
 #[test]
 fn ci_installs_and_requires_dotnet_for_runtime_regressions() {
     let workflow = include_str!("../.github/workflows/ci.yml");
-    assert!(workflow.contains("uses: actions/setup-dotnet@v5"));
+    assert!(workflow.contains("uses: actions/setup-dotnet@v6"));
     assert!(workflow.contains("ALEF_REQUIRE_DOTNET: \"1\""));
 }
 

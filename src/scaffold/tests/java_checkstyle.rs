@@ -115,11 +115,7 @@ fn test_scaffold_java_javadoc_plugin_documents_only_publishable_sources() {
 /// `.alef/snippets/sessions/<hash>/` must not. Skips when `mvn` is unavailable.
 #[test]
 fn test_scaffold_java_checkstyle_ignores_alef_scratch_but_still_catches_real_violations() {
-    if crate::test_support::spawn_from_stable_dir("mvn")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !crate::test_support::mvn_is_runnable() {
         return;
     }
     // Spawns real `mvn` against a shared repository directory; see

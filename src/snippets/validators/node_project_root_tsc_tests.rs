@@ -78,7 +78,7 @@ fn write_real_markdown_snippet_file(root: &Path) -> PathBuf {
 /// not silently pass and not silently downgrade to a skipped check.
 #[test]
 fn an_uncovered_node_builtin_fails_loudly_with_no_resolvable_project() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let project = tempfile::tempdir().expect("project root");
@@ -106,7 +106,7 @@ fn an_uncovered_node_builtin_fails_loudly_with_no_resolvable_project() {
 /// itself, unlike the `Buffer`/`node:fs/promises` ambient declaration cases.
 #[test]
 fn an_uncovered_node_builtin_typechecks_when_the_real_project_has_types_node_installed() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let project = tempfile::tempdir().expect("project root");
@@ -130,7 +130,7 @@ fn an_uncovered_node_builtin_typechecks_when_the_real_project_has_types_node_ins
 /// `node_ambient_declaration_tsc_tests.rs`.
 #[test]
 fn an_uncovered_node_builtin_typechecks_in_a_batch_when_the_real_project_has_types_node_installed() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let project = tempfile::tempdir().expect("project root");

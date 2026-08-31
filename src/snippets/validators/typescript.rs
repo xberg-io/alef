@@ -516,6 +516,24 @@ impl SnippetValidator for TypeScriptValidator {
     }
 }
 
+/// Whether `tsc` runs, not merely resolves: a version-manager shim (e.g. nvm) spawns fine then
+/// exits non-zero, so a PATH-only check leaves the skip below unreachable and fires the assert
+/// everywhere TypeScript is absent. Shared by this file's own `mod tests` and by the sibling
+/// `*_tsc_tests.rs` modules declared below, which all gate real-`tsc` tests the same way. ~keep
+#[cfg(test)]
+fn tsc_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("tsc")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,7 +638,7 @@ mod tests {
 
     #[test]
     fn project_manifest_resolves_declared_local_package_and_replaces_stale_source() {
-        if which::which("tsc").is_err() {
+        if !super::tsc_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().unwrap();
@@ -665,7 +683,7 @@ mod tests {
     /// snippet fails on an unresolved import of the generated bindings instead of on its own code. ~keep
     #[test]
     fn batch_in_a_session_resolves_the_local_package_the_manifest_declares() {
-        if which::which("tsc").is_err() {
+        if !super::tsc_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().unwrap();
@@ -723,7 +741,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if which::which("tsc").is_err() {
+        if !super::tsc_is_runnable() {
             return;
         }
         let first = snippet("const first: number = 1;\nconsole.log(first);");
@@ -746,7 +764,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if which::which("tsc").is_err() {
+        if !super::tsc_is_runnable() {
             return;
         }
         let first = snippet("const value: number = 1;\nconsole.log(value);");
@@ -780,7 +798,7 @@ mod tests {
     /// then both fail with TS2451 — a failure neither has when validated alone. ~keep
     #[test]
     fn batch_does_not_invent_redeclaration_failures_for_snippets_sharing_a_name() {
-        if which::which("tsc").is_err() {
+        if !super::tsc_is_runnable() {
             return;
         }
         let first = snippet("const result: number = 1;\nconsole.log(result);");

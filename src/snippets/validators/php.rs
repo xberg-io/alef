@@ -207,6 +207,22 @@ mod tests {
     use crate::snippets::types::{SnippetMetadata, SourceOrigin};
     use crate::snippets::validators::ValidatorRegistry;
 
+    /// Whether `php` runs, not merely resolves: a version-manager shim (e.g. phpenv, asdf) spawns
+    /// fine then exits non-zero, so `PhpValidator::is_available`'s PATH-only check would leave the
+    /// skip below unreachable and fire the assert everywhere PHP is absent. ~keep
+    fn php_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("php")
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     fn undefined_symbol_snippet() -> Snippet {
         Snippet {
             id: None,
@@ -245,7 +261,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if !PhpValidator.is_available() {
+        if !php_is_runnable() {
             return;
         }
         let first = php_snippet("<?php\necho \"one\";\n");
@@ -268,7 +284,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if !PhpValidator.is_available() {
+        if !php_is_runnable() {
             return;
         }
         let first = php_snippet("<?php\necho \"one\";\n");
@@ -298,7 +314,7 @@ mod tests {
     /// independently. ~keep
     #[test]
     fn batch_passes_two_snippets_declaring_the_same_class() {
-        if !PhpValidator.is_available() {
+        if !php_is_runnable() {
             return;
         }
         let first = php_snippet("<?php\nclass Same { public function value() { return 1; } }\n");
@@ -371,7 +387,7 @@ mod tests {
     /// `max_level` ceiling is — a capability-capped `Pass`, not a claim of `typecheck`. ~keep
     #[test]
     fn typecheck_request_for_an_undefined_symbol_does_not_pass_as_typecheck() {
-        if !PhpValidator.is_available() {
+        if !php_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();
@@ -405,7 +421,7 @@ mod tests {
     /// regardless of the level requested, so a `Compile` request must land here too. ~keep
     #[test]
     fn compile_request_for_an_undefined_symbol_does_not_pass_as_compile() {
-        if !PhpValidator.is_available() {
+        if !php_is_runnable() {
             return;
         }
         let registry = ValidatorRegistry::new();

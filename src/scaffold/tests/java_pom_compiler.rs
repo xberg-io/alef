@@ -122,11 +122,7 @@ fn test_scaffold_java_compiler_plugin_excludes_test_scratch_and_target_dirs() {
 /// `mvn` is unavailable.
 #[test]
 fn test_scaffold_java_compiler_plugin_excludes_prevent_alef_scratch_duplicate_class_collision() {
-    if crate::test_support::spawn_from_stable_dir("mvn")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !crate::test_support::mvn_is_runnable() {
         return;
     }
     // Spawns real `mvn` against a shared repository directory; see
@@ -217,11 +213,7 @@ fn test_scaffold_java_compiler_plugin_excludes_prevent_alef_scratch_duplicate_cl
 /// unavailable.
 #[test]
 fn test_scaffold_java_javadoc_plugin_source_file_includes_prevent_test_source_leak() {
-    if crate::test_support::spawn_from_stable_dir("mvn")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !crate::test_support::mvn_is_runnable() {
         return;
     }
     // Spawns real `mvn` against a shared repository directory; see
@@ -325,11 +317,7 @@ fn test_scaffold_java_javadoc_plugin_source_file_includes_prevent_test_source_le
 /// unavailable. ~keep
 #[test]
 fn test_scaffold_java_javadoc_plugin_fails_build_on_javadoc_warning() {
-    if crate::test_support::spawn_from_stable_dir("mvn")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if !crate::test_support::mvn_is_runnable() {
         return;
     }
     // Spawns real `mvn` against a shared repository directory; see

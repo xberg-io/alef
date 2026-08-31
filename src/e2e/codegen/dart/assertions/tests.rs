@@ -1,5 +1,24 @@
 use super::*;
 
+/// Whether `dart` runs, not merely resolves: a version-manager shim (e.g. asdf, fvm) spawns fine
+/// then exits non-zero, so checking only that the process spawned (`.output().is_err()`) would
+/// leave the skip below unreachable and fire the assert everywhere Dart is absent. Shared by
+/// `not_empty_nullability_tests` and `tagged_union_assertion_tests` below, which both gate a real
+/// `dart analyze` compile gate the same way. ~keep
+#[cfg(test)]
+fn dart_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("dart")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 #[cfg(test)]
 mod wildcard_tests {
     use super::{field_to_dart_accessor, render_assertion_dart};
@@ -317,7 +336,7 @@ mod not_empty_nullability_tests {
 
     #[test]
     fn emitted_not_empty_calls_are_analyzer_clean_and_the_warning_check_is_not_vacuous() {
-        if std::process::Command::new("dart").arg("--version").output().is_err() {
+        if !super::dart_is_runnable() {
             return;
         }
         let assertions = [render("chunks[0].content", &[]), render("summary.text", &["summary"])].join("");
@@ -662,7 +681,7 @@ mod tagged_union_assertion_tests {
     /// then sabotage its subtype name to prove the analyzer check observes this assertion.
     #[test]
     fn emitted_freezed_union_assertions_compile_and_the_type_check_is_not_vacuous() {
-        if std::process::Command::new("dart").arg("--version").output().is_err() {
+        if !super::dart_is_runnable() {
             return;
         }
         let assertions = [

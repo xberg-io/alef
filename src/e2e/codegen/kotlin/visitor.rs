@@ -126,6 +126,22 @@ mod tests {
     use crate::e2e::fixture::{CallbackAction, VisitorSpec};
     use std::collections::BTreeMap;
 
+    /// Whether `kotlinc` runs, not merely resolves: a version-manager shim spawns fine then exits
+    /// non-zero, so a spawn-only check below would leave the compile gate unreachable and fire
+    /// the assert everywhere Kotlin is absent. ~keep
+    fn kotlinc_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("kotlinc")
+                .arg("-version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     /// ~keep The real shape alef's Kotlin backend emits for a sum type with unit and
     /// payload variants: `object Skip : VisitResult()` / `data class Custom(...)`.
     /// See `backends/kotlin/gen_bindings/object_wrapper/enums/mod.rs`.
@@ -239,7 +255,7 @@ mod tests {
             rendered.contains("RenderOptions().copy(visitor = visitor)"),
             "{rendered}"
         );
-        if std::process::Command::new("kotlinc").arg("-version").output().is_ok() {
+        if kotlinc_is_runnable() {
             let directory = tempfile::tempdir().expect("temporary Kotlin project");
             let source = format!(
                 "sealed class VisitResult {{\n    object Skip : VisitResult()\n}}\n\
@@ -288,7 +304,7 @@ mod tests {
             "must not emit the Dart-style lowercase factory call, got:\n{rendered}"
         );
 
-        if std::process::Command::new("kotlinc").arg("-version").output().is_ok() {
+        if kotlinc_is_runnable() {
             let directory = tempfile::tempdir().expect("temporary Kotlin project");
             let source = format!(
                 "sealed class VisitResult {{\n    data class Custom(val field0: String) : VisitResult()\n}}\n\

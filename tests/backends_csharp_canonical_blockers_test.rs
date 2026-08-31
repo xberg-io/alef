@@ -202,8 +202,15 @@ fn dotnet(directory: &Path, verb: &str) -> Output {
 /// `false` when `dotnet` is not on `PATH`. Panics instead of returning `false` when
 /// `ALEF_REQUIRE_DOTNET` is set, so CI cannot silently skip the two real `dotnet run` compile
 /// checks below when the runner's toolchain setup regresses.
+///
+/// Checks exit status, not merely that the process spawned: a version-manager shim spawns fine
+/// then exits non-zero, so `.output().is_ok()` alone would report `dotnet` available when it
+/// cannot actually build anything, leaving the compile checks below to fail instead of skip. ~keep
 fn dotnet_available() -> bool {
-    let available = Command::new("dotnet").arg("--version").output().is_ok();
+    let available = Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
     assert!(
         available || std::env::var_os("ALEF_REQUIRE_DOTNET").is_none(),
         "ALEF_REQUIRE_DOTNET is set but dotnet is unavailable"

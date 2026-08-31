@@ -262,6 +262,22 @@ mod tests {
 
     const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
 
+    /// Whether `dart` runs, not merely resolves: a version-manager shim spawns fine then exits
+    /// non-zero, so a spawn/PATH-only check leaves the skip below unreachable and fires the
+    /// assert everywhere Dart is absent. ~keep
+    fn dart_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("dart")
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     #[test]
     fn batch_declines_the_levels_that_build_or_execute_a_snippet() {
         let only = snippet("void main() {}\n");
@@ -277,7 +293,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let first = snippet("void main() { print('one'); }\n");
@@ -304,7 +320,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let first = snippet("void main() { print('one'); }\n");
@@ -334,7 +350,7 @@ mod tests {
     /// snippets declare `main` and a top-level `value`, and neither sees the other's. ~keep
     #[test]
     fn batch_passes_two_snippets_declaring_the_same_top_level_names() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let first = snippet("const value = 1;\nvoid main() { print(value); }\n");
@@ -356,7 +372,7 @@ mod tests {
     /// other, or it fails snippets the serial path passes. ~keep
     #[test]
     fn batch_treats_a_warning_as_fatal_only_at_the_typecheck_level() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let clean = snippet("void main() { print('one'); }\n");
@@ -453,7 +469,7 @@ mod tests {
 
     #[test]
     fn session_manifest_resolves_a_local_package_outside_the_working_directory() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let root = tempfile::tempdir().expect("temporary root");
@@ -519,7 +535,7 @@ mod tests {
     /// every run. It must nest under that project's own `.alef/snippets/tmp` cache root instead. ~keep
     #[test]
     fn session_scratch_resolves_under_the_cache_root_not_the_project_directory() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().expect("project directory");
@@ -543,7 +559,7 @@ mod tests {
     /// passing one does.
     #[test]
     fn session_scratch_is_removed_after_a_run_that_fails() {
-        if which::which("dart").is_err() {
+        if !dart_is_runnable() {
             return;
         }
         let project = tempfile::tempdir().expect("project directory");

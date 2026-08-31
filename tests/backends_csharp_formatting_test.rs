@@ -3,6 +3,16 @@ use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
 use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeRef};
 
+/// Whether `dotnet` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a spawn-only check (`.output().is_err()`) would leave the skip below unreachable
+/// and fire the assert everywhere the .NET SDK is absent. ~keep
+fn dotnet_is_runnable() -> bool {
+    std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 fn config() -> alef::core::config::ResolvedCrateConfig {
     let config: NewAlefConfig = toml::from_str(
         r#"
@@ -131,7 +141,7 @@ fn generated_csharp_uses_formatter_stable_layout() {
             .contains("\n[JsonConverter(typeof(ChoiceJsonConverter))]\n")
     );
 
-    if std::process::Command::new("dotnet").arg("--version").output().is_err() {
+    if !dotnet_is_runnable() {
         assert!(
             std::env::var_os("ALEF_REQUIRE_DOTNET").is_none(),
             "ALEF_REQUIRE_DOTNET is set but dotnet is unavailable"

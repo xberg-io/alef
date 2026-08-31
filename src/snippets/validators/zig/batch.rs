@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn batch_returns_one_result_per_snippet_in_input_order() {
-        if which::which("zig").is_err() {
+        if !super::super::zig_is_runnable() {
             return;
         }
         let first = zig_snippet("pub fn first() u8 {\n    return 1;\n}\n");
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn batch_fails_only_the_broken_snippet_and_passes_its_neighbours() {
-        if which::which("zig").is_err() {
+        if !super::super::zig_is_runnable() {
             return;
         }
         let first = zig_snippet("pub fn first() u8 {\n    return 1;\n}\n");
@@ -197,7 +197,7 @@ mod tests {
     /// both declare `main`, a collision the moment anything compiled them as one root. ~keep
     #[test]
     fn batch_passes_two_snippets_that_each_declare_main() {
-        if which::which("zig").is_err() {
+        if !super::super::zig_is_runnable() {
             return;
         }
         let first = zig_snippet("pub fn main() void {}\n");

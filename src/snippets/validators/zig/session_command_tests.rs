@@ -106,7 +106,7 @@ fn build_system_snippet() -> Snippet {
 /// unconditional. ~keep
 #[test]
 fn session_include_paths_are_not_forwarded_to_the_build_system_command() {
-    if which::which("zig").is_err() {
+    if !super::zig_is_runnable() {
         return;
     }
     let (_directory, session) = build_system_project();

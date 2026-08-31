@@ -148,8 +148,16 @@ fn compile_csharp(files: &[GeneratedFile]) {
     );
 }
 
+/// `None` when `dotnet` is not runnable, not merely when it fails to spawn: a version-manager
+/// shim spawns fine then exits non-zero, and `.output().ok()?` alone discards that exit status --
+/// so this used to keep parsing a failed shim's (often empty) stdout as a version string instead
+/// of reporting `dotnet` unavailable, handing `compile_csharp` a bogus target framework rather
+/// than the `None` that would make it skip. ~keep
 fn dotnet_target_framework() -> Option<String> {
     let output = std::process::Command::new("dotnet").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
     let version = String::from_utf8(output.stdout).ok()?;
     let major = version.trim().split('.').next()?;
     Some(format!("net{major}.0"))

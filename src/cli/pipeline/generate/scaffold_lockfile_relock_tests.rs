@@ -19,6 +19,22 @@ use std::path::PathBuf;
 const OLD_VERSION: &str = "0.1.0";
 const NEW_VERSION: &str = "0.2.0";
 
+/// Whether `dart` runs, not merely resolves: a version-manager shim (e.g. asdf, fvm) spawns fine
+/// then exits non-zero, so checking only that the process spawned (`.output().is_err()`) would
+/// leave the skip below unreachable and fire the assert everywhere Dart is absent. ~keep
+fn dart_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("dart")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 fn manifest_file(path: &str, version: &str) -> GeneratedFile {
     GeneratedFile {
         path: PathBuf::from(path),
@@ -151,7 +167,7 @@ fn write_dart_dependency_manifest(path: &std::path::Path, version: &str) {
 /// the generated manifest being in scope, not only on the manifest appearing in changed_paths.
 #[test]
 fn write_scaffold_files_report_refreshes_dart_lock_when_path_dependency_changes() {
-    if std::process::Command::new("dart").arg("--version").output().is_err() {
+    if !dart_is_runnable() {
         return;
     }
     let temporary = tempfile::tempdir().expect("tempdir");

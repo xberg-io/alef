@@ -37,9 +37,25 @@ fn write_file(path: &Path, contents: &str) {
     file.write_all(contents.as_bytes()).expect("write fixture file");
 }
 
+/// Whether `npx` runs, not merely resolves: a version-manager shim (e.g. nvm) spawns fine then
+/// exits non-zero, so a PATH-only check would leave the skip below unreachable and fire the
+/// assert everywhere Node is absent. ~keep
+fn npx_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("npx")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 #[test]
 fn napi_build_bakes_the_crate_local_package_name_not_the_workspace_roots() {
-    if which::which("npx").is_err() {
+    if !npx_is_runnable() {
         return;
     }
 

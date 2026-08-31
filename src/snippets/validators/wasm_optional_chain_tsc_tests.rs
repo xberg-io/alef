@@ -65,7 +65,7 @@ fn check(body: &str) -> (SnippetStatus, Option<String>) {
 /// guarded with `?.`.
 #[test]
 fn the_guarded_accessor_shape_typechecks() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -82,7 +82,7 @@ fn the_guarded_accessor_shape_typechecks() {
 /// real compiler failure, not just a stylistic difference from the node renderer.
 #[test]
 fn the_unguarded_accessor_shape_fails_ts18048() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let (status, diagnostics) = check(
@@ -103,7 +103,7 @@ fn the_unguarded_accessor_shape_fails_ts18048() {
 /// over-applies optional chaining does not merely trade one defect for another.
 #[test]
 fn a_required_field_typechecks_without_optional_chaining() {
-    if which::which("tsc").is_err() {
+    if !super::tsc_is_runnable() {
         return;
     }
     let code = "\

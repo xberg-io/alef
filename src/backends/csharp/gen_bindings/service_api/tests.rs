@@ -3,6 +3,22 @@ use crate::core::ir::{
     EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeRef,
 };
 
+/// Whether `dotnet` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a PATH-only check leaves the skip below unreachable and fires the assert
+/// everywhere the .NET SDK is absent. ~keep
+fn dotnet_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("dotnet")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 fn make_fixture_surface() -> ApiSurface {
     let constructor = MethodDef {
         name: "new".to_owned(),
@@ -741,7 +757,7 @@ public static class Program {
 
 #[test]
 fn test_service_callback_allocator_compiles_and_runs_when_dotnet_is_available() {
-    if which::which("dotnet").is_err() {
+    if !dotnet_is_runnable() {
         return;
     }
     let directory = tempfile::tempdir().expect("temp directory");

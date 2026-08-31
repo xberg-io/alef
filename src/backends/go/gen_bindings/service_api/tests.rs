@@ -187,9 +187,29 @@ fn require_go_available(go: Option<std::path::PathBuf>, required: bool) -> Optio
     go
 }
 
-/// `go` on `PATH`, or `None` when it is not installed.
+/// A `go` that actually runs, or `None` when it is not installed.
+///
+/// A version-manager shim (e.g. `g`, `asdf`) resolves on `PATH` and spawns fine even with no Go
+/// toolchain installed behind it, then exits non-zero -- so `which::which("go").ok()` alone
+/// would leave `require_go_available`'s panic-free skip unreachable and fail the two real `go
+/// test` compile checks below on every such machine. ~keep
 fn required_go() -> Option<std::path::PathBuf> {
-    require_go_available(which::which("go").ok(), std::env::var_os("ALEF_REQUIRE_GO").is_some())
+    let go = which::which("go").ok().filter(|_| go_is_runnable());
+    require_go_available(go, std::env::var_os("ALEF_REQUIRE_GO").is_some())
+}
+
+/// Whether `go` runs, not merely resolves. See [`required_go`]. ~keep
+fn go_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("go")
+            .arg("version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
 }
 
 #[test]

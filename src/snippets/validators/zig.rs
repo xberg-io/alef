@@ -13,6 +13,24 @@ pub(super) mod manifest;
 #[cfg(test)]
 mod session_command_tests;
 
+/// Whether `zig` runs, not merely resolves: a version-manager shim spawns fine then exits
+/// non-zero, so a PATH-only check leaves the skip below unreachable and fires the assert
+/// everywhere Zig is absent. Shared by this file's own `mod tests`, `batch`'s tests, and
+/// `session_command_tests`, which all gate real-`zig` tests the same way. ~keep
+#[cfg(test)]
+fn zig_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("zig")
+            .arg("version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 impl SnippetValidator for ZigValidator {
     fn language(&self) -> Language {
         Language::Zig
@@ -398,7 +416,7 @@ mod tests {
 
     #[test]
     fn compiles_a_snippet_under_the_sanitized_environment() {
-        if which::which("zig").is_err() {
+        if !zig_is_runnable() {
             return;
         }
         let snippet =
@@ -590,7 +608,7 @@ mod tests {
     /// `build.zig.zon` at all and would pass green even with a missing `.fingerprint`). ~keep
     #[test]
     fn snippet_build_zon_parses_under_real_zig() {
-        if which::which("zig").is_err() {
+        if !zig_is_runnable() {
             return;
         }
         let directory = tempfile::tempdir().unwrap();
@@ -660,7 +678,7 @@ mod tests {
     /// the include directory the manifest declares reaches the reconstructed `build-exe` command.
     #[test]
     fn a_snippet_compiles_against_the_include_path_its_manifest_declares() {
-        if which::which("zig").is_err() {
+        if !zig_is_runnable() {
             return;
         }
 
@@ -707,7 +725,7 @@ mod tests {
     /// negative control below must fail. ~keep
     #[test]
     fn a_snippet_compiles_when_the_package_is_built_from_an_unrelated_working_directory() {
-        if which::which("zig").is_err() {
+        if !zig_is_runnable() {
             return;
         }
 
@@ -928,7 +946,7 @@ mod tests {
     /// placeholder file. ~keep
     #[test]
     fn a_snippet_links_against_the_debug_profile_when_release_is_missing() {
-        if which::which("zig").is_err() {
+        if !zig_is_runnable() {
             return;
         }
 

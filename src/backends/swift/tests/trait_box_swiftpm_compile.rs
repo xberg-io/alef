@@ -448,8 +448,14 @@ fn materialize_package(root: &Path) -> std::io::Result<()> {
 /// On macOS a missing `swift` is an environment fault, not a portability concern -- failing there
 /// is deliberate, because a silently skipped compile gate is how this defect shipped in the first
 /// place. Elsewhere the toolchain genuinely may be absent, so the skip is allowed but shouted.
+///
+/// Resolution alone is not enough: a version-manager shim spawns fine then exits non-zero, which
+/// would make `which::which("swift")` report a driver that cannot actually build anything --
+/// silently defeating the "loud skip, never a silent one" contract this function exists for. ~keep
 fn swift_driver() -> Option<PathBuf> {
-    if let Ok(path) = which::which("swift") {
+    if let Ok(path) = which::which("swift")
+        && swift_is_runnable()
+    {
         return Some(path);
     }
     if cfg!(target_os = "macos") {
@@ -470,6 +476,20 @@ fn swift_driver() -> Option<PathBuf> {
          ================================================================\n"
     );
     None
+}
+
+/// Whether `swift` runs, not merely resolves. See [`swift_driver`]. ~keep
+fn swift_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("swift")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
 }
 
 /// The gate: alef's generated trait-box output must build in the two-target layout it is

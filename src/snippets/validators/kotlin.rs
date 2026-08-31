@@ -478,12 +478,28 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
+    /// Whether `kotlinc` runs, not merely resolves: a version-manager shim spawns fine then exits
+    /// non-zero, so a PATH-only check leaves the skip below unreachable and fires the assert
+    /// everywhere Kotlin is absent. ~keep
+    fn kotlinc_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("kotlinc")
+                .arg("-version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
 
     #[test]
     fn session_manifest_is_used_as_a_real_classpath() {
         let _toolchain_guard = crate::snippets::validators::jvm_toolchain_test_lock();
-        if which::which("kotlinc").is_err() {
+        if !kotlinc_is_runnable() {
             return;
         }
         let root = tempfile::tempdir().expect("temporary root");
@@ -639,7 +655,7 @@ mod tests {
     #[test]
     fn a_batch_returns_exactly_one_result_per_snippet_in_input_order() {
         let _toolchain_guard = crate::snippets::validators::jvm_toolchain_test_lock();
-        if which::which("kotlinc").is_err() {
+        if !kotlinc_is_runnable() {
             return;
         }
         let snippets = [
@@ -672,7 +688,7 @@ mod tests {
     #[test]
     fn a_batch_fails_only_the_broken_snippet() {
         let _toolchain_guard = crate::snippets::validators::jvm_toolchain_test_lock();
-        if which::which("kotlinc").is_err() {
+        if !kotlinc_is_runnable() {
             return;
         }
         let snippets = [
@@ -710,7 +726,7 @@ mod tests {
     #[test]
     fn snippets_declaring_the_same_top_level_member_do_not_collide_in_one_batch() {
         let _toolchain_guard = crate::snippets::validators::jvm_toolchain_test_lock();
-        if which::which("kotlinc").is_err() {
+        if !kotlinc_is_runnable() {
             return;
         }
         let snippets = [
