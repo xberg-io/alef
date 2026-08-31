@@ -62,6 +62,10 @@ struct DeclaredRequirement {
 /// `generated_paths` is the run's own set of generated output paths, so the check covers exactly
 /// the manifests alef vouches for and nothing else — a lock beside a manifest alef did not write
 /// is none of its business.
+/// Retained as the unmodified control the `_tolerating_pending_publish` variant is
+/// differentially tested against: the pending-publish exemption is only meaningful if the
+/// plain check still fails on the same input. No production call site remains. ~keep
+#[cfg(test)]
 pub(crate) fn check_generated_lock_freshness(generated_paths: &HashSet<PathBuf>) -> Option<anyhow::Error> {
     // `workspace_root`/`canonical` are unused whenever `canonical` is `None`: the tolerating
     // variant returns before either is read, so this dummy root is never dereferenced. ~keep
@@ -548,6 +552,10 @@ pub(crate) struct StaleNodeLockFinding {
 /// committed ownership record, which already tracks exactly these paths for an unrelated reason
 /// (the write-time ownership guard). See that function's doc for why this is a general
 /// registration rather than a wasm-specific carve-out. ~keep
+/// Retained as the unmodified control the `_tolerating_pending_publish` variant is
+/// differentially tested against: the pending-publish exemption is only meaningful if the
+/// plain check still fails on the same input. No production call site remains. ~keep
+#[cfg(test)]
 pub(crate) fn check_generated_node_lock_freshness(
     generated_paths: &HashSet<PathBuf>,
     base_dir: &Path,
@@ -846,6 +854,10 @@ pub(crate) struct StaleUvLockFinding {
 /// [`check_generated_node_lock_freshness`], not a shared abstraction -- see the `~keep` comment on
 /// the node check's doc comment for why forcing ecosystem-specific lock reading through one
 /// function is how a later change to one silently drifts another.
+/// Retained as the unmodified control the `_tolerating_pending_publish` variant is
+/// differentially tested against: the pending-publish exemption is only meaningful if the
+/// plain check still fails on the same input. No production call site remains. ~keep
+#[cfg(test)]
 pub(crate) fn check_generated_uv_lock_freshness(generated_paths: &HashSet<PathBuf>) -> Option<anyhow::Error> {
     check_generated_uv_lock_freshness_tolerating_pending_publish(generated_paths, None)
 }
