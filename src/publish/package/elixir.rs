@@ -355,11 +355,30 @@ sources = ["src/lib.rs"]
             .collect()
     }
 
+    /// Whether `elixir` runs, not merely resolves: a version-manager shim spawns
+    /// fine then exits non-zero, so a spawn check leaves the skip below unreachable
+    /// and fires the assert everywhere Elixir is absent. ~keep
+    fn elixir_is_runnable() -> bool {
+        static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *RUNNABLE.get_or_init(|| {
+            std::process::Command::new("elixir")
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        })
+    }
+
     /// Format `source` the way `mix format` does, or `None` when Elixir is absent.
     ///
     /// `mix format` is `Code.format_string!` plus a trailing newline, so driving
     /// the compiler directly needs no mix project on disk. ~keep
     fn mix_format(source: &str, line_length: usize) -> Option<String> {
+        if !elixir_is_runnable() {
+            return None;
+        }
         let script = format!(
             "IO.write(IO.iodata_to_binary(Code.format_string!(IO.read(:stdio, :eof), line_length: {line_length})) <> \"\\n\")"
         );

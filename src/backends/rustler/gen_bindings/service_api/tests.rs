@@ -274,6 +274,22 @@ fn genserver_module_keeps_single_blank_lines_between_functions() {
     );
 }
 
+/// Whether `mix` runs, not merely resolves: a version-manager shim spawns fine then
+/// exits non-zero, so a spawn check leaves the skip below unreachable and fires the
+/// assert everywhere Elixir is absent. ~keep
+fn mix_is_runnable() -> bool {
+    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *RUNNABLE.get_or_init(|| {
+        std::process::Command::new("mix")
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
 /// Full round-trip of the `service_api_genserver.ex.jinja` template against the real `mix
 /// format` binary, mirroring the self-skipping shape Go's formatter round-trip tests use
 /// elsewhere in this codebase (e.g. `e2e::codegen::go::snippet::snippet_matches_gofmt_when_available`):
@@ -290,6 +306,9 @@ fn genserver_template_matches_mix_format_when_available() {
     );
     let code = format!("defmodule Wrapper do\n{rendered}end\n");
 
+    if !mix_is_runnable() {
+        return;
+    }
     let Ok(mut child) = std::process::Command::new("mix")
         .args(["format", "-"])
         .stdin(std::process::Stdio::piped())
