@@ -137,11 +137,22 @@ extern "C" fn forward_termination(signal: libc::c_int) {
     }
 }
 
+/// Bit `i` is set when `FORWARDED_SIGNALS[i]` arrived already ignored and was therefore left
+/// that way rather than armed. Recorded because the disposition alone cannot say afterwards
+/// whether `SIG_IGN` was inherited or installed, and a test that cannot tell those apart either
+/// asserts the wrong thing under `nohup` or weakens to accepting both. ~keep
+#[cfg(unix)]
+static SIGNALS_LEFT_IGNORED: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 #[cfg(unix)]
 fn install_termination_forwarding() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
+    const _: () = assert!(
+        FORWARDED_SIGNALS.len() <= u8::BITS as usize,
+        "SIGNALS_LEFT_IGNORED is a u8 bitmask; widen it before forwarding more signals"
+    );
     INSTALL.call_once(|| {
-        for signal in FORWARDED_SIGNALS {
+        for (index, signal) in FORWARDED_SIGNALS.iter().enumerate() {
             // SAFETY: `forward_termination` is a plain `extern "C" fn` with the handler signature.
             unsafe {
                 let previous = libc::signal(*signal, forward_termination as *const () as libc::sighandler_t);
@@ -150,6 +161,7 @@ fn install_termination_forwarding() {
                 // `SIG_IGN` would resurrect a signal the parent deliberately disarmed. ~keep
                 if previous == libc::SIG_IGN {
                     libc::signal(*signal, libc::SIG_IGN);
+                    SIGNALS_LEFT_IGNORED.fetch_or(1 << index, std::sync::atomic::Ordering::Release);
                 }
             }
         }
@@ -287,21 +299,39 @@ mod tests {
     /// and `SIGHUP` by the time a child is running. Compared against the concrete handler address
     /// rather than merely "not `SIG_DFL`", so an unrelated handler installed by something else
     /// cannot satisfy it. ~keep
+    ///
+    /// The one disposition that is correct but is NOT the handler is an inherited `SIG_IGN`, which
+    /// `install_termination_forwarding` deliberately preserves. That is not hypothetical: a shell
+    /// starting a background job disarms `SIGINT`/`SIGQUIT`, so running this suite under `nohup`,
+    /// `&`, or a CI runner reaches it, and the assertion below used to fail there with
+    /// `left: 1` (`SIG_IGN`) against the handler address -- an environment-dependent failure that
+    /// says nothing about the code. Branching on the recorded mask keeps the strict address check
+    /// for every signal actually armed while pinning the preservation branch, which had no test at
+    /// all. ~keep
     #[test]
     fn termination_forwarding_owns_every_interactive_signal() {
         super::install_termination_forwarding();
         let expected = super::forward_termination as *const () as libc::sighandler_t;
+        let left_ignored = super::SIGNALS_LEFT_IGNORED.load(Ordering::Acquire);
 
-        for signal in super::FORWARDED_SIGNALS {
+        for (index, signal) in super::FORWARDED_SIGNALS.iter().enumerate() {
             let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
             // SAFETY: a null `act` reads the current disposition without changing it.
             let read = unsafe { libc::sigaction(*signal, std::ptr::null(), &raw mut current) };
 
             assert_eq!(read, 0, "reading the disposition of signal {signal}");
-            assert_eq!(
-                current.sa_sigaction, expected,
-                "signal {signal} must be forwarded to the tracked child groups"
-            );
+            if left_ignored & (1 << index) == 0 {
+                assert_eq!(
+                    current.sa_sigaction, expected,
+                    "signal {signal} must be forwarded to the tracked child groups"
+                );
+            } else {
+                assert_eq!(
+                    current.sa_sigaction,
+                    libc::SIG_IGN,
+                    "signal {signal} arrived ignored, so it must stay ignored rather than be armed"
+                );
+            }
         }
     }
 
