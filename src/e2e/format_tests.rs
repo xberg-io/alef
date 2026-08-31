@@ -1,20 +1,13 @@
 use super::*;
 
-/// Whether `mix` runs, not merely resolves: a version-manager shim spawns fine then exits
-/// non-zero, so a PATH-only check would take the "mix installed" branch below without mix
-/// actually having reformatted anything, failing the assert that branch makes. ~keep
-fn mix_is_runnable() -> bool {
-    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *RUNNABLE.get_or_init(|| {
-        std::process::Command::new("mix")
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    })
-}
+// A `mix_is_runnable()` probe used to decide the mix-present/mix-absent branches in this
+// file. It was removed rather than repaired: any out-of-band probe is a SECOND invocation of
+// mix that can disagree with the one the pipeline under test actually made, and the tests
+// below now derive that branch from the run's own `DeferredFormatting` record instead. The
+// case the probe was originally added for -- a version-manager shim that spawns then exits
+// non-zero -- is not reachable here anyway: such a shim makes `resolve_shell_failure` fatal
+// (it defers only a MISSING executable), so it is caught by each test's `expect` on
+// `run_formatters` long before any branch is chosen. ~keep
 
 /// The Windows CI failure this guards is a shell-quoting defect, not a Windows one:
 /// the residual step used to be `sh -c "(cd {dir} && mix format)"` with `{dir}`
@@ -48,8 +41,18 @@ fn residual_step_survives_an_output_directory_whose_path_has_a_space() {
 
     // With mix installed the step genuinely runs and there is nothing to defer, so the
     // deferral is only asserted in the branch where it is the expected outcome -- the
-    // same split `default_path_formats_elixir_with_mix` uses. ~keep
-    if which::which("mix").is_err() {
+    // same split `default_path_formats_elixir_with_mix` uses, and for the same reason
+    // it is derived from this run's own record rather than from a separate probe of
+    // whether mix is on PATH. ~keep
+    //
+    // What this test is actually about is the CLASSIFICATION, not the presence: a spaced
+    // output path must not turn an absent toolchain into a formatter verdict. So when mix
+    // is absent the deferral must carry `MISSING_TOOLCHAIN_REASON`, which is exactly what
+    // `assert_deferred` checks -- any other reason, or a fatal error, fails above.
+    if deferred
+        .iter()
+        .any(|entry| entry.language == "elixir" && entry.step == "mix format")
+    {
         assert_deferred(&deferred, "elixir", "mix format");
     }
 }
@@ -647,7 +650,28 @@ fn default_path_formats_elixir_with_mix() {
     // poly excludes `.ex`/`.exs`, so mix alone decides whether this file is rewritten --
     // independently of whether poly itself is installed. Each absent tool is asserted on
     // its own deferral record. ~keep
-    if mix_is_runnable() {
+    //
+    // The branch is chosen from THIS run's own deferral record, never from a separate
+    // `mix --version` probe. A probe is a second, differently-configured invocation of mix
+    // that can disagree with the one the pipeline actually made, and then the test asserts
+    // the wrong branch: `run_mix_format` pins its working directory with `.current_dir(dir)`,
+    // while a bare probe inherits the PROCESS cwd -- which every `CwdGuard`/`set_current_dir`
+    // test in this binary mutates concurrently, and which is left pointing at a deleted
+    // `tempfile::tempdir()` if such a test panics before restoring it. Homebrew's `mix` is a
+    // shell wrapper that exits 1 from a deleted cwd (`shell-init: ... getcwd`), so the probe
+    // reports "no mix" on a machine where mix is installed and just reformatted the file --
+    // and a `OnceLock` then caches that false for the rest of the binary. Deriving the branch
+    // in-band cannot disagree with the file on disk, so it is order- and machine-independent.
+    //
+    // `resolve_shell_failure` only defers when the executable is MISSING; a mix that runs and
+    // fails is fatal, so it is already caught by the `expect` above rather than by a branch.
+    let mix_was_deferred = deferred
+        .iter()
+        .any(|entry| entry.language == "elixir" && entry.step == "mix format");
+    if mix_was_deferred {
+        assert_deferred(&deferred, "elixir", "mix format");
+        assert_eq!(formatted, unformatted, "without mix the file must be left untouched");
+    } else {
         assert_ne!(
             formatted, unformatted,
             "with mix installed, the elixir residual must reformat the over-long call"
@@ -656,9 +680,6 @@ fn default_path_formats_elixir_with_mix() {
             formatted.contains("M.convert(\n"),
             "mix must wrap the over-long call onto its own line, got:\n{formatted}"
         );
-    } else {
-        assert_eq!(formatted, unformatted, "without mix the file must be left untouched");
-        assert_deferred(&deferred, "elixir", "mix format");
     }
     if which::which("poly").is_err() {
         assert_deferred(&deferred, "elixir", "poly fmt --fix");
