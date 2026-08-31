@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store and were verified to pass in a snapshot unchanged.
 
 ### Fixed
+
 - **Validation:** refuse a configuration that marks a trait bridge's carrier field `alef(skip)`
   instead of generating bindings that cannot compile. `bind_via = "options_field"` tells every
   backend to attach the callback handle to `options.<field>`, but the options-mirror emitter

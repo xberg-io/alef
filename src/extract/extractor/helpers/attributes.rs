@@ -526,7 +526,11 @@ fn meta_has_serde_skip(meta: &syn::Meta) -> bool {
         return false;
     };
     list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-        .map(|metas| metas.iter().any(|m| matches!(m, syn::Meta::Path(p) if p.is_ident("skip"))))
+        .map(|metas| {
+            metas
+                .iter()
+                .any(|m| matches!(m, syn::Meta::Path(p) if p.is_ident("skip")))
+        })
         .unwrap_or(false)
 }
 

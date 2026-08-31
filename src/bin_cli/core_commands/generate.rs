@@ -572,9 +572,10 @@ pub(crate) fn handle_generate(
         // under CI's default frozen lockfile just as surely as a stale `Cargo.lock` or
         // `pnpm-lock.yaml` fails their own frozen-install commands. Tolerating-variant, same
         // rationale as the Cargo.lock check above. ~keep
-        if let Some(error) =
-            pipeline::check_generated_uv_lock_freshness_tolerating_pending_publish(&current_gen_paths, Some(resolved_cfg))
-        {
+        if let Some(error) = pipeline::check_generated_uv_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            Some(resolved_cfg),
+        ) {
             stage_failures.record(&format!("[{}] generated uv.lock freshness", resolved_cfg.name), error);
         }
 

@@ -72,8 +72,8 @@ fn excluded_carrier_diagnostic(api: &ApiSurface, bridge: &TraitBridgeConfig) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::ValidationSeverity;
+    use super::*;
     use crate::core::ir::{FieldDef, TypeDef, TypeRef};
 
     fn options_type(field_binding_excluded: bool) -> TypeDef {
@@ -111,7 +111,11 @@ mod tests {
 
         let diagnostics = trait_bridge_carrier_diagnostics(&api, &[options_field_bridge()]);
 
-        assert_eq!(diagnostics.len(), 1, "exactly one diagnostic for the skipped carrier field");
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "exactly one diagnostic for the skipped carrier field"
+        );
         let diagnostic = &diagnostics[0];
         assert_eq!(diagnostic.severity, ValidationSeverity::Error);
         assert_eq!(diagnostic.code, ValidationCode::TraitBridgeCarrierUnavailable);

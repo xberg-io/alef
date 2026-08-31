@@ -566,7 +566,10 @@ pub(crate) fn check_generated_node_lock_freshness(
 /// The shared collection step behind [`check_generated_node_lock_freshness`] and
 /// [`check_generated_node_lock_freshness_tolerating_pending_publish`] -- see the former's doc
 /// comment for the `registered_unmarkable_manifest_dirs` rationale.
-fn collect_generated_node_lock_findings(generated_paths: &HashSet<PathBuf>, base_dir: &Path) -> Vec<StaleNodeLockFinding> {
+fn collect_generated_node_lock_findings(
+    generated_paths: &HashSet<PathBuf>,
+    base_dir: &Path,
+) -> Vec<StaleNodeLockFinding> {
     let mut directories = BTreeSet::new();
     for path in generated_paths {
         if path.file_name().and_then(|name| name.to_str()) != Some("package.json") {
@@ -904,7 +907,11 @@ pub(crate) fn check_generated_uv_lock_freshness_tolerating_pending_publish(
         return None;
     }
     let Some(self_dependency) = resolved_cfg.and_then(|cfg| {
-        registry_self_dependency(cfg, "python", crate::e2e::codegen::python::config::normalize_python_version)
+        registry_self_dependency(
+            cfg,
+            "python",
+            crate::e2e::codegen::python::config::normalize_python_version,
+        )
     }) else {
         return Some(anyhow::anyhow!(stale_uv_lock_message(&findings)));
     };

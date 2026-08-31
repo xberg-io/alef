@@ -721,11 +721,8 @@ mod node {
             let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
             let resolved_cfg = resolved_cfg_with_node_registry_package(NODE_DEPENDENCY, NODE_STALE_SPEC);
 
-            let result = check_generated_node_lock_freshness_tolerating_pending_publish(
-                &generated,
-                root,
-                Some(&resolved_cfg),
-            );
+            let result =
+                check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg));
             assert!(
                 result.is_none(),
                 "a disagreement fully explained by this crate's own configured registry \
@@ -766,12 +763,8 @@ mod node {
             let resolved_cfg = resolved_cfg_with_node_registry_package("unrelated-package", "9.9.9");
 
             assert!(
-                check_generated_node_lock_freshness_tolerating_pending_publish(
-                    &generated,
-                    root,
-                    Some(&resolved_cfg),
-                )
-                .is_some(),
+                check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg),)
+                    .is_some(),
                 "a third-party lock drift unrelated to this crate's own registry self-dependency \
                  must still fail the run"
             );
@@ -1115,8 +1108,7 @@ mod uv {
             // alef's own e2e generator would have written for this registry package.
             let resolved_cfg = resolved_cfg_with_python_registry_package(UV_DEPENDENCY, UV_STALE_SPEC);
 
-            let result =
-                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg));
+            let result = check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg));
             assert!(
                 result.is_none(),
                 "a disagreement fully explained by this crate's own configured registry \
@@ -1157,8 +1149,7 @@ mod uv {
             let resolved_cfg = resolved_cfg_with_python_registry_package("unrelated-package", ">=9.9.9");
 
             assert!(
-                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg))
-                    .is_some(),
+                check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg)).is_some(),
                 "a third-party lock drift unrelated to this crate's own registry self-dependency \
                  must still fail the run"
             );
