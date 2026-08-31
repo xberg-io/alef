@@ -184,6 +184,20 @@ pub struct FieldDef {
     /// against the key being absent even though the underlying Rust value is never `None`.
     #[serde(default)]
     pub serde_skip_serializing_if: bool,
+    /// True when the field carries a bare `#[serde(skip)]` (also matching
+    /// `#[cfg_attr(..., serde(skip))]`), which excludes it from BOTH `Serialize` and
+    /// `Deserialize` — distinct from [`Self::serde_skip_serializing_if`], which only omits the
+    /// wire key while the field remains readable on deserialize.
+    ///
+    /// A field with this flag set can never receive a caller-supplied value through any code
+    /// path that goes through `Deserialize` — most notably an FFI `_from_json` constructor,
+    /// which is the *only* construction path for a non-opaque type. Backends that emit a getter
+    /// for such a field on such a type must prove some other write path exists (e.g. a
+    /// `[[crates.trait_bridges]] bind_via = "options_field"` setter naming this exact field)
+    /// before emitting one; otherwise the getter is documented as returning caller-owned data
+    /// while being structurally unreachable, i.e. always the type's default value.
+    #[serde(default)]
+    pub serde_skip: bool,
     /// True when source metadata explicitly excludes this field from generated
     /// polyglot binding surfaces.
     #[serde(default)]
@@ -772,6 +786,7 @@ mod tests {
             serde_flatten: _,             // language-native flatten support (e.g. Jackson)
             serde_with: _,                // suppresses derive-shape wire assumptions (e.g. Duration)
             serde_skip_serializing_if: _, // wire-optional JSON key despite a required Rust field
+            serde_skip: _,                // gates getter emission for JSON-only-constructed types
             binding_excluded: _,          // drops the field from the generated surface
             binding_exclusion_reason: _,  // diagnostics only; deliberately not codegen input
             original_type: _,             // reconstructs pre-sanitize (de)serialization

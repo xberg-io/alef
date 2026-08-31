@@ -422,6 +422,7 @@ mod tests {
             ty: TypeRef::Duration,
             serde_with: serde_with.map(str::to_string),
             serde_skip_serializing_if: false,
+            serde_skip: false,
             ..Default::default()
         }
     }
@@ -468,6 +469,7 @@ mod tests {
             ty: TypeRef::String,
             serde_with: Some("custom".to_string()),
             serde_skip_serializing_if: false,
+            serde_skip: false,
             ..Default::default()
         };
         assert_eq!(

@@ -38,6 +38,55 @@ fn named_type_ref(ty: &TypeRef) -> Option<String> {
     }
 }
 
+/// Whether a field carrying a full `#[serde(skip)]` can still be written through some other FFI
+/// entry point, despite the type's only generic constructor (`_from_json`) never reaching it.
+///
+/// The one such entry point alef currently generates is a
+/// `[[crates.trait_bridges]] bind_via = "options_field"` setter (see
+/// `gen_bridge_field::gen_options_set_bridge`, wired up below via
+/// `TraitBridgeConfig::resolved_options_field`): it writes `options.<field>` directly, bypassing
+/// serde entirely. A bridge only counts when both its configured `options_type` AND its
+/// resolved field name (`options_field`, falling back to `param_name` when the two differ --
+/// see `TraitBridgeConfig::resolved_options_field`) match this exact `(type, field)` pair; a
+/// bridge aimed at a different options type, or a different field on the same type, proves
+/// nothing about reachability here.
+fn serde_skip_field_reachable_via_options_bridge(
+    typ_name: &str,
+    field_name: &str,
+    trait_bridges: &[crate::core::config::TraitBridgeConfig],
+) -> bool {
+    trait_bridges.iter().any(|bridge| {
+        bridge.bind_via == crate::core::config::BridgeBinding::OptionsField
+            && bridge.options_type.as_deref() == Some(typ_name)
+            && bridge.resolved_options_field() == Some(field_name)
+    })
+}
+
+/// A field's FFI getter must not be emitted when the field is structurally guaranteed to always
+/// read back the same Rust-side default regardless of what a caller supplies: a full
+/// `#[serde(skip)]` on a field of a non-opaque, serde-derived type is invisible to
+/// `Deserialize`, and `_from_json` -- gated on exactly `!typ.is_opaque && typ.has_serde`
+/// elsewhere in this file -- is the ONLY generic FFI constructor such a type gets. Emitting a
+/// getter there documents an "owned handle the caller must free" contract
+/// (`field_accessor_ownership_lines`) that no caller-supplied JSON payload can ever satisfy.
+///
+/// The one known escape hatch is a field reachable through an `options_field` trait-bridge
+/// setter (`{prefix}_options_set_{field}`), which writes the field directly and bypasses serde
+/// -- see `serde_skip_field_reachable_via_options_bridge`. Opaque types are excluded from this
+/// check entirely: their constructors are arbitrary Rust methods alef does not model from IR
+/// alone, so it cannot prove such a field is unreachable there the way it can for a type whose
+/// only construction path IS the generic `_from_json` this backend itself emits.
+fn field_getter_is_reachable(
+    typ: &crate::core::ir::TypeDef,
+    field: &crate::core::ir::FieldDef,
+    trait_bridges: &[crate::core::config::TraitBridgeConfig],
+) -> bool {
+    if !field.serde_skip || typ.is_opaque || !typ.has_serde {
+        return true;
+    }
+    serde_skip_field_reachable_via_options_bridge(&typ.name, &field.name, trait_bridges)
+}
+
 pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> anyhow::Result<String> {
     let mut builder = RustFileBuilder::new().with_generated_header();
     builder.add_inner_attribute("allow(dead_code, unused_imports, unused_mut, noop_method_call)");
@@ -264,6 +313,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             if !field.sanitized
                 && !field.binding_excluded
                 && !crosses_borrowed_handle_boundary(&field.ty, &borrowed_handle_types)
+                && field_getter_is_reachable(typ, field, &config.trait_bridges)
             {
                 emitted_field_names.insert(field.name.as_str());
                 builder.add_item(&gen_field_accessor(

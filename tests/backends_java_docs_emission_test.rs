@@ -57,6 +57,7 @@ fn field_with_doc(name: &str, ty: TypeRef, doc: &str) -> FieldDef {
         serde_flatten: false,
         serde_with: None,
         serde_skip_serializing_if: false,
+        serde_skip: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         original_type: None,

@@ -1308,6 +1308,7 @@ fn test_optional_bytes_field_accessor_emits_out_len_and_length_writes() {
         serde_flatten: false,
         serde_with: None,
         serde_skip_serializing_if: false,
+        serde_skip: false,
         original_type: None,
         binding_excluded: false,
         binding_exclusion_reason: None,

@@ -26,6 +26,7 @@ pub(super) fn field(name: &str, ty: TypeRef) -> FieldDef {
         serde_flatten: false,
         serde_with: None,
         serde_skip_serializing_if: false,
+        serde_skip: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
     }

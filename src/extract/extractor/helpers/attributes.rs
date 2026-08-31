@@ -495,6 +495,41 @@ pub(crate) fn extract_serde_skip_serializing_if(attrs: &[syn::Attribute]) -> boo
     })
 }
 
+/// Check if a field carries a bare `#[serde(skip)]` (also matching
+/// `#[cfg_attr(..., serde(skip))]`) — full exclusion from both `Serialize` and
+/// `Deserialize`, distinct from `skip_serializing_if` (see
+/// [`FieldDef::serde_skip`](crate::core::ir::FieldDef::serde_skip)).
+///
+/// Parses each `serde(...)` attribute's comma-separated argument list and matches only a
+/// bare `skip` path item, so a sibling `skip_serializing_if = "..."` (a `NameValue` meta,
+/// not a bare `Path`) never false-positives just because both attributes share the "skip"
+/// substring.
+pub(crate) fn extract_serde_skip(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if meta_has_serde_skip(&attr.meta) {
+            return true;
+        }
+        if !attr.path().is_ident("cfg_attr") {
+            return false;
+        }
+        let mut found = false;
+        cfg_attr_walk_inner_metas(attr, &mut |meta| found |= meta_has_serde_skip(meta));
+        found
+    })
+}
+
+fn meta_has_serde_skip(meta: &syn::Meta) -> bool {
+    if !meta.path().is_ident("serde") {
+        return false;
+    }
+    let syn::Meta::List(list) = meta else {
+        return false;
+    };
+    list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        .map(|metas| metas.iter().any(|m| matches!(m, syn::Meta::Path(p) if p.is_ident("skip"))))
+        .unwrap_or(false)
+}
+
 /// Check if a *container* (struct/enum) carries `#[serde(default)]` or
 /// `#[serde(default = "path")]`, including through `#[cfg_attr(..., serde(default))]`.
 ///

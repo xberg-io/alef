@@ -243,6 +243,7 @@ fn test_field_and_same_named_method_do_not_emit_duplicate_symbol() {
                 serde_flatten: false,
                 serde_with: None,
                 serde_skip_serializing_if: false,
+                serde_skip: false,
                 original_type: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,

@@ -36,6 +36,7 @@ fn test_option_option_primitive_getter_returns_primitive_type() {
                 serde_flatten: false,
                 serde_with: None,
                 serde_skip_serializing_if: false,
+                serde_skip: false,
                 original_type: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
@@ -124,6 +125,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
             serde_flatten: false,
             serde_with: None,
             serde_skip_serializing_if: false,
+            serde_skip: false,
             original_type: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
@@ -278,6 +280,98 @@ options_field = "visitor"
     assert!(accessor.contains("Some(val) =>"), "{accessor}");
     assert!(accessor.contains("insert_handle(val.clone())"), "{accessor}");
     assert!(!accessor.contains("Some(val) => {\n            0"), "{accessor}");
+}
+
+/// Regression test for the dead-getter defect: a field carrying a full `#[serde(skip)]`
+/// (`FieldDef::serde_skip`) on a non-opaque, serde-derived type can only ever hold
+/// `Default::default()` -- no caller-supplied JSON payload can populate it, since `_from_json`
+/// (deserialize) is the only generic FFI constructor such a type gets, and this config has no
+/// `options_field` trait-bridge setter naming `ConversionOptionsUpdate` at all. Its getter must
+/// not be emitted: emitting one would document an "owned handle the caller must free" contract
+/// (see `field_accessor_ownership_lines`) that no caller-supplied input can ever satisfy.
+///
+/// The sibling `ConversionOptions.visitor` field carries the IDENTICAL `serde_skip: true` but
+/// IS reachable, through an `options_field` trait bridge whose `param_name` ("watcher")
+/// deliberately differs from its `options_field` ("visitor") -- the bridge must be matched by
+/// resolved field name, not by param name, per `TraitBridgeConfig::resolved_options_field`.
+/// Asserting presence here, not just absence for the dead field, is required: a fix that
+/// over-suppresses (e.g. hiding every `serde_skip` field regardless of a matching bridge) would
+/// pass the absence half of this test while silently breaking a getter real callers depend on.
+#[test]
+fn test_serde_skip_field_getter_suppressed_unless_options_bridge_reaches_it() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "htm"
+
+[[crates.trait_bridges]]
+trait_name = "HtmlVisitor"
+type_alias = "VisitorHandle"
+param_name = "watcher"
+bind_via = "options_field"
+options_type = "ConversionOptions"
+options_field = "visitor"
+"#,
+    );
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ConversionOptionsUpdate".to_string(),
+                rust_path: "my_lib::ConversionOptionsUpdate".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "visitor".to_string(),
+                    ty: TypeRef::Named("VisitorHandle".to_string()),
+                    optional: true,
+                    serde_skip: true,
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "ConversionOptions".to_string(),
+                rust_path: "my_lib::ConversionOptions".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "visitor".to_string(),
+                    ty: TypeRef::Named("VisitorHandle".to_string()),
+                    optional: true,
+                    serde_skip: true,
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    };
+
+    let files = FfiBackend
+        .generate_bindings(&api, &config)
+        .expect("serde-skip options-bridge reachability");
+    let lib = files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        !lib.content.contains("fn htm_conversion_options_update_visitor"),
+        "ConversionOptionsUpdate.visitor has no from_json path and no matching options-bridge \
+         entry -- its getter must not be emitted:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("fn htm_conversion_options_visitor"),
+        "ConversionOptions.visitor IS reachable via the configured options-field bridge \
+         (resolved field name \"visitor\", even though param_name is \"watcher\") -- \
+         suppressing its getter would be an over-suppression regression:\n{}",
+        lib.content
+    );
 }
 
 #[test]

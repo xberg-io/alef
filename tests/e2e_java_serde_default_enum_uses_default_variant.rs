@@ -100,6 +100,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
             serde_flatten: false,
             serde_with: None,
             serde_skip_serializing_if: false,
+            serde_skip: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             original_type: None,

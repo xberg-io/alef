@@ -66,7 +66,7 @@ src/scaffold/languages/dart.rs 1358
 src/scaffold/languages/swift.rs 1827
 src/scaffold/languages/zig.rs 1113
 src/scaffold/tests/ffi_go_java_ruby.rs 1081
-src/scaffold/tests/poly.rs 1068
+src/scaffold/tests/poly.rs 1065
 tests/adapters_adapter_test.rs 1301
 tests/backends_csharp_gen_bindings_test.rs 4093
 tests/backends_dart_gen_bindings_test.rs 2059
