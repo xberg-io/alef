@@ -7,7 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.79.5] - 2026-08-31
+
+### Removed
+
+- **Scaffold:** stop emitting the `dart-analyze`, `dart-e2e-analyze`, `rubocop` and `steep`
+  pre-commit hooks. poly runs hooks against an isolated staged snapshot holding tracked content
+  only, and all four need a dependency graph materialized into a gitignored, project-local
+  directory that the snapshot never carries, so none of them could ever pass: `dart analyze`
+  reported `uri_does_not_exist` for every `package:` import -- including the package's own
+  self-references -- plus `include_file_not_found` for the `package:lints/...` include, because
+  there is no `.dart_tool/package_config.json`; rubocop and steep never started, because alef pins
+  Bundler to a gitignored `BUNDLE_PATH=vendor/bundle` and it aborts with `Bundler::GemNotFound`.
+  They are dropped rather than primed: a resolve step on every commit is not worth paying for a
+  check CI already runs. Ruby keeps CI coverage through `scripts/ci/ruby/run-rubocop.sh` and
+  `run-steep.sh`; **Dart static analysis now runs in no CI workflow at all** -- `poly lint .` in
+  `reusable-validate.yml` was its only invocation. `credo` is unaffected (already primed with
+  `mix deps.get`), as are `golangci-lint`, `checkstyle` and `pyrefly`, which resolve from a global
+  store and were verified to pass in a snapshot unchanged.
+
 ### Fixed
+- **Validation:** refuse a configuration that marks a trait bridge's carrier field `alef(skip)`
+  instead of generating bindings that cannot compile. `bind_via = "options_field"` tells every
+  backend to attach the callback handle to `options.<field>`, but the options-mirror emitter
+  honours `alef(skip)` and drops that field while the bridge emitters keep reading it, so the
+  generated node and py crates failed with `no field visitor` / `has no field named visitor`.
+  The check runs at extraction time, so it fires regardless of which backends a run targets, and
+  reports the bridge and the field together with the two ways out.
+- **FFI:** stop emitting a getter for a field that can never hold caller data. A getter is
+  unreachable exactly when the field carries a full `#[serde(skip)]`, its owning type is
+  non-opaque and `has_serde` (so a JSON constructor is the only construction path), and no
+  `[[crates.trait_bridges]]` entry binds that field -- the combination that made
+  `htm_conversion_options_update_visitor` documented as returning caller-owned data while it could
+  only ever return `0`. Fields reachable through a bridge, such as `ConversionOptions.visitor`,
+  still get theirs. **Breaking for C consumers:** an always-null symbol disappears from the header
+  and the compiled library.
+- **Publish:** `alef publish validate` no longer demands output its own generators stopped
+  emitting. The C# check required a `runtimes/**` item that was deliberately removed to keep the
+  NuGet meta-package under the size limit that returns HTTP 413, and the Elixir check matched a
+  `targets: ~w(...)` sigil that the scaffold replaced with a multi-line list -- so every generated
+  repository failed both. The C# check now also reports a csproj that *does* pack the native
+  payload, and the Elixir check compares the parsed target list against the configured
+  `nif_targets` rather than a literal spelling.
+- **Publish:** refuse ambiguity instead of guessing when selecting release artifacts. Picking the
+  `.csproj` and the `.gem` by directory-iteration order could select a `.SmokeTests`/`.Runtime`
+  project or an unrelated gem that merely contained the version string; both now prefer the
+  canonical name, exclude known non-package shapes, and error naming every candidate when more
+  than one still qualifies. The Zig `.paths` idempotence check no longer matches literals
+  elsewhere in the manifest, the Swift packager fails when no `Package.swift` was staged rather
+  than treating it as nothing to patch, the Elixir checksum scan is anchored to the crate's own
+  NIF artifacts and errors when it matches none, and an unreadable gemspec or an unlistable `lib/`
+  propagates instead of silently yielding an unconstrained or truncated package.
+- **Generate:** report what `alef generate` actually produced, per category, always. A single
+  total made a partial run and a full regeneration look identical, and `generate` structurally
+  never emits docs or e2e output -- so the summary now breaks the count out and names the
+  categories that are out of scope, with structured fields for CI to assert on.
+- **Generate:** stop failing lockfile-freshness on a version this repository has not published
+  yet. `alef validate versions` and the relock step already treat that disagreement as expected,
+  but the check upstream of both hard-failed on it, so a version-bumped repository could not run
+  `alef all` cleanly until after it published -- a deadlock, since publishing runs through the
+  same pipeline. Applies to Cargo, uv and npm, each matched against its configured registry
+  package rather than a guessed name, and genuine third-party drift still fails.
+- **Tests:** a signal-forwarding test no longer fails when the suite is started as a background
+  job. `install_termination_forwarding` deliberately preserves an inherited `SIG_IGN` -- the case
+  `nohup`, a daemon supervisor, or a CI shell produces -- while the test asserted the handler was
+  always installed, so it failed with `SIG_IGN` against the handler address. The preserved
+  signals are now recorded, which also covers the preservation branch that had no test at all.
 
 - **Tests:** decide toolchain skips on whether the tool *runs*, not on whether it resolves. A
   version-manager shim (asdf, mise, rbenv, nvm, pyenv) is always on `PATH` and always spawns, then
@@ -18,9 +83,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `java`, `zig`, `go`, `kotlin`, `csharp`, `ruby`, `r`, `php`, `python`, `dotnet`, `mvn` and `mix`
   guards. `required_go()` is fixed the same way, so a broken shim no longer satisfies
   `ALEF_REQUIRE_GO` and defeat its hard-require mode.
+- **Publish:** stop requiring a package-local `composer.json` in `alef publish validate`, and check
+  the root manifest unconditionally. `scaffold_php` has emitted exactly one manifest per layout
+  since `c159e2dc0`, and the co-located layout is the only one a real consumer resolves -- its
+  `co_located` flag reads `output_paths.contains_key("php")`, and `resolve_output_paths` inserts an
+  entry for every enabled language -- so `{pkg_dir}/composer.json` is never written and every
+  regenerated repository failed validation on it. The same absence also silently disabled every
+  check below `validate_php_manifests`' early `return`: a repository with no root `composer.json`
+  at all, or one whose PSR-4 target named a directory no stage writes, validated clean. The
+  package-local PSR-4 and metadata-sync checks now run only when that manifest is actually present.
 
 
-### Fixed
 
 - **Rust e2e:** bind an indexed array leaf as the element it is, not as the slice it came from.
   `is_array` answers through `segment_name`, which returns the bare field name for a
