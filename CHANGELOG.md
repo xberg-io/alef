@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tests:** decide toolchain skips on whether the tool *runs*, not on whether it resolves. A
+  version-manager shim (asdf, mise, rbenv, nvm, pyenv) is always on `PATH` and always spawns, then
+  exits non-zero because the real toolchain is not installed -- so `which::which(tool).is_ok()`,
+  `Command::new(tool).spawn().is_ok()`, and `.output().is_ok()` all reported "available" and left
+  the intended skip unreachable, firing the assertion on every machine lacking that toolchain.
+  Extends the two Elixir instances fixed in #275 to 35 further files across the `dart`, `typescript`,
+  `java`, `zig`, `go`, `kotlin`, `csharp`, `ruby`, `r`, `php`, `python`, `dotnet`, `mvn` and `mix`
+  guards. `required_go()` is fixed the same way, so a broken shim no longer satisfies
+  `ALEF_REQUIRE_GO` and defeat its hard-require mode.
+
+
+### Fixed
+
 - **Rust e2e:** bind an indexed array leaf as the element it is, not as the slice it came from.
   `is_array` answers through `segment_name`, which returns the bare field name for a
   `PathSegment::ArrayField` and so cannot tell `detected_languages` from `detected_languages[0]`;
