@@ -131,7 +131,7 @@ mod fallback_scope {
 
     /// `.jinja` is in scope under `src/` only; the walk must not widen the rule's glob set.
     #[test]
-#[ignore = "file-size ratchet disabled by maintainer decision; re-enable by deleting these #[ignore]s"]
+    #[ignore = "file-size ratchet disabled by maintainer decision; re-enable by deleting these #[ignore]s"]
     fn walk_covers_the_same_extensions_as_the_pathspecs() {
         let paths = walk_fallback();
         assert!(!paths.is_empty(), "walk found nothing under src/ or tests/");
