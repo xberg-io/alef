@@ -185,19 +185,19 @@ fn dart_lock_has_stale_declared_pin(directory: &Path) -> bool {
     let Ok(lock_text) = std::fs::read_to_string(directory.join("pubspec.lock")) else {
         return false;
     };
-    let Ok(lock) = serde_yaml::from_str::<serde_yaml::Value>(&lock_text) else {
+    let Ok(lock) = serde_saphyr::from_str::<serde_json::Value>(&lock_text) else {
         return false;
     };
-    let Some(packages) = lock.get("packages").and_then(serde_yaml::Value::as_mapping) else {
+    let Some(packages) = lock.get("packages").and_then(serde_json::Value::as_object) else {
         return false;
     };
     declared_dart_pins(&directory.join("pubspec.yaml"), &mut HashSet::new())
         .into_iter()
         .any(|(name, requirement)| {
             let locked = packages
-                .get(serde_yaml::Value::from(name))
+                .get(&name)
                 .and_then(|package| package.get("version"))
-                .and_then(serde_yaml::Value::as_str);
+                .and_then(serde_json::Value::as_str);
             locked.is_none_or(|version| !dart_version_matches(&requirement, version))
         })
 }
@@ -210,7 +210,7 @@ fn declared_dart_pins(path: &Path, visited: &mut HashSet<PathBuf>) -> Vec<(Strin
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    let Ok(document) = serde_yaml::from_str::<serde_yaml::Value>(&text) else {
+    let Ok(document) = serde_saphyr::from_str::<serde_json::Value>(&text) else {
         return Vec::new();
     };
     let mut pins = Vec::new();
@@ -221,19 +221,16 @@ fn declared_dart_pins(path: &Path, visited: &mut HashSet<PathBuf>) -> Vec<(Strin
 }
 
 fn append_dart_dependency_pins(
-    document: &serde_yaml::Value,
+    document: &serde_json::Value,
     bucket: &str,
     manifest: &Path,
     visited: &mut HashSet<PathBuf>,
     pins: &mut Vec<(String, String)>,
 ) {
-    let Some(dependencies) = document.get(bucket).and_then(serde_yaml::Value::as_mapping) else {
+    let Some(dependencies) = document.get(bucket).and_then(serde_json::Value::as_object) else {
         return;
     };
     for (name, specification) in dependencies {
-        let Some(name) = name.as_str() else {
-            continue;
-        };
         if let Some(requirement) = specification.as_str() {
             if requirement != "any" {
                 pins.push((name.to_string(), requirement.to_string()));
@@ -246,12 +243,12 @@ fn append_dart_dependency_pins(
 
 fn append_dart_path_dependency_pins(
     name: &str,
-    specification: &serde_yaml::Value,
+    specification: &serde_json::Value,
     manifest: &Path,
     visited: &mut HashSet<PathBuf>,
     pins: &mut Vec<(String, String)>,
 ) {
-    let Some(relative) = specification.get("path").and_then(serde_yaml::Value::as_str) else {
+    let Some(relative) = specification.get("path").and_then(serde_json::Value::as_str) else {
         return;
     };
     let dependency_manifest = manifest
@@ -260,8 +257,8 @@ fn append_dart_path_dependency_pins(
         .join(relative)
         .join("pubspec.yaml");
     if let Ok(dependency_text) = std::fs::read_to_string(&dependency_manifest)
-        && let Ok(dependency) = serde_yaml::from_str::<serde_yaml::Value>(&dependency_text)
-        && let Some(version) = dependency.get("version").and_then(serde_yaml::Value::as_str)
+        && let Ok(dependency) = serde_saphyr::from_str::<serde_json::Value>(&dependency_text)
+        && let Some(version) = dependency.get("version").and_then(serde_json::Value::as_str)
     {
         pins.push((name.to_string(), version.to_string()));
     }

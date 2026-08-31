@@ -58,10 +58,8 @@ pub(super) fn language_entry(
     }
     let content = fs::read_to_string(&abs_config)
         .map_err(|e| anyhow::anyhow!("Failed to read readme config {:?}: {}", abs_config, e))?;
-    let yaml: serde_yaml::Value =
-        serde_yaml::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse readme config YAML: {}", e))?;
-    let as_json =
-        serde_json::to_value(&yaml).map_err(|e| anyhow::anyhow!("Failed to convert readme YAML to JSON: {}", e))?;
+    let as_json: serde_json::Value =
+        serde_saphyr::from_str(&content).map_err(|e| anyhow::anyhow!("Failed to parse readme config YAML: {}", e))?;
     Ok(as_json.get("languages").and_then(|l| l.get(lang_code)).cloned())
 }
 

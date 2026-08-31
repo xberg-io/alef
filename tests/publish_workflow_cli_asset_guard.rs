@@ -27,10 +27,10 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn workflow() -> serde_yaml::Value {
+fn workflow() -> serde_json::Value {
     let path = repo_root().join(WORKFLOW);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-    serde_yaml::from_str(&text).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
+    serde_saphyr::from_str(&text).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
 }
 
 fn cargo_manifest() -> toml::Value {
@@ -39,19 +39,19 @@ fn cargo_manifest() -> toml::Value {
     toml::from_str(&text).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
 }
 
-fn job(workflow: &serde_yaml::Value, name: &str) -> serde_yaml::Value {
+fn job(workflow: &serde_json::Value, name: &str) -> serde_json::Value {
     workflow["jobs"][name]
-        .as_mapping()
+        .as_object()
         .unwrap_or_else(|| panic!("{WORKFLOW} has no job `{name}`"))
         .clone()
         .into()
 }
 
-fn steps(job: &serde_yaml::Value) -> Vec<serde_yaml::Value> {
-    job["steps"].as_sequence().expect("job has steps").clone()
+fn steps(job: &serde_json::Value) -> Vec<serde_json::Value> {
+    job["steps"].as_array().expect("job has steps").clone()
 }
 
-fn step_with_id(job: &serde_yaml::Value, id: &str) -> serde_yaml::Value {
+fn step_with_id(job: &serde_json::Value, id: &str) -> serde_json::Value {
     steps(job)
         .into_iter()
         .find(|step| step["id"].as_str() == Some(id))
@@ -59,7 +59,7 @@ fn step_with_id(job: &serde_yaml::Value, id: &str) -> serde_yaml::Value {
 }
 
 #[cfg(unix)]
-fn step_named(job: &serde_yaml::Value, name: &str) -> serde_yaml::Value {
+fn step_named(job: &serde_json::Value, name: &str) -> serde_json::Value {
     steps(job)
         .into_iter()
         .find(|step| step["name"].as_str() == Some(name))

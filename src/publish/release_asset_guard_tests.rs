@@ -31,38 +31,31 @@ struct GlobUpload {
 
 /// Collect every glob handed to an upload action, together with whether the step
 /// itself already hard-fails on a zero match via `if-no-files-found: error`.
-fn collect_glob_uploads(document: &serde_yaml::Value) -> Vec<GlobUpload> {
+fn collect_glob_uploads(document: &serde_json::Value) -> Vec<GlobUpload> {
     let mut found = Vec::new();
-    let Some(jobs) = document.get("jobs").and_then(serde_yaml::Value::as_mapping) else {
+    let Some(jobs) = document.get("jobs").and_then(serde_json::Value::as_object) else {
         panic!("publish.yaml has no `jobs:` mapping");
     };
     for (job_name, job) in jobs {
-        let job_name = job_name.as_str().unwrap_or_default().to_string();
-        let Some(steps) = job.get("steps").and_then(serde_yaml::Value::as_sequence) else {
+        let Some(steps) = job.get("steps").and_then(serde_json::Value::as_array) else {
             continue;
         };
         for step in steps {
-            let uses = step.get("uses").and_then(serde_yaml::Value::as_str).unwrap_or_default();
+            let uses = step.get("uses").and_then(serde_json::Value::as_str).unwrap_or_default();
             if !UPLOAD_ACTIONS.iter().any(|action| uses.contains(action)) {
                 continue;
             }
-            let Some(with) = step.get("with").and_then(serde_yaml::Value::as_mapping) else {
+            let Some(with) = step.get("with").and_then(serde_json::Value::as_object) else {
                 continue;
             };
-            let fails_on_empty = with
-                .get(serde_yaml::Value::from("if-no-files-found"))
-                .and_then(serde_yaml::Value::as_str)
-                == Some("error");
+            let fails_on_empty = with.get("if-no-files-found").and_then(serde_json::Value::as_str) == Some("error");
             let step_name = step
                 .get("name")
-                .and_then(serde_yaml::Value::as_str)
+                .and_then(serde_json::Value::as_str)
                 .unwrap_or(uses)
                 .to_string();
             for key in ASSET_GLOB_KEYS {
-                let Some(value) = with
-                    .get(serde_yaml::Value::from(key))
-                    .and_then(serde_yaml::Value::as_str)
-                else {
+                let Some(value) = with.get(key).and_then(serde_json::Value::as_str) else {
                     continue;
                 };
                 if !value.contains('*') {
@@ -82,18 +75,17 @@ fn collect_glob_uploads(document: &serde_yaml::Value) -> Vec<GlobUpload> {
 }
 
 /// Every `run:` script body in the workflow, keyed by job name.
-fn run_scripts_by_job(document: &serde_yaml::Value) -> BTreeMap<String, Vec<String>> {
+fn run_scripts_by_job(document: &serde_json::Value) -> BTreeMap<String, Vec<String>> {
     let mut scripts: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let Some(jobs) = document.get("jobs").and_then(serde_yaml::Value::as_mapping) else {
+    let Some(jobs) = document.get("jobs").and_then(serde_json::Value::as_object) else {
         return scripts;
     };
     for (job_name, job) in jobs {
-        let job_name = job_name.as_str().unwrap_or_default().to_string();
-        let Some(steps) = job.get("steps").and_then(serde_yaml::Value::as_sequence) else {
+        let Some(steps) = job.get("steps").and_then(serde_json::Value::as_array) else {
             continue;
         };
         for step in steps {
-            if let Some(run) = step.get("run").and_then(serde_yaml::Value::as_str) {
+            if let Some(run) = step.get("run").and_then(serde_json::Value::as_str) {
                 scripts.entry(job_name.clone()).or_default().push(run.to_string());
             }
         }
@@ -115,7 +107,7 @@ fn has_guard_script(scripts: &BTreeMap<String, Vec<String>>, upload: &GlobUpload
 fn every_release_asset_glob_hard_fails_when_it_matches_nothing() {
     let path = workflow_path();
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let document: serde_yaml::Value = serde_yaml::from_str(&raw).expect("parse publish.yaml");
+    let document: serde_json::Value = serde_saphyr::from_str(&raw).expect("parse publish.yaml");
 
     let uploads = collect_glob_uploads(&document);
     assert!(

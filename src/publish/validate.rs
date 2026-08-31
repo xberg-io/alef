@@ -242,7 +242,7 @@ fn validate_dart_manifest(config: &ResolvedCrateConfig, pkg_dir: &str, pkg_path:
     let Ok(content) = std::fs::read_to_string(&pubspec) else {
         return;
     };
-    let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) else {
+    let Ok(yaml) = serde_saphyr::from_str::<serde_json::Value>(&content) else {
         issues.push(format!("dart: {pkg_dir}/pubspec.yaml is not valid YAML"));
         return;
     };

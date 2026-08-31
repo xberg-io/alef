@@ -559,7 +559,7 @@ fn safe_side_effects_snippet_is_not_level_capped() {
         .nth(1)
         .expect("rendered snippet has front matter");
     let metadata: crate::snippets::types::SnippetMetadata =
-        serde_yaml::from_str(front_matter).expect("front matter is valid YAML");
+        serde_saphyr::from_str(front_matter).expect("front matter is valid YAML");
     assert_eq!(metadata.level, None, "safe snippet must resolve to no declared level");
 }
 
@@ -609,7 +609,7 @@ fn unsafe_side_effects_snippet_keeps_the_typecheck_cap() {
             .nth(1)
             .expect("rendered snippet has front matter");
         let metadata: crate::snippets::types::SnippetMetadata =
-            serde_yaml::from_str(front_matter).expect("front matter is valid YAML");
+            serde_saphyr::from_str(front_matter).expect("front matter is valid YAML");
         assert_eq!(
             metadata.level,
             Some(crate::snippets::types::ValidationLevel::TypeCheck),

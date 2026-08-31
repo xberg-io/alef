@@ -154,7 +154,7 @@ fn parse_frontmatter<'a>(
     };
 
     let yaml = &after_open[..close_offset];
-    let Ok(mut metadata) = serde_yaml::from_str::<SnippetMetadata>(yaml) else {
+    let Ok(mut metadata) = serde_saphyr::from_str::<SnippetMetadata>(yaml) else {
         return Ok((SnippetMetadata::default(), content, 0));
     };
     if let Some(target) = &metadata.target
@@ -184,7 +184,7 @@ pub fn frontmatter_status(content: &str) -> FrontmatterStatus {
     };
 
     let yaml = &after_open[..close_offset];
-    match serde_yaml::from_str::<SnippetMetadata>(yaml) {
+    match serde_saphyr::from_str::<SnippetMetadata>(yaml) {
         Ok(_) => FrontmatterStatus::Present,
         Err(err) => FrontmatterStatus::Malformed(format!("invalid YAML frontmatter: {err}")),
     }

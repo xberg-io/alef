@@ -521,7 +521,7 @@ pub(crate) fn stale_node_lock_findings(package_json_dir: &Path) -> Vec<StaleNode
     let Ok(lock_text) = std::fs::read_to_string(&lock_path) else {
         return Vec::new();
     };
-    let Ok(lock_yaml) = serde_yaml::from_str::<serde_yaml::Value>(&lock_text) else {
+    let Ok(lock_yaml) = serde_saphyr::from_str::<serde_json::Value>(&lock_text) else {
         return Vec::new();
     };
 
@@ -589,24 +589,23 @@ pub(crate) fn stale_node_lock_findings(package_json_dir: &Path) -> Vec<StaleNode
 /// `dependencies`/`devDependencies` at all) yields an empty map, which is safe by construction:
 /// [`stale_node_lock_findings`]'s one-sided rule treats "absent from this map" identically to
 /// "name not in the lock", never as a contradiction. ~keep
-fn locked_node_specifiers(lock: &serde_yaml::Value, bucket: &str) -> BTreeMap<String, String> {
+fn locked_node_specifiers(lock: &serde_json::Value, bucket: &str) -> BTreeMap<String, String> {
     let table = lock
         .get("importers")
         .and_then(|importers| importers.get("."))
         .and_then(|root| root.get(bucket))
         .or_else(|| lock.get(bucket))
-        .and_then(serde_yaml::Value::as_mapping);
+        .and_then(serde_json::Value::as_object);
     let Some(table) = table else {
         return BTreeMap::new();
     };
     let mut specifiers = BTreeMap::new();
-    for (key, value) in table {
-        let Some(name) = key.as_str() else { continue };
+    for (name, value) in table {
         // ~keep Every lockfileVersion that records a `specifier` field at all (5.4+, which
         // covers both the 6 and 9 shapes this reader targets) puts the package.json text here
         // verbatim; a bare `name: version` entry from an older lockfile has no `specifier` key
         // and is silently skipped rather than misread as a version-only requirement.
-        let Some(specifier) = value.get("specifier").and_then(serde_yaml::Value::as_str) else {
+        let Some(specifier) = value.get("specifier").and_then(serde_json::Value::as_str) else {
             continue;
         };
         specifiers.insert(name.to_string(), specifier.to_string());
