@@ -161,34 +161,31 @@ fn poly_toml_emits_workspace_lint_hooks_for_non_bundled_linters() {
         .expect("poly.toml emitted")
         .content;
 
-    // Each external linter is delegated once through a workspace hook. ~keep
-    let rubocop = "BUNDLE_PATH=vendor/bundle ruby -S bundle exec ruby -S rubocop";
-    let steep = "BUNDLE_PATH=vendor/bundle ruby -S bundle exec ruby -S steep check";
-    for (table, cmd) in [
-        ("[hooks.pre-commit.commands.rubocop]", rubocop),
-        ("[hooks.pre-commit.commands.steep]", steep),
-        ("[hooks.pre-commit.commands.golangci-lint]", "golangci-lint run ./..."),
-        ("[hooks.pre-commit.commands.checkstyle]", "mvn -q checkstyle:check"),
-        ("[hooks.pre-commit.commands.dart-analyze]", "dart analyze"),
-        // credo is primed with `mix deps.get` because poly's staged snapshot has no
-        // gitignored `deps/` for Elixir to resolve credo itself from. ~keep
-        (
-            "[hooks.pre-commit.commands.credo]",
-            "mix deps.get && mix credo --strict",
-        ),
+    // Each external linter poly does not bundle is delegated once through a workspace hook.
+    // Exact equality, never `contains`: `"mix credo --strict"` is a SUBSTRING of the primed
+    // credo command, so a containment check would still pass if the priming were dropped. ~keep
+    let document: toml::Value = toml::from_str(c).expect("generated poly.toml must parse");
+    let commands = &document["hooks"]["pre-commit"]["commands"];
+    for (hook, cmd) in [
+        ("golangci-lint", "golangci-lint run ./..."),
+        ("checkstyle", "mvn -q checkstyle:check"),
+        ("credo", "mix deps.get && mix credo --strict"),
     ] {
-        assert!(c.contains(table), "missing workspace hook {table}");
-        assert!(c.contains(cmd), "missing command `{cmd}` for {table}");
+        assert_eq!(commands[hook]["run"].as_str(), Some(cmd), "wrong `{hook}` command");
+        // The flag that makes `poly lint .` run these once (not per file).
+        assert_eq!(
+            commands[hook]["workspace"].as_bool(),
+            Some(true),
+            "`{hook}` must be workspace-scoped"
+        );
     }
-    // Ruby tools must run from the ruby package so they discover .rubocop.yml.
-    assert!(c.contains("root = \"packages/ruby\""));
-    // The flag that makes `poly lint .` run these once (not per file).
-    assert!(
-        c.matches("workspace = true").count() >= 6,
-        "every delegated linter must be workspace-scoped"
-    );
-    // The whole document, with every hook table, must be valid TOML.
-    toml::from_str::<toml::Value>(c).expect("generated poly.toml must parse");
+
+    // rubocop, steep and the two dart analyzers are NOT emitted: they need a gitignored,
+    // project-local dependency directory that poly's staged snapshot never carries, so they
+    // could not pass as pre-commit hooks. See `unrunnable_snapshot_hooks_are_not_emitted`. ~keep
+    for hook in ["rubocop", "steep", "dart-analyze", "dart-e2e-analyze"] {
+        assert!(commands.get(hook).is_none(), "`{hook}` must not be emitted");
+    }
 }
 
 /// Snippet validation is a regeneration-time concern, not a pre-commit one: it compiles every
