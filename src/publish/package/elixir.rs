@@ -33,9 +33,7 @@ pub fn package_elixir(
     version: &str,
 ) -> Result<Vec<PackageArtifact>> {
     let nif_versions = resolve_nif_versions(config);
-    let rustler_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Elixir)
-        .unwrap_or_else(|| config.elixir_app_name().to_lowercase().replace('-', "_") + "_rustler");
-    let lib_name = rustler_crate.replace('-', "_");
+    let lib_name = nif_lib_name(config);
     let shared_lib = target.shared_lib_name(&lib_name);
 
     let lib_src = super::find_built_artifact(workspace_root, target, &shared_lib, super::BuildProfile::Release)?;
@@ -74,31 +72,51 @@ pub fn package_elixir(
     Ok(artifacts)
 }
 
-/// Generate a `checksum-Elixir.{App}.exs` file from all `.tar.gz` files in `output_dir`.
+/// Base name of the NIF shared library, as it appears in RustlerPrecompiled artifact names.
 ///
-/// Walks `output_dir` for files matching `lib{app}*nif*.tar.gz`, computes SHA256 for each,
-/// and writes an Elixir map literal compatible with RustlerPrecompiled.
+/// [`package_elixir`] and [`write_elixir_checksums`] must agree on this exactly: the checksum
+/// map is keyed by artifact file name, so a name derived two different ways silently produces a
+/// map that matches nothing a consumer downloads. ~keep
+fn nif_lib_name(config: &ResolvedCrateConfig) -> String {
+    let rustler_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Elixir)
+        .unwrap_or_else(|| config.elixir_app_name().to_lowercase().replace('-', "_") + "_rustler");
+    rustler_crate.replace('-', "_")
+}
+
+/// Generate a `checksum-Elixir.{App}.exs` file from this crate's NIF tarballs in `output_dir`.
+///
+/// Only files named `lib{nif_lib_name}-v*-nif-*.tar.gz` are considered: a shared `output_dir`
+/// in a multi-crate workspace also holds other crates' NIF tarballs, and a bare
+/// `*-nif-*.tar.gz` match folds those foreign artifacts into this crate's checksum map.
+/// Matching nothing at all is an error rather than an empty map, which would publish a
+/// checksum file that fails every consumer download.
 pub fn write_elixir_checksums(config: &ResolvedCrateConfig, output_dir: &Path) -> Result<PathBuf> {
     let app_name = config.elixir_app_name();
     let module_name = {
         let mut chars = app_name.chars();
         chars.next().map(|c| c.to_uppercase().to_string()).unwrap_or_default() + chars.as_str()
     };
+    let artifact_prefix = format!("lib{}-v", nif_lib_name(config));
 
     let mut checksums: BTreeMap<String, String> = BTreeMap::new();
-    for entry in fs::read_dir(output_dir)? {
+    for entry in fs::read_dir(output_dir).with_context(|| format!("reading {}", output_dir.display()))? {
         let entry = entry?;
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        if !name.ends_with(".tar.gz") || !name.contains("-nif-") {
+        if !name.starts_with(&artifact_prefix) || !name.ends_with(".tar.gz") || !name.contains("-nif-") {
             continue;
         }
         let digest = sha256_file(&path)?;
         checksums.insert(name.to_string(), format!("sha256:{digest}"));
     }
+    anyhow::ensure!(
+        !checksums.is_empty(),
+        "no `{artifact_prefix}*-nif-*.tar.gz` artifacts found in {} — refusing to write an empty checksum file",
+        output_dir.display()
+    );
 
     let pkg_dir = config.package_dir(crate::core::config::extras::Language::Elixir);
     let pkg_dir = Path::new(&pkg_dir);
@@ -302,9 +320,16 @@ sources = ["src/lib.rs"]
         assert!(!versions.is_empty());
     }
 
-    #[test]
-    fn write_checksums_produces_exs_file() {
-        let tmp = TempDir::new().unwrap();
+    /// A config whose `package_dir` resolves into `scaffold_root`, so the checksum file lands
+    /// in the tempdir instead of the real repo checkout.
+    ///
+    /// `elixir.scaffold_output` is set directly on the resolved config rather than through
+    /// `[crates.elixir] scaffold_output` TOML: path-safety validation now rejects an absolute
+    /// `scaffold_output` value at `resolve()` time (it would let a hostile config value write
+    /// generated files outside the project root), but these tests need `package_dir()` to
+    /// resolve to a real absolute tempdir (`package_dir_raw` reads `elixir.scaffold_output`
+    /// directly for `Language::Elixir`; it does not consult `output_paths`). ~keep
+    fn checksum_config(scaffold_root: &Path) -> ResolvedCrateConfig {
         let cfg: crate::core::config::NewAlefConfig = toml::from_str(
             r#"
 [workspace]
@@ -316,22 +341,27 @@ sources = ["src/lib.rs"]
         )
         .unwrap();
         let mut config = cfg.resolve().unwrap().remove(0);
-        // `elixir.scaffold_output` is set directly on the resolved config rather than through
-        // `[crates.elixir] scaffold_output` TOML: path-safety validation now rejects an
-        // absolute `scaffold_output` value at `resolve()` time (it would let a hostile config
-        // value write generated files outside the project root), but this test needs
-        // `package_dir()` to resolve to a real absolute tempdir so the checksum file it writes
-        // lands there instead of inside the real repo checkout (`package_dir_raw` reads
-        // `elixir.scaffold_output` directly for `Language::Elixir`; it does not consult
-        // `output_paths`). ~keep
         config
             .elixir
             .get_or_insert_with(|| toml::from_str("").expect("an empty table deserializes to all-default ElixirConfig"))
-            .scaffold_output = Some(tmp.path().to_path_buf());
+            .scaffold_output = Some(scaffold_root.to_path_buf());
+        config
+    }
 
-        let tarball = tmp
-            .path()
-            .join("libmylib-v1.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz");
+    /// The artifact name `package_elixir` produces for this crate, at the given NIF version.
+    fn own_artifact_name(config: &ResolvedCrateConfig, nif_version: &str) -> String {
+        format!(
+            "lib{}-v1.0.0-nif-{nif_version}-x86_64-unknown-linux-gnu.so.tar.gz",
+            nif_lib_name(config)
+        )
+    }
+
+    #[test]
+    fn write_checksums_produces_exs_file() {
+        let tmp = TempDir::new().unwrap();
+        let config = checksum_config(tmp.path());
+
+        let tarball = tmp.path().join(own_artifact_name(&config, "2.16"));
         fs::write(&tarball, b"fake tarball content").unwrap();
 
         let result = write_elixir_checksums(&config, tmp.path());
@@ -341,6 +371,47 @@ sources = ["src/lib.rs"]
         let content = fs::read_to_string(&checksum_file).unwrap();
         assert!(content.contains("sha256:"));
         assert!(content.contains("nif-2.16"));
+    }
+
+    /// A shared `output_dir` also holds other crates' NIF tarballs; folding them into this
+    /// crate's checksum map publishes checksums for artifacts this package never ships.
+    #[test]
+    fn write_checksums_excludes_other_crates_nif_artifacts() {
+        let tmp = TempDir::new().unwrap();
+        let config = checksum_config(tmp.path());
+
+        let own = own_artifact_name(&config, "2.16");
+        let foreign = "libotherlib_rustler-v1.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz";
+        fs::write(tmp.path().join(&own), b"ours").unwrap();
+        fs::write(tmp.path().join(foreign), b"theirs").unwrap();
+
+        let checksum_file = write_elixir_checksums(&config, tmp.path()).unwrap();
+        let content = fs::read_to_string(&checksum_file).unwrap();
+        assert!(content.contains(&own), "own artifact must be listed:\n{content}");
+        assert!(
+            !content.contains(foreign),
+            "another crate's artifact must not be listed:\n{content}"
+        );
+    }
+
+    /// Matching nothing means packaging produced nothing for this crate: an empty `%{}` map
+    /// would be published and fail every consumer download with an unrelated error.
+    #[test]
+    fn write_checksums_errors_when_no_own_artifacts_are_present() {
+        let tmp = TempDir::new().unwrap();
+        let config = checksum_config(tmp.path());
+        fs::write(
+            tmp.path()
+                .join("libotherlib_rustler-v1.0.0-nif-2.16-x86_64-unknown-linux-gnu.so.tar.gz"),
+            b"theirs",
+        )
+        .unwrap();
+
+        let error = write_elixir_checksums(&config, tmp.path()).unwrap_err().to_string();
+        assert!(
+            error.contains("refusing to write an empty checksum file"),
+            "unexpected error: {error}"
+        );
     }
 
     /// A 64-hex digest behind the `sha256:` tag, quoted: a fixed 73 columns.

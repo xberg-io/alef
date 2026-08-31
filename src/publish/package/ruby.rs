@@ -51,8 +51,9 @@ pub fn package_ruby(
     let lib_dest = lib_dest_dir.join(&lib_filename);
     fs::copy(&native_lib, &lib_dest).with_context(|| format!("copying native lib to {}", lib_dest.display()))?;
 
-    let mut rb_files: Vec<String> = scan_rb_files(&pkg_dir.join("lib"))
-        .unwrap_or_default()
+    let lib_dir = pkg_dir.join("lib");
+    let mut rb_files: Vec<String> = scan_rb_files(&lib_dir)
+        .with_context(|| format!("scanning Ruby wrapper sources under {}", lib_dir.display()))?
         .into_iter()
         .filter_map(|p| p.strip_prefix(&pkg_dir).ok().map(|r| r.to_string_lossy().into_owned()))
         .collect();
@@ -62,7 +63,7 @@ pub fn package_ruby(
         rb_files.push(native_lib_path);
     }
 
-    let required_ruby_version = read_required_ruby_version(&pkg_dir);
+    let required_ruby_version = read_required_ruby_version(&pkg_dir)?;
 
     let gemspec_name = format!("{gem_name}-platform.gemspec");
     let gemspec_path = pkg_dir.join(&gemspec_name);
@@ -208,48 +209,91 @@ end
 /// The returned value is the verbatim RHS (including surrounding quotes or
 /// brackets) so the platform gemspec emitter can re-emit it unchanged.
 ///
-/// Returns `None` when no source gemspec exists, no field is set, or the
-/// regex fails — callers should treat absence as "no constraint".
-fn read_required_ruby_version(pkg_dir: &Path) -> Option<String> {
-    let entries = fs::read_dir(pkg_dir).ok()?;
-    let re = regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|e| e != "gemspec") {
+/// Every source gemspec is read, in sorted order, rather than stopping at whichever one
+/// `read_dir` yielded first: two gemspecs declaring different constraints used to publish
+/// whichever the filesystem listed first, and an unreadable gemspec used to abandon the whole
+/// scan and silently publish a gem with no constraint at all. Conflicting constraints are an
+/// error naming both files. `Ok(None)` means "no constraint declared anywhere". ~keep
+fn read_required_ruby_version(pkg_dir: &Path) -> Result<Option<String>> {
+    let mut gemspecs: Vec<PathBuf> = fs::read_dir(pkg_dir)
+        .with_context(|| format!("reading {}", pkg_dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "gemspec"))
+        .filter(|path| {
+            !path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with("-platform.gemspec"))
+        })
+        .collect();
+    gemspecs.sort();
+
+    let pattern = r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#;
+    let re = regex::Regex::new(pattern).context("compiling the required_ruby_version pattern")?;
+
+    let mut found: Option<(PathBuf, String)> = None;
+    for path in gemspecs {
+        let content = fs::read_to_string(&path).with_context(|| format!("reading gemspec {}", path.display()))?;
+        let Some(caps) = re.captures(&content) else {
+            continue;
+        };
+        let value = caps[1].to_string();
+        if let Some((first_path, first_value)) = &found {
+            anyhow::ensure!(
+                first_value == &value,
+                "conflicting `required_ruby_version` in {}: {} declares {first_value}, {} declares {value}",
+                pkg_dir.display(),
+                first_path.display(),
+                path.display()
+            );
             continue;
         }
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with("-platform.gemspec"))
-        {
-            continue;
-        }
-        let content = fs::read_to_string(&path).ok()?;
-        if let Some(caps) = re.captures(&content) {
-            return Some(caps[1].to_string());
-        }
+        found = Some((path, value));
     }
-    None
+    Ok(found.map(|(_, value)| value))
 }
 
+/// Locate the `.gem` `gem build` just produced.
+///
+/// The exact `{gem_name}-{version}-{platform}.gem` wins; the fallback exists only because
+/// RubyGems normalizes some platform strings (`arm64-darwin` -> `arm64-darwin-23`), so it is
+/// anchored on the `{gem_name}-{version}-` prefix rather than a bare "name contains the
+/// version" test, and it refuses to choose between several matches — a stale gem from an
+/// earlier run would otherwise be published under this run's name. ~keep
 fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> Result<PathBuf> {
     let expected = dir.join(format!("{gem_name}-{version}-{platform}.gem"));
     if expected.exists() {
         return Ok(expected);
     }
-    let candidates: Vec<PathBuf> = fs::read_dir(dir)?
+    let prefix = format!("{gem_name}-{version}-");
+    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
+        .with_context(|| format!("reading {}", dir.display()))?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "gem"))
         .filter(|p| {
-            p.extension().is_some_and(|e| e == "gem")
-                && p.file_name().is_some_and(|n| n.to_string_lossy().contains(version))
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(&prefix))
         })
         .collect();
-    candidates
-        .into_iter()
-        .next()
-        .with_context(|| format!("no .gem file for {gem_name}-{version} found in {}", dir.display()))
+    candidates.sort();
+
+    match candidates.as_slice() {
+        [] => anyhow::bail!("no .gem file for {gem_name}-{version} found in {}", dir.display()),
+        [only] => Ok(only.clone()),
+        many => anyhow::bail!(
+            "ambiguous .gem for {gem_name}-{version} in {}: expected {}, found {}: {}",
+            dir.display(),
+            expected.display(),
+            many.len(),
+            many.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
 fn ruby_abi_for_packaging() -> Result<String> {
@@ -415,7 +459,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            read_required_ruby_version(tmp.path()),
+            read_required_ruby_version(tmp.path()).unwrap(),
             Some(r#"">= 3.2.0""#.to_string())
         );
     }
@@ -429,7 +473,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            read_required_ruby_version(tmp.path()),
+            read_required_ruby_version(tmp.path()).unwrap(),
             Some(r#"[">= 3.2.0", "< 4.0"]"#.to_string())
         );
     }
@@ -442,7 +486,7 @@ mod tests {
             "Gem::Specification.new do |spec|\n  spec.name = \"mylib\"\nend\n",
         )
         .unwrap();
-        assert_eq!(read_required_ruby_version(tmp.path()), None);
+        assert_eq!(read_required_ruby_version(tmp.path()).unwrap(), None);
     }
 
     #[test]
@@ -468,6 +512,64 @@ mod tests {
         assert!(!names.contains(&"libmylib_rb.so".to_string()), ".so excluded from scan");
     }
 
+    /// Two source gemspecs declaring different constraints is ambiguity: publishing whichever
+    /// one `read_dir` yielded first would ship a nondeterministic `required_ruby_version`.
+    #[test]
+    fn read_required_ruby_version_errors_on_conflicting_gemspecs() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("alpha.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("beta.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.4.0\"\nend\n",
+        )
+        .unwrap();
+
+        let error = read_required_ruby_version(tmp.path()).unwrap_err().to_string();
+        assert!(
+            error.contains("conflicting `required_ruby_version`"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("alpha.gemspec"),
+            "error must name both gemspecs: {error}"
+        );
+        assert!(error.contains("beta.gemspec"), "error must name both gemspecs: {error}");
+    }
+
+    /// An unreadable gemspec must surface, not abandon the scan and silently publish a gem with
+    /// no `required_ruby_version` at all.
+    #[test]
+    fn read_required_ruby_version_errors_when_a_gemspec_is_unreadable() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("broken.gemspec")).unwrap();
+        std::fs::write(
+            tmp.path().join("mylib.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
+        )
+        .unwrap();
+
+        let error = read_required_ruby_version(tmp.path()).unwrap_err().to_string();
+        assert!(error.contains("reading gemspec"), "unexpected error: {error}");
+    }
+
+    /// `scan_rb_files` failing means the wrapper sources could not be enumerated -- the caller
+    /// propagates it rather than emitting a gemspec whose `files` list is silently empty.
+    #[test]
+    fn scan_rb_files_errors_when_lib_dir_is_not_a_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let lib = tmp.path().join("lib");
+        std::fs::write(&lib, b"not a directory").unwrap();
+
+        assert!(
+            scan_rb_files(&lib).is_err(),
+            "a non-directory lib path must be an error"
+        );
+    }
+
     #[test]
     fn find_gem_file_expected_path() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -483,6 +585,53 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux");
         assert!(result.is_err());
+    }
+
+    /// The fallback exists for RubyGems' platform-string normalization only; an unrelated gem
+    /// that merely contains the version string must never be published under this gem's name.
+    #[test]
+    fn find_gem_file_ignores_unrelated_gem_with_matching_version() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("othergem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
+
+        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("no .gem file for mygem-1.0.0"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// The normalization the fallback exists for: RubyGems rewrites `arm64-darwin` to
+    /// `arm64-darwin-23`, and a single such match is still unambiguous.
+    #[test]
+    fn find_gem_file_accepts_single_platform_normalized_variant() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let normalized = tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem");
+        std::fs::write(&normalized, b"fake").unwrap();
+
+        let found = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin").unwrap();
+        assert_eq!(found, normalized);
+    }
+
+    /// Several same-version gems (a stale one from an earlier run) must error naming all of
+    /// them, not resolve by directory-iteration order.
+    #[test]
+    fn find_gem_file_errors_when_several_same_version_gems_exist() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem"), b"fake").unwrap();
+        std::fs::write(tmp.path().join("mygem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
+
+        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ambiguous .gem"), "unexpected error: {error}");
+        assert!(
+            error.contains("arm64-darwin-23.gem"),
+            "must name every candidate: {error}"
+        );
+        assert!(error.contains("x86_64-linux.gem"), "must name every candidate: {error}");
     }
 
     /// `find_ruby_native_lib` now delegates to

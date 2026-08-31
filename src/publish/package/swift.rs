@@ -130,6 +130,17 @@ pub fn package_swift(
     if root_manifest.exists() {
         fs::copy(&root_manifest, staging.join("Package.swift")).context("copying root Swift Package.swift")?;
     }
+    // A SwiftPM package with no `Package.swift` is unusable, and `patch_root_package_manifest`
+    // treats a missing manifest as "nothing to patch" -- so without this check the tarball ships
+    // silently unbuildable. ~keep
+    if !staging.join("Package.swift").exists() {
+        anyhow::bail!(
+            "Swift package manifest not found: neither {} nor {}/Package.swift exists",
+            root_manifest.display(),
+            pkg_dir
+        );
+    }
+
     // Resolved here rather than inside `patch_root_package_manifest` so that function stays a
     // pure transform over its explicit inputs -- see its doc comment. ~keep
     let checksum = std::env::var("ALEF_SWIFT_CHECKSUM")
@@ -239,6 +250,33 @@ sources = []
         let artifact = package_swift(&config, tmp.path(), &output, "0.1.0").unwrap();
         assert!(artifact.path.exists(), "tarball should exist");
         assert_eq!(artifact.name, "MyLib-0.1.0.tar.gz");
+    }
+
+    /// A staged tree with no `Package.swift` is not a SwiftPM package: packaging must fail
+    /// loudly instead of producing a tarball SwiftPM cannot open.
+    #[test]
+    fn package_swift_errors_when_no_manifest_is_staged() {
+        let config = minimal_config("my-lib");
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        let swift_pkg = tmp.path().join("packages/swift");
+        fs::create_dir_all(swift_pkg.join("Sources/MyLib")).unwrap();
+        fs::write(swift_pkg.join("Sources/MyLib/MyLib.swift"), "public struct MyLib {}\n").unwrap();
+
+        let output = tmp.path().join("out");
+        fs::create_dir_all(&output).unwrap();
+
+        let error = package_swift(&config, tmp.path(), &output, "0.1.0")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Swift package manifest not found"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            !output.join("MyLib-0.1.0.tar.gz").exists(),
+            "no tarball may be produced without a manifest"
+        );
     }
 
     #[test]

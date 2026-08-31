@@ -176,31 +176,94 @@ fn csharp_rid(config: &ResolvedCrateConfig, target: &RustTarget) -> String {
     target.platform_for(Language::Csharp)
 }
 
+/// Suffixes of `.csproj` files that are never the thin meta package: the per-RID native
+/// project the scaffold emits alongside it, plus the test projects consumers keep in the
+/// same package directory. Packing one of these instead of the meta project publishes a
+/// structurally valid but wrong `.nupkg`, so they are excluded from the fallback scan
+/// rather than left to `read_dir` order. ~keep
+const NON_PACKAGE_CSPROJ_SUFFIXES: [&str; 3] = [".Runtime.csproj", ".SmokeTests.csproj", ".Tests.csproj"];
+
 /// Find the thin meta `<Namespace>.csproj` under the C# package directory.
+///
+/// Selection is deterministic and refuses to guess:
+///
+/// 1. the canonical `{pkg_dir}/{Namespace}/{Namespace}.csproj` wins outright;
+/// 2. otherwise any project file actually named `{Namespace}.csproj` wins;
+/// 3. otherwise the scan considers only projects that are not a per-RID runtime or test
+///    project, and requires exactly one — several qualifying candidates is an error naming
+///    all of them, never a `read_dir`-order pick.
 fn find_csproj(pkg_dir: &Path, namespace: &str) -> Result<PathBuf> {
-    let candidate = pkg_dir.join(namespace).join(format!("{namespace}.csproj"));
-    if candidate.exists() {
-        return Ok(candidate);
+    let expected_name = format!("{namespace}.csproj");
+    let canonical = pkg_dir.join(namespace).join(&expected_name);
+    if canonical.exists() {
+        return Ok(canonical);
     }
-    if pkg_dir.exists() {
-        for entry in fs::read_dir(pkg_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                for inner in fs::read_dir(&path)? {
-                    let inner = inner?;
-                    let ip = inner.path();
-                    if ip.extension().is_some_and(|e| e == "csproj") {
-                        return Ok(ip);
-                    }
+    if !pkg_dir.exists() {
+        anyhow::bail!("No .csproj found under {}", pkg_dir.display());
+    }
+
+    let mut found = collect_csproj_files(pkg_dir)?;
+    found.sort();
+
+    let exact: Vec<PathBuf> = found
+        .iter()
+        .filter(|p| has_file_name(p, &expected_name))
+        .cloned()
+        .collect();
+    let candidates = if exact.is_empty() {
+        found.into_iter().filter(|p| is_package_csproj(p)).collect()
+    } else {
+        exact
+    };
+
+    match candidates.as_slice() {
+        [] => anyhow::bail!("No .csproj found under {}", pkg_dir.display()),
+        [only] => Ok(only.clone()),
+        many => anyhow::bail!(
+            "ambiguous .csproj under {}: expected exactly one meta project (ideally `{expected_name}`), found {}: {}",
+            pkg_dir.display(),
+            many.len(),
+            many.iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// Collect every `.csproj` directly under `pkg_dir` or one directory below it.
+fn collect_csproj_files(pkg_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(pkg_dir).with_context(|| format!("reading {}", pkg_dir.display()))? {
+        let path = entry?.path();
+        if path.is_dir() {
+            for inner in fs::read_dir(&path).with_context(|| format!("reading {}", path.display()))? {
+                let inner_path = inner?.path();
+                if is_csproj(&inner_path) {
+                    found.push(inner_path);
                 }
             }
-            if path.extension().is_some_and(|e| e == "csproj") {
-                return Ok(path);
-            }
+        } else if is_csproj(&path) {
+            found.push(path);
         }
     }
-    anyhow::bail!("No .csproj found under {}", pkg_dir.display())
+    Ok(found)
+}
+
+fn is_csproj(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "csproj")
+}
+
+fn has_file_name(path: &Path, name: &str) -> bool {
+    path.file_name().and_then(|n| n.to_str()) == Some(name)
+}
+
+/// Whether a `.csproj` could be the meta package project at all.
+fn is_package_csproj(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    !NON_PACKAGE_CSPROJ_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
 
 /// The canonical path of the per-RID native runtime project the scaffold emits:
@@ -386,6 +449,87 @@ csharp_rid = "linux-x64-custom"
         let staged = meta_dir.join("runtimes/linux-x64/native/libmylib.so");
         assert!(staged.exists());
         assert_eq!(std::fs::read(staged).unwrap(), b"fake-native");
+    }
+
+    /// A `.csproj` living only under decoy names (per-RID runtime project, smoke/unit test
+    /// projects) must not be packed as the meta package: without the exclusion the fallback
+    /// returns whichever one `read_dir` happened to yield first and publishes a corrupt package.
+    #[test]
+    fn find_csproj_refuses_test_and_runtime_projects() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("packages/csharp");
+        for name in ["MyLib.SmokeTests", "MyLib.Runtime", "MyLib.Tests"] {
+            let dir = pkg_dir.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("{name}.csproj")), b"<Project />").unwrap();
+        }
+
+        let error = find_csproj(&pkg_dir, "MyLib").unwrap_err();
+        assert!(
+            error.to_string().contains("No .csproj found under"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// When the canonical path is missing, a project actually named `{Namespace}.csproj`
+    /// wins over every decoy regardless of directory-iteration order.
+    #[test]
+    fn find_csproj_prefers_exact_namespace_name_over_decoys() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("packages/csharp");
+        for name in ["MyLib.SmokeTests", "MyLib.Runtime", "MyLib.Tests"] {
+            let dir = pkg_dir.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("{name}.csproj")), b"<Project />").unwrap();
+        }
+        let meta_dir = pkg_dir.join("meta");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        let meta = meta_dir.join("MyLib.csproj");
+        std::fs::write(&meta, b"<Project />").unwrap();
+
+        assert_eq!(find_csproj(&pkg_dir, "MyLib").unwrap(), meta);
+    }
+
+    /// Several qualifying projects and no exact-name match is ambiguity: error naming all of
+    /// them rather than silently packing whichever one the filesystem listed first.
+    #[test]
+    fn find_csproj_errors_when_several_candidates_qualify() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("packages/csharp");
+        for name in ["Alpha", "Beta"] {
+            let dir = pkg_dir.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join(format!("{name}.csproj")), b"<Project />").unwrap();
+        }
+
+        let error = find_csproj(&pkg_dir, "MyLib").unwrap_err().to_string();
+        assert!(error.contains("ambiguous .csproj"), "unexpected error: {error}");
+        assert!(
+            error.contains("Alpha.csproj"),
+            "error must name every candidate: {error}"
+        );
+        assert!(
+            error.contains("Beta.csproj"),
+            "error must name every candidate: {error}"
+        );
+    }
+
+    /// The canonical `{pkg_dir}/{Namespace}/{Namespace}.csproj` still wins outright, even with
+    /// decoy projects sitting next to it.
+    #[test]
+    fn find_csproj_uses_canonical_path_when_present() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let pkg_dir = tmp.path().join("packages/csharp");
+        let meta_dir = pkg_dir.join("MyLib");
+        std::fs::create_dir_all(&meta_dir).unwrap();
+        let meta = meta_dir.join("MyLib.csproj");
+        std::fs::write(&meta, b"<Project />").unwrap();
+        std::fs::write(meta_dir.join("MyLib.SmokeTests.csproj"), b"<Project />").unwrap();
+        let runtime_dir = pkg_dir.join("MyLib.Runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        std::fs::write(runtime_dir.join("MyLib.Runtime.csproj"), b"<Project />").unwrap();
+
+        assert_eq!(find_csproj(&pkg_dir, "MyLib").unwrap(), meta);
     }
 
     /// The RID loop must only pack RIDs that are both enabled in config and have a

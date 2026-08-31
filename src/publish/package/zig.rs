@@ -139,28 +139,74 @@ pub fn build(b: *std.Build) void {{
     )
 }
 
+/// Directories bundled into the Zig tarball that the manifest's `.paths` allowlist must
+/// name for a fetched consumer to resolve them.
+const BUNDLED_MANIFEST_PATHS: [&str; 2] = ["lib", "include"];
+
+const PATHS_MARKER: &str = ".paths = .{";
+
 /// Insert the bundled `lib` and `include` directories into a `build.zig.zon`
 /// `.paths` allowlist so a fetched consumer can resolve the prebuilt FFI library
 /// and header via `b.path("lib")` / `b.path("include")`.
 ///
-/// Idempotent for a freshly staged manifest: the scaffolded source never lists
-/// these directories, so the entries are added exactly once per package run.
+/// Idempotence is decided from the `.paths` block alone, not from a substring search over the
+/// whole manifest: a `"lib"` or `"include"` literal anywhere else (a dependency name, a URL, a
+/// comment) used to satisfy the check and skip the patch entirely, shipping a package whose
+/// `b.path("lib")` resolves to nothing. Each entry is also added only when that entry is
+/// missing, so a manifest already listing one of them does not end up with it twice. ~keep
 fn add_bundled_paths_to_manifest(manifest: &Path) -> Result<()> {
     let zon = fs::read_to_string(manifest).context("reading staged build.zig.zon")?;
-    const MARKER: &str = ".paths = .{";
-    let Some(pos) = zon.find(MARKER) else {
+    let Some(pos) = zon.find(PATHS_MARKER) else {
         anyhow::bail!("build.zig.zon is missing a `.paths` block: {}", manifest.display());
     };
-    if zon.contains("\"lib\"") && zon.contains("\"include\"") {
+    let insert_at = pos + PATHS_MARKER.len();
+    let paths_block = paths_block_body(&zon[insert_at..]).with_context(|| {
+        format!(
+            "build.zig.zon has an unterminated `.paths` block: {}",
+            manifest.display()
+        )
+    })?;
+
+    let missing: Vec<&str> = BUNDLED_MANIFEST_PATHS
+        .iter()
+        .copied()
+        .filter(|entry| !paths_block.contains(&format!("\"{entry}\"")))
+        .collect();
+    if missing.is_empty() {
         return Ok(());
     }
-    let insert_at = pos + MARKER.len();
+
     let mut patched = String::with_capacity(zon.len() + 32);
     patched.push_str(&zon[..insert_at]);
-    patched.push_str("\n        \"lib\",\n        \"include\",");
+    for entry in missing {
+        patched.push_str("\n        \"");
+        patched.push_str(entry);
+        patched.push_str("\",");
+    }
     patched.push_str(&zon[insert_at..]);
     fs::write(manifest, patched).context("writing patched build.zig.zon")?;
     Ok(())
+}
+
+/// Body of the `.paths` block, given everything after its opening `.{`.
+///
+/// Returns `None` when the block is never closed, so a truncated manifest is reported instead
+/// of being treated as an empty allowlist.
+fn paths_block_body(after_marker: &str) -> Option<&str> {
+    let mut depth = 1usize;
+    for (index, ch) in after_marker.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&after_marker[..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -236,6 +282,89 @@ sources = []
             once.matches("\"lib\"").count(),
             twice.matches("\"lib\"").count(),
             "second call must be a no-op"
+        );
+    }
+
+    /// A `"lib"` / `"include"` literal outside the `.paths` block (here two dependency names)
+    /// must not be mistaken for the bundled entries: treating it as "already patched" silently
+    /// ships a package whose `b.path("lib")` resolves to nothing.
+    #[test]
+    fn bundled_paths_added_despite_unrelated_lib_literals_elsewhere() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest = dir.path().join("build.zig.zon");
+        fs::write(
+            &manifest,
+            r#".{
+    .name = .sample_router,
+    .dependencies = .{
+        .@"lib" = .{},
+        .@"include" = .{},
+    },
+    .paths = .{
+        "build.zig",
+        "src",
+    },
+}
+"#,
+        )
+        .expect("write manifest");
+
+        add_bundled_paths_to_manifest(&manifest).expect("patch");
+
+        let patched = fs::read_to_string(&manifest).expect("read");
+        let body = paths_block_body(patched.split_once(PATHS_MARKER).expect("paths block").1).expect("closed block");
+        assert!(body.contains("\"lib\""), "lib must be listed in .paths:\n{patched}");
+        assert!(
+            body.contains("\"include\""),
+            "include must be listed in .paths:\n{patched}"
+        );
+    }
+
+    /// Patching a manifest that already lists one bundled entry must add only the other one --
+    /// a blind insert of both duplicates the entry already present.
+    #[test]
+    fn bundled_paths_adds_only_the_missing_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest = dir.path().join("build.zig.zon");
+        fs::write(
+            &manifest,
+            r#".{
+    .name = .sample_router,
+    .paths = .{
+        "build.zig",
+        "lib",
+    },
+}
+"#,
+        )
+        .expect("write manifest");
+
+        add_bundled_paths_to_manifest(&manifest).expect("patch");
+
+        let patched = fs::read_to_string(&manifest).expect("read");
+        assert_eq!(
+            patched.matches("\"lib\"").count(),
+            1,
+            "lib must not be duplicated:\n{patched}"
+        );
+        assert_eq!(
+            patched.matches("\"include\"").count(),
+            1,
+            "include must be added:\n{patched}"
+        );
+    }
+
+    /// An unterminated `.paths` block is a corrupt manifest, not an empty allowlist.
+    #[test]
+    fn unterminated_paths_block_is_an_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest = dir.path().join("build.zig.zon");
+        fs::write(&manifest, ".{\n    .paths = .{\n        \"build.zig\",\n").expect("write manifest");
+
+        let error = add_bundled_paths_to_manifest(&manifest).unwrap_err().to_string();
+        assert!(
+            error.contains("unterminated `.paths` block"),
+            "unexpected error: {error}"
         );
     }
 
