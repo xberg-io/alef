@@ -18,13 +18,22 @@ pub(super) fn validate_extracted_api(api: &ApiSurface, config: &ResolvedCrateCon
         .collect();
     let validation_report =
         crate::core::validation::validate_api_surface_with_bridged_traits(api, &bridged_trait_names);
-    let (suppressed, fatal): (Vec<_>, Vec<_>) = validation_report.errors().partition(|d| {
-        !crate::core::validation::is_critical_unsuppressible(d.code)
-            && config
-                .suppress_validation_codes
-                .iter()
-                .any(|code| code == &d.code.to_string())
-    });
+    // `options_field` trait bridges read a specific field off a specific options struct rather
+    // than a whole-trait carrier, so this check needs the full bridge config (options_type,
+    // resolved field name), not just the trait names threaded through `validation_report`.
+    // Kept as a separate call rather than folded into `validate_api_surface_with_bridged_traits`
+    // itself, whose `bridged_trait_names: &AHashSet<&str>` signature several other call sites
+    // (and their tests) depend on. ~keep
+    let carrier_diagnostics =
+        crate::core::validation::trait_bridge_carrier_diagnostics(api, &config.trait_bridges);
+    let (suppressed, fatal): (Vec<_>, Vec<_>) =
+        validation_report.errors().chain(carrier_diagnostics.iter()).partition(|d| {
+            !crate::core::validation::is_critical_unsuppressible(d.code)
+                && config
+                    .suppress_validation_codes
+                    .iter()
+                    .any(|code| code == &d.code.to_string())
+        });
     for diagnostic in suppressed {
         // The consumer explicitly opted into suppress_validation_codes for this diagnostic;
         // re-printing it at warn level defeats their own declared setting. ~keep

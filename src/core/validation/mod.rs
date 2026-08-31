@@ -12,10 +12,12 @@ use ahash::AHashSet;
 
 mod readiness;
 mod since_version;
+mod trait_bridge_carrier;
 
 use readiness::backend_readiness_diagnostics;
 use since_version::since_version_diagnostics;
 use std::fmt;
+pub use trait_bridge_carrier::trait_bridge_carrier_diagnostics;
 
 /// Validation severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
