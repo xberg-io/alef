@@ -1350,3 +1350,66 @@ fn render_php_needs_getter_returns_false_when_owner_has_no_getter_entry() {
     );
     assert_eq!(r.accessor("content", "php", "$result"), "$result->content");
 }
+
+/// A trailing `[0]` has already reduced a `Vec<String>` accessor to one `String`, so the
+/// binding must not take the array branch.
+///
+/// The array answer comes from the IR collection map, whose walk ends at `segment_name`, which
+/// returns the bare field name for a `PathSegment::ArrayField` and therefore cannot tell
+/// `detected_languages` from `detected_languages[0]`. Before the leaf-indexed guard, the indexed
+/// path still took the array branch and emitted `.as_deref().unwrap_or(&[])` on a concrete
+/// `String` -- `no method named as_deref found for struct String`, a real consumer build failure.
+/// The IR map is what makes this fire: an `array_fields` config set alone answers on exact string
+/// match, so a synthetic resolver without IR never reproduces it. The bare-path control pins the
+/// array branch that must keep working. ~keep
+#[test]
+fn indexed_array_leaf_binds_as_an_element_not_as_a_slice() {
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+    let types = vec![TypeDef {
+        name: "ExtractedDocument".to_string(),
+        fields: vec![FieldDef {
+            name: "detected_languages".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+            ..FieldDef::default()
+        }],
+        ..TypeDef::default()
+    }];
+
+    let aliases = HashMap::new();
+    let mut optional = HashSet::new();
+    optional.insert("detected_languages".to_string());
+    optional.insert("detected_languages[0]".to_string());
+    let resolver = FieldResolver::new(&aliases, &optional, &HashSet::new(), &HashSet::new(), &HashSet::new())
+        .with_ir_collection_map(
+            FieldResolver::ir_collection_fields(&types),
+            Some("ExtractedDocument".to_string()),
+        );
+
+    let (bare, _) = resolver
+        .rust_unwrap_binding("detected_languages", "result")
+        .expect("the un-indexed array field binds");
+    assert!(
+        bare.contains("as_deref().unwrap_or(&[])"),
+        "control: the un-indexed path is genuinely a slice, so the IR map must be answering \
+         `is_array` here -- without this the indexed assertion below proves nothing: {bare}"
+    );
+
+    let (indexed, _) = resolver
+        .rust_unwrap_binding("detected_languages[0]", "result")
+        .expect("an optional indexed leaf still needs an unwrap binding");
+    assert!(
+        !indexed.contains("as_deref()"),
+        "`detected_languages[0]` is a single String; the slice branch does not compile: {indexed}"
+    );
+    assert!(
+        !indexed.contains(".as_ref().map("),
+        "the trailing index already consumed the Option wrapper (the accessor's own \
+         `.as_ref().unwrap()` is what unwrapped it), so the optional-scalar branch's \
+         `.as_ref().map(..)` would be an ambiguous AsRef on a String: {indexed}"
+    );
+    assert!(
+        indexed.trim_end().ends_with(".to_string();"),
+        "an already-unwrapped element binds directly through Display: {indexed}"
+    );
+}

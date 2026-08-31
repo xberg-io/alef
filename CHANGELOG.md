@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rust e2e:** bind an indexed array leaf as the element it is, not as the slice it came from.
+  `is_array` answers through `segment_name`, which returns the bare field name for a
+  `PathSegment::ArrayField` and so cannot tell `detected_languages` from `detected_languages[0]`;
+  the indexed path took the array branch and emitted `.as_deref().unwrap_or(&[])` on a concrete
+  `String`. Removing only that is not enough -- the trailing index has already consumed the
+  `Option<Vec<T>>` wrapper (`render_rust_with_optionals` emits `.as_ref().unwrap()[0]`), so the
+  optional-scalar branch's `.as_ref().map(..)` is an ambiguous `AsRef` on a `String` that does not
+  even infer a type. An already-indexed leaf now binds directly through `Display`.
+
+
 ## [0.79.4] - 2026-08-31
 
 ### Fixed

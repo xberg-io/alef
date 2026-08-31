@@ -330,9 +330,23 @@ impl FieldResolver {
                 false
             }
         });
-        let is_array = self.is_array(resolved);
+        // `is_array` asks whether the *field* is Vec-typed, via `segment_name`, which returns the
+        // bare name for a `PathSegment::ArrayField` and so cannot tell `detected_languages` from
+        // `detected_languages[0]`. A trailing indexed segment has already reduced the accessor to
+        // one element, so the array branch below would emit `.as_deref().unwrap_or(&[])` on a
+        // concrete `String`. (A `Vec<Vec<T>>` leaf would still be an array after one index; no
+        // fixture path indexes into a nested collection, and IR-walking the element type here
+        // would duplicate `ir_collection`'s cursor.) ~keep
+        let leaf_is_indexed_element = matches!(segments.last(), Some(PathSegment::ArrayField { .. }));
+        let is_array = self.is_array(resolved) && !leaf_is_indexed_element;
         let binding = if has_map_access {
             format!("let {local_var} = {accessor}.unwrap_or(\"\");")
+        } else if leaf_is_indexed_element {
+            // The trailing index already consumed the `Option<Vec<T>>` wrapper -- `render_rust_with_optionals`
+            // emitted `.as_ref().unwrap()[0]`, so the accessor is a concrete element, not an `Option`.
+            // The optional-scalar branch below would call `.as_ref().map(..)` on it, which for a `String`
+            // leaf is an ambiguous `AsRef` and does not even infer a type. ~keep
+            format!("let {local_var} = {accessor}.to_string();")
         } else if is_array {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
