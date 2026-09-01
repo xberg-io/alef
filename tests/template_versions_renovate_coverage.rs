@@ -173,6 +173,11 @@ enum UnmarkedReason {
     /// One const's value is rendered for two different upstream packages, so a single
     /// marker would drive updates off the wrong one.
     SharedAcrossPackages,
+    /// The version is paired with a checksum const that Renovate cannot recompute, so an
+    /// automated version bump would leave the digest pointing at the previous artifact and
+    /// silently break the integrity check the pair exists to provide. Both halves move together,
+    /// by hand, or neither moves.
+    CoupledToDigest,
 }
 
 /// One version const with no marker, why, and enough specific detail that the next
@@ -190,6 +195,17 @@ struct UnmarkedVersionConst {
 /// invisible to every test above it, so a new one added without either a marker or an
 /// entry here would freeze silently -- the exact failure mode this file exists to catch. ~keep
 const KNOWN_UNMARKED_VERSION_CONSTS: &[UnmarkedVersionConst] = &[
+    UnmarkedVersionConst {
+        name: "PIE_VERSION",
+        reason: UnmarkedReason::CoupledToDigest,
+        detail: "paired with PIE_PHAR_SHA256; an auto-bump without the matching digest would \
+                 defeat the checksum f768d438a added",
+    },
+    UnmarkedVersionConst {
+        name: "PIE_PHAR_SHA256",
+        reason: UnmarkedReason::NotAVersion,
+        detail: "SHA-256 of the pie.phar asset, not a version -- updated by hand with PIE_VERSION",
+    },
     UnmarkedVersionConst {
         name: "NODE_ENGINE",
         reason: UnmarkedReason::ToolchainFloor,
