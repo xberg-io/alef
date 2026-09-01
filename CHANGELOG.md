@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`alef update` now reaches every Rust manifest alef generated, not just the current
+  directory.** Its Rust arm ran `cargo update` once in the CWD with no per-directory iteration,
+  unlike every other language, whose default is templated `cd {output_dir} && ...`. A
+  workspace-EXCLUDED manifest — a Ruby, R, or Elixir native-extension crate, or an `e2e/rust`
+  crate — is therefore structurally unreachable: not a member, so a root `cargo update -w` never
+  touches it, and `alef update` never enters its directory. That is how three lockfiles in one
+  repo drifted until `cargo metadata --locked` failed in CI.
+
+  Discovery reuses `version_manifests::discover_cargo_locks` rather than adding a second
+  mechanism. `--latest` delegates to `cargo upgrade --incompatible` before `cargo update`, but
+  never against an alef-generated manifest: `cargo upgrade` rewrites the manifest and so
+  invalidates the `alef:hash:` stamp the generator just wrote, which would make the next
+  `alef verify` report drift on a file alef itself asked cargo to rewrite. Generated-ness is read
+  from the file's own header, not a path allowlist. A lock blocked on this workspace's own pending
+  publish is skipped; discovering no lockfiles at all is an error rather than a silent no-op.
+
 ### Fixed
 
 - **A Dart codegen test asserted a property of the CI environment rather than of the generated
