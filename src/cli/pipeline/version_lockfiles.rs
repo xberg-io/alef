@@ -19,7 +19,9 @@ use crate::cli::git::tracked_paths_under;
 use crate::core::backend::GeneratedFile;
 
 use super::collect_alef_headered_paths;
-use super::lock_freshness::{StaleLockFinding, stale_lock_findings};
+use super::lock_freshness::{
+    StaleLockFinding, check_generated_lock_freshness_tolerating_pending_publish, stale_lock_findings,
+};
 
 /// Run `cargo update --offline -w` in the directory of every discovered lockfile that is not
 /// waiting on a pending release.
@@ -48,7 +50,12 @@ pub(super) fn relock_cargo_lockfiles(canonical: &str) {
             continue;
         };
         info!("Relocking {} after version sync", lock.path.display());
-        relock_one(dir, &lock.path, None);
+        // Best-effort, matching every other lockfile-refresh command `sync_versions` runs (`pnpm
+        // install`, `composer update`, `mix deps.get`): `relock_one`'s own `warn!` already
+        // surfaced the failure, so there is nothing further to do here beyond letting version
+        // sync continue with the rest of the workspace. See `relock_one`'s doc for why this
+        // caller in particular must not escalate a resolver failure into a hard error. ~keep
+        let _ = relock_one(dir, &lock.path, None);
     }
 }
 
@@ -85,13 +92,15 @@ pub(super) fn retry_blocked_lockfiles(canonical: &str) {
             waiting_on,
             "version-sync: retrying relock for a lock previously blocked on a pending release"
         );
-        relock_one(dir, &lock.path, Some(waiting_on));
+        // Best-effort, same rationale as `relock_cargo_lockfiles` above. ~keep
+        let _ = relock_one(dir, &lock.path, Some(waiting_on));
     }
 }
 
 /// Relock the `Cargo.lock` sitting beside a nested, alef-generated `Cargo.toml` (a Ruby, R, or
 /// Elixir native-extension manifest -- never a root workspace member) immediately after this
-/// write actually changed that manifest's content on disk.
+/// write actually changed that manifest's content on disk, and confirm the refresh actually
+/// worked before reporting success.
 ///
 /// [`relock_cargo_lockfiles`] above only ever runs from `sync_versions`, the version-bump
 /// pipeline. But a nested binding-crate manifest is `generated_header: true` and gets rewritten
@@ -103,7 +112,35 @@ pub(super) fn retry_blocked_lockfiles(canonical: &str) {
 /// requirement the lockfile's existing pin no longer satisfies. Scoped to `changed_paths`
 /// (never a full-tree walk like `relock_cargo_lockfiles`) so a routine build only ever pays for
 /// the manifests it actually rewrote, not every lockfile in the repo. ~keep
-pub(super) fn relock_lockfiles_beside_changed_manifests(changed_paths: &HashSet<PathBuf>) {
+///
+/// ~keep alef #A9: `relock_one`'s own resolver failure used to be the end of the story -- a
+/// `warn!` this function had no way to see, let alone act on. That let a manifest change land on
+/// disk with the exact disagreement `cargo metadata --locked`/`cargo build --locked` would go on
+/// to fail on, while this function returned as if nothing had happened. Re-running the same
+/// `stale_lock_findings`-backed check `alef generate`'s own post-write freshness gate uses --
+/// rather than trusting `relock_one`'s exit code alone -- is what makes this non-vacuous: `cargo
+/// update` exiting 0 is not proof the specific requirement this manifest just changed is now
+/// satisfied, only that *some* resolution succeeded. Tolerating-variant, not the plain check: a
+/// manifest's own dual-form self-dependency on the crate under release (`{ version = "...", path
+/// = "..." }`) resolves locally via `path` regardless of publish status, so this should rarely
+/// engage in practice for a native-extension manifest, but a hand-added registry-only edge must
+/// still be exempted the same way `alef generate`'s own check exempts it. `canonical` is threaded
+/// through by [`super::generate::reconcile_managed_scaffold_manifests`], the only production
+/// caller that has a resolved crate version on hand; every other caller passes `None` and keeps
+/// today's best-effort contract by not propagating this `Result` at all. ~keep
+pub(super) fn relock_lockfiles_beside_changed_manifests(
+    changed_paths: &HashSet<PathBuf>,
+    workspace_root: &Path,
+    canonical: Option<&str>,
+) -> anyhow::Result<()> {
+    // ~keep Every changed manifest is relocked and checked before any failure is reported, rather
+    // than returning on the first stale one. The incident this fix exists for had THREE stale
+    // locks in one tree (`e2e/rust`, the Elixir NIF, and the Ruby extension); a first-failure
+    // return would have relocked one, named one, and left the other two untouched -- so the
+    // operator fixes one, re-runs a full generate, meets the second, and pays for the same round
+    // trip three times, having been told each time that there was one problem. A partial report
+    // that reads like a complete one is the same defect class this whole check exists to remove.
+    let mut failures: Vec<String> = Vec::new();
     for path in changed_paths {
         if path.file_name().and_then(|name| name.to_str()) != Some("Cargo.toml") {
             continue;
@@ -116,8 +153,34 @@ pub(super) fn relock_lockfiles_beside_changed_manifests(changed_paths: &HashSet<
             continue;
         }
         info!("Relocking {} after its generated manifest changed", lock_path.display());
-        relock_one(dir, &lock_path, None);
+        // `relock_one` already logged the specifics on failure; this caller's job is to find out
+        // whether that failure -- or, in principle, an incomplete success -- left the manifest's
+        // own requirement still unsatisfied, not to re-report the same failure a second way. ~keep
+        let _ = relock_one(dir, &lock_path, None);
+        let just_this_manifest: HashSet<PathBuf> = std::iter::once(path.clone()).collect();
+        if let Some(error) =
+            check_generated_lock_freshness_tolerating_pending_publish(&just_this_manifest, workspace_root, canonical)
+        {
+            failures.push(format!(
+                "relocking {} after {} changed did not leave it satisfying the manifest: {error:#}",
+                lock_path.display(),
+                path.display()
+            ));
+        }
     }
+
+    if failures.is_empty() {
+        return Ok(());
+    }
+    // Sorted so the same three stale locks produce the same message every run: `changed_paths` is
+    // a `HashSet`, whose iteration order varies between runs, and an error text that reshuffles
+    // itself is one a reader cannot diff against the previous run. ~keep
+    failures.sort();
+    Err(anyhow::anyhow!(
+        "{} generated lockfile(s) are still unsatisfied after relocking:\n  - {}",
+        failures.len(),
+        failures.join("\n  - ")
+    ))
 }
 
 /// ~keep A generated Dart e2e manifest can stay byte-identical while its generated path
@@ -523,7 +586,15 @@ fn relock_args(mode: RelockMode) -> &'static [&'static str] {
 /// names a `cargo check --locked` remedy the caller cannot run until the release publishes. Every
 /// other caller passes `None`: a lock nothing already flagged as blocked failing both resolvers
 /// is still a genuinely unexplained drift and must stay loud.
-fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
+///
+/// Returns `Err` for every failure branch below except the known-pending-publish retry, which
+/// stays `Ok` -- that outcome is expected and temporary, not a defect. ~keep alef #A9: this
+/// function used to return nothing at all, so every caller's `relock_one(...)` was a statement,
+/// not an expression -- there was no way to tell a resolver failure from a success without
+/// re-parsing this function's own log output. [`relock_lockfiles_beside_changed_manifests`] is
+/// the one caller that now acts on this `Result`; the version-sync callers above intentionally
+/// keep discarding it (`let _ = ...`), preserving their own documented best-effort contract.
+fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) -> anyhow::Result<()> {
     let outcome = attempt_relock_with(|mode| {
         std::process::Command::new("cargo")
             .args(relock_args(mode))
@@ -533,12 +604,13 @@ fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
     });
 
     match outcome {
-        Ok(RelockMode::Offline) => {}
+        Ok(RelockMode::Offline) => Ok(()),
         Ok(RelockMode::Online) => {
             info!(
                 lock = %lock_path.display(),
                 "Relocked with registry access after the offline attempt failed"
             );
+            Ok(())
         }
         Err(RelockFailure::OfflineCommand(error)) => {
             warn!(
@@ -546,6 +618,10 @@ fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
                 %error,
                 "could not run cargo update for this lockfile; it may still be stale against its manifest"
             );
+            Err(anyhow::anyhow!(
+                "could not run cargo update for {}: {error}",
+                lock_path.display()
+            ))
         }
         Err(RelockFailure::OnlineCommand { offline_code, error }) => {
             warn!(
@@ -555,6 +631,11 @@ fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
                 "cargo update failed offline, then the registry-enabled retry could not run; the lockfile may \
                  still be stale against its manifest"
             );
+            Err(anyhow::anyhow!(
+                "cargo update failed offline (exit {offline_code:?}) for {}, and the registry-enabled retry \
+                 could not run: {error}",
+                lock_path.display()
+            ))
         }
         Err(RelockFailure::BothResolvers {
             offline_code,
@@ -568,6 +649,7 @@ fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
                     ?online_code,
                     "still waiting on {waiting_on} to publish; the lockfile cannot resolve until then"
                 );
+                Ok(())
             } else {
                 warn!(
                     lock = %lock_path.display(),
@@ -577,6 +659,11 @@ fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
                      stale against its manifest. Resolve the dependency conflict in that directory before \
                      running `cargo check --locked`"
                 );
+                Err(anyhow::anyhow!(
+                    "cargo update -w failed both offline (exit {offline_code:?}) and with registry access (exit \
+                     {online_code:?}) for {}",
+                    lock_path.display()
+                ))
             }
         }
     }
@@ -682,3 +769,11 @@ fn release_lock_message(findings: &[StaleLockFinding]) -> String {
 #[cfg(test)]
 #[path = "version_lockfiles_tests.rs"]
 mod tests;
+
+// Declared here rather than nested under `lock_freshness_tests.rs`/`lock_freshness.rs`: both of
+// those are already over the 1,000-line file-modularization cap and must not grow further; this
+// module's fixtures only need `check_generated_lock_freshness_tolerating_pending_publish` and
+// `explained_by_pending_publish`, both already in scope here. ~keep
+#[cfg(test)]
+#[path = "lock_freshness_pending_publish_collision_tests.rs"]
+mod pending_publish_collision_tests;

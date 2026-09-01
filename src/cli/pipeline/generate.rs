@@ -61,7 +61,26 @@ pub fn write_scaffold_files_report(
     overwrite: bool,
 ) -> anyhow::Result<WriteReport> {
     let report = scaffold::write_scaffold_files_report(files, base_dir, overwrite)?;
-    super::version_lockfiles::relock_lockfiles_beside_changed_manifests(&report.changed_paths);
+    // Best-effort here, unlike `alef generate`'s own manifest-only path
+    // (`reconcile_managed_scaffold_manifests`): this wrapper is the shared entry point for `alef
+    // build`/`alef scaffold`/`alef all`/e2e and docs regeneration, none of which have a resolved
+    // crate version on hand to feed the pending-publish exemption, and `alef all` already runs
+    // its own `check_generated_lock_freshness_tolerating_pending_publish` pass afterward.
+    //
+    // ~keep KNOWN GAP: `alef build` and `alef scaffold` do NOT run that (or any) downstream
+    // lock-freshness check anywhere in their command path -- grep `check_generated_lock_freshness`
+    // under `src/bin_cli/`: only `all_commands.rs` (`alef all`) and `core_commands/generate.rs`
+    // (`alef generate`) call it. So for those two commands specifically, a relock failure logged
+    // here is the ONLY signal an operator gets; the command still exits 0 regardless. A reader
+    // must not infer from this `warn!` alone that `alef build`/`alef scaffold` are covered the
+    // way `alef generate`/`alef all` are -- they are not. Closing that gap (routing a resolved
+    // crate version and a hard post-check into this wrapper too) is a larger change than this
+    // fix, deliberately left out of scope here.
+    if let Err(error) =
+        super::version_lockfiles::relock_lockfiles_beside_changed_manifests(&report.changed_paths, base_dir, None)
+    {
+        tracing::warn!("{error:#}");
+    }
     super::version_lockfiles::relock_dart_lockfiles_beside_generated_manifests(files, base_dir, &report.changed_paths);
     Ok(report)
 }

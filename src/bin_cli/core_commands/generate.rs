@@ -351,7 +351,18 @@ pub(crate) fn handle_generate(
         }
 
         let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
-        let report = pipeline::reconcile_managed_scaffold_manifests(&scaffold_files, &base_dir)?;
+        let (report, lock_freshness_error) = pipeline::reconcile_managed_scaffold_manifests(
+            &scaffold_files,
+            &base_dir,
+            resolved_cfg.resolved_version().as_deref(),
+        )?;
+        // Deferred into `stage_failures`, not `?`, for the same reason as every other check in
+        // this loop (see the doc above `complete_generated_artifacts`'s call site below): this
+        // manifest's write already happened and its output must still be stamped and formatted
+        // even though the sibling lockfile came back unsatisfied. ~keep
+        if let Some(error) = lock_freshness_error {
+            stage_failures.record(&format!("[{}] generated Cargo.lock relock", resolved_cfg.name), error);
+        }
         let scaffold_count = report.changed_count();
         grand_scaffold_count += scaffold_count;
         if scaffold_count > 0 {

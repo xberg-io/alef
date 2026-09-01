@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`alef generate` now proves its lockfile refresh worked instead of assuming it.**
+  `relock_one` returned `()`, so a `cargo update` that failed both offline and online was a
+  `warn!` no caller could see or act on — the manifest change landed on disk carrying the exact
+  disagreement `cargo metadata --locked` would later fail on, and generate returned as though
+  nothing had happened. `relock_one` now returns `Result`, and
+  `relock_lockfiles_beside_changed_manifests` re-runs the freshness check against the manifest it
+  just rewrote. Re-checking rather than trusting the exit code is what makes this non-vacuous:
+  `cargo update` exiting 0 proves some resolution succeeded, not that this manifest's new
+  requirement is satisfied.
+
+  Every changed manifest is relocked and every failure reported together. The incident behind this
+  had three stale locks in one tree; returning on the first would have named one, left two
+  untouched, and cost a full regenerate per lock while reporting a single problem each time.
+
+  The version-sync callers keep their documented best-effort contract. `alef build` and
+  `alef scaffold` still run no lock-freshness check anywhere in their command path — that gap is
+  now named in the source rather than left for a reader to infer from a `warn!`.
+
+
 - **A missing toolchain is now a hard error for every enabled language, not a silent skip.**
   `require_tool` built a `command -v <tool>` precondition that `check_precondition` treated as a
   skip switch, and its own doc committed to that contract: "a missing tool causes a graceful

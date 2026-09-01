@@ -522,7 +522,7 @@ fn ffi_manifest_reconciliation_adds_runtime_dependencies_and_cfg_features() {
     )
     .expect("write stale generated manifest");
 
-    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path())
+    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path(), None)
         .expect("reconcile generated FFI manifest");
     let reconciled = std::fs::read_to_string(manifest_path).expect("read reconciled manifest");
 
@@ -561,7 +561,7 @@ fn ffi_manifest_reconciliation_keeps_the_clippy_deny_block_with_no_cargo_lints_c
     )
     .expect("write stale generated manifest carrying a hand-added clippy deny block");
 
-    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path())
+    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path(), None)
         .expect("reconcile generated FFI manifest");
     let reconciled = std::fs::read_to_string(manifest_path).expect("read reconciled manifest");
 
@@ -595,7 +595,7 @@ fn ffi_manifest_reconciliation_restores_the_clippy_workspace_lints_rationale_com
     )
     .expect("write stale generated manifest with no rationale comment");
 
-    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path())
+    crate::cli::pipeline::reconcile_managed_scaffold_manifests(&files, directory.path(), None)
         .expect("reconcile generated FFI manifest");
     let reconciled = std::fs::read_to_string(manifest_path).expect("read reconciled manifest");
 

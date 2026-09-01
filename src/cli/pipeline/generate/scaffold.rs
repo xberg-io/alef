@@ -75,10 +75,33 @@ pub fn readme(
 /// the write-time ownership guard refusing them: repairing only the guard would have
 /// left them stranded here anyway. Both mechanisms had to fail for the observed
 /// stranding, so both had to be fixed. ~keep
+///
+/// `canonical` is this run's resolved crate version, threaded straight through to the relock
+/// hook's own pending-publish exemption -- the same value `alef generate`'s later
+/// `check_generated_lock_freshness_tolerating_pending_publish` call receives, so a native
+/// extension manifest's own not-yet-published self-dependency is tolerated identically wherever
+/// it is checked.
+///
+/// Returns the write report alongside a separate, optional lock-freshness error rather than
+/// folding that error into the `Result` itself: the write above either succeeded (in which case
+/// its `changed_paths` are real and the caller's later phases -- `current_gen_paths`,
+/// `changed_languages`, post-build, the terminal `finalize_hashes` stamp -- all still need to see
+/// them) or it did not (still a plain `?`, unchanged). A relock discovering the freshly written
+/// manifest is STILL unsatisfied is a distinct, later-occurring failure that must not erase the
+/// write that already happened; the caller defers it into `StageFailures` exactly like every
+/// other post-write check this loop runs, instead of aborting this crate's remaining stages the
+/// way a bare `?` here would (see `StageFailures`'s module doc for why that shape was rejected
+/// for post-build failures already). ~keep alef #A9: unlike the parent module's
+/// `write_scaffold_files_report` wrapper (`alef build`/`alef scaffold`/`alef all`, best-effort by
+/// design), this is `alef generate`'s manifest-only path and the one place a silently-stale
+/// relock previously went completely unchecked -- see
+/// [`super::super::version_lockfiles::relock_lockfiles_beside_changed_manifests`] for why a
+/// failure here is now surfaced instead of swallowed.
 pub fn reconcile_managed_scaffold_manifests(
     files: &[GeneratedFile],
     base_dir: &Path,
-) -> anyhow::Result<super::write::WriteReport> {
+    canonical: Option<&str>,
+) -> anyhow::Result<(super::write::WriteReport, Option<anyhow::Error>)> {
     let mut manifests = Vec::new();
     for file in files.iter().filter(|file| file.generated_header) {
         let path = base_dir.join(&file.path);
@@ -97,13 +120,18 @@ pub fn reconcile_managed_scaffold_manifests(
     // parent `generate` module's `write_scaffold_files*` wrappers -- so the relock hook has to
     // be called here too, or a manifest `alef generate` regenerates (as opposed to `alef
     // build`/`alef all`) would never get its sibling Cargo.lock refreshed. ~keep
-    super::super::version_lockfiles::relock_lockfiles_beside_changed_manifests(&report.changed_paths);
+    let lock_freshness_error = super::super::version_lockfiles::relock_lockfiles_beside_changed_manifests(
+        &report.changed_paths,
+        base_dir,
+        canonical,
+    )
+    .err();
     super::super::version_lockfiles::relock_dart_lockfiles_beside_generated_manifests(
         &manifests,
         base_dir,
         &report.changed_paths,
     );
-    Ok(report)
+    Ok((report, lock_freshness_error))
 }
 
 /// Write standalone generated files (not grouped by language) to disk, returning the full
