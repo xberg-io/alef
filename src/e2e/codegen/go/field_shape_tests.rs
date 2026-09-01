@@ -635,3 +635,160 @@ fn partitioned_type_fixture() -> (Vec<TypeDef>, Vec<EnumDef>, HashSet<String>) {
     let excluded = HashSet::from(["Excluded".into(), "VisitorContext".into(), "HiddenChoice".into()]);
     (types, enums, excluded)
 }
+/// A root result type reached through one `Vec<Struct>` hop before an `Option<Vec<T>>`/
+/// `Option<Vec<String>>` leaf -- the exact shape `results[0].chunks` and
+/// `results[0].detected_languages[0]` have in the real xberg crate. Every existing fixture in
+/// this file puts the field directly on a flat "Envelope" root, which never exercises the
+/// multi-hop `walk_to_owner_from` traversal the real compile failures went through.
+fn nested_option_vec_fixture() -> Vec<TypeDef> {
+    vec![
+        TypeDef {
+            name: "ExtractionResult".into(),
+            fields: vec![FieldDef {
+                name: "results".into(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("PageResult".into()))),
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        TypeDef {
+            name: "PageResult".into(),
+            fields: vec![
+                FieldDef {
+                    name: "chunks".into(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("Chunk".into()))),
+                    optional: true,
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "detected_languages".into(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    optional: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        },
+        TypeDef {
+            name: "Chunk".into(),
+            fields: vec![FieldDef {
+                name: "content".into(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+    ]
+}
+
+fn nested_option_vec_resolver() -> FieldResolver {
+    let types = nested_option_vec_fixture();
+    FieldResolver::new(
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    )
+    // Mirrors the real `build_call_field_resolver_with_facts` wiring (both maps anchored at the
+    // same root) -- the fix under test.
+    .with_ir_collection_map(FieldResolver::ir_collection_fields(&types), Some("ExtractionResult".into()))
+    .with_ir_result_fields(
+        FieldResolver::go_ir_result_field_facts(&types, &[], &HashSet::new()),
+        Some("ExtractionResult".into()),
+    )
+}
+
+fn shape_for(resolver: &FieldResolver, field: &str) -> super::assertion_field_shape::AssertionFieldShape {
+    let assertion = Assertion {
+        assertion_type: "not_empty".into(),
+        field: Some(field.into()),
+        ..Default::default()
+    };
+    resolve_assertion_field_shape(&assertion, resolver, &std::collections::HashMap::new())
+}
+
+/// THE E2 REGRESSION: an `Option<Vec<T>>` result field reached through a `results[0].` hop must
+/// never be treated as a pointer -- the Go binding backend always flattens it to a plain nilable
+/// slice (`go_optional_type`'s `TypeRef::Vec(_) => go_type(ty)` arm). Before this fix, an
+/// unresolved (or IR-collection-blind) `is_array_for_len` made the `unwrap_or(is_optional &&
+/// !is_array_for_len)` guess fire `true`, and Go's e2e generator emitted `len(*result.Chunks)`
+/// against a `[]Chunk` -- `cannot indirect ... variable of type []xberg.Chunk`.
+#[test]
+fn nested_option_vec_field_through_a_struct_array_is_not_pointer() {
+    let resolver = nested_option_vec_resolver();
+    let shape = shape_for(&resolver, "results[0].chunks");
+    assert!(
+        !shape.is_pointer,
+        "an Option<Vec<T>> result field must never be dereferenced"
+    );
+    assert!(shape.is_slice, "the IR collection map must recognize this as a slice");
+    assert!(shape.is_optional, "the field itself is still Option-wrapped");
+    assert!(shape.is_nullable, "nullable via is_optional, not is_pointer");
+}
+
+/// THE SECOND E2 REGRESSION: `results[0].detected_languages[0]` names ONE element of an
+/// `Option<Vec<String>>`, not the collection. Bracket-stripped field-name resolution answers
+/// `is_optional`/`is_array`/`target_field_is_pointer` identically for `detected_languages` and
+/// `detected_languages[0]`, so without the `leaf_is_indexed_element` guard the collection's own
+/// optionality leaked onto the element and Go's e2e generator emitted `result.DetectedLanguages[0]
+/// == nil` against a plain `string` -- `invalid operation: mismatched types string and untyped
+/// nil`.
+#[test]
+fn indexed_element_of_an_optional_collection_is_not_treated_as_nullable() {
+    let resolver = nested_option_vec_resolver();
+    let element_shape = shape_for(&resolver, "results[0].detected_languages[0]");
+    assert!(
+        !element_shape.is_optional,
+        "a single string element is never itself Option-wrapped"
+    );
+    assert!(!element_shape.is_pointer, "a string element is never a pointer");
+    assert!(
+        !element_shape.is_nullable,
+        "must not compile a `== nil` check against a string"
+    );
+    assert!(!element_shape.is_slice, "one element of a slice is not itself a slice");
+
+    // Control: the BARE collection (no trailing index) keeps its real Option<Vec<T>> shape --
+    // proving the guard fires only on the indexed leaf, not on `detected_languages` in general.
+    let collection_shape = shape_for(&resolver, "results[0].detected_languages");
+    assert!(
+        collection_shape.is_optional,
+        "control: the un-indexed field is genuinely optional"
+    );
+    assert!(
+        collection_shape.is_slice,
+        "control: the un-indexed field is genuinely a slice"
+    );
+}
+
+/// THE FALLBACK ITSELF, isolated from the `ir_collection_map` wiring fix: with no IR wired in at
+/// all (only `fields_optional` config, as a consumer's `alef.toml` looks before any IR-derived
+/// answer exists), `target_field_is_pointer` can never resolve -- it always returns `None`,
+/// regardless of the field. The old `.unwrap_or(is_optional && !is_array_for_len)` guess then
+/// took "optional AND not a configured array" as proof of pointer-ness, which is backwards: it is
+/// proof of nothing, since neither half of that expression answers "is this a pointer" at all.
+/// A consumer who marks a field optional without ALSO remembering to list it in `fields_array`
+/// (the exact gap `ir_collection_map` closes for the fields it can reach) got a spurious `*`.
+#[test]
+fn unresolved_optional_field_is_never_guessed_as_a_pointer() {
+    let mut optional = HashSet::new();
+    optional.insert("items".to_string());
+    let resolver = FieldResolver::new(
+        &Default::default(),
+        &optional,
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+    let shape = shape_for(&resolver, "items");
+    assert!(
+        resolver.target_field_is_pointer("items").is_none(),
+        "control: no IR is wired in, so the authoritative answer must be unavailable"
+    );
+    assert!(shape.is_optional, "control: fields_optional still marks it optional");
+    assert!(
+        !shape.is_pointer,
+        "an unresolved field must never be GUESSED as a pointer"
+    );
+}

@@ -14,6 +14,7 @@ pub(in crate::e2e::codegen::go) struct GoCrateResolverFacts {
     ir_known_excluded_fields: std::collections::HashSet<String>,
     ir_optional_fields: std::collections::HashSet<String>,
     ir_result_fields: crate::e2e::field_access::IrResultFieldMap,
+    ir_collection_fields: crate::e2e::field_access::IrCollectionMap,
     reserved_type_names: std::collections::HashSet<String>,
 }
 
@@ -27,6 +28,7 @@ impl GoCrateResolverFacts {
             FieldResolver::ir_field_sets(type_defs);
         let emission = crate::backends::go::emission_facts::GoEmissionFacts::from_config(type_defs, enums, config);
         let ir_result_fields = FieldResolver::go_ir_result_field_facts_from_emission(type_defs, &emission);
+        let ir_collection_fields = FieldResolver::ir_collection_fields(type_defs);
         let reserved_type_names = emission
             .structs
             .iter()
@@ -39,6 +41,7 @@ impl GoCrateResolverFacts {
             ir_known_excluded_fields,
             ir_optional_fields,
             ir_result_fields,
+            ir_collection_fields,
             reserved_type_names,
         }
     }
@@ -83,6 +86,15 @@ pub(in crate::e2e::codegen::go) fn fixture_has_go_callable(fixture: &Fixture, e2
 /// Anchoring `with_ir_result_fields` mirrors the rust/python/java/csharp/elixir generators and is
 /// purely additive: `result_field_oracle_knows` only ever REFUSES what it positively knows the
 /// root type lacks, so an unresolved root leaves every anchored answer disabled. ~keep
+///
+/// ~keep `with_ir_collection_map` mirrors csharp/dart/java/kotlin/php's identical wiring, which Go
+/// alone was missing: without it `FieldResolver::is_array` can answer `true` only from the
+/// hand-authored `fields_array` config (`array_fields`), never from the IR, so any `Option<Vec<T>>`
+/// (or plain `Vec<T>`) result field a consumer never listed there reads as "not an array". That
+/// silently mis-set `is_array_for_len`/`is_slice` in `assertion_field_shape.rs`, which combined
+/// with a resolution gap in `target_field_is_pointer` produced the wrong `.unwrap_or(is_optional &&
+/// !is_array_for_len)` guess for e.g. `Chunks []Chunk` — `len(*result.Chunks)` against a plain
+/// slice, a Go compile error (`cannot indirect ... variable of type []xberg.Chunk`).
 pub(super) fn build_call_field_resolver_with_facts(
     e2e_config: &E2eConfig,
     call_config: &CallConfig,
@@ -103,6 +115,7 @@ pub(super) fn build_call_field_resolver_with_facts(
         &std::collections::HashSet::new(),
     )
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
+    .with_ir_collection_map(facts.ir_collection_fields.clone(), call_root_type.clone())
     .with_ir_result_fields(facts.ir_result_fields.clone(), call_root_type)
     .with_ir_fields(
         facts.ir_reachable_fields.clone(),
