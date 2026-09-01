@@ -738,12 +738,24 @@ fn collect_generated_node_lock_findings(
     findings
 }
 
-/// Same check as [`check_generated_node_lock_freshness`], except a finding fully explained by
-/// this crate's own pending, not-yet-published registry-mode `test_apps` self-dependency is
-/// downgraded to a `tracing::warn!` instead of failing the stage -- the npm sibling of
+/// Same check as [`check_generated_node_lock_freshness`], except every finding in a lockfile
+/// whose own self-dependency row is fully explained by this crate's pending, not-yet-published
+/// registry-mode `test_apps` self-dependency is downgraded to a `tracing::warn!` instead of
+/// failing the stage -- the npm sibling of
 /// [`check_generated_lock_freshness_tolerating_pending_publish`]. See
 /// [`registry_self_dependency`]'s doc for what "explained" means here and why it is deliberately
 /// conservative.
+///
+/// ~keep alef #A5: tolerance is scoped to the whole LOCK, not just the self-dependency row that
+/// explains it. A pending self-dependency (`@xberg-io/tree-sitter-language-pack@1.16.1`, not yet
+/// published) makes the *entire* `pnpm-lock.yaml` unresolvable -- pnpm cannot even attempt to
+/// relock the file to pick up an unrelated sibling drift (`@types/node`, `vitest`, `rollup`)
+/// until that self-dependency publishes, so `pnpm install --lockfile-only` fails immediately with
+/// `ERR_PNPM_NO_MATCHING_VERSION` on the self-dependency before it ever reaches the siblings. A
+/// per-finding partition that hard-fails those siblings therefore prescribes a remedy the
+/// operator cannot run yet. Once the release actually publishes, `collect_generated_node_lock_findings`
+/// stops reporting the self-dependency row at all (the specifiers agree), so this exemption
+/// narrows back down to nothing on its own -- it never permanently hides a lock's other findings.
 pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
     generated_paths: &HashSet<PathBuf>,
     base_dir: &Path,
@@ -758,9 +770,16 @@ pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
         return Some(anyhow::anyhow!(stale_node_lock_message(&findings)));
     };
 
-    let (pending, real): (Vec<_>, Vec<_>) = findings.into_iter().partition(|finding| {
-        finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
-    });
+    let pending_locks: HashSet<PathBuf> = findings
+        .iter()
+        .filter(|finding| {
+            finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
+        })
+        .map(|finding| finding.lock.clone())
+        .collect();
+    let (pending, real): (Vec<_>, Vec<_>) = findings
+        .into_iter()
+        .partition(|finding| pending_locks.contains(&finding.lock));
 
     if !pending.is_empty() {
         tracing::warn!(

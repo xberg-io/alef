@@ -801,6 +801,71 @@ mod node {
             }
         }
 
+        const SIBLING_DEPENDENCY: &str = "sibling-pkg";
+        const SIBLING_STALE_SPEC: &str = "^1.0.0";
+        const SIBLING_LOCKED_SPEC: &str = "^2.0.0";
+
+        /// A `package.json` declaring both the pending self-dependency and an unrelated sibling
+        /// dependency in the same `devDependencies` bucket -- the tslp shape: one `package.json`
+        /// pinning `@xberg-io/tree-sitter-language-pack` at the not-yet-published release version
+        /// alongside `@types/node`/`vitest`/`rollup` specifiers the lock also disagrees with.
+        fn write_package_json_with_sibling(root: &Path, self_specifier: &str, sibling_specifier: &str) -> PathBuf {
+            let dir = node_dir(root);
+            std::fs::create_dir_all(&dir).expect("create node dir");
+            let manifest = dir.join("package.json");
+            std::fs::write(
+                &manifest,
+                format!(
+                    "{{\n  \"name\": \"sample-pkg-e2e-typescript\",\n  \"version\": \"0.1.0\",\n  \"private\": \
+                     true,\n  \"devDependencies\": {{\n    \"{NODE_DEPENDENCY}\": \"{self_specifier}\",\n    \
+                     \"{SIBLING_DEPENDENCY}\": \"{sibling_specifier}\"\n  }}\n}}\n"
+                ),
+            )
+            .expect("write package.json");
+            manifest
+        }
+
+        /// The sibling lockfile to [`write_package_json_with_sibling`]: both dependencies pinned
+        /// at a specifier that disagrees with `package.json`.
+        fn write_pnpm_lock_v9_with_sibling(root: &Path, self_locked: &str, sibling_locked: &str) {
+            std::fs::write(
+                node_dir(root).join("pnpm-lock.yaml"),
+                format!(
+                    "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    devDependencies:\n      \
+                     {NODE_DEPENDENCY}:\n        specifier: {self_locked}\n        version: {self_locked}\n      \
+                     {SIBLING_DEPENDENCY}:\n        specifier: {sibling_locked}\n        version: \
+                     {sibling_locked}\n"
+                ),
+            )
+            .expect("write pnpm-lock.yaml");
+        }
+
+        /// The A5 regression: a lockfile blocked on this crate's own pending release also carries
+        /// an unrelated sibling specifier drift (`@types/node`, `vitest`, `rollup` in the real
+        /// incident). `pnpm install --lockfile-only` cannot resolve ANYTHING in this lockfile
+        /// until the self-dependency publishes -- it fails on the self-dependency with
+        /// `ERR_PNPM_NO_MATCHING_VERSION` before it ever reaches the sibling -- so a per-finding
+        /// partition that still hard-fails the sibling prescribes a remedy the operator cannot
+        /// run. The whole lock must be tolerated together.
+        #[test]
+        fn tolerating_variant_downgrades_sibling_findings_in_the_same_pending_lock() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+            let manifest = write_package_json_with_sibling(root, NODE_STALE_SPEC, SIBLING_STALE_SPEC);
+            write_pnpm_lock_v9_with_sibling(root, NODE_FRESH_SPEC, SIBLING_LOCKED_SPEC);
+            let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+            let resolved_cfg = resolved_cfg_with_node_registry_package(NODE_DEPENDENCY, NODE_STALE_SPEC);
+
+            let result =
+                check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg));
+
+            assert!(
+                result.is_none(),
+                "a sibling drift sharing a lock with a pending self-dependency must also be tolerated, \
+                 since pnpm cannot resolve any of it until the self-dependency publishes: {result:?}"
+            );
+        }
+
         /// Control proving the exemption does real work: without it, this exact shape must still
         /// fail.
         #[test]
