@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **rustler:** stopped emitting an unreachable `_ => Default::default()` catch-all in the
+  binding->core enum conversion when a foreign cfg-gated variant is proven unreachable and
+  Rustler's own declaration already drops it. Blocked every generated Elixir NIF from compiling
+  under `-D warnings` whenever a bound enum had a foreign cfg-gated variant (e.g.
+  `html-to-markdown-rs`'s `TierStrategy::Tier1`).
+- **magnus:** struct declarations and their `From` conversions now carry the type's own `cfg`
+  guard, matching the existing function/method behavior. A type gated behind a Cargo feature the
+  core crate declares was previously referenced unconditionally regardless of whether the
+  consumer's own feature set enabled it (41 ungated `xberg::candle_ocr::*` references on
+  Ruby/Windows).
+
 ## [0.80.0] - 2026-09-01
 
 ### Changed
