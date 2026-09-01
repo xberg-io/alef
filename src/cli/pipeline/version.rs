@@ -40,7 +40,18 @@ static SEMVER_RE: LazyLock<regex::Regex> =
 /// cannot stamp never carries a marker even when alef wrote every byte, so for those
 /// (`.md`, `.json`, `.lock`, `Makefile`, …) absence proves nothing and they stay
 /// permitted — refusing there would freeze legitimate regeneration, and it is why
-/// `--regen` still replaces a generated README. ~keep
+/// `--regen` still replaces a generated README.
+///
+/// ~keep alef #A1: `sync.text_replacements`'s `search`/`replace` pair is consumer-authored and
+/// path-named, unlike `sync.extra_paths`'s blanket `SEMVER_RE` -- one could argue that is
+/// explicit-enough consent to skip this guard entirely. Deliberately kept anyway: a
+/// `text_replacements` glob (`packages/*/README.md`, `docs/**/*.mdx`) can still reach a file the
+/// consumer did not mean to hand alef write access to, and the regex itself only constrains
+/// *what* gets replaced inside a match, not *which* files the glob touches -- the same "glob
+/// wider than intended" risk `sync.extra_paths` has, just with a narrower blast radius per file.
+/// The defect this fix actually closes is the CALL ORDER (below), not this guard's scope: the
+/// caller now proves the substitution would change something before asking this guard whether
+/// the write is even permitted, so an already-correct file is never refused in the first place.
 fn catch_all_rewrite_is_permitted(path: &std::path::Path, content: &str) -> bool {
     if super::generate::marker_comment_style(path).is_none() {
         return true;
@@ -106,6 +117,27 @@ fn warn_sync_target_not_updated(path: &std::path::Path, version: &str, reason: &
         "version-sync: declared sync.text_replacements target was not updated to {version} -- {reason}. It \
          stays pinned to a stale version until the write succeeds or the entry is removed from \
          sync.text_replacements"
+    );
+}
+
+/// Warn that a declared `sync.text_replacements` `search` pattern matched nothing at all in a
+/// file alef successfully opened.
+///
+/// ~keep alef #A2: a pattern that never matches is indistinguishable on disk from a file that is
+/// already current -- both leave the file byte-for-byte unchanged -- so nothing here signalled
+/// the difference before this warning existed. The `liter-llm` incident this closes: a
+/// `text_replacements` entry searched for a `liter-llm.git` URL with `from:`, but the target file
+/// had moved to a non-`.git` URL with `branch:`; the pattern matched nothing for three releases in
+/// a row and every one of those runs looked identical to "already correct." The same rule applies
+/// here as everywhere else this fix touches: a substitution must prove it changed something, or
+/// it must say so.
+fn warn_sync_target_pattern_matched_nothing(path: &std::path::Path, pattern: &str) {
+    warn!(
+        path = %path.display(),
+        pattern,
+        "version-sync: declared sync.text_replacements search pattern '{pattern}' matched nothing in this \
+         file. If the file's shape changed (a different URL scheme, a renamed field), update the pattern -- \
+         a silent non-match is indistinguishable from an already-current file"
     );
 }
 
@@ -688,15 +720,6 @@ pub fn sync_versions(
                                 text_replacement_paths.insert(path.clone());
                                 match std::fs::read_to_string(&path) {
                                     Ok(content) => {
-                                        if !catch_all_rewrite_is_permitted(&path, &content) {
-                                            warn_sync_target_not_updated(
-                                                &path,
-                                                &version,
-                                                "alef's ownership guard refused the write (no alef \
-                                                 marker on a stampable file, so it reads as hand-written)",
-                                            );
-                                            continue;
-                                        }
                                         let pep440 = to_pep440(&version);
                                         let rubygems = to_rubygems_prerelease(&version);
                                         let r_ver = to_r_version(&version);
@@ -714,10 +737,33 @@ pub fn sync_versions(
                                             .replace("{version}", &version);
                                         match regex::Regex::new(&search) {
                                             Ok(re) => {
-                                                let new_content =
-                                                    re.replace_all(&content, replace.as_str()).to_string();
-                                                if new_content != content {
-                                                    if let Err(e) = std::fs::write(&path, &new_content) {
+                                                // ~keep A substitution must prove it changed something before
+                                                // either the ownership guard or the write is even considered.
+                                                // Checking `is_match` first (not just `new_content != content`)
+                                                // separately catches the pattern matching nothing at all,
+                                                // rather than folding it into the same silence as "the file
+                                                // already has the target text" -- see
+                                                // `warn_sync_target_pattern_matched_nothing`'s doc.
+                                                if !re.is_match(&content) {
+                                                    warn_sync_target_pattern_matched_nothing(
+                                                        &path,
+                                                        &replacement.search,
+                                                    );
+                                                } else {
+                                                    let new_content =
+                                                        re.replace_all(&content, replace.as_str()).to_string();
+                                                    if new_content == content {
+                                                        // Matched, but the file already holds the target
+                                                        // text -- nothing to write, nothing to warn about.
+                                                    } else if !catch_all_rewrite_is_permitted(&path, &content) {
+                                                        warn_sync_target_not_updated(
+                                                            &path,
+                                                            &version,
+                                                            "alef's ownership guard refused the write (no \
+                                                             alef marker on a stampable file, so it reads \
+                                                             as hand-written)",
+                                                        );
+                                                    } else if let Err(e) = std::fs::write(&path, &new_content) {
                                                         warn_sync_target_not_updated(
                                                             &path,
                                                             &version,

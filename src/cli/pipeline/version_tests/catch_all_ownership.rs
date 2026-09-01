@@ -259,4 +259,101 @@ fn text_replacement_success_does_not_warn_that_the_sync_target_went_unwritten() 
         !logs_contain("was not updated"),
         "a successfully-written sync target must not warn that it went unwritten"
     );
+    assert!(
+        !logs_contain("matched nothing"),
+        "a pattern that did match (and got rewritten) must not also warn that it matched nothing"
+    );
+}
+
+/// alef #A1 regression: the ownership guard must never fire when the substitution would not have
+/// changed anything. Before the fix, `catch_all_rewrite_is_permitted` ran unconditionally ahead
+/// of the substitution, so a `sync.text_replacements` target that was ALREADY at the version this
+/// run would produce -- but carried no alef marker, since it is genuinely hand-written -- was
+/// reported "not updated to a stale version" on every single sync, forever. tslp hit this 19
+/// times across 5 paths in one chain run, and every one of the 19 was false: every file already
+/// held `1.16.1`.
+#[traced_test]
+#[test]
+fn text_replacement_already_current_does_not_warn_even_without_an_alef_marker() {
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path();
+    seed_crate(root);
+
+    // Hand-written (no alef marker) but ALREADY at the version this sync run would produce --
+    // the substitution has nothing left to do here.
+    std::fs::write(root.join("hand.yaml"), "version: 1.2.3\n").expect("hand-written yaml");
+
+    run_sync(
+        root,
+        &catch_all_config(
+            root,
+            SyncConfig {
+                extra_paths: Vec::new(),
+                text_replacements: vec![TextReplacement {
+                    path: "hand.yaml".to_string(),
+                    search: r"version: [0-9.]+".to_string(),
+                    replace: "version: {version}".to_string(),
+                }],
+            },
+        ),
+    );
+
+    assert!(
+        !logs_contain("was not updated"),
+        "a file already at the target version must never be reported as refused/stale, even when \
+         it carries no alef marker -- the ownership guard must only run once a write is actually \
+         about to happen"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("hand.yaml")).expect("read hand.yaml"),
+        "version: 1.2.3\n",
+        "an already-current hand-written file must be left untouched"
+    );
+}
+
+/// alef #A2 regression: a declared `sync.text_replacements` search pattern that matches nothing
+/// in a file alef successfully opened must warn -- silence here is indistinguishable from
+/// "already current" and hid a real drift for three consecutive releases in the liter-llm
+/// incident this closes: a `search` shaped for a `liter-llm.git` URL with `from:` against a file
+/// that had moved to a non-`.git` URL with `branch:`.
+#[traced_test]
+#[test]
+fn text_replacement_pattern_matching_nothing_warns() {
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let temporary = tempfile::tempdir().expect("temporary directory");
+    let root = temporary.path();
+    seed_crate(root);
+
+    let owned = format!(
+        "{}\nbranch: \"release/1.0.0\"\n",
+        crate::core::hash::header(crate::core::hash::CommentStyle::Hash)
+    );
+    std::fs::write(root.join("owned.yaml"), &owned).expect("alef-owned yaml");
+
+    run_sync(
+        root,
+        &catch_all_config(
+            root,
+            SyncConfig {
+                extra_paths: Vec::new(),
+                text_replacements: vec![TextReplacement {
+                    path: "owned.yaml".to_string(),
+                    search: r"version: [0-9.]+".to_string(),
+                    replace: "version: {version}".to_string(),
+                }],
+            },
+        ),
+    );
+
+    assert!(
+        logs_contain("search pattern") && logs_contain("matched nothing"),
+        "a pattern matching nothing in a file alef successfully opened must warn, not silently \
+         look identical to an already-current file"
+    );
+    assert!(
+        !logs_contain("was not updated"),
+        "a pattern-matched-nothing outcome is a distinct signal from the ownership-guard refusal \
+         and must not be reported as one"
+    );
 }
