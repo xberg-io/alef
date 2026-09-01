@@ -123,10 +123,8 @@ pub(super) fn report_unemitted_visitor_files(
         return present;
     }
     tracing::warn!(
-        "gen_bindings(csharp): {} visitor support file(s) under {} were not emitted by this run. These are NOT \
-         deleted: this generator cannot tell a file an older alef release wrote from one a human wrote at the same \
-         path, and an absent `[ffi]` config section is not a decision to disable visitor callbacks. Review each and \
-         remove by hand if genuinely stale:",
+        "gen_bindings(csharp): {} visitor support file(s) under {} were not emitted by this run and were not \
+         deleted. Review each and remove by hand if stale:",
         present.len(),
         base_path.display()
     );

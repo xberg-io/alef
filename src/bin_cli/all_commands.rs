@@ -156,8 +156,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 if cache::generation_record::generation_in_progress(&base_dir, &resolved_cfg.name) {
                     tracing::warn!(
                         crate_name = %resolved_cfg.name,
-                        "recovering from an incomplete previous generation run for this crate -- \
-                         it was interrupted before finishing; regenerating it fully now"
+                        "previous generation run for this crate was interrupted; regenerating it fully"
                     );
                 }
                 cache::generation_record::mark_generation_in_progress(&base_dir, &resolved_cfg.name)?;
@@ -663,9 +662,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         if !snippet_refusals.is_empty() {
                             tracing::warn!(
                                 "[{}] docs/snippet validation passed, but {} write(s) inside its \
-                                 docs.snippets root(s) were refused by the ownership guard this run -- \
-                                 validation graded stale, pre-run content at those paths, not anything \
-                                 this run rendered: {}",
+                                 docs.snippets root(s) were refused by the ownership guard -- validation \
+                                 graded pre-run content at those paths, not this run's output: {}",
                                 resolved_cfg.name,
                                 snippet_refusals.len(),
                                 snippet_refusals
@@ -693,11 +691,9 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             pipeline::report_user_owned_skips(&refusals);
                             error.context(format!(
                                 "{} file write(s) inside this crate's docs.snippets root(s) were refused by \
-                                 the ownership guard this run (see the refusal report above). \
-                                 Docs/snippet validation reads content from disk, so a refused write \
-                                 leaves stale content in place for it to grade -- if this failure looks \
-                                 like a content mismatch rather than a real defect, check whether the \
-                                 affected path is among the refused writes and run `alef adopt <path>`.",
+                                 the ownership guard (see the refusal report above), so validation graded \
+                                 pre-run content at those paths. Fix: check whether the failing path is \
+                                 among the refused writes, then run `alef adopt <path>`.",
                                 snippet_refusals.len()
                             ))
                         } else {

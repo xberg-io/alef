@@ -370,9 +370,9 @@ pub(crate) fn build_with_environment(
     // `dispatched_count` entries when "ffi" wasn't explicitly requested — so
     // that subtraction could under-report. Report what's exact instead. ~keep
     info!(
-        "Backend build summary: {total_announced} announced, {skipped_count} skipped ({} skipped for a missing \
-         toolchain), {} blocked on unmet preconditions, {dispatched_count} dispatched, {} language-level \
-         failure(s), {} post-build tool(s) skipped (not on PATH, falling back to committed output)",
+        "Backend build summary: {total_announced} announced, {skipped_count} skipped ({} missing toolchain), {} \
+         blocked on unmet preconditions, {dispatched_count} dispatched, {} failure(s), {} post-build tool(s) \
+         skipped (not on PATH)",
         toolchain_missing.len(),
         unmet.len(),
         failures.len(),
@@ -436,16 +436,15 @@ fn build_outcome(
     }
     if !unmet.is_empty() {
         parts.push(format!(
-            "{} language(s) were not built because their preconditions are unmet (no build was attempted, so this \
-             is not a compile failure): {}",
+            "{} language(s) not built -- preconditions are unmet, no build attempted (not a compile \
+             failure): {}",
             unmet.len(),
             unmet.join("; ")
         ));
     }
     if strict && !toolchain_missing.is_empty() {
         parts.push(format!(
-            "--strict is set and {} language(s) were skipped because their toolchain is not on PATH (no build \
-             was attempted): {}",
+            "--strict is set: {} language(s) skipped, toolchain not on PATH, no build attempted: {}",
             toolchain_missing.len(),
             toolchain_missing.join(", ")
         ));
@@ -896,7 +895,8 @@ fn run_run_command(
         Ok(child) => child,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             warn!(
-                "[{cmd}] not on PATH — skipping post-build step. Install '{cmd}' to regenerate at build time; falling back to committed generated files."
+                "[{cmd}] not on PATH -- post-build step skipped, using the committed generated files. Install \
+                 '{cmd}' to regenerate at build time."
             );
             return Ok(false);
         }

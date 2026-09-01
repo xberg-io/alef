@@ -446,10 +446,9 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         // See `cache::generation_record`'s in-progress marker doc (alef#268). ~keep
         if has_incomplete_crates {
             crate::bin_cli::output::line(
-                "The last generation run did not complete for the following crate(s) (interrupted \
-                 before it finished -- rerun `alef all`/`alef generate` for them; this is not \
-                 staleness, and other findings below for these crates may be an artifact of the \
-                 unfinished run):",
+                "The last generation run did not complete for the following crate(s) -- rerun \
+                 `alef all`/`alef generate` for them. This is not staleness; other findings below \
+                 for these crates may be artifacts of the unfinished run:",
             );
             for name in &incomplete_crates {
                 crate::bin_cli::output::line(format_args!("  {name}"));
@@ -473,8 +472,8 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         if has_stale_crates {
             crate::bin_cli::output::line(
                 "Crates whose generation inputs (Rust sources or alef.toml) changed since their \
-                 last successful `alef generate`/`alef all` run (this does not mean every file \
-                 changed -- rerun to find out which, if any, did):",
+                 last successful `alef generate`/`alef all` run (rerun to see which files, if any, \
+                 actually changed):",
             );
             for name in &stale_crates {
                 crate::bin_cli::output::line(format_args!("  {name}"));
@@ -521,11 +520,10 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         // as invisible orphans across releases. ~keep
         if has_orphan_files {
             crate::bin_cli::output::line(
-                "Orphaned generated files detected (alef's marker is present but the current run's \
-             backends would not produce these paths -- a backend may have stopped emitting them, \
-             they were dropped from generation config, or the file is a create-once seed alef only \
-             writes when absent; review each and delete by hand if genuinely stale, alef never \
-             deletes automatically):",
+                "Orphaned generated files detected (alef's marker is present but this run's backends \
+             would not produce these paths: a dropped emit, a generation-config change, or a \
+             create-once seed alef writes only when absent). Review each and delete by hand if \
+             genuinely stale; alef never deletes automatically:",
             );
             for path in &orphan_generated_files {
                 crate::bin_cli::output::line(format_args!("  {path}"));
@@ -679,9 +677,9 @@ fn ensure_configured_snippet_directories_exist(missing: &[String], report_only: 
         return Ok(());
     }
     anyhow::bail!(
-        "configured docs.snippets roots do not exist: {}. Fix the dirs/inline_dirs entries in \
-         alef.toml or create the directories -- until then every snippet check that walks them \
-         reports a clean run having examined nothing",
+        "configured docs.snippets roots do not exist: {}. Fix: correct the dirs/inline_dirs \
+         entries in alef.toml, or create the directories -- until then every snippet check that \
+         walks them reports a clean run having examined nothing",
         missing.join(", ")
     )
 }

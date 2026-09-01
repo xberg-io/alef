@@ -684,7 +684,7 @@ fn the_same_drifted_seed_outside_a_rewritten_root_is_not_reported() {
     );
 }
 
-/// xberg#1535: `alef verify` printed the "Frozen files whose withheld content has DRIFTED"
+/// xberg#1535: `alef verify` printed the "frozen path(s) DRIFTED"
 /// block naming 21 version-bearing manifests, then three lines later asserted the unqualified
 /// "All bindings and versions are up to date." for that very same run and exited 0. This proves
 /// [`report_sign_off_line`] -- what `alef verify` actually prints as its closing line -- can

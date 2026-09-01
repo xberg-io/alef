@@ -54,17 +54,13 @@ fn excluded_carrier_diagnostic(api: &ApiSurface, bridge: &TraitBridgeConfig) -> 
         api.crate_name.clone(),
         Some(format!("field {options_type_name}.{field_name}")),
         format!(
-            "trait bridge `{}` binds via `options_field` to `{options_type_name}.{field_name}`, but \
-             that field is excluded from bindings ({exclusion_reason}); every backend that emits this \
-             bridge reads `options.{field_name}` off the generated `{options_type_name}` mirror struct, \
-             which no longer has that field once it is skipped -- the binding would have no way to \
-             attach a visitor/callback at all, and generated code that still reads the field would fail \
-             to compile",
+            "trait bridge `{}` binds via `options_field` to `{options_type_name}.{field_name}`, but that \
+             field is excluded from bindings ({exclusion_reason})",
             bridge.trait_name,
         ),
         format!(
             "remove `alef(skip)` from `{options_type_name}.{field_name}`, or remove/reconfigure the \
-             `[[crates.trait_bridges]]` entry for `{}` -- this bridge cannot function without that field",
+             `[[crates.trait_bridges]]` entry for `{}`",
             bridge.trait_name
         ),
     ))

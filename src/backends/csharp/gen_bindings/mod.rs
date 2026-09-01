@@ -161,7 +161,8 @@ fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>)
 /// sides are knowable now and a consumer cannot skip it. Nothing on the Rust side can catch
 /// it later: the bridge class writes into a `Marshal.AllocHGlobal` block sized from the same
 /// (wrong) count, so an omitted slot is not null — it holds the next field's valid pointer
-/// shifted one word left, and the final read runs past the allocation.
+/// shifted one word left, and the final read runs past the allocation. Every slot is written
+/// at a fixed byte offset, which is why a reorder is as fatal as an omission. ~keep
 fn assert_vtable_matches_rust_struct(
     source_api: &ApiSurface,
     trait_def: &crate::core::ir::TypeDef,
@@ -185,10 +186,7 @@ fn assert_vtable_matches_rust_struct(
     anyhow::bail!(
         "C# trait bridge for `{}` emits a vtable that does not match the Rust vtable struct.\n\
          Rust slots ({}): {}\n\
-         C# slots ({}): {}\n\
-         Every slot is written at a fixed byte offset, so a missing, extra, or reordered slot \
-         makes registration dispatch through the wrong function pointer and read past the \
-         allocation.",
+         C# slots ({}): {}",
         trait_def.name,
         expected.len(),
         expected.join(", "),

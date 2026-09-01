@@ -93,9 +93,9 @@ pub(crate) fn run(
                     &mut outcome.error,
                     "e2e call validation",
                     anyhow::anyhow!(
-                        "e2e call '{call_name}': function '{function}' was not found in the extracted API \
-                         surface. Check that it is declared `pub` and that its source file is listed in \
-                         [[crate.sources]] or [[crate.source_crates]]."
+                        "e2e call '{call_name}': function '{function}' is not in the extracted API \
+                         surface. Fix: declare it `pub` and list its source file in [[crate.sources]] \
+                         or [[crate.source_crates]]."
                     ),
                 );
             }
@@ -112,10 +112,10 @@ pub(crate) fn run(
                     "e2e call validation",
                     anyhow::anyhow!(
                         "e2e call '{call_name}': function '{function}' is not exported at module path \
-                         '{declared_module}' -- the Rust codegen would emit `use {declared_module}::{function};`. \
-                         Actual rust_path(s) found: {paths}. \
-                         Fix: either add `pub use <path>::{function};` at the crate root, \
-                         or update `module` in [e2e.calls.{call_name}] to the correct path."
+                         '{declared_module}' -- codegen would emit `use {declared_module}::{function};`. \
+                         Actual rust_path(s): {paths}. \
+                         Fix: add `pub use <path>::{function};` at the crate root, or point `module` \
+                         in [e2e.calls.{call_name}] at one of those paths."
                     ),
                 );
             }

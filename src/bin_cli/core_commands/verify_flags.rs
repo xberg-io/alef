@@ -29,10 +29,9 @@ pub(super) fn refuse_unimplemented_verify_flags(compile: bool, lint: bool, lang:
         return Ok(());
     }
     anyhow::bail!(
-        "`alef verify` does not implement {}. Verification checks freshness of generated \
-         output only. Run `alef build --lang <langs>` for a compilation check and `alef lint \
-         --lang <langs>` for a lint check; both accept the language filter. Re-run `alef \
-         verify` without {} to check freshness.",
+        "`alef verify` does not implement {}; it checks freshness of generated output only. \
+         Fix: re-run `alef verify` without {}. Use `alef build --lang <langs>` to compile and \
+         `alef lint --lang <langs>` to lint.",
         requested.join(", "),
         requested.join(", "),
     )

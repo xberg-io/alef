@@ -631,28 +631,27 @@ pub(crate) fn strict_assertion_failure(records: &[SkipRecord], strict: bool) -> 
     // `COARSE_FIELD_ORACLE_LANGUAGES`), rust is always IR-wired and resolves an accessor
     // for every field its own IR sees, so a rust refusal cannot be a rust-specific limit.
     let shared_oracle_note = if gaps.iter().any(|record| record.language == "rust") {
-        " `rust` is in the list above, and rust resolves an accessor for every field its own \
-         IR sees, so this cannot be a language-capability limit — check the fixture path \
-         against the crate's actual fields, or the field-availability config, before \
-         suspecting any one backend."
+        " `rust` is listed, and rust resolves an accessor for every field its own IR sees — check \
+         the fixture path or the field-availability config, not any one backend."
     } else {
         ""
     };
+    // ~keep The two skip kinds are not interchangeable and the summary buckets them by owner:
+    // `not_representable` is alef's backlog (an assertion *kind* alef cannot express yet -- "the
+    // call errored", a property of the call rather than the result, an assertion over a stream's
+    // events); `language_limitation` is the binding's (the field is genuinely unreachable there).
+    // Either way the skip stays counted, so declaring one is not a way to make the gap disappear.
     Some(anyhow::anyhow!(
-        "{} e2e assertion(s) reference a field the availability oracle cannot resolve, so they \
-         would have been silently dropped and the generated tests would have passed while \
-         asserting nothing:\n{detail}\n\nEvery backend asks the same field-availability oracle, \
-         so a field named for more than one language here is one resolution answered once, not \
-         several backends independently failing.{shared_oracle_note}\n\nEither fix the field \
-         path (or the field-availability config) so the assertion runs, or declare on the \
-         assertion why it cannot:\n  \
-         \"skip\": {{ \"kind\": \"not_representable\", \"reason\": \"...\" }}      — alef cannot \
-         express this shape yet (an assertion *kind* such as \"the call errored\", a property of \
-         the call rather than the result, or an assertion over a stream's events)\n  \
-         \"skip\": {{ \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \
-         \"reason\": \"...\" }}  — this binding genuinely cannot reach the field\nEither way the \
-         skip stays counted in the end-of-run summary, in the bucket that names who owns it. Set \
-         {}=0 to downgrade this to a warning for one run.",
+        "{} e2e assertion(s) reference a field the availability oracle cannot resolve; they would \
+         have been dropped and the generated tests would have passed asserting nothing:\n{detail}\n\n\
+         All backends share one field-availability oracle: a field listed for several languages is \
+         one unresolved field, not several backend gaps.{shared_oracle_note}\n\n\
+         Fix the field path or the field-availability config, or declare a skip on the assertion:\n  \
+         \"skip\": {{ \"kind\": \"not_representable\", \"reason\": \"...\" }}  — alef cannot express \
+         this shape\n  \
+         \"skip\": {{ \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \"reason\": \
+         \"...\" }}  — this binding cannot reach the field\n\
+         Set {}=0 to downgrade this to a warning for one run.",
         gaps.len(),
         STRICT_ASSERTIONS_ENV,
     ))

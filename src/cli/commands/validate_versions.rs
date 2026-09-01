@@ -209,8 +209,8 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
     // `--exit-code`: "nothing to verify" is never a valid release-gate pass.
     if checks.is_empty() {
         anyhow::bail!(
-            "version validation examined 0 manifests for crate `{}` (canonical {canonical}) - nothing was verified; \
-             check that the configured package directories exist and are readable",
+            "version validation examined 0 manifests for crate `{}` (canonical {canonical}); check that \
+             the configured package directories exist and are readable",
             config.name
         );
     }

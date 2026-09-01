@@ -88,6 +88,8 @@ impl JavaBackend {
 /// sides are knowable now and a consumer cannot skip it. The FFI crate's existing
 /// null-pointer check on each slot is structurally incapable of catching an omission: an
 /// omitted slot is not null, it holds the next field's valid pointer shifted one word left.
+/// Every slot is written at a fixed index, which is why a reorder is as fatal as an
+/// omission. ~keep
 fn assert_vtable_matches_rust_struct(
     source_api: &ApiSurface,
     trait_def: &crate::core::ir::TypeDef,
@@ -111,9 +113,7 @@ fn assert_vtable_matches_rust_struct(
     anyhow::bail!(
         "Java trait bridge for `{}` emits a vtable that does not match the Rust vtable struct.\n\
          Rust slots ({}): {}\n\
-         Java slots ({}): {}\n\
-         Every slot is written at a fixed index, so a missing, extra, or reordered slot makes \
-         registration dispatch through the wrong function pointer and read past the allocation.",
+         Java slots ({}): {}",
         trait_def.name,
         expected.len(),
         expected.join(", "),

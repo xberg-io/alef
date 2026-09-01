@@ -642,7 +642,7 @@ const DISK_SCAN_SKIPPED: &str = "disk-scan orphan reclaim skipped for";
 /// manifest) branch.
 const DISK_SCAN_NO_BASELINE: &str = "no previous-run manifest exists at all";
 /// Only the real-defect branch: a baseline exists and still vouches for nothing under this root.
-const DISK_SCAN_BACKEND_DEFECT: &str = "a backend whose own bookkeeping has never vouched";
+const DISK_SCAN_BACKEND_DEFECT: &str = "backend whose own bookkeeping has never vouched";
 
 /// Fixture shared by the three disk-scan classification tests below: one real, existing,
 /// git-tracked output root holding one alef-marked file. Only the manifest/keep state differs

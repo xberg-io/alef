@@ -215,6 +215,9 @@ fn validate_registration(api: &ApiSurface, service: &ServiceDef, registration: &
 }
 
 /// Fail generation loudly for every service shape whose value the C ABI would silently drop.
+///
+/// A Finalize entrypoint returning anything but `()` or a surface-wrapped type crosses the C
+/// ABI as an `i32` status code, so its value is dropped with no diagnostic. ~keep
 fn validate_service_abi(api: &ApiSurface, service: &ServiceDef) -> anyhow::Result<()> {
     for registration in &service.registrations {
         validate_registration(api, service, registration)?;
@@ -228,11 +231,7 @@ fn validate_service_abi(api: &ApiSurface, service: &ServiceDef) -> anyhow::Resul
         if matches!(entrypoint.kind, EntrypointKind::Finalize)
             && !finalize_return_representable(&entrypoint.return_type, api)
         {
-            anyhow::bail!(
-                "{locator} return: a Finalize entrypoint may only return `()` or a type this surface \
-                 wraps — every other return crosses the C ABI as an `i32` status code, so the value \
-                 would be dropped without a diagnostic"
-            );
+            anyhow::bail!("{locator} return: a Finalize entrypoint may only return `()` or a type this surface wraps");
         }
     }
     Ok(())

@@ -45,12 +45,13 @@ pub(super) fn render(
             crate::backends::wasm::WasmCallability::NotExported => {
                 bail!("WASM target does not export the configured `{function}` fixture function");
             }
+            // Distinct from `NotExported`: the name resolves to nothing at all under either
+            // spelling, so this is a config error, not a gap in the WASM target -- it must never
+            // be retired with a `docs.coverage_exceptions` entry. ~keep
             crate::backends::wasm::WasmCallability::UnknownSymbol => {
                 bail!(
-                    "fixture `{}` routes WASM to `{function}`, but nothing in the API surface or the \
-                     trait-bridge registry answers to that name under either its Rust or its JavaScript \
-                     spelling -- the name resolves to nothing, which is a config error rather than a gap \
-                     in the WASM target",
+                    "fixture `{}` routes WASM to `{function}`, but no API-surface function or trait-bridge \
+                     registry entry answers to that name under either its Rust or its JavaScript spelling",
                     docs_fixture.id
                 );
             }
@@ -97,10 +98,9 @@ pub(super) fn render(
     };
     if let Some(unexported) = first_unexported_type_reference(&body, config, &wasm_type_prefix) {
         bail!(
-            "fixture `{}` renders a WASM snippet that names `{unexported}`, but `[crates.wasm] \
-             exclude_types` keeps that type out of the WASM binding, so the package exports no such \
-             symbol -- the snippet would not type-check. Drop the exclusion or give the fixture a \
-             `docs.coverage_exceptions` entry recording why WASM has no example",
+            "fixture `{}` renders a WASM snippet naming `{unexported}`, which `[crates.wasm] exclude_types` \
+             keeps out of the WASM binding. Drop the exclusion, or give the fixture a \
+             `docs.coverage_exceptions` entry for wasm",
             docs_fixture.id
         );
     }

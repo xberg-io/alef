@@ -465,8 +465,7 @@ pub(crate) fn run_before(lang: Language, before: Option<&StringOrVec>) -> anyhow
 pub fn init(config_path: &std::path::Path, languages: Option<Vec<String>>) -> anyhow::Result<()> {
     if config_path.exists() {
         anyhow::bail!(
-            "refusing to overwrite existing config at {}; edit it directly, or remove it first if you really want \
-             a fresh one",
+            "refusing to overwrite existing config at {}; edit it in place, or remove it first for a fresh one",
             config_path.display()
         );
     }

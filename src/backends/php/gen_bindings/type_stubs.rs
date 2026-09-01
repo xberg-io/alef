@@ -177,9 +177,8 @@ pub(super) fn generate_type_stubs(
         if !serde_available {
             for excluded in binding_fields(&typ.fields).filter(|f| !is_constructor_param(f)) {
                 tracing::warn!(
-                    "php backend stub: {}.{} cannot be represented as a #[php(constructor)] parameter \
-                     (its mapped type has no ext-php-rs constructor-param support); the PHPStan stub \
-                     omits it from the constructor and exposes it only via get_{}()",
+                    "php backend stub: {}.{} is not representable as a `#[php(constructor)]` parameter; \
+                     the PHPStan stub exposes it via get_{}() only",
                     typ.name,
                     excluded.name,
                     excluded.name,

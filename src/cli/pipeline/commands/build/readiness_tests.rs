@@ -106,7 +106,7 @@ fn should_fail_the_run_for_unmet_preconditions_while_naming_them_separately_from
     .expect_err("unmet preconditions must not exit clean");
     let message = error.to_string();
 
-    assert!(message.contains("1 language(s) were not built"), "{message}");
+    assert!(message.contains("1 language(s) not built"), "{message}");
     assert!(message.contains("not a compile failure"), "{message}");
     assert!(message.contains("mix deps.get"), "{message}");
     assert!(!message.contains("backend build failed"), "{message}");
@@ -126,5 +126,5 @@ fn should_keep_failure_and_unmet_counts_separate_when_both_occur() {
     let message = error.to_string();
 
     assert!(message.contains("backend build failed for 1 language(s)"), "{message}");
-    assert!(message.contains("1 language(s) were not built"), "{message}");
+    assert!(message.contains("1 language(s) not built"), "{message}");
 }

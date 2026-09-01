@@ -143,9 +143,8 @@ pub(crate) fn check_generated_lock_freshness_tolerating_pending_publish(
 
     if !pending.is_empty() {
         tracing::warn!(
-            "{} of the committed Cargo.lock pin(s) below cannot resolve only because they require this \
-             crate's own version, which has not been published to the registry yet -- expected right after a \
-             version bump and not a defect; it resolves itself once the release publishes:\n{}",
+            "{} committed Cargo.lock pin(s) below require this crate's own version, which is not on the \
+             registry yet -- expected after a version bump; resolves once the release publishes:\n{}",
             pending.len(),
             stale_lock_message(&pending)
         );
@@ -469,12 +468,13 @@ fn workspace_dependency_spec(manifest_path: &Path, alias: &str) -> Option<toml::
 
 /// Render the operator-facing failure: what disagrees, where each side said it, and the command
 /// that reconciles them.
+///
+/// Reported, never rewritten: generation itself succeeded and alef does not author lockfiles,
+/// so the fix is a command the operator runs in their own tree. ~keep
 fn stale_lock_message(findings: &[StaleLockFinding]) -> String {
     let mut message = format!(
-        "{} committed Cargo.lock pin(s) cannot satisfy a requirement reachable from a manifest \
-         alef generated. `cargo metadata --locked` (and every `cargo build --locked` / CI job) \
-         will fail in these directories even though generation itself succeeded. Alef does not \
-         author lockfiles, so this is reported rather than rewritten:",
+        "{} committed Cargo.lock pin(s) cannot satisfy a requirement from a manifest alef generated; \
+         `cargo metadata --locked` and `cargo build --locked` will fail in these directories:",
         findings.len()
     );
     for finding in findings {
@@ -496,8 +496,8 @@ fn stale_lock_message(findings: &[StaleLockFinding]) -> String {
         ));
     }
     message.push_str(
-        "\nIf a pin is intentionally held back, resolve it in the manifest that declares the \
-         requirement — a lockfile cannot record an exception to its own resolution.",
+        "\nA pin held back on purpose belongs in the manifest that declares the requirement -- a lockfile \
+         cannot record an exception to its own resolution.",
     );
     message
 }
@@ -621,9 +621,8 @@ pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
 
     if !pending.is_empty() {
         tracing::warn!(
-            "{} of the committed pnpm-lock.yaml pin(s) below cannot resolve only because they require this \
-             crate's own version, which has not been published to the registry yet -- expected right after a \
-             version bump and not a defect; it resolves itself once the release publishes:\n{}",
+            "{} committed pnpm-lock.yaml pin(s) below require this crate's own version, which is not on the \
+             registry yet -- expected after a version bump; resolves once the release publishes:\n{}",
             pending.len(),
             stale_node_lock_message(&pending)
         );
@@ -922,9 +921,8 @@ pub(crate) fn check_generated_uv_lock_freshness_tolerating_pending_publish(
 
     if !pending.is_empty() {
         tracing::warn!(
-            "{} of the committed uv.lock pin(s) below cannot resolve only because they require this crate's \
-             own version, which has not been published to the registry yet -- expected right after a version \
-             bump and not a defect; it resolves itself once the release publishes:\n{}",
+            "{} committed uv.lock pin(s) below require this crate's own version, which is not on the \
+             registry yet -- expected after a version bump; resolves once the release publishes:\n{}",
             pending.len(),
             stale_uv_lock_message(&pending)
         );
@@ -1136,12 +1134,14 @@ fn normalize_pep503_name(name: &str) -> String {
 
 /// Render the operator-facing failure: what disagrees, where each side said it, and the command
 /// that reconciles them.
+///
+/// Reported, never rewritten: generation itself succeeded and alef does not author lockfiles,
+/// so the fix is a command the operator runs in their own tree. ~keep
 fn stale_uv_lock_message(findings: &[StaleUvLockFinding]) -> String {
     let mut message = format!(
-        "{} committed uv.lock specifier(s) disagree with a pyproject.toml alef generated. `uv sync \
-         --locked` (and every CI job that runs it with the default frozen lockfile) will fail with \
-         \"The lockfile at `uv.lock` needs to be updated\" even though generation itself succeeded. \
-         Alef does not author lockfiles, so this is reported rather than rewritten:",
+        "{} committed uv.lock specifier(s) disagree with a pyproject.toml alef generated; `uv sync \
+         --locked` (and frozen-lockfile CI jobs) will fail with \"The lockfile at `uv.lock` needs to be \
+         updated\":",
         findings.len()
     );
     for finding in findings {
@@ -1157,20 +1157,21 @@ fn stale_uv_lock_message(findings: &[StaleUvLockFinding]) -> String {
         ));
     }
     message.push_str(
-        "\nIf a pin is intentionally held back, resolve it in pyproject.toml -- a lockfile cannot \
-         record an exception to its own resolution.",
+        "\nA pin held back on purpose belongs in pyproject.toml -- a lockfile cannot record an exception \
+         to its own resolution.",
     );
     message
 }
 
 /// Render the operator-facing failure: what disagrees, where each side said it, and the command
 /// that reconciles them.
+///
+/// Reported, never rewritten: generation itself succeeded and alef does not author lockfiles,
+/// so the fix is a command the operator runs in their own tree. ~keep
 fn stale_node_lock_message(findings: &[StaleNodeLockFinding]) -> String {
     let mut message = format!(
-        "{} committed pnpm-lock.yaml specifier(s) disagree with a package.json alef generated. \
-         `pnpm install` (and every CI job that runs it with the default frozen lockfile) will \
-         fail with ERR_PNPM_OUTDATED_LOCKFILE even though generation itself succeeded. Alef does \
-         not author lockfiles, so this is reported rather than rewritten:",
+        "{} committed pnpm-lock.yaml specifier(s) disagree with a package.json alef generated; `pnpm \
+         install --frozen-lockfile` (the CI default) will fail with ERR_PNPM_OUTDATED_LOCKFILE:",
         findings.len()
     );
     for finding in findings {
@@ -1187,8 +1188,8 @@ fn stale_node_lock_message(findings: &[StaleNodeLockFinding]) -> String {
         ));
     }
     message.push_str(
-        "\nIf a pin is intentionally held back, resolve it in package.json -- a lockfile cannot \
-         record an exception to its own resolution.",
+        "\nA pin held back on purpose belongs in package.json -- a lockfile cannot record an exception \
+         to its own resolution.",
     );
     message
 }

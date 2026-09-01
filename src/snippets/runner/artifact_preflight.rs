@@ -191,9 +191,9 @@ fn report(session: &ValidationSession, level: ValidationLevel, snippet_count: us
         snippet_count,
         missing_artifacts = %rendered(paths),
         working_directory = %session.working_directory.display(),
-        "skipping snippet validation for this session: the build artifacts its manifest points at do not exist, so \
-         every snippet would fail for that one reason -- run `alef build` first (or pass \
-         --skip-snippet-validation for a generate-only run); these snippets are reported unvalidated, not passed"
+        "skipping snippet validation for this session: the build artifacts its manifest points at do not exist; \
+         these snippets are reported unvalidated, not passed -- run `alef build` first, or pass \
+         --skip-snippet-validation for a generate-only run"
     );
 }
 

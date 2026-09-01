@@ -335,11 +335,10 @@ fn record_preparation_error(
     let ordering = matches!(error, Error::Timeout { .. });
     let message = if ordering {
         format!(
-            "preparing snippet validation target `{target}`: the {} session's `before` hook -- which builds this \
-             language's artifacts before its snippets can validate against them -- {error}. This is an ordering \
-             problem, not a snippet defect: run `alef build` (or an equivalent build step) before validating, or \
-             raise `docs.snippets.timeout_secs` if the build itself genuinely needs longer. `alef all --clean` \
-             removes any artifacts a previous build left in place, which makes this more likely, not less.",
+            "preparing snippet validation target `{target}`: the {} session's `before` hook (the step that \
+             builds this language's artifacts) {error}. Run `alef build` before validating, or raise \
+             `docs.snippets.timeout_secs`; `alef all --clean` discards previously built artifacts, which makes \
+             this more likely.",
             spec.language
         )
     } else {

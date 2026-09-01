@@ -353,20 +353,17 @@ pub(crate) fn drifted_seed_report_lines(frozen: &[FrozenFile]) -> Vec<String> {
     if drifted.is_empty() {
         return Vec::new();
     }
-    let mut lines = vec![format!(
-        "Frozen files whose withheld content has DRIFTED ({} path(s) -- alef re-renders each of \
-         these on every run, would write different bytes, and the ownership guard refuses because \
-         the file carries no provenance marker. Unlike the other unmarked seeds this is not a \
-         steady state: what is on disk is not what this configuration produces, and no rerun \
-         changes that. Content derived from the release version is the case that bites, because a \
-         stale copy stays plausible. Review the diff with `alef adopt <path>` (preview only), then \
-         either delete the file so the next run writes it cleanly, or -- if you meant to keep your \
-         copy -- declare it in `[workspace.ownership] user_owned` so alef stops attempting the \
-         write and stops counting it here):",
-        drifted.len()
-    )];
+    let mut lines = vec![
+        format!(
+            "{} frozen path(s) DRIFTED: alef re-renders these every run and would write different \
+             bytes, but the file carries no provenance marker.",
+            drifted.len()
+        ),
+        "  Preview: alef adopt <path>".to_owned(),
+        "  Fix: delete the file, or declare it in `[workspace.ownership] user_owned`".to_owned(),
+    ];
     for path in drifted {
-        lines.push(format!("  {path}"));
+        lines.push(format!("    {path}"));
     }
     lines
 }
@@ -376,7 +373,7 @@ pub(crate) fn drifted_seed_report_lines(frozen: &[FrozenFile]) -> Vec<String> {
 ///
 /// The sign-off used to be a bare literal at the call site, printed whenever every
 /// *other* finding was empty -- with no regard for whether [`drifted_seed_report_lines`] had
-/// just printed the "Frozen files whose withheld content has DRIFTED" block a few lines above.
+/// just printed the "frozen path(s) DRIFTED" block a few lines above.
 /// A run against 21 version-bearing manifests (`package.json`, `go.mod`, `pom.xml`, ...) named
 /// every one of them as drifted and then, three lines later, asserted the unqualified opposite
 /// and exited 0 -- the two halves of the report disagreeing about the same run. Passing the
@@ -428,13 +425,13 @@ pub(crate) fn report_lines(frozen: &[FrozenFile]) -> Vec<String> {
         return Vec::new();
     }
     let mut lines = vec![
-        "Frozen generated files detected (alef owns these paths but the files carry no provenance \
-         marker, so alef refuses to write them -- review each file, then either run `alef adopt \
-         <path> --write` to take ownership, or delete the file so generation can write it cleanly. \
-         Never hand-add the marker line: alef's own write guard treats that as re-enabling exactly \
-         the clobbering it exists to prevent -- see \
-         `crate::cli::pipeline::generate::write::report_refused_writes`):"
-            .to_owned(),
+        format!(
+            "Frozen generated files detected ({} path(s)): alef owns these paths but the files \
+             carry no provenance marker, so writes are refused.",
+            adoptable.len()
+        ),
+        "  Fix: run `alef adopt <path> --write`, or delete the file so generation rewrites it.".to_owned(),
+        "  Do not hand-add the marker line -- the write guard reads it as consent to clobber.".to_owned(),
     ];
     for file in adoptable {
         lines.push(format!("  {}", file.path));
@@ -444,13 +441,9 @@ pub(crate) fn report_lines(frozen: &[FrozenFile]) -> Vec<String> {
         // reader who cannot tell the two apart has to open every file to find out which of
         // them was the one silently holding stale output. ~keep
         lines.push(if file.drifted {
-            "    content DIFFERS from what alef would generate: the refused write had different \
-             bytes to deliver, so this file is stale for as long as it stays frozen"
-                .to_owned()
+            "    content DIFFERS from what alef would generate: stale while it stays frozen".to_owned()
         } else {
-            "    content already matches what alef would generate: adoption records ownership \
-             and changes no byte of the file"
-                .to_owned()
+            "    content already matches what alef would generate: adoption changes no bytes".to_owned()
         });
         if let Some(near_miss) = &file.near_miss {
             lines.push(format!(
@@ -459,14 +452,9 @@ pub(crate) fn report_lines(frozen: &[FrozenFile]) -> Vec<String> {
             ));
         }
         lines.push(match &file.remedy {
-            Some(remedy) => format!(
-                "    run `alef adopt <path> --write` to add it (marker `alef adopt` would write: \
-                 {remedy})"
-            ),
-            None => "    this format has no comment syntax to carry a marker, so alef proves ownership \
-                     through the committed .alef-ownership.toml record instead -- run `alef adopt <path> \
-                     --write` to record it there, or delete the file so the next `alef generate` writes \
-                     and records it directly"
+            Some(remedy) => format!("    marker `alef adopt` would write: {remedy}"),
+            None => "    no comment syntax for a marker: ownership lives in .alef-ownership.toml \
+                     -- run `alef adopt <path> --write` to record it, or delete the file"
                 .to_owned(),
         });
     }

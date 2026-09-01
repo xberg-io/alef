@@ -57,16 +57,16 @@ fn catch_all_rewrite_is_permitted(path: &std::path::Path, content: &str) -> bool
     if !SEMVER_RE.is_match(content) {
         debug!(
             path = %path.display(),
-            "version-sync: skipping a catch-all rewrite of a stampable file that carries no alef \
-             marker and no semver-shaped substring — nothing to rewrite either way"
+            "version-sync: skipping a catch-all rewrite; this stampable file carries no alef marker and \
+             no semver-shaped substring"
         );
         return false;
     }
     warn!(
         path = %path.display(),
-        "version-sync: skipping a catch-all rewrite of a stampable file that carries no alef marker — \
-         it reads as hand-written. Nothing else reports a skipped path, so this line is the only signal; \
-         if alef does own it, give it a provenance marker or move it to a named-filename branch"
+        "version-sync: skipping a catch-all rewrite; this stampable file carries no alef marker, so alef \
+         treats it as hand-written. If alef does own it, give it a provenance marker or move it to a \
+         named-filename branch"
     );
     false
 }
@@ -83,9 +83,8 @@ fn warn_refused_matches(surface: &str, pattern: &str, refused: usize) {
         return;
     }
     warn!(
-        "version-sync: {surface} pattern '{pattern}' matched {refused} git-ignored file(s), which were \
-         not rewritten — they are build staging or another disposable copy, so an edit there would be \
-         invisible to review and lost on the next clean. Narrow the pattern if this is a surprise"
+        "version-sync: {surface} pattern '{pattern}' matched {refused} git-ignored file(s), which were not \
+         rewritten. Narrow the pattern if that is a surprise"
     );
 }
 
@@ -104,9 +103,9 @@ fn warn_sync_target_not_updated(path: &std::path::Path, version: &str, reason: &
     warn!(
         path = %path.display(),
         expected_version = version,
-        "version-sync: declared sync.text_replacements target was not updated to {version} -- {reason}. \
-         This file is a named version-sync target, so it is now pinned to a stale version until the \
-         write succeeds or the file is removed from sync.text_replacements"
+        "version-sync: declared sync.text_replacements target was not updated to {version} -- {reason}. It \
+         stays pinned to a stale version until the write succeeds or the entry is removed from \
+         sync.text_replacements"
     );
 }
 
@@ -153,9 +152,9 @@ pub fn sync_versions(
     let writable = crate::cli::git::IgnoreFilter::for_current_dir();
     if writable.is_degraded() {
         warn!(
-            "version-sync cannot read git's ignore rules here (not a git work tree, or `git` is \
-             unavailable) — glob-discovered rewrites fall back to an unfiltered disk walk and may \
-             write into build-staging copies"
+            "version-sync cannot read git's ignore rules (not a git work tree, or `git` is unavailable); \
+             glob-discovered rewrites fall back to an unfiltered disk walk and may write into \
+             build-staging copies"
         );
     }
 

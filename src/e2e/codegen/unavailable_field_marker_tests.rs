@@ -480,28 +480,21 @@ fn strict_error_names_the_shared_oracle_and_flags_rust_specifically() {
     )
     .expect("an unresolved field must fail under strict");
     let expected = [
-        "1 e2e assertion(s) reference a field the availability oracle cannot resolve, so they \
-         would have been silently dropped and the generated tests would have passed while \
-         asserting nothing:",
+        "1 e2e assertion(s) reference a field the availability oracle cannot resolve; they would \
+         have been dropped and the generated tests would have passed asserting nothing:",
         "  [rust] fixture `widget_smoke`: field `chunks`",
         "",
-        "Every backend asks the same field-availability oracle, so a field named for more than \
-         one language here is one resolution answered once, not several backends independently \
-         failing. `rust` is in the list above, and rust resolves an accessor for every field its \
-         own IR sees, so this cannot be a language-capability limit — check the fixture path \
-         against the crate's actual fields, or the field-availability config, before suspecting \
-         any one backend.",
+        "All backends share one field-availability oracle: a field listed for several languages is \
+         one unresolved field, not several backend gaps. `rust` is listed, and rust resolves an \
+         accessor for every field its own IR sees — check the fixture path or the \
+         field-availability config, not any one backend.",
         "",
-        "Either fix the field path (or the field-availability config) so the assertion runs, or \
-         declare on the assertion why it cannot:",
-        "  \"skip\": { \"kind\": \"not_representable\", \"reason\": \"...\" }      — alef cannot \
-         express this shape yet (an assertion *kind* such as \"the call errored\", a property of \
-         the call rather than the result, or an assertion over a stream's events)",
-        "  \"skip\": { \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \
-         \"reason\": \"...\" }  — this binding genuinely cannot reach the field",
-        "Either way the skip stays counted in the end-of-run summary, in the bucket that names \
-         who owns it. Set ALEF_E2E_STRICT_ASSERTIONS=0 to downgrade this to a warning for one \
-         run.",
+        "Fix the field path or the field-availability config, or declare a skip on the assertion:",
+        "  \"skip\": { \"kind\": \"not_representable\", \"reason\": \"...\" }  — alef cannot express \
+         this shape",
+        "  \"skip\": { \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \"reason\": \
+         \"...\" }  — this binding cannot reach the field",
+        "Set ALEF_E2E_STRICT_ASSERTIONS=0 to downgrade this to a warning for one run.",
     ]
     .join("\n");
     assert_eq!(message, expected);
@@ -521,25 +514,19 @@ fn strict_error_omits_the_rust_clause_when_rust_is_not_among_the_gaps() {
     )
     .expect("an unresolved field must fail under strict");
     let expected = [
-        "1 e2e assertion(s) reference a field the availability oracle cannot resolve, so they \
-         would have been silently dropped and the generated tests would have passed while \
-         asserting nothing:",
+        "1 e2e assertion(s) reference a field the availability oracle cannot resolve; they would \
+         have been dropped and the generated tests would have passed asserting nothing:",
         "  [python] fixture `batch_smoke`: field `usage`",
         "",
-        "Every backend asks the same field-availability oracle, so a field named for more than \
-         one language here is one resolution answered once, not several backends independently \
-         failing.",
+        "All backends share one field-availability oracle: a field listed for several languages is \
+         one unresolved field, not several backend gaps.",
         "",
-        "Either fix the field path (or the field-availability config) so the assertion runs, or \
-         declare on the assertion why it cannot:",
-        "  \"skip\": { \"kind\": \"not_representable\", \"reason\": \"...\" }      — alef cannot \
-         express this shape yet (an assertion *kind* such as \"the call errored\", a property of \
-         the call rather than the result, or an assertion over a stream's events)",
-        "  \"skip\": { \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \
-         \"reason\": \"...\" }  — this binding genuinely cannot reach the field",
-        "Either way the skip stays counted in the end-of-run summary, in the bucket that names \
-         who owns it. Set ALEF_E2E_STRICT_ASSERTIONS=0 to downgrade this to a warning for one \
-         run.",
+        "Fix the field path or the field-availability config, or declare a skip on the assertion:",
+        "  \"skip\": { \"kind\": \"not_representable\", \"reason\": \"...\" }  — alef cannot express \
+         this shape",
+        "  \"skip\": { \"kind\": \"language_limitation\", \"languages\": [\"<lang>\"], \"reason\": \
+         \"...\" }  — this binding cannot reach the field",
+        "Set ALEF_E2E_STRICT_ASSERTIONS=0 to downgrade this to a warning for one run.",
     ]
     .join("\n");
     assert_eq!(message, expected);

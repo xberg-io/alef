@@ -94,20 +94,18 @@ pub fn reject_unsupported_writeback(
     let names: Vec<&str> = found.iter().map(|p| p.name.as_str()).collect();
     if found.len() > 1 {
         anyhow::bail!(
-            "`{function_name}` takes {} `&mut` parameters ({}). Generated bindings return the \
-             updated value of a `&mut` parameter, and a binding has only one return slot, so at \
-             most one `&mut` parameter is supported. Change the core signature to take one \
-             `&mut` parameter, or to take the values by move and return them.",
+            "`{function_name}` takes {} `&mut` parameters ({}); a binding has one return slot, so at \
+             most one is supported. Change the core signature to take one `&mut` parameter, or to take \
+             the values by move and return them.",
             found.len(),
             names.join(", "),
         );
     }
     if !matches!(return_type, TypeRef::Unit) {
         anyhow::bail!(
-            "`{function_name}` takes a `&mut` parameter (`{}`) and also returns a value. \
-             Generated bindings return the updated value of a `&mut` parameter, so the return \
-             slot is already taken. Change the core signature to return the updated value \
-             itself, or to fold both results into one returned type.",
+            "`{function_name}` takes a `&mut` parameter (`{}`) and also returns a value; the single \
+             return slot already carries the updated `&mut` value. Change the core signature to return \
+             the updated value itself, or to fold both results into one returned type.",
             names[0],
         );
     }

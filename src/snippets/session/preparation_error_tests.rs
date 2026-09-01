@@ -70,8 +70,8 @@ fn a_before_hook_timeout_is_classified_as_an_ordering_problem() {
         error.message
     );
     assert!(
-        error.message.contains("ordering problem"),
-        "the message must name the ordering problem, not just report the raw timeout: {}",
+        error.message.contains("Run `alef build` before validating"),
+        "the message must point at the build ordering, not just report the raw timeout: {}",
         error.message
     );
     assert!(

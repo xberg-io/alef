@@ -125,16 +125,13 @@ impl UserOwnedPaths {
     /// Compile `patterns`, failing on the first one that is not a valid glob.
     ///
     /// See [`OwnershipConfig::user_owned`] for why a malformed pattern is fatal here and merely
-    /// dropped in `[crates.verify] ignore_ephemeral`.
+    /// dropped in `[crates.verify] ignore_ephemeral`: silently dropping an unusable pattern lets
+    /// alef overwrite a file this repository declared its own. ~keep
     pub fn compile(patterns: &[String]) -> anyhow::Result<Self> {
         let mut compiled = Vec::with_capacity(patterns.len());
         for pattern in patterns {
             let parsed = glob::Pattern::new(pattern).map_err(|error| {
-                anyhow::anyhow!(
-                    "[workspace.ownership] user_owned pattern {pattern:?} is not a valid glob: {error}. \
-                     alef refuses to continue with a pattern it cannot apply -- an ignored pattern here \
-                     means alef overwrites a file this repository declared its own."
-                )
+                anyhow::anyhow!("[workspace.ownership] user_owned pattern {pattern:?} is not a valid glob: {error}")
             })?;
             compiled.push(parsed);
         }

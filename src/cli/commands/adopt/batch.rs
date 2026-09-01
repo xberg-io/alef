@@ -227,9 +227,11 @@ impl<'m> AdoptSession<'m> {
         }
 
         if candidates.is_empty() && unreadable.is_empty() {
+            // Distinct from the unmatched bail above: the path IS alef's, it just is not on disk
+            // yet, so there is no ownership conflict to resolve -- generation simply writes it.
+            // ~keep
             bail!(
-                "`{}` matches alef-managed output but nothing exists on disk yet -- \
-                 run `alef generate`, there is no ownership conflict to resolve",
+                "`{}` matches alef-managed output but nothing exists on disk yet -- run `alef generate`",
                 options.target
             );
         }
@@ -314,8 +316,8 @@ impl<'m> AdoptSession<'m> {
             tracing::warn!(
                 path = %candidate.relative.display(),
                 "create-once seed: alef emits this path only when absent, so adopting it consents to alef \
-                 replacing its contents with a placeholder seed on the next overwriting regen (an \
-                 `alef version` sync, `alef all --clobber-create-once-seeds`) -- a plain `alef generate` \
+                 replacing its contents with a placeholder seed on the next OVERWRITING regen -- an \
+                 `alef version` sync or `alef all --clobber-create-once-seeds`. A plain `alef generate` \
                  skips it"
             );
         }
@@ -355,10 +357,11 @@ impl<'m> AdoptSession<'m> {
         let has_work = adoptable.iter().any(|c| c.state != AdoptionState::AlreadyOwned);
         if !has_work && !report.skipped_create_once.is_empty() {
             bail!(
-                "`{}` matches only create-once seeds, which alef emits solely when absent -- \
-                 adopting one consents to alef replacing its contents with a placeholder seed on the \
-                 next overwriting regen (an `alef version` sync, `alef all --clobber-create-once-seeds`), \
-                 so nothing was written. Pass --clobber-create-once-seeds to adopt them anyway.",
+                "`{}` matches only create-once seeds, so nothing was written. alef emits these only \
+                 when absent, so adopting one consents to alef replacing its contents with a placeholder \
+                 seed on the next OVERWRITING regen -- an `alef version` sync or `alef all \
+                 --clobber-create-once-seeds`, not a plain `alef generate`. Pass \
+                 --clobber-create-once-seeds to adopt them anyway.",
                 options.target
             );
         }

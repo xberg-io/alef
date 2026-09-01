@@ -22,6 +22,10 @@ pub(super) fn constructor_fields(typ: &TypeDef) -> impl Iterator<Item = &FieldDe
     typ.fields.iter().filter(|field| !field.binding_excluded)
 }
 
+/// Fails when a `#[serde(default = "path")]` function cannot be reproduced in the generated
+/// bindings: alef cannot call a private or feature-gated default, and
+/// `rust_default_via_source_deserialize` could not recover the value through the owning type's
+/// `Deserialize` impl either. ~keep
 pub(crate) fn validate_rust_default_functions(api: &ApiSurface) -> anyhow::Result<()> {
     let failures: Vec<_> = api
         .types
@@ -51,11 +55,9 @@ pub(crate) fn validate_rust_default_functions(api: &ApiSurface) -> anyhow::Resul
 
     anyhow::bail!(
         "cannot preserve {} serde default function(s) in generated Rust bindings:\n{}\n\
-         Alef cannot call private or feature-gated defaults and could not recover these values through the owning \
-         type's Deserialize implementation. For each field, expose a public, unconditional, zero-argument static \
-         method and reference it with its fully qualified owner path (for example, \
-         `Settings::default_retry_limit`; do not use `Self::default_retry_limit`), or replace the function default \
-         with an Alef-visible literal.",
+         For each field, expose a public, unconditional, zero-argument static method and reference it by its \
+         fully qualified owner path (`Settings::default_retry_limit`, not `Self::default_retry_limit`), or \
+         replace the function default with a literal.",
         failures.len(),
         failures.join("\n")
     )

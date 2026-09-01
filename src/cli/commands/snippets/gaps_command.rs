@@ -98,9 +98,11 @@ pub(super) fn run_gaps(invocation: &GapInvocation<'_>) -> ExitCode {
     }
     let unconfigured_failure = strict && crate::snippets::gap_coverage::has_vacuous_input(&unset);
     if unconfigured_failure {
+        // A clean result proves nothing when a check class had nothing to compare, so `--strict`
+        // must not report one. ~keep
         tracing::error!(
-            "--strict: the gap check cannot pass unconfigured — an unset input above left a check class \
-             with nothing to compare, so a clean result would prove nothing"
+            "--strict: an unset input above left a check class with nothing to compare; the gap check \
+             cannot pass unconfigured"
         );
     }
     if !report.has_gaps() {

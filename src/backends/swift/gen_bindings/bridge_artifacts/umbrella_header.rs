@@ -61,6 +61,10 @@ pub(crate) fn assemble(binding_crate_name: &str, core_h: &str, crate_h: &str) ->
 /// header *is* committed, that file is preserved and the failure is reported as a warning —
 /// preserving known-good declarations beats failing a whole regeneration over a stale
 /// `target/` directory.
+///
+/// The undefined types come from the crate's own build directory: an empty or partial
+/// `SwiftBridgeCore.h` there is what leaves the `__swift_bridge__$` declarations without
+/// definitions. ~keep
 pub(crate) fn resolve_fresh(
     binding_crate_name: &str,
     core_h: &str,
@@ -75,19 +79,16 @@ pub(crate) fn resolve_fresh(
         let missing = undefined.join(", ");
         if let Some(committed) = committed {
             tracing::warn!(
-                "swift-bridge build output for `{binding_crate_name}` assembles an incomplete C umbrella \
-                 header (declares __swift_bridge__$ functions using {missing}, but never defines those \
-                 types) -- keeping the committed RustBridgeC.h instead. Re-run `cargo build -p \
-                 {binding_crate_name}` to refresh it."
+                "swift-bridge build output for `{binding_crate_name}` uses {missing} but never defines \
+                 them; keeping the committed RustBridgeC.h. Re-run `cargo build -p {binding_crate_name}` \
+                 to refresh it."
             );
             return Ok(committed.to_string());
         }
         anyhow::bail!(
             "refusing to write an incomplete RustBridgeC.h: the swift-bridge build output for \
-             `{binding_crate_name}` declares __swift_bridge__$ functions using {missing}, but never \
-             defines those types, and no populated header is committed to fall back on. The \
-             SwiftBridgeCore.h in that crate's build directory is empty or partial -- re-run `cargo \
-             build -p {binding_crate_name}`"
+             `{binding_crate_name}` uses {missing} but never defines them, and no populated header is \
+             committed to fall back on. Re-run `cargo build -p {binding_crate_name}`"
         );
     }
 

@@ -421,7 +421,10 @@ fn agrees_via_enum_default(
 /// `enum_default_variants` is whatever the caller's `EnumDef`s are known at the point this runs
 /// (see the call sites for how much of the crate's enums that covers); an enum missing from it
 /// is treated as "cannot prove agreement", not as "known to disagree" — see
-/// [`agrees_via_enum_default`]. ~keep
+/// [`agrees_via_enum_default`].
+///
+/// A disagreement matters because a binding generated from one of the two defaults silently
+/// differs from the Rust core whenever the other path is taken. ~keep
 pub(crate) fn warn_on_default_disagreement(
     rust_path: &str,
     fields: &[FieldDef],
@@ -454,9 +457,7 @@ pub(crate) fn warn_on_default_disagreement(
                 field = %field.name,
                 serde_default = ?serde_default,
                 resolved_default = ?actual_default,
-                "field's `#[serde(default)]` value disagrees with its `#[derive(Default)]`/`impl Default` \
-                 value; a binding generated from one will silently differ from the Rust core when the \
-                 other path is taken"
+                "field's `#[serde(default)]` value disagrees with its `#[derive(Default)]`/`impl Default` value"
             );
         }
     }

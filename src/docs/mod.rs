@@ -622,8 +622,9 @@ fn validate_snippets(
             );
         }
         if !report.unreferenced_snippets.is_empty() {
+            // Warn, not fail, outside strict mode: extra examples can be intentional. ~keep
             tracing::warn!(
-                "docs.snippets found {} unreferenced snippet file(s); not failing because extra examples can be intentional",
+                "docs.snippets found {} unreferenced snippet file(s)",
                 report.unreferenced_snippets.len()
             );
         }

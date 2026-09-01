@@ -222,16 +222,12 @@ fn collect_serde_container_conversion_diagnostics(
         None,
         Some(format!("type {}", typ.name)),
         format!(
-            "struct carries #[serde({})]; its real wire shape disagrees with the plain object \
-             shape backends that re-derive their own binding struct emit (pyo3, napi, magnus, \
-             wasm, rustler, extendr) -- JSON encode/decode for this type will not round-trip on \
-             those targets. FFI-derived backends (Go, Java, C#, Dart, Swift, Kotlin, Zig) are \
-             unaffected: they serialize the core type directly, so its real serde impl already \
-             honours this attribute",
+            "struct carries #[serde({})]; JSON will not round-trip on backends that re-derive their \
+             own binding struct (pyo3, napi, magnus, wasm, rustler, extendr). FFI-derived backends \
+             (Go, Java, C#, Dart, Swift, Kotlin, Zig) are unaffected",
             attrs.join(", ")
         ),
-        "for the affected backends only, exclude the type from generated bindings or \
-         hand-write its JSON bridge until alef mirrors the container conversion there",
+        "on the affected backends, exclude the type from generated bindings or hand-write its JSON bridge",
     ));
 }
 

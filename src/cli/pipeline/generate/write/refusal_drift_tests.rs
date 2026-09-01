@@ -237,9 +237,7 @@ fn a_create_once_seed_refusal_is_never_folded_into_the_adoptable_block() {
          must never reintroduce"
     );
     assert!(
-        logs_contain(&format!(
-            "create-once seed, not rewritten (this is expected): {seed_path}"
-        )),
+        logs_contain(&format!("create-once seed, not rewritten: {seed_path}")),
         "and named, the same way `bin_cli::helpers::frozen::unmarked_create_once_seeds` names it \
          in `alef verify`'s coverage report"
     );

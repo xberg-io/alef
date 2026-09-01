@@ -96,6 +96,11 @@ const MAX_DIAGNOSTIC_VALUE_CHARS: usize = 80;
 /// Names the field, the Go type the binding declares for it, the Go declaration kind that
 /// makes the value unusable, and the value itself — everything an operator needs to decide
 /// between fixing the fixture and recording a `docs.coverage_exceptions` entry. ~keep
+///
+/// The compile error this prevents: Go converts an untyped string constant only to a defined
+/// type whose underlying type is `string` or `[]byte`, so `{go_type}(<value>)` against any other
+/// representation is `cannot convert`. Alef refuses rather than publishing a snippet that does
+/// not compile. ~keep
 fn named_field_type_mismatch(
     owner_type: &str,
     field_name: &str,
@@ -107,12 +112,10 @@ fn named_field_type_mismatch(
     let elided = if quoted.len() < rendered.len() { "..." } else { "" };
     let declaration = representation.go_declaration();
     anyhow::anyhow!(
-        "e2e go codegen: field `{field_name}` of `{owner_type}` is declared as the IR enum `{go_type}`, which the \
-         Go binding backend emits as `type {go_type} {declaration}`. The fixture value lowers to the Go \
-         expression {quoted}{elided}, and Go converts an untyped string constant only to a defined type whose \
-         underlying type is `string` or `[]byte` — `{go_type}({quoted}{elided})` is a `cannot convert` compile \
-         error. Alef will not publish a snippet that does not compile: give the fixture a value matching one of \
-         `{go_type}`'s variants, or record a `docs.coverage_exceptions` entry for go."
+        "e2e go codegen: field `{field_name}` of `{owner_type}` is the IR enum `{go_type}`, which Go emits as \
+         `type {go_type} {declaration}`; the fixture value lowers to {quoted}{elided}, and \
+         `{go_type}({quoted}{elided})` is a `cannot convert` compile error. Give the fixture a value matching one \
+         of `{go_type}`'s variants, or record a `docs.coverage_exceptions` entry for go."
     )
 }
 

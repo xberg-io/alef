@@ -536,9 +536,9 @@ pub(super) fn ensure_required_records_tracked(untracked: &[&'static str], report
         return Ok(());
     }
     anyhow::bail!(
-        "required alef records exist but git does not track them: {names}. Fix with `git add {names_spaced}` \
-         and commit them -- until then this verification passes only on the machine holding the uncommitted \
-         files, and a fresh clone or CI has neither the scaffold protection nor a correct orphan picture",
+        "required alef records exist but git does not track them: {names}. Fix: `git add {names_spaced}` \
+         and commit -- untracked, they exist only on this machine, so a fresh clone or CI has neither the \
+         scaffold protection nor a correct orphan picture",
         names = untracked.join(", "),
         names_spaced = untracked.join(" "),
     )
@@ -558,10 +558,9 @@ pub(super) fn ensure_generation_completed(incomplete_crates: &[String], report_o
         return Ok(());
     }
     anyhow::bail!(
-        "the last generation run did not complete for: {names} -- it was interrupted before \
-         finishing. Rerun `alef all`/`alef generate` for the affected crate(s); this is not \
-         ordinary staleness, and any missing/frozen findings already reported for these crates \
-         may be an artifact of the unfinished run rather than drift",
+        "the last generation run did not complete for: {names}. Fix: rerun `alef all`/`alef generate` \
+         for those crate(s). This is not staleness -- missing/frozen findings already reported for them \
+         may be artifacts of the unfinished run",
         names = incomplete_crates.join(", "),
     )
 }

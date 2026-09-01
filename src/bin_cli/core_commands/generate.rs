@@ -91,8 +91,7 @@ pub(crate) fn handle_generate(
         if cache::generation_record::generation_in_progress(&base_dir, &resolved_cfg.name) {
             tracing::warn!(
                 crate_name = %resolved_cfg.name,
-                "recovering from an incomplete previous generation run for this crate -- it was \
-                 interrupted before finishing; regenerating it fully now"
+                "previous generation run for this crate was interrupted; regenerating it fully"
             );
         }
         cache::generation_record::mark_generation_in_progress(&base_dir, &resolved_cfg.name)?;
@@ -666,8 +665,8 @@ pub(crate) fn handle_generate(
         "Generate summary: {grand_binding_count} binding, {grand_service_api_count} service-api, \
          {grand_public_api_count} public-api, {grand_stub_count} stub, {grand_scaffold_count} scaffold files \
          ({grand_total_generated} total). `alef generate` never generates docs or e2e/test-app output ({} of {} \
-         processed crate(s) here have an [e2e] block configured) -- run `alef docs`, `alef e2e generate`, or `alef \
-         all` for those, and do not read this command's totals as evidence of a full regen.",
+         processed crate(s) here have an [e2e] block configured) -- run `alef docs`, `alef e2e generate`, \
+         or `alef all` for those.",
         crates_with_e2e,
         crates_to_process.len(),
     );

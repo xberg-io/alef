@@ -140,6 +140,10 @@ fn owning_type_path(typ: &TypeDef) -> &str {
 /// map optional to `None` (`gen_struct_default_impl`) is guarded by `has_default`, which is the
 /// branch above. An omitted `Option` with no `Default` anywhere is the same fabrication as an
 /// empty allow-list, wearing a type that makes it look like absence. ~keep
+///
+/// Nor does alef fall back to `Default::default()` when the type has no `Default` impl: the
+/// invented empty value — empty allow-list, empty deny-list, zero limit, null policy — is the
+/// fail-open direction for a security control. Hence the bail rather than a synthesised value. ~keep
 fn classify_omitted_field(typ: &TypeDef, field: &FieldDef) -> anyhow::Result<OmittedInit> {
     if matches!(field.typed_default, Some(DefaultValue::Empty | DefaultValue::None)) {
         return Ok(OmittedInit::TypeZero);
@@ -149,17 +153,9 @@ fn classify_omitted_field(typ: &TypeDef, field: &FieldDef) -> anyhow::Result<Omi
     }
     anyhow::bail!(
         "php backend: cannot initialise `{type_path}.{field_name}` in the generated \
-         `#[php(constructor)] new(...)`.\n\
-         The field's type is not representable as a PHP constructor parameter, so the constructor \
-         omits it, and `{type_name}` has no `Default` impl for alef to read the field's real value \
-         back from. Alef will not fall back to `Default::default()`: that invents a value the \
-         source crate never specifies — an empty allow-list, an empty deny-list, a zero limit, a \
-         null policy — and for a security control the invented empty value is the fail-open \
-         direction. The generated stub tells PHP callers only that the field is \"not settable via \
-         the constructor\"; it promises nothing about the value, so nothing here is entitled to \
-         invent one.\n\
-         Fix one of:\n  \
-         - add `#[derive(Default)]` or `impl Default for {type_name}` so alef delegates to it;\n  \
+         `#[php(constructor)] new(...)`: the field's type is not representable as a PHP constructor \
+         parameter, and `{type_name}` has no `Default` impl to read the value from. Fix one of:\n  \
+         - add `#[derive(Default)]` or `impl Default for {type_name}`;\n  \
          - mark the field `#[alef(skip)]` if PHP callers must never set it;\n  \
          - give the field a PHP-representable type so it becomes a real constructor parameter.",
         type_path = owning_type_path(typ),

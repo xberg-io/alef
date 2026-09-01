@@ -57,9 +57,9 @@ pub(crate) fn unresolved_dependency_message(
     if no_session_configured {
         format!(
             "could not validate at {effective_level}: {NO_SESSION_CONFIGURED_PHRASE} {language} snippets, so \
-             this one ran in an isolated scratch directory with no access to the crate's built package -- \
-             running `alef build` cannot fix this; add a `[workspace.docs.snippets.sessions.{session_target}]` \
-             entry so validation can see the built artifact: {raw_output}"
+             this one ran in an isolated scratch directory with no access to the crate's built package. \
+             `alef build` does not fix this; add a `[workspace.docs.snippets.sessions.{session_target}]` \
+             entry: {raw_output}"
         )
     } else {
         format!(

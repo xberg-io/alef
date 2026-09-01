@@ -262,9 +262,8 @@ fn parse_targets(csv: &str, valid: &HashSet<&str>) -> Result<std::collections::H
 
     if !saw_any_token {
         anyhow::bail!(
-            "--targets '{csv}' contains no target names after splitting on ',' -- pass 'none' to \
-             explicitly request no release targets, 'all' (or omit the flag) for everything, or a \
-             real comma-separated list"
+            "--targets '{csv}' contains no target names after splitting on ',' -- pass 'none' for no \
+             release targets, 'all' (or omit the flag) for everything, or a comma-separated list"
         );
     }
 

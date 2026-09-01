@@ -229,8 +229,8 @@ pub(crate) enum Commands {
     /// coverage finding this command reports, with one deliberate exception: a drifted
     /// create-once seed -- a pre-existing, unmarked file the write guard refuses to touch
     /// forever, such as a version-bearing installer or manifest whose baked-in content has gone
-    /// stale. That finding is printed on every run, including a passing one, under "Frozen files
-    /// whose withheld content has DRIFTED", but it never gates the exit code: failing the build
+    /// stale. That finding is printed on every run, including a passing one, under "frozen
+    /// path(s) DRIFTED", but it never gates the exit code: failing the build
     /// for content a consumer cannot fix from their own `alef.toml` (the write guard will not
     /// overwrite it) would only buy a blanket `[workspace.ownership] user_owned` opt-out rather
     /// than a fix -- the same reasoning this codebase already applies to `GeneratorGap`. To make

@@ -230,7 +230,7 @@ fn all_correlates_a_docs_stage_failure_with_pending_write_refusals() {
         .find("write_scaffold_files_report(&doc_files")
         .expect("docs write must go through the refusal-tracking writer");
     let correlation = source
-        .find("Docs/snippet validation reads content from")
+        .find("(see the refusal report above), so validation graded")
         .expect("doc-result error path must explain a possible refusal/stale-content correlation");
     assert!(
         doc_write < correlation,

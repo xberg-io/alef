@@ -45,6 +45,9 @@ pub fn expand_configured_readme_languages(config: &ResolvedCrateConfig, language
     expanded
 }
 
+/// A configured-but-unrendered `template` is fatal rather than falling back: substituting the
+/// generic placeholder README discarded the configured content while `alef readme` still reported
+/// success with 0 files skipped (#555). ~keep
 fn generate_readme(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -65,10 +68,9 @@ fn generate_readme(
     let lang_code = paths::lang_code(lang);
     if readme_language_declares_a_template(config, lang_code) {
         anyhow::bail!(
-            "crates.readme.languages.{lang_code} names a `template`, but README generation did not render it -- \
-             refusing to silently substitute the generic placeholder README and discard the configured content \
-             (#555). Fix the template, `crates.readme.template_dir`, or the `crates.readme.languages.{lang_code}` \
-             entry so it renders, or drop the entry's `template` key if a generic placeholder README is intended."
+            "crates.readme.languages.{lang_code} names a `template`, but README generation did not render it. \
+             Fix the template, `crates.readme.template_dir`, or the `crates.readme.languages.{lang_code}` entry \
+             so it renders, or drop the entry's `template` key to accept the generic placeholder README."
         );
     }
 

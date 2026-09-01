@@ -33,7 +33,8 @@ pub fn check_alef_toml_version(workspace: &WorkspaceConfig) -> Result<()> {
     let cli = cli_version();
     let (Ok(pin_v), Ok(cli_v)) = (semver::Version::parse(pin), semver::Version::parse(cli)) else {
         tracing::warn!(
-            "alef.toml `[workspace] alef_version = \"{pin}\"` is not valid semver; running alef {cli} without changing the pin"
+            "alef.toml `[workspace] alef_version = \"{pin}\"` is not valid semver; running alef {cli}, \
+             pin left unchanged"
         );
         return Ok(());
     };
@@ -43,15 +44,13 @@ pub fn check_alef_toml_version(workspace: &WorkspaceConfig) -> Result<()> {
             // The pin drifting behind the running CLI is expected after every alef release
             // until a consumer bumps it; nothing here is actionable. ~keep
             tracing::info!(
-                "Running alef {cli} is newer than the pinned alef_version {pin} in alef.toml; \
-                 generation will not change the pin"
+                "alef {cli} is newer than alef.toml's alef_version pin {pin}; generation will not change the pin"
             );
         }
         std::cmp::Ordering::Less => {
             // Same as the newer-CLI branch above: an unbumped pin is expected, not actionable. ~keep
             tracing::info!(
-                "Running alef {cli} is older than the pinned alef_version {pin} in alef.toml; \
-                 generation will not change the pin"
+                "alef {cli} is older than alef.toml's alef_version pin {pin}; generation will not change the pin"
             );
         }
         std::cmp::Ordering::Equal => {}

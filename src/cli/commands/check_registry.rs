@@ -93,8 +93,8 @@ pub fn check(registry: Registry, package: &str, version: &str, extra: &ExtraPara
                 // must not trigger this warning.
                 tracing::warn!(
                     "check-registry --registry github-release: no --asset-prefix or \
-                     --required-assets given; only verified that the release exists, not that \
-                     any specific build artifacts are attached to it"
+                     --required-assets given; verified only that the release exists, not which \
+                     artifacts are attached to it"
                 );
             }
             exists

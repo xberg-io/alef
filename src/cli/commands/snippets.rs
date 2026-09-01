@@ -562,10 +562,11 @@ fn run_configured_audit_and_gaps(inputs: &ConfiguredCheckInputs<'_>) -> anyhow::
         }
         let unconfigured_failure = inputs.strict && crate::snippets::gap_coverage::has_vacuous_input(&unset);
         if unconfigured_failure {
+            // A strict run must not pass on a check that compared nothing -- the whole point of
+            // `--strict` is that a green result certifies a comparison actually happened. ~keep
             tracing::error!(
-                "strict: the snippet gap pass was skipped entirely because neither docs_dirs nor \
-                 required_languages is configured under [crates.docs.snippets]; a strict run must not pass \
-                 on a check that compared nothing"
+                "strict: the snippet gap pass was skipped -- neither docs_dirs nor required_languages \
+                 is configured under [crates.docs.snippets]"
             );
         }
         return Ok((audit_failure, unconfigured_failure));

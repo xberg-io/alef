@@ -146,7 +146,7 @@ fn curated_base(project_root: &Path, existing_root: &Path, curated_globs: &[Stri
     }
     bail!(
         "curated snippet globs are relative to the project root `{}`, but the migrated root `{}` does not \
-         lie beneath it, so no pattern could ever match; pass a migrated root inside the project",
+         lie beneath it; pass a migrated root inside the project",
         project_root.display(),
         existing_root.display()
     )

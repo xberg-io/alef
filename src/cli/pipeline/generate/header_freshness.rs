@@ -143,8 +143,7 @@ fn drift_message(
     typedef_problems: &[String],
 ) -> String {
     let mut message = format!(
-        "generated FFI exports and the C header at {} are from different runs.\n\
-         The header is produced by cbindgen in the crate's build.rs, not by alef generate.",
+        "generated FFI exports and the C header at {} are from different runs.",
         header_path.display()
     );
     if !missing.is_empty() {

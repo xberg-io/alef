@@ -411,7 +411,7 @@ fn should_reject_owned_host_capsule_without_shared_native_runtime() {
          `abi_compatible = true` is required, `host_destructor = \"none\"` or \
          `host_destructor = \"abi_noop\"` is required; declare a complete borrowed-static \
          ABI-compatible no-destructor contract for every listed capsule, or set \
-         `[crates.kotlin_android].shares_native_runtime = true` only when every configured host \
-         wrapper uses the exact same native runtime and ownership contract"
+         `[crates.kotlin_android].shares_native_runtime = true` when every host wrapper shares one \
+         native runtime and ownership contract"
     );
 }

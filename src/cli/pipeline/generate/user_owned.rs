@@ -47,8 +47,8 @@ pub(crate) fn declared_user_owned(base_dir: &Path) -> anyhow::Result<UserOwnedPa
     match toml::from_str::<crate::core::config::NewAlefConfig>(&content) {
         Ok(config) => UserOwnedPaths::compile(&config.workspace.ownership.user_owned),
         Err(error) if declares_ownership => Err(anyhow::anyhow!(
-            "{} declares [workspace.ownership] but could not be parsed ({error}). alef refuses to \
-             continue rather than write over paths the declaration was meant to protect.",
+            "{} declares [workspace.ownership] but could not be parsed ({error}). Refusing to \
+             continue -- the declared paths would otherwise be overwritten.",
             config_path.display()
         )),
         Err(_) => Ok(UserOwnedPaths::none()),

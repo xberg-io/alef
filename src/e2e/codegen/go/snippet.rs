@@ -1619,8 +1619,9 @@ mod tests {
             "must quote the offending value so the operator can find the fixture entry: {error}"
         );
         assert!(
-            error.contains("will not publish a snippet that does not compile"),
-            "must keep saying why it refused rather than degrading to a bare `incompatible`: {error}"
+            error.contains("cannot convert"),
+            "must keep naming the compile error it refused to publish rather than degrading to a bare \
+             `incompatible`: {error}"
         );
         assert!(
             error.contains("docs.coverage_exceptions"),

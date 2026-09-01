@@ -554,22 +554,18 @@ pub(super) fn gen_native_methods(
                 // unaffected; `[crates.<name>.ffi] visitor_callbacks = false` skips this block whole. ~keep
                 let Some(options_type) = bridge.options_type.as_deref() else {
                     anyhow::bail!(
-                        "csharp NativeMethods: trait bridge `{trait_name}` declares `bind_via = \"options_field\"` \
-                         but no `options_type`; the FFI crate emits no `{prefix}_options_set_*` entry point for such \
-                         a bridge and the generated wrapper has no options type to attach the visitor to, so the \
-                         visitor P/Invoke block cannot be generated. Set `options_type` on the \
-                         `[[crates.trait_bridges]]` entry for `{trait_name}`, or set \
-                         `[crates.<name>.ffi] visitor_callbacks = false` to drop visitor support from this backend",
+                        "csharp NativeMethods: trait bridge `{trait_name}` sets `bind_via = \"options_field\"` but \
+                         no `options_type`. Set `options_type` on its `[[crates.trait_bridges]]` entry, or set \
+                         `[crates.<name>.ffi] visitor_callbacks = false`",
                         trait_name = bridge.trait_name,
                     );
                 };
                 let Some(options_field) = bridge.resolved_options_field() else {
                     anyhow::bail!(
-                        "csharp NativeMethods: trait bridge `{trait_name}` declares `bind_via = \"options_field\"` \
-                         but neither `options_field` nor `param_name`; the setter entry point is named \
-                         `{prefix}_options_set_<field>` and cannot be derived. Set `options_field` (or `param_name`) \
-                         on the `[[crates.trait_bridges]]` entry for `{trait_name}`, or set \
-                         `[crates.<name>.ffi] visitor_callbacks = false` to drop visitor support from this backend",
+                        "csharp NativeMethods: trait bridge `{trait_name}` sets `bind_via = \"options_field\"` but \
+                         neither `options_field` nor `param_name`, so `{prefix}_options_set_<field>` cannot be \
+                         derived. Set one on its `[[crates.trait_bridges]]` entry, or set \
+                         `[crates.<name>.ffi] visitor_callbacks = false`",
                         trait_name = bridge.trait_name,
                     );
                 };

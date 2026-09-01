@@ -57,9 +57,8 @@ pub(crate) fn enforce_snippet_summary(
             tracing::info!(
                 total = summary.total,
                 "docs.snippets for crate `{}` validated {} snippet(s) and NOT ONE reached the requested level -- \
-                 every result is an unresolved dependency on a missing build artifact, the expected shape when \
-                 `alef all`/`alef docs` validate without a preceding `alef build`; run `alef build` then `alef \
-                 snippets check --level compile` (or the configured level) to validate for real",
+                 every result is an unresolved dependency on a missing build artifact; run `alef build` then \
+                 `alef snippets check --level compile` (or the configured level)",
                 crate_name,
                 summary.total
             );
@@ -68,7 +67,7 @@ pub(crate) fn enforce_snippet_summary(
                 total = summary.total,
                 "docs.snippets for crate `{}` validated {} snippet(s) and NOT ONE reached the requested level -- \
                  every result was a failure, a skip, an unavailable environment gap, or capped below what was \
-                 requested; the level this run claims to check was not actually checked anywhere in this corpus",
+                 requested",
                 crate_name,
                 summary.total
             );
@@ -88,8 +87,7 @@ pub(crate) fn enforce_snippet_summary(
     let toolchain_missing = summary.unavailable - summary.unresolved_dependency;
     if toolchain_missing > 0 && strict {
         anyhow::bail!(
-            "strict snippet validation failed for crate `{}`: {} unavailable due to a missing toolchain \
-             (unrelated to a missing build artifact){}",
+            "strict snippet validation failed for crate `{}`: {} unavailable due to a missing toolchain{}",
             crate_name,
             toolchain_missing,
             attribute_unavailable(summary)

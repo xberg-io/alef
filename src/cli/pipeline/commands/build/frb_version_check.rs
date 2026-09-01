@@ -7,6 +7,7 @@
 //! no check in place, `alef generate`/`alef build` baked whatever version happened to be on the
 //! invoking machine's `PATH` into committed Dart/Rust output -- two developers, or a developer
 //! and CI, with different installs produced different bytes from identical input (alef #204).
+//! ~keep
 
 use std::process::Command;
 
@@ -42,13 +43,11 @@ pub(super) fn run(cmd: &str, expected_version: &str) -> anyhow::Result<()> {
 
     if installed_version != expected_version {
         anyhow::bail!(
-            "installed {cmd} reports version {installed_version}, but this project pins \
-             flutter_rust_bridge {expected_version} (see `[crates.dart] frb_version` in \
-             alef.toml, or alef's compiled-in default). Generated Dart/Rust bridge output is not \
-             deterministic across flutter_rust_bridge_codegen versions -- install the pinned \
-             version (`cargo install flutter_rust_bridge_codegen --version {expected_version} \
-             --locked`) before running `alef generate`/`alef build`, or update the pin to match \
-             what is installed."
+            "installed {cmd} is version {installed_version}, but this project pins flutter_rust_bridge \
+             {expected_version} (`[crates.dart] frb_version` in alef.toml, else alef's default); bridge output \
+             is not deterministic across codegen versions.\n  \
+             Fix: cargo install flutter_rust_bridge_codegen --version {expected_version} --locked\n  \
+             Or: set `[crates.dart] frb_version` to {installed_version}"
         );
     }
 

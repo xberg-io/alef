@@ -532,7 +532,7 @@ fn classify_binary(
         Err(error) => {
             tracing::warn!(
                 path = %output.relative.display(),
-                "cannot be adopted: alef's own generated content for this binary path did not decode: {error:#}"
+                "cannot be adopted: alef's generated content for this path is not decodable base64: {error:#}"
             );
             return None;
         }

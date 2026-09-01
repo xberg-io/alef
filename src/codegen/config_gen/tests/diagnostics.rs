@@ -36,7 +36,7 @@ fn reports_all_unrecoverable_serde_default_functions_together() {
         "sample_core::ServerSettings::retries",
         "Self::default_retries",
         "public, unconditional, zero-argument static method",
-        "do not use `Self::default_retry_limit`",
+        "not `Self::default_retry_limit`",
     ] {
         assert!(message.contains(expected), "missing `{expected}` from: {message}");
     }

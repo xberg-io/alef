@@ -158,8 +158,8 @@ pub fn require_shared_native_runtime(
     anyhow::bail!(
         "capsule configuration in backend `{backend}` cannot safely wrap native pointers: {}; \
          declare a complete borrowed-static ABI-compatible no-destructor contract for every listed capsule, \
-         or set `[crates.{backend}].shares_native_runtime = true` only when every configured host wrapper uses \
-         the exact same native runtime and ownership contract",
+         or set `[crates.{backend}].shares_native_runtime = true` when every host wrapper shares one native \
+         runtime and ownership contract",
         unsafe_capsules.join("; ")
     )
 }
@@ -356,7 +356,7 @@ mod tests {
         assert!(message.contains("[crates.java].shares_native_runtime = true"));
         assert!(message.contains("Language"));
         assert!(message.contains("borrowed-static ABI-compatible no-destructor contract"));
-        assert!(message.contains("exact same native runtime and ownership contract"));
+        assert!(message.contains("shares one native runtime and ownership contract"));
 
         require_shared_native_runtime(&capsule_types, true, "java").unwrap();
     }

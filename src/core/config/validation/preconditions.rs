@@ -28,10 +28,8 @@ where
         if !main.is_empty() && precondition(cfg).is_none() {
             let fields = main.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join("/");
             return Err(AlefError::Config(format!(
-                "[{section}.{lang}] sets a main command ({fields}) without `precondition`. \
-                 Custom commands must declare a `precondition` so the step degrades gracefully \
-                 when the tool is missing on the user's system. Use a POSIX check such as \
-                 `precondition = \"command -v <tool> >/dev/null 2>&1\"`."
+                "[{section}.{lang}] sets a main command ({fields}) without `precondition`. Add a POSIX \
+                 check such as `precondition = \"command -v <tool> >/dev/null 2>&1\"`."
             )));
         }
     }
@@ -80,10 +78,8 @@ pub(super) fn validate_test_e2e_precondition(table: &HashMap<String, TestConfig>
     for (lang, cfg) in table {
         if cfg.e2e.is_some() && cfg.precondition.is_none() && cfg.e2e_precondition.is_none() {
             return Err(AlefError::Config(format!(
-                "[test.{lang}] sets `e2e` without `precondition` or `e2e_precondition`. Custom e2e \
-                 commands must declare a precondition so the step degrades gracefully when the tool \
-                 is missing. Prefer `e2e_precondition`, scoped to what the `e2e` command itself \
-                 needs -- use a POSIX check such as \
+                "[test.{lang}] sets `e2e` without `precondition` or `e2e_precondition`. Prefer \
+                 `e2e_precondition`, scoped to what the `e2e` command itself needs: \
                  `e2e_precondition = \"command -v <tool> >/dev/null 2>&1\"`."
             )));
         }

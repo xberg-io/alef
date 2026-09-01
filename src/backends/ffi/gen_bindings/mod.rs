@@ -159,9 +159,7 @@ fn validate_custom_modules_exist(
         if !flat.exists() && !nested.exists() {
             anyhow::bail!(
                 "crate `{}`: `[crates.custom_modules] ffi` names module `{module}`, but neither `{}` nor `{}` \
-                 exists. `custom_modules.ffi` only declares the module (`pub mod {module};`) in the generated \
-                 lib.rs — it never generates the module's contents, so the hand-written file must exist before \
-                 generation runs.",
+                 exists. Write the module by hand — `custom_modules.ffi` only declares it.",
                 config.name,
                 flat.display(),
                 nested.display(),

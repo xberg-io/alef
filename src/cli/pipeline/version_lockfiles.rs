@@ -523,13 +523,14 @@ pub(crate) fn check_release_lock_freshness(workspace_root: &Path, canonical: &st
 /// Render the operator-facing failure, mirroring [`super::lock_freshness`]'s own message shape
 /// (dependency, requirement, lock, remedy) so the two checks read as one family rather than two
 /// independently-worded errors for the same underlying defect.
+///
+/// Reported, never rewritten: generation itself succeeded and alef does not author lockfiles,
+/// so the fix is a command the operator runs in their own tree. ~keep
 fn release_lock_message(findings: &[StaleLockFinding]) -> String {
     let mut message = format!(
-        "{} committed Cargo.lock pin(s) cannot satisfy a requirement reachable from a manifest alef \
-         generated, and this is not this release's own pending, not-yet-published version. `cargo \
-         metadata --locked` (and every `cargo build --locked` / CI job) will fail in these \
-         directories once this release is tagged and pushed. Alef does not author lockfiles, so \
-         this is reported rather than rewritten:",
+        "{} committed Cargo.lock pin(s) cannot satisfy a requirement from a manifest alef generated, and \
+         not because of this release's own not-yet-published version; `cargo metadata --locked` and `cargo \
+         build --locked` will fail in these directories once this release is tagged and pushed:",
         findings.len()
     );
     for finding in findings {

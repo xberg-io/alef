@@ -163,9 +163,8 @@ fn render_unreadable(summary: &AdoptSummary, chunks: &mut Vec<ReportChunk>) {
     // through the ownership record like any other unstampable format. ~keep
     chunks.push(ReportChunk::Blank);
     chunks.push(ReportChunk::Line(
-        "NOT ADOPTED -- alef could not read these matches. Their bytes are neither valid \
-         UTF-8 nor one of alef's own base64-encoded binary outputs, so alef can state \
-         nothing about them and leaves them alone:"
+        "NOT ADOPTED -- alef could not read these matches: their bytes are neither valid \
+         UTF-8 nor one of alef's own base64-encoded binary outputs, so alef leaves them alone:"
             .to_owned(),
     ));
     for path in &summary.unreadable {
@@ -186,18 +185,18 @@ fn render_create_once_seeds(summary: &AdoptSummary, chunks: &mut Vec<ReportChunk
     // needs is what adopting them *would* have cost. ~keep
     chunks.push(ReportChunk::Blank);
     chunks.push(ReportChunk::Line(
-        "NOT ADOPTED -- create-once seeds. alef emits each of these only when the file is \
-         absent, so it is a placeholder that the copy on disk has almost certainly grown \
-         past. Adopting one consents to alef REPLACING its contents with that placeholder \
-         on the next OVERWRITING regen -- an `alef version` sync or `alef all \
-         --clobber-create-once-seeds`, not the next plain `alef generate`:"
+        "NOT ADOPTED -- create-once seeds. alef writes each only when the path is absent, so \
+         the copy on disk has almost certainly grown past alef's placeholder. Adopting one \
+         consents to alef REPLACING its contents with that placeholder on the next OVERWRITING \
+         regen -- an `alef version` sync or `alef all --clobber-create-once-seeds`, not a plain \
+         `alef generate`:"
             .to_owned(),
     ));
     for path in &summary.skipped_create_once {
         chunks.push(ReportChunk::Line(format!("  {}", path.display())));
     }
     chunks.push(ReportChunk::Line(
-        "Read each one and confirm it holds nothing you wrote, then re-run with \
+        "Fix: confirm each holds nothing you wrote, then re-run with \
          --clobber-create-once-seeds to adopt them anyway."
             .to_owned(),
     ));
@@ -222,8 +221,8 @@ fn render_diffs(summary: &AdoptSummary, converged_only: bool, chunks: &mut Vec<R
     );
     chunks.push(ReportChunk::Line(format!(
         "{} of {total} drifted diff(s) are named below WITHOUT their bodies -- only the first {} \
-         were printed in full above. --converged-only cannot adopt a drifted file, so these diffs \
-         decide nothing in this run. Run `alef adopt <path>` on one to read its complete diff:",
+         were printed in full above. --converged-only cannot adopt a drifted file. Run \
+         `alef adopt <path>` on one to read its complete diff:",
         budget.elided, budget.printed,
     )));
     for path in summary.diffs.keys().skip(budget.printed) {
@@ -260,8 +259,8 @@ fn render_tallies(summary: &AdoptSummary, chunks: &mut Vec<ReportChunk>) {
     }
     if !summary.skipped_drifted.is_empty() {
         chunks.push(ReportChunk::Line(format!(
-            "Left {} drifted file(s) untouched (--converged-only). Their diffs are above; \
-             adopt them with an explicit target once you have read each one.",
+            "Left {} drifted file(s) untouched (--converged-only). Read each diff above, then \
+             adopt it with an explicit target.",
             summary.skipped_drifted.len()
         )));
     }

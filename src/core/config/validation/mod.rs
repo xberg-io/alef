@@ -82,11 +82,8 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
     for bridge in &config.trait_bridges {
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
             return Err(AlefError::Config(format!(
-                "trait bridge `{}` sets `register_fn` but no `registry_getter`. The generated \
-                 registration function needs the registry accessor to install an implementation, \
-                 so this pair cannot be emitted. Add `registry_getter` to \
-                 `[[crates.trait_bridges]]` for `{}`, or drop `register_fn` if the bridge is not \
-                 meant to be registerable.",
+                "trait bridge `{}` sets `register_fn` but no `registry_getter`. Add `registry_getter` \
+                 to `[[crates.trait_bridges]]` for `{}`, or drop `register_fn`.",
                 bridge.trait_name, bridge.trait_name
             )));
         }

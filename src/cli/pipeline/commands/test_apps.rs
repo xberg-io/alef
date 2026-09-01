@@ -73,9 +73,8 @@ fn warn_if_test_apps_stale(config: &ResolvedCrateConfig, config_path: &Path, nam
     };
     for name in stale_test_app_names(config, config_path, &base_dir, names) {
         warn!(
-            "test-app '{name}' output looks stale: sources or alef.toml changed since these files \
-             were generated. A failure below may be this, not a real regression — run `alef \
-             test-apps generate` (or `alef all`) first, then re-run `alef test-apps run`."
+            "test-app '{name}' output looks stale: sources or alef.toml changed since these files were \
+             generated.\n  Fix: alef test-apps generate (or alef all), then re-run alef test-apps run"
         );
     }
 }
@@ -275,9 +274,8 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
             }
             Err(e) => {
                 warn!(
-                    "Failed to parse MOCK_SERVERS JSON for per-fixture env-var derivation: {e}. \
-                     Shell-based test apps that expect MOCK_SERVER_<FIXTURE_ID> will fall back to \
-                     MOCK_SERVER_URL."
+                    "failed to parse MOCK_SERVERS JSON: {e} -- no MOCK_SERVER_<FIXTURE_ID> env vars derived, \
+                     test apps fall back to MOCK_SERVER_URL"
                 );
             }
         }

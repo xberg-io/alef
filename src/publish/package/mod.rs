@@ -216,6 +216,11 @@ pub fn find_built_artifact_any_with_extra_dirs(
     find_built_artifact_impl(workspace_root, target, filenames, profile, extra_dirs)
 }
 
+/// Only `target/{triple}/{profile}/` and `target/{profile}/` (plus `extra_dirs`) are searched:
+/// those are the only locations cargo uplifts an explicit build target into. A `deps/`-only copy
+/// is named in the error but never returned -- a crate compiled solely as a transitive dependency
+/// of something else's build may not carry the feature set the bindings were generated against,
+/// so the artifact is untrustworthy. ~keep
 fn find_built_artifact_impl(
     workspace_root: &Path,
     target: &crate::publish::platform::RustTarget,
@@ -256,12 +261,9 @@ fn find_built_artifact_impl(
 
     match untrusted_deps_copy {
         Some(deps_path) => anyhow::bail!(
-            "{filenames_display} not found in target/{}/{profile}/ or target/{profile}/{extra_dirs_note} (the \
-             only locations cargo uplifts an explicit build target into); an untrusted deps/-only copy exists \
-             at {} but was not used because a crate compiled only as a transitive dependency of something \
-             else's build may not carry the feature set the bindings were generated against — run `cargo build \
-             -p <crate>{}` (or `alef build{}`) to build it as an explicit top-level target and produce a \
-             trustworthy artifact",
+            "{filenames_display} not found in target/{}/{profile}/ or target/{profile}/{extra_dirs_note}; an \
+             unused deps/-only copy exists at {} — run `cargo build -p <crate>{}` (or `alef build{}`) to build \
+             it as an explicit top-level target",
             target.triple,
             deps_path.display(),
             profile.cargo_flag(),

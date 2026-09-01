@@ -274,10 +274,9 @@ fn resolve_include_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
 
     if !unmatched.is_empty() {
         anyhow::bail!(
-            "[crates.include].types matched no type or enum in crate `{}`: {}\n\
-             `include` is an allowlist, so an unmatched entry removes types from every binding \
-             instead of adding one. Use the type's short name, or its full `crate::path::Type`. \
-             The crate exposes {} types and {} enums.",
+            "[crates.include].types matched no type or enum in crate `{}`: {}\n  \
+             Fix: use the type's short name or its full `crate::path::Type`. The crate exposes {} types and \
+             {} enums.",
             api.crate_name,
             unmatched.join(", "),
             api.types.len(),
@@ -292,11 +291,10 @@ fn resolve_include_types(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyh
     // binding-emptying this whole function exists to prevent. Fail loudly instead. ~keep
     if seeds.is_empty() && !(api.types.is_empty() && api.enums.is_empty()) {
         anyhow::bail!(
-            "[crates.include].types in crate `{}` resolved only to items `include` does not \
-             filter (error enums, declared opaque types, or unsupported-item owners), so no type \
-             or enum would survive and every binding would be emptied.\n\
-             Name at least one of the crate's {} types or {} enums, or drop `include.types` \
-             entirely to keep the whole surface.",
+            "[crates.include].types in crate `{}` matched only items `include` does not filter (error enums, \
+             declared opaque types, unsupported-item owners), so every binding would be emptied.\n  \
+             Fix: name one of the crate's {} types or {} enums, or drop `include.types` to keep the whole \
+             surface.",
             api.crate_name,
             api.types.len(),
             api.enums.len(),
@@ -325,10 +323,8 @@ fn check_include_functions(api: &ApiSurface, include_functions: &[String]) -> an
 
     if !unmatched.is_empty() {
         anyhow::bail!(
-            "[crates.include].functions matched no public function in crate `{}`: {}\n\
-             `include` is an allowlist, so an unmatched entry removes functions from every \
-             binding instead of adding one. Entries are bare function names. The crate exposes \
-             {} public functions.",
+            "[crates.include].functions matched no public function in crate `{}`: {}\n  \
+             Fix: entries are bare function names. The crate exposes {} public functions.",
             api.crate_name,
             unmatched.join(", "),
             api.functions.len(),
@@ -346,8 +342,8 @@ fn warn_unmatched_exclude_entries(api: &ApiSurface, exclude: &ExcludeConfig) {
     for (list, entry) in redundant_generic_exclude_entries(api, exclude) {
         tracing::debug!(
             entry = %entry,
-            "exclude.{list} entry redundantly excludes a public item alef never extracts (generic \
-             without explicit monomorphization metadata); the entry is harmless, not stale"
+            "exclude.{list} entry redundantly excludes a public item alef never extracts (generic without \
+             explicit monomorphization metadata)"
         );
     }
     for (list, entry) in unmatched_exclude_entries(api, exclude) {

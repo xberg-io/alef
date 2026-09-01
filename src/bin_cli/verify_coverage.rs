@@ -59,10 +59,10 @@ pub(crate) struct VerifyCoverage {
     /// write different bytes for, and is refused on -- see
     /// [`super::helpers::frozen::drifted_frozen_seeds`].
     ///
-    /// Split out because the line above it makes a positive claim -- "the missing marker is the
-    /// documented user-owned steady state, not drift" -- that this run does not check and that
-    /// is FALSE for exactly these paths. A coverage report exists to stop a green result being
-    /// read as more than it is; asserting "not drift" about files nobody compared is the same
+    /// Split out because the line above it makes a positive claim -- "the missing marker is not
+    /// drift" -- that this run does not check and that is FALSE for exactly these paths. A
+    /// coverage report exists to stop a green result being read as more than it is; asserting
+    /// "not drift" about files nobody compared is the same
     /// over-claim one level down, and it is the one that let three consumer repositories ship a
     /// version-pinned installer frozen at a stale release. ~keep
     pub(crate) create_once_drifted: usize,
@@ -137,9 +137,7 @@ impl VerifyCoverage {
     /// would have to be a timing argument instead of a check. ~keep
     pub(crate) fn report_lines(&self) -> Vec<String> {
         let mut lines = vec![
-            "Verify coverage (what this run examined, so a green result is not read as more \
-             than it is):"
-                .to_owned(),
+            "Verify coverage (what this run examined):".to_owned(),
             format!(
                 "  managed surface: {} path(s) this configuration would produce",
                 self.managed_total
@@ -150,27 +148,26 @@ impl VerifyCoverage {
             ),
             format!(
                 "    {} present but NOT content-verified (no readable marker: create-once seeds, formats \
-                 that cannot carry one, paths proven by .alef-ownership.toml -- presence is the whole check, \
-                 so a present-but-wrong file passes)",
+                 that cannot carry one, paths proven by .alef-ownership.toml -- a present-but-wrong file \
+                 passes)",
                 self.managed_present_only
             ),
         ];
         if self.create_once_unmarked > 0 {
-            // Two numbers, not one, and the split is the point. The steady-state claim below is
+            // Two numbers, not one, and the split is the point. The "not drift" claim below is
             // only true of the seeds alef never re-attempts; stating it over the whole set
             // asserted "not drift" about files this run had not compared. ~keep
             let settled = self.create_once_unmarked - self.create_once_drifted;
             lines.push(format!(
-                "      of which {settled} are create-once seeds with no marker that alef does not \
-                 re-attempt: it writes each of these paths only when absent and never revisits it, \
-                 so the missing marker is the documented user-owned steady state, not drift -- \
-                 nothing needs adopting and no rerun changes this line (-vv lists them)"
+                "      of which {settled} are create-once seeds with no marker that alef never \
+                 re-attempts: written only when absent, so the missing marker is not drift \
+                 (-vv lists them)"
             ));
             if self.create_once_drifted > 0 {
                 lines.push(format!(
-                    "      and {} more that alef DOES re-render every run, whose on-disk content \
-                     differs from what it would write and whose write the ownership guard refuses \
-                     -- these are stale, not settled, and are named under their own heading above",
+                    "      and {} more that alef DOES re-render every run: on-disk content differs \
+                     from what alef would write and the ownership guard refuses the write -- stale, \
+                     not settled, named under the DRIFTED heading above",
                     self.create_once_drifted
                 ));
             }
@@ -182,23 +179,21 @@ impl VerifyCoverage {
         if self.ephemeral_excluded > 0 {
             lines.push(format!(
                 "      of which {} are excluded from those headings by `[crates.verify].ignore_ephemeral` \
-                 (declared intentionally ephemeral and deliberately never committed -- their absence is \
-                 never a failure, but they ARE still counted in the {} above)",
+                 (declared ephemeral and never committed; still counted in the {} above)",
                 self.ephemeral_excluded, self.managed_absent
             ));
         }
         if self.declared_user_owned > 0 {
             lines.push(format!(
-                "    {} declared user-owned by `[workspace.ownership] user_owned` in alef.toml: alef \
-                 does not write, stamp or content-check these at all, and this run made NO claim \
-                 about them -- remove the matching pattern to hand a path back to alef (-vv lists them)",
+                "    {} declared user-owned by `[workspace.ownership] user_owned` in alef.toml: not \
+                 written, stamped or content-checked. Remove the pattern to hand a path back to alef \
+                 (-vv lists them)",
                 self.declared_user_owned
             ));
         }
         lines.push(format!(
             "  tree walk: {} file(s) opened, {} never examined (name and extension outside the \
-             ownership walk's scan set, or not readable as text -- nothing about their contents \
-             entered this result)",
+             ownership walk's scan set, or not readable as text)",
             self.files_opened, self.files_unexamined
         ));
         if self.marked_outside_surface > 0 {

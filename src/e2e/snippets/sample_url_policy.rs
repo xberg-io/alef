@@ -150,11 +150,9 @@ fn reject_conflicting_public_address(snippets: &SnippetConfig) -> Result<()> {
         return Ok(());
     }
     anyhow::bail!(
-        "`{SAMPLE_URL_MOCK_ONLY_CONFIG_KEY}` is set alongside `{}`, which state contradictory \
-         facts about the same corpus: the first says no fixture's sample input is served at a \
-         public address, the second says every fixture's is. Remove one. To keep a mock-only \
-         corpus while a handful of fixtures really are hosted, drop the key(s) above and give \
-         each hosted fixture its own `{DOCS_SAMPLE_URL_FIXTURE_KEY}` instead.",
+        "`{SAMPLE_URL_MOCK_ONLY_CONFIG_KEY}` is set alongside `{}`; they state contradictory facts \
+         about the same corpus. Remove one, or drop the key(s) above and give each hosted fixture \
+         its own `{DOCS_SAMPLE_URL_FIXTURE_KEY}`.",
         conflicting.join("`, `")
     )
 }

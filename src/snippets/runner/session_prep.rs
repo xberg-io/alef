@@ -54,8 +54,8 @@ pub(super) fn session_preparation_error(
 fn ambiguous_session_error(snippet: &Snippet, candidates: &[&str]) -> SessionPreparationError {
     SessionPreparationError {
         message: format!(
-            "{} configured sessions validate `{}` snippets ({}) and no explicit `target:` names \
-             one of them; alef will not silently guess which session to use",
+            "{} configured sessions validate `{}` snippets ({}) and no explicit `target:` names one of \
+             them; add a `target:` naming the session this snippet validates against",
             candidates.len(),
             snippet.language,
             candidates.join(", "),

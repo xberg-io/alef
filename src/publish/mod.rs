@@ -716,8 +716,8 @@ fn assert_no_member_path_deps(
     for section in ["dependencies", "dev-dependencies", "build-dependencies"] {
         if let Some(dep) = section_has_member_path(doc.get(section)) {
             anyhow::bail!(
-                "{lang}: workspace-member dependency '{dep}' in [{section}] of {} still has a `path` — \
-                 did `alef publish prepare` run for Registry vendor mode?",
+                "{lang}: workspace-member dependency '{dep}' in [{section}] of {} still has a `path` — run \
+                 `alef publish prepare` for Registry vendor mode",
                 manifest_path.display()
             );
         }
@@ -731,8 +731,8 @@ fn assert_no_member_path_deps(
                 if let Some(dep) = section_has_member_path(cfg_tbl.get(section)) {
                     anyhow::bail!(
                         "{lang}: workspace-member dependency '{dep}' in \
-                         [target.{cfg}.{section}] of {} still has a `path` — \
-                         did `alef publish prepare` run for Registry vendor mode?",
+                         [target.{cfg}.{section}] of {} still has a `path` — run \
+                         `alef publish prepare` for Registry vendor mode",
                         manifest_path.display()
                     );
                 }

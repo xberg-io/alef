@@ -289,9 +289,8 @@ pub(crate) fn gen_php_struct(
                     ]
                 } else {
                     tracing::warn!(
-                        "php backend: {}.{} is a Map whose value type can't cross the ext-php-rs \
-                         FFI boundary as a #[php(prop)] — PHP callers can read it via get_{}() but \
-                         cannot set it (no constructor param, no setter)",
+                        "php backend: {}.{} is read-only via get_{}() — its Map value type cannot cross \
+                         the ext-php-rs FFI boundary as a `#[php(prop)]`",
                         typ.name,
                         field.name,
                         field.name,

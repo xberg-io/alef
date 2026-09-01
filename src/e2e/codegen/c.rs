@@ -707,19 +707,19 @@ impl ResultTypeName {
     /// `BTreeMap<symbol, Option<cfg>>` down into the generator. Until that is threaded, the IR
     /// is the only real thing available to resolve against, and failing loudly beats a
     /// plausible wrong name. ~keep
+    ///
+    /// Naming the result after the call is what this replaced: it emitted
+    /// `{prefix}_{result}_{field}` accessors and a `{prefix}_{result}_free` cleanup for a type
+    /// the generated header never declares, and it silently switched nested-field verification
+    /// off for the fixture, because no IR type matches an invented name. ~keep
     pub(super) fn require(&self) -> Result<&str> {
         match self {
             Self::Resolved(name) | Self::Unverified { name, .. } => Ok(name),
             Self::Unresolvable { call, language } => anyhow::bail!(
                 "C e2e codegen cannot name the result type of call `{call}` for language \
                  `{language}`: it resolves to no core IR function or method with a named return \
-                 type. Naming it after the call would emit `{{prefix}}_{{result}}_{{field}}` \
-                 accessors and a `{{prefix}}_{{result}}_free` cleanup for a type the generated \
-                 header never declares, and would switch nested-field verification off for this \
-                 fixture because no IR type matches an invented name. Fix by setting \
-                 `result_type` on the call's `{language}` override to the real type, or by \
-                 declaring the result carries no named fields (`result_is_bytes` / \
-                 `result_is_simple`)."
+                 type. Set `result_type` on the call's `{language}` override, or declare that the \
+                 result carries no named fields (`result_is_bytes` / `result_is_simple`)."
             ),
         }
     }
@@ -741,24 +741,22 @@ impl ResultTypeName {
                 basis: UnverifiedBasis::DeclaredNonStruct,
                 ..
             } => anyhow::bail!(
-                "C e2e codegen would bind the result of a call it cannot name to an opaque \
-                 handle and free it with `{{prefix}}_{{result}}_free`, but the call already \
+                "C e2e codegen cannot bind the result of `{name}` to an opaque handle: the call \
                  declares its result carries no named fields (`result_is_bytes` / \
-                 `result_is_simple` / `result_is_json_struct`) -- so there is no handle to own \
-                 and the free would be passed a value that was never an alef `Box`. Fix by \
-                 setting `raw_c_result_type` on the call's `c` override to the C spelling the \
-                 export actually returns (`char*`, `int32_t`, `uintptr_t`, ...), or by setting \
-                 `result_type` to the real handle type if the result IS a named struct."
+                 `result_is_simple` / `result_is_json_struct`). Set `raw_c_result_type` on the \
+                 call's `c` override to the C spelling the export returns (`char*`, `int32_t`, \
+                 `uintptr_t`, ...), or set `result_type` to the real handle type."
             ),
+            // Reaching here is an alef-side routing bug, not a config error: the status-code
+            // emission in `test_function.rs` should have claimed this call before any handle path
+            // did. The `-> i32` return is declared by `src/backends/ffi/templates/`. ~keep
             Self::Unverified {
                 basis: UnverifiedBasis::TraitBridgeRegistry,
                 ..
             } => anyhow::bail!(
-                "C e2e codegen would bind the result of trait-bridge registry export \
-                 `{name}` to an opaque handle and free it, but `register_fn` / `unregister_fn` \
-                 / `clear_fn` exports return an `i32` status code (see \
-                 `src/backends/ffi/templates/`), not a handle. The status-code emission in \
-                 `test_function.rs` should have claimed this call before any handle path did."
+                "C e2e codegen cannot bind the result of trait-bridge registry export `{name}` to \
+                 an opaque handle: `register_fn` / `unregister_fn` / `clear_fn` exports return an \
+                 `i32` status code, not a handle."
             ),
             Self::Resolved(_) | Self::Unverified { .. } | Self::Unresolvable { .. } => Ok(name),
         }

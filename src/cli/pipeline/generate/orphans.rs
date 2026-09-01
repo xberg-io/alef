@@ -275,9 +275,7 @@ pub fn sweep_manifest_orphans(
         let Some(tracked) = git_tracked_paths_under(root) else {
             tracing::warn!(
                 "disk-scan orphan reclaim skipped for {}: could not determine which files under this root are \
-                 git-tracked (not inside a git work tree, or `git` is unavailable) -- an alef marker alone cannot \
-                 distinguish real generated output from a build tool's staged copy of it, so tracked-ness is \
-                 required before disk-scan deletion is safe",
+                 git-tracked (not inside a git work tree, or `git` is unavailable)",
                 root.display()
             );
             continue;
@@ -343,22 +341,18 @@ pub fn sweep_manifest_orphans(
             // SAME root still has zero manifest entries on the NEXT run (once `previous_paths` is
             // no longer globally empty), the `warn!` branch below fires instead.
             tracing::debug!(
-                "no previous-run manifest for {}: this run recorded {keep_entries_under_root} file(s) as \
-                 kept output under this root, and every manifest this call consulted has zero entries \
-                 anywhere -- expected on a first run with no prior bookkeeping, not a defect. Self-resolves \
-                 once this run's manifest is written; it is only a real gap if the same root is still \
-                 unrecorded on the next run",
+                "no previous-run manifest for {}: this run recorded {keep_entries_under_root} kept file(s) under \
+                 this root, and every manifest this call consulted has zero entries anywhere -- expected on a \
+                 first run with no prior bookkeeping. Self-resolves once this run's manifest is written",
                 root.display()
             );
             continue;
         }
         tracing::warn!(
-            "orphan-reclaim bookkeeping gap for {}: this run recorded {keep_entries_under_root} file(s) as \
-             kept output under this root, but the previous-run manifest recorded none. An output root with \
-             kept files and no manifest entries is never legitimate -- it means orphan reclaim can never run \
-             here (nothing to compare `keep` against), so a file a backend stops emitting under this root \
-             would never be removed. This root's manifest bookkeeping needs attention regardless of the \
-             cause",
+            "orphan-reclaim bookkeeping gap for {}: this run recorded {keep_entries_under_root} kept file(s) \
+             under this root, but the previous-run manifest recorded none. Orphan reclaim can never run here \
+             (nothing to compare `keep` against), so a file a backend stops emitting under this root would \
+             never be removed. Fix this root's manifest bookkeeping",
             root.display()
         );
     }
@@ -407,21 +401,19 @@ fn report_unscannable_root(root: &Path, manifest_entries: usize, keep_entries: u
     if previous_total == 0 {
         tracing::debug!(
             "disk-scan orphan reclaim skipped for {}: no previous-run manifest exists at all ({keep_entries} keep \
-             entry(s) recorded under this root this run, and every manifest this call consulted has zero entries \
-             anywhere). Expected after `alef cache clear`, on a fresh checkout, or on the first run after the \
-             ownership manifests were introduced -- not a bookkeeping defect. It self-resolves once this run \
-             writes its own ownership manifests, which happens immediately after this sweep; it is only a real \
-             gap if the same root is still unrecorded on the next run, which warns instead",
+             entry(s) under this root this run, zero manifest entries anywhere). Expected after `alef cache \
+             clear`, on a fresh checkout, or on the first run after the ownership manifests were introduced. \
+             Self-resolves once this run writes its own ownership manifests, immediately after this sweep",
             root.display()
         );
         return;
     }
     tracing::warn!(
         "disk-scan orphan reclaim skipped for {}: {manifest_entries} manifest entry(s) and {keep_entries} keep \
-         entry(s) recorded under this root, even though a previous-run manifest does exist and recorded \
-         {previous_total} path(s) overall -- a backend whose own bookkeeping has never vouched for anything \
-         under its output root cannot be trusted to tell a real orphan from output it simply never recorded; a \
-         stale file here is left in place until that backend's own path tracking is fixed",
+         entry(s) under this root, though the previous-run manifest does exist and recorded {previous_total} \
+         path(s) overall. A backend whose own bookkeeping has never vouched for anything under its output root \
+         cannot tell a real orphan from output it never recorded, so a stale file here is left in place until \
+         that backend's path tracking is fixed",
         root.display()
     );
 }
@@ -615,10 +607,10 @@ fn report_disk_scan_candidates(root: &Path, candidates: &[PathBuf]) {
     // named files the very same run had written. The body already lists non-emission as only one
     // of three explanations; the headline should not assert the one it cannot distinguish.
     tracing::warn!(
-        "{} alef-marked, git-tracked file(s) under {} are not in this run's recorded output. These \
-         are NOT deleted: a file missing from that record is not proven an orphan (the emitter may \
-         have stopped emitting it, failed to emit it, emit it only when absent, or simply not \
-         recorded it). Review each and remove by hand if genuinely stale:",
+        "{} alef-marked, git-tracked file(s) under {} are not in this run's recorded output. NOT \
+         deleted -- absence from that record does not prove an orphan (the emitter may have \
+         stopped emitting it, failed to emit it, emit it only when absent, or not recorded it). \
+         Review each and remove by hand if genuinely stale:",
         candidates.len(),
         root.display()
     );

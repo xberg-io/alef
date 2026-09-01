@@ -42,10 +42,7 @@ pub fn generate(
     api.validate_error_taxonomy()?;
 
     for lang in languages_missing_ffi(&config.languages, languages) {
-        tracing::warn!(
-            "Language {:?} requires FFI to be in the languages list for proper code generation",
-            lang
-        );
+        tracing::warn!("Language {:?} requires FFI in the languages list", lang);
     }
 
     let ir_json = serde_json::to_string(api)?;

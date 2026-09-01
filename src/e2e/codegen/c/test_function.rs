@@ -525,11 +525,10 @@ pub(super) fn render_test_function_impl(
             .find(|field| !field.is_empty())
         {
             anyhow::bail!(
-                "C e2e generator: fixture `{}` asserts on field `{field}` of `{function_name}`, but \
-                 that export is a trait-bridge registry function returning an `i32` status code -- \
-                 it has no result object and therefore no fields. Assert on the status instead \
-                 (`not_error` / `error`), or point the fixture at the call that returns the value \
-                 being checked.",
+                "C e2e generator: fixture `{}` asserts on field `{field}` of `{function_name}`, a \
+                 trait-bridge registry export returning an `i32` status code. Assert on the status \
+                 instead (`not_error` / `error`), or point the fixture at the call that returns the \
+                 value being checked.",
                 fixture.id
             );
         }

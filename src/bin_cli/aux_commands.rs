@@ -112,9 +112,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } => {
                     if registry {
                         tracing::warn!(
-                            "`alef e2e generate --registry` is deprecated. \
-                             Use `alef test-apps generate` instead. \
-                             `alef e2e generate` is local-mode only."
+                            "`alef e2e generate --registry` is deprecated -- `alef e2e generate` is \
+                             local-mode only. Use `alef test-apps generate` instead."
                         );
                     }
                     if no_strict_assertions {
@@ -618,8 +617,8 @@ fn ensure_requested_test_app_targets_ran(lang_filter: Option<&[String]>, ran_any
         return Ok(());
     };
     anyhow::bail!(
-        "requested test-app target(s) {} matched no configured `[e2e].languages` in any processed crate -- check \
-         for a typo, or that the target is actually enabled for this crate",
+        "requested test-app target(s) {} matched no configured `[e2e].languages` in any processed crate. \
+         Fix: correct the typo, or add the target to that crate's `[e2e].languages`",
         filter.join(", ")
     );
 }

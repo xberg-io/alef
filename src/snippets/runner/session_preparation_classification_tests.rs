@@ -182,8 +182,8 @@ fn session_preparation_timeout_is_an_ordering_problem_not_a_bare_error_on_the_pa
     assert!(outcome.unresolved_dependency);
     let message = outcome.message.as_deref().unwrap_or_default();
     assert!(
-        message.contains("ordering problem"),
-        "message must name the ordering problem, not read as a bare timeout: {message}"
+        message.contains("Run `alef build` before validating"),
+        "message must point at the build ordering, not read as a bare timeout: {message}"
     );
 }
 
@@ -218,7 +218,7 @@ fn session_preparation_timeout_is_an_ordering_problem_not_a_bare_error_on_the_fa
             .message
             .as_deref()
             .unwrap_or_default()
-            .contains("ordering problem")
+            .contains("Run `alef build` before validating")
     );
 }
 

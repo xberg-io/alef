@@ -274,24 +274,22 @@ pub fn report_refused_writes(report: &WriteReport) {
             .count();
         warn!(
             "{} file(s) were NOT written, {} of them holding content that DIFFERS from what alef \
-             would now generate: each already exists, carries no alef provenance marker, and \
-             alef has no durable record of owning it. This will not resolve on its own — the marker can \
-             only be written by writing the file, which is exactly what the guard declines. The \
-             differing ones are stale for as long as they stay frozen, and a file whose content is \
-             derived from the release version is the case that bites, because a stale copy stays \
-             plausible. Review the \
-             diff for each and adopt the ones alef should own with `alef adopt <path>`. At migration \
-             scale, `alef adopt <glob>` previews the whole set and `alef adopt <glob> --converged-only \
-             --write` clears every file that already matches generated output, leaving the drifted \
-             ones for you to read one at a time. If these are \
-             formats that cannot carry a marker (package.json, *.jar) and this is a fresh clone or a CI \
-             checkout, check whether .alef-ownership.toml was committed — that file is where their \
-             ownership is recorded. Do NOT hand-add the marker line: a refusal can be protecting a \
-             deliberate hand-edit, and stamping it blind re-enables exactly the clobbering the guard \
-             exists to prevent.",
+             would now generate: each already exists, carries no alef provenance marker, and alef \
+             has no durable record of owning it. A rerun does not clear this -- the marker can \
+             only be written by writing the file, which is what the guard declines.",
             adoptable.len(),
             drifted_count
         );
+        warn!("  Review the diff and adopt: alef adopt <path>");
+        warn!(
+            "  At scale: `alef adopt <glob>` previews the set; `alef adopt <glob> --converged-only \
+             --write` clears the files that already match generated output"
+        );
+        warn!(
+            "  Formats that cannot carry a marker (package.json, *.jar), on a fresh clone or CI \
+             checkout: check .alef-ownership.toml was committed -- their ownership is recorded there"
+        );
+        warn!("  Do NOT hand-add the marker line -- the write guard reads it as consent to clobber a hand-edit");
         for path in adoptable {
             if report.refused_drifted_paths.contains(path) {
                 warn!(
@@ -310,23 +308,18 @@ pub fn report_refused_writes(report: &WriteReport) {
         let mut seeds: Vec<&std::path::PathBuf> = report.refused_create_once_paths.iter().collect();
         seeds.sort();
         warn!(
-            "{} file(s) were NOT written because they are create-once seeds: alef emits each of \
-             these paths only when absent and never rewrites them again, so a plain `alef \
-             generate` already leaves them untouched on every later run -- this is not drift, and \
-             nothing here needs fixing. Do NOT run `alef adopt` on these: alef emits a path like \
-             this only once, so the on-disk copy has almost certainly grown past alef's \
-             placeholder, and adopting consents to alef replacing its contents wholesale on the \
-             next overwriting regen (an `alef version` sync, `alef all --clobber-create-once-seeds`). \
-             `alef adopt --write` already refuses every one of these by design, unless \
-             `--clobber-create-once-seeds` is passed -- a flag whose own help text calls it \
-             dangerous.",
+            "{} file(s) were NOT written because they are create-once seeds: alef emits these \
+             paths only when absent and never rewrites them, so this is not drift.",
             seeds.len()
         );
+        warn!(
+            "  Do NOT run `alef adopt` on these -- the on-disk copy has almost certainly grown \
+             past alef's placeholder, and adopting consents to alef replacing it wholesale on the \
+             next overwriting regen (an `alef version` sync, `alef all --clobber-create-once-seeds`)"
+        );
+        warn!("  `alef adopt --write` already refuses these unless --clobber-create-once-seeds is passed");
         for path in seeds {
-            warn!(
-                "  create-once seed, not rewritten (this is expected): {}",
-                path.display()
-            );
+            warn!("  create-once seed, not rewritten: {}", path.display());
         }
     }
 }
@@ -351,9 +344,8 @@ pub fn report_user_owned_skips(report: &WriteReport) {
     }
     tracing::info!(
         "{} file(s) were not written because `[workspace.ownership] user_owned` in alef.toml \
-         declares them owned by this repository rather than by alef. alef does not overwrite \
-         them, does not stamp them with a provenance marker, and does not verify their \
-         contents. Remove the matching pattern to hand a path back to alef.",
+         declares them owned by this repository: alef does not overwrite, stamp, or verify them. \
+         Remove the matching pattern to hand a path back to alef.",
         report.user_owned_paths.len()
     );
     for path in &report.user_owned_paths {

@@ -587,8 +587,7 @@ pub fn record_scaffold_owned_paths(base_dir: &Path, paths: &[&Path]) -> anyhow::
         // one `git checkout` can undo. ~keep
         OwnedPathsRecord::Unreadable(reason) => anyhow::bail!(
             "refusing to update the alef ownership record at {}: it exists but could not be read \
-             ({reason}). Repair or restore it (`git checkout -- {OWNERSHIP_MANIFEST}`) and re-run \
-             -- rewriting it from a state alef could not read would drop every path already recorded.",
+             ({reason}). Fix: repair or restore it (`git checkout -- {OWNERSHIP_MANIFEST}`), then re-run.",
             ownership_manifest_path(base_dir).display()
         ),
     };
@@ -785,9 +784,8 @@ pub(super) fn note_untracked_required_records(base_dir: &Path) {
     for record in untracked_required_records(base_dir) {
         tracing::warn!(
             manifest = %record,
-            "alef depends on `{record}` but git does not track it: this run's writes succeeded only \
-             because of a file no other checkout has. Run `git add {record}` and commit it, or a \
-             fresh clone and CI will refuse to regenerate everything it vouches for"
+            "alef depends on `{record}` but git does not track it. Fix: `git add {record}` and commit \
+             it, or a fresh clone and CI will refuse to regenerate everything it vouches for"
         );
     }
 }

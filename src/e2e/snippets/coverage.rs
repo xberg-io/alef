@@ -42,6 +42,9 @@ pub fn normalize(mut ledger: SnippetCoverageLedger) -> SnippetCoverageLedger {
 ///
 /// Returns an error for an unparseable pattern, a pattern that escapes `project_root` or is
 /// absolute, a pattern matching no file on disk, or an unreadable directory.
+///
+/// A pattern matching zero files is refused rather than silently accepted: accepting it would
+/// leave every file it was meant to cover still reported as an unaccounted coverage gap. ~keep
 pub fn resolve_curated_snippet_paths(project_root: &Path, patterns: &[String]) -> Result<Vec<PathBuf>> {
     if patterns.is_empty() {
         return Ok(Vec::new());
@@ -59,11 +62,9 @@ pub fn resolve_curated_snippet_paths(project_root: &Path, patterns: &[String]) -
         let matches = matching_relative_files(project_root, pattern, &compiled)?;
         if matches.is_empty() {
             bail!(
-                "curated snippet glob `{pattern}` matches no file under the project root `{}`; a curated \
-                 declaration matching zero files is refused rather than silently accepted, since that would \
-                 leave every file it was meant to cover still reported as an unaccounted gap. Patterns are \
-                 relative to the project root (the directory holding alef.toml), the same base \
-                 `[crates.e2e.snippets].output` is written in -- not relative to `output` itself",
+                "curated snippet glob `{pattern}` matches no file under the project root `{}`. Patterns are \
+                 relative to the project root (the directory holding alef.toml), not to \
+                 `[crates.e2e.snippets].output`",
                 project_root.display()
             );
         }
@@ -242,9 +243,7 @@ pub fn validate_tracked_files(ledger: &SnippetCoverageLedger, output: &Path) -> 
     }
     bail!(
         "snippet coverage ledger records {} file(s) as generated in `generated_paths`, but they are \
-         absent from disk -- this is not a coverage gap the ledger's own `missing` field explains, \
-         since it is a discrepancy between what the ledger claims it wrote and what is actually \
-         there:{detail}",
+         absent from disk:{detail}",
         absent.len()
     );
 }

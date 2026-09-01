@@ -679,10 +679,9 @@ fn ensure_no_guard_rejections(rejections: &[SnippetGuardRejection]) -> Result<()
         }
     }
     bail!(
-        "{} documentation snippet(s) were rejected by the mock-harness guard; each would otherwise \
-         disappear from the docs tree with no report. Fix the generator so the snippet constructs \
-         its client the way a reader would — a `docs.coverage_exceptions` entry cannot retire a \
-         guard rejection.{detail}",
+        "{} documentation snippet(s) were rejected by the mock-harness guard. Fix the generator so \
+         the snippet constructs its client the way a reader would — a `docs.coverage_exceptions` \
+         entry cannot retire a guard rejection.{detail}",
         rejections.len()
     )
 }

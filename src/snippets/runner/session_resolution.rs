@@ -56,7 +56,7 @@
 //! third key does not collapse away under #255 (its directory is shared with only one of the two
 //! packages, not both), and #127's fix correctly still calls the two-package split ambiguous on
 //! its own -- so before `alias_default_claim`, every target-less snippet failed with the same
-//! "N configured sessions ... alef will not silently guess" error regardless of the alias, because
+//! "N configured sessions ... add a `target:`" error regardless of the alias, because
 //! the alias only ever added a third name to the same ambiguous set rather than resolving it.
 //!
 //! [`alias_default_claim`] is the narrow rule that lets the alias win without reopening #127: it
