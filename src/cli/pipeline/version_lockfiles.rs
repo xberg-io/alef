@@ -123,24 +123,51 @@ pub(super) fn relock_lockfiles_beside_changed_manifests(changed_paths: &HashSet<
 /// ~keep A generated Dart e2e manifest can stay byte-identical while its generated path
 /// dependency changes an exact transitive pin. Refresh when the manifest changed or its lock no
 /// longer satisfies a declared pin; changed-path filtering alone cannot see this dependency edge.
+///
+/// ~keep alef #A6: stdout/stderr are captured (`.output()`), never inherited (`.status()`), and
+/// attributed through [`log_dart_relock_output`] instead. `dart pub get`'s own routine chatter
+/// (e.g. "N packages have newer versions incompatible with dependency constraints") otherwise
+/// lands directly in alef's log with no level prefix, reading as alef's own unattributed output.
 pub(super) fn relock_dart_lockfiles_beside_generated_manifests(
     files: &[GeneratedFile],
     base_dir: &Path,
     changed_paths: &HashSet<PathBuf>,
 ) {
     relock_dart_lockfiles_with(files, base_dir, changed_paths, |directory, mode| {
-        std::process::Command::new("dart")
+        let output = std::process::Command::new("dart")
             .args(dart_relock_args(mode))
             .current_dir(directory)
-            .status()
-            .map(CargoStatus::from_exit_status)
+            .output()?;
+        log_dart_relock_output(directory, mode, &output);
+        Ok(CargoStatus::from_exit_status(output.status))
     });
+}
+
+/// Attribute `dart pub get`'s own stdout/stderr into alef's log rather than letting it inherit
+/// alef's stdio raw. Logged at `debug` on success (routine third-party chatter an operator did
+/// not ask to see) and `warn` on failure, where the existing failure-path logging below already
+/// names the directory and command.
+fn log_dart_relock_output(directory: &Path, mode: DartRelockMode, output: &std::process::Output) {
+    let level_log = |stream: &str, text: &str| {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        if output.status.success() {
+            debug!(directory = %directory.display(), ?mode, stream, "{text}");
+        } else {
+            warn!(directory = %directory.display(), ?mode, stream, "{text}");
+        }
+    };
+    level_log("stdout", &String::from_utf8_lossy(&output.stdout));
+    level_log("stderr", &String::from_utf8_lossy(&output.stderr));
 }
 
 fn relock_dart_lockfiles_with<F>(files: &[GeneratedFile], base_dir: &Path, changed_paths: &HashSet<PathBuf>, mut run: F)
 where
     F: FnMut(&Path, DartRelockMode) -> std::io::Result<CargoStatus>,
 {
+    let declared_package_versions = declared_dart_package_versions(files);
     let directories: HashSet<PathBuf> = files
         .iter()
         .filter(|file| file.path.file_name().and_then(|name| name.to_str()) == Some("pubspec.yaml"))
@@ -152,6 +179,13 @@ where
         .collect();
 
     for directory in directories {
+        if dart_lock_blocked_on_publish(&directory, &declared_package_versions) {
+            debug!(
+                directory = %directory.display(),
+                "version-sync: skipping Dart relock — blocked on publish"
+            );
+            continue;
+        }
         info!(directory = %directory.display(), "Relocking Dart dependencies for generated pubspec");
         match attempt_dart_relock_with(|mode| run(&directory, mode)) {
             Ok(DartRelockMode::Offline) => {}
@@ -181,28 +215,93 @@ where
     }
 }
 
-fn dart_lock_has_stale_declared_pin(directory: &Path) -> bool {
+/// One `name = req` pin declared (directly, or through resolving a `path:` dependency's own
+/// version) by a Dart manifest, paired with whether it came from that path resolution -- a path
+/// dependency resolves locally and can never be blocked on a registry publish, so
+/// [`dart_lock_blocked_on_publish`] must never exempt one.
+struct DartPin {
+    name: String,
+    requirement: String,
+    from_path: bool,
+}
+
+/// `name -> version` for every Dart package this run generated a `pubspec.yaml` for -- the Dart
+/// analogue of `cargo_manifest_versions`/`registry_self_dependency`, built without threading
+/// `ResolvedCrateConfig` through this call: whatever `pubspec.yaml`s this run actually wrote
+/// already carry exactly the "this workspace's own package, this workspace's own current
+/// version" pairs a pending-publish check needs.
+fn declared_dart_package_versions(files: &[GeneratedFile]) -> HashMap<String, String> {
+    let mut versions = HashMap::new();
+    for file in files {
+        if file.path.file_name().and_then(|name| name.to_str()) != Some("pubspec.yaml") {
+            continue;
+        }
+        let Ok(document) = serde_saphyr::from_str::<serde_json::Value>(&file.content) else {
+            continue;
+        };
+        let (Some(name), Some(version)) = (
+            document.get("name").and_then(serde_json::Value::as_str),
+            document.get("version").and_then(serde_json::Value::as_str),
+        ) else {
+            continue;
+        };
+        versions.insert(name.to_string(), version.to_string());
+    }
+    versions
+}
+
+/// Every declared pin in `directory`'s `pubspec.yaml` the sibling `pubspec.lock` does not
+/// currently satisfy -- the shared read behind both [`dart_lock_has_stale_declared_pin`] and
+/// [`dart_lock_blocked_on_publish`].
+fn stale_dart_pins(directory: &Path) -> Vec<DartPin> {
     let Ok(lock_text) = std::fs::read_to_string(directory.join("pubspec.lock")) else {
-        return false;
+        return Vec::new();
     };
     let Ok(lock) = serde_saphyr::from_str::<serde_json::Value>(&lock_text) else {
-        return false;
+        return Vec::new();
     };
     let Some(packages) = lock.get("packages").and_then(serde_json::Value::as_object) else {
-        return false;
+        return Vec::new();
     };
     declared_dart_pins(&directory.join("pubspec.yaml"), &mut HashSet::new())
         .into_iter()
-        .any(|(name, requirement)| {
+        .filter(|pin| {
             let locked = packages
-                .get(&name)
+                .get(&pin.name)
                 .and_then(|package| package.get("version"))
                 .and_then(serde_json::Value::as_str);
-            locked.is_none_or(|version| !dart_version_matches(&requirement, version))
+            locked.is_none_or(|version| !dart_version_matches(&pin.requirement, version))
         })
+        .collect()
 }
 
-fn declared_dart_pins(path: &Path, visited: &mut HashSet<PathBuf>) -> Vec<(String, String)> {
+fn dart_lock_has_stale_declared_pin(directory: &Path) -> bool {
+    !stale_dart_pins(directory).is_empty()
+}
+
+/// Whether every currently-stale pin in `directory`'s Dart lock is fully explained by this
+/// workspace's own pending, not-yet-published release -- the Dart sibling of Cargo's
+/// `blocked_on_publish`/[`relock_cargo_lockfiles`] pre-check and Node's `registry_self_dependency`
+/// tolerance.
+///
+/// ~keep alef #A6 (tslp incident): `test_apps/dart/pubspec.yaml` pins
+/// `tree_sitter_language_pack: 1.16.1` as a plain registry dependency -- not yet published to
+/// pub.dev -- so `dart pub get` fails identically offline and online with "version solving
+/// failed", both attempts wasted on a state this run already knows is expected and temporary.
+/// `dart pub get` resolves a manifest's whole dependency graph in one pass, so ANY unresolvable
+/// pin blocks every other pin in the same file too; a pin only counts as blocked here when it is
+/// NOT derived from a `path:` dependency (which resolves locally and is never blocked on a
+/// registry) and its declared `(name, requirement)` exactly matches one of `declared_package_versions`
+/// -- this workspace's own package, at its own current version.
+fn dart_lock_blocked_on_publish(directory: &Path, declared_package_versions: &HashMap<String, String>) -> bool {
+    let stale = stale_dart_pins(directory);
+    !stale.is_empty()
+        && stale
+            .iter()
+            .all(|pin| !pin.from_path && declared_package_versions.get(&pin.name) == Some(&pin.requirement))
+}
+
+fn declared_dart_pins(path: &Path, visited: &mut HashSet<PathBuf>) -> Vec<DartPin> {
     let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     if !visited.insert(canonical) {
         return Vec::new();
@@ -225,7 +324,7 @@ fn append_dart_dependency_pins(
     bucket: &str,
     manifest: &Path,
     visited: &mut HashSet<PathBuf>,
-    pins: &mut Vec<(String, String)>,
+    pins: &mut Vec<DartPin>,
 ) {
     let Some(dependencies) = document.get(bucket).and_then(serde_json::Value::as_object) else {
         return;
@@ -233,7 +332,11 @@ fn append_dart_dependency_pins(
     for (name, specification) in dependencies {
         if let Some(requirement) = specification.as_str() {
             if requirement != "any" {
-                pins.push((name.to_string(), requirement.to_string()));
+                pins.push(DartPin {
+                    name: name.to_string(),
+                    requirement: requirement.to_string(),
+                    from_path: false,
+                });
             }
             continue;
         }
@@ -246,7 +349,7 @@ fn append_dart_path_dependency_pins(
     specification: &serde_json::Value,
     manifest: &Path,
     visited: &mut HashSet<PathBuf>,
-    pins: &mut Vec<(String, String)>,
+    pins: &mut Vec<DartPin>,
 ) {
     let Some(relative) = specification.get("path").and_then(serde_json::Value::as_str) else {
         return;
@@ -260,7 +363,11 @@ fn append_dart_path_dependency_pins(
         && let Ok(dependency) = serde_saphyr::from_str::<serde_json::Value>(&dependency_text)
         && let Some(version) = dependency.get("version").and_then(serde_json::Value::as_str)
     {
-        pins.push((name.to_string(), version.to_string()));
+        pins.push(DartPin {
+            name: name.to_string(),
+            requirement: version.to_string(),
+            from_path: true,
+        });
     }
     pins.extend(declared_dart_pins(&dependency_manifest, visited));
 }

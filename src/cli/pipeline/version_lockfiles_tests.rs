@@ -12,6 +12,7 @@
 
 use super::*;
 use crate::test_support::{git_add, git_init, write_file};
+use tracing_test::traced_test;
 
 const CANONICAL: &str = "1.2.1";
 const OLD_VERSION: &str = "1.2.0";
@@ -321,4 +322,192 @@ fn dart_relock_retries_online_after_offline_resolution_failure() {
     });
     assert_eq!(outcome.expect("online fallback succeeds"), DartRelockMode::Online);
     assert_eq!(modes, vec![DartRelockMode::Offline, DartRelockMode::Online]);
+}
+
+/// The A6 regression, reproducing the tslp incident: `test_apps/dart/pubspec.yaml` pins
+/// `tree_sitter_language_pack` as a plain (non-path) registry dependency at exactly the version
+/// `packages/dart/pubspec.yaml` declares for itself this run -- not yet published to pub.dev.
+/// Before this guard, `relock_dart_lockfiles_with` still invoked the resolver here, and both the
+/// offline and online `dart pub get` attempts necessarily failed identically with "version
+/// solving failed".
+#[test]
+fn dart_lock_blocked_on_publish_skips_a_pending_self_dependency_registry_pin() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_file(
+        root,
+        "packages/dart/pubspec.yaml",
+        "name: tree_sitter_language_pack\nversion: 1.16.1\n",
+    );
+    write_file(
+        root,
+        "test_apps/dart/pubspec.yaml",
+        "name: e2e_dart\nversion: 0.1.0\ndependencies:\n  tree_sitter_language_pack: 1.16.1\n",
+    );
+    write_file(
+        root,
+        "test_apps/dart/pubspec.lock",
+        "packages:\n  tree_sitter_language_pack:\n    version: \"1.15.8\"\n",
+    );
+    let files = [
+        GeneratedFile {
+            path: PathBuf::from("packages/dart/pubspec.yaml"),
+            content: std::fs::read_to_string(root.join("packages/dart/pubspec.yaml")).expect("pubspec"),
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("test_apps/dart/pubspec.yaml"),
+            content: std::fs::read_to_string(root.join("test_apps/dart/pubspec.yaml")).expect("pubspec"),
+            generated_header: true,
+        },
+    ];
+    let declared = declared_dart_package_versions(&files);
+
+    assert!(
+        dart_lock_blocked_on_publish(&root.join("test_apps/dart"), &declared),
+        "a pending self-dependency registry pin must be recognized as blocked on publish"
+    );
+
+    let mut calls = 0;
+    relock_dart_lockfiles_with(&files, root, &HashSet::new(), |_, _| {
+        calls += 1;
+        Ok(CargoStatus::success())
+    });
+    assert_eq!(
+        calls, 0,
+        "a lock blocked on this workspace's own pending release must not invoke dart pub get at \
+         all -- both the offline and online attempts fail identically until the release publishes"
+    );
+}
+
+/// The over-correction guard for A6: a `path:` dependency's own pin always equals its target's
+/// declared version by construction (that IS what the path resolves to), so without excluding
+/// `from_path` pins, EVERY path-mode e2e directory -- the common case
+/// `relock_dart_lockfiles_beside_generated_manifests` exists for in the first place -- would be
+/// misclassified as blocked on a registry publish that was never involved, and its purely local,
+/// offline-resolvable staleness would never get relocked.
+#[test]
+fn dart_lock_blocked_on_publish_never_exempts_a_path_dependency_own_pin() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_file(
+        root,
+        "packages/dart/pubspec.yaml",
+        "name: generated_binding\nversion: 0.2.0\n",
+    );
+    write_file(
+        root,
+        "e2e/dart/pubspec.yaml",
+        "name: e2e_dart\nversion: 0.1.0\ndependencies:\n  generated_binding:\n    path: ../../packages/dart\n",
+    );
+    write_file(
+        root,
+        "e2e/dart/pubspec.lock",
+        "packages:\n  generated_binding:\n    version: \"0.1.0\"\n",
+    );
+    let files = [
+        GeneratedFile {
+            path: PathBuf::from("packages/dart/pubspec.yaml"),
+            content: std::fs::read_to_string(root.join("packages/dart/pubspec.yaml")).expect("pubspec"),
+            generated_header: true,
+        },
+        GeneratedFile {
+            path: PathBuf::from("e2e/dart/pubspec.yaml"),
+            content: std::fs::read_to_string(root.join("e2e/dart/pubspec.yaml")).expect("pubspec"),
+            generated_header: true,
+        },
+    ];
+    let declared = declared_dart_package_versions(&files);
+
+    assert!(
+        !dart_lock_blocked_on_publish(&root.join("e2e/dart"), &declared),
+        "a path dependency's own pin matches its target's declared version by construction, but it \
+         resolves locally and must never be treated as blocked on a registry publish"
+    );
+
+    let mut calls = 0;
+    relock_dart_lockfiles_with(&files, root, &HashSet::new(), |_, _| {
+        calls += 1;
+        Ok(CargoStatus::success())
+    });
+    assert_eq!(
+        calls, 1,
+        "a purely local, offline-resolvable path staleness must still get relocked"
+    );
+}
+
+/// A second false-negative guard: an ordinary third-party drift whose name/version has nothing to
+/// do with any package this run generated a `pubspec.yaml` for must still be treated as a
+/// genuine, resolvable staleness -- the exemption must not blanket-suppress every stale pin just
+/// because SOME package in the workspace happens to have a pending release.
+#[test]
+fn dart_lock_blocked_on_publish_still_relocks_an_unrelated_registry_drift() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_file(
+        root,
+        "packages/dart/pubspec.yaml",
+        "name: generated_binding\nversion: 0.1.0\n",
+    );
+    write_file(
+        root,
+        "test_apps/dart/pubspec.yaml",
+        "name: e2e_dart\nversion: 0.1.0\ndependencies:\n  http: ^1.2.0\n",
+    );
+    write_file(
+        root,
+        "test_apps/dart/pubspec.lock",
+        "packages:\n  http:\n    version: \"1.1.0\"\n",
+    );
+    let files = [GeneratedFile {
+        path: PathBuf::from("packages/dart/pubspec.yaml"),
+        content: std::fs::read_to_string(root.join("packages/dart/pubspec.yaml")).expect("pubspec"),
+        generated_header: true,
+    }];
+    let declared = declared_dart_package_versions(&files);
+
+    assert!(
+        !dart_lock_blocked_on_publish(&root.join("test_apps/dart"), &declared),
+        "an ordinary third-party drift unrelated to this workspace's own package must still be \
+         treated as a genuine, resolvable staleness"
+    );
+}
+
+/// A trivial, portable child process that prints `marker` to stdout and exits with `exit_code` --
+/// enough to produce a real [`std::process::Output`] for [`log_dart_relock_output`] without
+/// depending on `dart` being installed.
+fn shell_output(exit_code: i32, marker: &str) -> std::process::Output {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("echo {marker}; exit {exit_code}"))
+        .output()
+        .expect("spawn sh")
+}
+
+/// The A6 stdio regression: `dart pub get`'s own stdout must be attributed into alef's log
+/// through `tracing`, not silently inherited into alef's own raw stdout with no level prefix
+/// (the html-to-markdown incident: an unattributed "18 packages have newer versions..." notice
+/// that read as alef's own output).
+#[traced_test]
+#[test]
+fn dart_relock_output_is_attributed_on_success() {
+    let output = shell_output(0, "dart-relock-success-marker");
+    log_dart_relock_output(Path::new("e2e/dart"), DartRelockMode::Offline, &output);
+    assert!(
+        logs_contain("dart-relock-success-marker"),
+        "dart pub get's own stdout must be attributed into alef's log, not silently inherited"
+    );
+}
+
+/// Same as above for the failure path, where the existing warn-level handling already names the
+/// directory and command -- the captured output must be attributed there too.
+#[traced_test]
+#[test]
+fn dart_relock_output_is_attributed_on_failure() {
+    let output = shell_output(1, "dart-relock-failure-marker");
+    log_dart_relock_output(Path::new("e2e/dart"), DartRelockMode::Offline, &output);
+    assert!(
+        logs_contain("dart-relock-failure-marker"),
+        "dart pub get's own stdout must be attributed into alef's log even on failure"
+    );
 }
