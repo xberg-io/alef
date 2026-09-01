@@ -297,6 +297,57 @@ fn zig_build_zig_guards_set_cwd_on_working_directory_existence() {
     );
 }
 
+/// THE E4 REGRESSION: `remaining_backends_detect_nested_bytes_fixture_paths` above only proves
+/// the Dart `setUpAll` body CONTAINS `Directory.current = _dir` somewhere -- it never checks
+/// ORDER, so it passed even while `test_file.rs` emitted the chdir BEFORE
+/// `render_dart_sut_spawn`'s `Directory.current.uri.resolve('../rust/Cargo.toml')` /
+/// `resolve('app_harness.dart')` calls resolved their paths against the ALREADY-CHANGED cwd
+/// (`test_documents/`, not `e2e/dart/`) -- `Bad state: mock-server build failed: error:
+/// manifest path .../rust/Cargo.toml does not exist` in CI, six suites failing in `setUpAll`
+/// with zero fixture assertions run. A fixture SET must combine a file-input fixture (drives
+/// `needs_chdir`) with a mock-url fixture (drives `needs_sut_spawn`) in the SAME group --
+/// xberg's real `contract_test.dart`/`format_specific_test.dart`/`url_test.dart` shape --
+/// neither flag alone reaches the interaction. ~keep
+#[test]
+fn dart_chdir_and_sut_spawn_combined_setup_resolves_sut_paths_before_the_chdir() {
+    let (e2e_config, mut group, request) = nested_bytes_fixture();
+    group.fixtures.push(Fixture {
+        id: "mock_url_contract".into(),
+        description: "Fetch a document from the mock server".into(),
+        input: serde_json::json!({"uri": "$mock_url/markdown/comprehensive.md"}),
+        ..Default::default()
+    });
+    let files = DartE2eCodegen
+        .generate(
+            &[group],
+            &e2e_config,
+            &ResolvedCrateConfig::default(),
+            &[request],
+            &[],
+            &[],
+            &[],
+        )
+        .expect("Dart e2e generation succeeds for a combined chdir + sut-spawn fixture set");
+    let test_file = generated_file_ending_in(&files, "documents_test.dart");
+
+    let chdir_pos = test_file
+        .content
+        .find("Directory.current = _dir")
+        .expect("expected the file-input fixture to still emit the test-documents chdir");
+    let sut_spawn_pos = test_file
+        .content
+        .find("Directory.current.uri.resolve('app_harness.dart')")
+        .expect("expected the mock-url fixture to still emit the SUT app-harness spawn");
+
+    assert!(
+        sut_spawn_pos < chdir_pos,
+        "the SUT spawn's own `Directory.current`-relative path resolution must run BEFORE the \
+         test-documents chdir reassigns `Directory.current`, or it resolves 'app_harness.dart' \
+         and '../rust/Cargo.toml' against the wrong base; got:\n{}",
+        test_file.content
+    );
+}
+
 #[test]
 fn csharp_test_setup_guards_working_directory_change_on_existence() {
     let files = CSharpCodegen

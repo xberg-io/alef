@@ -359,6 +359,18 @@ pub(super) fn render_test_file(
     }
     let _ = writeln!(out, "    await RustLib.init();");
     let _ = writeln!(out, "    _rustLibInitialized = true;");
+    // ~keep The SUT/mock-server spawn MUST render before the test-documents chdir below: both
+    // `render_dart_sut_spawn`'s `app_harness.dart` probe and its standalone mock-server binary
+    // paths (`../rust/target/release/mock-server`, `../rust/Cargo.toml`) resolve relative to
+    // `Directory.current` at the point they run. Emitting the chdir first left `Directory.current`
+    // pointed at `test_documents/` (or `FIXTURES_DIR`) by the time the spawn code ran, so
+    // `'../rust/Cargo.toml'` resolved from `.../e2e/`, not `.../e2e/dart/` -- `Bad state:
+    // mock-server build failed: error: manifest path ... does not exist`, six suites failing in
+    // `setUpAll` with zero fixture assertions run. The two concerns are otherwise independent
+    // (the spawn doesn't need to run from `test_documents/`), so reordering is side-effect-free.
+    if needs_sut_spawn {
+        render_dart_sut_spawn(&mut out);
+    }
     if needs_chdir {
         let test_docs_path = e2e_config.test_documents_relative_from(0);
         let _ = writeln!(
@@ -367,9 +379,6 @@ pub(super) fn render_test_file(
         );
         let _ = writeln!(out, "    final _dir = Directory(_testDocs);");
         let _ = writeln!(out, "    if (_dir.existsSync()) Directory.current = _dir;");
-    }
-    if needs_sut_spawn {
-        render_dart_sut_spawn(&mut out);
     }
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
