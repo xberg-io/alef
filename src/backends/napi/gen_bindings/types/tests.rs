@@ -198,3 +198,130 @@ fn keeps_derive_when_unsound_opaque_field() {
     assert!(derive_line(&out).contains("serde::Deserialize"));
     assert!(!out.contains("impl<'de> serde::Deserialize<'de> for JsWrapper"));
 }
+
+/// The node mirror drops every per-field `#[serde(default)]` the core struct carries, so
+/// `JSON.parse`-shaped partial objects that the core type accepts are rejected at the binding.
+/// Asserted on the rendered struct, not on the predicate.
+#[test]
+fn delegates_deserialize_for_field_with_serde_default() {
+    let typ = TypeDef {
+        name: "ExtractionConfig".to_string(),
+        rust_path: "sample_core::ExtractionConfig".to_string(),
+        fields: vec![
+            f64_field("threshold"),
+            FieldDef {
+                default: Some("/* serde(default) */".to_string()),
+                ..f64_field("timeout")
+            },
+        ],
+        is_opaque: false,
+        has_serde: true,
+        ..Default::default()
+    };
+    let mapper = NapiMapper::new("Js".to_string());
+    let never_skip_cfg_field_names: Vec<String> = Vec::new();
+    let convertible: ahash::AHashSet<String> = ["ExtractionConfig".to_string()].into_iter().collect();
+
+    let out = gen_struct(
+        &typ,
+        &mapper,
+        "Js",
+        true,
+        &ahash::AHashSet::default(),
+        &never_skip_cfg_field_names,
+        &[],
+        "sample_core",
+        &convertible,
+        None,
+    );
+
+    assert!(
+        !derive_line(&out).contains("serde::Deserialize"),
+        "a derived Deserialize drops the field's serde(default): {out}"
+    );
+    assert!(
+        out.contains("impl<'de> serde::Deserialize<'de> for JsExtractionConfig {"),
+        "expected a delegating Deserialize impl in: {out}"
+    );
+    assert!(
+        out.contains(
+            "<sample_core::ExtractionConfig as serde::Deserialize>::deserialize(deserializer).map(Into::into)"
+        ),
+        "delegation must read the core type: {out}"
+    );
+}
+
+/// Positive control: nothing about this struct disagrees with the derived, field-by-field
+/// `Deserialize`, so it must keep deriving and must NOT gain a delegating impl.
+#[test]
+fn keeps_derive_for_struct_with_no_unreproducible_serde_attrs() {
+    let typ = TypeDef {
+        name: "Point".to_string(),
+        rust_path: "sample_core::Point".to_string(),
+        fields: vec![f64_field("x"), f64_field("y")],
+        is_opaque: false,
+        has_serde: true,
+        ..Default::default()
+    };
+    let mapper = NapiMapper::new("Js".to_string());
+    let never_skip_cfg_field_names: Vec<String> = Vec::new();
+    let convertible: ahash::AHashSet<String> = ["Point".to_string()].into_iter().collect();
+
+    let out = gen_struct(
+        &typ,
+        &mapper,
+        "Js",
+        true,
+        &ahash::AHashSet::default(),
+        &never_skip_cfg_field_names,
+        &[],
+        "sample_core",
+        &convertible,
+        None,
+    );
+
+    assert!(derive_line(&out).contains("serde::Deserialize"), "{out}");
+    assert!(!out.contains("impl<'de> serde::Deserialize<'de> for JsPoint"), "{out}");
+}
+
+/// The napi prelude puts its own one-parameter `Result<T> = Result<T, napi::Error>` alias in
+/// scope in every generated node binding, so an unqualified `Result<Self, D::Error>` in the
+/// delegating impl resolves to `napi::Result` and the signature stops matching
+/// `serde::Deserialize`. This produced 174 compile errors (58 delegating impls x E0053/E0277/
+/// E0308) in a real consumer the first time this backend emitted the impl at all. The return
+/// type must be spelled absolutely. ~keep
+#[test]
+fn delegating_deserialize_return_type_is_immune_to_the_napi_result_alias() {
+    let typ = TypeDef {
+        name: "ChatRequest".to_string(),
+        rust_path: "sample_core::ChatRequest".to_string(),
+        fields: vec![FieldDef {
+            default: Some("/* serde(default) */".to_string()),
+            ..f64_field("temperature")
+        }],
+        is_opaque: false,
+        has_serde: true,
+        ..Default::default()
+    };
+    let mapper = NapiMapper::new("Js".to_string());
+    let never_skip_cfg_field_names: Vec<String> = Vec::new();
+    let convertible: ahash::AHashSet<String> = ["ChatRequest".to_string()].into_iter().collect();
+
+    let out = gen_struct(
+        &typ,
+        &mapper,
+        "Js",
+        true,
+        &ahash::AHashSet::default(),
+        &never_skip_cfg_field_names,
+        &[],
+        "sample_core",
+        &convertible,
+        None,
+    );
+
+    assert!(
+        out.contains("fn deserialize<D>(deserializer: D) -> ::core::result::Result<Self, D::Error>"),
+        "the delegating impl's return type must not be resolvable to napi's `Result` alias: {out}"
+    );
+}

@@ -245,7 +245,10 @@ fn field_sound_false_when_type_has_stripped_cfg_fields() {
 }
 
 #[test]
-fn wants_delegation_false_without_container_conversion() {
+fn wants_delegation_false_when_mirror_reproduces_the_whole_serde_surface() {
+    // No container conversion, no per-field default, no codec/flatten/skip -- the derived,
+    // field-by-field `Deserialize` already agrees with the core type, so delegation is
+    // unnecessary and must not fire.
     let typ = type_with_fields("Plain", vec![f64_field("x")], Default::default());
     assert!(!struct_wants_deserialize_delegation(&typ, &[], &[]));
 }
@@ -409,9 +412,10 @@ fn gen_struct_bare_delegates_when_eligible() {
 }
 
 #[test]
-fn gen_struct_bare_never_delegates_without_container_conversion() {
-    // Regression guard: a type without a container conversion must be entirely unaffected,
-    // even if it happens to be named in the delegation set (e.g. by an over-eager caller).
+fn gen_struct_bare_never_delegates_when_derive_already_agrees_with_core() {
+    // Regression guard: a type whose serde surface the mirror reproduces in full must be
+    // entirely unaffected, even if it happens to be named in the delegation set (e.g. by an
+    // over-eager caller).
     let typ = type_with_fields("Plain", vec![f64_field("x")], Default::default());
     let delegatable: AHashSet<String> = ["Plain".to_string()].into_iter().collect();
     let cfg = RustBindingConfig {
@@ -443,4 +447,137 @@ fn gen_delegating_deserialize_impl_falls_back_to_core_import_for_bare_path() {
     let rendered = gen_delegating_deserialize_impl(&typ, "sample_core", "", &[]);
 
     assert!(rendered.contains("<sample_core::Point as serde::Deserialize>::deserialize"));
+}
+
+// Per-field / container `#[serde(default)]` delegation -------------------------------------------
+//
+// These assert on the RENDERED struct, not on the predicate: a mirror that derives
+// `Deserialize` field-by-field silently drops every `#[serde(default)]` the core type carries,
+// so a partial JSON payload that the core type accepts is rejected by the binding. The only
+// faithful answer is the delegating impl, which reads the core type's own `Deserialize`.
+
+/// A field carrying a bare `#[serde(default)]` — `FieldDef::default == Some(...)`, which is
+/// exactly what `extract_field` records for it.
+fn field_with_serde_default(name: &str) -> FieldDef {
+    FieldDef {
+        default: Some("/* serde(default) */".to_string()),
+        ..f64_field(name)
+    }
+}
+
+#[test]
+fn gen_struct_with_rename_delegates_for_field_with_bare_serde_default() {
+    let typ = type_with_fields(
+        "Config",
+        vec![f64_field("threshold"), field_with_serde_default("timeout")],
+        Default::default(),
+    );
+    let delegatable: AHashSet<String> = ["Config".to_string()].into_iter().collect();
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_rename(&typ, &IdentityMapper, &cfg, |_| vec![], |_| None);
+
+    assert!(
+        !derive_line(&rendered).contains("serde::Deserialize"),
+        "a mirror that derives Deserialize drops the field's serde(default): {rendered}"
+    );
+    assert!(
+        rendered.contains("impl<'de> serde::Deserialize<'de> for Config {"),
+        "expected a delegating Deserialize impl in: {rendered}"
+    );
+    assert!(
+        rendered.contains("<my_crate::Config as serde::Deserialize>::deserialize(deserializer).map(Into::into)"),
+        "delegation must read the core type so its serde attrs are honoured: {rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_with_per_field_attrs_delegates_for_field_with_serde_default_path() {
+    let mut field = f64_field("retries");
+    field.default = Some("serde(default = \"default_retries\")".to_string());
+    let typ = type_with_fields("Retry", vec![field], Default::default());
+    let delegatable: AHashSet<String> = ["Retry".to_string()].into_iter().collect();
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_per_field_attrs(&typ, &IdentityMapper, &cfg, |_| vec![]);
+
+    assert!(!derive_line(&rendered).contains("serde::Deserialize"), "{rendered}");
+    assert!(
+        rendered.contains("impl<'de> serde::Deserialize<'de> for Retry {"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_bare_delegates_for_container_level_serde_default() {
+    let mut typ = type_with_fields("Settings", vec![f64_field("a"), f64_field("b")], Default::default());
+    typ.serde_container_default = true;
+    let delegatable: AHashSet<String> = ["Settings".to_string()].into_iter().collect();
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        ..base_cfg()
+    };
+    let rendered = gen_struct(&typ, &IdentityMapper, &cfg);
+
+    assert!(!derive_line(&rendered).contains("serde::Deserialize"), "{rendered}");
+    assert!(
+        rendered.contains("impl<'de> serde::Deserialize<'de> for Settings {"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_with_rename_delegates_for_field_with_serde_with_codec() {
+    let mut field = f64_field("elapsed");
+    field.serde_with = Some("humantime_serde".to_string());
+    let typ = type_with_fields("Timing", vec![field], Default::default());
+    let delegatable: AHashSet<String> = ["Timing".to_string()].into_iter().collect();
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_rename(&typ, &IdentityMapper, &cfg, |_| vec![], |_| None);
+
+    assert!(
+        !derive_line(&rendered).contains("serde::Deserialize"),
+        "the mirror never re-emits `#[serde(with = ...)]`, so its derive reads the wrong wire shape: {rendered}"
+    );
+    assert!(
+        rendered.contains("impl<'de> serde::Deserialize<'de> for Timing {"),
+        "{rendered}"
+    );
+}
+
+/// Positive control: a struct whose every serde-relevant attribute the mirror DOES reproduce
+/// (here `#[serde(rename = ...)]`, which `gen_struct_with_rename` re-emits verbatim) must keep
+/// deriving `Deserialize` directly and must NOT pick up a delegating impl. Widening the
+/// delegation trigger must not sweep in types the derived impl already gets right.
+#[test]
+fn gen_struct_with_rename_keeps_derive_when_no_unreproducible_serde_attrs() {
+    let mut renamed = f64_field("tool_type");
+    renamed.serde_rename = Some("type".to_string());
+    let typ = type_with_fields("Reproducible", vec![f64_field("x"), renamed], Default::default());
+    let delegatable: AHashSet<String> = ["Reproducible".to_string()].into_iter().collect();
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_rename(&typ, &IdentityMapper, &cfg, |_| vec![], |_| None);
+
+    assert!(
+        derive_line(&rendered).contains("serde::Deserialize"),
+        "nothing here disagrees with the derive, so it must stay derived: {rendered}"
+    );
+    assert!(
+        !rendered.contains("impl<'de> serde::Deserialize<'de> for Reproducible"),
+        "must not emit a delegating impl for a faithfully-mirrored struct: {rendered}"
+    );
+    assert!(
+        rendered.contains("serde(rename = \"type\")"),
+        "the reproduced attribute must still be emitted: {rendered}"
+    );
 }

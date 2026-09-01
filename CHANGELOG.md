@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for those cases too, not only for container `#[serde(from/into/try_from/transparent)]`.
   Delegation still requires `From<core::Type>` to be emitted for the same type in the same run;
   types outside that convertible set keep the derived impl.
+- **codegen:** the delegating `Deserialize` impl now spells its return type `::core::result::Result`.
+  napi's prelude puts a one-parameter `Result<T> = Result<T, napi::Error>` alias in scope in every
+  generated node binding, so the previous unqualified `Result<Self, D::Error>` resolved to
+  `napi::Result` and the signature stopped matching `serde::Deserialize` (174 errors across 58
+  impls in a real consumer). Latent until the fix above made the node backend emit the impl at all.
 - **rustler:** stopped emitting an unreachable `_ => Default::default()` catch-all in the
   binding->core enum conversion when a foreign cfg-gated variant is proven unreachable and
   Rustler's own declaration already drops it. Blocked every generated Elixir NIF from compiling

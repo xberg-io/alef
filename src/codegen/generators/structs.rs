@@ -38,12 +38,47 @@ pub fn struct_deserialize_delegation_field_sound(
     })
 }
 
-/// Whether `typ` should get a delegating `Deserialize` -- reads the *core* type (honouring its
-/// real `#[serde(from/into/try_from/transparent)]` wire shape) and converts via `Into` --
-/// instead of the derived, field-by-field object `Deserialize` that disagrees with it.
+/// Whether the derived, field-by-field `Deserialize` on the mirror struct provably disagrees
+/// with the core type's own `Deserialize`.
 ///
-/// Requires BOTH: the struct actually carries a container conversion
-/// (`typ.serde_container_conversion.is_present()`), and delegation is field-sound (see
+/// The mirror reproduces only a narrow slice of the core type's serde surface: per-field
+/// `#[serde(rename = "...")]` (re-emitted verbatim from [`FieldDef::serde_rename`]) and
+/// `#[serde(skip)]` for fields the binding had to drop. Everything below is dropped on the
+/// floor, so the derived impl reads a wire shape the core type never had:
+///
+/// * container `#[serde(from/into/try_from/transparent)]` -- the payload is not the derived
+///   object at all, or is routed through a hand-written `From` alef cannot see.
+/// * container `#[serde(default)]` ([`TypeDef::serde_container_default`]) and per-field
+///   `#[serde(default)]` / `#[serde(default = "path")]` ([`FieldDef::default`]) -- every absent
+///   key must be filled from the core's defaults, but the mirror's derive makes each one
+///   *required*, so a partial payload the core accepts is rejected at the binding boundary.
+/// * per-field `#[serde(with = "...")]` ([`FieldDef::serde_with`]) -- a hand-written codec whose
+///   shape alef never derived and cannot restate.
+/// * per-field `#[serde(flatten)]` -- the field's keys sit on the parent object, not nested
+///   under the field name.
+/// * per-field `#[serde(skip)]` ([`FieldDef::serde_skip`]) -- the key is absent from the payload
+///   by construction, yet the mirror's derive demands it.
+///
+/// `#[serde(deny_unknown_fields)]` is deliberately not a trigger: alef does not carry it in the
+/// IR, so it cannot be detected here. It is still *honoured* wherever delegation fires for one
+/// of the reasons above, because the core type's own `Deserialize` is what runs.
+///
+/// `serde_skip_serializing_if` is likewise absent -- it only omits a key on the way out and
+/// leaves `Deserialize` untouched, so it is not a disagreement this function is about. ~keep
+fn struct_mirror_deserialize_disagrees_with_core(typ: &TypeDef) -> bool {
+    typ.serde_container_conversion.is_present()
+        || typ.serde_container_default
+        || binding_fields(&typ.fields).any(|field| {
+            field.default.is_some() || field.serde_with.is_some() || field.serde_flatten || field.serde_skip
+        })
+}
+
+/// Whether `typ` should get a delegating `Deserialize` -- reads the *core* type (honouring every
+/// serde attribute it carries) and converts via `Into` -- instead of the derived, field-by-field
+/// object `Deserialize` that disagrees with it.
+///
+/// Requires BOTH: the mirror's derive provably disagrees with the core type (see
+/// [`struct_mirror_deserialize_disagrees_with_core`]), and delegation is field-sound (see
 /// [`struct_deserialize_delegation_field_sound`]). Callers must separately confirm that
 /// `From<core::Type> for BindingType` will actually be emitted for `typ` in this run --
 /// typically by intersecting with the same convertible-type set that already gates that
@@ -54,7 +89,7 @@ pub fn struct_wants_deserialize_delegation(
     opaque_type_names: &[String],
     serializable_opaque_type_names: &[String],
 ) -> bool {
-    typ.serde_container_conversion.is_present()
+    struct_mirror_deserialize_disagrees_with_core(typ)
         && struct_deserialize_delegation_field_sound(typ, opaque_type_names, serializable_opaque_type_names)
 }
 
