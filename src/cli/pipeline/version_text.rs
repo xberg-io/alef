@@ -311,10 +311,26 @@ pub(super) fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_ver
 /// quoted URL, normalised (strip scheme, trailing `.git`, trailing `/`), is a
 /// prefix-or-equal match of the normalised `repo_url`. Returns `Some(new_content)`
 /// when a first-party `from:` actually changed, `None` otherwise (idempotent).
+/// Rewrite the version-bearing clause of a first-party `.package(url: ..., ...)` entry to
+/// `new_version`, matching either shape a consumer's SwiftPM manifest declares it in.
+///
+/// ~keep alef #A3: `from: "X.Y.Z"` was the only shape this ever understood, but every consumer's
+/// own release workflow publishes the artifact under a `branch: "release/swift/X.Y.Z"` ref
+/// instead -- `from:` pins a semver *tag*, which none of the four affected repos actually cut.
+/// Against the real shape this built-in silently no-opped everywhere, which is exactly why
+/// consumers reached for a hand-authored `sync.text_replacements` entry in the first place (and
+/// then hit alef #A1's ownership-guard-ordering bug on top of that). Each shape is rewritten back
+/// into itself -- `from:` stays `from:`, `branch: "release/swift/..."` stays
+/// `branch: "release/swift/..."` -- never cross-converted, since which one a manifest declares is
+/// the consumer's own choice about how they consume the release, not something alef gets to
+/// decide.
 pub(super) fn sync_swift_first_party_from(content: &str, repo_url: &str, new_version: &str) -> Option<String> {
     use std::sync::LazyLock;
     static PACKAGE_URL_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r#"\.package\(\s*url:\s*"([^"]*)"\s*,\s*from:\s*"([^"]*)""#).expect("valid regex")
+        regex::Regex::new(
+            r#"\.package\(\s*url:\s*"([^"]*)"\s*,\s*(?:from:\s*"([^"]*)"|branch:\s*"release/swift/([^"]*)")"#,
+        )
+        .expect("valid regex")
     });
 
     let target = normalize_repo_url(repo_url);
@@ -326,12 +342,23 @@ pub(super) fn sync_swift_first_party_from(content: &str, repo_url: &str, new_ver
     let new_content = PACKAGE_URL_RE
         .replace_all(content, |caps: &regex::Captures<'_>| {
             let url = &caps[1];
-            let current = &caps[2];
             let normalized = normalize_repo_url(url);
             let is_first_party = !normalized.is_empty() && repo_url_matches(&normalized, &target);
-            if is_first_party && current != new_version {
+            if !is_first_party {
+                return caps[0].to_string();
+            }
+            if let Some(from_version) = caps.get(2) {
+                if from_version.as_str() == new_version {
+                    return caps[0].to_string();
+                }
                 changed = true;
                 format!(r#".package(url: "{url}", from: "{new_version}""#)
+            } else if let Some(branch_version) = caps.get(3) {
+                if branch_version.as_str() == new_version {
+                    return caps[0].to_string();
+                }
+                changed = true;
+                format!(r#".package(url: "{url}", branch: "release/swift/{new_version}""#)
             } else {
                 caps[0].to_string()
             }

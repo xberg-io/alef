@@ -162,6 +162,21 @@ let package = Package(
 )
 ";
 
+/// alef #A3: every consumer's own `release/swift/*` publish workflow tags the artifact this way,
+/// not with a semver tag `from:` would pin -- the real shape all four affected repos declare.
+const SWIFT_PACKAGE_FIRST_PARTY_BRANCH: &str = "\
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: \"E2eSwift\",
+    dependencies: [
+        .package(url: \"https://github.com/example-org/example-swift-package\", branch: \"release/swift/1.10.1\"),
+        .package(url: \"https://github.com/example-org/external-swift-package\", from: \"0.25.0\"),
+    ]
+)
+";
+
 const FIRST_PARTY_REPO: &str = "https://github.com/example-org/example-swift-package";
 
 #[test]
@@ -201,6 +216,34 @@ fn sync_swift_first_party_from_no_op_without_first_party() {
 #[test]
 fn sync_swift_first_party_from_is_idempotent() {
     let first = sync_swift_first_party_from(SWIFT_PACKAGE_FIRST_PARTY_FIRST, FIRST_PARTY_REPO, "1.10.2").unwrap();
+    let second = sync_swift_first_party_from(&first, FIRST_PARTY_REPO, "1.10.2");
+    assert!(second.is_none(), "second call with same version must be a no-op");
+}
+
+/// The A3 regression: before this fix, a first-party `branch: "release/swift/X.Y.Z"` pin (the
+/// shape every consumer's own release workflow actually publishes, since none of the four
+/// affected repos cut a semver tag `from:` could pin) was invisible to this function entirely --
+/// the regex only ever matched `from:`. The whole file came back `None`, a silent no-op, which is
+/// exactly why consumers reached for a `sync.text_replacements` entry and then hit alef #A1 on
+/// top of it.
+#[test]
+fn sync_swift_first_party_from_bumps_a_branch_pin() {
+    let result = sync_swift_first_party_from(SWIFT_PACKAGE_FIRST_PARTY_BRANCH, FIRST_PARTY_REPO, "1.10.2");
+    let new = result.expect("first-party branch pin changed");
+    assert!(
+        new.contains("example-swift-package\", branch: \"release/swift/1.10.2\""),
+        "first-party branch: pin must bump, staying a branch: pin (never cross-converted to \
+         from:):\n{new}"
+    );
+    assert!(
+        new.contains("external-swift-package\", from: \"0.25.0\""),
+        "external from: must be preserved:\n{new}"
+    );
+}
+
+#[test]
+fn sync_swift_first_party_from_branch_pin_is_idempotent() {
+    let first = sync_swift_first_party_from(SWIFT_PACKAGE_FIRST_PARTY_BRANCH, FIRST_PARTY_REPO, "1.10.2").unwrap();
     let second = sync_swift_first_party_from(&first, FIRST_PARTY_REPO, "1.10.2");
     assert!(second.is_none(), "second call with same version must be a no-op");
 }

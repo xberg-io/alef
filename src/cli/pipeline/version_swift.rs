@@ -23,7 +23,9 @@ fn run_argv_captured(program: &str, args: &[&std::ffi::OsStr]) -> anyhow::Result
     ))
 }
 
-/// Sync generated SwiftPM `from:` bounds for this crate's first-party package.
+/// Sync generated SwiftPM version pins for this crate's first-party package, whichever shape a
+/// consumer's manifest declares them in (`from: "X.Y.Z"` or `branch: "release/swift/X.Y.Z"` --
+/// see [`super::version_text::sync_swift_first_party_from`]).
 ///
 /// Generated test app and e2e manifests may include external SwiftPM packages.
 /// Only the dependency whose URL points at this repo should track the workspace
