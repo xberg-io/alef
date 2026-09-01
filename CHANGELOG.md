@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Dart codegen test asserted a property of the CI environment rather than of the generated
+  code.** `generated_json_decoder_returns_error_for_excluded_variant_at_runtime` spawns a child
+  `cargo run` over a scratch crate, and a child cargo inherits the parent's environment — so where
+  CI exports `RUSTFLAGS=-D warnings`, two warnings in the synthetic fixture became hard errors.
+  The test failed on all three runners while passing on every developer machine. Neither warning
+  is a defect in what alef emits: the fixture's hand-written enum is private while the generated
+  function is `pub`, and the generated catch-all arm is unreachable only because the fixture
+  declares no cfg-gated variant — that arm exists precisely because a wrapper crate cannot forward
+  a foreign cfg. The child now runs with `RUSTFLAGS` removed, so the test asserts what it claims
+  to: that the generated bridge compiles and returns `Err` without panicking.
+
 ### Changed
 
 - **`alef generate` now proves its lockfile refresh worked instead of assuming it.**
