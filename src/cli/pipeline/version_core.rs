@@ -1,6 +1,6 @@
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::version::to_rubygems_prerelease;
 use anyhow::Context as _;
+use std::path::Path;
 use tracing::info;
 
 /// Read the version from a Cargo.toml file (workspace or regular package).
@@ -311,144 +311,36 @@ pub(crate) fn patch_cargo_crates_io_version(
 }
 
 /// Verify that all package manifest versions match the Cargo.toml source of truth.
-/// Returns a list of mismatches (empty = all consistent).
-pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<String>> {
-    let expected = read_version(&config.version_from)?;
-    let expected_pep440 = to_pep440(&expected);
-    let expected_rubygems = to_rubygems_prerelease(&expected);
-    let mut mismatches = Vec::new();
-    // Read-only, but the same discovery defect: a gem-staging copy under `packages/ruby/tmp/`
-    // carries the version the *last* packaged release pinned, so an unfiltered walk reports a
-    // mismatch against a file no release ever consults. ~keep
-    let examined = crate::cli::git::IgnoreFilter::for_current_dir();
-
-    fn extract_version(path: &str, pattern: &str) -> Option<String> {
-        use std::collections::HashMap;
-        use std::sync::Mutex;
-        use std::sync::OnceLock;
-        static CACHE: OnceLock<Mutex<HashMap<String, regex::Regex>>> = OnceLock::new();
-        let content = std::fs::read_to_string(path).ok()?;
-        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        let mut guard = cache.lock().ok()?;
-        let re = match guard.get(pattern) {
-            Some(re) => re.clone(),
-            None => {
-                let re = regex::Regex::new(pattern).ok()?;
-                guard.insert(pattern.to_string(), re.clone());
-                re
-            }
-        };
-        drop(guard);
-        re.captures(&content)?.get(1).map(|m| m.as_str().to_string())
+///
+/// Enumeration is config-driven: it delegates to
+/// `commands::validate_versions::collect_checks` -- the same discovery `alef validate versions`
+/// uses, which itself folds in `commands::version_manifests::collect` for `Cargo.lock`,
+/// `.csproj`, Dart, and Zig checks. This replaced a hardcoded literal path list
+/// (`packages/python/pyproject.toml`, `packages/node/package.json`, ...) that only ever checked
+/// where alef's own packages happened to live, silently passing on any repo whose manifests live
+/// elsewhere, and never read a lockfile at all.
+///
+/// Returns every check performed, including passing ones -- not just a mismatch list -- so a
+/// caller can assert on the COUNT examined rather than trust a verdict alone: an enumerator that
+/// silently matches nothing must not read the same as "all consistent". A crate for which this
+/// enumeration finds nothing to compare against the canonical version is treated as a failure,
+/// not a vacuous pass, mirroring `commands::validate_versions::run`'s identical guard.
+pub fn verify_versions(
+    config: &ResolvedCrateConfig,
+    workspace_root: &Path,
+) -> anyhow::Result<Vec<crate::cli::commands::validate_versions::VersionCheck>> {
+    let canonical = config
+        .resolved_version()
+        .context("Cannot read canonical version from Cargo.toml (version_from)")?;
+    let checks = crate::cli::commands::validate_versions::collect_checks(config, workspace_root, &canonical);
+    if checks.is_empty() {
+        anyhow::bail!(
+            "version verification examined 0 manifests for crate `{}` (canonical {canonical}); \
+             check that the configured package directories exist and are readable",
+            config.name
+        );
     }
-
-    if let Some(found) = extract_version("packages/python/pyproject.toml", r#"version\s*=\s*"([^"]*)""#)
-        && found != expected_pep440
-    {
-        mismatches.push(format!(
-            "packages/python/pyproject.toml: found {found}, expected {expected_pep440}"
-        ));
-    }
-
-    if let Some(found) = extract_version("packages/node/package.json", r#""version"\s*:\s*"([^"]*)""#)
-        && found != expected
-    {
-        mismatches.push(format!(
-            "packages/node/package.json: found {found}, expected {expected}"
-        ));
-    }
-
-    if let Some(found) = extract_version("packages/java/pom.xml", r"<version>([^<]*)</version>")
-        && found != expected
-    {
-        mismatches.push(format!("packages/java/pom.xml: found {found}, expected {expected}"));
-    }
-
-    // Elixir — check both `version: "X.Y.Z"` and `@version "X.Y.Z"` patterns
-    if let Some(found) = extract_version("packages/elixir/mix.exs", r#"version:\s*"([^"]*)""#)
-        .or_else(|| extract_version("packages/elixir/mix.exs", r#"@version\s*"([^"]*)""#))
-        && found != expected
-    {
-        mismatches.push(format!("packages/elixir/mix.exs: found {found}, expected {expected}"));
-    }
-
-    if let Ok(entries) = std::fs::read_dir("packages/ruby") {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "gemspec")
-                && examined.allows(&path)
-                && let Some(found) = extract_version(
-                    &path.to_string_lossy(),
-                    r"spec\.version\s*=\s*['\x22]([^'\x22]*)['\x22]",
-                )
-                && found != expected_rubygems
-            {
-                mismatches.push(format!(
-                    "{}: found {found}, expected {expected_rubygems}",
-                    path.display()
-                ));
-            }
-        }
-    }
-
-    for pattern in &[
-        "packages/ruby/lib/*/version.rb",
-        "packages/ruby/ext/*/src/*/version.rb",
-        "packages/ruby/ext/*/native/src/*/version.rb",
-    ] {
-        for entry in examined.glob(pattern) {
-            if let Some(found) = extract_version(&entry.to_string_lossy(), r#"VERSION\s*=\s*["']([^"']*)["']"#)
-                && found != expected_rubygems
-            {
-                mismatches.push(format!(
-                    "{}: found {found}, expected {expected_rubygems}",
-                    entry.display()
-                ));
-            }
-        }
-    }
-
-    if let Some(found) = extract_version(
-        "packages/csharp/SampleCrawler/SampleCrawler.csproj",
-        r"<Version>([^<]*)</Version>",
-    ) && found != expected
-    {
-        mismatches.push(format!("packages/csharp: found {found}, expected {expected}"));
-    }
-
-    if let Some(found) = extract_version("packages/php/composer.json", r#""version"\s*:\s*"([^"]*)""#)
-        && found != expected
-    {
-        mismatches.push(format!(
-            "packages/php/composer.json: found {found}, expected {expected}"
-        ));
-    }
-
-    if let Some(found) = extract_version("packages/dart/pubspec.yaml", r"(?m)^version:\s*([^\s#\n]+)")
-        && found != expected
-    {
-        mismatches.push(format!(
-            "packages/dart/pubspec.yaml: found {found}, expected {expected}"
-        ));
-    }
-
-    if let Some(found) = extract_version("packages/zig/build.zig.zon", r#"(?m)^\s*\.version\s*=\s*"([^"]*)""#)
-        && found != expected
-    {
-        mismatches.push(format!(
-            "packages/zig/build.zig.zon: found {found}, expected {expected}"
-        ));
-    }
-
-    if let Some(found) = extract_version(
-        "Package.swift",
-        r#"releases/download/v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9._]+)*)/"#,
-    ) && found != expected
-    {
-        mismatches.push(format!("Package.swift: found {found}, expected {expected}"));
-    }
-
-    Ok(mismatches)
+    Ok(checks)
 }
 
 /// Set an explicit version in the Cargo.toml (supports pre-release versions like 0.1.0-rc.1).
@@ -457,4 +349,166 @@ pub fn set_version(config: &ResolvedCrateConfig, version: &str) -> anyhow::Resul
         .with_context(|| format!("failed to set version to {version}"))?;
     info!("Set version to {version} in {}", config.version_from);
     Ok(())
+}
+
+#[cfg(test)]
+mod verify_versions_tests {
+    use super::*;
+    use crate::cli::commands::validate_versions::checks_pass;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// A minimal workspace with a canonical version at the root and a Python manifest that
+    /// starts in sync with it -- neutral fixture name per `project-agnostic-codegen`.
+    fn make_workspace(canonical: &str) -> TempDir {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            format!("[package]\nname = \"demo_lib\"\nversion = \"{canonical}\"\nedition = \"2024\"\n"),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("packages/python")).unwrap();
+        fs::write(
+            root.join("packages/python/pyproject.toml"),
+            format!("[project]\nname = \"demo_lib\"\nversion = \"{canonical}\"\n"),
+        )
+        .unwrap();
+        tmp
+    }
+
+    fn minimal_config(root: &std::path::Path) -> ResolvedCrateConfig {
+        let root_str = root.display().to_string().replace('\\', "/");
+        let content = format!(
+            r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "demo_lib"
+sources = ["src/lib.rs"]
+version_from = "{root_str}/Cargo.toml"
+"#,
+        );
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(&content).unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    /// THE prove-the-check-fired test for Phase 5: `alef verify`'s version-sync gate must
+    /// actually be capable of failing on a real desync, not merely report "ok" because the
+    /// config-driven enumerator silently examined nothing. Asserts on the COUNT of checks
+    /// performed at every step, not only the pass/fail verdict -- a `0 checks` run and a
+    /// genuine clean pass would otherwise be indistinguishable.
+    #[test]
+    fn verify_versions_fails_on_a_deliberate_desync_and_passes_once_resynced() {
+        let tmp = make_workspace("1.0.0");
+        let config = minimal_config(tmp.path());
+
+        let synced = verify_versions(&config, tmp.path()).expect("a synced workspace must produce checks");
+        assert!(
+            !synced.is_empty(),
+            "the config-driven enumerator must find at least one manifest to check"
+        );
+        let examined_count = synced.len();
+        assert!(
+            checks_pass(&synced),
+            "a freshly-synced workspace must pass with every check matching: {synced:?}"
+        );
+
+        // Deliberately desync the Python manifest and prove the gate actually fails.
+        fs::write(
+            tmp.path().join("packages/python/pyproject.toml"),
+            "[project]\nname = \"demo_lib\"\nversion = \"9.9.9\"\n",
+        )
+        .unwrap();
+        let desynced = verify_versions(&config, tmp.path()).expect("a desynced manifest is still a set of checks");
+        assert_eq!(
+            desynced.len(),
+            examined_count,
+            "desyncing one manifest's version string must not change how many are examined"
+        );
+        assert!(
+            !checks_pass(&desynced),
+            "a deliberately desynced pyproject.toml must fail the version-sync gate: {desynced:?}"
+        );
+        let mismatch = desynced
+            .iter()
+            .find(|check| check.label.contains("pyproject.toml"))
+            .expect("pyproject.toml must be among the examined checks");
+        assert!(!mismatch.matches, "pyproject.toml must be reported as a mismatch");
+        assert_eq!(mismatch.found.as_deref(), Some("9.9.9"));
+
+        // Resync and prove the gate passes again, with the same check count.
+        fs::write(
+            tmp.path().join("packages/python/pyproject.toml"),
+            "[project]\nname = \"demo_lib\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let resynced = verify_versions(&config, tmp.path()).expect("a re-synced workspace must produce checks");
+        assert_eq!(
+            resynced.len(),
+            examined_count,
+            "resyncing must not change the examined count"
+        );
+        assert!(
+            checks_pass(&resynced),
+            "re-syncing the manifest must make the gate pass again"
+        );
+    }
+
+    /// The exact regression this whole phase exists to prevent: a config-driven enumerator
+    /// that finds nothing to compare against the canonical version must be a hard failure, not
+    /// a silent "all consistent" the way the hardcoded path list used to produce for any repo
+    /// whose manifests it didn't happen to name.
+    #[test]
+    fn verify_versions_fails_when_the_enumerator_examines_nothing() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"demo_lib\"\nversion = \"1.0.0\"\nedition = \"2024\"\n",
+        )
+        .unwrap();
+        let config = minimal_config(root);
+        let error = verify_versions(&config, root).expect_err("zero manifests examined must error, not vacuously pass");
+        assert!(
+            error.to_string().contains("0 manifests"),
+            "the error must name the empty examination: {error}"
+        );
+    }
+
+    /// The hardcoded list this replaced never read `Cargo.lock` at all (see the module-level
+    /// defect this phase fixes). Proves the config-driven enumerator now includes it, and that
+    /// a lockfile pinned at the wrong version fails the gate exactly like any other manifest.
+    #[test]
+    fn verify_versions_covers_cargo_lock_which_the_old_hardcoded_list_never_read() {
+        let tmp = make_workspace("1.0.0");
+        let root = tmp.path();
+        fs::write(
+            root.join("Cargo.lock"),
+            "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"demo_lib\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let config = minimal_config(root);
+
+        let checks = verify_versions(&config, root).expect("checks must be produced");
+        assert!(
+            checks.iter().any(|check| check.label.contains("Cargo.lock")),
+            "Cargo.lock must be part of the enumerated checks: {checks:?}"
+        );
+        assert!(
+            checks_pass(&checks),
+            "a Cargo.lock pinned at the canonical version must pass: {checks:?}"
+        );
+
+        fs::write(
+            root.join("Cargo.lock"),
+            "# This file is automatically @generated by Cargo.\nversion = 4\n\n[[package]]\nname = \"demo_lib\"\nversion = \"0.0.1\"\n",
+        )
+        .unwrap();
+        let desynced = verify_versions(&config, root).expect("checks must still be produced");
+        assert!(
+            !checks_pass(&desynced),
+            "a Cargo.lock pinned at the wrong version must fail the gate: {desynced:?}"
+        );
+    }
 }

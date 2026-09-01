@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`alef verify` now enumerates version checks from config instead of a hardcoded path list.**
+  `verify_versions` carried literal paths like `"packages/python/pyproject.toml"`, so it checked
+  what alef's authors had enumerated rather than what the repo under verification actually
+  generates — a repo whose Python package lives elsewhere was silently unchecked and passed. It
+  never read `Cargo.lock` at all. It now delegates to the same `collect_checks` enumerator
+  `alef validate versions` uses, and examining zero manifests is a hard error rather than a clean
+  pass.
+
+  Swapping a hardcoded list for a config-driven one is exactly the change that can silently
+  enumerate nothing, so the `.gemspec` and `Package.swift` checks the old list carried — which
+  the shared enumerator did not have — were added to it in the same change rather than left as a
+  follow-up. An enabled language whose expected file is missing produces a FAILING check, not a
+  skip; a disabled language contributes none. The old C# check hardcoded a consumer-shaped
+  project name in violation of `project-agnostic-codegen`; the replacement globs the configured
+  directory.
+
 ### Fixed
 
 - **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9

@@ -218,7 +218,7 @@ pub fn run(config: &ResolvedCrateConfig, workspace_root: &Path, output_json: boo
     Ok(checks)
 }
 
-fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
+pub fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical: &str) -> Vec<VersionCheck> {
     let mut checks = Vec::new();
 
     let py_dir = config.package_dir(crate::core::config::extras::Language::Python);
@@ -344,7 +344,7 @@ fn collect_checks(config: &ResolvedCrateConfig, workspace_root: &Path, canonical
     }
 
     checks.extend(super::version_manifests::collect(config, workspace_root, canonical));
-
+    checks.extend(super::ruby_swift_versions::collect(config, workspace_root, canonical));
     checks
 }
 

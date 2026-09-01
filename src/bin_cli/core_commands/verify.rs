@@ -7,7 +7,7 @@
 
 use anyhow::Result;
 
-use crate::cli::{cache, dispatch, pipeline};
+use crate::cli::{cache, commands, dispatch, pipeline};
 
 use super::super::args::Commands;
 use super::super::dispatch::DispatchContext;
@@ -272,17 +272,35 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         }
     }
 
-    let mut all_version_mismatches: Vec<String> = Vec::new();
+    // Config-driven: `pipeline::verify_versions` enumerates every manifest
+    // `commands::validate_versions::collect_checks` finds for this crate (Python, Node, Ruby,
+    // PHP, Elixir, Go, Java, R, WASM, `Cargo.lock`, `.csproj`, Dart, Zig -- whatever the repo
+    // actually has, not a hardcoded list), so `all_version_checks` grows with the crate's real
+    // manifest surface instead of alef's own package layout. ~keep
+    let mut all_version_checks: Vec<commands::validate_versions::VersionCheck> = Vec::new();
     for resolved_cfg in &crates_to_process {
-        let mismatches = pipeline::verify_versions(resolved_cfg)?;
-        all_version_mismatches.extend(mismatches);
+        all_version_checks.extend(pipeline::verify_versions(resolved_cfg, &base_dir)?);
     }
-    let has_version_issues = !all_version_mismatches.is_empty();
+    let total_version_checks = all_version_checks.len();
+    // Guarded by `!crates_to_process.is_empty()`: an empty crate selection has nothing to check
+    // by construction and must not be confused with the enumerator finding a configured crate
+    // but examining zero of its manifests, which IS a failure (see `verify_versions`'s doc). ~keep
+    let has_version_issues =
+        !crates_to_process.is_empty() && !commands::validate_versions::checks_pass(&all_version_checks);
     if has_version_issues {
         crate::bin_cli::output::line("Version mismatches detected:");
-        for mismatch in &all_version_mismatches {
-            crate::bin_cli::output::line(format_args!("  {mismatch}"));
+        for check in all_version_checks.iter().filter(|check| !check.matches) {
+            let note = check
+                .blocked_on_publish
+                .as_deref()
+                .map(|pending| format!(" (unresolvable until {pending} is published)"))
+                .unwrap_or_default();
+            crate::bin_cli::output::line(format_args!("  {}: found {:?}{note}", check.label, check.found));
         }
+    } else {
+        crate::bin_cli::output::line(format!(
+            "Version consistency: {total_version_checks} manifest(s) checked, all consistent."
+        ));
     }
     // The consumer's vendored copy of alef's own `alef.toml` JSON Schema, if they keep one. It
     // is not a generated binding and nothing here writes it -- see `verify_schema`'s module doc
