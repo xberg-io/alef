@@ -866,6 +866,64 @@ mod node {
             );
         }
 
+        /// The multi-lock boundary the A5 fix actually introduces: tolerance is scoped PER LOCK,
+        /// not blanket across the whole run. Lock A (this crate's own generated directory) carries
+        /// both the pending self-dependency row and a sibling drift, both correctly tolerated
+        /// together per the test above. Lock B is a wholly separate generated `pnpm-lock.yaml`
+        /// with its own unrelated sibling drift and NO self-dependency row at all. Downgrading
+        /// lock A must not silently swallow lock B: the run must still fail, and the surviving
+        /// error must name lock B's own drift, not lock A's (which is fully tolerated).
+        #[test]
+        fn tolerating_variant_still_fails_on_a_different_locks_unrelated_drift() {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let root = temp.path();
+
+            let manifest_a = write_package_json_with_sibling(root, NODE_STALE_SPEC, SIBLING_STALE_SPEC);
+            write_pnpm_lock_v9_with_sibling(root, NODE_FRESH_SPEC, SIBLING_LOCKED_SPEC);
+
+            let other_dir = root.join("e2e/typescript-other");
+            std::fs::create_dir_all(&other_dir).expect("create other node dir");
+            let manifest_b = other_dir.join("package.json");
+            std::fs::write(
+                &manifest_b,
+                format!(
+                    "{{\n  \"name\": \"other-pkg-e2e-typescript\",\n  \"version\": \"0.1.0\",\n  \"private\": \
+                     true,\n  \"devDependencies\": {{\n    \"{SIBLING_DEPENDENCY}\": \"{SIBLING_STALE_SPEC}\"\n  \
+                     }}\n}}\n"
+                ),
+            )
+            .expect("write package.json");
+            std::fs::write(
+                other_dir.join("pnpm-lock.yaml"),
+                format!(
+                    "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    devDependencies:\n      \
+                     {SIBLING_DEPENDENCY}:\n        specifier: {SIBLING_LOCKED_SPEC}\n        version: \
+                     {SIBLING_LOCKED_SPEC}\n"
+                ),
+            )
+            .expect("write pnpm-lock.yaml");
+
+            let generated: HashSet<PathBuf> = [manifest_a, manifest_b].into_iter().collect();
+            let resolved_cfg = resolved_cfg_with_node_registry_package(NODE_DEPENDENCY, NODE_STALE_SPEC);
+
+            let error =
+                check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg))
+                    .expect(
+                        "lock B's unrelated drift, sharing no lock with the pending self-dependency, must \
+                             still fail the run",
+                    );
+            let message = format!("{error:#}");
+
+            assert!(
+                message.contains(&other_dir.join("pnpm-lock.yaml").display().to_string()),
+                "message must name lock B: {message}"
+            );
+            assert!(
+                !message.contains(&node_dir(root).join("pnpm-lock.yaml").display().to_string()),
+                "lock A must be fully tolerated and absent from the surviving error: {message}"
+            );
+        }
+
         /// Control proving the exemption does real work: without it, this exact shape must still
         /// fail.
         #[test]
