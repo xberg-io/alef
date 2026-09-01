@@ -117,3 +117,27 @@ fn a_path_that_crosses_no_variant_is_unaffected_by_a_populated_map() {
 
     assert_eq!(resolver.accessor("detail", "csharp", "result"), "result.Detail");
 }
+
+/// The wildcard (`container[].field`) form must narrow identically to the result-anchored one.
+///
+/// ~keep Today this holds by construction rather than by care: `accessor` and
+/// `element_accessor` both delegate to `render_relative_to`, so there is only one place the
+/// narrowing can be applied and no second path for it to be missing from. That is exactly the
+/// property that did NOT hold when a napi enum fix landed on the non-wildcard path while
+/// `render_wildcard_assertion` returned earlier, and four green tests reported success. This
+/// pins the single-path property so that reintroducing a separate wildcard renderer fails here
+/// rather than shipping a half-applied fix.
+#[test]
+fn the_wildcard_element_form_narrows_the_same_way_as_the_result_anchored_form() {
+    let resolver = resolver_with(csharp_accessors());
+
+    assert_eq!(
+        resolver.element_accessor("detail.alpha.label", "csharp", "item"),
+        "item.Detail.AsAlpha!.Label",
+        "an element-anchored path crosses the same variant and must narrow the same way"
+    );
+    assert_eq!(
+        resolver_with(dart_accessors()).element_accessor("detail.alpha.label", "dart", "item"),
+        "(item.detail as SamplePayload_Alpha).field0.label"
+    );
+}
