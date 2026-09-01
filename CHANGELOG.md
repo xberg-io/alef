@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.80.0] - 2026-09-01
+
+### Changed
+
+- **CLI output:** 144 terminal messages rewritten. They carried narrative that belongs in the
+  source rather than on a user's terminal -- restatements of what the reader had just been told,
+  editorial framing, and coaching prose wrapped around the one fact and one remedy that mattered.
+  The longest was 1212 characters of unbroken paragraph. Messages now lead with the fact and name
+  the remedy on its own indented line. No message lost a concrete path, config key, command or
+  count; the rationale behind each guarded message moved into a `~keep` comment on the code that
+  raises it, where it stays available to whoever next considers removing the guard.
+
 ### Fixed
+
+- **Swift:** `precompute_swift_checksum` rewrites `Package.swift`'s `checksum:` field whichever
+  shape it currently holds -- the `__ALEF_SWIFT_CHECKSUM__` placeholder or a 64-hex literal. It
+  previously returned early when the placeholder was absent, so the substitution destroyed its own
+  trigger: the publish workflow replaces the placeholder with a real checksum and commits, and from
+  then on alef could never rewrite that field again. crawlberg is the worked example -- injection
+  commits alternated with regenerations that restored the placeholder until `e1d2b2293` landed the
+  v1.4.0 injection on main and nothing restored it, after which every release silently skipped both
+  the substitution and the retag and `release/swift/*` branches stopped at 1.4.0. The substitution
+  now counts matches first and fails on zero, rather than asserting afterwards that the placeholder
+  is gone -- an absence check is satisfied both by a successful substitution and by the token being
+  renamed, which is the case it exists to catch.
 
 - **Scaffold:** repair a pre-existing `poly.toml` that still carries the `rubocop`, `steep`,
   `dart-analyze` or `dart-e2e-analyze` pre-commit hooks `0.79.5` stopped emitting.
