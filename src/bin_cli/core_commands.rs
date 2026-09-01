@@ -292,6 +292,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 let profile = if release { "release" } else { "dev" };
                 if multi {
                     tracing::info!(
@@ -345,6 +346,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_test_languages(resolved_cfg, lang.as_deref(), e2e)?;
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 if multi {
                     tracing::info!(
                         "[{}] Running tests for: {}",
@@ -371,6 +373,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 if multi {
                     tracing::info!(
                         "[{}] Setting up dependencies for: {}",
@@ -391,6 +394,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 if multi {
                     tracing::info!(
                         "[{}] Cleaning build artifacts for: {}",
@@ -411,6 +415,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let multi = dispatch::is_multi_crate(&crates_to_process);
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 let mode = if latest { "latest" } else { "compatible" };
                 if multi {
                     tracing::info!(

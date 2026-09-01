@@ -14,6 +14,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use super::extras::Language;
+
 /// Default Rust dev tools installed by `alef setup rust`.
 /// Mirrors the polyrepo's `task setup` so binding generators get a consistent
 /// developer environment out of the box.
@@ -115,9 +117,19 @@ pub fn append_paths(cmd: String, paths: &[String]) -> String {
 
 /// Build a POSIX precondition that checks whether `tool` is on `PATH`.
 ///
-/// The resulting command exits 0 when the tool is available and non-zero
-/// otherwise. Used by per-language defaults so a missing tool causes a
-/// graceful warn-and-skip rather than a hard failure.
+/// The resulting command exits 0 when the tool is available and non-zero otherwise. Used by
+/// per-language defaults to gate a single command step (e.g. Elixir's `mix deps.get` dependency
+/// check) via `cli::pipeline::helpers::check_precondition`, which still treats a failing
+/// precondition as that one step's own declared skip switch.
+///
+/// This precondition string is no longer the enforcement point for *toolchain* presence: a
+/// missing tool used to make `check_precondition` skip the whole language with a warning,
+/// reporting success for a step that ran nothing (the defect `enforce_required_toolchains`
+/// fixes). For every language named in [`required_tools_for_language`], the toolchain check now
+/// runs earlier, as a hard `anyhow::bail!` in `cli::pipeline::toolchains`, before any
+/// `check_precondition` call keyed on one of these strings is ever reached. This function is
+/// kept for the small number of remaining single-step gates that are not full toolchain
+/// requirements. ~keep
 pub fn require_tool(tool: &str) -> String {
     format!("command -v {tool} >/dev/null 2>&1")
 }
@@ -125,9 +137,62 @@ pub fn require_tool(tool: &str) -> String {
 /// Build a POSIX precondition requiring multiple tools to be on `PATH`.
 ///
 /// Joins individual `command -v` checks with `&&` so the precondition only
-/// passes when every listed tool is present.
+/// passes when every listed tool is present. See [`require_tool`]'s doc for why this no longer
+/// carries the toolchain-enforcement contract it used to.
 pub fn require_tools(tools: &[&str]) -> String {
     tools.iter().map(|t| require_tool(t)).collect::<Vec<_>>().join(" && ")
+}
+
+/// The toolchain probe names a `Language`, once enabled for a crate, cannot do anything
+/// without -- its package manager or primary build tool.
+///
+/// Deliberately narrower than every `require_tool` precondition scattered across
+/// `*_defaults.rs`: those also gate optional per-step tools (`ruff`, `ktfmt`, `gofmt`,
+/// `clang-format`, the mix/venv dependency checks) that a skipped step can tolerate without the
+/// whole language silently doing nothing. This table is the input to
+/// `cli::pipeline::toolchains::enforce_required_toolchains`, which hard-fails an enabled
+/// language whose toolchain is missing instead of warning and skipping it. `Language::C` has no
+/// entry: it is an FFI consumer test target, not a language alef generates or builds anything
+/// for. ~keep
+#[must_use]
+pub fn required_tools_for_language(lang: Language, tools: &ToolsConfig) -> Vec<String> {
+    match lang {
+        // ~keep `cargo-upgrade` is cargo-edit's `cargo upgrade` subcommand. It cannot be probed
+        // as `cargo-upgrade --version` (that binary expects to be invoked as a cargo subcommand
+        // and rejects the bare flag); `command -v cargo-upgrade` -- what `is_tool_available`
+        // does -- is the check that actually works, since cargo subcommand binaries are always
+        // plain executables on PATH named `cargo-<name>`.
+        Language::Rust => vec!["cargo".to_string(), "cargo-upgrade".to_string()],
+        Language::Python => vec![tools.python_pm().to_string()],
+        Language::Node => vec![tools.node_pm().to_string()],
+        Language::Wasm => vec!["wasm-pack".to_string()],
+        // ~keep Both, not just `ruby`. A bare `ruby` probe is very nearly vacuous -- system Ruby
+        // is present on every macOS and most Linux images -- while what the Ruby steps actually
+        // invoke is `ruby -S bundle` (see `ruby_bundle`), and `require_ruby_bundler`'s
+        // precondition SKIPS setup silently when that resolves nothing. Probing `bundle` on PATH
+        // is a slightly stronger condition than `ruby -S bundle` succeeding: a Ruby install that
+        // ships bundler as a default gem without a PATH shim would pass the command and fail this
+        // probe. That gap has not been observed on any of the five repos' images (rbenv, asdf and
+        // the GitHub runners all shim `bundle`), and a false hard failure that names the missing
+        // tool is a far better outcome than a Ruby stage that reports success having installed
+        // nothing.
+        Language::Ruby => vec!["ruby".to_string(), "bundle".to_string()],
+        Language::Php => vec!["composer".to_string()],
+        Language::Elixir => vec!["mix".to_string()],
+        Language::Go => vec!["go".to_string()],
+        Language::Java => vec!["mvn".to_string()],
+        Language::Csharp => vec!["dotnet".to_string()],
+        Language::R => vec!["Rscript".to_string()],
+        Language::Kotlin | Language::KotlinAndroid => vec!["gradle".to_string()],
+        Language::Swift => vec!["swift".to_string()],
+        Language::Dart => vec!["dart".to_string()],
+        Language::Gleam => vec!["gleam".to_string()],
+        Language::Zig => vec!["zig".to_string()],
+        // ~keep FFI and JNI ship no host-language toolchain of their own -- both are Rust crates
+        // (a cdylib and a JNI shim, respectively) built exclusively through cargo.
+        Language::Ffi | Language::Jni => vec!["cargo".to_string()],
+        Language::C => vec![],
+    }
 }
 
 /// Require the selected Ruby interpreter to resolve its own Bundler executable. ~keep
@@ -312,5 +377,49 @@ mod tests {
         let cfg: ToolsConfig = toml::from_str("").unwrap();
         assert_eq!(cfg.python_pm(), "uv");
         assert_eq!(cfg.node_pm(), "pnpm");
+    }
+
+    #[test]
+    fn rust_required_tools_include_cargo_edit_alongside_cargo() {
+        let tools = ToolsConfig::default();
+        assert_eq!(
+            required_tools_for_language(Language::Rust, &tools),
+            vec!["cargo".to_string(), "cargo-upgrade".to_string()]
+        );
+    }
+
+    #[test]
+    fn python_and_node_required_tools_follow_the_configured_package_manager() {
+        let tools = ToolsConfig {
+            python_package_manager: Some("poetry".to_string()),
+            node_package_manager: Some("yarn".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            required_tools_for_language(Language::Python, &tools),
+            vec!["poetry".to_string()]
+        );
+        assert_eq!(
+            required_tools_for_language(Language::Node, &tools),
+            vec!["yarn".to_string()]
+        );
+    }
+
+    #[test]
+    fn c_has_no_required_toolchain() {
+        assert!(required_tools_for_language(Language::C, &ToolsConfig::default()).is_empty());
+    }
+
+    #[test]
+    fn ffi_and_jni_require_only_cargo() {
+        let tools = ToolsConfig::default();
+        assert_eq!(
+            required_tools_for_language(Language::Ffi, &tools),
+            vec!["cargo".to_string()]
+        );
+        assert_eq!(
+            required_tools_for_language(Language::Jni, &tools),
+            vec!["cargo".to_string()]
+        );
     }
 }

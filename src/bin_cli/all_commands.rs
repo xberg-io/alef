@@ -132,6 +132,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, None)?;
+                // ~keep `alef all` is the chain the repos actually run, and it was the one command
+                // resolving `languages` without the hard toolchain gate the other five got: a
+                // missing `uv`/`pnpm`/`cargo-upgrade` reached the per-language steps and each one
+                // skipped itself, so the whole run reported success having built nothing for that
+                // language. `warn_missing_formatters` below is deliberately NOT that check -- it
+                // warns about optional formatters, which a skipped step can tolerate.
+                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
                 pipeline::warn_missing_formatters(&languages);
                 if multi {
                     tracing::info!(

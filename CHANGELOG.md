@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A missing toolchain is now a hard error for every enabled language, not a silent skip.**
+  `require_tool` built a `command -v <tool>` precondition that `check_precondition` treated as a
+  skip switch, and its own doc committed to that contract: "a missing tool causes a graceful
+  warn-and-skip rather than a hard failure". The consequence was that an absent `uv`, `pnpm`,
+  `gradle` or `cargo-upgrade` made `build`, `test`, `setup`, `clean`, `update` and `all` report
+  success for a language they had done nothing for -- a green run that proves nothing, which is
+  the same defect class as a check that passes because it examined nothing.
+
+  `enforce_required_toolchains` now runs before any per-command precondition is evaluated, and
+  bails. It is scoped to the languages a crate actually enables, so a repo that does not enable
+  Ruby is never asked for Ruby's toolchain. `cargo-edit` (`cargo upgrade`) joins the required set
+  for Rust. Ruby requires `bundle` as well as `ruby`: the interpreter alone is present on
+  essentially every image, so probing only for it would have left the vacuous check in place for
+  the one language whose steps all run through Bundler.
+
+  `require_tool`/`require_tools` remain for the genuine single-step gates (Elixir's `mix deps.get`
+  check, the Python venv check) that a skipped step can tolerate, and their docs no longer claim
+  the toolchain-enforcement contract they had stopped honouring.
+
 ### Fixed
 
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
