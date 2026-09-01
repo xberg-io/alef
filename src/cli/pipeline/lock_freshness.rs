@@ -284,6 +284,16 @@ fn locked_versions(lock_text: &str) -> BTreeMap<String, Vec<semver::Version>> {
     locked
 }
 
+/// A manifest queued for the [`reachable_requirements`] walk, paired with the feature activation
+/// state the edge that reached it (a `path = ` dependency table, or the walk's own root) requests
+/// — the input [`activated_optional_dependencies`] needs to resolve which of *this* manifest's
+/// own optional dependencies are actually reachable.
+struct QueuedManifest {
+    path: PathBuf,
+    requested_features: Vec<String>,
+    default_features: bool,
+}
+
 /// Walk `root_manifest` and, transitively, every manifest it reaches through a `path = `
 /// dependency, collecting the version requirements each one declares.
 ///
@@ -292,9 +302,16 @@ fn locked_versions(lock_text: &str) -> BTreeMap<String, Vec<semver::Version>> {
 /// every registry requirement that actually constrains its lock is written one manifest away.
 fn reachable_requirements(root_manifest: &Path) -> Vec<DeclaredRequirement> {
     let mut requirements = Vec::new();
-    let mut queue = vec![root_manifest.to_path_buf()];
+    // ~keep The root itself is never gated by an external edge -- it is the crate being built
+    // directly, so its own default features are active exactly as `cargo metadata` (no
+    // `--no-default-features`) would resolve them, and it requests nothing beyond that.
+    let mut queue = vec![QueuedManifest {
+        path: root_manifest.to_path_buf(),
+        requested_features: Vec::new(),
+        default_features: true,
+    }];
     let mut visited: HashSet<PathBuf> = HashSet::new();
-    while let Some(manifest_path) = queue.pop() {
+    while let Some(item) = queue.pop() {
         if visited.len() >= MAX_REACHABLE_MANIFESTS {
             tracing::warn!(
                 root = %root_manifest.display(),
@@ -304,11 +321,11 @@ fn reachable_requirements(root_manifest: &Path) -> Vec<DeclaredRequirement> {
             );
             break;
         }
-        let key = std::fs::canonicalize(&manifest_path).unwrap_or_else(|_| manifest_path.clone());
+        let key = std::fs::canonicalize(&item.path).unwrap_or_else(|_| item.path.clone());
         if !visited.insert(key) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&manifest_path) else {
+        let Ok(text) = std::fs::read_to_string(&item.path) else {
             continue;
         };
         let Ok(document) = toml::from_str::<toml::Value>(&text) else {
@@ -317,10 +334,102 @@ fn reachable_requirements(root_manifest: &Path) -> Vec<DeclaredRequirement> {
         // ~keep Only the crate alef generated contributes its dev-dependencies. Cargo does not
         // resolve a non-workspace path dependency's dev-dependencies at all, so reading them
         // would invent requirements the lock is never expected to satisfy.
-        let is_root = manifest_path == root_manifest;
-        collect_requirements(&manifest_path, &document, is_root, &mut requirements, &mut queue);
+        let is_root = item.path == root_manifest;
+        let activated_optional_deps =
+            activated_optional_dependencies(&document, &item.requested_features, item.default_features);
+        collect_requirements(
+            &item.path,
+            &document,
+            is_root,
+            &activated_optional_deps,
+            &mut requirements,
+            &mut queue,
+        );
     }
     requirements
+}
+
+/// The set of dependency keys (`[dependencies]` table aliases, not the `package = ` renamed
+/// name) an optional dependency is activated under, given the features `requested` on this edge
+/// plus `document`'s own default feature set when `default_features` is enabled.
+///
+/// ~keep Deliberately approximate, not a `cargo` feature resolver: it does not model
+/// target-conditional feature edges, and a feature-array entry it cannot classify as a `dep:`
+/// activation, a `dep/feature` (or weak `dep?/feature`) activation, or a plain named feature is
+/// folded into BOTH interpretations (treated as an activated dependency key AND queued as a
+/// feature to expand further) rather than dropped. Getting this wrong in the direction of
+/// under-activating would silently resurrect the exact false positive
+/// [`collect_one_requirement`]'s optional-dependency guard exists to remove -- a real
+/// registry-sourced requirement dropping out of the check entirely -- which is a worse failure
+/// mode here than over-activating a name that turns out not to be a dependency at all (harmless:
+/// nothing looks it up).
+fn activated_optional_dependencies(
+    document: &toml::Value,
+    requested: &[String],
+    default_features: bool,
+) -> HashSet<String> {
+    let features_table = document.get("features").and_then(toml::Value::as_table);
+    let mut activated_deps = HashSet::new();
+    let mut queue: Vec<String> = requested.to_vec();
+    if default_features {
+        queue.push("default".to_string());
+    }
+    let mut visited_features: HashSet<String> = HashSet::new();
+    while let Some(feature) = queue.pop() {
+        if !visited_features.insert(feature.clone()) {
+            continue;
+        }
+        let Some(entries) = features_table
+            .and_then(|table| table.get(feature.as_str()))
+            .and_then(toml::Value::as_array)
+        else {
+            continue;
+        };
+        for entry in entries {
+            let Some(entry) = entry.as_str() else { continue };
+            if let Some(dep_key) = entry.strip_prefix("dep:") {
+                activated_deps.insert(dep_key.to_string());
+            } else if let Some((dep_key, _sub_feature)) = entry.split_once('/') {
+                activated_deps.insert(dep_key.trim_end_matches('?').to_string());
+            } else {
+                activated_deps.insert(entry.to_string());
+                queue.push(entry.to_string());
+            }
+        }
+    }
+    activated_deps
+}
+
+/// The `features = [...]` / `default-features` an edge (a `path = ` dependency table, possibly
+/// combined with its `{ workspace = true }` inherited entry) requests on the manifest it points
+/// to.
+///
+/// ~keep `features` unions the inherited and local arrays -- and `default-features` prefers the
+/// local table -- because Cargo lets a member augment (never replace) a workspace-inherited
+/// dependency's `features` while overriding its `default-features` at the usage site.
+fn edge_feature_request(table: &toml::Table, inherited_table: Option<&toml::Table>) -> (Vec<String>, bool) {
+    let mut features: Vec<String> = inherited_table
+        .and_then(|entry| entry.get("features"))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .chain(
+            table
+                .get("features")
+                .and_then(toml::Value::as_array)
+                .into_iter()
+                .flatten(),
+        )
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .collect();
+    features.sort();
+    features.dedup();
+    let default_features = table
+        .get("default-features")
+        .or_else(|| inherited_table.and_then(|entry| entry.get("default-features")))
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(true);
+    (features, default_features)
 }
 
 /// Read one manifest's dependency tables — top level and every `[target.<cfg>.*]` variant —
@@ -329,8 +438,9 @@ fn collect_requirements(
     manifest_path: &Path,
     document: &toml::Value,
     include_dev: bool,
+    activated_optional_deps: &HashSet<String>,
     requirements: &mut Vec<DeclaredRequirement>,
-    queue: &mut Vec<PathBuf>,
+    queue: &mut Vec<QueuedManifest>,
 ) {
     let mut tables: Vec<&toml::Value> = vec![document];
     if let Some(targets) = document.get("target").and_then(toml::Value::as_table) {
@@ -345,10 +455,40 @@ fn collect_requirements(
                 continue;
             };
             for (alias, spec) in entries {
-                collect_one_requirement(manifest_path, alias, spec, requirements, queue);
+                collect_one_requirement(manifest_path, alias, spec, activated_optional_deps, requirements, queue);
             }
         }
     }
+}
+
+/// Resolve `alias`'s `{ workspace = true }` inherited entry, when it has one, and the name cargo
+/// actually resolves the dependency to (the `package = ` rename target when one is used).
+///
+/// ~keep An inherited entry can be either spelling `[workspace.dependencies]` accepts — the bare
+/// string `dep = "1.26"` as often as the table form — so the string case has to be handled here
+/// and not only in the table branch below. Reading only the table form is silent: the member
+/// declares `{ workspace = true }`, no `version` is found beside it, and the requirement drops
+/// out of the check entirely instead of erroring.
+fn resolve_dependency_identity(
+    manifest_path: &Path,
+    alias: &str,
+    table: &toml::Table,
+) -> (Option<toml::Value>, String) {
+    let inherited = table
+        .get("workspace")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+        .then(|| workspace_dependency_spec(manifest_path, alias))
+        .flatten();
+    let name = inherited
+        .as_ref()
+        .and_then(toml::Value::as_table)
+        .and_then(|entry| entry.get("package"))
+        .or_else(|| table.get("package"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or(alias)
+        .to_string();
+    (inherited, name)
 }
 
 /// Resolve a single `alias = <spec>` entry into at most one requirement plus at most one further
@@ -357,10 +497,13 @@ fn collect_one_requirement(
     manifest_path: &Path,
     alias: &str,
     spec: &toml::Value,
+    activated_optional_deps: &HashSet<String>,
     requirements: &mut Vec<DeclaredRequirement>,
-    queue: &mut Vec<PathBuf>,
+    queue: &mut Vec<QueuedManifest>,
 ) {
     if let Some(requirement) = spec.as_str() {
+        // A bare string entry (`dep = "1.26"`) has no `optional` key to set -- only the table
+        // form can declare a dependency optional -- so this is always required.
         requirements.push(DeclaredRequirement {
             manifest: manifest_path.to_path_buf(),
             name: alias.to_string(),
@@ -371,27 +514,27 @@ fn collect_one_requirement(
     let Some(table) = spec.as_table() else {
         return;
     };
-    // ~keep An inherited entry can be either spelling `[workspace.dependencies]` accepts — the
-    // bare string `dep = "1.26"` as often as the table form — so the string case has to be
-    // handled here and not only at the top of this function. Reading only the table form is
-    // silent: the member declares `{ workspace = true }`, no `version` is found beside it, and
-    // the requirement drops out of the check entirely instead of erroring.
-    let inherited = table
-        .get("workspace")
-        .and_then(toml::Value::as_bool)
-        .unwrap_or(false)
-        .then(|| workspace_dependency_spec(manifest_path, alias))
-        .flatten();
+    let (inherited, name) = resolve_dependency_identity(manifest_path, alias, table);
     let inherited_table = inherited.as_ref().and_then(toml::Value::as_table);
-    let name = inherited_table
-        .and_then(|entry| entry.get("package"))
-        .or_else(|| table.get("package"))
-        .and_then(toml::Value::as_str)
-        .unwrap_or(alias);
+    // ~keep alef #A4 (tower-http incident): `optional` is read only off the LOCAL table, never
+    // the inherited `[workspace.dependencies]` entry -- Cargo requires it be declared per member,
+    // since a workspace-level default would make every member's activation identical. Activation
+    // is checked against `alias` (the `[dependencies]` table key), not `name` (the resolved,
+    // possibly `package = `-renamed identity): Cargo's `dep:`/`dep/feature` feature syntax always
+    // refers to the dependency key, never the renamed package.
+    let is_optional = table.get("optional").and_then(toml::Value::as_bool).unwrap_or(false);
+    if is_optional && !activated_optional_deps.contains(alias) {
+        return;
+    }
+    let (requested_features, default_features) = edge_feature_request(table, inherited_table);
     if let Some(relative) = table.get("path").and_then(toml::Value::as_str)
         && let Some(dir) = manifest_path.parent()
     {
-        queue.push(normalize_lexically(&dir.join(relative).join("Cargo.toml")));
+        queue.push(QueuedManifest {
+            path: normalize_lexically(&dir.join(relative).join("Cargo.toml")),
+            requested_features,
+            default_features,
+        });
     }
     // ~keep A path or git dependency's pinned entry is not a registry version requirement: a
     // path package's locked version is read straight out of the manifest tree already walked
@@ -413,7 +556,7 @@ fn collect_one_requirement(
     };
     requirements.push(DeclaredRequirement {
         manifest: manifest_path.to_path_buf(),
-        name: name.to_string(),
+        name,
         requirement: requirement.to_string(),
     });
 }

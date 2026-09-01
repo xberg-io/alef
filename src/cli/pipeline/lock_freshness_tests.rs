@@ -44,6 +44,30 @@ fn write_generated_e2e_manifest(root: &Path) -> PathBuf {
     manifest
 }
 
+/// Same as [`write_generated_e2e_manifest`], but the path dependency edge requests `features`
+/// explicitly -- the shape needed to exercise [`activated_optional_dependencies`]'s feature
+/// closure.
+fn write_generated_e2e_manifest_with_features(root: &Path, features: &[&str]) -> PathBuf {
+    let dir = root.join(E2E_RELATIVE_DIR);
+    std::fs::create_dir_all(&dir).expect("create e2e dir");
+    let manifest = dir.join("Cargo.toml");
+    let features_toml = if features.is_empty() {
+        String::new()
+    } else {
+        let quoted: Vec<String> = features.iter().map(|feature| format!("\"{feature}\"")).collect();
+        format!(", features = [{}]", quoted.join(", "))
+    };
+    std::fs::write(
+        &manifest,
+        format!(
+            "[workspace]\n\n[package]\nname = \"sample-core-e2e-rust\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+             [dependencies]\nsample_core = {{ package = \"sample-core\", path = \"../..\"{features_toml} }}\n"
+        ),
+    )
+    .expect("write generated e2e Cargo.toml");
+    manifest
+}
+
 /// A committed lock beside the generated manifest, pinning the registry dependency at `pin`.
 fn write_lock(root: &Path, pin: &str) {
     std::fs::write(
@@ -180,6 +204,87 @@ fn stale_lock_findings_ignores_a_git_dependency() {
     assert!(
         findings.is_empty(),
         "a git dependency carries no registry pin: {findings:?}"
+    );
+}
+
+/// The A4 regression, reproducing the crawlberg incident structurally: `tower-http` is declared
+/// `optional = true` and only reachable behind a feature (`api`) that neither the generated
+/// manifest's requested features nor the path dependency's default feature set activates. Before
+/// this guard, alef read the bare `version` off the optional entry and reported a hard failure on
+/// a lock `cargo metadata --locked` genuinely accepts.
+#[test]
+fn stale_lock_findings_ignores_an_unreached_optional_dependency() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_root_manifest(
+        root,
+        &format!(
+            "[features]\ndefault = []\nnetworking = [\"dep:{REGISTRY_DEPENDENCY}\"]\n\n\
+             [dependencies]\n{REGISTRY_DEPENDENCY} = {{ version = \"{REQUIREMENT}\", optional = true }}\n"
+        ),
+    );
+    write_generated_e2e_manifest_with_features(root, &[]);
+    write_lock(root, STALE_PIN);
+
+    let findings = stale_lock_findings(&e2e_dir(root));
+
+    assert!(
+        findings.is_empty(),
+        "an optional dependency no requested or default feature activates must not be reported: {findings:?}"
+    );
+}
+
+/// The over-correction guard for A4: an optional dependency IS reported once the generated
+/// manifest actually requests the feature that activates it -- the fix must not blanket-ignore
+/// every optional dependency, only the unreachable ones.
+#[test]
+fn stale_lock_findings_reports_a_reached_optional_dependency() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_root_manifest(
+        root,
+        &format!(
+            "[features]\ndefault = []\nnetworking = [\"dep:{REGISTRY_DEPENDENCY}\"]\n\n\
+             [dependencies]\n{REGISTRY_DEPENDENCY} = {{ version = \"{REQUIREMENT}\", optional = true }}\n"
+        ),
+    );
+    write_generated_e2e_manifest_with_features(root, &["networking"]);
+    write_lock(root, STALE_PIN);
+
+    let findings = stale_lock_findings(&e2e_dir(root));
+
+    assert_eq!(
+        findings.len(),
+        1,
+        "an optional dependency activated by a requested feature must still be checked: {findings:?}"
+    );
+    assert_eq!(findings[0].dependency, REGISTRY_DEPENDENCY);
+}
+
+/// A control alongside the two above: an optional dependency activated through the path
+/// dependency's own DEFAULT feature set (no explicit `features = [...]` needed on the edge) must
+/// also be reported -- the default-feature closure has to be resolved, not only explicit
+/// requests.
+#[test]
+fn stale_lock_findings_reports_an_optional_dependency_reached_via_default_features() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    write_root_manifest(
+        root,
+        &format!(
+            "[features]\ndefault = [\"dep:{REGISTRY_DEPENDENCY}\"]\n\n\
+             [dependencies]\n{REGISTRY_DEPENDENCY} = {{ version = \"{REQUIREMENT}\", optional = true }}\n"
+        ),
+    );
+    write_generated_e2e_manifest_with_features(root, &[]);
+    write_lock(root, STALE_PIN);
+
+    let findings = stale_lock_findings(&e2e_dir(root));
+
+    assert_eq!(
+        findings.len(),
+        1,
+        "an optional dependency activated by the target's own default features must still be checked: {findings:?}"
     );
 }
 
