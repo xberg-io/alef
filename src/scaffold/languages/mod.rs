@@ -37,7 +37,9 @@ pub(crate) use kotlin::{migrate_kotlin_build_gradle, scaffold_kotlin};
 pub(crate) use node::{migrate_node_package_json_service_export, scaffold_node, scaffold_node_cargo};
 pub(crate) use php::{migrate_php_composer_phpunit_constraint, scaffold_php, scaffold_php_cargo};
 pub(crate) use poly::scaffold_poly_config;
-pub(crate) use poly_migrations::migrate_poly_toml_drop_snippet_hook;
+pub(crate) use poly_migrations::{
+    migrate_poly_toml_drop_snippet_hook, migrate_poly_toml_drop_unrunnable_snapshot_hooks,
+};
 pub(crate) use python::{scaffold_python, scaffold_python_cargo};
 pub(crate) use r::{scaffold_r, scaffold_r_cargo};
 pub(crate) use ruby::{ruby_native_manifest_path, scaffold_ruby, scaffold_ruby_cargo};

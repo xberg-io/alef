@@ -251,11 +251,17 @@ fn migrate_wasm_cargo_config_unconditional(base_dir: &Path) -> anyhow::Result<()
 }
 
 // `poly.toml`'s managed merge unions and prunes array values but never retracts a whole
-// table alef stops emitting, so this repairs the one known stale table left behind. Called
+// table alef stops emitting, so this repairs the known stale tables left behind. Called
 // unconditionally, self-guarding like the repair above -- see
-// `migrate_poly_toml_drop_snippet_hook`'s doc for the full defect. ~keep
+// `migrate_poly_toml_drop_snippet_hook`'s doc for the full defect, and
+// `migrate_poly_toml_drop_unrunnable_snapshot_hooks`'s doc for the second, independent
+// instance of the same defect (the `rubocop`/`steep`/`dart-analyze`/`dart-e2e-analyze`
+// hooks `8ed9ad8d4` retracted from generation without a matching repair). ~keep
 fn migrate_poly_toml_unconditional(base_dir: &Path) -> anyhow::Result<()> {
     crate::scaffold::migrate_poly_toml_drop_snippet_hook(base_dir)
         .context("failed to migrate pre-existing poly.toml alef-snippets pre-commit hook")?;
+    crate::scaffold::migrate_poly_toml_drop_unrunnable_snapshot_hooks(base_dir).context(
+        "failed to migrate pre-existing poly.toml rubocop/steep/dart-analyze/dart-e2e-analyze pre-commit hooks",
+    )?;
     Ok(())
 }

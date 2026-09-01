@@ -893,4 +893,63 @@ mod merge_managed_toml_tests {
         assert_eq!(strip_redundant_leading_slash("/Package.swift"), "/Package.swift");
         assert_eq!(strip_redundant_leading_slash("Package.swift"), "Package.swift");
     }
+
+    /// Regression coverage through the ACTUAL write path -- `write_scaffold_files_report`
+    /// (render -> merge -> compare -> write, plus the migrations it runs at its tail) -- not
+    /// just the renderer. `unrunnable_snapshot_hooks_are_not_emitted`
+    /// (`src/scaffold/languages/poly.rs`) already proves `scaffold_poly_config` itself no
+    /// longer renders `rubocop`/`steep`/`dart-analyze`/`dart-e2e-analyze`; it passed while
+    /// `8ed9ad8d4` ("drop pre-commit hooks that cannot run in poly's snapshot") was live on every
+    /// already-scaffolded consumer, because `merge_managed_toml`'s union pass only ever ADDS a
+    /// table present in `generated` and missing from `existing` -- it has no counterpart that
+    /// retracts one present in `existing` but absent from `generated`. Reverting the
+    /// `migrate_poly_toml_drop_unrunnable_snapshot_hooks` call this closes with (in
+    /// `scaffold_migrations::migrate_poly_toml_unconditional`) reproduces the defect and fails
+    /// this test. ~keep
+    #[test]
+    fn write_scaffold_files_report_repairs_a_pre_existing_poly_toml_with_retracted_hooks() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let base = temporary.path().join("base");
+        std::fs::create_dir(&base).expect("base directory");
+        std::fs::write(
+            base.join("poly.toml"),
+            "[discovery]\nexclude = []\n\n\
+             [hooks.pre-commit.commands.rubocop]\n\
+             run = \"bundle exec rubocop\"\n\
+             root = \"packages/ruby\"\n\
+             workspace = true\n\
+             files = \"packages/ruby/**/*.rb\"\n\n\
+             [hooks.pre-commit.commands.dart-analyze]\n\
+             run = \"dart analyze\"\n\
+             root = \"packages/dart\"\n\
+             workspace = true\n\
+             files = \"packages/dart/**/*.dart\"\n",
+        )
+        .expect("write pre-existing poly.toml");
+
+        // What a current `alef` build actually renders for this config: no `rubocop` or
+        // `dart-analyze` table, since `8ed9ad8d4` retracted both from `scaffold_poly_config`.
+        let files = vec![GeneratedFile {
+            path: "poly.toml".into(),
+            content: "[discovery]\nexclude = []\n".into(),
+            generated_header: true,
+        }];
+
+        write_scaffold_files_report(&files, &base, false).expect("write must succeed");
+
+        let on_disk = std::fs::read_to_string(base.join("poly.toml")).expect("read merged poly.toml");
+        assert!(
+            !on_disk.contains("rubocop"),
+            "the retracted rubocop hook must not survive a regenerate: {on_disk}"
+        );
+        assert!(
+            !on_disk.contains("dart-analyze"),
+            "the retracted dart-analyze hook must not survive a regenerate: {on_disk}"
+        );
+        assert!(
+            on_disk.contains("[discovery]"),
+            "unrelated tables must survive: {on_disk}"
+        );
+        toml::from_str::<toml::Value>(&on_disk).expect("repaired poly.toml must still parse");
+    }
 }

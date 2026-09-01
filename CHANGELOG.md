@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Scaffold:** repair a pre-existing `poly.toml` that still carries the `rubocop`, `steep`,
+  `dart-analyze` or `dart-e2e-analyze` pre-commit hooks `0.79.5` stopped emitting.
+  `merge_managed_toml`'s managed merge unions and prunes array values but never retracts a whole
+  table alef stops emitting, so an already-scaffolded consumer kept re-merging all four forever --
+  every `alef scaffold`/`generate`/`all` run reported success and `alef verify` reported the file
+  fresh while `poly lint`/pre-commit kept failing on a dependency graph poly's isolated staged
+  snapshot never materializes. `migrate_poly_toml_drop_unrunnable_snapshot_hooks` closes the same
+  reachability gap `migrate_poly_toml_drop_snippet_hook` (`0.62.11`) closed for the retracted
+  `alef-snippets` hook, guarded per-hook on the table's own `run` command matching one of its
+  known historical spellings plus `workspace = true`, so a consumer's own differently-configured
+  same-named command is never touched.
+
 ## [0.79.5] - 2026-08-31
 
 ### Removed
