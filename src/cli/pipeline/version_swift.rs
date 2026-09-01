@@ -1,6 +1,16 @@
 use crate::core::config::{Language, ResolvedCrateConfig};
 use anyhow::Context as _;
+use std::sync::LazyLock;
 use tracing::{debug, info, warn};
+
+/// Matches a `checksum: "..."` field in `Package.swift` whose value is either the
+/// unsubstituted placeholder or a previously-substituted 64-hex-char SHA-256 literal --
+/// the only two shapes this field is ever in, since alef is the sole writer of it.
+/// Capturing the surrounding `checksum: "` / `"` lets the replacement preserve the exact
+/// original spacing rather than re-deriving it. ~keep
+static SWIFT_CHECKSUM_FIELD_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r#"(checksum:\s*")(?:__ALEF_SWIFT_CHECKSUM__|[0-9a-f]{64})(")"#).expect("valid regex")
+});
 
 fn run_argv_captured(program: &str, args: &[&std::ffi::OsStr]) -> anyhow::Result<(String, String)> {
     let output = std::process::Command::new(program).args(args).output()?;
@@ -53,17 +63,28 @@ pub(super) fn sync_swift_package_versions(
 ///
 /// 1. Detect whether the workspace has a swift binding crate (`{name}-swift`).
 ///    Skip with a warning if not found.
-/// 2. Check whether `Package.swift` still contains `__ALEF_SWIFT_CHECKSUM__`.
-///    Return early if already substituted (idempotent).
-/// 3. Look for a pre-built `.artifactbundle.zip` under `dist/swift-artifactbundle/`.
+/// 2. Look for a pre-built `.artifactbundle.zip` under `dist/swift-artifactbundle/`.
 ///    If none exists, shell out to `cargo build -p {crate}-swift --release` and
 ///    the alef-bundled build script to produce one.  Skips gracefully when the
 ///    build prerequisites (Xcode / Apple targets) are absent.
-/// 4. Compute the checksum with `swift package compute-checksum {zip}` (falls back
+/// 3. Compute the checksum with `swift package compute-checksum {zip}` (falls back
 ///    to a SHA-256 hex digest computed in-process if `swift` is not on PATH).
-/// 5. Substitute the checksum in `Package.swift` and write the sidecar file.
+/// 4. Substitute the checksum in `Package.swift` and write the sidecar file.
 ///
-/// Returns `Ok(Some(checksum))` when substitution succeeds, `Ok(None)` when skipped.
+/// Substitution is idempotent in both directions: it rewrites the `checksum:` field
+/// whether it currently holds the placeholder *or* an already-substituted literal from a
+/// previous release. It must never be one-way -- a one-way substitution destroys its own
+/// trigger the moment a real checksum lands on `main`, so every release after the first
+/// silently no-ops forever. This is not hypothetical: it happened in crawlberg, where
+/// `e1d2b2293` injected a literal checksum for v1.4.0 and nothing ever restored the
+/// placeholder afterward, so every `release/swift/*` branch and checksum substitution
+/// after that commit silently skipped while reporting success. ~keep
+///
+/// Returns `Ok(Some(checksum))` when substitution succeeds, `Ok(None)` when skipped for a
+/// legitimate reason (Swift not configured, no swift binding crate, or build prerequisites
+/// absent), and `Err` when `Package.swift` exists but has no `checksum:` field matching
+/// either recognized shape -- that state means the file's format has drifted underneath
+/// this function and silently proceeding would hide it.
 pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow::Result<Option<String>> {
     let pkg_swift_path = std::path::Path::new("Package.swift");
     let pkg_content = match std::fs::read_to_string(pkg_swift_path) {
@@ -73,11 +94,6 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
             return Ok(None);
         }
     };
-    if !pkg_content.contains("__ALEF_SWIFT_CHECKSUM__") {
-        debug!("Package.swift already has a real checksum — skipping precompute");
-        return Ok(None);
-    }
-
     if !config.languages.contains(&Language::Swift) {
         debug!("Swift not configured — skipping swift checksum precompute");
         return Ok(None);
@@ -183,9 +199,23 @@ pub(super) fn precompute_swift_checksum(config: &ResolvedCrateConfig) -> anyhow:
         return Ok(None);
     }
 
-    let new_content = pkg_content.replace("__ALEF_SWIFT_CHECKSUM__", &checksum);
+    // Assert the substitution will actually change something before performing it, rather than
+    // asserting the placeholder's absence afterward -- an absence check is satisfied both by a
+    // real substitution and by this field disappearing/renaming underneath us, which is exactly
+    // the failure this must catch instead of silently swallow. ~keep
+    let checksum_field_matches = SWIFT_CHECKSUM_FIELD_RE.find_iter(&pkg_content).count();
+    if checksum_field_matches == 0 {
+        anyhow::bail!(
+            "Package.swift has no `checksum:` field holding `__ALEF_SWIFT_CHECKSUM__` or a 64-hex-char \
+             literal — cannot substitute the computed checksum"
+        );
+    }
+
+    let new_content = SWIFT_CHECKSUM_FIELD_RE
+        .replace_all(&pkg_content, format!("${{1}}{checksum}$2").as_str())
+        .into_owned();
     std::fs::write(pkg_swift_path, &new_content).context("writing Package.swift with checksum")?;
-    info!("Substituted __ALEF_SWIFT_CHECKSUM__ → {checksum} in Package.swift");
+    info!("Substituted checksum → {checksum} in Package.swift ({checksum_field_matches} field(s))");
 
     std::fs::create_dir_all("target").ok();
     std::fs::write("target/alef-swift-checksum.txt", &checksum).context("writing target/alef-swift-checksum.txt")?;
