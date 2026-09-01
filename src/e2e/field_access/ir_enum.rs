@@ -159,7 +159,8 @@ fn build_tagged_enum_wire(enums: &[EnumDef]) -> HashMap<String, TaggedEnumWire> 
                     (variant.name.clone(), wire)
                 })
                 .collect();
-            Some((enum_def.name.clone(), TaggedEnumWire { tag, variants }))
+            let content = enum_def.serde_content.clone();
+            Some((enum_def.name.clone(), TaggedEnumWire { tag, variants, content }))
         })
         .collect()
 }

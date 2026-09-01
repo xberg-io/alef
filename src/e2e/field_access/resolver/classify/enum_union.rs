@@ -143,6 +143,14 @@ impl FieldResolver {
         Some((wire.tag.as_str(), wire.variants.get(variant)?.as_str()))
     }
 
+    /// The serde `content` key for `union_type`, when it is adjacently tagged
+    /// (`#[serde(tag = "..", content = "..")]`). `None` for an internally-tagged enum (no
+    /// `content` attribute) as well as for a type the IR does not resolve to a tagged enum at
+    /// all — callers that must tell those two apart check [`Self::ir_enum_type_name`] first.
+    pub fn tagged_enum_content_key(&self, union_type: &str) -> Option<&str> {
+        self.ir_enum_map.tagged_enum_wire.get(union_type)?.content.as_deref()
+    }
+
     /// Whether the IR enum backing `field` carries data on at least one variant, per
     /// [`super::super::super::types::IrEnumMap::data_carrying_enum_names`]. `None` when the IR does
     /// not positively resolve `field` to a concrete enum type (unresolved root type, or a field

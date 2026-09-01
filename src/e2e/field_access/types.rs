@@ -319,6 +319,10 @@ pub struct IrEnumMap {
 pub struct TaggedEnumWire {
     pub tag: String,
     pub variants: HashMap<String, String>,
+    /// Serde's adjacently-tagged `content` key (`#[serde(tag = "..", content = "..")]`), when the
+    /// enum sets one. `None` means the enum is internally tagged (payload fields flattened
+    /// beside the tag on the core wire format).
+    pub content: Option<String>,
 }
 
 /// Per-type PHP getter classification + chain-resolution metadata.
