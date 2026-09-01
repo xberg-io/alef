@@ -79,7 +79,7 @@
       "matchDatasources": ["maven"],
       "matchPackageNames": [
         "org.jlleitschuh.gradle:ktlint-gradle",
-        "com.github.ben-manes:gradle-versions-plugin",
+        "io.github.ben-manes:gradle-versions-plugin",
         "com.vanniktech:gradle-maven-publish-plugin"
       ],
       "registryUrls": ["https://plugins.gradle.org/m2", "https://repo.maven.apache.org/maven2"]

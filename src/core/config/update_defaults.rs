@@ -218,6 +218,25 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             update: None,
             upgrade: None,
         },
+        // `dependencyUpdates` is provided by ben-manes/gradle-versions-plugin, not by Gradle
+        // itself. Releases through 0.54.0 predate the plugin's Gradle 9 rework: v0.53.0's own
+        // release notes say the task "fails ... in Gradle 9+ if run without disabling parallel
+        // project execution", and v0.55.0 fixed that structurally by aggregating results from
+        // per-project tasks instead of resolving them from the root project -- which is also
+        // where the plugin's floor became Gradle 8.4 and its coordinate moved from
+        // `com.github.ben-manes` to `io.github.ben-manes`. That is the real incompatibility four
+        // of five consumer repos hit and papered over with a no-op override: alef's own
+        // `kotlin_android` scaffold (`gen_build_gradle.rs`) pinned the plugin at 0.54.0, the last
+        // pre-fix release. The fix is the version pin in
+        // `template_versions::maven::GRADLE_VERSIONS_PLUGIN`, bumped to 0.61.0 (Gradle 9.7.x
+        // compatible per the plugin's compatibility table) -- not this command line. The task
+        // name (`dependencyUpdates`) and the Gradle Plugin Portal plugin id
+        // (`com.github.ben-manes.versions`) are unaffected by the coordinate rename: the Portal
+        // still publishes the old id as a redirect POM through the current release (verified
+        // against https://plugins.gradle.org/m2/com/github/ben-manes/versions/... , not assumed),
+        // so the existing scaffold resolves the fixed plugin once the pin is bumped, with no
+        // backend change needed. Do not "fix" Gradle-9 breakage here by reverting to a no-op or a
+        // `precondition = "false"` -- that is the defect this default exists to remove. ~keep
         Language::Kotlin | Language::KotlinAndroid => UpdateConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
@@ -666,6 +685,34 @@ mod tests {
         assert!(
             update.contains("gradle dependencyUpdates"),
             "Kotlin update should use gradle dependencyUpdates, got: {update}"
+        );
+        assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
+    }
+
+    /// `Language::Kotlin` and `Language::KotlinAndroid` share one match arm in
+    /// `default_update_config`; this exercises the arm through the `KotlinAndroid` variant
+    /// specifically, substitutes a distinctive `output_dir`, and checks `upgrade` carries the
+    /// `--refresh-dependencies` flag `update` must not have -- so a future edit that collapses
+    /// them back to one shared command (the no-op shape this default exists to avoid) or drops the
+    /// output_dir substitution fails here, not silently. ~keep
+    #[test]
+    fn kotlin_android_update_and_upgrade_substitute_output_dir() {
+        let c = cfg(Language::KotlinAndroid, "my/custom/kotlin-dir");
+        let update = c.update.expect("kotlin_android update command").commands().join(" ");
+        let upgrade = c.upgrade.expect("kotlin_android upgrade command").commands().join(" ");
+
+        assert!(
+            update.contains("gradle dependencyUpdates") && update.contains("my/custom/kotlin-dir"),
+            "got: {update}"
+        );
+        assert!(
+            upgrade.contains("gradle dependencyUpdates --refresh-dependencies")
+                && upgrade.contains("my/custom/kotlin-dir"),
+            "got: {upgrade}"
+        );
+        assert!(
+            !update.contains("--refresh-dependencies"),
+            "update must not carry the upgrade-only refresh flag, got: {update}"
         );
         assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
     }

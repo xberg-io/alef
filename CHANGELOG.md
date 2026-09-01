@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9
+  fix.** Four of the five consumer repos independently overrode `[crates.update.kotlin_android]`
+  to a no-op, two of them citing "gradle-versions-plugin incompatible with Gradle 9". The plugin
+  is not incompatible with Gradle 9 — v0.55.0 fixed that and raised its floor to Gradle 8.4 — but
+  that release also renamed the Maven coordinate from `com.github.ben-manes` to
+  `io.github.ben-manes`, and alef's `renovate.json` was still tracking the old one. The Gradle
+  Plugin Portal reports `<latest>0.54.0</latest>` for the abandoned coordinate and `0.61.0` for
+  the live one, so Renovate was truthfully reporting "already latest" for a coordinate that had
+  stopped receiving releases. The pin moves to 0.61.0 and the Renovate marker to the live
+  coordinate.
+
+  The emitted command was never wrong: the task name is unchanged and the applied plugin id
+  `com.github.ben-manes.versions` still resolves, because the Portal publishes it as a redirect to
+  the renamed artifact. `gen_build_gradle` now asserts the pin is at or past the 0.55.0 boundary,
+  so reverting it fails a test rather than silently reintroducing the four workarounds.
+
 ### Added
 
 - **Manifest-vs-lockfile freshness for PHP, Ruby, Go and Dart.** Cargo, pnpm and uv were gated;

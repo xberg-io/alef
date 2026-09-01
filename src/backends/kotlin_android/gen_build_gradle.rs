@@ -746,4 +746,35 @@ description = "Test library"
             "the android {{ }} block must set namespace from the resolved kotlin_android package: {gradle}"
         );
     }
+
+    /// ben-manes/gradle-versions-plugin releases through 0.54.0 predate the Gradle 9 rework
+    /// (v0.55.0's per-project aggregation, which also raised the plugin's floor to Gradle 8.4);
+    /// running `dependencyUpdates` from one of those releases against alef's Gradle 9 wrapper is
+    /// exactly the failure four of five consumer repos papered over with a no-op override. This
+    /// parses the version the scaffold actually emits and checks it numerically against the 0.55
+    /// boundary, so a well-meaning revert of the `GRADLE_VERSIONS_PLUGIN` pin back toward "0.54.0"
+    /// fails this test instead of silently reintroducing the incompatibility. ~keep
+    #[test]
+    fn build_gradle_pins_a_gradle_9_compatible_versions_plugin() {
+        let gradle = emit_android_gradle("");
+
+        let version = gradle
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix(r#"id("com.github.ben-manes.versions") version ""#)
+            })
+            .and_then(|rest| rest.strip_suffix('"'))
+            .unwrap_or_else(|| panic!("expected a ben-manes versions plugin line, got: {gradle}"));
+
+        let mut parts = version.split('.');
+        let major: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+        let minor: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+
+        assert!(
+            (major, minor) >= (0, 55),
+            "gradle-versions-plugin {version} predates the Gradle 9 fix in v0.55.0; \
+             bump `template_versions::maven::GRADLE_VERSIONS_PLUGIN`"
+        );
+    }
 }

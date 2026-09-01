@@ -378,8 +378,17 @@ pub mod maven {
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "14.2.0";
 
-    // renovate: datasource=maven depName=com.github.ben-manes:gradle-versions-plugin
-    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.54.0";
+    // The `com.github.ben-manes:gradle-versions-plugin` coordinate stopped receiving releases
+    // after 0.54.0: v0.55.0 renamed it to `io.github.ben-manes:gradle-versions-plugin` and raised
+    // the plugin's floor to Gradle 8.4, fixing the "fails under Gradle 9 without --no-parallel"
+    // behavior v0.53.0 had documented. Renovate was tracking the old, now-frozen coordinate (see
+    // `renovate.json`), which is why this sat on 0.54.0 -- the last pre-Gradle-9-fix release --
+    // while the ecosystem moved on. The applied plugin id, `com.github.ben-manes.versions` in
+    // `gen_build_gradle.rs`, is unaffected: the Gradle Plugin Portal still publishes it as a
+    // redirect to the current `io.github.ben-manes` artifact. Verified against the Portal's own
+    // maven-metadata.xml for both coordinates, not assumed. ~keep
+    // renovate: datasource=maven depName=io.github.ben-manes:gradle-versions-plugin
+    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.61.0";
 
     // renovate: datasource=maven depName=com.pinterest.ktlint:ktlint-cli
     pub const KTLINT: &str = "1.8.0";
