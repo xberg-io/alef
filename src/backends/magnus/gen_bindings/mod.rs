@@ -300,15 +300,30 @@ impl Backend for MagnusBackend {
             if exclude_types.contains(typ.name.as_str()) {
                 continue;
             }
+            // `typ.cfg` gates the type's own declaration in the CORE crate (e.g. a candle-backend
+            // options struct behind `#[cfg(feature = "candle-deepseek-ocr")]`). Every function and
+            // method already re-emits its own `cfg` the same way (`prepend_cfg(func.cfg...)` /
+            // `prepend_cfg(method.cfg...)` below); the struct declaration loop never did, so a
+            // consumer whose own feature set disables the gate still got an unconditional
+            // reference to a type the core crate never compiled in -- 41 ungated
+            // `xberg::candle_ocr::*` references on Ruby/Windows, the sole failure in xberg's
+            // Publish Release dry run. ~keep
+            let typ_cfg = typ.cfg.as_deref();
             if typ.is_opaque {
-                builder.add_item(&classes::gen_opaque_struct(typ, &core_import, &module_name));
-                builder.add_item(&classes::gen_opaque_struct_methods(
-                    typ,
-                    &mapper,
-                    &opaque_types,
-                    &mutex_types,
-                    &core_import,
-                    &streaming_method_names,
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_opaque_struct(typ, &core_import, &module_name),
+                ));
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_opaque_struct_methods(
+                        typ,
+                        &mapper,
+                        &opaque_types,
+                        &mutex_types,
+                        &core_import,
+                        &streaming_method_names,
+                    ),
                 ));
                 let owner_streaming: Vec<&streaming::StreamingAdapter<'_>> =
                     streaming_adapters.iter().filter(|a| a.owner_type == typ.name).collect();
@@ -318,50 +333,59 @@ impl Backend for MagnusBackend {
                         impl_block.push_str(&streaming::gen_streaming_method_body(adapter));
                     }
                     impl_block.push_str("}\n");
-                    builder.add_item(&impl_block);
+                    builder.add_item(&prepend_cfg(typ_cfg, impl_block));
                 }
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
                     let ctor_body =
                         crate::codegen::generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "");
                     let ctor_impl = format!("impl {} {{\n{}}}", typ.name, ctor_body);
-                    builder.add_item(&ctor_impl);
+                    builder.add_item(&prepend_cfg(typ_cfg, ctor_impl));
                 } else if typ.is_variant_wrapper
                     && !config.client_constructors.contains_key(&typ.name)
                     && let Some(ctor) = magnus_variant_wrapper_constructor(typ, &mapper, &core_import)
                 {
-                    builder.add_item(&ctor);
+                    builder.add_item(&prepend_cfg(typ_cfg, ctor));
                 }
             } else {
                 let generates_default = typ.has_default;
                 let has_explicit_impl_default = !typ.fields.is_empty();
                 let delegate_deserialize = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding)
                     && generators::struct_wants_deserialize_delegation(typ, &opaque_type_names_vec, &[]);
-                builder.add_item(&classes::gen_struct(
-                    typ,
-                    &mapper,
-                    &module_name,
-                    &core_import,
-                    has_explicit_impl_default,
-                    &config.trait_bridges,
-                    delegate_deserialize,
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_struct(
+                        typ,
+                        &mapper,
+                        &module_name,
+                        &core_import,
+                        has_explicit_impl_default,
+                        &config.trait_bridges,
+                        delegate_deserialize,
+                    ),
                 ));
                 if generates_default {
-                    builder.add_item(&classes::gen_magnus_default_impl(typ, &core_import));
+                    builder.add_item(&prepend_cfg(
+                        typ_cfg,
+                        classes::gen_magnus_default_impl(typ, &core_import),
+                    ));
                 } else if has_explicit_impl_default {
                     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
                     if let Some(impl_str) =
                         classes::gen_struct_default_impl_explicit(typ, &map_fn, &config.trait_bridges, &default_types)
                     {
-                        builder.add_item(&impl_str);
+                        builder.add_item(&prepend_cfg(typ_cfg, impl_str));
                     }
                 }
-                builder.add_item(&classes::gen_struct_methods(
-                    typ,
-                    &mapper,
-                    &opaque_types,
-                    &core_import,
-                    has_explicit_impl_default,
-                    &config.trait_bridges,
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_struct_methods(
+                        typ,
+                        &mapper,
+                        &opaque_types,
+                        &core_import,
+                        has_explicit_impl_default,
+                        &config.trait_bridges,
+                    ),
                 ));
             }
         }
@@ -495,19 +519,17 @@ impl Backend for MagnusBackend {
             }
             let is_strict = crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core);
             let is_relaxed = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding);
+            let typ_cfg = typ.cfg.as_deref();
             if is_strict && input_types.contains(&typ.name) {
-                builder.add_item(&classes::gen_from_binding_to_core_filtered(
-                    typ,
-                    &core_import,
-                    &config.trait_bridges,
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_from_binding_to_core_filtered(typ, &core_import, &config.trait_bridges),
                 ));
             }
             if is_relaxed {
-                builder.add_item(&classes::gen_from_core_to_binding_filtered(
-                    typ,
-                    &core_import,
-                    &opaque_types,
-                    &config.trait_bridges,
+                builder.add_item(&prepend_cfg(
+                    typ_cfg,
+                    classes::gen_from_core_to_binding_filtered(typ, &core_import, &opaque_types, &config.trait_bridges),
                 ));
             }
         }
@@ -875,6 +897,9 @@ mod tests;
 
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
+
+#[cfg(test)]
+mod type_cfg_gate_tests;
 
 #[cfg(test)]
 #[path = "default_timeout_pairing_tests.rs"]
