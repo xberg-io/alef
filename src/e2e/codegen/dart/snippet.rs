@@ -100,8 +100,31 @@ pub(super) fn render_snippet_body_with_ir(
     // Spot-checking `Uint8List` here missed `Float64List`/`Int64List` — the stub named the
     // class and the snippet never imported its library. ~keep
     let needs_typed_data = crate::backends::dart::type_map::needs_dart_typed_data(&stub_classes);
-    let presentation =
-        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "dart", type_defs, enums, functions);
+    // Own resolver rather than `presentation::resolve`'s, for the same reason php/snippet.rs
+    // does it: `build_resolver` furnishes no per-language representation facts, so a path
+    // stepping into a tagged-union variant rendered as `format?.html?` -- a getter a freezed
+    // sealed class does not have. Mirrors `build_resolver`'s `new` + `with_ir_fields`, which
+    // `resolve_with` does not apply, so this is a superset of the previous behaviour. ~keep
+    let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) =
+        crate::e2e::field_access::FieldResolver::ir_field_sets(type_defs);
+    let field_resolver = crate::e2e::field_access::FieldResolver::new(
+        e2e_config.effective_fields(call),
+        e2e_config.effective_fields_optional(call),
+        e2e_config.effective_result_fields(call),
+        e2e_config.effective_fields_array(call),
+        e2e_config.effective_fields_method_calls(call),
+    )
+    .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
+    .with_variant_accessors(super::variant_accessors::build_variant_accessor_map(enums));
+    let presentation = crate::e2e::codegen::presentation::resolve_with(
+        fixture,
+        e2e_config,
+        "dart",
+        &field_resolver,
+        type_defs,
+        enums,
+        functions,
+    );
     Ok(crate::e2e::template_env::render(
         "dart/snippet_body.jinja",
         minijinja::context! {

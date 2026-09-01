@@ -20,8 +20,12 @@ pub use leaf_anchor::LeafAnchor;
 pub(crate) use types::WasmEnumRepresentation;
 pub use types::{
     DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, PhpGetterMap, PythonTypedDictMap,
-    StringyField, StringyFieldKind, SwiftFirstClassMap,
+    StringyField, StringyFieldKind, SwiftFirstClassMap, VariantAccessorMap,
 };
+
+#[cfg(test)]
+#[path = "field_access/variant_narrowing_tests.rs"]
+mod variant_narrowing_tests;
 
 #[cfg(test)]
 #[path = "field_access/tests.rs"]

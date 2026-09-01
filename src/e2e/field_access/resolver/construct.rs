@@ -4,7 +4,7 @@ use super::super::ir_result_fields::{OptionalityRule, build_ir_result_field_map,
 use super::super::python_typeddict::{build_python_typeddict_facts, build_python_typeddict_map};
 use super::super::types::{
     DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, PhpGetterMap, PythonTypedDictFacts,
-    PythonTypedDictMap, SwiftFirstClassMap,
+    PythonTypedDictMap, SwiftFirstClassMap, VariantAccessorMap,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -90,6 +90,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: HashMap::new(),
             php_getter_map: PhpGetterMap::default(),
+            variant_accessors: VariantAccessorMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
@@ -133,6 +134,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
+            variant_accessors: VariantAccessorMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
@@ -186,6 +188,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map,
+            variant_accessors: VariantAccessorMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
@@ -245,6 +248,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
+            variant_accessors: VariantAccessorMap::default(),
             swift_first_class_map,
             dart_first_class_map: DartFirstClassMap::default(),
             display_as_text_fields: HashSet::new(),
@@ -288,6 +292,7 @@ impl FieldResolver {
             method_calls: method_calls.clone(),
             error_field_aliases: error_field_aliases.clone(),
             php_getter_map: PhpGetterMap::default(),
+            variant_accessors: VariantAccessorMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map,
             display_as_text_fields: HashSet::new(),
@@ -397,6 +402,14 @@ impl FieldResolver {
     /// this empty. See `java_wrapper_enum_names`'s field doc for the source of truth.
     pub fn with_java_wrapper_enum_names(mut self, names: HashSet<String>) -> Self {
         self.java_wrapper_enum_names = names;
+        self
+    }
+
+    /// Attach how this language's binding spells a tagged-union variant narrowing. C# and Dart
+    /// e2e codegen are the only callers; every other resolver leaves this empty, which renders
+    /// exactly as it did before the map existed. See `variant_accessors`' field doc.
+    pub fn with_variant_accessors(mut self, accessors: VariantAccessorMap) -> Self {
+        self.variant_accessors = accessors;
         self
     }
 

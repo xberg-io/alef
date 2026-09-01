@@ -992,6 +992,7 @@ mod setup;
 mod snippet;
 mod streaming;
 mod values;
+mod variant_accessors;
 mod visitor;
 
 use assertions::render_assertion;
@@ -1139,3 +1140,10 @@ mod tests;
 mod trait_bridge_stub_interface_seam_tests;
 #[cfg(test)]
 mod void_not_error_call_tests;
+
+#[cfg(test)]
+pub(crate) fn build_variant_accessor_map_for_tests(
+    enums: &[crate::core::ir::EnumDef],
+) -> crate::e2e::field_access::VariantAccessorMap {
+    variant_accessors::build_variant_accessor_map(enums)
+}

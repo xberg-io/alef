@@ -178,9 +178,32 @@ pub(super) fn render_snippet_body_with_ir(
         .iter()
         .any(|line| line.contains("List<") || line.contains("Dictionary<"));
     let result_var = call.effective_result_var();
+    // Supplying our own resolver rather than letting `presentation::resolve` build one, exactly
+    // as php/snippet.rs does: `build_resolver` furnishes no per-language representation facts,
+    // so a path that steps into a tagged-union variant had no way to render as anything but a
+    // plain field chain -- `.Format!.Html!` where `Html` is the variant TYPE (CS0572). Mirrors
+    // `build_resolver`'s own `new` + `with_ir_fields`, because `resolve_with` applies the
+    // declared-result anchoring but not that, and adds the narrowing map on top. ~keep
+    let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) =
+        crate::e2e::field_access::FieldResolver::ir_field_sets(type_defs);
+    let field_resolver = crate::e2e::field_access::FieldResolver::new(
+        e2e_config.effective_fields(call),
+        e2e_config.effective_fields_optional(call),
+        e2e_config.effective_result_fields(call),
+        e2e_config.effective_fields_array(call),
+        e2e_config.effective_fields_method_calls(call),
+    )
+    .with_ir_fields(ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields)
+    .with_variant_accessors(super::variant_accessors::build_variant_accessor_map(enums));
     let presentation = disambiguate_presentation_items(
-        dereference_optional_iterate_collections(crate::e2e::codegen::presentation::resolve(
-            fixture, e2e_config, "csharp", type_defs, enums, functions,
+        dereference_optional_iterate_collections(crate::e2e::codegen::presentation::resolve_with(
+            fixture,
+            e2e_config,
+            "csharp",
+            &field_resolver,
+            type_defs,
+            enums,
+            functions,
         )),
         result_var,
         client_factory.is_some(),

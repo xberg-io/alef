@@ -1,7 +1,7 @@
 use super::renderers::{kotlin_getter, quoted_key_literal};
 use super::types::{PathSegment, PhpGetterMap};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Appends the bare field/array/map name for `segment` onto `path_so_far`,
 /// with no bracket suffix. The result is the config-lookup key to check for
@@ -596,6 +596,7 @@ pub(super) fn render_csharp_with_optionals(
     segments: &[PathSegment],
     result_var: &str,
     optional_fields: &HashSet<String>,
+    variant_narrowings: &HashMap<String, String>,
 ) -> String {
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
@@ -605,8 +606,20 @@ pub(super) fn render_csharp_with_optionals(
             PathSegment::Field(f) => {
                 push_key_field_name(&mut path_so_far, seg);
                 out.push('.');
-                out.push_str(&f.to_pascal_case());
-                if !is_leaf && optional_fields.contains(&path_so_far) {
+                // A segment that steps into a tagged-union variant names the generated
+                // `As<Variant>` property, not the variant type: `.Format!.Html` is CS0572
+                // ("cannot reference a type through an expression"). The accessor name comes
+                // from the C# backend's own emitter so it can never be one this binding did
+                // not generate -- see `variant_accessors`' field doc. ~keep
+                let narrowed = variant_narrowings.get(&path_so_far);
+                match narrowed {
+                    Some(accessor) => out.push_str(accessor),
+                    None => out.push_str(&f.to_pascal_case()),
+                }
+                // `As<Variant>` is generated as `T? As<Variant>` -- it returns null for every
+                // other variant, so it is unconditionally nullable and needs the forgiving
+                // operator to be stepped through, whether or not the FIELD was optional. ~keep
+                if !is_leaf && (narrowed.is_some() || optional_fields.contains(&path_so_far)) {
                     out.push('!');
                 }
             }

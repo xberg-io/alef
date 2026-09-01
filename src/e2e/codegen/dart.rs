@@ -194,6 +194,7 @@ mod stubs;
 mod test_case;
 mod test_file;
 mod values;
+mod variant_accessors;
 
 pub use stubs::emit_test_backend;
 pub(super) use values::escape_dart;
@@ -226,4 +227,11 @@ pub(super) fn dart_call_result_type(call_config: &crate::core::config::e2e::Call
         }
     }
     None
+}
+
+#[cfg(test)]
+pub(crate) fn build_variant_accessor_map_for_tests(
+    enums: &[crate::core::ir::EnumDef],
+) -> crate::e2e::field_access::VariantAccessorMap {
+    variant_accessors::build_variant_accessor_map(enums)
 }

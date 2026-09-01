@@ -10,6 +10,35 @@ use crate::core::ir::EnumDef;
 /// without declaring a serde tag.
 const DEFAULT_TAG_FIELD: &str = "type";
 
+/// The `As<Variant>` payload accessors this backend emits for `enum_def`, as
+/// `(property name, payload type)` pairs in declaration order.
+///
+/// ~keep This is the single authority for which variants get an accessor and what it is
+/// called, and it exists as a function rather than an inline loop because a second reader
+/// needs the same answer: the e2e field resolver renders `.As<Variant>` into doc snippets and
+/// must not re-derive the name. Re-deriving it means a snippet can reference an accessor this
+/// backend never generated, which fails at compile time in whichever consumer happens to have
+/// that shape -- and the snippet gate compiles only a subset, so it would not reliably be
+/// caught. The conditions are load-bearing: a variant that is binding-excluded, that does not
+/// carry exactly one tuple field, or whose payload maps to `void` gets NO accessor.
+pub(crate) fn variant_accessor_properties(enum_def: &EnumDef) -> Vec<(String, String)> {
+    enum_def
+        .variants
+        .iter()
+        .filter(|variant| !variant.binding_excluded)
+        .filter(|variant| variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]))
+        .filter_map(|variant| {
+            let field = &variant.fields[0];
+            let return_type = if field.sanitized && field.type_rust_path.is_some() {
+                "object".to_string()
+            } else {
+                csharp_type(&field.ty).to_string()
+            };
+            (return_type != "void").then(|| (to_csharp_name(&variant.name), return_type))
+        })
+        .collect()
+}
+
 pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String]) -> String {
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
@@ -277,20 +306,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
         }
     }
 
-    for variant in enum_def.variants.iter().filter(|v| !v.binding_excluded) {
-        if variant.fields.len() != 1 || !is_tuple_field(&variant.fields[0]) {
-            continue;
-        }
-        let pascal = to_csharp_name(&variant.name);
-        let field = &variant.fields[0];
-        let return_type = if field.sanitized && field.type_rust_path.is_some() {
-            "object".to_string()
-        } else {
-            csharp_type(&field.ty).to_string()
-        };
-        if return_type == "void" {
-            continue;
-        }
+    for (pascal, return_type) in variant_accessor_properties(enum_def) {
         let return_type_nullable = format!("{return_type}?");
         out.push_str(&render(
             "variant_accessor_summary.jinja",

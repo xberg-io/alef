@@ -44,6 +44,20 @@ pub struct FieldResolver {
     /// (e.g. `CrawlConfig.content: ContentConfig` is non-scalar while
     /// `MarkdownResult.content: String` is scalar).
     pub(super) php_getter_map: PhpGetterMap,
+    /// How this language's binding exposes a tagged-union variant's payload, keyed by
+    /// `(union type, variant identifier)`. Populated by the C# and Dart e2e codegen via
+    /// `with_variant_accessors`; empty for every other resolver, which restores the exact
+    /// pre-existing rendering.
+    ///
+    /// ~keep A field path that steps into a variant payload (`metadata.format.html.title`) is a
+    /// narrowing, not a field read, and only some bindings can spell it as a plain chain. The
+    /// renderers used to have no way to tell the two apart, so C# emitted `.Format!.Html!` --
+    /// naming the variant TYPE where a property was required (CS0572) -- and Dart emitted
+    /// `.format?.html?` against a sealed class that has no such getter. Both compiled nowhere.
+    /// The decision that a segment crosses a variant is the resolver's; how it reads is the
+    /// renderer's, which is why this carries the binding's own spelling rather than a rendered
+    /// expression.
+    pub(super) variant_accessors: VariantAccessorMap,
     /// Per-type Swift first-class/opaque classification, populated by the
     /// Swift e2e codegen. When non-empty, `accessor` uses
     /// `render_swift_with_first_class_map` instead of the legacy property-only
@@ -353,6 +367,44 @@ pub struct TaggedEnumWire {
 ///   any chain. When `None`, chain traversal degrades to per-segment lookup
 ///   using a flattened union across all types (legacy bare-name behaviour),
 ///   which produces false positives when field names collide across types.
+/// Per-(union type, variant) narrowing facts, supplied by the binding backend that owns the
+/// spelling.
+///
+/// Empty is meaningful and is the default: it means "this language's renderer has no variant
+/// narrowing to apply", which is the behaviour every language had before this existed.
+#[derive(Debug, Clone, Default)]
+pub struct VariantAccessorMap {
+    /// C#: the generated `As<Variant>` property name, read from
+    /// `backends::csharp::gen_bindings::variant_accessor_properties` so the resolver can never
+    /// name an accessor the generator declined to emit.
+    ///
+    /// Dart: the flutter_rust_bridge/freezed subclass to cast to (`<Union>_<Variant>`). The
+    /// authority here is frb's own naming convention rather than anything alef renders, so the
+    /// spelling is supplied by the Dart e2e codegen that already relies on it.
+    pub narrowing: HashMap<(String, String), String>,
+    /// Dart only: the accessor for the payload inside the narrowed subclass (`field0` for a
+    /// single tuple field). Absent for C#, whose `As<Variant>` yields the payload directly.
+    pub payload: HashMap<(String, String), String>,
+}
+
+impl VariantAccessorMap {
+    pub fn is_empty(&self) -> bool {
+        self.narrowing.is_empty()
+    }
+
+    pub fn narrowing_for(&self, union_type: &str, variant: &str) -> Option<&str> {
+        self.narrowing
+            .get(&(union_type.to_string(), variant.to_string()))
+            .map(String::as_str)
+    }
+
+    pub fn payload_for(&self, union_type: &str, variant: &str) -> Option<&str> {
+        self.payload
+            .get(&(union_type.to_string(), variant.to_string()))
+            .map(String::as_str)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PhpGetterMap {
     pub getters: HashMap<String, HashSet<String>>,

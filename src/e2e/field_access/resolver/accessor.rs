@@ -1,7 +1,9 @@
+use super::super::ir_enum::enum_type_at_path_from;
 use super::super::optional_renderers::{
-    TypescriptMapAccess, render_csharp_with_optionals, render_dart_with_optionals, render_java_with_optionals,
-    render_kotlin_android_with_optionals, render_kotlin_with_optionals, render_php_with_getters,
-    render_rust_with_optionals, render_typescript_with_optionals, render_zig_with_optionals,
+    TypescriptMapAccess, push_key_field_name, push_key_index_suffix, render_csharp_with_optionals,
+    render_dart_with_optionals, render_java_with_optionals, render_kotlin_android_with_optionals,
+    render_kotlin_with_optionals, render_php_with_getters, render_rust_with_optionals,
+    render_typescript_with_optionals, render_zig_with_optionals,
 };
 use super::super::parse::parse_path;
 use super::super::python_renderer::{
@@ -9,6 +11,8 @@ use super::super::python_renderer::{
 };
 use super::super::renderers::{render_accessor, render_swift_with_first_class_map};
 use super::super::types::{FieldResolver, PathSegment};
+use heck::ToUpperCamelCase;
+use std::collections::HashMap;
 
 impl FieldResolver {
     /// Generate a language-specific accessor expression.
@@ -104,6 +108,86 @@ impl FieldResolver {
         )
     }
 
+    /// Which segments of `path` step into a tagged-union variant, keyed by the same tracked
+    /// path key the accessor renderers build as they walk.
+    ///
+    /// ~keep Keyed by the renderer's own key (`push_key_field_name` then
+    /// `push_key_index_suffix`, so `results[3].metadata` tracks as `results` then
+    /// `results[0].metadata`) rather than by `(union, variant)`, because the renderer knows
+    /// only where it is in the path, not what type it is standing on. Building the key here
+    /// with the renderers' own helpers is what keeps the two from disagreeing -- a key built
+    /// any other way silently never matches and the narrowing is inert.
+    ///
+    /// Empty whenever the language supplied no `variant_accessors`, which is every language
+    /// but C# and Dart, so this costs nothing and changes nothing for them.
+    fn variant_narrowings(&self, path: &str) -> HashMap<String, String> {
+        let mut narrowings = HashMap::new();
+        if self.variant_accessors.is_empty() {
+            return narrowings;
+        }
+        let Some(root) = self.ir_enum_map.root_type.clone() else {
+            return narrowings;
+        };
+        let mut key = String::new();
+        let mut owner_path: Vec<String> = Vec::new();
+        for segment in parse_path(path) {
+            let Some(name) = super::super::parse::segment_name(&segment) else {
+                continue;
+            };
+            let name = name.to_string();
+            push_key_field_name(&mut key, &segment);
+            let owner = owner_path.join(".");
+            if !owner.is_empty()
+                && let Some(union_type) = enum_type_at_path_from(&self.ir_enum_map, &root, &owner)
+            {
+                let variant = name.to_upper_camel_case();
+                if let Some(accessor) = self.variant_accessors.narrowing_for(&union_type, &variant) {
+                    narrowings.insert(key.clone(), accessor.to_string());
+                }
+            }
+            owner_path.push(name);
+            push_key_index_suffix(&mut key, &segment);
+        }
+        narrowings
+    }
+
+    /// Render `path` for Dart when it steps into a tagged-union variant, or `None` when it does
+    /// not and the ordinary chain renderer applies.
+    ///
+    /// ~keep Dart narrows by CASTING, so unlike C#'s `As<Variant>` this cannot be a segment
+    /// rename — the prefix has to be wrapped: `(<prefix> as <Union>_<Variant>).field0.<rest>`.
+    /// That is why the two languages are handled at different levels; the shared decision (does
+    /// this path cross a variant) is the resolver's either way, and only the rendered form
+    /// differs. The subclass spelling and the payload accessor are both supplied by the Dart
+    /// e2e codegen, because flutter_rust_bridge owns that naming, not alef.
+    fn dart_narrowed_accessor(&self, path: &str, result_var: &str) -> Option<String> {
+        if self.variant_accessors.is_empty() {
+            return None;
+        }
+        let (prefix, union_type, variant, suffix) = self.ir_tagged_union_split(path)?;
+        let subclass = self.variant_accessors.narrowing_for(&union_type, &variant)?;
+        let payload = self.variant_accessors.payload_for(&union_type, &variant)?;
+
+        let container = render_dart_with_optionals(
+            &self.inject_array_indexing(parse_path(&prefix)),
+            result_var,
+            &self.optional_fields,
+        );
+        let narrowed = format!("({container} as {subclass}).{payload}");
+        if suffix.is_empty() {
+            return Some(narrowed);
+        }
+        // The suffix is owned by the payload type, not by the result anchor, so it is rendered
+        // against the narrowed expression as its own root. Optionality keys are result-relative
+        // and deliberately do not match here: emitting no `?.` on a payload field is the
+        // conservative reading, and it is what the assertion emitter already produces. ~keep
+        Some(render_dart_with_optionals(
+            &parse_path(&suffix),
+            &narrowed,
+            &self.optional_fields,
+        ))
+    }
+
     /// Render an already-anchored path as a language-specific accessor rooted at `result_var`,
     /// which is the result variable for [`Self::accessor`] and the element binding for
     /// [`Self::element_accessor`].
@@ -140,7 +224,12 @@ impl FieldResolver {
                 &self.method_calls,
                 &self.result_fields,
             ),
-            "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
+            "csharp" => render_csharp_with_optionals(
+                &segments,
+                result_var,
+                &self.optional_fields,
+                &self.variant_narrowings(effective),
+            ),
             "zig" => render_zig_with_optionals(
                 &segments,
                 result_var,
@@ -160,7 +249,9 @@ impl FieldResolver {
                 &self.optional_fields,
                 &self.swift_first_class_map,
             ),
-            "dart" => render_dart_with_optionals(&segments, result_var, &self.optional_fields),
+            "dart" => self
+                .dart_narrowed_accessor(effective, result_var)
+                .unwrap_or_else(|| render_dart_with_optionals(&segments, result_var, &self.optional_fields)),
             "php" if !self.php_getter_map.is_empty() => {
                 render_php_with_getters(&segments, result_var, &self.php_getter_map, &self.optional_fields)
             }
