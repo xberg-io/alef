@@ -475,6 +475,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/typescript/wasm_enum_assertion.jinja"),
     ),
     (
+        "typescript/napi_enum_assertion.jinja",
+        include_str!("templates/typescript/napi_enum_assertion.jinja"),
+    ),
+    (
         "typescript/synthetic_assertion.jinja",
         include_str!("templates/typescript/synthetic_assertion.jinja"),
     ),

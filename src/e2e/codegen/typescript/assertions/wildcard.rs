@@ -16,24 +16,25 @@ pub(super) fn render_wildcard_assertion(
     array_accessor: &str,
     elem_accessor: &str,
     field: &str,
+    napi_enum_tag: Option<&str>,
 ) {
     let guarded = format!("({array_accessor} ?? [])");
     match assertion.assertion_type.as_str() {
         "contains" => {
             if let Some(expected) = &assertion.value {
-                push_quantifier(out, &guarded, elem_accessor, expected, true, field);
+                push_quantifier(out, &guarded, elem_accessor, expected, true, field, napi_enum_tag);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
-                    push_quantifier(out, &guarded, elem_accessor, val, true, field);
+                    push_quantifier(out, &guarded, elem_accessor, val, true, field, napi_enum_tag);
                 }
             }
         }
         "not_contains" => {
             for expected in assertion.expected_values() {
-                push_quantifier(out, &guarded, elem_accessor, expected, false, field);
+                push_quantifier(out, &guarded, elem_accessor, expected, false, field, napi_enum_tag);
             }
         }
         "not_empty" => {
@@ -62,8 +63,9 @@ fn push_quantifier(
     expected: &serde_json::Value,
     truth: bool,
     field: &str,
+    napi_enum_tag: Option<&str>,
 ) {
-    match element_predicate(elem_accessor, expected) {
+    match element_predicate(elem_accessor, expected, napi_enum_tag) {
         Some(predicate) => {
             let truth_literal = if truth { "true" } else { "false" };
             out.push_str(&render(minijinja::context! {
@@ -99,8 +101,19 @@ fn push_quantifier(
 ///
 /// `None` means no sound comparison exists for this value shape — a null, array or object
 /// expectation against a single element — and the caller must skip visibly rather than emit one.
-fn element_predicate(elem_accessor: &str, expected: &serde_json::Value) -> Option<String> {
+fn element_predicate(elem_accessor: &str, expected: &serde_json::Value, napi_enum_tag: Option<&str>) -> Option<String> {
     match expected {
+        // ~keep Same false-failure class the numeric arm above documents, one type further on. A
+        // napi tagged data enum reaches JavaScript as `{ type: "Function" }`, and
+        // `String({ type: "Function" })` is `"[object Object]"`, so the substring route below is
+        // false for every possible value rather than merely imprecise. The discriminant is read
+        // directly and compared exactly -- a variant name is an identity, not a substring.
+        serde_json::Value::String(_) if napi_enum_tag.is_some() => {
+            let tag = json_to_js(&serde_json::Value::String(
+                napi_enum_tag.unwrap_or_default().to_string(),
+            ));
+            Some(format!("{elem_accessor}?.[{tag}] === {}", json_to_js(expected)))
+        }
         serde_json::Value::String(_) => Some(format!("String({elem_accessor}).includes({})", json_to_js(expected))),
         serde_json::Value::Number(number) if number.is_i64() || number.is_u64() => {
             let decimal = number.to_string();

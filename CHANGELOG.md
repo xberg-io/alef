@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
+  napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
+  but the TypeScript e2e generator emitted `String(e.kind).includes("Function")`, and
+  `String({ type: "Function" })` is `"[object Object]"` -- so the assertion was false for every
+  possible value, not merely imprecise. Both the wildcard (`structure[].kind`) and non-wildcard
+  paths now read the discriminant property and compare it exactly.
+
+  The generator was re-deriving a fact the binding generator already owns: `is_tagged_data_enum`
+  documents itself as "the single authority" for tagged-object vs `#[napi(string_enum)]`, and the
+  runtime struct emitter, the conversion emitters and `errors::gen_dts` all consult it so they can
+  never disagree about the shape. The e2e generator was the one caller that did not, which is
+  exactly why its assertion disagreed with both. It now consults the same two authorities
+  (`is_tagged_data_enum` and `tagged_enum_discriminant_js_name`) via
+  `FieldResolver::with_napi_tagged_object_enums`.
+
+  Not a cosmetic defect: this kept tree-sitter-language-pack's `E2E gate — Node` red across
+  releases, and because `publish-node` gates on `needs.e2e-node.result == 'success'`, npm silently
+  never received a build for those versions. A unit-only `#[napi(string_enum)]` is a bare string on
+  the wire and is deliberately left on the existing scalar comparison.
+
 ## [0.81.0] - 2026-09-01
 
 ### Fixed

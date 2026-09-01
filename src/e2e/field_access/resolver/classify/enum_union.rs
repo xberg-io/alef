@@ -29,6 +29,17 @@ impl FieldResolver {
             None => Some(WasmEnumRepresentation::External),
         }
     }
+    /// The JavaScript discriminant property napi puts on the wire for `field`'s enum, when the
+    /// napi backend lowers that enum to an internally-tagged `#[napi(object)]` struct.
+    ///
+    /// `None` means either "not such an enum" (a `#[napi(string_enum)]` is a scalar string on the
+    /// wire, so the ordinary comparison is already right) or "this resolver was built without
+    /// `with_napi_tagged_object_enums`" — both safely keep the previous scalar behaviour.
+    pub(crate) fn napi_tagged_object_discriminant(&self, field: &str) -> Option<&str> {
+        let enum_name = self.ir_enum_type_name(field)?;
+        self.napi_tagged_object_enums.get(&enum_name).map(String::as_str)
+    }
+
     /// Check whether `field` is enum-typed: an explicit `fields_enum` config entry (exact or
     /// alias-resolved) always wins, and — when the config is silent — the IR-derived
     /// classification (`with_ir_enum_map`) gets the final say. See `ir_enum` module docs for

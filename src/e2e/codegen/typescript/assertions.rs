@@ -7,6 +7,8 @@ use crate::e2e::fixture::Assertion;
 
 use super::json::json_to_js;
 
+#[path = "assertions/napi_enum.rs"]
+mod napi_enum;
 #[path = "assertions/streaming.rs"]
 mod streaming;
 #[path = "assertions/wasm_enum.rs"]
@@ -14,6 +16,7 @@ mod wasm_enum;
 #[path = "assertions/wildcard.rs"]
 mod wildcard;
 
+use napi_enum::render_napi_enum_assertion;
 use wasm_enum::render_wasm_enum_assertion;
 use wildcard::render_wildcard_assertion;
 
@@ -165,7 +168,13 @@ pub(super) fn render_assertion_with_streaming_item_type(
         } else {
             field_resolver.element_accessor(&elem_part, "typescript", "e")
         };
-        render_wildcard_assertion(out, assertion, &array_accessor, &elem_accessor, f);
+        // ~keep The wildcard branch returns before the enum dispatch below ever runs, so a
+        // tagged-enum element has to be resolved here too -- fixing only the non-wildcard path
+        // leaves `structure[].kind` (the shape that actually shipped broken) untouched.
+        let napi_enum_tag = (lang == "node")
+            .then(|| field_resolver.napi_tagged_object_discriminant(f))
+            .flatten();
+        render_wildcard_assertion(out, assertion, &array_accessor, &elem_accessor, f, napi_enum_tag);
         return;
     }
 
@@ -188,6 +197,19 @@ pub(super) fn render_assertion_with_streaming_item_type(
 
     // Check if this is metadata.format field (FormatMetadata tagged enum)
     let is_format_metadata = assertion.field.as_deref().is_some_and(|f| f == "metadata.format");
+
+    // NAPI lowers a tagged data enum to an internally-tagged object, so an enum-typed field is
+    // never the bare string the generic scalar path assumes — see `render_napi_enum_assertion`.
+    if lang == "node"
+        && let Some(f) = assertion.field.as_deref()
+        && result_enum_fields
+            .get(f)
+            .or_else(|| result_enum_fields.get(field_resolver.resolve(f)))
+            .is_some()
+        && render_napi_enum_assertion(out, assertion, &field_expr, f, field_resolver)
+    {
+        return;
+    }
 
     // WASM lowers an enum-typed struct field to something that is never the wasm-bindgen numeric
     // discriminant a struct getter might suggest — see `render_wasm_enum_assertion` for the two
@@ -1219,6 +1241,10 @@ mod text_surface_tests;
 #[cfg(test)]
 #[path = "assertions/wasm_enum_tests.rs"]
 mod wasm_enum_tests;
+
+#[cfg(test)]
+#[path = "assertions/napi_enum_tests.rs"]
+mod napi_enum_tests;
 #[cfg(test)]
 #[path = "assertions/wildcard_tests.rs"]
 mod wildcard_tests;

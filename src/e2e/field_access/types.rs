@@ -100,6 +100,20 @@ pub struct FieldResolver {
     /// was wired in, in which case `java_enum_emits_get_value` answers `None` (unknown) rather
     /// than assuming either shape.
     pub(super) java_wrapper_enum_names: HashSet<String>,
+    /// IR enum type name -> the JavaScript discriminant property napi puts on the wire, for
+    /// every enum `backends::napi` lowers to an internally-tagged `#[napi(object)]` struct
+    /// rather than a `#[napi(string_enum)]`. Populated from that backend's own two authorities —
+    /// `is_tagged_data_enum` (documented there as "the single authority for that verdict") and
+    /// `tagged_enum_discriminant_js_name` — via `with_napi_tagged_object_enums`, so the assertion
+    /// this drives cannot disagree with the emitted struct or its `.d.ts` about the shape.
+    ///
+    /// ~keep Absent this, node assertions on an enum-typed field compared the whole object as a
+    /// scalar: `String(e.kind).includes("Function")` against `{ type: "Function" }` stringifies to
+    /// `"[object Object]"` and can never match, which is what kept tree-sitter-language-pack's
+    /// Node e2e gate red and its npm publish permanently blocked. Empty for every non-node
+    /// resolver, in which case `napi_tagged_object_discriminant` answers `None` and the previous
+    /// scalar comparison stands.
+    pub(super) napi_tagged_object_enums: HashMap<String, String>,
     /// Names of IR enum types `backends::magnus` (Ruby) lowers to a plain Ruby `Hash` via
     /// `serde_json::to_value` inside `IntoValue`, rather than a `Symbol` — i.e.
     /// `backends::magnus::gen_bindings::classes::gen_enum::gen_enum`'s own `has_data` predicate

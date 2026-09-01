@@ -1,0 +1,5 @@
+{% if kind == "equals" %}
+    expect({{ actual }}).toBe({{ expected }});
+{% elif kind == "presence" %}
+    expect({{ actual }}).toBeDefined();
+{% endif %}

@@ -98,6 +98,7 @@ impl FieldResolver {
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
             wasm_untagged_enum_names: HashSet::new(),
+            napi_tagged_object_enums: HashMap::new(),
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ir_collection_map: IrCollectionMap::default(),
@@ -140,6 +141,7 @@ impl FieldResolver {
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
             wasm_untagged_enum_names: HashSet::new(),
+            napi_tagged_object_enums: HashMap::new(),
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ir_collection_map: IrCollectionMap::default(),
@@ -192,6 +194,7 @@ impl FieldResolver {
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
             wasm_untagged_enum_names: HashSet::new(),
+            napi_tagged_object_enums: HashMap::new(),
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ir_collection_map: IrCollectionMap::default(),
@@ -250,6 +253,7 @@ impl FieldResolver {
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
             wasm_untagged_enum_names: HashSet::new(),
+            napi_tagged_object_enums: HashMap::new(),
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ir_collection_map: IrCollectionMap::default(),
@@ -292,6 +296,7 @@ impl FieldResolver {
             wire_optional_fields: HashSet::new(),
             ir_enum_map: IrEnumMap::default(),
             wasm_untagged_enum_names: HashSet::new(),
+            napi_tagged_object_enums: HashMap::new(),
             java_wrapper_enum_names: HashSet::new(),
             ruby_hash_serialized_enum_names: HashSet::new(),
             ir_collection_map: IrCollectionMap::default(),
@@ -357,6 +362,31 @@ impl FieldResolver {
             .iter()
             .filter(|enum_def| enum_def.serde_untagged)
             .map(|enum_def| enum_def.name.clone())
+            .collect();
+        self
+    }
+
+    /// Attach, for each IR enum the napi backend lowers to an internally-tagged
+    /// `#[napi(object)]` struct, the JavaScript discriminant property it puts on the wire.
+    ///
+    /// ~keep Both facts come from the napi backend itself rather than being re-derived here:
+    /// `is_tagged_data_enum` decides tagged-object vs `#[napi(string_enum)]` and its own doc
+    /// names itself "the single authority for that verdict", listing the runtime struct emitter,
+    /// the conversion emitters and `errors::gen_dts` as the callers that consult it so those can
+    /// never disagree. The e2e generator was the one caller that did not, which is precisely why
+    /// its assertion disagreed with both. Same single-authority relationship as
+    /// `with_java_wrapper_enum_names` and `with_ruby_hash_serialized_enum_names`.
+    pub(crate) fn with_napi_tagged_object_enums(mut self, enums: &[crate::core::ir::EnumDef]) -> Self {
+        use crate::backends::napi::{is_tagged_data_enum, tagged_enum_discriminant_js_name};
+        self.napi_tagged_object_enums = enums
+            .iter()
+            .filter(|enum_def| is_tagged_data_enum(enum_def))
+            .map(|enum_def| {
+                (
+                    enum_def.name.clone(),
+                    tagged_enum_discriminant_js_name(enum_def).to_string(),
+                )
+            })
             .collect();
         self
     }
