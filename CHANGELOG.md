@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Manifest-vs-lockfile freshness for PHP, Ruby, Go and Dart.** Cargo, pnpm and uv were gated;
+  the other four ecosystems were not, so a `composer.json` requirement its `composer.lock` could
+  not satisfy passed unnoticed. Dart had a check already but it was internal-only — used to decide
+  whether to re-run `dart pub get`, never surfaced as a finding. Each new gate implements its own
+  ecosystem's version semantics rather than borrowing Cargo's: Composer's two-component `~`
+  differs from Cargo's, RubyGems has the pessimistic `~>`, and Go has no range concept at all so
+  the check is `go.sum` ledger presence for the exact `go.mod` pin, skipping `replace`-covered
+  modules.
+
+  All four use the precise, resolved-config-scoped pending-publish exemption, not the looser
+  "any in-tree package matching name and version" form whose false-negative is documented in
+  `lock_freshness_pending_publish_collision_tests.rs`.
+
+  `lock_freshness.rs` was 1361 lines and `lock_freshness_tests.rs` 1386, both over the
+  file-modularization cap, so they were split per ecosystem first as a separate behaviour-
+  preserving step — the pre-existing 50 tests moved verbatim, no assertion or name changed — and
+  only then extended. All 17 resulting files are under the cap.
+
 ### Changed
 
 - **`alef update` now reaches every Rust manifest alef generated, not just the current

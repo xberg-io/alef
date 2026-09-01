@@ -588,6 +588,68 @@ pub(crate) fn handle_generate(
         ) {
             stage_failures.record(&format!("[{}] generated uv.lock freshness", resolved_cfg.name), error);
         }
+        // Same check, same shared function and same deferral rationale as `all_commands.rs`'s
+        // call site, for the Composer/PHP ecosystem's equivalent: a generated `composer.json`
+        // whose constraints a committed `composer.lock` no longer resolves fails `composer
+        // install` just as surely as a stale `Cargo.lock`, `pnpm-lock.yaml`, or `uv.lock` fails
+        // their own frozen-install commands. Tolerating-variant, same rationale as the Cargo.lock
+        // check above. ~keep
+        if let Some(error) = pipeline::check_generated_composer_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            Some(resolved_cfg),
+        ) {
+            stage_failures.record(
+                &format!("[{}] generated composer.lock freshness", resolved_cfg.name),
+                error,
+            );
+        }
+        // Same check, same shared function and same deferral rationale as `all_commands.rs`'s
+        // call site, for the RubyGems ecosystem's equivalent: a generated `Gemfile` whose
+        // constraint a committed `Gemfile.lock` no longer resolves fails `bundle install
+        // --deployment` just as surely as the checks above fail their own frozen-install
+        // commands. Tolerating-variant, same rationale as the Cargo.lock check above. ~keep
+        if let Some(error) = pipeline::check_generated_gemfile_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            Some(resolved_cfg),
+        ) {
+            stage_failures.record(
+                &format!("[{}] generated Gemfile.lock freshness", resolved_cfg.name),
+                error,
+            );
+        }
+        // Same check, same shared function and same deferral rationale as `all_commands.rs`'s
+        // call site, for the Go ecosystem's equivalent: a generated `go.mod` requiring an exact
+        // version the committed `go.sum` checksum ledger has no entry for fails `go build
+        // -mod=readonly`/`go test -mod=readonly` (the CI default) just as surely as the checks
+        // above fail their own frozen-install commands. Tolerating-variant, same rationale as the
+        // Cargo.lock check above. ~keep
+        if let Some(error) = pipeline::check_generated_go_sum_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            Some(resolved_cfg),
+        ) {
+            stage_failures.record(&format!("[{}] generated go.sum freshness", resolved_cfg.name), error);
+        }
+        // Same check, same shared function and same deferral rationale as `all_commands.rs`'s
+        // call site, for the Dart ecosystem's equivalent: a generated `pubspec.yaml` whose
+        // constraint a committed `pubspec.lock` no longer resolves fails `dart pub get
+        // --enforce-lockfile` just as surely as the checks above fail their own frozen-install
+        // commands. Unlike the internal `stale_dart_pins` helper in `version_lockfiles` (used
+        // only to decide whether to re-run `dart pub get`), this surfaces the same class of
+        // drift as an actual stage failure. Tolerating-variant, same rationale as the Cargo.lock
+        // check above. ~keep
+        if let Some(error) = pipeline::check_generated_dart_lock_freshness_tolerating_pending_publish(
+            &current_gen_paths,
+            &base_dir,
+            Some(resolved_cfg),
+        ) {
+            stage_failures.record(
+                &format!("[{}] generated pubspec.lock freshness", resolved_cfg.name),
+                error,
+            );
+        }
 
         let previous_generation_owned: std::collections::HashMap<_, _> = languages
             .iter()

@@ -45,6 +45,10 @@ pub(crate) use generate::{
 };
 pub use helpers::{init, run_optional};
 pub(crate) use lock_freshness::{
+    check_generated_composer_lock_freshness_tolerating_pending_publish,
+    check_generated_dart_lock_freshness_tolerating_pending_publish,
+    check_generated_gemfile_lock_freshness_tolerating_pending_publish,
+    check_generated_go_sum_freshness_tolerating_pending_publish,
     check_generated_lock_freshness_tolerating_pending_publish,
     check_generated_node_lock_freshness_tolerating_pending_publish,
     check_generated_uv_lock_freshness_tolerating_pending_publish,

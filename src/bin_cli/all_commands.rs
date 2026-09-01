@@ -863,6 +863,65 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 ) {
                     stage_failures.record(&format!("[{}] generated uv.lock freshness", resolved_cfg.name), error);
                 }
+                // Same reasoning as the checks immediately above, for the Composer/PHP
+                // ecosystem's equivalent: e2e/test-app generation can leave a `composer.json`
+                // whose constraints a committed `composer.lock` no longer resolves, which fails
+                // `composer install` in CI. Tolerating-variant, same rationale as the Cargo.lock
+                // check above. ~keep
+                if let Some(error) = pipeline::check_generated_composer_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    Some(resolved_cfg),
+                ) {
+                    stage_failures.record(
+                        &format!("[{}] generated composer.lock freshness", resolved_cfg.name),
+                        error,
+                    );
+                }
+                // Same reasoning as the checks immediately above, for the RubyGems ecosystem's
+                // equivalent: e2e/test-app generation can leave a `Gemfile` whose constraint a
+                // committed `Gemfile.lock` no longer resolves, which fails `bundle install
+                // --deployment` in CI. Tolerating-variant, same rationale as the Cargo.lock
+                // check above. ~keep
+                if let Some(error) = pipeline::check_generated_gemfile_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    Some(resolved_cfg),
+                ) {
+                    stage_failures.record(
+                        &format!("[{}] generated Gemfile.lock freshness", resolved_cfg.name),
+                        error,
+                    );
+                }
+                // Same reasoning as the checks immediately above, for the Go ecosystem's
+                // equivalent: e2e/test-app generation can leave a `go.mod` requiring an exact
+                // version the committed `go.sum` checksum ledger has no entry for, which fails
+                // `go build -mod=readonly`/`go test -mod=readonly` (the CI default).
+                // Tolerating-variant, same rationale as the Cargo.lock check above. ~keep
+                if let Some(error) = pipeline::check_generated_go_sum_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    Some(resolved_cfg),
+                ) {
+                    stage_failures.record(&format!("[{}] generated go.sum freshness", resolved_cfg.name), error);
+                }
+                // Same reasoning as the checks immediately above, for the Dart ecosystem's
+                // equivalent: e2e/test-app generation can leave a `pubspec.yaml` whose constraint
+                // a committed `pubspec.lock` no longer resolves, which fails `dart pub get
+                // --enforce-lockfile` in CI. Unlike the internal `stale_dart_pins` helper in
+                // `version_lockfiles` (used only to decide whether to re-run `dart pub get`),
+                // this surfaces the same class of drift as an actual stage failure.
+                // Tolerating-variant, same rationale as the Cargo.lock check above. ~keep
+                if let Some(error) = pipeline::check_generated_dart_lock_freshness_tolerating_pending_publish(
+                    &current_gen_paths,
+                    &base_dir,
+                    Some(resolved_cfg),
+                ) {
+                    stage_failures.record(
+                        &format!("[{}] generated pubspec.lock freshness", resolved_cfg.name),
+                        error,
+                    );
+                }
 
                 grand_binding_count += binding_count;
                 grand_stub_count += stub_count;

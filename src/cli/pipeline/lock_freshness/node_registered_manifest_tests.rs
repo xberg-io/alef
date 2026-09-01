@@ -11,10 +11,10 @@
 use super::*;
 
 const REGISTERED_DIR_RELATIVE: &str = "crates/sample-wasm";
-/// Independent of `mod node`'s `NODE_DEPENDENCY`/`NODE_STALE_SPEC`/`NODE_FRESH_SPEC` on
-/// purpose: this module is a sibling of `mod node`, not a descendant, so it cannot see that
-/// module's private consts, and duplicating three short literals is cheaper than restructuring
-/// module nesting for the sake of sharing them.
+/// Independent of `NODE_DEPENDENCY`/`NODE_STALE_SPEC`/`NODE_FRESH_SPEC` on purpose: even though
+/// this module is nested under the node gate's own test module and could see those consts, a
+/// separate trio keeps this fixture file legible on its own without a reader having to track
+/// which outer scope a bare identifier came from.
 const WASM_DEPENDENCY: &str = "sample-pkg";
 const WASM_STALE_SPEC: &str = "1.3.0";
 const WASM_FRESH_SPEC: &str = "1.2.3";
