@@ -353,20 +353,6 @@ pub struct TaggedEnumWire {
     pub content: Option<String>,
 }
 
-/// Per-type PHP getter classification + chain-resolution metadata.
-///
-/// Holds enough information to resolve a multi-segment field path through the
-/// IR's nested type graph and pick the correct accessor style at each segment:
-///
-/// * `getters[type_name]` — set of field names on `type_name` whose PHP binding
-///   uses a `#[php(getter)]` method (caller must emit `->getCamelCase()`).
-/// * `field_types[type_name][field_name]` — the IR-resolved `Named` type that
-///   `field_name` traverses into, used to advance the "current type" cursor
-///   for the next path segment. Absent for terminal/scalar fields.
-/// * `root_type` — the IR type name backing the result variable at the start of
-///   any chain. When `None`, chain traversal degrades to per-segment lookup
-///   using a flattened union across all types (legacy bare-name behaviour),
-///   which produces false positives when field names collide across types.
 /// Per-(union type, variant) narrowing facts, supplied by the binding backend that owns the
 /// spelling.
 ///
@@ -405,6 +391,20 @@ impl VariantAccessorMap {
     }
 }
 
+/// Per-type PHP getter classification + chain-resolution metadata.
+///
+/// Holds enough information to resolve a multi-segment field path through the
+/// IR's nested type graph and pick the correct accessor style at each segment:
+///
+/// * `getters[type_name]` — set of field names on `type_name` whose PHP binding
+///   uses a `#[php(getter)]` method (caller must emit `->getCamelCase()`).
+/// * `field_types[type_name][field_name]` — the IR-resolved `Named` type that
+///   `field_name` traverses into, used to advance the "current type" cursor
+///   for the next path segment. Absent for terminal/scalar fields.
+/// * `root_type` — the IR type name backing the result variable at the start of
+///   any chain. When `None`, chain traversal degrades to per-segment lookup
+///   using a flattened union across all types (legacy bare-name behaviour),
+///   which produces false positives when field names collide across types.
 #[derive(Debug, Clone, Default)]
 pub struct PhpGetterMap {
     pub getters: HashMap<String, HashSet<String>>,
