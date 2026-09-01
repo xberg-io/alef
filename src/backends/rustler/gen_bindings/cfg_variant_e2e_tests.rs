@@ -173,16 +173,20 @@ fn generate_bindings_keeps_catch_all_for_tagged_enum_foreign_variant_not_proven_
     );
 }
 
-/// THE E0004 REGRESSION this task fixes, reproduced end to end: Rustler's own `NifTaggedEnum`
-/// declaration (`types::gen_enum`, the non-flat-struct branch) declares every variant
-/// unconditionally -- it never consults `configured_features` at all -- so `Extra` is still part
-/// of the real generated `RoutingStrategy` Rust type even though this binding's own configured
-/// feature set proves the CORE dependency's own `Extra` variant unreachable. `impl From<RoutingStrategy>
-/// for dep_crate::RoutingStrategy` matches over that declared type, not the core type, so
-/// dropping its catch-all on the core-side proof leaves a real gap: `error[E0004]: non-exhaustive
-/// patterns`. ~keep
+/// THE `unreachable_patterns` REGRESSION reproduced end to end against `html-to-markdown-rs`'s
+/// real `TierStrategy` (xberg CI run 33428741012, `packages/elixir/native/xberg_nif/src/lib.rs`):
+/// Rustler's own unit/tagged enum declaration (`types::gen_enum`'s `declared_variants`, fed by
+/// [`crate::codegen::conversions::enum_variant_declaration`]) DOES drop a FOREIGN cfg-gated
+/// variant this binding's own configured feature set proves unreachable -- since alef
+/// `589d67e8ab5a1db8c4427e20f4be0046e51f03bb`, `pub enum RoutingStrategy { Primary }` never
+/// declares `Extra` here at all. `rustler_conv_config` never set
+/// `declaration_drops_unreachable_foreign_variants` to match, so
+/// `has_unresolved_foreign_cfg_variants` still assumed the declaration kept `Extra`
+/// unconditionally and kept the catch-all -- unreachable the moment the 1-variant match is
+/// already exhaustive: a `cargo clippy -D warnings` failure identical to the one that blocked
+/// every Elixir e2e test from ever running. ~keep
 #[test]
-fn generate_bindings_keeps_binding_to_core_catch_all_for_tagged_enum_foreign_variant_proven_unreachable_end_to_end() {
+fn generate_bindings_omits_binding_to_core_catch_all_for_tagged_enum_foreign_variant_proven_unreachable_end_to_end() {
     let api = foreign_cfg_tagged_enum_api_with_param_function();
     let config = rustler_config_with_feature(None);
     let files = RustlerBackend.generate_bindings(&api, &config).unwrap();
@@ -190,11 +194,35 @@ fn generate_bindings_keeps_binding_to_core_catch_all_for_tagged_enum_foreign_var
     let conversion = core_to_binding_conversion(lib_rs, "impl From<RoutingStrategy> for dep_crate::RoutingStrategy {");
 
     assert!(
+        !conversion.contains("_ => Default::default(),"),
+        "Rustler's own declaration drops a foreign cfg-gated variant proven unreachable by this \
+         binding's own configured feature set, so the binding->core match it declares is already \
+         exhaustive without a catch-all -- keeping one is unreachable_patterns under \
+         -D warnings, got:\n{conversion}"
+    );
+}
+
+/// Positive control for the test above: when the gating feature IS configured, Rustler's
+/// declaration keeps `Extra` (unconditionally, with no per-variant `#[cfg(...)]` it could attach
+/// -- `enum_variant_declaration` never resolves a `Keep` to carry a cfg for a foreign variant),
+/// while `emit_cfg_gated_arm` still unconditionally drops any foreign cfg-gated arm regardless of
+/// features. The match is therefore genuinely short one arm and the catch-all must stay, or
+/// omitting it trades the unreachable-pattern bug for `error[E0004]: non-exhaustive patterns`.
+/// ~keep
+#[test]
+fn generate_bindings_keeps_binding_to_core_catch_all_for_tagged_enum_foreign_variant_not_proven_unreachable_end_to_end()
+{
+    let api = foreign_cfg_tagged_enum_api_with_param_function();
+    let config = rustler_config_with_feature(Some("extra-tier"));
+    let files = RustlerBackend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = lib_rs_content(&files);
+    let conversion = core_to_binding_conversion(lib_rs, "impl From<RoutingStrategy> for dep_crate::RoutingStrategy {");
+
+    assert!(
         conversion.contains("_ => Default::default(),"),
-        "Rustler's NifTaggedEnum declaration declares every variant unconditionally regardless of \
-         configured_features, so the binding->core match must keep its catch-all even when the \
-         core dependency's own variant is proven unreachable -- omitting it is \
-         error[E0004]: non-exhaustive patterns, got:\n{conversion}"
+        "a foreign cfg-gated variant that is NOT proven unreachable is still declared \
+         unconditionally while its conversion arm is still dropped, so the catch-all must stay \
+         to cover it -- omitting it is error[E0004]: non-exhaustive patterns, got:\n{conversion}"
     );
 }
 

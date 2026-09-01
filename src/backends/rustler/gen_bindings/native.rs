@@ -520,6 +520,17 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             let rustler_conv_config = crate::codegen::conversions::ConversionConfig {
                 binding_enums_have_data: has_data,
                 configured_features: Some(enabled_features.as_slice()),
+                // `types::gen_enum` (Rustler's own enum declaration, both the `NifUnitEnum` and
+                // `NifTaggedEnum` branches) already drops a FOREIGN cfg-gated variant this
+                // binding's own feature set proves unreachable -- via the same `declared_variants`
+                // filter over `enum_variant_declaration` (alef #589d67e8a) -- so the binding->core
+                // catch-all decision here must know the declaration can leave a gap-free match on
+                // its own, mirroring `magnus_conv_config`. Leaving this unset (the `false`
+                // default) makes `has_unresolved_foreign_cfg_variants` assume the declaration
+                // keeps every variant unconditionally, which stopped being true the moment the
+                // declaration started dropping them: the match is exhaustive without the
+                // catch-all, so keeping it is `unreachable_patterns` under `-D warnings`. ~keep
+                declaration_drops_unreachable_foreign_variants: true,
                 ..Default::default()
             };
             if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
