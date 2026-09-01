@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MSRV:** `rust-version` now declares `1.89`, the version the crate actually needs
+  (`serde-saphyr@1.2.0` requires 1.89, so cargo refuses at the resolver on 1.88). The declared
+  `1.88` was false, and `Compile at declared MSRV` had been failing on `main` for every release
+  since -- 0.79.5 and 0.80.0 both shipped the false claim. The claim only bites an installer on
+  an older toolchain, which is exactly how the same class of bug reached a user in 0.68.0
+  (issue #262) and why that CI job exists.
 - **version-sync (lock freshness):** `collect_requirements` no longer treats an optional
   dependency (`optional = true`) as a hard requirement when no feature reachable from the
   generated manifest actually activates it. `alef generate` was hard-failing on repos where

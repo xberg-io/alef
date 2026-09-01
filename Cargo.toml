@@ -3,7 +3,7 @@
 name = "alef"
 version = "0.81.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/xberg-io/alef"
 homepage = "https://github.com/xberg-io/alef"
