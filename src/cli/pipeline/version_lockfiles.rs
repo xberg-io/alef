@@ -48,7 +48,7 @@ pub(super) fn relock_cargo_lockfiles(canonical: &str) {
             continue;
         };
         info!("Relocking {} after version sync", lock.path.display());
-        relock_one(dir, &lock.path);
+        relock_one(dir, &lock.path, None);
     }
 }
 
@@ -85,7 +85,7 @@ pub(super) fn retry_blocked_lockfiles(canonical: &str) {
             waiting_on,
             "version-sync: retrying relock for a lock previously blocked on a pending release"
         );
-        relock_one(dir, &lock.path);
+        relock_one(dir, &lock.path, Some(waiting_on));
     }
 }
 
@@ -116,7 +116,7 @@ pub(super) fn relock_lockfiles_beside_changed_manifests(changed_paths: &HashSet<
             continue;
         }
         info!("Relocking {} after its generated manifest changed", lock_path.display());
-        relock_one(dir, &lock_path);
+        relock_one(dir, &lock_path, None);
     }
 }
 
@@ -407,8 +407,16 @@ fn relock_args(mode: RelockMode) -> &'static [&'static str] {
 /// (`pnpm install`, `composer update`, `mix deps.get`): a missing `cargo` binary or a lockfile
 /// that cannot resolve must not abort the whole version sync. Try the local registry cache first,
 /// then retry with registry access when that cache cannot satisfy a newly generated constraint.
-/// ~keep
-fn relock_one(dir: &Path, lock_path: &Path) {
+///
+/// `waiting_on` is `Some("name@version")` only when the caller already knows, before calling,
+/// that this lock is [`retry_blocked_lockfiles`]'s deliberate retry of a lock still waiting on
+/// its own pending release -- never a fresh, previously-unexamined lock. ~keep alef #A7: both
+/// resolvers failing is the EXPECTED outcome for that retry, not a surprise, so it is logged at
+/// `info` ("still waiting on ...") instead of the loud `warn` this function otherwise emits, which
+/// names a `cargo check --locked` remedy the caller cannot run until the release publishes. Every
+/// other caller passes `None`: a lock nothing already flagged as blocked failing both resolvers
+/// is still a genuinely unexplained drift and must stay loud.
+fn relock_one(dir: &Path, lock_path: &Path, waiting_on: Option<&str>) {
     let outcome = attempt_relock_with(|mode| {
         std::process::Command::new("cargo")
             .args(relock_args(mode))
@@ -445,14 +453,24 @@ fn relock_one(dir: &Path, lock_path: &Path) {
             offline_code,
             online_code,
         }) => {
-            warn!(
-                lock = %lock_path.display(),
-                ?offline_code,
-                ?online_code,
-                "cargo update -w failed both offline and with registry access; the lockfile may still be stale \
-                 against its manifest. Resolve the dependency conflict in that directory before running \
-                 `cargo check --locked`"
-            );
+            if let Some(waiting_on) = waiting_on {
+                info!(
+                    lock = %lock_path.display(),
+                    waiting_on,
+                    ?offline_code,
+                    ?online_code,
+                    "still waiting on {waiting_on} to publish; the lockfile cannot resolve until then"
+                );
+            } else {
+                warn!(
+                    lock = %lock_path.display(),
+                    ?offline_code,
+                    ?online_code,
+                    "cargo update -w failed both offline and with registry access; the lockfile may still be \
+                     stale against its manifest. Resolve the dependency conflict in that directory before \
+                     running `cargo check --locked`"
+                );
+            }
         }
     }
 }

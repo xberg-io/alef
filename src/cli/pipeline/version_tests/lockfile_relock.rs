@@ -318,4 +318,21 @@ fn sync_versions_retries_a_lock_still_blocked_even_when_nothing_else_changed() {
         "the retry's own failure (a synthetic crate name published nowhere can never resolve) must \
          still be absorbed gracefully rather than corrupting the lock: {lock}"
     );
+
+    // alef #A7: the retry above is EXPECTED to fail both resolvers -- `sample@{NEW_VERSION}` is a
+    // synthetic crate this test never published anywhere, so `cargo update -w` cannot resolve it
+    // offline or online no matter how many times it is retried. That expected, already-explained
+    // failure must log at `info` naming what it is still waiting on, not the loud `warn` this
+    // module raises for a lock nothing already flagged as blocked -- that message names a
+    // `cargo check --locked` remedy the caller cannot act on until the release actually publishes.
+    assert!(
+        logs_contain(&format!("still waiting on sample@{NEW_VERSION} to publish")),
+        "an expected, already-explained retry failure must be logged at info, not buried in a warn \
+         with no distinction from a genuinely unexplained failure"
+    );
+    assert!(
+        !logs_contain("Resolve the dependency conflict in that directory"),
+        "the loud warn (with its `cargo check --locked` remedy the caller cannot run yet) must not \
+         fire for a retry this run already knew was blocked on a pending release"
+    );
 }
