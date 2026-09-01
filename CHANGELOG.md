@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.81.0] - 2026-09-01
 
 ### Fixed
 
@@ -70,6 +70,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   core crate declares was previously referenced unconditionally regardless of whether the
   consumer's own feature set enabled it (41 ungated `xberg::candle_ocr::*` references on
   Ruby/Windows).
+- **e2e (dart):** the generated `setUpAll` now spawns the mock server before applying the
+  test-documents `Directory.current` chdir. The spawn resolves its own paths (`app_harness.dart`,
+  `../rust/Cargo.toml`, the mock-server binary) against `Directory.current` at call time, so the
+  earlier chdir made them resolve from `test_documents/` -- six suites failed in `setUpAll` with
+  zero fixture assertions run.
+- **e2e (go):** the Go field resolver now wires `FieldResolver::with_ir_collection_map`, as every
+  sibling backend already did, and `assertion_field_shape` no longer falls back to guessing
+  `is_optional && !is_array_for_len` when a field's chain fails to resolve. Together those made
+  every `Option<Vec<T>>` result field read as a pointer-to-slice instead of Go's plain nilable
+  slice.
+- **e2e (ruby):** a tagged-enum payload assertion now hops through magnus's wrapper field before
+  reading the payload. Magnus restates each single-field variant as a struct field, nesting the
+  payload one level deeper than core's flat internally-tagged wire format; the generated Ruby
+  read it directly off the tag-checked hash (`KeyError: key not found: :sheet_count`).
+- **e2e (rust):** an enum field already pre-unwrapped to a `String` local is now compared on its
+  own wire surface instead of being `Debug`-formatted. A serde-derived `Display` already yields
+  the wire spelling, so the previous path compared the wire form against the Rust identifier.
 
 ## [0.80.0] - 2026-09-01
 
