@@ -230,11 +230,11 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the effective lint configuration for a language.
+    ///
+    /// Always alef's own built-in default: 0.82.0 removed `[lint.<lang>]` /
+    /// `[workspace.lint.<lang>]` / `[crates.lint.<lang>]` from the schema, so there is no
+    /// override left to consult.
     pub fn lint_config_for_language(&self, lang: Language) -> LintConfig {
-        let lang_str = lang.to_string();
-        if let Some(explicit) = self.lint.get(&lang_str) {
-            return explicit.clone();
-        }
         let output_dir = self.package_dir(lang);
         let run_wrapper = self.run_wrapper_for_language(lang);
         let extra_lint_paths = self.extra_lint_paths_for_language(lang);
@@ -249,11 +249,11 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the effective update configuration for a language.
+    ///
+    /// Always alef's own built-in default: 0.82.0 removed `[update.<lang>]` /
+    /// `[workspace.update.<lang>]` / `[crates.update.<lang>]` from the schema, so there is no
+    /// override left to consult.
     pub fn update_config_for_language(&self, lang: Language) -> UpdateConfig {
-        let lang_str = lang.to_string();
-        if let Some(explicit) = self.update.get(&lang_str) {
-            return explicit.clone();
-        }
         let output_dir = self.package_dir(lang);
         let ctx = LangContext {
             tools: &self.tools,
@@ -331,11 +331,11 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the effective setup configuration for a language.
+    ///
+    /// Always alef's own built-in default: 0.82.0 removed `[setup.<lang>]` /
+    /// `[workspace.setup.<lang>]` / `[crates.setup.<lang>]` from the schema, so there is no
+    /// override left to consult.
     pub fn setup_config_for_language(&self, lang: Language) -> SetupConfig {
-        let lang_str = lang.to_string();
-        if let Some(explicit) = self.setup.get(&lang_str) {
-            return explicit.clone();
-        }
         let output_dir = self.package_dir(lang);
         let ctx = LangContext {
             tools: &self.tools,
@@ -347,11 +347,11 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the effective clean configuration for a language.
+    ///
+    /// Always alef's own built-in default: 0.82.0 removed `[clean.<lang>]` /
+    /// `[workspace.clean.<lang>]` / `[crates.clean.<lang>]` from the schema, so there is no
+    /// override left to consult.
     pub fn clean_config_for_language(&self, lang: Language) -> CleanConfig {
-        let lang_str = lang.to_string();
-        if let Some(explicit) = self.clean.get(&lang_str) {
-            return explicit.clone();
-        }
         let output_dir = self.package_dir(lang);
         let ctx = LangContext {
             tools: &self.tools,
@@ -363,8 +363,14 @@ impl ResolvedCrateConfig {
     }
 
     /// Get the effective build command configuration for a language.
+    ///
+    /// In a real build this is always alef's own built-in default: 0.82.0 removed
+    /// `[build_commands.<lang>]` / `[workspace.build_commands.<lang>]` /
+    /// `[crates.build_commands.<lang>]` from the schema, so `RawCrateConfig`/`WorkspaceConfig`
+    /// have nothing to populate an override from. The `#[cfg(test)]` branch below is this
+    /// crate's own hermetic-test hook (see [`super::ResolvedCrateConfig::build_commands`]), not a
+    /// user-facing feature -- it never runs outside `cargo test`.
     pub fn build_command_config_for_language(&self, lang: Language) -> BuildCommandConfig {
-        let lang_str = lang.to_string();
         let output_dir = self.package_dir(lang);
         let run_wrapper = self.run_wrapper_for_language(lang);
         let project_file = self.project_file_for_language(lang);
@@ -374,21 +380,27 @@ impl ResolvedCrateConfig {
             extra_lint_paths: &[],
             project_file,
         };
-        let mut default = build_defaults::default_build_config(lang, &output_dir, &self.name, &ctx);
-        let Some(explicit) = self.build_commands.get(&lang_str) else {
-            return default;
-        };
-        // A built-in `dependency_precondition` describes what alef's *own* default command needs
-        // (`maturin develop` needs an interpreter environment, `mix compile` needs fetched deps).
-        // Once the user supplies their own build command it no longer describes anything alef
-        // knows, and keeping it would skip builds that work — `maturin build` needs no virtualenv
-        // at all. Drop it unless the override declares its own. ~keep
-        if (explicit.build.is_some() || explicit.build_release.is_some()) && explicit.dependency_precondition.is_none()
+        let default = build_defaults::default_build_config(lang, &output_dir, &self.name, &ctx);
+        #[cfg(test)]
         {
-            default.dependency_precondition = None;
-            default.dependency_remediation = None;
+            let lang_str = lang.to_string();
+            if let Some(explicit) = self.build_commands.get(&lang_str) {
+                let mut default = default;
+                // A built-in `dependency_precondition` describes what alef's *own* default
+                // command needs (`maturin develop` needs an interpreter environment, `mix
+                // compile` needs fetched deps). Once a test override supplies its own build
+                // command it no longer describes anything alef knows, and keeping it would skip
+                // builds that work. Drop it unless the override declares its own. ~keep
+                if (explicit.build.is_some() || explicit.build_release.is_some())
+                    && explicit.dependency_precondition.is_none()
+                {
+                    default.dependency_precondition = None;
+                    default.dependency_remediation = None;
+                }
+                return default.merge_overlay(explicit);
+            }
         }
-        default.merge_overlay(explicit)
+        default
     }
 
     /// Get the features to use for a specific language's binding crate.
@@ -496,47 +508,6 @@ sources = ["src/lib.rs"]
     fn assert_package_dir_eq(actual: String, expected: &str, message: &str) {
         let actual = crate::test_support::portable_path_string(std::path::Path::new(&actual));
         assert_eq!(actual, expected, "{message}");
-    }
-
-    #[test]
-    fn resolved_lint_config_inherits_workspace_when_crate_unset() {
-        let r = resolved_one(
-            r#"
-[workspace]
-languages = ["python"]
-
-[workspace.lint.python]
-check = "ruff check ."
-
-[[crates]]
-name = "test-lib"
-sources = ["src/lib.rs"]
-"#,
-        );
-        let lint = r.lint_config_for_language(Language::Python);
-        assert_eq!(lint.check.unwrap().commands(), vec!["ruff check ."]);
-    }
-
-    #[test]
-    fn resolved_lint_config_crate_overrides_workspace_field_wholesale() {
-        let r = resolved_one(
-            r#"
-[workspace]
-languages = ["python"]
-
-[workspace.lint.python]
-check = "ruff check ."
-
-[[crates]]
-name = "test-lib"
-sources = ["src/lib.rs"]
-
-[crates.lint.python]
-check = "ruff check crates/test-lib-py/"
-"#,
-        );
-        let lint = r.lint_config_for_language(Language::Python);
-        assert_eq!(lint.check.unwrap().commands(), vec!["ruff check crates/test-lib-py/"]);
     }
 
     #[test]

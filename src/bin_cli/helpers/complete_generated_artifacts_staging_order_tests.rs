@@ -11,21 +11,24 @@
 //! find the header already fresh and skip the rebuild.
 //!
 //! These tests drive the real `complete_generated_artifacts` entry point end to end (not a
-//! hand-rolled reimplementation of its internal ordering) against a fake
-//! `[crates.build_commands.ffi]` override standing in for `cargo build`, so no real compile is
-//! required and no host toolchain assumptions are made beyond `sh` (hence `unix`-only).
+//! hand-rolled reimplementation of its internal ordering) against a fake build command standing
+//! in for `cargo build`, so no real compile is required and no host toolchain assumptions are
+//! made beyond `sh` (hence `unix`-only). 0.82.0 removed `[crates.build_commands.ffi]` from
+//! `alef.toml`; the stand-in is now set directly on the resolved config via
+//! `ResolvedCrateConfig::build_commands`, alef's own `#[cfg(test)]` hermetic-test hook (see that
+//! field's doc comment).
 
 use super::*;
 use crate::core::backend::CompilePolicy;
 use crate::core::config::Language;
+use crate::core::config::output::{BuildCommandConfig, StringOrVec};
 
 /// A minimal Go+FFI crate config with an explicit `[crates.ffi]` prefix/lib_name (so the
 /// expected shared-library and header file names are fixed strings, not resolver defaults that
-/// could silently drift) and a `[crates.build_commands.ffi]` override standing in for the real
-/// `cargo build` `ensure_ffi_header_freshness` would otherwise invoke.
+/// could silently drift) and a `ResolvedCrateConfig::build_commands` override standing in for the
+/// real `cargo build` `ensure_ffi_header_freshness` would otherwise invoke.
 fn go_ffi_config(build_script: &str) -> crate::core::config::ResolvedCrateConfig {
-    let alef_toml = format!(
-        r#"
+    let alef_toml = r#"
 [workspace]
 languages = ["go", "ffi"]
 
@@ -36,14 +39,22 @@ sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "samplelib"
 lib_name = "samplelib_ffi"
-
-[crates.build_commands.ffi]
-precondition = "true"
-build = "{build_script}"
-"#
+"#;
+    let alef_cfg: crate::core::config::NewAlefConfig = toml::from_str(alef_toml).expect("parse fixture alef.toml");
+    let mut config = alef_cfg.resolve().expect("resolve fixture crate").remove(0);
+    config.build_commands.insert(
+        Language::Ffi.to_string(),
+        BuildCommandConfig {
+            precondition: Some("true".to_string()),
+            dependency_precondition: None,
+            dependency_remediation: None,
+            before: None,
+            build: Some(StringOrVec::Single(build_script.to_string())),
+            build_release: None,
+            timeout_seconds: None,
+        },
     );
-    let alef_cfg: crate::core::config::NewAlefConfig = toml::from_str(&alef_toml).expect("parse fixture alef.toml");
-    alef_cfg.resolve().expect("resolve fixture crate").remove(0)
+    config
 }
 
 fn host_target() -> crate::publish::platform::RustTarget {

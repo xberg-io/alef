@@ -49,14 +49,23 @@ serde/wire names, internal generated Rust names, and ABI/native symbols.
 
 ## Pipeline Hooks
 
-All command configs (`LintConfig`, `TestConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`, `CleanConfig`) support:
+Alef is opinionated: as of 0.82.0, `lint`/`setup`/`update`/`clean`/`build_commands` are no longer
+configurable in `alef.toml` at all (`LintConfig`, `SetupConfig`, `UpdateConfig`, `BuildCommandConfig`,
+`CleanConfig` are plain internal data carriers returned by `core::config::{lint,setup,update,build,clean}_defaults`,
+with no `Deserialize`/schema surface). `TestConfig` is the sole survivor — `test.e2e` has no code
+default in any language but Dart, so `[test.<lang>]` stays configurable in `[workspace]`/`[[crates]]`.
+
+Every command config still supports the same two hook fields:
 
 - `precondition: Option<String>` — shell command that must exit 0; skip with warning on failure
 - `before: Option<StringOrVec>` — commands run before the main command; abort on failure
 
 Execution order per language: precondition → before → main command(s).
 
-Rust is a first-class language in all pipelines. In `build()`, Rust is handled via configurable `[build_commands.rust]` (not the backend registry, which panics for `Language::Rust`).
+Rust is a first-class language in all pipelines. In `build()`, Rust is always driven by
+`build_defaults::default_build_config(Language::Rust, ..)` (not the backend registry, which panics
+for `Language::Rust`, and not any `alef.toml` override — there is no `[build_commands.rust]`
+anymore).
 
 ## Standard Backend Module Layout
 

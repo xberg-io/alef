@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::abi_grammar;
 use super::extras::{Language, is_known_language};
 use super::languages::FfiConfig;
-use super::output::{
-    BuildCommandConfig, GeneratedHeaderConfig, ScaffoldConfig, validate_output_path, validate_output_segment,
-};
+use super::output::{GeneratedHeaderConfig, ScaffoldConfig, validate_output_path, validate_output_segment};
 use super::package_metadata::PackageMetadataConfig;
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
@@ -216,12 +214,7 @@ impl NewAlefConfig {
             },
         )?;
 
-        let lint = merge_map(&ws.lint, &krate.lint);
         let test = merge_map(&ws.test, &krate.test);
-        let setup = merge_map(&ws.setup, &krate.setup);
-        let update = merge_map(&ws.update, &krate.update);
-        let clean = merge_map(&ws.clean, &krate.clean);
-        let build_commands = merge_build_command_maps(&ws.build_commands, &krate.build_commands);
         let generate_overrides = merge_map(&ws.generate_overrides, &krate.generate_overrides);
 
         if languages.contains(&Language::Jni) && !languages.contains(&Language::KotlinAndroid) {
@@ -394,12 +387,9 @@ impl NewAlefConfig {
             include: krate.include.clone(),
             output_paths,
             explicit_output: krate.output.clone(),
-            lint,
             test,
-            setup,
-            update,
-            clean,
-            build_commands,
+            #[cfg(test)]
+            build_commands: HashMap::new(),
             generate: krate.generate.clone().unwrap_or_else(|| ws.generate.clone()),
             generate_overrides,
             dto: krate.dto.clone().unwrap_or_else(|| ws.dto.clone()),
@@ -1169,21 +1159,6 @@ fn merge_generated_header(
             .and_then(|h| h.verify_command.clone())
             .or_else(|| workspace.and_then(|h| h.verify_command.clone())),
     })
-}
-
-fn merge_build_command_maps(
-    workspace: &HashMap<String, BuildCommandConfig>,
-    krate: &HashMap<String, BuildCommandConfig>,
-) -> HashMap<String, BuildCommandConfig> {
-    let mut merged = workspace.clone();
-    for (lang, override_cfg) in krate {
-        let next = merged
-            .remove(lang)
-            .map(|base| base.merge_overlay(override_cfg))
-            .unwrap_or_else(|| override_cfg.clone());
-        merged.insert(lang.clone(), next);
-    }
-    merged
 }
 
 #[cfg(test)]

@@ -178,30 +178,30 @@ const POST_BUILD_FIXTURE_SOURCE: &str = "pub fn greet(name: String) -> String {\
 const POST_BUILD_FIXTURE_CARGO_TOML: &str =
     "[package]\nname = \"postbuildlib\"\nversion = \"0.1.0\"\nedition = \"2024\"\n";
 
-/// `languages = ["ffi"]` plus a `[crates.build_commands.ffi]` override whose `build` command can
-/// only fail. `complete_generated_artifacts` reaches `crate::cli::pipeline::ensure_ffi_header_freshness`
-/// for any FFI-configured crate, the generated header does not exist yet on a fresh tree, and
-/// the refresh closure it then calls is `build_with_environment(.., [Ffi], ..)` -- which honours
-/// this override in place of its own cargo invocation. The failure therefore originates inside
+/// `languages = ["ffi"]` plus a `[crates.extra_dependencies]` entry naming a local path that does
+/// not exist. `complete_generated_artifacts` reaches
+/// `crate::cli::pipeline::ensure_ffi_header_freshness` for any FFI-configured crate, the
+/// generated header does not exist yet on a fresh tree, and the refresh closure it then calls is
+/// `build_with_environment(.., [Ffi], ..)` -- a real `cargo build --manifest-path` of the
+/// scaffolded FFI crate, which now declares a dependency on a directory that was never created.
+/// Cargo fails while loading that dependency's manifest, before resolving anything else, so this
+/// costs ~0.5s: no real compilation, no network, no dependency on which toolchains happen to be
+/// installed beyond `cargo` itself. The failure therefore originates inside
 /// `complete_generated_artifacts`, the only thing `stage_failures.record("[<crate>] post-build
-/// processing", ..)` wraps, and it costs one `exit 42`: no compilation, no network, no dependency
-/// on which toolchains happen to be installed.
+/// processing", ..)` wraps.
 ///
-/// `precondition` is load-bearing, not decoration: `config::validation::preconditions` rejects a
-/// pipeline table that sets a main command without one, so an override with a bare `build` key
-/// never survives `load_config` and aborts the run before any stage records anything. `true` is
-/// the POSIX command -- "this override's tooling is always available".
-///
-/// This used to rely instead on `cargo build -p postbuildlib-ffi` failing with "package ID
-/// specification ... did not match any packages", because the generated crate is not a member of
-/// any workspace. That was never a property worth depending on -- it was alef's own defect, since
-/// a `-p` spec resolves only for a workspace member while the emitted FFI crate is standalone
-/// unless the consumer lists it. Both that call site and `build_command_for`'s `"cargo"` arm now
-/// build by `--manifest-path`, so the build legitimately succeeds and this test lost its failure
-/// (measured before it was replaced: 7s and an "Updating crates.io index" -- it had also quietly
-/// become a compiling, networked test). A configured build command that exits non-zero is a
-/// permanent, first-class failure mode alef is not trying to eliminate, so it cannot be fixed out
-/// from under this test the same way. ~keep
+/// This used to configure `[crates.build_commands.ffi] build = "exit 42"` instead -- 0.82.0
+/// removed that table from the schema entirely (alef now owns the FFI build command), so a
+/// deterministic failure has to come from cargo's own real, fast-failing error paths rather than
+/// a hand-picked exit code. Before that override existed at all, this test relied on
+/// `cargo build -p postbuildlib-ffi` failing with "package ID specification ... did not match any
+/// packages", because the generated crate is not a member of any workspace -- that was never a
+/// property worth depending on either, since it was alef's own defect (a `-p` spec resolves only
+/// for a workspace member) and a fix to it silently turned this into a real, 7-second, networked
+/// compile. A missing local path dependency is deterministic and offline for the same reason a
+/// missing package ID was not: cargo cannot resolve it without ever touching the network or the
+/// registry index, on any machine, regardless of what else the fix history above changes about
+/// how the FFI crate gets built. ~keep
 const POST_BUILD_FIXTURE_ALEF_TOML: &str = r#"
 [workspace]
 languages = ["ffi"]
@@ -211,9 +211,8 @@ name = "postbuildlib"
 sources = ["src/lib.rs"]
 version_from = "Cargo.toml"
 
-[crates.build_commands.ffi]
-precondition = "true"
-build = "exit 42"
+[crates.extra_dependencies]
+alef-test-nonexistent-path-dep = { path = "does-not-exist" }
 
 [crates.e2e]
 fixtures = "fixtures"
@@ -259,8 +258,8 @@ fn write_post_build_fixture_workspace(root: &std::path::Path) {
 /// against alef's own tests. It holds `SKIP_COMMANDS_LOCK` for its whole duration so a
 /// concurrent test cannot rewrite the process-global `ALEF_SKIP_COMMANDS` mid-run and change
 /// which of this run's subprocesses execute (see `SkipCommandsGuard`'s doc); the failure this
-/// test asserts on no longer depends on that var either way, since the `[build_commands.ffi]`
-/// override above is dispatched through `run_command_captured_with_env`, which that escape
+/// test asserts on no longer depends on that var either way, since the real `cargo build` the
+/// refresh closure runs is dispatched through `run_command_captured_with_env`, which that escape
 /// hatch does not gate -- only `PostBuildStep::RunCommand` consults it.
 ///
 /// This run has exactly one recorded stage failure, so `StageFailures::into_result` returns the
@@ -295,8 +294,8 @@ fn a_crate_post_build_failure_does_not_abort_its_own_remaining_stages() {
          any other stage would satisfy every other assertion here while proving nothing: {message}"
     );
     assert!(
-        message.contains("Command failed: exit 42"),
-        "the failure must carry the underlying build diagnostic verbatim: {message}"
+        message.contains("failed to load source for dependency"),
+        "the failure must carry the underlying cargo diagnostic verbatim: {message}"
     );
     assert!(
         logs_contain("[postbuildlib] post-build processing"),
@@ -322,10 +321,11 @@ fn a_crate_post_build_failure_does_not_abort_its_own_remaining_stages() {
 /// The generation-only mode, proved end-to-end against the same fixture the test above uses as
 /// its positive control -- so the pair together shows the flag changes exactly one thing.
 ///
-/// `[crates.build_commands.ffi] build = "exit 42"` is what `ensure_ffi_header_freshness`'s
-/// refresh closure runs, and the test above asserts that `alef all` without this flag reaches it
-/// and fails on it. With the flag, `complete_generated_artifacts` must not invoke the refresh at
-/// all, so `exit 42` can never appear in this run: the fixture's own configuration is the
+/// The missing local path dependency in `POST_BUILD_FIXTURE_ALEF_TOML` is what
+/// `ensure_ffi_header_freshness`'s refresh closure's real `cargo build` fails on, and the test
+/// above asserts that `alef all` without this flag reaches it and fails on it. With the flag,
+/// `complete_generated_artifacts` must not invoke the refresh at all, so cargo's "failed to load
+/// source for dependency" can never appear in this run: the fixture's own configuration is the
 /// tripwire, and it costs no compilation, no network, and no host toolchain. The header is still
 /// *checked* -- only never rebuilt -- so a stale one would still fail; this fresh tree has no
 /// header at all, which `check_ffi_header_freshness` reports as a warning and allows. ~keep
@@ -349,9 +349,9 @@ fn skip_compile_writes_source_without_invoking_the_ffi_build() {
     };
 
     assert!(
-        !message.contains("exit 42"),
+        !message.contains("failed to load source for dependency"),
         "--skip-compile must not reach the FFI header refresh -- the only thing in this fixture \
-         that can run `exit 42`: {message}"
+         that can trigger cargo's dependency-resolution failure: {message}"
     );
     assert!(
         logs_contain("not building the FFI crate to refresh its cbindgen header"),

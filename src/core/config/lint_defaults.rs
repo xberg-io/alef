@@ -67,8 +67,9 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
         },
         Language::Ruby => {
             // Project-local bundle install before rubocop so the gem (and its plugins) are
-            // present — lets consumer repos drop the identical `[crates.lint.ruby]`
-            // override and rely on this default. ~keep
+            // present — consumer repos used to hand-write this exact command as a
+            // `[crates.lint.ruby]` override before 0.82.0 removed that table; it is now the only
+            // way ruby lint runs at all. ~keep
             let before_cmd = wrap(
                 format!("cd {output_dir} && {}", ruby_bundle("install")),
                 ctx.run_wrapper,
@@ -182,9 +183,9 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             }
         }
         Language::Elixir => {
-            // `mix deps.get` before credo so deps (credo itself) are fetched —
-            // lets consumer repos drop the identical `[crates.lint.elixir]`
-            // override and rely on this default.
+            // `mix deps.get` before credo so deps (credo itself) are fetched — consumer repos
+            // used to hand-write this exact command as a `[crates.lint.elixir]` override before
+            // 0.82.0 removed that table; it is now the only way elixir lint runs at all.
             let before_cmd = wrap(format!("cd {output_dir} && mix deps.get"), ctx.run_wrapper);
             let format_cmd = wrap(
                 append_paths(format!("cd {output_dir} && mix format"), ctx.extra_lint_paths),

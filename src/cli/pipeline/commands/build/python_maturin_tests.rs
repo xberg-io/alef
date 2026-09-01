@@ -7,9 +7,10 @@
 //! the generated crate's `extension-module` feature never activated — were therefore invisible to
 //! every gate alef had.
 //!
-//! Two producers must agree, so both are exercised here: `build_command_for`'s `"maturin"` arm
-//! (used when the consumer declares no `[crates.build_commands.python]`) and
-//! `build_defaults::default_build_config`'s Python arm (used when they declare one). ~keep
+//! Two producers must agree, so both are exercised here: `build_command_for`'s `"maturin"` arm,
+//! which every real `alef build` reaches (0.82.0 removed `[build_commands.python]` from
+//! `alef.toml`, so there is no override path left), and `build_defaults::default_build_config`'s
+//! Python arm, which is only ever compared against it directly in tests like these. ~keep
 
 use super::*;
 use crate::core::backend::{BuildConfig, BuildDependency};
@@ -199,8 +200,9 @@ sources = ["src/lib.rs"]
     );
 }
 
-/// The other producer of this command: the defaults a consumer gets once they declare any
-/// `[crates.build_commands.python]` key at all. It must reach the same two answers.
+/// The other producer of this command: `build_defaults::default_build_config`'s own Python arm,
+/// exercised directly rather than through `build_command_for`. It must reach the same two
+/// answers.
 #[test]
 fn python_default_build_commands_honour_the_package_manager_and_the_feature() {
     let tools = ToolsConfig {

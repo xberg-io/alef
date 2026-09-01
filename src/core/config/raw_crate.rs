@@ -23,10 +23,7 @@ use super::languages::{
     GoConfig, JavaConfig, JniConfig, KotlinAndroidConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
     RubyConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
-use super::output::{
-    BuildCommandConfig, CleanConfig, DocsConfig, ExcludeConfig, IncludeConfig, LintConfig, OutputConfig, ReadmeConfig,
-    ScaffoldConfig, SetupConfig, TestConfig, UpdateConfig,
-};
+use super::output::{DocsConfig, ExcludeConfig, IncludeConfig, OutputConfig, ReadmeConfig, ScaffoldConfig, TestConfig};
 use super::package_metadata::PackageMetadataConfig;
 use super::publish::PublishConfig;
 use super::service::{HandlerContractConfig, ServiceConfig};
@@ -187,18 +184,10 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub generate_overrides: HashMap<String, super::GenerateConfig>,
 
-    #[serde(default)]
-    pub lint: HashMap<String, LintConfig>,
+    /// The only remaining per-command override table in `alef.toml`; see
+    /// [`super::workspace::WorkspaceConfig::test`] for why `test.e2e` alone stays configurable.
     #[serde(default)]
     pub test: HashMap<String, TestConfig>,
-    #[serde(default)]
-    pub setup: HashMap<String, SetupConfig>,
-    #[serde(default)]
-    pub update: HashMap<String, UpdateConfig>,
-    #[serde(default)]
-    pub clean: HashMap<String, CleanConfig>,
-    #[serde(default)]
-    pub build_commands: HashMap<String, BuildCommandConfig>,
 
     #[serde(default)]
     pub publish: Option<PublishConfig>,
@@ -383,7 +372,7 @@ roots = ["HttpConfig"]
     }
 
     #[test]
-    fn raw_crate_config_with_per_crate_python_and_lint_override() {
+    fn raw_crate_config_with_per_crate_python_section() {
         let toml_str = r#"
 name = "sample_router"
 sources = []
@@ -392,20 +381,32 @@ sources = []
 module_name = "_sample_router"
 pip_name    = "sample_router"
 release_gil = true
-
-[lint.python]
-check = "ruff check crates/sample_router-py/"
 "#;
         let cfg: RawCrateConfig = toml::from_str(toml_str).unwrap();
         let py = cfg.python.expect("python section present");
         assert_eq!(py.module_name.as_deref(), Some("_sample_router"));
         assert_eq!(py.pip_name.as_deref(), Some("sample_router"));
         assert!(py.release_gil);
+    }
 
-        let lint_py = cfg.lint.get("python").expect("lint.python override present");
-        assert_eq!(
-            lint_py.check.as_ref().unwrap().commands(),
-            vec!["ruff check crates/sample_router-py/"]
+    /// 0.82.0 removed `[crates.lint.<lang>]`: it must now be a parse error
+    /// (`deny_unknown_fields`), the same way the analogous `[workspace.lint.<lang>]` case is
+    /// proved in `workspace::tests::workspace_config_rejects_removed_lint_table`. This exact
+    /// fixture (module name swapped) parsed cleanly before the removal -- see the deleted
+    /// `raw_crate_config_with_per_crate_python_and_lint_override` this test replaces. ~keep
+    #[test]
+    fn raw_crate_config_rejects_removed_lint_table() {
+        let toml_str = r#"
+name = "sample_router"
+sources = []
+
+[lint.python]
+check = "ruff check crates/sample_router-py/"
+"#;
+        let err = toml::from_str::<RawCrateConfig>(toml_str).expect_err("[crates.lint] must no longer parse");
+        assert!(
+            err.to_string().contains("lint"),
+            "error should name the removed `lint` field: {err}"
         );
     }
 }

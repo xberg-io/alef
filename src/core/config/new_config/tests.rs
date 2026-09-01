@@ -131,43 +131,29 @@ verify_command = "sample_router verify"
     assert_eq!(header.verify_command.as_deref(), Some("sample_router verify"));
 }
 
+/// 0.82.0 removed `[build_commands.<lang>]` from the schema entirely: a leftover
+/// `[workspace.build_commands.go]` (this exact fixture parsed and merged cleanly before the
+/// removal -- see the deleted `resolve_build_commands_merges_workspace_and_crate_fields` this
+/// test replaces) must now be a parse error. ~keep
 #[test]
-fn resolve_build_commands_merges_workspace_and_crate_fields() {
-    let cfg: NewAlefConfig = toml::from_str(
+fn resolve_rejects_removed_build_commands_table() {
+    let err = toml::from_str::<NewAlefConfig>(
         r#"
 [workspace]
 languages = ["go"]
 
 [workspace.build_commands.go]
-precondition = "command -v go"
-before = "cargo build --release -p my-lib-ffi"
 build = "cd packages/go && go build ./..."
-build_release = "cd packages/go && go build -tags release ./..."
 
 [[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-
-[crates.build_commands.go]
-build = "cd packages/go && go build -tags dev ./..."
 "#,
     )
-    .unwrap();
-
-    let resolved = cfg.resolve().expect("resolve should succeed").remove(0);
-    let build = resolved.build_commands.get("go").expect("go build config");
-    assert_eq!(build.precondition.as_deref(), Some("command -v go"));
-    assert_eq!(
-        build.before.as_ref().unwrap().commands(),
-        vec!["cargo build --release -p my-lib-ffi"]
-    );
-    assert_eq!(
-        build.build.as_ref().unwrap().commands(),
-        vec!["cd packages/go && go build -tags dev ./..."]
-    );
-    assert_eq!(
-        build.build_release.as_ref().unwrap().commands(),
-        vec!["cd packages/go && go build -tags release ./..."]
+    .expect_err("[workspace.build_commands] must no longer parse");
+    assert!(
+        err.to_string().contains("build_commands"),
+        "error should name the removed `build_commands` field: {err}"
     );
 }
 
@@ -212,9 +198,13 @@ package_name = "@sample_router/node"
     );
 }
 
+/// 0.82.0 removed `[lint.<lang>]` from the schema entirely: this exact fixture (a workspace
+/// default merged with a per-crate override) parsed and merged cleanly before the removal -- see
+/// the deleted `resolve_workspace_lint_default_merged_with_crate_override` this test replaces --
+/// and must now fail to parse.
 #[test]
-fn resolve_workspace_lint_default_merged_with_crate_override() {
-    let cfg: NewAlefConfig = toml::from_str(
+fn resolve_rejects_removed_lint_table() {
+    let err = toml::from_str::<NewAlefConfig>(
         r#"
 [workspace]
 languages = ["python", "node"]
@@ -222,34 +212,15 @@ languages = ["python", "node"]
 [workspace.lint.python]
 check = "ruff check ."
 
-[workspace.lint.node]
-check = "oxlint ."
-
 [[crates]]
 name = "sample_router"
 sources = ["src/lib.rs"]
-
-[crates.lint.python]
-check = "ruff check crates/sample_router-py/"
 "#,
     )
-    .unwrap();
-
-    let resolved = cfg.resolve().expect("resolve should succeed");
-    let sample_router = &resolved[0];
-
-    let py_lint = sample_router.lint.get("python").expect("python lint should be present");
-    assert_eq!(
-        py_lint.check.as_ref().unwrap().commands(),
-        vec!["ruff check crates/sample_router-py/"],
-        "per-crate python lint should win over workspace default"
-    );
-
-    let node_lint = sample_router.lint.get("node").expect("node lint should be present");
-    assert_eq!(
-        node_lint.check.as_ref().unwrap().commands(),
-        vec!["oxlint ."],
-        "workspace node lint should be inherited when no per-crate override"
+    .expect_err("[workspace.lint] must no longer parse");
+    assert!(
+        err.to_string().contains("lint"),
+        "error should name the removed `lint` field: {err}"
     );
 }
 

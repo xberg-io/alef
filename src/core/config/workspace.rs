@@ -23,8 +23,7 @@ use super::languages::{
     WasmConfig, ZigConfig,
 };
 use super::output::{
-    BuildCommandConfig, CitationConfig, CleanConfig, DocsConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
-    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    CitationConfig, DocsConfig, GeneratedHeaderConfig, OutputTemplate, ScaffoldConfig, SyncConfig, TestConfig,
 };
 use super::ownership::OwnershipConfig;
 use super::package_metadata::PackageMetadataConfig;
@@ -209,30 +208,14 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub generated_header: Option<GeneratedHeaderConfig>,
 
-    /// Default lint pipeline keyed by language code (`"python"`, `"node"`, …).
-    /// Merged field-wise with per-crate `[crates.lint.<lang>]`.
-    #[serde(default)]
-    pub lint: HashMap<String, LintConfig>,
-
     /// Default test pipeline keyed by language code.
+    ///
+    /// The only remaining per-command override table in `alef.toml`: 0.82.0 removed
+    /// `lint`/`setup`/`update`/`clean`/`build_commands` (alef now owns those commands
+    /// end to end), but `test.e2e` has no code default in any language but Dart, so a
+    /// consumer-supplied e2e command stays configurable here.
     #[serde(default)]
     pub test: HashMap<String, TestConfig>,
-
-    /// Default setup pipeline keyed by language code.
-    #[serde(default)]
-    pub setup: HashMap<String, SetupConfig>,
-
-    /// Default update pipeline keyed by language code.
-    #[serde(default)]
-    pub update: HashMap<String, UpdateConfig>,
-
-    /// Default clean pipeline keyed by language code.
-    #[serde(default)]
-    pub clean: HashMap<String, CleanConfig>,
-
-    /// Default build pipeline keyed by language code.
-    #[serde(default)]
-    pub build_commands: HashMap<String, BuildCommandConfig>,
 
     /// Workspace-wide opaque types — types from external crates that alef can't
     /// extract. Map of type name → fully-qualified Rust path. These get opaque
@@ -315,7 +298,7 @@ mod tests {
             "auto_update_alef_version must default to off"
         );
         assert!(cfg.languages.is_empty());
-        assert!(cfg.lint.is_empty());
+        assert!(cfg.test.is_empty());
         assert!(cfg.opaque_types.is_empty());
         assert!(cfg.sync.is_none());
     }
@@ -336,10 +319,6 @@ languages = ["python", "node"]
 python = "packages/python/{crate}/"
 node   = "packages/node/{crate}/"
 
-[lint.python]
-precondition = "command -v ruff >/dev/null 2>&1"
-check        = "ruff check ."
-
 [test.python]
 command = "uv run --no-sync pytest"
 
@@ -350,12 +329,57 @@ Tree = "tree_sitter::Tree"
         assert_eq!(cfg.alef_version.as_deref(), Some("0.13.0"));
         assert_eq!(cfg.languages.len(), 2);
         assert_eq!(cfg.output_template.python.as_deref(), Some("packages/python/{crate}/"));
-        assert!(cfg.lint.contains_key("python"));
         assert!(cfg.test.contains_key("python"));
         assert_eq!(
             cfg.opaque_types.get("Tree").map(String::as_str),
             Some("tree_sitter::Tree")
         );
+    }
+
+    /// 0.82.0 removed `lint`/`setup`/`update`/`clean`/`build_commands` from `[workspace]`: a
+    /// leftover `[workspace.lint.<lang>]` in a consumer's `alef.toml` must now be a parse error
+    /// (`deny_unknown_fields`), not a silently-ignored table. Ran against `main` before that
+    /// removal, this exact fixture parsed cleanly (see the now-deleted
+    /// `workspace_config_deserializes_full`/`full_alef_toml_with_lint_and_update` assertions on
+    /// `cfg.lint`), which is the "watch it fail before your change" half of proving this check
+    /// actually fires. ~keep
+    #[test]
+    fn workspace_config_rejects_removed_lint_table() {
+        let toml_str = r#"
+languages = ["python"]
+
+[lint.python]
+check = "ruff check ."
+"#;
+        let err = toml::from_str::<WorkspaceConfig>(toml_str).expect_err("[workspace.lint] must no longer parse");
+        let message = err.to_string();
+        assert!(
+            message.contains("lint"),
+            "error should name the removed `lint` field: {message}"
+        );
+    }
+
+    /// Same proof for the other four removed tables, in one config so a regression in any one of
+    /// them is caught without five near-duplicate tests.
+    #[test]
+    fn workspace_config_rejects_removed_setup_update_clean_build_commands_tables() {
+        for (key, toml_snippet) in [
+            ("setup", "[setup.python]\ninstall = \"uv sync\"\n"),
+            ("update", "[update.python]\nupdate = \"uv sync --upgrade\"\n"),
+            ("clean", "[clean.python]\nclean = \"rm -rf dist\"\n"),
+            (
+                "build_commands",
+                "[build_commands.python]\nbuild = \"maturin develop\"\n",
+            ),
+        ] {
+            let toml_str = format!("languages = [\"python\"]\n{toml_snippet}");
+            let err = toml::from_str::<WorkspaceConfig>(&toml_str)
+                .expect_err(&format!("[workspace.{key}] must no longer parse"));
+            assert!(
+                err.to_string().contains(key),
+                "error should name the removed `{key}` field: {err}"
+            );
+        }
     }
 
     #[test]

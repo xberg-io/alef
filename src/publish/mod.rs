@@ -183,14 +183,13 @@ pub fn build(
             continue;
         }
 
+        // `[crates.publish.<lang>].build_command` (`PublishLanguageConfig`) is the only build
+        // command override left for the publish pipeline: 0.82.0 removed
+        // `[build_commands.<lang>]` entirely, so there is no second, lower-priority override tier
+        // to check here any more -- an unset `build_command` falls straight through to alef's
+        // own built-in publish build command. ~keep
         let cmd = if let Some(custom) = &lang_config.build_command {
             substitute_target(&custom.commands().join(" && "), target)
-        } else if let Some(build_cmd_cfg) = config
-            .build_commands
-            .get(&lang.to_string())
-            .and_then(|c| c.build_release.as_ref())
-        {
-            substitute_target(&build_cmd_cfg.commands().join(" && "), target)
         } else {
             build_command_for_lang(lang, config, target, use_cross)
         };

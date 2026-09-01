@@ -749,54 +749,6 @@ mod tests {
         assert_eq!(c.precondition.as_deref(), Some("command -v gradle >/dev/null 2>&1"));
     }
 
-    /// An explicit `[workspace.build_commands.kotlin_android]` overlay must still win over the
-    /// built-in default. The Android ABI libraries are produced by a gradle task the backend
-    /// emits, not by anything in this contract, so a consumer that drives the AAR build its own
-    /// way keeps full control of the command that runs. ~keep
-    #[test]
-    fn explicit_kotlin_android_build_commands_overlay_wins_over_the_default() {
-        let alef_cfg: crate::core::config::NewAlefConfig = toml::from_str(
-            r#"
-[workspace]
-languages = ["kotlin_android"]
-
-[workspace.build_commands.kotlin_android]
-build = "./gradlew :aar:assembleDebug"
-build_release = "./gradlew :aar:assembleRelease --no-daemon"
-
-[[crates]]
-name = "sample-lib"
-sources = ["src/lib.rs"]
-
-[crates.kotlin_android]
-package = "dev.alpha"
-"#,
-        )
-        .expect("overlay fixture parses");
-        let config = alef_cfg.resolve().expect("overlay fixture resolves").remove(0);
-
-        let resolved = config.build_command_config_for_language(Language::KotlinAndroid);
-
-        assert_eq!(
-            resolved
-                .build
-                .expect("overlay declares a build command")
-                .commands()
-                .join(" "),
-            "./gradlew :aar:assembleDebug",
-            "an explicit build_commands overlay must replace the built-in gradle default"
-        );
-        assert_eq!(
-            resolved
-                .build_release
-                .expect("overlay declares a build_release command")
-                .commands()
-                .join(" "),
-            "./gradlew :aar:assembleRelease --no-daemon",
-            "an explicit build_commands overlay must replace the built-in gradle release default"
-        );
-    }
-
     #[test]
     fn swift_uses_swift_build_with_package_path() {
         let c = cfg(Language::Swift, "packages/swift", "my-lib");

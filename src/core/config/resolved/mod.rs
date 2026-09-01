@@ -19,6 +19,8 @@ pub mod lookups;
 pub mod naming;
 #[cfg(test)]
 mod package_dir_trailing_slash_tests;
+#[cfg(test)]
+mod removed_command_config_tests;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -35,9 +37,11 @@ use crate::core::config::languages::{
     GoConfig, JavaConfig, JniConfig, KotlinAndroidConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig,
     RubyConfig, SwiftConfig, WasmConfig, ZigConfig,
 };
+#[cfg(test)]
+use crate::core::config::output::BuildCommandConfig;
 use crate::core::config::output::{
-    BuildCommandConfig, CitationConfig, CleanConfig, DocsConfig, ExcludeConfig, IncludeConfig, LintConfig,
-    OutputConfig, ReadmeConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    CitationConfig, DocsConfig, ExcludeConfig, IncludeConfig, OutputConfig, ReadmeConfig, ScaffoldConfig, SyncConfig,
+    TestConfig,
 };
 use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::poly::PolyConfig;
@@ -114,11 +118,21 @@ pub struct ResolvedCrateConfig {
     /// any other consumer that derives identifiers from the user-supplied path.
     pub explicit_output: OutputConfig,
 
-    pub lint: HashMap<String, LintConfig>,
     pub test: HashMap<String, TestConfig>,
-    pub setup: HashMap<String, SetupConfig>,
-    pub update: HashMap<String, UpdateConfig>,
-    pub clean: HashMap<String, CleanConfig>,
+
+    /// Test-only: `#[cfg(test)]`-gated build-command overrides a build-orchestration test set
+    /// directly on an in-memory `ResolvedCrateConfig`, never through `alef.toml` -- 0.82.0
+    /// removed `[build_commands.<lang>]` / `[workspace.build_commands.<lang>]` /
+    /// `[crates.build_commands.<lang>]` from the schema entirely (`RawCrateConfig` and
+    /// `WorkspaceConfig` no longer have a `build_commands` field for `resolve()` to populate
+    /// this from), so in a real build this map is always empty and
+    /// `build_command_config_for_language` returns alef's own built-in default unconditionally.
+    /// It survives only so `cli::pipeline::commands::build`'s hermetic regression tests
+    /// (`build_orchestration_tests`, `complete_generated_artifacts_staging_order_tests`) can keep
+    /// substituting a deterministic `touch`/`true`/`false`/`exit N` for a real npm/go/php/cargo
+    /// invocation, exactly as they did when this was a real config table. ~keep
+    #[cfg(test)]
+    #[serde(skip)]
     pub build_commands: HashMap<String, BuildCommandConfig>,
 
     pub generate: GenerateConfig,

@@ -6,10 +6,12 @@ use std::path::PathBuf;
 
 mod argv;
 mod citation;
+mod command_defaults;
 mod sync;
 
 pub use argv::{ArgvRunConfig, ArgvStep};
 pub use citation::{CitationAuthor, CitationConfig};
+pub use command_defaults::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, UpdateConfig};
 pub use sync::{SyncConfig, TextReplacement};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -663,31 +665,6 @@ impl StringOrVec {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct LintConfig {
-    /// Shell command that must exit 0 for lint to run; skip with warning on failure.
-    pub precondition: Option<String>,
-    /// Command(s) to run before the main lint commands; aborts on failure.
-    pub before: Option<StringOrVec>,
-    pub format: Option<StringOrVec>,
-    pub check: Option<StringOrVec>,
-    pub typecheck: Option<StringOrVec>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct UpdateConfig {
-    /// Shell command that must exit 0 for update to run; skip with warning on failure.
-    pub precondition: Option<String>,
-    /// Command(s) to run before the main update commands; aborts on failure.
-    pub before: Option<StringOrVec>,
-    /// Command(s) for safe dependency updates (compatible versions only).
-    pub update: Option<StringOrVec>,
-    /// Command(s) for aggressive updates (including incompatible/major bumps).
-    pub upgrade: Option<StringOrVec>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct TestAppRunConfig {
     /// Shell command that must exit 0 for the test-app run to proceed; skip with warning on failure.
     pub precondition: Option<String>,
@@ -732,118 +709,6 @@ pub struct TestConfig {
     pub e2e_precondition: Option<String>,
     /// Command to run tests with coverage for this language.
     pub coverage: Option<StringOrVec>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SetupConfig {
-    /// Shell command that must exit 0 for setup to run; skip with warning on failure.
-    pub precondition: Option<String>,
-    /// Command(s) to run before the main setup commands; aborts on failure.
-    pub before: Option<StringOrVec>,
-    /// Command(s) to install dependencies for this language.
-    pub install: Option<StringOrVec>,
-    /// Timeout in seconds for the complete setup (precondition + before + install).
-    #[serde(default = "default_setup_timeout")]
-    pub timeout_seconds: u64,
-    /// Optional working directory (relative to repo root) for setup commands.
-    ///
-    /// When set, install commands run from `base_dir.join(workdir)` instead of
-    /// `base_dir`. Required for languages whose manifest does not live at the
-    /// workspace root (Swift's `Package.swift`, Kotlin-Android's `gradlew`,
-    /// Dart's `pubspec.yaml`, Zig's `build.zig`). Defaults to `None` (run from
-    /// repo root).
-    #[serde(default)]
-    pub workdir: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CleanConfig {
-    /// Shell command that must exit 0 for clean to run; skip with warning on failure.
-    pub precondition: Option<String>,
-    /// Command(s) to run before the main clean commands; aborts on failure.
-    pub before: Option<StringOrVec>,
-    /// Command(s) to clean build artifacts for this language.
-    ///
-    /// Mutually exclusive with `argv_clean` in practice, for the same reason as
-    /// `TestAppRunConfig::run`/`argv_run`: `alef.toml` overrides always set this field, and a
-    /// default that must embed a config-supplied path (a custom package output directory) as a
-    /// literal argument sets `argv_clean` instead.
-    pub clean: Option<StringOrVec>,
-    /// Argv-only alternative to `clean`. See [`ArgvRunConfig`]. When both `clean` and
-    /// `argv_clean` are set, the caller runs `argv_clean` and ignores `clean`.
-    #[serde(default)]
-    pub argv_clean: Option<ArgvRunConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct BuildCommandConfig {
-    /// Shell command that must exit 0 for build to run; skip with warning on failure.
-    pub precondition: Option<String>,
-    /// Shell command that must exit 0 for the build to be attempted, checking that this project's
-    /// dependencies were fetched. Where `precondition` asks whether the machine can build this
-    /// language at all, this asks whether the checkout is prepared — an unmet dependency
-    /// precondition is fixable here and now, so it fails the run instead of being skipped
-    /// silently. Set `dependency_remediation` alongside it with the command that fixes it.
-    pub dependency_precondition: Option<String>,
-    /// The command a user runs to satisfy `dependency_precondition`, e.g.
-    /// `cd packages/elixir && mix deps.get`. Required whenever `dependency_precondition` is set.
-    pub dependency_remediation: Option<String>,
-    /// Command(s) to run before the main build commands; aborts on failure.
-    pub before: Option<StringOrVec>,
-    /// Command(s) to build in debug mode.
-    pub build: Option<StringOrVec>,
-    /// Command(s) to build in release mode.
-    pub build_release: Option<StringOrVec>,
-    /// Ceiling in seconds for this language's post-build `RunCommand` step (e.g. Swift's
-    /// `cargo build --release` for the swift-bridge crate). `None` keeps alef's built-in
-    /// ceiling (`RUN_COMMAND_TIMEOUT` in `cli::pipeline::commands::build`, 1800s). Raise this
-    /// when a cold release build in a large workspace legitimately runs longer than that --
-    /// alef #364 hit exactly this for a Swift `cargo build --release` that was making
-    /// continuous progress past 30 minutes. Only governs a post-build `RunCommand` step; the
-    /// `build`/`build_release` commands above run unbounded, same as before this field existed.
-    pub timeout_seconds: Option<u64>,
-}
-
-impl BuildCommandConfig {
-    /// Overlay `other` onto this config field-by-field.
-    ///
-    /// Used for build command defaults where built-ins, workspace defaults, and
-    /// crate overrides should compose without forcing callers to restate every
-    /// command field.
-    pub fn merge_overlay(mut self, other: &Self) -> Self {
-        if other.precondition.is_some() {
-            self.precondition = other.precondition.clone();
-        }
-        // Plain field overlay. Whether a built-in dependency check *survives* a user's own build
-        // command is decided by the caller, not here — see
-        // `ResolvedCrateConfig::build_command_config_for_language`. ~keep
-        if other.dependency_precondition.is_some() {
-            self.dependency_precondition = other.dependency_precondition.clone();
-        }
-        if other.dependency_remediation.is_some() {
-            self.dependency_remediation = other.dependency_remediation.clone();
-        }
-        if other.before.is_some() {
-            self.before = other.before.clone();
-        }
-        if other.build.is_some() {
-            self.build = other.build.clone();
-        }
-        if other.build_release.is_some() {
-            self.build_release = other.build_release.clone();
-        }
-        if other.timeout_seconds.is_some() {
-            self.timeout_seconds = other.timeout_seconds;
-        }
-        self
-    }
-}
-
-fn default_setup_timeout() -> u64 {
-    1800
 }
 
 /// Per-language output path templates for multi-crate workspaces.

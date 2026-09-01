@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`[lint.<lang>]`, `[setup.<lang>]`, `[update.<lang>]`, `[clean.<lang>]`, and
+  `[build_commands.<lang>]` are no longer configurable in `alef.toml`, at either
+  `[workspace.<key>.<lang>]` or `[crates.<key>.<lang>]`.** Alef is opinionated: it now owns
+  lint/setup/update/clean/build commands for every language end to end, using the same built-in
+  defaults that already backed every unconfigured language. A consumer `alef.toml` still carrying
+  one of these tables will fail to parse (`deny_unknown_fields`, "unknown field") rather than
+  silently ignoring the override — delete the table and let alef's own default run.
+
+  `[test.<lang>]` is the one exception and stays fully configurable: `test.e2e` has no code
+  default in any language but Dart (e2e orchestration — mock servers, FRB codegen caches,
+  `DYLD_FALLBACK_LIBRARY_PATH`, link-mode matrices, rbenv/asdf `PATH` shims — is inherently
+  per-project), so hardcoding it would violate `project-agnostic-codegen`.
+
+  Two `timeout_seconds` fields lose their `alef.toml` escape hatch as part of this removal, and
+  they were audited across all five consumer repos before release because a silently-changed
+  runtime ceiling is a much more confusing failure than a parse error — it looks like flaky CI,
+  not a config problem:
+
+  - **`[build_commands.<lang>].timeout_seconds`** (the post-build `RunCommand` step's ceiling,
+    added for alef#364's Swift `cargo build --release` that legitimately ran past 30 minutes) had
+    no consumer using it above the 1800s default. No behavior changes.
+  - **`[setup.<lang>].timeout_seconds`** was in active use: `tslp` set `[crates.setup.ruby]
+    timeout_seconds = 3000` (Ruby's `bundle install` compiling native gem extensions genuinely
+    needs more than 1800s there), and `tslp`/`h2m` set `[crates.setup.{java,node,wasm,csharp}]
+    timeout_seconds = 600` (lowering the ceiling to fail faster — a preference, not a
+    requirement). Only the Ruby case was load-bearing, so **`setup_defaults.rs`'s built-in Ruby
+    ceiling is now 3000s** (see `ruby_gets_a_longer_timeout_than_every_other_language_for_native_extension_builds`)
+    — every language that had a *lowered* ceiling reverts to the 1800s default instead, which
+    only delays failure detection, never causes a spurious timeout.
+
+  The full non-command-string surface across all five removed types was walked field by field,
+  not sampled, because a silent ceiling regression and a loud parse error are not the same failure
+  and only one of them is what this release is for:
+
+  - `LintConfig`, `UpdateConfig`: every field is a shell command string (`precondition`, `before`,
+    and the main command(s)). Nothing to silently regress.
+  - `CleanConfig.argv_clean` (`Option<ArgvRunConfig>`, an argv-only step list, not a shell string):
+    built only by alef's own `clean_defaults.rs`, from the same `output_dir` every other command
+    in this family already derives from — it already reflects a configured `[crates.output]`
+    override, the same way `clean`'s shell text does. Nothing a hand-authored override could have
+    supplied that the default does not already compute correctly, and no consumer repo had one.
+  - `SetupConfig.workdir` (`Option<PathBuf>`): built from `default_setup_workdir(lang)`, a
+    hardcoded per-language literal (`packages/{swift,kotlin-android,dart,zig}`) with no access to
+    a crate's resolved output config at all. For Swift/Zig/Dart this is harmless: `package_dir()`
+    -- the same "where does this language's tooling run" answer setup/build/clean all share --
+    also ignores `[crates.output]` for those three, so the hardcoded literal can never disagree
+    with where the language's own tooling actually looks. **Kotlin Android is the exception**:
+    `package_dir(KotlinAndroid)` *does* honor an explicit `[crates.output].kotlin_android`
+    (`kotlin_android::project_root`), while `default_setup_workdir` cannot see that override at
+    all and always returns the hardcoded `packages/kotlin-android`. A crate that both targets
+    `kotlin_android` and sets a custom `[crates.output].kotlin_android` would already have gotten
+    setup's `workdir` wrong before this release -- `[crates.setup.kotlin_android].workdir` was the
+    only correction available, and removing the table removes it. This is a pre-existing gap in
+    `default_setup_workdir`'s signature (it takes `Language` alone, not the resolved config), not
+    something this release introduces; no consumer repo currently sets a custom
+    `[crates.output].kotlin_android` or overrides this `workdir`, so nothing regresses today, but
+    the gap is real and unfixed for the next repo that combines both.
+  - `SetupConfig.timeout_seconds` and `BuildCommandConfig.timeout_seconds`: covered above — the
+    one load-bearing case (Ruby) is now handled by the default itself, not lost.
+
+  Every remaining field across all five types is a shell command string or a `before`/
+  `precondition` hook — deleting an override on any of those either changes nothing (no consumer
+  had one) or produces the intended parse error, never a silent behavior change.
+
 ### Changed
 
 - **`alef verify` now enumerates version checks from config instead of a hardcoded path list.**

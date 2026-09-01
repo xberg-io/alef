@@ -464,7 +464,7 @@ pub(super) fn is_unmarkable_alef_manifest(path: &Path) -> bool {
 /// Manifest filename -> the lockfile name(s) a package manager writes beside it.
 /// Alef never authors any of these lockfiles itself (they come from `composer
 /// update`, `pnpm install`, `npm install`, `yarn install`, run either by a
-/// developer directly or by a `[crates.lint.*]`/`[crates.update.*]` task hook),
+/// developer directly or by alef's own built-in `lint`/`update` pipelines),
 /// so a lockfile can never independently satisfy [`path_is_reclaimable`] — it
 /// never carries a marker and never appears in `previous_paths` on its own
 /// provenance. It is reclaimed *only* as a cascade of its manifest being

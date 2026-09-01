@@ -491,13 +491,16 @@ pub(super) fn build_command_for(
             let package_dir = crate::core::config::shell::quote_word(&config.package_dir(lang));
             format!("cd {package_dir} && gleam build")
         }
-        // Every backend registers a `tool` here from the fixed set matched above (or defines its
-        // own `[build] build`/`build_release` commands, handled by the caller before this
-        // function runs). Reaching this arm means a backend's `BuildConfig.tool` genuinely has no
-        // known default — fail loudly and name the missing tool rather than silently substituting
-        // a bare `false`, which previously reported as an inscrutable "Command failed: false". ~keep
+        // Every backend registers a `tool` here from the fixed set matched above. Reaching this
+        // arm means a backend's `BuildConfig.tool` genuinely has no known default — fail loudly
+        // and name the missing tool rather than silently substituting a bare `false`, which
+        // previously reported as an inscrutable "Command failed: false". 0.82.0 removed
+        // `[build_commands.<lang>]` from `alef.toml`, so there is no config-side fix to point at
+        // any more — this is now always an alef bug, not a missing consumer override. ~keep
         _ => format!(
-            "echo 'alef: no default build command for tool \"{}\" (language: {lang}); add [crates.build_commands.{lang}] build = [...] to alef.toml' >&2 && false",
+            "echo 'alef: no default build command for tool \"{}\" (language: {lang}); this is a \
+             gap in alef'\\''s own built-in defaults -- alef.toml cannot configure it, please file \
+             an issue at https://github.com/xberg-io/alef/issues' >&2 && false",
             bc.tool
         ),
     }

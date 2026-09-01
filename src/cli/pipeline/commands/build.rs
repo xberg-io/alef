@@ -228,24 +228,30 @@ pub(crate) fn build_with_environment(
         .par_iter()
         .map(|(lang, bc)| {
             observability::observe(*lang, || {
-                let build_cmd_cfg = config.build_command_config_for_language(*lang);
-                let override_cmds = if release {
-                    build_cmd_cfg.build_release.as_ref()
-                } else {
-                    build_cmd_cfg.build.as_ref()
-                };
-                if let Some(cmd_list) = override_cmds
-                    && config.build_commands.contains_key(&lang.to_string())
+                // Test-only escape hatch: `ResolvedCrateConfig::build_commands` only exists under
+                // `#[cfg(test)]` (0.82.0 removed `[build_commands.<lang>]` from `alef.toml`, so a
+                // real build never has anything in this map). See that field's doc comment. ~keep
+                #[cfg(test)]
                 {
-                    let mut combined_output = (String::new(), String::new());
-                    for cmd in cmd_list.commands() {
-                        info!("Building {lang}: {cmd}");
-                        let (stdout, stderr) = run_command_captured_with_env(cmd, environment)
-                            .with_context(|| format!("failed to build language bindings for {lang}"))?;
-                        combined_output.0.push_str(&stdout);
-                        combined_output.1.push_str(&stderr);
+                    let build_cmd_cfg = config.build_command_config_for_language(*lang);
+                    let override_cmds = if release {
+                        build_cmd_cfg.build_release.as_ref()
+                    } else {
+                        build_cmd_cfg.build.as_ref()
+                    };
+                    if let Some(cmd_list) = override_cmds
+                        && config.build_commands.contains_key(&lang.to_string())
+                    {
+                        let mut combined_output = (String::new(), String::new());
+                        for cmd in cmd_list.commands() {
+                            info!("Building {lang}: {cmd}");
+                            let (stdout, stderr) = run_command_captured_with_env(cmd, environment)
+                                .with_context(|| format!("failed to build language bindings for {lang}"))?;
+                            combined_output.0.push_str(&stdout);
+                            combined_output.1.push_str(&stderr);
+                        }
+                        return Ok(combined_output);
                     }
-                    return Ok(combined_output);
                 }
                 info!("Building {lang} ({})...", bc.tool);
                 let build_cmd = build_command_for(*lang, bc, config, release);
@@ -300,24 +306,29 @@ pub(crate) fn build_with_environment(
         .par_iter()
         .map(|(lang, bc)| {
             observability::observe(*lang, || {
-                let build_cmd_cfg = config.build_command_config_for_language(*lang);
-                let override_cmds = if release {
-                    build_cmd_cfg.build_release.as_ref()
-                } else {
-                    build_cmd_cfg.build.as_ref()
-                };
-                if let Some(cmd_list) = override_cmds
-                    && config.build_commands.contains_key(&lang.to_string())
+                // Test-only escape hatch: see the identical block in the `independent` dispatch
+                // above and `ResolvedCrateConfig::build_commands`'s doc comment. ~keep
+                #[cfg(test)]
                 {
-                    let mut combined_output = (String::new(), String::new());
-                    for cmd in cmd_list.commands() {
-                        info!("Building {lang}: {cmd}");
-                        let (stdout, stderr) = run_command_captured_with_env(cmd, environment)
-                            .with_context(|| format!("failed to build language bindings for {lang}"))?;
-                        combined_output.0.push_str(&stdout);
-                        combined_output.1.push_str(&stderr);
+                    let build_cmd_cfg = config.build_command_config_for_language(*lang);
+                    let override_cmds = if release {
+                        build_cmd_cfg.build_release.as_ref()
+                    } else {
+                        build_cmd_cfg.build.as_ref()
+                    };
+                    if let Some(cmd_list) = override_cmds
+                        && config.build_commands.contains_key(&lang.to_string())
+                    {
+                        let mut combined_output = (String::new(), String::new());
+                        for cmd in cmd_list.commands() {
+                            info!("Building {lang}: {cmd}");
+                            let (stdout, stderr) = run_command_captured_with_env(cmd, environment)
+                                .with_context(|| format!("failed to build language bindings for {lang}"))?;
+                            combined_output.0.push_str(&stdout);
+                            combined_output.1.push_str(&stderr);
+                        }
+                        return Ok(combined_output);
                     }
-                    return Ok(combined_output);
                 }
                 info!("Building {lang} ({})...", bc.tool);
                 let build_cmd = build_command_for(*lang, bc, config, release);

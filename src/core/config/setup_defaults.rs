@@ -108,7 +108,16 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
                     ruby_bundle("lock --add-checksums")
                 ),
             ])),
-            timeout_seconds: 1800,
+            // 1800s is the ceiling for every other language's setup step, but `bundle install`
+            // has to compile native extensions for any gem that ships one (nokogiri, grpc, ffi-
+            // backed gems, ...), and 0.82.0 removed `[setup.ruby].timeout_seconds` as an escape
+            // hatch a consumer could raise for a slow CI runner or a cold gem cache -- a real
+            // consumer repo's Ruby setup genuinely needed 3000s once that escape hatch was the
+            // only thing keeping it from timing out at 1800s. This is a fact about `bundle
+            // install` under those conditions, not a per-repo preference, so it belongs in the
+            // default rather than requiring every Ruby-targeting repo to still know to raise it.
+            // ~keep
+            timeout_seconds: 3000,
             workdir: default_setup_workdir(lang),
         },
         Language::Php => SetupConfig {
@@ -463,5 +472,30 @@ mod tests {
         let c = cfg(Language::Go, "my/custom/path");
         let install = c.install.unwrap().commands().join(" ");
         assert!(install.contains("my/custom/path"));
+    }
+
+    /// 0.82.0 removed `[setup.<lang>].timeout_seconds` as an `alef.toml` escape hatch, so a
+    /// language whose `bundle install`/equivalent genuinely needs longer than the 1800s every
+    /// other language gets must have that need encoded in the built-in default itself -- a real
+    /// consumer repo's Ruby setup timed out at 1800s once the override was the only way to raise
+    /// it. Only Ruby gets a raised ceiling: every other language's install step has no comparable
+    /// native-extension-compilation cost, so 1800s stays the default for all of them. ~keep
+    #[test]
+    fn ruby_gets_a_longer_timeout_than_every_other_language_for_native_extension_builds() {
+        let ruby = cfg(Language::Ruby, "packages/ruby");
+        assert_eq!(
+            ruby.timeout_seconds, 3000,
+            "ruby's bundle install must get the raised ceiling"
+        );
+        for lang in all_languages() {
+            if lang == Language::Ruby {
+                continue;
+            }
+            let c = cfg(lang, "packages/test");
+            assert_eq!(
+                c.timeout_seconds, 1800,
+                "{lang} has no known reason to need more than the default 1800s ceiling"
+            );
+        }
     }
 }

@@ -102,11 +102,11 @@ pub fn update(config: &ResolvedCrateConfig, languages: &[Language], latest: bool
             continue;
         }
         run_before(lang, update_cfg.before.as_ref())?;
-        // ~keep The default Rust plan iterates every discovered manifest instead of the single
-        // static command template every other language uses (see `rust_update_commands`); an
-        // explicit `[update.rust]` in alef.toml opts back into the plain templated behaviour,
-        // same as every other language's user override.
-        let cmd_strings: Vec<String> = if lang == Language::Rust && !config.update.contains_key(&lang.to_string()) {
+        // ~keep The Rust plan always iterates every discovered manifest instead of the single
+        // static command template every other language uses (see `rust_update_commands`). 0.82.0
+        // removed `[update.<lang>]` overrides from `alef.toml` entirely, so there is no longer a
+        // way to opt back into the plain templated behaviour for Rust specifically.
+        let cmd_strings: Vec<String> = if lang == Language::Rust {
             rust_update_commands(config, latest)?
         } else {
             let cmds = if latest {

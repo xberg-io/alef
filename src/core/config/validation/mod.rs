@@ -1,18 +1,18 @@
 //! Validation of user-supplied pipeline overrides in `alef.toml`.
 //!
-//! When a user provides an explicit `[lint.<lang>]` / `[test.<lang>]` /
-//! `[build_commands.<lang>]` / `[setup.<lang>]` / `[update.<lang>]` /
-//! `[clean.<lang>]` table that **sets a main command field**, that table
-//! must also declare a `precondition`. The rationale:
+//! `test` is the only remaining per-command override table (0.82.0 removed
+//! `lint`/`build_commands`/`setup`/`update`/`clean` from the schema entirely -- alef now owns
+//! those commands end to end). When a user provides an explicit `[test.<lang>]` table that
+//! **sets a main command field**, that table must also declare a `precondition`. The rationale:
 //!
 //! - Built-in defaults all declare a `command -v <tool>` precondition so
 //!   pipelines degrade gracefully when the underlying tool is missing.
-//! - Custom commands are opaque to alef — only the user knows what the
+//! - A custom `test` command is opaque to alef — only the user knows what the
 //!   command requires. Forcing an explicit `precondition` keeps the
 //!   warn-and-skip behavior intact on systems that can't run the command.
 //!
-//! Tables that only customize `before` (without overriding the main command)
-//! are exempt: the default precondition still applies via the surrounding
+//! A table that only customizes `before` (without overriding the main command)
+//! is exempt: the default precondition still applies via the surrounding
 //! defaults logic.
 
 mod preconditions;
@@ -21,10 +21,7 @@ use super::extras::Language;
 use super::output::validate_output_segment;
 use super::resolved::ResolvedCrateConfig;
 use crate::core::error::AlefError;
-use preconditions::{
-    build_main_fields, clean_main_fields, lint_main_fields, setup_main_fields, test_main_fields, update_main_fields,
-    validate_build_dependency_preconditions, validate_section, validate_test_e2e_precondition, validate_tools,
-};
+use preconditions::{test_main_fields, validate_section, validate_test_e2e_precondition, validate_tools};
 
 /// Validate user-supplied pipeline overrides in a resolved per-crate config.
 ///
@@ -36,18 +33,8 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
     validate_package_metadata(config)?;
     validate_e2e_env_keys(config)?;
     validate_extra_lint_paths(config)?;
-    validate_section("lint", &config.lint, lint_main_fields, |c| c.precondition.as_deref())?;
     validate_section("test", &config.test, test_main_fields, |c| c.precondition.as_deref())?;
     validate_test_e2e_precondition(&config.test)?;
-    validate_section("build_commands", &config.build_commands, build_main_fields, |c| {
-        c.precondition.as_deref()
-    })?;
-    validate_build_dependency_preconditions(&config.build_commands)?;
-    validate_section("setup", &config.setup, setup_main_fields, |c| c.precondition.as_deref())?;
-    validate_section("update", &config.update, update_main_fields, |c| {
-        c.precondition.as_deref()
-    })?;
-    validate_section("clean", &config.clean, clean_main_fields, |c| c.precondition.as_deref())?;
     validate_trait_bridges(config)?;
     validate_dart_library_name(config)?;
     Ok(())
@@ -216,7 +203,6 @@ fn validate_package_metadata(config: &ResolvedCrateConfig) -> Result<(), AlefErr
 mod tests {
     use super::*;
     use crate::core::config::new_config::NewAlefConfig;
-    use tracing_test::traced_test;
 
     /// Parse a new-schema alef.toml and return the first resolved crate.
     fn resolve_first(toml_str: &str) -> ResolvedCrateConfig {
@@ -350,39 +336,6 @@ sources = ["src/lib.rs"]
     }
 
     #[test]
-    fn lint_override_with_main_cmd_no_precondition_errors() {
-        let toml = format!(
-            "{base}\n[crates.lint.python]\nformat = \"black .\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        let err = validate_resolved(&config).expect_err("missing precondition should error");
-        let msg = format!("{err}");
-        assert!(msg.contains("[lint.python]"), "error should name the section: {msg}");
-        assert!(msg.contains("precondition"), "error should mention precondition: {msg}");
-    }
-
-    #[test]
-    fn lint_override_with_main_cmd_and_precondition_is_ok() {
-        let toml = format!(
-            "{base}\n[crates.lint.python]\nprecondition = \"command -v black\"\nformat = \"black .\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect("config with precondition should validate");
-    }
-
-    #[test]
-    fn lint_override_with_only_before_no_precondition_is_ok() {
-        let toml = format!(
-            "{base}\n[crates.lint.python]\nbefore = \"echo hi\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect("table with only `before` should validate");
-    }
-
-    #[test]
     fn test_override_with_main_cmd_no_precondition_errors() {
         let toml = format!(
             "{base}\n[crates.test.python]\ncommand = \"pytest\"\n",
@@ -429,124 +382,24 @@ sources = ["src/lib.rs"]
     }
 
     #[test]
-    fn build_override_with_main_cmd_no_precondition_errors() {
-        let toml = format!(
-            "{base}\n[crates.build_commands.python]\nbuild = \"maturin develop\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        let err = validate_resolved(&config).expect_err("missing precondition should error");
-        assert!(format!("{err}").contains("[build_commands.python]"));
-    }
-
-    #[test]
-    fn build_dependency_precondition_without_remediation_errors() {
-        let toml = format!(
-            "{base}\n[crates.build_commands.python]\nprecondition = \"command -v maturin\"\n\
-             build = \"maturin develop\"\ndependency_precondition = \"[ -d .venv ]\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        let err = validate_resolved(&config).expect_err("dependency check without remediation should error");
-        let msg = format!("{err}");
-        assert!(msg.contains("[build_commands.python]"), "{msg}");
-        assert!(msg.contains("dependency_remediation"), "{msg}");
-    }
-
-    #[test]
-    fn build_dependency_precondition_with_remediation_is_ok() {
-        let toml = format!(
-            "{base}\n[crates.build_commands.python]\nprecondition = \"command -v maturin\"\n\
-             build = \"maturin develop\"\ndependency_precondition = \"[ -d .venv ]\"\n\
-             dependency_remediation = \"uv venv\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect("declared pair should validate");
-    }
-
-    /// A user's own build command replaces alef's, so the built-in dependency check written for
-    /// alef's command must not survive to block it — `maturin build` needs no virtualenv at
-    /// all. ~keep
-    #[test]
-    fn user_build_override_drops_the_builtin_dependency_precondition() {
-        let toml = format!(
-            "{base}\n[crates.build_commands.python]\nprecondition = \"command -v maturin\"\n\
-             build = \"maturin build --out dist\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        let effective = config.build_command_config_for_language(crate::core::config::Language::Python);
-
-        assert_eq!(effective.dependency_precondition, None);
-        assert_eq!(effective.dependency_remediation, None);
-    }
-
-    /// ...but a table that only adds a `before` hook keeps alef's default command, so it must
-    /// keep the check that describes it. ~keep
-    #[test]
-    fn a_before_only_override_keeps_the_builtin_dependency_precondition() {
-        let toml = format!(
-            "{base}\n[crates.build_commands.python]\nbefore = \"echo hi\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        let effective = config.build_command_config_for_language(crate::core::config::Language::Python);
-
-        assert!(effective.dependency_precondition.is_some());
-        assert!(effective.dependency_remediation.is_some());
-    }
-
-    #[test]
-    fn setup_override_with_install_no_precondition_errors() {
-        let toml = format!(
-            "{base}\n[crates.setup.python]\ninstall = \"uv sync --no-install-project --no-install-workspace\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect_err("setup install without precondition should error");
-    }
-
-    #[test]
-    fn update_override_with_main_cmd_no_precondition_errors() {
-        let toml = format!(
-            "{base}\n[crates.update.python]\nupdate = \"uv sync --upgrade\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect_err("update without precondition should error");
-    }
-
-    #[test]
-    fn clean_override_with_main_cmd_no_precondition_errors() {
-        let toml = format!(
-            "{base}\n[crates.clean.python]\nclean = \"rm -rf dist\"\n",
-            base = base_config()
-        );
-        let config = resolve_first(&toml);
-        validate_resolved(&config).expect_err("clean without precondition should error");
-    }
-
-    #[test]
     fn error_message_lists_only_actually_set_main_fields() {
         let toml = format!(
-            "{base}\n[crates.lint.python]\nformat = \"black .\"\n",
+            "{base}\n[crates.test.python]\ncommand = \"pytest\"\n",
             base = base_config()
         );
         let config = resolve_first(&toml);
         let msg = format!("{}", validate_resolved(&config).unwrap_err());
-        assert!(msg.contains("`format`"), "expected `format`, got: {msg}");
-        assert!(!msg.contains("`check`"), "should not mention unset `check`: {msg}");
+        assert!(msg.contains("`command`"), "expected `command`, got: {msg}");
         assert!(
-            !msg.contains("`typecheck`"),
-            "should not mention unset `typecheck`: {msg}"
+            !msg.contains("`coverage`"),
+            "should not mention unset `coverage`: {msg}"
         );
     }
 
     #[test]
     fn before_plus_main_cmd_without_precondition_still_errors() {
         let toml = format!(
-            "{base}\n[crates.lint.python]\nbefore = \"echo hi\"\nformat = \"black .\"\n",
+            "{base}\n[crates.test.python]\nbefore = \"echo hi\"\ncommand = \"pytest\"\n",
             base = base_config()
         );
         let config = resolve_first(&toml);
@@ -643,73 +496,13 @@ sources = ["src/lib.rs"]
     }
 
     #[test]
-    fn override_with_main_cmd_and_precondition_validates_for_each_section() {
-        for (section, field, lang) in [
-            ("lint", "format", "python"),
-            ("test", "command", "python"),
-            ("build_commands", "build", "python"),
-            ("setup", "install", "python"),
-            ("update", "update", "python"),
-            ("clean", "clean", "python"),
-        ] {
-            let toml = format!(
-                "{base}\n[crates.{section}.{lang}]\nprecondition = \"command -v tool\"\n{field} = \"tool run\"\n",
-                base = base_config()
-            );
-            let config = resolve_first(&toml);
-            validate_resolved(&config).unwrap_or_else(|e| panic!("[{section}] with precondition should validate: {e}"));
-        }
-    }
-
-    #[traced_test]
-    #[test]
-    fn lint_verbatim_default_emits_warning() {
-        use crate::core::config::extras::Language;
-        use crate::core::config::lint_defaults;
-        use crate::core::config::tools::LangContext;
-        let config = resolve_first(base_config());
-        let ctx = LangContext::default(&config.tools);
-        let default = lint_defaults::default_lint_config(Language::Python, "packages/python", &ctx);
-        let Some(fmt_cmd) = default.format.as_ref().map(|c| c.commands().join(" ")) else {
-            return;
-        };
+    fn override_with_main_cmd_and_precondition_validates() {
         let toml = format!(
-            "{base}\n[crates.lint.python]\nformat = {fmt_cmd:?}\n",
-            base = base_config()
-        );
-        let _resolved = resolve_first(&toml);
-    }
-
-    #[traced_test]
-    #[test]
-    fn lint_all_custom_emits_no_warning() {
-        let toml = format!(
-            "{base}\n[crates.lint.python]\nprecondition = \"command -v custom\"\nformat = \"custom-fmt\"\n",
+            "{base}\n[crates.test.python]\nprecondition = \"command -v tool\"\ncommand = \"tool run\"\n",
             base = base_config()
         );
         let config = resolve_first(&toml);
-        validate_resolved(&config).expect("custom lint with precondition must validate");
-        assert!(!logs_contain("matches the built-in default"));
-    }
-
-    #[traced_test]
-    #[test]
-    fn node_custom_value_no_warning() {
-        let toml_str = r#"
-[workspace]
-languages = ["node"]
-
-[[crates]]
-name = "test-lib"
-sources = ["src/lib.rs"]
-
-[crates.lint.node]
-precondition = "command -v custom-linter"
-check = "custom-linter src/"
-"#;
-        let config = resolve_first(toml_str);
-        validate_resolved(&config).expect("custom node lint must validate");
-        assert!(!logs_contain("matches the built-in default"));
+        validate_resolved(&config).unwrap_or_else(|e| panic!("[test] with precondition should validate: {e}"));
     }
 
     // -----------------------------------------------------------------------------------------

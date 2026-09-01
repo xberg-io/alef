@@ -1,13 +1,14 @@
 //! Pipeline override precondition enforcement.
 //!
-//! Custom `[lint|test|build_commands|setup|update|clean].<lang>` tables
-//! that override a main command field must declare a `precondition` so the
-//! step degrades gracefully when the underlying tool is missing. Tables that
-//! only customize `before` (without overriding the main command) are exempt.
+//! `test` is the only remaining per-command override table in `alef.toml` (0.82.0 removed
+//! `lint`/`build_commands`/`setup`/`update`/`clean` -- alef now owns those commands end to end).
+//! A custom `[test.<lang>]` table that overrides a main command field must declare a
+//! `precondition` so the step degrades gracefully when the underlying tool is missing. A table
+//! that only customizes `before` (without overriding the main command) is exempt.
 
 use std::collections::HashMap;
 
-use crate::core::config::output::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, TestConfig, UpdateConfig};
+use crate::core::config::output::TestConfig;
 use crate::core::config::tools::ToolsConfig;
 use crate::core::error::AlefError;
 
@@ -34,20 +35,6 @@ where
         }
     }
     Ok(())
-}
-
-pub(super) fn lint_main_fields(c: &LintConfig) -> Vec<&'static str> {
-    let mut v = Vec::new();
-    if c.format.is_some() {
-        v.push("format");
-    }
-    if c.check.is_some() {
-        v.push("check");
-    }
-    if c.typecheck.is_some() {
-        v.push("typecheck");
-    }
-    v
 }
 
 /// Main fields gated by the block's top-level `precondition`.
@@ -85,62 +72,6 @@ pub(super) fn validate_test_e2e_precondition(table: &HashMap<String, TestConfig>
         }
     }
     Ok(())
-}
-
-pub(super) fn build_main_fields(c: &BuildCommandConfig) -> Vec<&'static str> {
-    let mut v = Vec::new();
-    if c.build.is_some() {
-        v.push("build");
-    }
-    if c.build_release.is_some() {
-        v.push("build_release");
-    }
-    v
-}
-
-/// Reject a `dependency_precondition` that arrives without the command that satisfies it.
-///
-/// An unmet dependency precondition stops the build for that language, and the only thing that
-/// makes that better than the compile failure it replaces is being able to print what to run. A
-/// check with no remediation would reintroduce exactly the dead-end message this field exists to
-/// remove, so the pair is enforced at load time rather than discovered mid-build. ~keep
-pub(super) fn validate_build_dependency_preconditions(
-    table: &HashMap<String, BuildCommandConfig>,
-) -> Result<(), AlefError> {
-    for (lang, cfg) in table {
-        if cfg.dependency_precondition.is_some() && cfg.dependency_remediation.is_none() {
-            return Err(AlefError::Config(format!(
-                "[build_commands.{lang}] sets `dependency_precondition` without \
-                 `dependency_remediation`. A build blocked on unfetched dependencies is only \
-                 actionable if alef can print the command that fixes it -- add \
-                 `dependency_remediation = \"<command>\"`."
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn setup_main_fields(c: &SetupConfig) -> Vec<&'static str> {
-    if c.install.is_some() {
-        vec!["install"]
-    } else {
-        Vec::new()
-    }
-}
-
-pub(super) fn update_main_fields(c: &UpdateConfig) -> Vec<&'static str> {
-    let mut v = Vec::new();
-    if c.update.is_some() {
-        v.push("update");
-    }
-    if c.upgrade.is_some() {
-        v.push("upgrade");
-    }
-    v
-}
-
-pub(super) fn clean_main_fields(c: &CleanConfig) -> Vec<&'static str> {
-    if c.clean.is_some() { vec!["clean"] } else { Vec::new() }
 }
 
 /// Validate that all configured tool names are well-formed identifiers.

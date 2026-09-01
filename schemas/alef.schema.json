@@ -281,75 +281,6 @@
         }
       ]
     },
-    "BuildCommandConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "before": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to run before the main build commands; aborts on failure."
-        },
-        "build": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to build in debug mode."
-        },
-        "build_release": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to build in release mode."
-        },
-        "dependency_precondition": {
-          "description": "Shell command that must exit 0 for the build to be attempted, checking that this project's\ndependencies were fetched. Where `precondition` asks whether the machine can build this\nlanguage at all, this asks whether the checkout is prepared — an unmet dependency\nprecondition is fixable here and now, so it fails the run instead of being skipped\nsilently. Set `dependency_remediation` alongside it with the command that fixes it.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "dependency_remediation": {
-          "description": "The command a user runs to satisfy `dependency_precondition`, e.g.\n`cd packages/elixir && mix deps.get`. Required whenever `dependency_precondition` is set.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "precondition": {
-          "description": "Shell command that must exit 0 for build to run; skip with warning on failure.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "timeout_seconds": {
-          "description": "Ceiling in seconds for this language's post-build `RunCommand` step (e.g. Swift's\n`cargo build --release` for the swift-bridge crate). `None` keeps alef's built-in\nceiling (`RUN_COMMAND_TIMEOUT` in `cli::pipeline::commands::build`, 1800s). Raise this\nwhen a cold release build in a large workspace legitimately runs longer than that --\nalef #364 hit exactly this for a Swift `cargo build --release` that was making\ncontinuous progress past 30 minutes. Only governs a post-build `RunCommand` step; the\n`build`/`build_release` commands above run unbounded, same as before this field existed.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
     "CSharpConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1263,53 +1194,6 @@
         "authors",
         "repository-code"
       ],
-      "type": "object"
-    },
-    "CleanConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "argv_clean": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ArgvRunConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Argv-only alternative to `clean`. See [`ArgvRunConfig`]. When both `clean` and\n`argv_clean` are set, the caller runs `argv_clean` and ignores `clean`."
-        },
-        "before": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to run before the main clean commands; aborts on failure."
-        },
-        "clean": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to clean build artifacts for this language.\n\nMutually exclusive with `argv_clean` in practice, for the same reason as\n`TestAppRunConfig::run`/`argv_run`: `alef.toml` overrides always set this field, and a\ndefault that must embed a config-supplied path (a custom package output directory) as a\nliteral argument sets `argv_clean` instead."
-        },
-        "precondition": {
-          "description": "Shell command that must exit 0 for clean to run; skip with warning on failure.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
       "type": "object"
     },
     "ClientConstructorConfig": {
@@ -4182,60 +4066,6 @@
         }
       ]
     },
-    "LintConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "before": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to run before the main lint commands; aborts on failure."
-        },
-        "check": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "format": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "precondition": {
-          "description": "Shell command that must exit 0 for lint to run; skip with warning on failure.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "typecheck": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "type": "object"
-    },
     "ManifestExtras": {
       "additionalProperties": false,
       "description": "Extra dependencies declared for a language-native manifest. `dependencies` and\n`dev_dependencies` mirror the runtime / dev-test distinction present in\nnpm, Composer, Bundler, pubspec, Mix, etc. Languages without that distinction\n(Go, Zig, Kotlin `testImplementation`) collapse both buckets into one at the\nemitter level.",
@@ -5591,13 +5421,6 @@
             "null"
           ]
         },
-        "build_commands": {
-          "additionalProperties": {
-            "$ref": "#/$defs/BuildCommandConfig"
-          },
-          "default": {},
-          "type": "object"
-        },
         "cargo_lints": {
           "$ref": "#/$defs/CargoLintsConfig",
           "default": {
@@ -5605,13 +5428,6 @@
             "rust": {}
           },
           "description": "Raw `[lints.rust]` / `[lints.clippy]` tables spliced into every generated\nRust binding-crate `Cargo.toml` for this crate — across every backend that\nemits a standalone Rust crate (ffi, jni, node, python, php, wasm, ruby,\nelixir, R, swift, dart). Mirrors [`Self::crate_attributes`]'s placement and\nrationale: `[lints]\\nworkspace = true` cannot be used for this because it is\nall-or-nothing and would also pull in `unsafe_code = \"deny\"`, which breaks\nany FFI crate with legitimate `unsafe` blocks. This is a pure passthrough —\nalef does not validate or interpret lint names, and neither table is emitted\nwhen empty (the default), so output is byte-identical to a crate that does\nnot set this field.\n\nA handful of backends (dart, swift, elixir) already emit their own\n`unexpected_cfgs` check-cfg allowlist into `[lints.rust]`; entries configured\nhere compose with that rather than replacing it, and lose on a key collision\nsince the backend's own entry encodes a compile-correctness requirement.\n\nExample — opt a crate's generated bindings into the workspace's deny-by-default\nlint policy:\n```toml\n[[crates]]\nname = \"sample-core\"\n\n[crates.cargo_lints.rust]\nunused_must_use = \"deny\"\n\n[crates.cargo_lints.clippy]\nprint_stdout = \"deny\"\nprint_stderr = \"deny\"\ndbg_macro = \"deny\"\n```"
-        },
-        "clean": {
-          "additionalProperties": {
-            "$ref": "#/$defs/CleanConfig"
-          },
-          "default": {},
-          "type": "object"
         },
         "core_import": {
           "default": null,
@@ -5894,13 +5710,6 @@
             "null"
           ]
         },
-        "lint": {
-          "additionalProperties": {
-            "$ref": "#/$defs/LintConfig"
-          },
-          "default": {},
-          "type": "object"
-        },
         "name": {
           "description": "Crate name (e.g. `\"sample_project\"`). Must be unique within the workspace.",
           "type": "string"
@@ -6042,13 +5851,6 @@
           },
           "type": "array"
         },
-        "setup": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SetupConfig"
-          },
-          "default": {},
-          "type": "object"
-        },
         "skip_core_import": {
           "default": false,
           "description": "When true, skip adding `use {core_import};` to generated bindings.",
@@ -6102,6 +5904,7 @@
             "$ref": "#/$defs/TestConfig"
           },
           "default": {},
+          "description": "The only remaining per-command override table in `alef.toml`; see\n[`super::workspace::WorkspaceConfig::test`] for why `test.e2e` alone stays configurable.",
           "type": "object"
         },
         "trait_bridges": {
@@ -6118,13 +5921,6 @@
             "type": "string"
           },
           "type": "array"
-        },
-        "update": {
-          "additionalProperties": {
-            "$ref": "#/$defs/UpdateConfig"
-          },
-          "default": {},
-          "type": "object"
         },
         "verify": {
           "$ref": "#/$defs/VerifyConfig",
@@ -6816,56 +6612,6 @@
       "required": [
         "owner_type"
       ],
-      "type": "object"
-    },
-    "SetupConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "before": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to run before the main setup commands; aborts on failure."
-        },
-        "install": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to install dependencies for this language."
-        },
-        "precondition": {
-          "description": "Shell command that must exit 0 for setup to run; skip with warning on failure.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "timeout_seconds": {
-          "default": 1800,
-          "description": "Timeout in seconds for the complete setup (precondition + before + install).",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "workdir": {
-          "default": null,
-          "description": "Optional working directory (relative to repo root) for setup commands.\n\nWhen set, install commands run from `base_dir.join(workdir)` instead of\n`base_dir`. Required for languages whose manifest does not live at the\nworkspace root (Swift's `Package.swift`, Kotlin-Android's `gradlew`,\nDart's `pubspec.yaml`, Zig's `build.zig`). Defaults to `None` (run from\nrepo root).",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
       "type": "object"
     },
     "SnippetCapabilities": {
@@ -7664,52 +7410,6 @@
       },
       "type": "object"
     },
-    "UpdateConfig": {
-      "additionalProperties": false,
-      "properties": {
-        "before": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) to run before the main update commands; aborts on failure."
-        },
-        "precondition": {
-          "description": "Shell command that must exit 0 for update to run; skip with warning on failure.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "update": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) for safe dependency updates (compatible versions only)."
-        },
-        "upgrade": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/StringOrVec"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Command(s) for aggressive updates (including incompatible/major bumps)."
-        }
-      },
-      "type": "object"
-    },
     "VendorMode": {
       "description": "How to vendor the Rust core crate into a language package.",
       "oneOf": [
@@ -7991,14 +7691,6 @@
           "description": "Opt in to letting a clean, newer-than-pin alef build rewrite the `alef_version` pin above\nautomatically during `alef all`/`alef generate`/`alef scaffold`. Defaults to `false`:\nversion-pin synchronization stays an explicit release operation unless a project turns\nthis on. See [`crate::cli::version_pin::maybe_update_alef_toml_version_pin`] for the full\nset of additional safety conditions this toggle does not bypass (the pin must still be\npresent, parse as semver, be strictly older than the running CLI, and the running build\nmust be stamped clean) -- turning this on does not make an unsafe rewrite safe, it only\nallows the already-guarded rewrite to run unattended. ~keep",
           "type": "boolean"
         },
-        "build_commands": {
-          "additionalProperties": {
-            "$ref": "#/$defs/BuildCommandConfig"
-          },
-          "default": {},
-          "description": "Default build pipeline keyed by language code.",
-          "type": "object"
-        },
         "citation": {
           "anyOf": [
             {
@@ -8010,14 +7702,6 @@
           ],
           "default": null,
           "description": "Optional CITATION.cff metadata. When present, `alef sync-versions` writes\na fully rendered `CITATION.cff` at the repo root using these fields plus\nthe canonical workspace version. When absent, a hand-authored\nCITATION.cff (if any) only has its `version:` line updated."
-        },
-        "clean": {
-          "additionalProperties": {
-            "$ref": "#/$defs/CleanConfig"
-          },
-          "default": {},
-          "description": "Default clean pipeline keyed by language code.",
-          "type": "object"
         },
         "client_constructors": {
           "additionalProperties": {
@@ -8225,14 +7909,6 @@
           },
           "type": "array"
         },
-        "lint": {
-          "additionalProperties": {
-            "$ref": "#/$defs/LintConfig"
-          },
-          "default": {},
-          "description": "Default lint pipeline keyed by language code (`\"python\"`, `\"node\"`, …).\nMerged field-wise with per-crate `[crates.lint.<lang>]`.",
-          "type": "object"
-        },
         "node": {
           "anyOf": [
             {
@@ -8372,14 +8048,6 @@
           "default": null,
           "description": "Default package metadata for generated manifests and README context.\nPer-crate `[scaffold]` values override this field-by-field."
         },
-        "setup": {
-          "additionalProperties": {
-            "$ref": "#/$defs/SetupConfig"
-          },
-          "default": {},
-          "description": "Default setup pipeline keyed by language code.",
-          "type": "object"
-        },
         "swift": {
           "anyOf": [
             {
@@ -8417,7 +8085,7 @@
             "$ref": "#/$defs/TestConfig"
           },
           "default": {},
-          "description": "Default test pipeline keyed by language code.",
+          "description": "Default test pipeline keyed by language code.\n\nThe only remaining per-command override table in `alef.toml`: 0.82.0 removed\n`lint`/`setup`/`update`/`clean`/`build_commands` (alef now owns those commands\nend to end), but `test.e2e` has no code default in any language but Dart, so a\nconsumer-supplied e2e command stays configurable here.",
           "type": "object"
         },
         "tools": {
@@ -8428,14 +8096,6 @@
             "rust_dev_tools": null
           },
           "description": "Global package-manager and dev-tool preferences. Inherited by every\ncrate; cannot be overridden per-crate today."
-        },
-        "update": {
-          "additionalProperties": {
-            "$ref": "#/$defs/UpdateConfig"
-          },
-          "default": {},
-          "description": "Default update pipeline keyed by language code.",
-          "type": "object"
         },
         "wasm": {
           "anyOf": [
@@ -8573,9 +8233,7 @@
       "default": {
         "alef_version": null,
         "auto_update_alef_version": false,
-        "build_commands": {},
         "citation": null,
-        "clean": {},
         "client_constructors": {},
         "csharp": null,
         "dart": null,
@@ -8614,7 +8272,6 @@
         "kotlin": null,
         "kotlin_android": null,
         "languages": [],
-        "lint": {},
         "node": null,
         "opaque_types": {},
         "output_template": {
@@ -8658,7 +8315,6 @@
         "r": null,
         "ruby": null,
         "scaffold": null,
-        "setup": {},
         "swift": null,
         "sync": null,
         "targets": {},
@@ -8668,7 +8324,6 @@
           "python_package_manager": null,
           "rust_dev_tools": null
         },
-        "update": {},
         "wasm": null,
         "zig": null
       },

@@ -1,25 +1,50 @@
 use super::*;
+use crate::core::config::output::StringOrVec;
 
 fn hermetic_config(toml: &str) -> ResolvedCrateConfig {
     let alef_cfg: crate::core::config::NewAlefConfig = toml::from_str(toml).unwrap();
     alef_cfg.resolve().unwrap().remove(0)
 }
 
+/// Build a [`BuildCommandConfig`] override for `ResolvedCrateConfig::build_commands`, alef's own
+/// `#[cfg(test)]` hermetic-test hook (0.82.0 removed `[build_commands.<lang>]` from `alef.toml`,
+/// so this is the only way left to substitute a deterministic stand-in for a real npm/go/php/
+/// cargo invocation). `precondition` defaults to `"true"` since every fixture in this module wants
+/// the override always ready, never toolchain-gated.
+fn fake_build(build: &str) -> BuildCommandConfig {
+    fake_build_gated("true", build)
+}
+
+/// Same as [`fake_build`], with an explicit `precondition` instead of the always-ready default --
+/// for simulating a missing toolchain (`precondition = "false"`, mirroring a `command -v` check
+/// that finds nothing on `PATH`).
+fn fake_build_gated(precondition: &str, build: &str) -> BuildCommandConfig {
+    BuildCommandConfig {
+        precondition: Some(precondition.to_string()),
+        dependency_precondition: None,
+        dependency_remediation: None,
+        before: None,
+        build: Some(StringOrVec::Single(build.to_string())),
+        build_release: None,
+        timeout_seconds: None,
+    }
+}
+
 #[test]
 fn explicit_environment_reaches_the_ffi_build_process() {
-    let config = hermetic_config(
+    let mut config = hermetic_config(
         r#"
 [workspace]
 languages = ["ffi"]
-
-[workspace.build_commands.ffi]
-precondition = "true"
-build = 'test "$ALEF_EXPORT_GENERATED_HEADERS" = "1"'
 
 [[crates]]
 name = "environment-test-lib"
 sources = ["src/lib.rs"]
 "#,
+    );
+    config.build_commands.insert(
+        Language::Ffi.to_string(),
+        fake_build(r#"test "$ALEF_EXPORT_GENERATED_HEADERS" = "1""#),
     );
 
     build_with_environment(
@@ -61,34 +86,30 @@ fn one_backend_failure_does_not_block_the_others() {
     let marker_node = marker_dir.path().join("node.built");
     let marker_go = marker_dir.path().join("go.built");
 
-    let config = hermetic_config(&format!(
+    let mut config = hermetic_config(
         r#"
 [workspace]
 languages = ["php", "node", "ffi", "go"]
-
-[workspace.build_commands.php]
-precondition = "true"
-build = "false"
-
-[workspace.build_commands.node]
-precondition = "true"
-build = "touch {node_marker}"
-
-[workspace.build_commands.ffi]
-precondition = "true"
-build = "true"
-
-[workspace.build_commands.go]
-precondition = "true"
-build = "touch {go_marker}"
 
 [[crates]]
 name = "orchestration-test-lib"
 sources = ["src/lib.rs"]
 "#,
-        node_marker = marker_node.display(),
-        go_marker = marker_go.display(),
-    ));
+    );
+    config
+        .build_commands
+        .insert(Language::Php.to_string(), fake_build("false"));
+    config.build_commands.insert(
+        Language::Node.to_string(),
+        fake_build(&format!("touch {}", marker_node.display())),
+    );
+    config
+        .build_commands
+        .insert(Language::Ffi.to_string(), fake_build("true"));
+    config.build_commands.insert(
+        Language::Go.to_string(),
+        fake_build(&format!("touch {}", marker_go.display())),
+    );
 
     let result = build(
         &config,
@@ -126,25 +147,23 @@ fn strict_fails_the_run_when_a_language_is_skipped_for_a_missing_toolchain() {
     let marker_dir = tempfile::tempdir().expect("tempdir");
     let node_marker = marker_dir.path().join("node.built");
 
-    let config = hermetic_config(&format!(
+    let mut config = hermetic_config(
         r#"
 [workspace]
 languages = ["node", "go"]
-
-[workspace.build_commands.node]
-precondition = "true"
-build = "touch {node_marker}"
-
-[workspace.build_commands.go]
-precondition = "false"
-build = "true"
 
 [[crates]]
 name = "strict-toolchain-test-lib"
 sources = ["src/lib.rs"]
 "#,
-        node_marker = node_marker.display(),
-    ));
+    );
+    config.build_commands.insert(
+        Language::Node.to_string(),
+        fake_build(&format!("touch {}", node_marker.display())),
+    );
+    config
+        .build_commands
+        .insert(Language::Go.to_string(), fake_build_gated("false", "true"));
 
     let lenient = build(&config, &[Language::Node, Language::Go], false, false);
     assert!(
@@ -159,25 +178,23 @@ sources = ["src/lib.rs"]
     // A fresh marker path: the first build already ran and would otherwise make this
     // assertion trivially pass regardless of whether the second build actually re-ran node.
     let node_marker_strict = marker_dir.path().join("node.built.strict");
-    let config = hermetic_config(&format!(
+    let mut config = hermetic_config(
         r#"
 [workspace]
 languages = ["node", "go"]
-
-[workspace.build_commands.node]
-precondition = "true"
-build = "touch {node_marker}"
-
-[workspace.build_commands.go]
-precondition = "false"
-build = "true"
 
 [[crates]]
 name = "strict-toolchain-test-lib"
 sources = ["src/lib.rs"]
 "#,
-        node_marker = node_marker_strict.display(),
-    ));
+    );
+    config.build_commands.insert(
+        Language::Node.to_string(),
+        fake_build(&format!("touch {}", node_marker_strict.display())),
+    );
+    config
+        .build_commands
+        .insert(Language::Go.to_string(), fake_build_gated("false", "true"));
 
     let strict = build(&config, &[Language::Node, Language::Go], false, true);
     let message = strict
