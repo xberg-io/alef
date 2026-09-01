@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **version-sync (lock freshness):** `collect_requirements` no longer treats an optional
+  dependency (`optional = true`) as a hard requirement when no feature reachable from the
+  generated manifest actually activates it. `alef generate` was hard-failing on repos where
+  `cargo metadata --locked` genuinely succeeds (crawlberg's `tower-http`, gated behind an `api`
+  feature the generated crate never requests), blocking the version-bump chain on a false
+  positive.
+- **version-sync (pnpm lock, pending publish):** the pending-publish tolerance for a generated
+  `pnpm-lock.yaml` now covers every finding sharing a lock with the pending self-dependency row,
+  not only that exact row. A sibling specifier drift in the same lockfile (`@types/node`,
+  `vitest`, `rollup`) still hard-failed and prescribed `pnpm install --lockfile-only`, a command
+  that cannot run: pnpm fails to resolve anything in that lock until the self-dependency
+  publishes.
+- **version-sync (Dart relock):** `relock_dart_lockfiles_beside_generated_manifests` now has the
+  same pending-publish pre-check the Cargo relock path already had. A registry-mode
+  `pubspec.yaml` pinning this workspace's own package at a version not yet published to pub.dev
+  triggered `dart pub get`, which failed identically offline and online with "version solving
+  failed" on both attempts. Also stopped inheriting `dart pub get`'s stdio (`.status()` ->
+  `.output()`): its own routine chatter previously landed in alef's log with no level prefix,
+  reading as alef's own unattributed output.
+- **version-sync (blocked-lock retry):** a retry of a lock already known to be
+  `blocked_on_publish` now logs its expected both-resolvers-failed outcome at `info` ("still
+  waiting on ...") instead of the loud `warn` naming a `cargo check --locked` remedy the caller
+  cannot act on until the release publishes. The loud warning is unchanged for a lock nothing
+  already flagged as blocked.
+- **version-sync (ownership guard ordering):** `sync.text_replacements`'s ownership guard now
+  runs only once a substitution has proven it would actually change the file's content, instead
+  of unconditionally ahead of the substitution. A declared target already at the correct
+  version -- but carrying no alef marker, since it is genuinely hand-written -- was reported "not
+  updated to a stale version" on every single sync, forever.
+- **version-sync (silent non-match):** a declared `sync.text_replacements` `search` pattern that
+  matches nothing in a file alef successfully opened now warns. A silent non-match was previously
+  indistinguishable from "already current" and hid real drift for multiple releases in a row.
+- **version-sync (Swift `branch:` pins):** `sync_swift_first_party_from` now also rewrites a
+  first-party `branch: "release/swift/X.Y.Z"` pin, not only `from: "X.Y.Z"`. Every consumer's own
+  `release/swift/*` publish workflow tags the artifact with `branch:`, so this built-in silently
+  no-opped against the shape every consumer actually uses.
+- **codegen (python/node/ruby/elixir/r):** binding mirror structs no longer drop the core type's
+  per-field `#[serde(default)]`. The mirror derived `Deserialize` field-by-field and reproduced
+  only `#[serde(rename)]`, so every default, container `#[serde(default)]`, `#[serde(with)]`,
+  `#[serde(flatten)]` and `#[serde(skip)]` was silently lost and every field became required on
+  the wire: a partial JSON payload the core type accepts was rejected by the binding's
+  `from_json`. The existing delegating `Deserialize` (which reads the core type's own impl, so
+  every serde attribute is honoured by construction, `deny_unknown_fields` included) now fires
+  for those cases too, not only for container `#[serde(from/into/try_from/transparent)]`.
+  Delegation still requires `From<core::Type>` to be emitted for the same type in the same run;
+  types outside that convertible set keep the derived impl.
 - **rustler:** stopped emitting an unreachable `_ => Default::default()` catch-all in the
   binding->core enum conversion when a foreign cfg-gated variant is proven unreachable and
   Rustler's own declaration already drops it. Blocked every generated Elixir NIF from compiling
