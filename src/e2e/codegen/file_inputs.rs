@@ -559,3 +559,108 @@ mod tests {
         ));
     }
 }
+
+/// Coverage for the `docs.presentation.files` detection path, distinct from every other test in
+/// this module: those all author a `bytes`-typed field's fixture VALUE as the relative path
+/// string itself (`TypeRef::Bytes => value.as_str().is_some_and(is_relative_document_path)`).
+/// A fixture is equally free to write the real byte literals inline and record the file
+/// separately for docs purposes (`docs.presentation.files: [{field, path}]`) — the shape
+/// `fixtures/batch/bytes_happy.json` actually uses in xberg, with the doc file entry nested
+/// under an ARRAY argument element (`"/inputs/1/bytes"`). `docs_files_for_arg`'s prefix-match
+/// against that argument's `field` (`"input.inputs"` -> base `"/inputs"`) is what
+/// `scan_fixture`'s early-return check consults BEFORE ever walking the argument's element
+/// type, so this must resolve correctly independent of `ExtractInput`'s own struct/enum shape.
+/// ~keep
+#[cfg(test)]
+mod docs_presentation_array_scan_tests {
+    use crate::core::config::e2e::{ArgMapping, CallConfig};
+    use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+    use crate::e2e::fixture::Fixture;
+
+    fn batch_arg() -> ArgMapping {
+        ArgMapping {
+            name: "inputs".into(),
+            field: "input.inputs".into(),
+            arg_type: "json_object".into(),
+            optional: false,
+            owned: true,
+            element_type: Some("ExtractInput".into()),
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: None,
+        }
+    }
+
+    fn extract_input_type() -> TypeDef {
+        TypeDef {
+            name: "ExtractInput".into(),
+            fields: vec![FieldDef {
+                name: "bytes".into(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn docs_presentation_file_nested_in_a_batch_array_element_requires_test_document_working_directory() {
+        let fixture_json = serde_json::json!({
+            "id": "extract_batch_bytes_happy",
+            "input": {
+                "inputs": [
+                    {"kind": "bytes", "bytes": [72, 101], "mime_type": "text/plain"},
+                    {"kind": "bytes", "bytes": [60, 104, 116], "mime_type": "text/html"}
+                ]
+            },
+            "docs": {
+                "topic": "batch",
+                "presentation": {
+                    "files": [{"field": "/inputs/1/bytes", "path": "html/html.html"}]
+                }
+            }
+        });
+        let fixture: Fixture = serde_json::from_value(fixture_json).expect("parse fixture");
+        assert_eq!(
+            fixture.docs_files_for_arg("input.inputs"),
+            vec![crate::e2e::fixture::FixtureDocsFileInput {
+                field: "/1/bytes".to_string(),
+                path: "html/html.html".to_string(),
+            }],
+            "the nested doc file entry must resolve relative to the argument's own field prefix"
+        );
+        let call = CallConfig {
+            args: vec![batch_arg()],
+            ..Default::default()
+        };
+        assert!(
+            super::fixture_uses_test_documents(&fixture, &call, &[extract_input_type()], &[]),
+            "a docs.presentation.files entry nested under an array element must still require \
+             the test-documents working directory"
+        );
+    }
+
+    /// Control: no `docs.presentation.files` entry at all, and the inline byte literals carry
+    /// no relative path string for `is_relative_document_path` to match either -- must NOT
+    /// require the test-documents working directory.
+    #[test]
+    fn inline_bytes_with_no_docs_presentation_file_does_not_require_test_document_working_directory() {
+        let fixture_json = serde_json::json!({
+            "id": "extract_batch_bytes_inline_only",
+            "input": {
+                "inputs": [{"kind": "bytes", "bytes": [72, 101], "mime_type": "text/plain"}]
+            }
+        });
+        let fixture: Fixture = serde_json::from_value(fixture_json).expect("parse fixture");
+        let call = CallConfig {
+            args: vec![batch_arg()],
+            ..Default::default()
+        };
+        assert!(!super::fixture_uses_test_documents(
+            &fixture,
+            &call,
+            &[extract_input_type()],
+            &[]
+        ));
+    }
+}
