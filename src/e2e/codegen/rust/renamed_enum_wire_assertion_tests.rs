@@ -72,6 +72,23 @@ fn render_kind_equals(resolver: &FieldResolver, fixture_value: &str) -> String {
     out
 }
 
+fn render_kind_equals_pre_unwrapped(resolver: &FieldResolver, fixture_value: &str) -> String {
+    let assertion = Assertion {
+        assertion_type: "equals".to_string(),
+        field: Some("kind".to_string()),
+        value: Some(serde_json::Value::String(fixture_value.to_string())),
+        ..Assertion::default()
+    };
+    let mut out = String::new();
+    // is_unwrapped=true: simulates the call-site unwrap pass already having produced a
+    // `String` local (`FieldResolver::rust_unwrap_binding`'s optional-scalar branch,
+    // `.as_ref().map(|v| v.to_string()).unwrap_or_default()`) named `_kind`, holding the
+    // enum's own `Display` rendering -- which for a serde-derived `Display` (the documented
+    // `FinishReason` convention) is the WIRE spelling, not the Rust identifier.
+    render_equals_assertion(&mut out, &assertion, "_kind", true, resolver);
+    out
+}
+
 /// The renamed variant's fixture value must be reconciled onto the surface the emitted
 /// expression actually renders, while every value that is NOT a renamed variant of that enum
 /// passes through byte-for-byte.
@@ -129,5 +146,39 @@ fn config_only_enum_classification_leaves_the_fixture_literal_untranslated() {
     assert_eq!(
         out, "    assert_eq!(format!(\"{:?}\", result.kind), r#\"key-value\"#, \"equals assertion failed\");\n",
         "no IR means no rename knowledge; the literal must be emitted verbatim, got: {out}"
+    );
+}
+
+/// THE REGRESSION for the CI-confirmed defect on the PRE-UNWRAPPED path (liter-llm,
+/// `FinishReason`/`ContentFilter`, CI run 33482291337): when the call-site unwrap pass has
+/// already produced a `String` local holding the enum's `Display` rendering (which, per
+/// `FieldResolver::rust_unwrap_binding`'s own doc, is the serde WIRE spelling for a
+/// serde-derived `Display` impl like `FinishReason`'s), the emitted assertion must compare BOTH
+/// operands on that SAME wire surface -- not translate `expected` to the Rust identifier
+/// (`renamed_variant_expected`'s job for the `format!("{:?}", ..)` paths) while the expression
+/// operand is already the wire string. Checking the FULL line (both operands) is deliberate:
+/// a text-only check for the absence of `format!("{:?}"` passed while the two operands still
+/// disagreed by case (`_kind` == `"key-value"` vs a translated `KeyValue`), which is the exact
+/// gap that let this ship. ~keep
+#[test]
+fn render_equals_assertion_pre_unwrapped_renamed_enum_variant_compares_wire_value() {
+    let resolver = renamed_enum_resolver();
+
+    let renamed = render_kind_equals_pre_unwrapped(&resolver, "key-value");
+    assert_eq!(
+        renamed, "    assert_eq!(_kind, r#\"key-value\"#, \"equals assertion failed\");\n",
+        "the pre-unwrapped local already holds the WIRE spelling; `expected` must NOT be \
+         translated to the Rust identifier here, got: {renamed}"
+    );
+    assert!(
+        !renamed.contains("format!(\"{:?}\""),
+        "must not Debug-format an already-stringified Display local; got: {renamed}"
+    );
+
+    // Control: the unrenamed sibling variant is unaffected either way.
+    let unrenamed = render_kind_equals_pre_unwrapped(&resolver, "Plain");
+    assert_eq!(
+        unrenamed, "    assert_eq!(_kind, r#\"Plain\"#, \"equals assertion failed\");\n",
+        "got: {unrenamed}"
     );
 }

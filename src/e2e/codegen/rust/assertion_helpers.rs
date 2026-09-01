@@ -28,7 +28,30 @@ pub(super) fn render_equals_assertion(
             // `{:?}` actually renders. This takes priority over the optional/display-as-text
             // branches below because those assume the inner type is string-like. ~keep
             let field_is_enum = assertion.field.as_ref().is_some_and(|f| field_resolver.is_enum(f));
-            let expected = if field_is_enum {
+            // A field whose declared type is `Vec<EnumType>` is BOTH enum- and array-typed
+            // (`is_enum` walks through `Vec` the same way `named_type` does). When such a
+            // field is ALSO `Option<Vec<EnumType>>` and the fixture (unusually) writes a
+            // plain-string `equals` assertion straight against it,
+            // `FieldResolver::rust_unwrap_binding` takes its `is_array` branch and produces a
+            // `&[EnumType]` slice local, not a `String` -- the `is_unwrapped` branches below
+            // assume a `String`/`Display` surface and must not apply to that shape. Checked
+            // against the SAME predicate `rust_unwrap_binding` uses so the two never drift. ~keep
+            let is_array_field = assertion
+                .field
+                .as_ref()
+                .is_some_and(|f| field_resolver.is_array(field_resolver.resolve(f)));
+            // ~keep When `is_unwrapped` is also true (and the field is not array-shaped), the
+            // expression side below is NOT the `{:?}` Debug surface `renamed_variant_expected`
+            // exists to reconcile — it is the pre-unwrapped `String` local
+            // `FieldResolver::rust_unwrap_binding` built via `.as_ref().map(|v|
+            // v.to_string()).unwrap_or_default()`, i.e. the enum's OWN `Display` rendering,
+            // which for a serde-derived `Display` impl serialises through serde and therefore
+            // already equals the fixture's WIRE spelling. Translating `expected` to the Rust
+            // identifier here compares two different surfaces: for a renamed variant (e.g.
+            // `FinishReason::ContentFilter`, wire `"content_filter"`) the pre-unwrapped local
+            // holds `"content_filter"` while the translated `expected` is `ContentFilter` —
+            // same defect class as the quoting bug, on the other operand.
+            let expected = if field_is_enum && !(is_unwrapped && !is_array_field) {
                 renamed_variant_expected(assertion.field.as_deref(), val, field_resolver).unwrap_or(expected)
             } else {
                 expected
@@ -58,6 +81,16 @@ pub(super) fn render_equals_assertion(
                 .is_some_and(|f| field_resolver.is_display_as_text(f));
             let field_expr = if field_is_enum && is_opt_str_not_unwrapped {
                 format!("{field_access}.as_ref().map(|v| format!(\"{{v:?}}\")).unwrap_or_default()")
+            } else if field_is_enum && is_unwrapped && !is_array_field {
+                // `is_unwrapped` means `field_access` already names a local the call-site
+                // unwrap pass built via `FieldResolver::rust_unwrap_binding`'s optional-scalar
+                // branch: `let <local> = <accessor>.as_ref().map(|v| v.to_string())
+                // .unwrap_or_default();` — a `String` holding the enum's own Display
+                // rendering, not the enum value itself. Debug-formatting that `String` AGAIN
+                // wraps it in an extra pair of quotes (`format!("{:?}", "Stop".to_string())`
+                // is `"\"Stop\""`), which never equals the fixture's unquoted wire literal.
+                // The local is already the comparable string — use it as-is. ~keep
+                field_access.to_string()
             } else if field_is_enum {
                 format!("format!(\"{{:?}}\", {field_access})")
             } else if is_opt_str_not_unwrapped && is_display_as_text {
@@ -809,6 +842,88 @@ mod tests {
         assert!(
             !out.contains("as_deref"),
             "must NOT emit as_deref() for an enum; got: {out}"
+        );
+    }
+
+    /// THE REGRESSION for the CI-confirmed double-Debug defect: when the call-site unwrap
+    /// pass (`FieldResolver::rust_unwrap_binding`) has already pre-unwrapped an optional
+    /// enum field into a `String` local via `.as_ref().map(|v| v.to_string())
+    /// .unwrap_or_default()`, `is_unwrapped=true` and `field_access` names that local
+    /// directly (not an `Option<Enum>` needing `.as_ref()` first). The pre-fix code fell
+    /// into the same branch as a REQUIRED (never-unwrapped) enum field access and
+    /// Debug-formatted the local AGAIN — `format!("{:?}", "Stop".to_string())` renders
+    /// `"\"Stop\""`, which can never equal the fixture's unquoted wire literal `"Stop"`.
+    /// liter-llm's real `finish_reason`/`content` assertions failed on exactly this shape
+    /// (12 of 14 chat tests, CI run 33482291337) while xberg's rust e2e stayed green,
+    /// because xberg has no fixture combining enum-typed AND pre-unwrapped-to-local.
+    ///
+    /// This resolver only knows `finish_reason` is an enum via the hand-maintained
+    /// `fields_enum` config (no `with_ir_enum_map`), so it can never resolve a variant rename
+    /// and `expected` was already untranslated before this fix -- checking the FULL emitted
+    /// line here proves only the quoting half of the defect. The renamed-variant case, where
+    /// BOTH halves must move together, is covered by
+    /// `render_equals_assertion_pre_unwrapped_renamed_enum_variant_compares_wire_value` in
+    /// `renamed_enum_wire_assertion_tests.rs`. ~keep
+    #[test]
+    fn render_equals_assertion_pre_unwrapped_enum_local_is_not_debug_formatted_again() {
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_enum_fields(HashSet::from(["finish_reason".to_string()]));
+        let assertion = make_assertion(
+            "equals",
+            Some("finish_reason"),
+            Some(serde_json::Value::String("Stop".into())),
+        );
+        let mut out = String::new();
+        // is_unwrapped=true: the pre-unwrap pass already produced a `String` local
+        // `_choices_0_finish_reason` via `.as_ref().map(|v| v.to_string()).unwrap_or_default()`.
+        render_equals_assertion(&mut out, &assertion, "_choices_0_finish_reason", true, &resolver);
+        assert_eq!(
+            out, "    assert_eq!(_choices_0_finish_reason, r#\"Stop\"#, \"equals assertion failed\");\n",
+            "the pre-unwrapped String local must be compared directly, not re-wrapped in \
+             format!(\"{{:?}}\", ..); got: {out}"
+        );
+    }
+
+    /// EDGE CASE the `is_unwrapped` fix must NOT reach: a field whose type is
+    /// `Option<Vec<EnumType>>` is classified as BOTH enum- and array-typed (`is_enum` walks
+    /// through `Vec` the same way `named_type` does). `FieldResolver::rust_unwrap_binding`
+    /// takes its `is_array` branch for such a field — `.as_deref().unwrap_or(&[])`, a
+    /// `&[EnumType]` slice local, never a `String` — so `field_access.to_string()` would embed
+    /// a slice identifier where `assert_eq!` expects a string operand
+    /// (`E0308: expected &str, found &[EnumType]`). A plain-string `equals` assertion against
+    /// a whole array field is not how any real fixture is authored, but the generator must not
+    /// newly fail to COMPILE for it: `is_array_field` routes this case back through the
+    /// pre-existing `format!("{:?}", ..)` branch, which Debug-formats a slice fine (even though
+    /// the resulting assertion could never pass, exactly as before this fix).
+    #[test]
+    fn render_equals_assertion_pre_unwrapped_array_of_enum_field_keeps_the_debug_branch() {
+        let mut array_fields = HashSet::new();
+        array_fields.insert("reasons".to_string());
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &array_fields,
+            &HashSet::new(),
+        )
+        .with_enum_fields(HashSet::from(["reasons".to_string()]));
+        let assertion = make_assertion(
+            "equals",
+            Some("reasons"),
+            Some(serde_json::Value::String("Stop".into())),
+        );
+        let mut out = String::new();
+        render_equals_assertion(&mut out, &assertion, "_reasons", true, &resolver);
+        assert_eq!(
+            out, "    assert_eq!(format!(\"{:?}\", _reasons), r#\"Stop\"#, \"equals assertion failed\");\n",
+            "an array-of-enum field must keep the Debug-on-slice branch (compiles, even if the \
+             assertion could never pass), not the String-local branch; got: {out}"
         );
     }
 
