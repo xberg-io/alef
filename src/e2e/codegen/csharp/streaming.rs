@@ -381,11 +381,7 @@ pub(super) fn render_streaming_test_method(
     // whole `await foreach` drive, so a verdict taken over all of it would answer "this example
     // asserts something" for every fixture — the drive is executable text.
     let assertions_start = body.len();
-    let mut had_explicit_complete = false;
     for assertion in &fixture.assertions {
-        if assertion.field.as_deref() == Some("stream_complete") {
-            had_explicit_complete = true;
-        }
         if is_chat_stream {
             emit_chat_stream_assertion(&mut body, assertion);
         } else {
@@ -397,13 +393,12 @@ pub(super) fn render_streaming_test_method(
             emit_non_chat_stream_assertion(&mut body, assertion, e2e_config.effective_result_fields(call_config));
         }
     }
-    // Only a chat-shaped stream declares `streamComplete`, so the implicit "the stream finished"
-    // check rides along only there. A non-chat item type has no terminal marker to read, and
-    // synthesising a passing check for an assertion no fixture declared is exactly the vacuous
-    // green this whole path is being pulled back from. ~keep
-    if !had_explicit_complete && is_chat_stream {
-        body.push_str("        Assert.True(streamComplete);\n");
-    }
+    // `streamComplete` is asserted only where the fixture itself declares that field --
+    // `emit_chat_stream_assertion` above already renders `Assert.<op>(streamComplete)` (or a
+    // skip marker) for every declared assertion. A fixture that never mentions `stream_complete`
+    // (e.g. `empty_stream`, which declares `count_min chunks >= 0` -- an explicit statement that
+    // zero chunks is acceptable) gets no expectation synthesised here; inventing
+    // `Assert.True(streamComplete)` would contradict such a fixture rather than check it. ~keep
 
     crate::e2e::codegen::fail_on_unavailable_field_markers(
         &body[assertions_start..],

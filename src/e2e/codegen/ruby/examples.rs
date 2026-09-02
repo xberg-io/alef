@@ -3,7 +3,6 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::core::config::ResolvedCrateConfig;
-use crate::e2e::codegen::field_skip::FieldSkip;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{ruby_regex_literal, ruby_string_literal, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
@@ -251,25 +250,12 @@ pub(super) fn render_chat_stream_example(
         );
     }
 
-    // Ride the implicit "the stream finished" check along only where `stream_complete` was
-    // actually derived. Synthesising a passing expectation for an assertion no fixture declared
-    // is exactly the vacuous green this path is being pulled back from, so the alternative is a
-    // marker the skip ledger can see rather than a check that cannot fail. ~keep
-    if !fixture
-        .assertions
-        .iter()
-        .any(|a| a.field.as_deref() == Some("stream_complete"))
-    {
-        if stream_complete_expr.is_some() {
-            assertions_body.push_str("    expect(stream_complete).to be(true)\n");
-        } else {
-            assertions_body.push_str(&format!(
-                "    # skipped: {}; this stream's chunks carry no terminal finish_reason, \
-so completion is not observable here\n",
-                FieldSkip::StreamingAssertionOnUnsupportedField.message("stream_complete")
-            ));
-        }
-    }
+    // `stream_complete` is asserted only where the fixture itself declares that field --
+    // `emit_chat_stream_assertion` above already renders it (or its skip marker) for every
+    // declared assertion. A fixture that never mentions `stream_complete` gets no expectation
+    // synthesised here: e.g. `empty_stream` declares `count_min chunks >= 0`, an explicit
+    // statement that zero chunks is acceptable, so inventing `expect(stream_complete).to
+    // be(true)` would contradict the fixture rather than check it. ~keep
 
     crate::e2e::codegen::fail_on_unavailable_field_markers(&assertions_body, "ruby", &fixture.id, &fixture.assertions);
     crate::e2e::codegen::fail_on_unsupported_assertion_type_markers(&assertions_body, "ruby", &fixture.id);
@@ -324,6 +310,99 @@ so completion is not observable here\n",
 
     out.push_str("  end\n");
     out
+}
+
+#[cfg(test)]
+mod stream_complete_declaration_gate_tests {
+    use super::render_chat_stream_example;
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::{Assertion, Fixture};
+
+    fn render(id: &str, assertions: Vec<Assertion>) -> String {
+        let fixture = Fixture {
+            id: id.to_string(),
+            description: "test".to_string(),
+            assertions,
+            ..Fixture::default()
+        };
+        render_chat_stream_example(
+            &fixture,
+            "chat_stream",
+            "client",
+            "SampleCrate",
+            &[],
+            None,
+            &std::collections::HashMap::new(),
+            &E2eConfig::default(),
+            None,
+            &[],
+            None,
+            None,
+            &ResolvedCrateConfig::default(),
+            &[],
+        )
+    }
+
+    /// Regression test for the fabricated-completion defect: a fixture that never declares
+    /// `stream_complete` (here, `empty_stream`'s real shape -- `count_min chunks >= 0` plus
+    /// `equals stream_content == ""`, an explicit statement that zero chunks is acceptable)
+    /// must not have `expect(stream_complete).to be(true)` invented on its behalf. That
+    /// expectation would contradict rather than check a fixture like this one. ~keep
+    #[test]
+    fn a_fixture_that_never_declares_stream_complete_gets_no_invented_expectation() {
+        let out = render(
+            "empty_stream",
+            vec![
+                Assertion {
+                    assertion_type: "count_min".to_string(),
+                    field: Some("chunks".to_string()),
+                    value: Some(serde_json::json!(0)),
+                    ..Default::default()
+                },
+                Assertion {
+                    assertion_type: "equals".to_string(),
+                    field: Some("stream_content".to_string()),
+                    value: Some(serde_json::json!("")),
+                    ..Default::default()
+                },
+            ],
+        );
+
+        assert!(
+            !out.contains("expect(stream_complete)"),
+            "no expectation may be invented for a field this fixture never declared. got:\n{out}"
+        );
+    }
+
+    /// The other half: a fixture that DOES declare `stream_complete` (the two real liter-llm
+    /// fixtures `local_stream_ollama` and `stream_done_signal` shape) must still get a real,
+    /// falsifiable expectation -- the fix must not regress the declared case into silence.
+    #[test]
+    fn a_fixture_that_declares_stream_complete_still_gets_a_real_expectation() {
+        let out = render(
+            "stream_done_signal",
+            vec![
+                Assertion {
+                    assertion_type: "equals".to_string(),
+                    field: Some("stream_content".to_string()),
+                    value: Some(serde_json::json!("done")),
+                    ..Default::default()
+                },
+                Assertion {
+                    assertion_type: "is_true".to_string(),
+                    field: Some("stream_complete".to_string()),
+                    ..Default::default()
+                },
+            ],
+        );
+
+        assert_eq!(
+            out.matches("expect(stream_complete).to be(true)").count(),
+            1,
+            "a declared `stream_complete` assertion must render exactly once. got:\n{out}"
+        );
+    }
 }
 
 /// The example emitted in place of one whose assertions all funnelled into skip markers.
