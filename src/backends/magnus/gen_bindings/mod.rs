@@ -76,7 +76,7 @@ pub struct MagnusBackend;
 /// name styles. The previous implementation split only on `-`, producing
 /// `Sample_language_pack` for snake_case crates — which Rubocop
 /// rejects as `Naming/ClassAndModuleCamelCase`.
-fn get_module_name(crate_name: &str) -> String {
+pub(crate) fn get_module_name(crate_name: &str) -> String {
     use heck::ToUpperCamelCase;
     crate_name.to_upper_camel_case()
 }
