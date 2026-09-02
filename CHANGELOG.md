@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef update` now runs `gradle dependencyUpdates` for Kotlin/Android where four of five
+  consumer repos had overridden it to a no-op.** 0.82.0 removed `[crates.update.<lang>]` on the
+  premise that every override restated a default, but an override can also exist to *suppress* one,
+  and this table was the case: xberg, liter-llm and html-to-markdown each echoed a skip message and
+  crawlberg set a permanently-false `precondition`. Three of the four cited the ben-manes
+  gradle-versions-plugin's incompatibility with Gradle 9, which `b24f563c1` fixed in this same
+  release by pinning a compatible version; `dependencyUpdates` is a report task and does not rewrite
+  build files, so it cannot conflict with versions alef itself pins. The real change is that
+  `alef update` for this language now requires gradle and network access where an echo required
+  neither. crawlberg's permanently-false precondition was a stage that always skipped and always
+  reported success — removing it is the point of the release, not a regression. There is
+  deliberately no replacement suppression key: adding config surface in the release that removed
+  config surface would be incoherent, and whether a language whose versions alef pins should have a
+  dependency-update default at all is a 0.83.0 question.
+
 - **`alef e2e generate` emitted a different field accessor from run to run.** Ruby and R rendered
   a wildcard fixture's element half through `FieldResolver::accessor`, which re-anchors a path
   against the call's *result* type — but the block variable is already a collection element, so the
