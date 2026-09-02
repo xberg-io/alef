@@ -251,11 +251,19 @@ impl StreamingFieldResolver {
                     format!("bool({chunks_var}) and {chunks_var}[-1]{choices_acc}[0]{finish_acc} is not None")
                 }
                 "elixir" => {
+                    // ~keep Wrapped in an outer `(...)`: a `case/do/end` is not a primary
+                    // expression, and call sites paste this accessor into paren-less contexts
+                    // (`assert <expr>`, `<expr> not in [...]`) they do not parenthesize
+                    // themselves. Without the wrapping parens, Elixir's `do` block binds to the
+                    // OUTERMOST paren-less call -- here `assert` -- instead of `case`, which
+                    // reparses the clause list as `assert`'s own do-block and fails to compile
+                    // with "misplaced operator ->". The parens make `case ... end` a
+                    // self-contained primary expression before it is ever handed to a caller.
                     format!(
                         concat!(
-                            "case List.last({chunks_var}) do nil -> false; c -> case ",
+                            "(case List.last({chunks_var}) do nil -> false; c -> case ",
                             "List.first(Map.get(c, :choices, []) || []) do nil -> false; ",
-                            "choice -> Map.get(choice, :finish_reason) != nil end end"
+                            "choice -> Map.get(choice, :finish_reason) != nil end end)"
                         ),
                         chunks_var = chunks_var
                     )

@@ -1011,6 +1011,17 @@ use streaming::{render_streaming_test_method, resolve_csharp_streaming_item_type
 use values::{json_to_csharp, render_sealed_display};
 use visitor::{build_csharp_visitor, resolve_csharp_visitor_config};
 
+/// A `new JsonSerializerOptions { ... }` expression that disables HTML-safe escaping.
+///
+/// `JsonSerializer.Serialize` with no options argument uses `JavaScriptEncoder.Default`, which
+/// escapes `+ ' < > &` as `\uXXXX` sequences. Any generated assertion that round-trips an actual
+/// wire value through `Serialize(...).Trim('"')` to compare it against a plain string literal
+/// must pass this options object, or the comparison fails on any expected text containing one of
+/// those characters (e.g. `"4 + 4 equals 8."`, `"I'm running locally."`) while passing silently
+/// for text that happens not to need escaping. ~keep
+pub(super) const UNESCAPED_JSON_SERIALIZER_OPTIONS: &str =
+    "new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }";
+
 /// Build a C# call expression for a `method_result` assertion on a sample_language Tree.
 ///
 /// Maps well-known method names to the appropriate C# static helper calls on the

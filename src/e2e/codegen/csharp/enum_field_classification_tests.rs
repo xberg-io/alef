@@ -248,8 +248,13 @@ fn enum_equals_assertion_compares_the_real_wire_value_unmodified() {
         "must not guess a naming-policy transform; it must serialize through the enum's own converter, got:\n{out}"
     );
     assert!(
-        out.contains("System.Text.Json.JsonSerializer.Serialize(result.Kind).Trim('\"')"),
-        "expected the actual value serialized through the enum's own JsonConverter, got:\n{out}"
+        out.contains(
+            "System.Text.Json.JsonSerializer.Serialize(result.Kind, new System.Text.Json.JsonSerializerOptions { \
+             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }).Trim('\"')"
+        ),
+        "expected the actual value serialized through the enum's own JsonConverter with \
+         HTML-safe escaping disabled (otherwise wire values containing `+ ' < > &` mismatch \
+         the plain-string expectation), got:\n{out}"
     );
 }
 

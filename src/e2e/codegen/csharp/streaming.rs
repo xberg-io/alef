@@ -324,8 +324,15 @@ pub(super) fn render_streaming_test_method(
             // (e.g. "tool_calls") that assertions compare against, not the .NET name.
             body.push_str("                if (choice.FinishReason.HasValue)\n");
             body.push_str("                {\n");
-            body.push_str(
-                "                    lastFinishReason = System.Text.Json.JsonSerializer.Serialize(choice.FinishReason.Value).Trim('\"');\n",
+            // Same HTML-safe-escaping hazard as the enum-field equality bypass in
+            // `assertions.rs`: without this options argument, `+ ' < > &` in the wire value
+            // come back as `\uXXXX` escapes and the comparison against a plain string literal
+            // fails. `FinishReason` values happen not to contain those characters today, but
+            // the accessor should not depend on that staying true. ~keep
+            let _ = writeln!(
+                body,
+                "                    lastFinishReason = System.Text.Json.JsonSerializer.Serialize(choice.FinishReason.Value, {}).Trim('\"');",
+                super::UNESCAPED_JSON_SERIALIZER_OPTIONS
             );
             body.push_str("                }\n");
         }
