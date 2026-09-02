@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Operational note: an interrupted `alef generate` must be redone with its `alef:hash:` stamps
+  cleared, not merely re-run.** The stamp makes a regeneration skip a file whose recorded hash
+  matches its current content, which is what keeps an unchanged tree cheap. The same property means
+  a run that was killed part-way — or two runs racing the same tree, which is easy to produce with a
+  wrapper that times out while the `alef` child survives the signal — can leave a file stamped
+  against interleaved content that every later run then treats as up to date. Deleting the affected
+  generated files before regenerating is the reliable remedy; re-running alone is not. This is the
+  same stickiness that made the nondeterministic accessor bug above survive a second pass, and it is
+  worth knowing because a raced tree presents exactly like a generator defect.
+
 - **`alef update` now runs `gradle dependencyUpdates` for Kotlin/Android where four of five
   consumer repos had overridden it to a no-op.** 0.82.0 removed `[crates.update.<lang>]` on the
   premise that every override restated a default, but an override can also exist to *suppress* one,
