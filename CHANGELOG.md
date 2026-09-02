@@ -193,6 +193,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deadlock when an async core function calls back through a generated Ruby host trait bridge and
   allows unrelated Ruby threads to run while Rust work is pending.
 
+- **Magnus function-parameter and options-field trait bridges compile with named bridge
+  constructors again.** Function bridges cache a companion required `name: String` parameter when
+  one is present, while anonymous callback and options-field bridges retain an empty identity.
+  Both paths had continued emitting the obsolete one-argument constructor after direct host
+  registration added the cached-name argument.
+
 - **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9
   fix.** Four of the five consumer repos independently overrode `[crates.update.kotlin_android]`
   to a no-op, two of them citing "gradle-versions-plugin incompatible with Gradle 9". The plugin
