@@ -50,6 +50,17 @@ pub fn gen_bridge_function(
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
     let bridge_name = bridge_name_expr(func, bridge_param_idx);
+    let (bridge_handle_type, bridge_value) = if bridge_param.core_wrapper == crate::core::ir::CoreWrapper::Arc {
+        (
+            format!("std::sync::Arc<dyn {handle_path}>"),
+            "std::sync::Arc::new(bridge)".to_string(),
+        )
+    } else {
+        (
+            handle_path.clone(),
+            "std::sync::Arc::new(std::sync::Mutex::new(bridge))".to_string(),
+        )
+    };
 
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
@@ -102,10 +113,10 @@ pub fn gen_bridge_function(
 
     let bridge_wrap = if is_optional {
         format!(
-            "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
+            "let {param_name}: Option<{bridge_handle_type}> = match {param_name} {{\n        \
              Some(v) if !v.is_nil() => {{\n            \
              let bridge = {struct_name}::new(v, {bridge_name})?;\n            \
-             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
+             Some({bridge_value} as {bridge_handle_type})\n        \
              }},\n        \
              _ => None,\n    \
              }};"
@@ -114,7 +125,7 @@ pub fn gen_bridge_function(
         format!(
             "let {param_name} = {{\n        \
              let bridge = {struct_name}::new({param_name}, {bridge_name})?;\n        \
-             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
+             {bridge_value} as {bridge_handle_type}\n    \
              }};"
         )
     };
