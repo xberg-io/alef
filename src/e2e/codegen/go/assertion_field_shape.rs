@@ -25,6 +25,27 @@ fn leaf_is_indexed_element(path: &str) -> bool {
         && path[open + 1..path.len() - 1].bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Whether `path`'s FINAL segment is a map-key lookup (`open_graph[title]`) rather than a
+/// numeric array index -- the sibling shape [`leaf_is_indexed_element`] does not cover.
+///
+/// A map key lookup is bracket syntax exactly like an array index, but it can only ever be
+/// declared "optional" for the reason a map key genuinely can be: the key might be absent.
+/// That is a real cross-language fact (`fields_optional` on `open_graph[title]` is correct for
+/// Python's `.get()`/TypeScript's `undefined`), but it says nothing about whether the Go
+/// expression `m["key"]` can be `nil` -- a Go map read, even on a nil map or a missing key,
+/// always yields the value type's zero value. Whether that zero value can itself be `nil`
+/// depends only on the map's VALUE type, which `resolve_assertion_field_shape` checks
+/// separately via `FieldResolver::map_value_is_scalar` before trusting this leaf shape to
+/// suppress the container's declared optionality.
+fn leaf_is_map_key_element(path: &str) -> bool {
+    let Some(open) = path.rfind('[') else {
+        return false;
+    };
+    path.ends_with(']')
+        && open + 1 < path.len() - 1
+        && !path[open + 1..path.len() - 1].bytes().all(|b| b.is_ascii_digit())
+}
+
 pub(super) struct AssertionFieldShape {
     pub is_optional: bool,
     pub is_pointer: bool,
@@ -57,9 +78,19 @@ pub(super) fn resolve_assertion_field_shape(
         .unwrap_or(resolved);
     let uses_plain_local = optional_locals.contains_key(field);
     let leaf_is_indexed_element = leaf_is_indexed_element(check_path);
-    let is_optional = !leaf_is_indexed_element && field_resolver.is_optional(check_path) && !uses_plain_local;
-    let is_array_for_len = !leaf_is_indexed_element && field_resolver.is_array(check_path);
-    let is_slice = !leaf_is_indexed_element && field_resolver.is_array(resolved);
+    // A map-key leaf only overrides the container's declared optionality when the IR can
+    // positively prove the map's VALUE type is a plain, never-nil Go kind -- `unwrap_or(false)`
+    // here is deliberate and asymmetric with the numeric-index case above: an unresolved path
+    // must fall through to the existing `is_optional`/`is_pointer` computation unchanged, so a
+    // map of pointers or sealed interfaces (or a path the IR simply cannot anchor) keeps
+    // whatever nil guard it already had. See `leaf_is_map_key_element` and
+    // `FieldResolver::map_value_is_scalar`.
+    let leaf_is_scalar_map_value =
+        leaf_is_map_key_element(check_path) && field_resolver.map_value_is_scalar(check_path).unwrap_or(false);
+    let container_nullability_consumed = leaf_is_indexed_element || leaf_is_scalar_map_value;
+    let is_optional = !container_nullability_consumed && field_resolver.is_optional(check_path) && !uses_plain_local;
+    let is_array_for_len = !container_nullability_consumed && field_resolver.is_array(check_path);
+    let is_slice = !container_nullability_consumed && field_resolver.is_array(resolved);
     // ~keep `target_field_is_pointer` is the authoritative answer: it reads the same
     // `go_struct_field_type` the Go binding backend itself emits from (see
     // `ir_result_fields::pointer_at_path`). `None` means that walk could not resolve `check_path`
@@ -70,7 +101,7 @@ pub(super) fn resolve_assertion_field_shape(
     // Defaulting to `false` never adds a spurious `*`; the worst case is a missing deref the IR
     // could not prove was needed, which is a comparison against the wrong Go type and fails to
     // build immediately, rather than silently asserting nothing.
-    let is_pointer = !leaf_is_indexed_element
+    let is_pointer = !container_nullability_consumed
         && !uses_plain_local
         && field_resolver.target_field_is_pointer(check_path).unwrap_or(false);
 

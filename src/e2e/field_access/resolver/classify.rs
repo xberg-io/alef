@@ -193,6 +193,15 @@ impl FieldResolver {
             .unwrap_or(false)
     }
 
+    /// Whether `field` resolves to a `Map<K, V>` field whose value type `V` is a plain,
+    /// never-nil Go value kind (see `ir_result_fields::map_value_is_scalar_at_path`). `None`
+    /// when the anchored IR cannot resolve the path — never `Some(false)` for "unknown", since
+    /// callers use this to positively override an otherwise-nilable classification and must
+    /// never do so on a guess.
+    pub fn map_value_is_scalar(&self, field: &str) -> Option<bool> {
+        super::super::ir_result_fields::map_value_is_scalar_at_path(&self.ir_result_field_map, self.resolve(field))
+    }
+
     /// Check whether `field`'s resolved leaf type is one alef cannot vouch for as implementing
     /// `Display` — a struct/enum from the crate's own IR, per
     /// [`ir_result_fields::leaf_is_named_type`](super::super::ir_result_fields::leaf_is_named_type).

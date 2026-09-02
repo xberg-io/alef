@@ -222,6 +222,17 @@ pub struct FieldResolver {
 ///   is a snippet that fails to compile.
 /// * `root_type` — the IR type name the call's declared return type resolves to, via
 ///   `codegen::call_ir::resolve_declared_result_type`. `None` disables every anchored answer.
+/// * `map_scalar_value_fields[type_name]` — fields of `type_name` whose declared type is a
+///   `Map<K, V>` (optionally wrapped in `Option<..>`) where `V` is a plain, never-nil Go value
+///   kind: a resolved struct, a resolved non-sealed enum, or a bare scalar (`string`,
+///   `bool`, a numeric primitive, `Duration`). Indexing such a map (`m["key"]`) always yields a
+///   concrete Go value, even when the map itself is absent or the key is missing — a nil Go map
+///   read is a safe zero-value read, never a panic — so a leaf reached through this field must
+///   never be treated as nilable, regardless of what `optional_fields`/`pointer_fields` say about
+///   the map field itself. Excludes `Optional<V>`, `Vec<V>`/`Bytes`/`Json` (slice-backed), a
+///   nested `Map<_, _>`, a sealed-interface (data enum) `V`, and any unresolved `Named` `V` —
+///   all of those render as a Go pointer, slice, map, or `interface{}`, which genuinely can be
+///   `nil` when read.
 #[derive(Debug, Clone, Default)]
 pub struct IrResultFieldMap {
     pub field_types: HashMap<String, HashMap<String, String>>,
@@ -231,6 +242,7 @@ pub struct IrResultFieldMap {
     pub declared_fields: HashMap<String, HashSet<String>>,
     pub unresolvable_named_fields: HashMap<String, HashSet<String>>,
     pub display_safe_fields: HashMap<String, HashSet<String>>,
+    pub map_scalar_value_fields: HashMap<String, HashSet<String>>,
     pub root_type: Option<String>,
 }
 
