@@ -278,6 +278,10 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         // inside a list fell to `json_to_js_camel` and stayed a bare literal that
                         // wasm-bindgen rejects, even though the map already held the element's
                         // class (`derive_nested_types_for_wasm` unwraps `Vec<Named>`). ~keep
+                        // Strip the wasm binding prefix (`WasmEngineConfig` -> `EngineConfig`) so
+                        // scalar fields can be resolved against the IR's own type name, the same
+                        // way `ts_builder_expression_inner` derives `ir_owner_name`.
+                        let owner_type = config_type.strip_prefix(wasm_type_prefix).unwrap_or(config_type);
                         let context = HandleConfigContext {
                             nested_types,
                             effective_nested_types: &effective_nested,
@@ -287,6 +291,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             type_defs,
                             enums,
                             wasm_type_prefix,
+                            owner_type: Some(owner_type),
                         };
                         for (key, val) in obj {
                             let camel_key = underscore_camel_case(key);

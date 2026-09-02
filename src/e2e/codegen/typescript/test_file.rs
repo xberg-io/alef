@@ -72,7 +72,7 @@ pub(crate) use snippet::{SnippetContext, render_node_snippet_body, render_snippe
 pub(in crate::e2e::codegen::typescript::test_file) use args::build_args_and_setup;
 pub(in crate::e2e::codegen::typescript::test_file) use builders::{
     node_enum_string_literal, node_typed_value_expression, rename_napi_serde_tags_to_kind, ts_builder_expression,
-    ts_builder_expression_inner,
+    ts_builder_expression_inner, wasm_scalar_value_expression,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use bytes::ts_bytes_value_expression;
 pub(in crate::e2e::codegen::typescript::test_file) use cache::{

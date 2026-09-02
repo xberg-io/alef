@@ -42,6 +42,9 @@ fn handle_config_classes(
     // Only the class map and the JSON shape decide which classes get constructed; `enum_fields`
     // and `bigint_fields` steer scalar rendering, whose string this caller discards. ~keep
     let bigint_fields: std::collections::BTreeSet<String> = override_config.bigint_fields.iter().cloned().collect();
+    let owner_type = handle_config_type
+        .strip_prefix(wasm_type_prefix)
+        .unwrap_or(handle_config_type);
     let context = HandleConfigContext {
         nested_types: &override_config.nested_types,
         effective_nested_types: &effective_nested_types,
@@ -51,6 +54,7 @@ fn handle_config_classes(
         type_defs,
         enums,
         wasm_type_prefix,
+        owner_type: Some(owner_type),
     };
     for arg in call_config.args.iter().filter(|arg| arg.arg_type == "handle") {
         let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
