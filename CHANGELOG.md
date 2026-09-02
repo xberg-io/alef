@@ -177,6 +177,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Magnus async free-function wrappers no longer retain Ruby's GVL while blocking on Rust
+  futures.** Both generated entrypoints now convert their arguments first, release the GVL on the
+  calling Ruby thread, and drive a current-thread Tokio runtime until the future completes. Ruby
+  error construction and result conversion happen only after the GVL is restored. This prevents
+  deadlock when an async core function calls back through a generated Ruby host trait bridge and
+  allows unrelated Ruby threads to run while Rust work is pending.
+
 - **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9
   fix.** Four of the five consumer repos independently overrode `[crates.update.kotlin_android]`
   to a no-op, two of them citing "gradle-versions-plugin incompatible with Gradle 9". The plugin

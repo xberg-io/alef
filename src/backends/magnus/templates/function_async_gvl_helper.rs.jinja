@@ -1,0 +1,45 @@
+/// Run owned Rust work while the calling Ruby thread releases the GVL.
+fn alef_magnus_run_without_gvl<F, T>(callback: F) -> T
+where
+    F: FnOnce() -> T,
+{
+    struct RunState<F, T> {
+        callback: Option<F>,
+        result: Option<std::thread::Result<T>>,
+    }
+
+    extern "C" fn run_without_gvl<F, T>(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void
+    where
+        F: FnOnce() -> T,
+    {
+        // SAFETY: `data` points to the caller's RunState for the duration of this callback.
+        let state = unsafe { &mut *(data as *mut RunState<F, T>) };
+        let Some(callback) = state.callback.take() else {
+            state.result = Some(Err(Box::new("Alef Magnus callback already consumed")));
+            return std::ptr::null_mut();
+        };
+        state.result = Some(std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)));
+        std::ptr::null_mut()
+    }
+
+    extern "C" fn unblock_run(_data: *mut std::ffi::c_void) {}
+
+    let mut state = RunState {
+        callback: Some(callback),
+        result: None,
+    };
+    // SAFETY: Ruby invokes the callback synchronously, and `state` remains live until it returns.
+    unsafe {
+        rb_sys::rb_thread_call_without_gvl(
+            Some(run_without_gvl::<F, T>),
+            &mut state as *mut RunState<F, T> as *mut std::ffi::c_void,
+            Some(unblock_run),
+            std::ptr::null_mut(),
+        );
+    }
+
+    match state.result.expect("Alef Magnus callback did not run") {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}

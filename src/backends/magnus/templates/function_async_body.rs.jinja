@@ -1,7 +1,13 @@
-let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))?;
+let async_result = alef_magnus_run_without_gvl(move || -> Result<_, String> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
     {% if has_error -%}
-let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))?;
+    rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())
     {%- else -%}
-let result = rt.block_on(async { {{ core_call }}.await });
+    Ok(rt.block_on(async { {{ core_call }}.await }))
     {%- endif %}
+});
+let result = async_result.map_err(|message| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_runtime_error(), message))?;
 Ok({{ wrap }})
