@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generate: `git restore`, `git checkout`, a branch switch, a revert, a cherry-pick, an interrupted
   run, or two runs racing the same tree. Each leaves a file whose stamp agrees with its own content
   while disagreeing with what the current generator would write, so the up-to-date check passes on
-  stamp validity and never compares the two. Deleting the affected files before regenerating is the
-  reliable remedy; re-running alone is not. This is worth knowing because a stale tree presents
+  stamp validity and never compares the two. `alef generate --clean` ignores the cache and
+  regenerates everything, which is the remedy; a plain re-run is not, and neither is restoring the
+  files from git, since a committed file and its committed stamp are self-consistent and get skipped
+  exactly like a raced one. This is worth knowing because a stale tree presents
   exactly like a generator defect — it was mistaken for one twice while preparing this release, once
   as a suspected incomplete nondeterminism fix and once as a suspected failure to emit.
 
