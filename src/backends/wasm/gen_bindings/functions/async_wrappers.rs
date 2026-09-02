@@ -30,12 +30,27 @@ pub(super) fn gen_async_free_function(
             .iter()
             .map(|p| match &p.ty {
                 TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                    let mapped_ty = if p.optional {
-                        "Option<JsValue>".to_string()
+                    let wasm_ty = mapper.map_type(&p.ty);
+                    if crate::codegen::shared::maps_to_js_value(&wasm_ty) {
+                        let mapped_ty = if p.optional {
+                            "Option<JsValue>".to_string()
+                        } else {
+                            "JsValue".to_string()
+                        };
+                        format!("{}: {}", p.name, mapped_ty)
                     } else {
-                        "JsValue".to_string()
-                    };
-                    format!("{}: {}", p.name, mapped_ty)
+                        // A dedicated `#[wasm_bindgen]` wrapper exists for this type (with a
+                        // `From<Wasm{name}>` conversion into the core type), so the parameter
+                        // takes the typed wrapper instead of a round-trip through
+                        // `serde_wasm_bindgen::from_value`. That round-trip deserializes by
+                        // asking the JS object for each of the core type's *snake_case* serde
+                        // field names, which never matches the camelCase getters wasm-bindgen
+                        // emits for the wrapper's own fields — every multi-word field silently
+                        // falls back to its serde default. `Option<...>` regardless of
+                        // `p.optional` preserves the existing "omit -> use default" ergonomics,
+                        // mirrored in the binding body below. ~keep
+                        format!("{}: Option<{}>", p.name, wasm_ty)
+                    }
                 }
                 _ => {
                     let ty = mapper.map_type(&p.ty);
@@ -54,25 +69,49 @@ pub(super) fn gen_async_free_function(
             if let TypeRef::Named(name) = &p.ty {
                 if !opaque_types.contains(name.as_str()) {
                     let core_path = format!("{}::{}", core_import, name);
-                    let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
-                    if p.optional {
+                    let wasm_ty = mapper.map_type(&p.ty);
+                    if crate::codegen::shared::maps_to_js_value(&wasm_ty) {
+                        let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
+                        if p.optional {
+                            serde_bindings.push_str(&crate::backends::wasm::template_env::render(
+                                "serde_named_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        } else {
+                            let has_default = type_has_default(name, api);
+                            serde_bindings.push_str(&crate::backends::wasm::template_env::render(
+                                "serde_named_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                    core_path => &core_path,
+                                    err_conv => &err_conv,
+                                    has_default => has_default,
+                                    is_mut => p.is_mut,
+                                },
+                            ));
+                            serde_bindings.push_str("    ");
+                        }
+                    } else if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
-                            "serde_named_optional",
+                            "wasm_typed_named_optional",
                             minijinja::context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
-                                err_conv => &err_conv,
                             },
                         ));
                         serde_bindings.push_str("    ");
                     } else {
                         let has_default = type_has_default(name, api);
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
-                            "serde_named_required",
+                            "wasm_typed_named_required",
                             minijinja::context! {
                                 param_name => &p.name,
                                 core_path => &core_path,
-                                err_conv => &err_conv,
                                 has_default => has_default,
                                 is_mut => p.is_mut,
                             },

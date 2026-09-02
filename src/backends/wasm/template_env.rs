@@ -85,6 +85,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/serde_named_required.jinja"),
     ),
     (
+        "wasm_typed_named_optional",
+        include_str!("templates/wasm_typed_named_optional.jinja"),
+    ),
+    (
+        "wasm_typed_named_required",
+        include_str!("templates/wasm_typed_named_required.jinja"),
+    ),
+    (
         "serde_vec_named_optional",
         include_str!("templates/serde_vec_named_optional.jinja"),
     ),
