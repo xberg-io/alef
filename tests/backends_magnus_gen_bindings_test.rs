@@ -4739,6 +4739,59 @@ fn test_magnus_async_struct_param_marshalled_as_native_ruby_value() {
     );
 }
 
+#[test]
+fn magnus_function_param_bridge_caches_companion_name() {
+    let (mut api, _trait_def, mut bridge) = neutral_plugin_fixture(false);
+    bridge.param_name = Some("provider".to_string());
+    api.functions.push(FunctionDef {
+        name: "replace_greeter".to_string(),
+        rust_path: "test_lib::replace_greeter".to_string(),
+        params: vec![
+            ParamDef {
+                name: "provider".to_string(),
+                ty: TypeRef::Named("Greeter".to_string()),
+                ..ParamDef::default()
+            },
+            ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                ..ParamDef::default()
+            },
+        ],
+        return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
+        ..FunctionDef::default()
+    });
+    api.functions.push(FunctionDef {
+        name: "visit_with_greeter".to_string(),
+        rust_path: "test_lib::visit_with_greeter".to_string(),
+        params: vec![ParamDef {
+            name: "provider".to_string(),
+            ty: TypeRef::Named("Greeter".to_string()),
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
+        ..FunctionDef::default()
+    });
+    let mut config = make_config();
+    config.trait_bridges = vec![bridge];
+
+    let files = MagnusBackend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+    let content = &files
+        .iter()
+        .find(|file| file.path.to_string_lossy().contains("lib.rs"))
+        .expect("lib.rs must be generated")
+        .content;
+
+    assert!(content.contains("provider: magnus::Value, name: String"));
+    assert!(content.contains("RbGreeterBridge::new(provider, name.clone())?"));
+    assert!(content.contains("test_lib::replace_greeter(provider, name)"));
+    assert!(content.contains("RbGreeterBridge::new(provider, String::new())?"));
+}
+
 /// Magnus is the two-sided case: a gated method needs `#[cfg]` on the wrapper `fn` **and** on the
 /// `class.define_method(...)` statement in `ruby_init`. `method!(Type::name, n)` resolves
 /// `Type::name` as a path, so gating only the `fn` turns a feature-off build into an E0599 rather
