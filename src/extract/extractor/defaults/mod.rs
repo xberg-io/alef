@@ -8,7 +8,7 @@ mod function_default;
 mod mutation;
 mod struct_literal;
 
-pub(crate) use function_default::{collect_free_functions, fold_constant_default_functions};
+pub(crate) use function_default::{FreeFunctionIndex, collect_free_functions, fold_constant_default_functions};
 use struct_literal::struct_expr_defaults;
 
 /// Every associated function of every inherent `impl` block in one module, keyed by

@@ -581,6 +581,7 @@ fn extract_items(
                 result_wrapping_aliases,
                 &literal_consts,
                 &constructors,
+                &free_functions,
             );
         }
     }

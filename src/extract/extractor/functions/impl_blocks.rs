@@ -1,7 +1,7 @@
 use crate::core::ir::{ApiSurface, DefaultValue, MethodDef, TypeDef, UnsupportedPublicItem};
 use ahash::AHashMap;
 
-use super::super::defaults::{ConstructorIndex, extract_default_values};
+use super::super::defaults::{ConstructorIndex, FreeFunctionIndex, extract_default_values, fold_constant_default_functions};
 use super::super::helpers::{build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, is_test_gated};
 use super::extract_method;
 
@@ -56,6 +56,7 @@ pub(crate) fn extract_impl_block(
     result_wrapping_aliases: &ahash::AHashSet<String>,
     literal_consts: &AHashMap<String, DefaultValue>,
     constructors: &ConstructorIndex<'_>,
+    free_functions: &FreeFunctionIndex<'_>,
 ) {
     // Honor `#[cfg_attr(alef, alef(skip))]` (or bare `#[alef(skip)]`) on the impl block
     if extract_binding_exclusion_reason(&item.attrs).is_some() {
@@ -76,6 +77,7 @@ pub(crate) fn extract_impl_block(
             literal_consts,
             impl_cfg.as_deref(),
             constructors,
+            free_functions,
         );
         return;
     }
@@ -336,6 +338,7 @@ fn extract_trait_impl_methods(
     literal_consts: &AHashMap<String, DefaultValue>,
     impl_cfg: Option<&str>,
     constructors: &ConstructorIndex<'_>,
+    free_functions: &FreeFunctionIndex<'_>,
 ) {
     let type_name = match &*item.self_ty {
         syn::Type::Path(p) => p.path.segments.last().map(|s| s.ident.to_string()),
@@ -449,6 +452,23 @@ fn extract_trait_impl_methods(
             constructors,
             binding_excluded,
         );
+        // `extract_default_values` reads the `impl Default` struct literal with the same
+        // constant-folder `fold_constant_default_functions` uses for `#[serde(default =
+        // "path")]` fields, but its own `Expr::Call` handling stops at recording a bare
+        // `DefaultValue::FunctionCall` for a zero-arg call it does not itself look inside (that
+        // arm exists to name a call for every other caller of `expr_to_default_value`, most of
+        // whom have no function index to resolve it against). A field whose declared default
+        // and whose `impl Default` initializer are the very same free-function call — e.g.
+        // `#[serde(default = "default_scheme_allowlist")]` next to `Self { scheme_allowlist:
+        // default_scheme_allowlist(), .. }` — would otherwise regress from the folded literal
+        // the serde-default pass already proved to a fresh, unfolded `FunctionCall` here,
+        // purely because `impl Default` extraction unconditionally overwrites every field's
+        // `typed_default`. Re-running the same idempotent fold immediately after closes that
+        // gap: a field already folded to a concrete value is untouched (the fold only matches
+        // `FunctionCall`), and a field this pass just reset to `FunctionCall` gets exactly the
+        // same "read the named function's body if it is one constant-foldable statement"
+        // treatment the serde-default path already gets. ~keep
+        fold_constant_default_functions(&mut type_def.fields, free_functions, constructors, literal_consts);
     }
 
     let is_conversion_trait = item.trait_.as_ref().is_some_and(|(path, _)| {

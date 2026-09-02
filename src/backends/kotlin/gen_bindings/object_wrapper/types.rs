@@ -90,7 +90,7 @@ fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<Stri
 /// optional fields with default values, and feature-gated fields. Without a
 /// Kotlin-side default the deserialization fails with
 /// `MissingKotlinParameterException`.
-pub(super) fn kotlin_field_default(
+pub(crate) fn kotlin_field_default(
     ty: &TypeRef,
     optional: bool,
     typed_default: Option<&crate::core::ir::DefaultValue>,

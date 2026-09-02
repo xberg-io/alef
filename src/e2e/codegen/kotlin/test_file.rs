@@ -542,6 +542,15 @@ pub(super) fn render_test_file_inner(
         // constructor). The extension function lives in jackson-module-kotlin.
         if kotlin_android_style {
             imports.push("com.fasterxml.jackson.module.kotlin.registerKotlinModule");
+            // `kotlin.time.Duration` is a value class with no natural JSON shape: Jackson has
+            // no built-in codec for it, and a fixture literal always spells a duration-typed
+            // field as a plain millisecond number (the wire shape `render_kotlin_default`
+            // already uses for a `Duration` field's own default — `{n}.milliseconds`, same
+            // import). Without a registered (de)serializer, `MAPPER.readValue` on any fixture
+            // that touches a `Duration` field throws trying to bind a JSON number onto a type
+            // it cannot construct. `Duration.Companion.milliseconds` is the extension the
+            // registered deserializer below uses to build one back from that number. ~keep
+            imports.push("kotlin.time.Duration.Companion.milliseconds");
         }
     }
     // Import every options type referenced by per-call kotlin overrides in this file.
@@ -659,15 +668,51 @@ pub(super) fn render_test_file_inner(
         // primary constructor for deserialization. Non-android (JVM) targets use Java records
         // and builders, which Jackson handles without the extra module.
         if needs_object_mapper {
-            let kotlin_module_call = if kotlin_android_style {
-                ".registerKotlinModule()"
+            // `kotlin.time.Duration` has no natural JSON shape, so a fixture that touches a
+            // `Duration`-typed field (e.g. `BrowserConfig.extraWait`) needs an explicit codec
+            // registered before `MAPPER.readValue`/`writeValueAsString` can round-trip it —
+            // see the `imports.push("kotlin.time.Duration.Companion.milliseconds")` call
+            // above for why the wire shape is a plain millisecond number. Only relevant for
+            // `kotlin_android_style`: the non-android JVM target's Java-record DTOs never
+            // surface `kotlin.time.Duration`. ~keep
+            if kotlin_android_style {
+                let _ = writeln!(
+                    out,
+                    "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()).registerModule("
+                );
+                let _ = writeln!(out, "            com.fasterxml.jackson.databind.module.SimpleModule()");
+                let _ = writeln!(
+                    out,
+                    "                .addSerializer(kotlin.time.Duration::class.java, object : com.fasterxml.jackson.databind.JsonSerializer<kotlin.time.Duration>() {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "                    override fun serialize(value: kotlin.time.Duration, gen: com.fasterxml.jackson.core.JsonGenerator, serializers: com.fasterxml.jackson.databind.SerializerProvider) {{"
+                );
+                let _ = writeln!(out, "                        gen.writeNumber(value.inWholeMilliseconds)");
+                let _ = writeln!(out, "                    }}");
+                let _ = writeln!(out, "                }})");
+                let _ = writeln!(
+                    out,
+                    "                .addDeserializer(kotlin.time.Duration::class.java, object : com.fasterxml.jackson.databind.JsonDeserializer<kotlin.time.Duration>() {{"
+                );
+                let _ = writeln!(
+                    out,
+                    "                    override fun deserialize(p: com.fasterxml.jackson.core.JsonParser, ctxt: com.fasterxml.jackson.databind.DeserializationContext): kotlin.time.Duration {{"
+                );
+                let _ = writeln!(out, "                        return p.longValue.milliseconds");
+                let _ = writeln!(out, "                    }}");
+                let _ = writeln!(out, "                }})");
+                let _ = writeln!(
+                    out,
+                    "        ).registerKotlinModule().setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+                );
             } else {
-                ""
-            };
-            let _ = writeln!(
-                out,
-                "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()){kotlin_module_call}.setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
-            );
+                let _ = writeln!(
+                    out,
+                    "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+                );
+            }
         }
         let _ = writeln!(out, "    }}");
     }

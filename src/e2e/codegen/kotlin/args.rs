@@ -57,6 +57,17 @@ pub(super) struct KotlinArgsContext<'a> {
     pub(super) target_params: TargetParams<'a>,
 }
 
+/// Everything `normalize_typed_json`'s `kotlin_android_style` field-filling needs to decide
+/// whether a bare constructor parameter can be honestly materialised in a fixture literal.
+/// Bundled into one struct rather than three parameters threaded through every recursive call —
+/// `required_field_stub` recurses through the whole type graph and each of these three is needed
+/// at every level. ~keep
+struct KotlinFillContext<'a> {
+    type_defs: &'a [crate::core::ir::TypeDef],
+    enum_defaults: std::collections::HashMap<String, String>,
+    default_constructible_types: std::collections::HashSet<String>,
+}
+
 pub(super) fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[ArgMapping],
@@ -81,6 +92,50 @@ pub(super) fn build_args_and_setup(
         "kotlin_android"
     } else {
         "kotlin"
+    };
+
+    // `MAPPER.readValue(...)` fixture literals for `kotlin_android_style` only: Jackson's
+    // `registerKotlinModule()` (`test_file.rs`'s mapper setup) enforces Kotlin's own
+    // constructor-required-ness, so a required (no-Kotlin-default) `Named` field the fixture's
+    // JSON omits throws `MissingKotlinParameterException` at test run time, even though the
+    // field's absence is exactly what a `#[serde(default = "...")]` the extractor could not
+    // constant-fold is *for* (see `kotlin_field_default`'s own doc comment). This mirrors that
+    // same emitter's `default_constructible_type_names` computation exactly — same inputs, same
+    // fixpoint — so a field only gets filled here when its type's Kotlin data class is provably
+    // constructible with no arguments in the ACTUAL generated binding, never a guess at what the
+    // Rust value would be. Left empty for the non-android JVM target, whose Java-record DTOs
+    // carry no such Kotlin-constructor strictness. ~keep
+    let kotlin_fill_context = if kotlin_android_style {
+        let enum_defaults: std::collections::HashMap<String, String> = enums
+            .iter()
+            .filter(|candidate| {
+                candidate.serde_tag.is_none()
+                    && !candidate.serde_untagged
+                    && candidate.variants.iter().all(|variant| variant.fields.is_empty())
+            })
+            .map(|candidate| {
+                let default_variant = candidate
+                    .variants
+                    .iter()
+                    .find(|variant| variant.is_default)
+                    .map(|variant| variant.name.clone())
+                    .unwrap_or_default();
+                (candidate.name.clone(), default_variant)
+            })
+            .collect();
+        let default_constructible_types =
+            crate::backends::kotlin::default_constructible_type_names(type_defs, &enum_defaults);
+        KotlinFillContext {
+            type_defs,
+            enum_defaults,
+            default_constructible_types,
+        }
+    } else {
+        KotlinFillContext {
+            type_defs,
+            enum_defaults: std::collections::HashMap::new(),
+            default_constructible_types: std::collections::HashSet::new(),
+        }
     };
 
     let mut setup_lines: Vec<String> = Vec::new();
@@ -119,6 +174,32 @@ pub(super) fn build_args_and_setup(
                 parts.push(arg.name.clone());
                 continue;
             }
+            // Not preserved as-is: each element is a bare path (`/page1`) that must be
+            // resolved against the per-fixture mock-server base at runtime, the same
+            // resolution `mock_url` above uses for a single URL. Mirrors
+            // `java/args.rs`'s and `typescript/test_file/args.rs`'s `{name}Base` +
+            // `.map(...)` — this arm was previously missing here entirely, so a batch
+            // fixture's raw relative paths fell through unresolved into
+            // `listOf("/page1", "/page2", ...)`, which mock-server does not serve. ~keep
+            let paths_literal = value
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| item.as_str().map(|s| format!("\"{}\"", escape_kotlin(s))))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let name = &arg.name;
+            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+            setup_lines.push(format!(
+                "val {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: ((System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"))"
+            ));
+            setup_lines.push(format!(
+                "val {name} = listOf({paths_literal}).map {{ if (it.startsWith(\"http\")) it else {name}Base + it }}"
+            ));
+            parts.push(name.clone());
+            continue;
         }
 
         if arg.arg_type == "handle" {
@@ -130,9 +211,17 @@ pub(super) fn build_args_and_setup(
             {
                 setup_lines.push(format!("val {} = {class_name}.{constructor_name}(null)", arg.name,));
             } else {
-                let json_str = serde_json::to_string(config_value).unwrap_or_default();
                 let name = &arg.name;
                 if let Some(config_type) = super::test_file::resolve_handle_config_type(arg, options_type, type_defs) {
+                    // `normalize_typed_json` also fills a `MissingKotlinParameterException`-prone
+                    // required field (e.g. `CrawlConfig.ssrf`) the fixture's own JSON left out —
+                    // see `fill_missing_required_kotlin_fields`. This is the sole path
+                    // `createEngine`/other `handle`-typed args' config JSON takes, so a fixture
+                    // like `warc_basic_output`'s `{"respect_robots_txt":false,...}` (no `ssrf` key
+                    // at all) needs it here, not just the `json_object` DTO-arg path below. ~keep
+                    let normalized_config =
+                        normalize_typed_json(config_value, &config_type, &kotlin_fill_context);
+                    let json_str = serde_json::to_string(&normalized_config).unwrap_or_default();
                     setup_lines.push(format!(
                         "val {name}Config = MAPPER.readValue({}, {config_type}::class.java)",
                         super::values::kotlin_string_literal(&json_str),
@@ -413,7 +502,7 @@ pub(super) fn build_args_and_setup(
                             // rather than baked into the literal at codegen time. Doc-file
                             // markers are not combined with this path, mirroring the
                             // config_type-inference branch below. ~keep
-                            let json_value = normalize_typed_json(v, opts_type, type_defs);
+                            let json_value = normalize_typed_json(v, opts_type, &kotlin_fill_context);
                             let json_str = serde_json::to_string(&json_value).unwrap_or_default();
                             let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
                             let base_var = format!("{}MockBaseUrl", arg.name);
@@ -434,7 +523,7 @@ pub(super) fn build_args_and_setup(
                             let files = fixture.docs_files_for_arg(&arg.field);
                             let mut json_value = v.clone();
                             let file_reads = prepare_docs_file_reads(&mut json_value, &files);
-                            json_value = normalize_typed_json(&json_value, opts_type, type_defs);
+                            json_value = normalize_typed_json(&json_value, opts_type, &kotlin_fill_context);
                             append_docs_file_setup(&mut setup_lines, &arg.name, &json_value, opts_type, &file_reads);
                         }
                         parts.push(arg.name.clone());
@@ -482,6 +571,8 @@ pub(super) fn build_args_and_setup(
                                 Some((index, marker, file.path.clone()))
                             })
                             .collect::<Vec<_>>();
+                        let json_value =
+                            normalize_typed_json(&json_value, &config_type, &kotlin_fill_context);
                         let json_str = serde_json::to_string(&json_value).unwrap_or_default();
                         let var_name = format!("{}_Config", arg.name);
                         if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
@@ -598,12 +689,8 @@ fn typed_zero_default(arg_type: &str) -> String {
     }
 }
 
-fn normalize_typed_json(
-    value: &serde_json::Value,
-    type_name: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-) -> serde_json::Value {
-    let Some(type_def) = type_defs.iter().find(|candidate| candidate.name == type_name) else {
+fn normalize_typed_json(value: &serde_json::Value, type_name: &str, ctx: &KotlinFillContext<'_>) -> serde_json::Value {
+    let Some(type_def) = ctx.type_defs.iter().find(|candidate| candidate.name == type_name) else {
         return crate::e2e::codegen::transform_json_keys_for_language(value, "snake_case");
     };
     let Some(object) = value.as_object() else {
@@ -628,28 +715,139 @@ fn normalize_typed_json(
             field.serde_rename.as_deref(),
             type_def.serde_rename_all.as_deref(),
         );
-        normalized.insert(wire_name, normalize_typed_value(field_value, &field.ty, type_defs));
+        normalized.insert(wire_name, normalize_typed_value(field_value, &field.ty, ctx));
     }
+    let mut memo = std::collections::HashMap::new();
+    let mut visiting = std::collections::HashSet::new();
+    fill_missing_required_kotlin_fields(&mut normalized, type_def, ctx, &mut memo, &mut visiting);
     serde_json::Value::Object(normalized)
+}
+
+/// Materialise a JSON stub for every constructor-required field a `kotlin_android_style`
+/// fixture literal left out, when doing so is provably safe — recursing through nested
+/// required types rather than requiring the whole immediate field type to have a compilable
+/// zero-arg Kotlin constructor.
+///
+/// `CrawlConfig.ssrf: SsrfPolicy` (no Kotlin default; `SsrfPolicy::from_env` is env-dependent
+/// and genuinely unresolvable, see `kotlin_field_default`'s doc comment) makes `SsrfPolicy`
+/// itself default-constructible once every one of *its* fields has a real Kotlin default, so
+/// `"ssrf": {}` is enough there. But a field whose type is bare *because one of its own nested
+/// fields* is one of these (`UrlExtractionConfig.crawl: crawlberg::CrawlConfig`, itself bare
+/// only because of `crawl.ssrf`) is not in `default_constructible_types` as a whole — Jackson
+/// cannot synthesise `UrlExtractionConfig()` from `{}` alone, since `crawl` has no Kotlin
+/// default either. `required_field_stub` recurses one field at a time instead: reuse
+/// `kotlin_field_default` to ask, per field, "does the real binding already give this a
+/// default" (skip it — Jackson gets there on its own) or "is it bare" (recurse into a `Named`
+/// type's own stub, or refuse the whole containing type when it is a bare scalar/collection —
+/// there is no honest JSON literal alef can spell for those, the same "no default" the Kotlin
+/// binding itself renders). The net effect for `url: UrlExtractionConfig` is
+/// `{"crawl": {"ssrf": {}}}`, not a blind `{}`. ~keep
+fn fill_missing_required_kotlin_fields(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    type_def: &crate::core::ir::TypeDef,
+    ctx: &KotlinFillContext<'_>,
+    memo: &mut std::collections::HashMap<String, Option<serde_json::Map<String, serde_json::Value>>>,
+    visiting: &mut std::collections::HashSet<String>,
+) {
+    for field in &type_def.fields {
+        if field.binding_excluded || field.serde_skip || field.serde_flatten || field.optional {
+            continue;
+        }
+        let crate::core::ir::TypeRef::Named(nested_type_name) = &field.ty else {
+            continue;
+        };
+        let wire_name = crate::codegen::naming::wire_field_name(
+            &field.name,
+            field.serde_rename.as_deref(),
+            type_def.serde_rename_all.as_deref(),
+        );
+        if object.contains_key(&wire_name) {
+            continue;
+        }
+        let has_kotlin_default = !crate::backends::kotlin::kotlin_field_default(
+            &field.ty,
+            field.optional,
+            field.typed_default.as_ref(),
+            &ctx.enum_defaults,
+            &ctx.default_constructible_types,
+        )
+        .is_empty();
+        if has_kotlin_default {
+            continue;
+        }
+        if let Some(stub) = required_field_stub(nested_type_name, ctx, memo, visiting) {
+            object.insert(wire_name, serde_json::Value::Object(stub));
+        }
+    }
+}
+
+/// Build the JSON stub `fill_missing_required_kotlin_fields` inserts for one bare `Named`
+/// field, recursing into `type_name`'s own bare-but-`Named` fields. `None` when some field
+/// along the way is bare and not `Named` (a scalar/`Vec`/`Map` with no honest literal alef can
+/// spell) or `type_name` is unknown (opaque/external type this pass cannot see into) — the
+/// caller then leaves the parent field exactly as the fixture wrote it. `visiting` guards a
+/// recursive type (`type_name` reachable from itself) the same way, since there is no
+/// terminating stub for a cycle. `memo` avoids re-walking a type reached from multiple fields.
+fn required_field_stub(
+    type_name: &str,
+    ctx: &KotlinFillContext<'_>,
+    memo: &mut std::collections::HashMap<String, Option<serde_json::Map<String, serde_json::Value>>>,
+    visiting: &mut std::collections::HashSet<String>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    if let Some(cached) = memo.get(type_name) {
+        return cached.clone();
+    }
+    if !visiting.insert(type_name.to_string()) {
+        return None;
+    }
+    let result = (|| {
+        let type_def = ctx.type_defs.iter().find(|candidate| candidate.name == type_name)?;
+        let mut stub = serde_json::Map::new();
+        for field in &type_def.fields {
+            if field.binding_excluded || field.serde_skip || field.serde_flatten || field.optional {
+                continue;
+            }
+            let has_kotlin_default = !crate::backends::kotlin::kotlin_field_default(
+                &field.ty,
+                field.optional,
+                field.typed_default.as_ref(),
+                &ctx.enum_defaults,
+                &ctx.default_constructible_types,
+            )
+            .is_empty();
+            if has_kotlin_default {
+                continue;
+            }
+            let crate::core::ir::TypeRef::Named(nested_type_name) = &field.ty else {
+                return None;
+            };
+            let nested_stub = required_field_stub(nested_type_name, ctx, memo, visiting)?;
+            let wire_name = crate::codegen::naming::wire_field_name(
+                &field.name,
+                field.serde_rename.as_deref(),
+                type_def.serde_rename_all.as_deref(),
+            );
+            stub.insert(wire_name, serde_json::Value::Object(nested_stub));
+        }
+        Some(stub)
+    })();
+    visiting.remove(type_name);
+    memo.insert(type_name.to_string(), result.clone());
+    result
 }
 
 fn normalize_typed_value(
     value: &serde_json::Value,
     field_type: &crate::core::ir::TypeRef,
-    type_defs: &[crate::core::ir::TypeDef],
+    ctx: &KotlinFillContext<'_>,
 ) -> serde_json::Value {
     match field_type {
-        crate::core::ir::TypeRef::Named(name) => normalize_typed_json(value, name, type_defs),
-        crate::core::ir::TypeRef::Optional(inner) => normalize_typed_value(value, inner, type_defs),
+        crate::core::ir::TypeRef::Named(name) => normalize_typed_json(value, name, ctx),
+        crate::core::ir::TypeRef::Optional(inner) => normalize_typed_value(value, inner, ctx),
         crate::core::ir::TypeRef::Vec(inner) => serde_json::Value::Array(
             value
                 .as_array()
-                .map(|items| {
-                    items
-                        .iter()
-                        .map(|item| normalize_typed_value(item, inner, type_defs))
-                        .collect()
-                })
+                .map(|items| items.iter().map(|item| normalize_typed_value(item, inner, ctx)).collect())
                 .unwrap_or_default(),
         ),
         _ => value.clone(),
