@@ -13,7 +13,7 @@
 use super::PackageArtifact;
 use crate::core::config::ResolvedCrateConfig;
 use crate::publish::package::BuildProfile;
-use crate::publish::platform::RustTarget;
+use crate::publish::platform::{Os, RustTarget};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,15 +40,16 @@ pub fn package_ruby(
 
     let rb_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Ruby)
         .unwrap_or_else(|| format!("{}-rb", config.name));
-    let lib_filename = target.shared_lib_name(&rb_crate.replace('-', "_"));
-    let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &lib_filename)?;
+    let ext_name = rb_crate.replace('-', "_");
+    let cargo_lib_filename = target.shared_lib_name(&ext_name);
+    let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &cargo_lib_filename)?;
+    let packaged_lib_filename = ruby_extension_filename(target, &ext_name);
 
     let ruby_abi = ruby_abi_for_packaging()?;
-    let ext_name = rb_crate.replace('-', "_");
 
     let lib_dest_dir = pkg_dir.join("lib").join(&ext_name).join(&ruby_abi);
     fs::create_dir_all(&lib_dest_dir).with_context(|| format!("creating {}", lib_dest_dir.display()))?;
-    let lib_dest = lib_dest_dir.join(&lib_filename);
+    let lib_dest = lib_dest_dir.join(&packaged_lib_filename);
     fs::copy(&native_lib, &lib_dest).with_context(|| format!("copying native lib to {}", lib_dest.display()))?;
 
     let lib_dir = pkg_dir.join("lib");
@@ -58,39 +59,37 @@ pub fn package_ruby(
         .filter_map(|p| p.strip_prefix(&pkg_dir).ok().map(|r| r.to_string_lossy().into_owned()))
         .collect();
     rb_files.sort();
-    let native_lib_path = format!("lib/{ext_name}/{ruby_abi}/{lib_filename}");
+    let native_lib_path = format!("lib/{ext_name}/{ruby_abi}/{packaged_lib_filename}");
     if !rb_files.contains(&native_lib_path) {
         rb_files.push(native_lib_path);
     }
 
-    let required_ruby_version = read_required_ruby_version(&pkg_dir)?;
-
+    let source_gemspec_name = format!("{gem_name}.gemspec");
+    anyhow::ensure!(
+        pkg_dir.join(&source_gemspec_name).is_file(),
+        "ruby: missing source gemspec {}",
+        pkg_dir.join(&source_gemspec_name).display()
+    );
     let gemspec_name = format!("{gem_name}-platform.gemspec");
     let gemspec_path = pkg_dir.join(&gemspec_name);
-    let platform_gemspec = generate_platform_gemspec(
-        &gem_name,
-        version,
-        &platform,
-        &rb_files,
-        required_ruby_version.as_deref(),
-    )?;
+    let platform_gemspec = generate_platform_gemspec(&source_gemspec_name, version, &platform, &rb_files)?;
     fs::write(&gemspec_path, platform_gemspec)?;
 
-    run_gem_build(&pkg_dir, &gemspec_name)?;
-
-    let gem_file = find_gem_file(&pkg_dir, &gem_name, version, &platform)
-        .with_context(|| format!("gem build did not produce expected .gem in {}", pkg_dir.display()))?;
-
-    let gem_filename = gem_file
-        .file_name()
-        .context("gem has no filename")?
-        .to_string_lossy()
-        .to_string();
-    let dest = output_dir.join(&gem_filename);
-    fs::copy(&gem_file, &dest)?;
-
-    let _ = fs::remove_file(&gemspec_path);
-    let _ = fs::remove_file(&lib_dest);
+    let gem_filename = format!("{gem_name}-{version}-{platform}.gem");
+    fs::create_dir_all(output_dir).with_context(|| format!("creating {}", output_dir.display()))?;
+    let dest = output_dir
+        .canonicalize()
+        .with_context(|| format!("resolving {}", output_dir.display()))?
+        .join(&gem_filename);
+    let build_result = run_gem_build(&pkg_dir, &gemspec_name, &dest);
+    let gemspec_cleanup = fs::remove_file(&gemspec_path);
+    let native_cleanup = fs::remove_file(&lib_dest);
+    if build_result.is_err() {
+        let _ = fs::remove_file(&dest);
+    }
+    build_result?;
+    gemspec_cleanup.with_context(|| format!("removing staged gemspec {}", gemspec_path.display()))?;
+    native_cleanup.with_context(|| format!("removing staged native library {}", lib_dest.display()))?;
 
     Ok(PackageArtifact {
         path: dest,
@@ -99,20 +98,30 @@ pub fn package_ruby(
     })
 }
 
-fn gem_build_command(gemspec_name: &str) -> Command {
+fn ruby_extension_filename(target: &RustTarget, extension_name: &str) -> String {
+    let extension = match target.os {
+        Os::MacOs => "bundle",
+        Os::Linux | Os::Windows | Os::Unknown => "so",
+    };
+    format!("{extension_name}.{extension}")
+}
+
+fn gem_build_command(gemspec_name: &str, output: &Path) -> Command {
     let mut command = Command::new("ruby");
-    command.args(["-S", "gem", "build", gemspec_name]);
+    command.args(["-S", "gem", "build", gemspec_name, "--output"]);
+    command.arg(output);
     command
 }
 
-fn run_gem_build(pkg_dir: &Path, gemspec_name: &str) -> Result<()> {
-    let output = gem_build_command(gemspec_name)
+fn run_gem_build(pkg_dir: &Path, gemspec_name: &str, gem_path: &Path) -> Result<()> {
+    let output = gem_build_command(gemspec_name, gem_path)
         .current_dir(pkg_dir)
         .output()
         .context("failed to execute `ruby -S gem build`")?;
     anyhow::ensure!(
         output.status.success(),
-        "`ruby -S gem build {gemspec_name}` failed with {}: {}",
+        "`ruby -S gem build {gemspec_name} --output {}` failed with {}: {}",
+        gem_path.display(),
         output.status,
         String::from_utf8_lossy(&output.stderr).trim()
     );
@@ -169,131 +178,31 @@ fn scan_rb_files(lib_dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn generate_platform_gemspec(
-    gem_name: &str,
+    source_gemspec_name: &str,
     version: &str,
     platform: &str,
     files: &[String],
-    required_ruby_version: Option<&str>,
 ) -> Result<String> {
     let files_ruby = files
         .iter()
         .map(|f| format!("    {f:?}"))
         .collect::<Vec<_>>()
         .join(",\n");
-    let required_ruby_line = required_ruby_version
-        .map(|v| format!("  spec.required_ruby_version = {v}\n"))
-        .unwrap_or_default();
     Ok(format!(
         r#"# frozen_string_literal: true
-Gem::Specification.new do |spec|
-  spec.name          = {gem_name:?}
-  spec.version       = {version:?}
-  spec.platform      = {platform:?}
-{required_ruby_line}  spec.summary       = "{gem_name} native extension"
-  spec.files         = [
+source_gemspec = File.expand_path({source_gemspec_name:?}, __dir__)
+spec = Gem::Specification.load(source_gemspec)
+raise "could not load source gemspec: #{{source_gemspec}}" unless spec
+
+spec.version = {version:?}
+spec.platform = {platform:?}
+spec.files = (spec.files + [
 {files_ruby}
-  ]
-  spec.require_paths = ["lib"]
-end
+  ]).uniq.sort
+spec.extensions = []
+spec
 "#
     ))
-}
-
-/// Scan `pkg_dir` for the source `.gemspec` and extract the raw right-hand-side
-/// expression assigned to `required_ruby_version`.
-///
-/// Captures either form RubyGems accepts:
-///   - single string:  `spec.required_ruby_version = ">= 3.2.0"`
-///   - array literal:  `spec.required_ruby_version = [">= 3.2.0", "< 4.0"]`
-///
-/// The returned value is the verbatim RHS (including surrounding quotes or
-/// brackets) so the platform gemspec emitter can re-emit it unchanged.
-///
-/// Every source gemspec is read, in sorted order, rather than stopping at whichever one
-/// `read_dir` yielded first: two gemspecs declaring different constraints used to publish
-/// whichever the filesystem listed first, and an unreadable gemspec used to abandon the whole
-/// scan and silently publish a gem with no constraint at all. Conflicting constraints are an
-/// error naming both files. `Ok(None)` means "no constraint declared anywhere". ~keep
-fn read_required_ruby_version(pkg_dir: &Path) -> Result<Option<String>> {
-    let mut gemspecs: Vec<PathBuf> = fs::read_dir(pkg_dir)
-        .with_context(|| format!("reading {}", pkg_dir.display()))?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|e| e == "gemspec"))
-        .filter(|path| {
-            !path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with("-platform.gemspec"))
-        })
-        .collect();
-    gemspecs.sort();
-
-    let pattern = r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#;
-    let re = regex::Regex::new(pattern).context("compiling the required_ruby_version pattern")?;
-
-    let mut found: Option<(PathBuf, String)> = None;
-    for path in gemspecs {
-        let content = fs::read_to_string(&path).with_context(|| format!("reading gemspec {}", path.display()))?;
-        let Some(caps) = re.captures(&content) else {
-            continue;
-        };
-        let value = caps[1].to_string();
-        if let Some((first_path, first_value)) = &found {
-            anyhow::ensure!(
-                first_value == &value,
-                "conflicting `required_ruby_version` in {}: {} declares {first_value}, {} declares {value}",
-                pkg_dir.display(),
-                first_path.display(),
-                path.display()
-            );
-            continue;
-        }
-        found = Some((path, value));
-    }
-    Ok(found.map(|(_, value)| value))
-}
-
-/// Locate the `.gem` `gem build` just produced.
-///
-/// The exact `{gem_name}-{version}-{platform}.gem` wins; the fallback exists only because
-/// RubyGems normalizes some platform strings (`arm64-darwin` -> `arm64-darwin-23`), so it is
-/// anchored on the `{gem_name}-{version}-` prefix rather than a bare "name contains the
-/// version" test, and it refuses to choose between several matches — a stale gem from an
-/// earlier run would otherwise be published under this run's name. ~keep
-fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> Result<PathBuf> {
-    let expected = dir.join(format!("{gem_name}-{version}-{platform}.gem"));
-    if expected.exists() {
-        return Ok(expected);
-    }
-    let prefix = format!("{gem_name}-{version}-");
-    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
-        .with_context(|| format!("reading {}", dir.display()))?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "gem"))
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(&prefix))
-        })
-        .collect();
-    candidates.sort();
-
-    match candidates.as_slice() {
-        [] => anyhow::bail!("no .gem file for {gem_name}-{version} found in {}", dir.display()),
-        [only] => Ok(only.clone()),
-        many => anyhow::bail!(
-            "ambiguous .gem for {gem_name}-{version} in {}: expected {}, found {}: {}",
-            dir.display(),
-            expected.display(),
-            many.len(),
-            many.iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
 }
 
 fn ruby_abi_for_packaging() -> Result<String> {
@@ -372,7 +281,7 @@ mod tests {
         );
         let direct = Command::new(&gem).arg("build").arg("package.gemspec").status();
         assert!(direct.is_err() || direct.is_ok_and(|status| !status.success()));
-        let status = gem_build_command("package.gemspec")
+        let status = gem_build_command("package.gemspec", Path::new("dist/package.gem"))
             .env("PATH", path)
             .env("ABI_PROBE", &marker)
             .status()
@@ -380,7 +289,7 @@ mod tests {
         assert!(status.success());
         assert_eq!(
             std::fs::read_to_string(marker).expect("read marker"),
-            "build package.gemspec\n"
+            "build package.gemspec --output dist/package.gem\n"
         );
     }
 
@@ -397,15 +306,32 @@ mod tests {
     }
 
     #[test]
-    fn generate_platform_gemspec_includes_native_and_wrapper_files() {
+    fn ruby_extension_filename_matches_ruby_loader_conventions() {
+        let cases = [
+            ("x86_64-unknown-linux-gnu", "mylib.so"),
+            ("aarch64-apple-darwin", "mylib.bundle"),
+            ("x86_64-pc-windows-msvc", "mylib.so"),
+        ];
+        for (triple, expected) in cases {
+            let target = RustTarget::parse(triple).expect("parse target");
+            assert_eq!(ruby_extension_filename(&target, "mylib"), expected);
+        }
+    }
+
+    #[test]
+    fn generate_platform_gemspec_reuses_source_metadata_and_replaces_build_fields() {
         let files = vec![
             "lib/mylib.rb".to_string(),
             "lib/mylib/version.rb".to_string(),
             "lib/mylib/native.rb".to_string(),
             "lib/mylib/libmylib_rb.so".to_string(),
         ];
-        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, None).unwrap();
-        assert!(spec.contains("mylib"), "gem name present");
+        let spec = generate_platform_gemspec("mylib.gemspec", "1.0.0", "x86_64-linux", &files).unwrap();
+        assert!(
+            spec.contains(r#"Gem::Specification.load(source_gemspec)"#),
+            "source gemspec supplies authors, dependencies, licenses, and package metadata: {spec}"
+        );
+        assert!(spec.contains(r#"File.expand_path("mylib.gemspec", __dir__)"#));
         assert!(spec.contains("1.0.0"), "version present");
         assert!(spec.contains("x86_64-linux"), "platform present");
         assert!(spec.contains("libmylib_rb.so"), "native lib present");
@@ -413,80 +339,83 @@ mod tests {
         assert!(spec.contains("lib/mylib/version.rb"), "version wrapper present");
         assert!(spec.contains("lib/mylib/native.rb"), "native wrapper present");
         assert!(
-            !spec.contains("required_ruby_version"),
-            "no required_ruby_version emitted when None",
+            spec.contains("spec.files + ["),
+            "all source package files remain in the platform gem: {spec}"
         );
-    }
-
-    #[test]
-    fn generate_platform_gemspec_includes_required_ruby_version_when_some() {
-        let files = vec!["lib/mylib.rb".to_string()];
-        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(r#"">= 3.2.0""#)).unwrap();
         assert!(
-            spec.contains(r#"spec.required_ruby_version = ">= 3.2.0""#),
-            "required_ruby_version line present: {spec}",
+            spec.contains("spec.extensions = []"),
+            "precompiled gems must not invoke the source extension build: {spec}"
         );
-    }
-
-    #[test]
-    fn generate_platform_gemspec_emits_array_form_verbatim() {
-        let files = vec!["lib/mylib.rb".to_string()];
-        let spec = generate_platform_gemspec(
-            "mylib",
-            "1.0.0",
-            "x86_64-linux",
-            &files,
-            Some(r#"[">= 3.2.0", "< 4.0"]"#),
-        )
-        .unwrap();
         assert!(
-            spec.contains(r#"spec.required_ruby_version = [">= 3.2.0", "< 4.0"]"#),
-            "array-form required_ruby_version preserved verbatim: {spec}",
+            !spec.contains("spec.authors =") && !spec.contains("spec.add_dependency"),
+            "metadata must have one implementation in the source gemspec: {spec}"
         );
     }
 
+    /// Runs through RubyGems itself because a syntactically plausible generated gemspec can
+    /// still build an invalid platform gem, as happened when Alef omitted required authors.
     #[test]
-    fn read_required_ruby_version_extracts_from_source_gemspec() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            tmp.path().join("mylib-platform.gemspec"),
-            r#"spec.required_ruby_version = ">= 99.0""#,
-        )
-        .unwrap();
+    #[ignore = "requires Ruby and RubyGems"]
+    fn generated_platform_gemspec_builds_with_source_metadata_and_native_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let lib_dir = tmp.path().join("lib/mylib/3.2.0");
+        let ext_dir = tmp.path().join("ext/mylib");
+        std::fs::create_dir_all(&lib_dir).expect("create lib directory");
+        std::fs::create_dir_all(&ext_dir).expect("create extension directory");
+        std::fs::write(tmp.path().join("README.md"), "# mylib\n").expect("write README");
+        std::fs::write(tmp.path().join("lib/mylib.rb"), "# frozen_string_literal: true\n").expect("write wrapper");
+        std::fs::write(lib_dir.join("libmylib_rb.so"), "native-placeholder").expect("write native placeholder");
+        std::fs::write(ext_dir.join("extconf.rb"), "# source build placeholder\n")
+            .expect("write extension placeholder");
         std::fs::write(
             tmp.path().join("mylib.gemspec"),
-            "# frozen_string_literal: true\nGem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
+            r#"Gem::Specification.new do |spec|
+  spec.name = "mylib"
+  spec.version = "0.1.0"
+  spec.authors = ["Alef Test"]
+  spec.summary = "metadata regression test"
+  spec.license = "MIT"
+  spec.required_ruby_version = ">= 3.2"
+  spec.files = ["README.md", "lib/mylib.rb"]
+  spec.require_paths = ["lib"]
+  spec.extensions = ["ext/mylib/extconf.rb"]
+  spec.add_dependency "rake", ">= 13"
+end
+"#,
         )
-        .unwrap();
-        assert_eq!(
-            read_required_ruby_version(tmp.path()).unwrap(),
-            Some(r#"">= 3.2.0""#.to_string())
-        );
-    }
+        .expect("write source gemspec");
 
-    #[test]
-    fn read_required_ruby_version_extracts_array_form() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            tmp.path().join("mylib.gemspec"),
-            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = [\">= 3.2.0\", \"< 4.0\"]\nend\n",
-        )
-        .unwrap();
-        assert_eq!(
-            read_required_ruby_version(tmp.path()).unwrap(),
-            Some(r#"[">= 3.2.0", "< 4.0"]"#.to_string())
-        );
-    }
+        let files = vec!["lib/mylib.rb".to_string(), "lib/mylib/3.2.0/libmylib_rb.so".to_string()];
+        let platform_gemspec = generate_platform_gemspec("mylib.gemspec", "1.2.3", "x86_64-linux", &files)
+            .expect("generate platform gemspec");
+        std::fs::write(tmp.path().join("mylib-platform.gemspec"), platform_gemspec).expect("write platform gemspec");
 
-    #[test]
-    fn read_required_ruby_version_returns_none_when_absent() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            tmp.path().join("mylib.gemspec"),
-            "Gem::Specification.new do |spec|\n  spec.name = \"mylib\"\nend\n",
-        )
-        .unwrap();
-        assert_eq!(read_required_ruby_version(tmp.path()).unwrap(), None);
+        let output_dir = tmp.path().join("dist");
+        std::fs::create_dir(&output_dir).expect("create output directory");
+        let gem = output_dir.join("mylib-1.2.3-x86_64-linux.gem");
+        run_gem_build(tmp.path(), "mylib-platform.gemspec", &gem).expect("build platform gem");
+        assert!(gem.is_file(), "expected {}", gem.display());
+        assert!(
+            !tmp.path().join("mylib-1.2.3-x86_64-linux.gem").exists(),
+            "gem build must not leave a package-directory artifact"
+        );
+
+        let assertion = r#"
+require "rubygems/package"
+spec = Gem::Package.new(ARGV.fetch(0)).spec
+abort "authors" unless spec.authors == ["Alef Test"]
+abort "license" unless spec.licenses == ["MIT"]
+abort "dependency" unless spec.runtime_dependencies.any? { |dep| dep.name == "rake" }
+abort "ruby version" unless spec.required_ruby_version.satisfied_by?(Gem::Version.new("3.2"))
+abort "extensions" unless spec.extensions.empty?
+abort "README" unless spec.files.include?("README.md")
+abort "native" unless spec.files.include?("lib/mylib/3.2.0/libmylib_rb.so")
+"#;
+        let status = Command::new("ruby")
+            .args(["-e", assertion, gem.to_str().expect("UTF-8 gem path")])
+            .status()
+            .expect("inspect built gem");
+        assert!(status.success(), "built gem did not preserve source metadata");
     }
 
     #[test]
@@ -512,50 +441,6 @@ mod tests {
         assert!(!names.contains(&"libmylib_rb.so".to_string()), ".so excluded from scan");
     }
 
-    /// Two source gemspecs declaring different constraints is ambiguity: publishing whichever
-    /// one `read_dir` yielded first would ship a nondeterministic `required_ruby_version`.
-    #[test]
-    fn read_required_ruby_version_errors_on_conflicting_gemspecs() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(
-            tmp.path().join("alpha.gemspec"),
-            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
-        )
-        .unwrap();
-        std::fs::write(
-            tmp.path().join("beta.gemspec"),
-            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.4.0\"\nend\n",
-        )
-        .unwrap();
-
-        let error = read_required_ruby_version(tmp.path()).unwrap_err().to_string();
-        assert!(
-            error.contains("conflicting `required_ruby_version`"),
-            "unexpected error: {error}"
-        );
-        assert!(
-            error.contains("alpha.gemspec"),
-            "error must name both gemspecs: {error}"
-        );
-        assert!(error.contains("beta.gemspec"), "error must name both gemspecs: {error}");
-    }
-
-    /// An unreadable gemspec must surface, not abandon the scan and silently publish a gem with
-    /// no `required_ruby_version` at all.
-    #[test]
-    fn read_required_ruby_version_errors_when_a_gemspec_is_unreadable() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::create_dir(tmp.path().join("broken.gemspec")).unwrap();
-        std::fs::write(
-            tmp.path().join("mylib.gemspec"),
-            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
-        )
-        .unwrap();
-
-        let error = read_required_ruby_version(tmp.path()).unwrap_err().to_string();
-        assert!(error.contains("reading gemspec"), "unexpected error: {error}");
-    }
-
     /// `scan_rb_files` failing means the wrapper sources could not be enumerated -- the caller
     /// propagates it rather than emitting a gemspec whose `files` list is silently empty.
     #[test]
@@ -568,70 +453,6 @@ mod tests {
             scan_rb_files(&lib).is_err(),
             "a non-directory lib path must be an error"
         );
-    }
-
-    #[test]
-    fn find_gem_file_expected_path() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let gem_path = tmp.path().join("mygem-1.0.0-x86_64-linux.gem");
-        std::fs::write(&gem_path, b"fake").unwrap();
-
-        let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux").unwrap();
-        assert_eq!(result, gem_path);
-    }
-
-    #[test]
-    fn find_gem_file_missing_errors() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux");
-        assert!(result.is_err());
-    }
-
-    /// The fallback exists for RubyGems' platform-string normalization only; an unrelated gem
-    /// that merely contains the version string must never be published under this gem's name.
-    #[test]
-    fn find_gem_file_ignores_unrelated_gem_with_matching_version() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("othergem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
-
-        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux")
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("no .gem file for mygem-1.0.0"),
-            "unexpected error: {error}"
-        );
-    }
-
-    /// The normalization the fallback exists for: RubyGems rewrites `arm64-darwin` to
-    /// `arm64-darwin-23`, and a single such match is still unambiguous.
-    #[test]
-    fn find_gem_file_accepts_single_platform_normalized_variant() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let normalized = tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem");
-        std::fs::write(&normalized, b"fake").unwrap();
-
-        let found = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin").unwrap();
-        assert_eq!(found, normalized);
-    }
-
-    /// Several same-version gems (a stale one from an earlier run) must error naming all of
-    /// them, not resolve by directory-iteration order.
-    #[test]
-    fn find_gem_file_errors_when_several_same_version_gems_exist() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem"), b"fake").unwrap();
-        std::fs::write(tmp.path().join("mygem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
-
-        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("ambiguous .gem"), "unexpected error: {error}");
-        assert!(
-            error.contains("arm64-darwin-23.gem"),
-            "must name every candidate: {error}"
-        );
-        assert!(error.contains("x86_64-linux.gem"), "must name every candidate: {error}");
     }
 
     /// `find_ruby_native_lib` now delegates to
