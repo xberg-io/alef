@@ -291,7 +291,7 @@ fn test_field_with_hashmap_new_default() {
 }
 
 #[test]
-fn test_zero_arg_function_call_default_extracts_as_function_call() {
+fn test_zero_arg_function_call_default_folds_a_visible_constant_body() {
     let source = r#"
         pub struct Complex {
             pub result: u32,
@@ -312,10 +312,48 @@ fn test_zero_arg_function_call_default_extracts_as_function_call() {
     let complex = &surface.types[0];
     let result_field = &complex.fields[0];
 
+    // ~keep The `impl Default` initializer path folds a zero-arg call against the same free
+    // function index `#[serde(default = "path")]` fields already use. Before both paths shared
+    // the folder, a field carrying BOTH -- `#[serde(default = "f")]` beside `Self { x: f(), .. }`
+    // -- regressed from the folded literal to a bare `FunctionCall`, because the `impl Default`
+    // read overwrote what the serde read had resolved. The two must agree, and the resolved
+    // literal is the more accurate of the two answers.
+    assert_eq!(
+        result_field.typed_default,
+        Some(crate::core::ir::DefaultValue::IntLiteral(42)),
+        "a zero-arg call whose body is visible and constant should fold to that constant"
+    );
+}
+
+#[test]
+fn test_zero_arg_function_call_default_stays_a_function_call_when_the_body_is_not_constant() {
+    let source = r#"
+        pub struct Complex {
+            pub result: u32,
+        }
+
+        impl Default for Complex {
+            fn default() -> Self {
+                Complex { result: some_function() }
+            }
+        }
+
+        fn some_function() -> u32 {
+            std::time::SystemTime::now().elapsed().unwrap().as_secs() as u32
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let complex = &surface.types[0];
+    let result_field = &complex.fields[0];
+
+    // The folder declines anything it cannot resolve to a literal, so the callee path survives
+    // for callers that need to name the call rather than its value. This is the guard that keeps
+    // the fold above from being a guess.
     assert_eq!(
         result_field.typed_default,
         Some(crate::core::ir::DefaultValue::FunctionCall("some_function".to_string())),
-        "Zero-arg function calls should preserve the callee path as FunctionCall"
+        "a call the folder cannot resolve must keep naming its callee"
     );
 }
 
