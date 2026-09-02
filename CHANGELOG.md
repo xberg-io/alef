@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.82.1] - 2026-09-02
+
 ### Fixed
 
 - **The php e2e class-override validator rejected the only class name the php emitter writes.** The

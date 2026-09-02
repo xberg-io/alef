@@ -7291,7 +7291,7 @@
         },
         "register_fn": {
           "default": null,
-          "description": "Name of the registration function to generate\n(e.g., `\"register_ocr_backend\"`).\nOptional — when set, a `#[pyfunction]` registration function is generated.\nWhen absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).",
+          "description": "Name of the registration function to generate\n(e.g., `\"register_ocr_backend\"`).\nOptional — when set, a host-language registration function is generated. If\n`registry_getter` is absent, this is also the core host function name.\nWhen absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).",
           "type": [
             "string",
             "null"
@@ -7299,7 +7299,7 @@
         },
         "registry_getter": {
           "default": null,
-          "description": "Rust path to the registry getter function\n(e.g., `\"sample_core::plugins::registry::get_ocr_backend_registry\"`).\nOptional — when set, the generated registration function inserts the bridge into a registry.",
+          "description": "Rust path to the registry getter function\n(e.g., `\"sample_core::plugins::registry::get_ocr_backend_registry\"`).\nOptional — when set, the generated registration function inserts the bridge into a registry.\nWhen omitted, supporting backends call the core host function named by `register_fn`\ndirectly, allowing the core to own validation, lifecycle, and locking.",
           "type": [
             "string",
             "null"
@@ -8216,7 +8216,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.82.0/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.82.1/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8335,6 +8335,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.82.0",
-  "x-alef-version": "0.82.0"
+  "version": "0.82.1",
+  "x-alef-version": "0.82.1"
 }
