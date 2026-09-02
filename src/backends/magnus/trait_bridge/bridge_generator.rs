@@ -224,12 +224,17 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let name = &method.name;
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
-        let conversion_bindings = self.owned_param_bindings(method);
+        // `self.runtime_dispatcher.dispatch` requires `Send + 'static`, so every param still
+        // needs an owned binding moved into the shared callback even on the sync fast path.
+        // Unlike the async body, the sync callback is not itself moved into a further
+        // `spawn_blocking` closure, so the owned binding can reuse the parameter's own name
+        // instead of a `_owned` suffix. ~keep
+        let conversion_bindings = self.owned_param_bindings(method, "");
 
         let args: Vec<String> = method
             .params
             .iter()
-            .map(|p| self.ruby_arg_expr_custom(&p.ty, &format!("{}_owned", p.name)))
+            .map(|p| self.ruby_arg_expr_custom(&p.ty, &p.name))
             .collect();
 
         let call = if args.is_empty() {
@@ -304,7 +309,10 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
 
-        let conversion_bindings = self.owned_param_bindings(method);
+        // Unlike the sync body, this callback is moved again into a further `spawn_blocking`
+        // closure below, so its owned bindings keep the `_owned` suffix distinguishing them
+        // from the by-ref parameters of the enclosing trait method. ~keep
+        let conversion_bindings = self.owned_param_bindings(method, "_owned");
 
         let args: Vec<String> = method
             .params
@@ -490,7 +498,7 @@ impl MagnusBridgeGenerator {
         }
     }
 
-    fn owned_param_bindings(&self, method: &MethodDef) -> String {
+    fn owned_param_bindings(&self, method: &MethodDef, suffix: &str) -> String {
         method
             .params
             .iter()
@@ -505,7 +513,7 @@ impl MagnusBridgeGenerator {
                         _ => format!("{}.clone()", param.name),
                     }
                 };
-                format!("let {}_owned = {conversion};\n", param.name)
+                format!("let {}{suffix} = {conversion};\n", param.name)
             })
             .collect()
     }
@@ -645,7 +653,7 @@ impl MagnusBridgeGenerator {
             }
             // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
             TypeRef::Named(n) if self.is_native_struct_param(n) => {
-                format!("{{ use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(ruby) }}")
+                format!("{{ use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(&ruby) }}")
             }
             TypeRef::Named(_) | TypeRef::Json => format!(
                 "serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value())"
