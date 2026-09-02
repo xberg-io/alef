@@ -281,19 +281,6 @@ impl NewAlefConfig {
                     )));
                 }
             }
-            // Every backend's `gen_registration_fn` needs a registry to insert into and emits
-            // nothing without one, so this configuration silently produces no registration
-            // function anywhere — say so rather than let the consumer discover it as a missing
-            // binding. Not an error: the bridge's wrapper struct and trait impl are still
-            // generated and usable. ~keep
-            if trait_bridge.register_fn.is_some() && trait_bridge.registry_getter.is_none() {
-                tracing::warn!(
-                    crate_name = %krate.name,
-                    trait_name = %trait_bridge.trait_name,
-                    "trait bridge register_fn is set without registry_getter; no registration \
-                     function will be generated for any language"
-                );
-            }
         }
 
         let contract_names: std::collections::HashSet<&str> = krate
