@@ -17,9 +17,9 @@ pub(crate) use attributes::{
     is_thiserror_enum,
 };
 pub(crate) use enum_variants::extract_enum_variant;
-#[cfg(test)]
-pub(crate) use field_types::detect_core_wrapper;
-pub(crate) use field_types::{build_rust_path, extract_field_type_rust_path, syn_type_is_boxed, unwrap_optional};
+pub(crate) use field_types::{
+    build_rust_path, detect_core_wrapper, extract_field_type_rust_path, syn_type_is_boxed, unwrap_optional,
+};
 pub(crate) use fields::extract_field;
 pub(crate) use reexport_map::{ReexportKind, collect_reexport_map};
 pub(crate) use result_alias_scope::{ResultModuleContextGuard, resolve_result_alias_scope};

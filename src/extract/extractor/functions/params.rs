@@ -246,7 +246,7 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
                 let core_wrapper = if param_is_cow_str(&pat_type.ty) {
                     crate::core::ir::CoreWrapper::Cow
                 } else {
-                    crate::core::ir::CoreWrapper::None
+                    super::super::helpers::detect_core_wrapper(&pat_type.ty)
                 };
 
                 let sanitized = is_tuple_type(&resolved);
@@ -280,4 +280,24 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_params;
+    use crate::core::ir::CoreWrapper;
+
+    #[test]
+    fn preserves_arc_and_arc_mutex_parameter_wrappers() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn register(
+                provider: std::sync::Arc<dyn WorkflowHost>,
+                visitor: std::sync::Arc<std::sync::Mutex<dyn Visitor>>,
+            ) {}
+        };
+
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].core_wrapper, CoreWrapper::Arc);
+        assert_eq!(params[1].core_wrapper, CoreWrapper::ArcMutex);
+    }
 }
