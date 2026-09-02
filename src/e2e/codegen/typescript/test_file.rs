@@ -19,6 +19,8 @@ mod bytes;
 mod cache;
 #[cfg(test)]
 mod call_arity_tests;
+#[cfg(test)]
+mod handle_config_typing_tests;
 mod handle_values;
 #[cfg(test)]
 mod handle_values_tests;
@@ -69,7 +71,8 @@ pub(crate) use snippet::{SnippetContext, render_node_snippet_body, render_snippe
 
 pub(in crate::e2e::codegen::typescript::test_file) use args::build_args_and_setup;
 pub(in crate::e2e::codegen::typescript::test_file) use builders::{
-    node_enum_string_literal, rename_napi_serde_tags_to_kind, ts_builder_expression, ts_builder_expression_inner,
+    node_enum_string_literal, node_typed_value_expression, rename_napi_serde_tags_to_kind, ts_builder_expression,
+    ts_builder_expression_inner,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use bytes::ts_bytes_value_expression;
 pub(in crate::e2e::codegen::typescript::test_file) use cache::{

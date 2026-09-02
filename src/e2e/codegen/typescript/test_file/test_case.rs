@@ -232,6 +232,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         false,
         referenced_enums,
         target_params,
+        crate::e2e::codegen::call_ir::CallIr { functions, type_defs },
     );
     // The builders above recognise an undeclared fixture key many frames down, where nothing
     // knows which call or language is being served. This is the frame that does, and the only

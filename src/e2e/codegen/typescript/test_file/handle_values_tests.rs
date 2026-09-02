@@ -190,6 +190,7 @@ fn handle_config_list_entries_are_constructed_through_build_args_and_setup() {
         true,
         &mut Default::default(),
         crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        crate::e2e::codegen::call_ir::CallIr::default(),
     );
 
     let setup = setup_lines.join("\n");

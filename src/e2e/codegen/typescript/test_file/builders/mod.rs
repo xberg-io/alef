@@ -353,10 +353,19 @@ fn resolve_owner_field<'a>(owner_type: Option<&'a TypeDef>, key: &str) -> Option
 /// throwing `Missing field 'toolType'` at runtime. Falls back to a generic camelCase of `key`
 /// when no declared field matches (arbitrary/opaque payloads; enum tag keys are renamed
 /// separately by the caller). ~keep
+///
+/// The result is quoted when it is not a bare JS identifier, via the same [`js_object_key`] the
+/// untyped `json_to_js_camel` dump has always applied. The fallback arm reaches keys that are
+/// data rather than field names — a `HashMap<String, String>` field's entries, e.g. a
+/// `custom_headers` map keyed `Accept-Language` — and an unquoted `Accept-Language:` is a hard
+/// JS syntax error, not a mis-typing. Both node object-literal emitters route their keys through
+/// here so neither can lose the quoting the other applies. ~keep
 fn node_field_public_key(owner_type: Option<&TypeDef>, key: &str) -> String {
-    resolve_owner_field(owner_type, key)
-        .map(|field| crate::codegen::naming::to_node_name(&field.name))
-        .unwrap_or_else(|| underscore_camel_case(key))
+    js_object_key(
+        &resolve_owner_field(owner_type, key)
+            .map(|field| crate::codegen::naming::to_node_name(&field.name))
+            .unwrap_or_else(|| underscore_camel_case(key)),
+    )
 }
 
 /// Refuses `obj` if it contains a key that `type_name`'s declared fields (in `type_defs`) don't
@@ -824,11 +833,8 @@ fn node_value_expression(
             let fields = object
                 .iter()
                 .map(|(name, value)| {
-                    let nested_field = resolve_owner_field(nested_type, name);
-                    let nested_field_type = nested_field.map(|field| &field.ty);
-                    let js_key = nested_field
-                        .map(|field| crate::codegen::naming::to_node_name(&field.name))
-                        .unwrap_or_else(|| underscore_camel_case(name));
+                    let nested_field_type = resolve_owner_field(nested_type, name).map(|field| &field.ty);
+                    let js_key = node_field_public_key(nested_type, name);
                     format!(
                         "{}: {}",
                         js_key,
@@ -880,6 +886,45 @@ fn node_value_expression(
         }
         _ => json_to_js(value),
     }
+}
+
+/// The node expression for a fixture value the core IR types as `type_name`.
+///
+/// Exists for the one node value that had no typed renderer: a `handle` argument's config
+/// object, which fell through to `json_to_js_camel`. That dump re-cases KEYS only, so a string
+/// sitting at an enum-typed field stayed the fixture's *serde* wire value — and serde is not the
+/// authority on what a napi binding accepts. napi re-cases variant names with `convert_case`,
+/// which splits a letter-to-digit boundary serde does not (`Bm25` -> serde `"bm25"`, napi
+/// `"bm_25"`; see `backends::napi::gen_bindings::enums::apply_napi_case`), so the generated suite
+/// passed `contentFilter: "bm25"` to a binding whose only declared value is `'bm_25'` and every
+/// such test failed at run time with `does not match any variant of enum JsContentFilterKind`.
+///
+/// Delegating to [`node_value_expression`] — the traversal every other typed node value already
+/// runs — makes the emitted form the binding's own declared member (`ContentFilterKind.Bm25`),
+/// which cannot drift from whatever string napi assigns it, and registers that member in
+/// `referenced_enums` so the import block carries the identifier the body names. Re-deriving the
+/// literal here instead would just move the second opinion. ~keep
+pub(in crate::e2e::codegen::typescript::test_file) fn node_typed_value_expression(
+    value: &serde_json::Value,
+    type_name: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    referenced_enums: &mut std::collections::BTreeSet<String>,
+) -> String {
+    let field_type = crate::core::ir::TypeRef::Named(type_name.to_string());
+    node_value_expression(
+        value,
+        "",
+        enum_fields,
+        &[],
+        "",
+        Some(&field_type),
+        type_defs,
+        enums,
+        None,
+        referenced_enums,
+    )
 }
 
 fn json_pointer_child(pointer: &str, field: &str) -> String {

@@ -1,5 +1,46 @@
 use super::*;
 
+/// The core IR type of a `handle` argument's config object, or `None` when the IR does not
+/// determine one.
+///
+/// Resolved from the constructor the emitted call actually names: a `handle` argument `engine`
+/// renders as `createEngine(engineConfig)`, whose core symbol is the free function
+/// `create_engine`, whose declared parameter is `config: Option<CrawlConfig>`. Asking the IR is
+/// what closes the gap this generator had: the binding emitter derived `createEngine` from that
+/// same signature, while the e2e emitter had no way to reach it and dumped the config object
+/// untyped. `options_type` is deliberately NOT a fallback here — on the test-file path it
+/// resolves to the file-level `[e2e.call.overrides.<lang>]` default, which is a claim about a
+/// call's *options* parameter and not about the handle's constructor, so reading it as one would
+/// re-type the config against a struct nobody said it was. ~keep
+///
+/// A signature the IR does not carry, a parameter that names no struct, or a name absent from
+/// `type_defs` all yield `None`, which leaves the caller on exactly the untyped path it took
+/// before this seam existed.
+fn handle_config_ir_type<'a>(
+    arg: &ArgMapping,
+    ir: crate::e2e::codegen::call_ir::CallIr<'a>,
+    type_defs: &'a [TypeDef],
+) -> Option<&'a str> {
+    let signature = ir.signature(&format!(
+        "create_{}",
+        heck::ToSnakeCase::to_snake_case(arg.name.as_str())
+    ))?;
+    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+    let param = signature
+        .params
+        .iter()
+        .find(|param| param.name == field)
+        .or(match signature.params {
+            [only] => Some(only),
+            _ => None,
+        })?;
+    let type_name = crate::e2e::codegen::call_ir::named_type(&param.ty)?;
+    type_defs
+        .iter()
+        .any(|definition| definition.name == type_name)
+        .then_some(type_name)
+}
+
 /// `target` is what the core IR declares about the parameters these arguments fill. Both the
 /// documentation-snippet caller and the e2e test-file caller supply a real one (via
 /// `ResolvedE2eCallRecipe::target_params`, opted into IR-aware lowering with `.with_functions`);
@@ -25,6 +66,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
     bind_typed_json_objects: bool,
     referenced_enums: &mut std::collections::BTreeSet<String>,
     target: crate::e2e::codegen::call_ir::TargetParams<'_>,
+    ir: crate::e2e::codegen::call_ir::CallIr<'_>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -259,8 +301,23 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         setup_lines.push(format!("{name}Config.ssrf.denyPrivate = false;", name = arg.name));
                     }
                 } else {
-                    // Other languages: pass config object directly or via constructor
-                    let literal = json_to_js_camel(config_value);
+                    // Other languages: pass config object directly or via constructor.
+                    //
+                    // node routes through the typed renderer whenever the IR determines the
+                    // constructor's config struct — see `node_typed_value_expression` for the
+                    // enum literal the untyped dump got wrong. Everything else, and node with an
+                    // unresolvable config type, keeps the plain key-casing dump.
+                    let literal = match handle_config_ir_type(arg, ir, type_defs).filter(|_| lang == "node") {
+                        Some(config_type) => node_typed_value_expression(
+                            config_value,
+                            config_type,
+                            enum_fields,
+                            type_defs,
+                            enums,
+                            &mut *referenced_enums,
+                        ),
+                        None => json_to_js_camel(config_value),
+                    };
                     setup_lines.push(format!("const {name}Config = {literal};", name = arg.name));
                 }
                 setup_lines.push(format!(
@@ -634,6 +691,7 @@ mod tests {
             true,
             &mut Default::default(),
             crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            crate::e2e::codegen::call_ir::CallIr::default(),
         );
 
         assert_eq!(
@@ -709,6 +767,7 @@ mod tests {
             true,
             &mut Default::default(),
             crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            crate::e2e::codegen::call_ir::CallIr::default(),
         );
 
         assert!(
@@ -766,6 +825,7 @@ mod tests {
             true,
             &mut Default::default(),
             crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            crate::e2e::codegen::call_ir::CallIr::default(),
         );
 
         assert_eq!(
@@ -814,6 +874,7 @@ mod tests {
             true,
             &mut Default::default(),
             crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            crate::e2e::codegen::call_ir::CallIr::default(),
         );
 
         assert_eq!(
@@ -862,6 +923,7 @@ mod tests {
             true,
             &mut Default::default(),
             crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            crate::e2e::codegen::call_ir::CallIr::default(),
         );
 
         assert_eq!(

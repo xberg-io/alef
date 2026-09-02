@@ -129,6 +129,7 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
         true,
         &mut Default::default(),
         recipe.target_params(lang),
+        crate::e2e::codegen::call_ir::CallIr { functions, type_defs },
     );
     // Same attribution the e2e test-file path does, with the fallback key this path actually
     // reads -- see `fixture_refusal::call_level_source`. ~keep
