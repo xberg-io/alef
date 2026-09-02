@@ -9,6 +9,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The php e2e class-override validator rejected the only class name the php emitter writes.** The
+  validator re-derived each backend's facade class with generic helpers instead of asking the
+  backend. For Php the two disagreed: the emitter names the facade `<Ext>Api` via
+  `php_ext_api_class_name`, the validator offered only `<Ext>`, and **no override value satisfied
+  both** — the correct name was rejected at config-validation time while the accepted one emitted a
+  `use` for a class that does not exist. Every php e2e test in a consumer that sets the override
+  failed with `Class not found`. The Java arm two lines above already delegated correctly; auditing
+  all five arms found **Kotlin also wrong**, using a helper that skips backtick-escaping for Kotlin
+  keywords, and Php legitimately having two nameable classes (public wrapper and ext-api), so both
+  are now offered. The guarantee was named by an existing test that asserted hardcoded strings
+  rather than calling the real functions, so it passed throughout.
+
+- **wasm entry points took `JsValue` for parameters that have a typed wrapper, silently dropping
+  every multi-word field.** `serde_wasm_bindgen::from_value` deserializes by asking the JS object
+  for each of the core type's *snake_case* serde field names, which never match the *camelCase*
+  getters wasm-bindgen emits for the wrapper. Single-word fields matched, so the walk descended far
+  enough to look plausible and lost the leaves — a config arriving as all-defaults with no error.
+  `#[serde(deny_unknown_fields)]` cannot catch it, because serde never enumerates the object's own
+  keys and so never sees `__wbg_ptr`: deserialization *succeeds*. The typed path was already proven
+  in the same signature, where a batch entry point took `Vec<Wasm…>` and mapped `Into::into` while
+  its config argument did not; parameters with a wrapper and a `From` impl now take the wrapper.
+
+- **The zig binding discarded the FFI error message before the caller could read it.** With no
+  variant carrying a numeric error code the emitter took a degraded branch that read the message and
+  threw it away, and the emitted `defer` frees ran `clear_last_error()` on the error return before
+  control reached the test — so every error-classification test saw an empty message and an
+  `UnknownFfiError` name. Adding error codes would not have fixed it: `@errorName` yields PascalCase
+  where fixtures match snake_case, so the message path is mandatory. The context is now captured into
+  binding-owned storage before any deferred free can run. alef already solved this for the sibling C
+  backend, where the epilogue is hoisted above every free; that reasoning had not been carried into
+  the zig binding, where the frees live inside the generated function.
+
+- **`#[serde(default)]` was dropped from generated mirror DTOs.** Whole-type `Deserialize`
+  delegation is all-or-nothing: one unsound field blocks it for the entire struct, and every other
+  field then lost its default, turning an absent-tolerant core field into a required one on the
+  mirror. `from_json("{}")` raised `missing field` where the core type accepts the omission. Fields
+  carrying both a default and an `alef(since = …)` marker are exactly the case this breaks — a
+  newly-added-with-a-default field is where callers' existing JSON predates the field.
+
+- **The generated python package did not re-export the error-info companions the native module
+  registers.** `__init__.py` published a curated list omitting every `{Error}Info` class and
+  `{error}_info` function, so a generated e2e assertion that qualifies against the public facade —
+  which it does for any call not overriding the module — reached for a name the facade never
+  exported. The re-export list, `__all__` and the `.pyi` stub now all carry them.
+
+- **The go e2e null-checked an optional numeric and then compared the pointer.** The emitter knew the
+  field was optional, emitted the guard, and compared the pointer itself: `mismatched types *uint32
+  and untyped int`, a compile failure. Pointer-ness for an externally-tagged union's variant fields
+  is now an emission fact the go generator records, so the field-access walk crosses a projection
+  with the same authority a literal struct field gets rather than inferring it.
+
+- **Generated kotlin-android data classes had constructor parameters no call site could satisfy.**
+  Where a core field's serde default is a function call or an unresolved expression the emitter
+  declines to invent a Kotlin default — correctly, since a wrong default is worse than none. But the
+  e2e emitter then handed Jackson a partial fixture literal with `registerKotlinModule()`, which
+  enforces Kotlin required-ness, so those parameters became structurally unconstructible. The e2e
+  side now materialises every required parameter into the fixture literal rather than weakening the
+  emitter's honesty. Two further defects in the same path: batch arguments were passed as raw
+  relative paths where java and typescript already resolve them against the mock-server base, and
+  `kotlin.time.Duration` is a value class Jackson cannot build from a bare JSON number, now emitted
+  as `{n}.milliseconds`.
+
+- **The elixir streaming accessor did not parse when pasted into an assertion.** A bare
+  `case … do … end` binds its `do` block to the outermost paren-less call, so `assert <accessor>`
+  reparsed as `assert(case(x), do: <clauses>)` — `case` with no clauses and a clause list handed to
+  `assert`, which does not take them. The accessor is parenthesised, and a `do`-block scanner now
+  guards the class alongside the existing pipe scanner. The module already stated the rule that every
+  accessor must be a primary expression; a `case/do/end` is not one either.
+
+- **The C# e2e stringified values with the default JSON encoder, HTML-escaping `+ ' < > &`.** Any
+  expected text containing one mismatched the escaped actual value, which is why only the fixtures
+  whose text contained those characters failed. Now passes `UnsafeRelaxedJsonEscaping` explicitly.
+
+- **Every generated dart test re-derived the mock-server manifest path relative to the current
+  directory.** It resolved only when cwd was the dart e2e directory; at `dart test` runtime it is
+  not, so the tests died in `setUpAll` on a path that does not exist. The shared helper that resolves
+  it correctly turned out not to be generated by alef at all — orphaned output from an older codegen
+  shape, with its auto-build step lost — so it is now genuinely generated, and the per-file fallbacks
+  delegate to it instead of duplicating the derivation.
+
 - **Operational note: any generated file restored from an older commit is sticky, and re-running
   `alef generate` will not repair it.** The `alef:hash:` stamp makes a regeneration skip a file
   whose recorded hash matches its current content, which is what keeps an unchanged tree cheap. The
