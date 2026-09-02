@@ -317,10 +317,12 @@ impl Backend for MagnusBackend {
             // Publish Release dry run. ~keep
             let typ_cfg = typ.cfg.as_deref();
             if typ.is_opaque {
-                builder.add_item(&prepend_cfg(
-                    typ_cfg,
-                    classes::gen_opaque_struct(typ, &core_import, &module_name),
-                ));
+                // `gen_opaque_struct` renders a struct declaration plus three companion impls as
+                // one multi-item block and gates each of them internally with `typ.cfg` -- a
+                // `prepend_cfg` wrap here would only re-gate the first item (the struct
+                // declaration already carries its own `#[cfg]`) and stack a redundant, identical
+                // attribute onto it. ~keep
+                builder.add_item(&classes::gen_opaque_struct(typ, &core_import, &module_name));
                 builder.add_item(&prepend_cfg(
                     typ_cfg,
                     classes::gen_opaque_struct_methods(
@@ -358,17 +360,19 @@ impl Backend for MagnusBackend {
                 let has_explicit_impl_default = !typ.fields.is_empty();
                 let delegate_deserialize = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding)
                     && generators::struct_wants_deserialize_delegation(typ, &opaque_type_names_vec, &[]);
-                builder.add_item(&prepend_cfg(
-                    typ_cfg,
-                    classes::gen_struct(
-                        typ,
-                        &mapper,
-                        &module_name,
-                        &core_import,
-                        has_explicit_impl_default,
-                        &config.trait_bridges,
-                        delegate_deserialize,
-                    ),
+                // `gen_struct` renders a struct declaration plus its companion impls as one
+                // multi-item block and gates each of them internally with `typ.cfg` -- see its
+                // doc comment. A `prepend_cfg` wrap here would only re-gate the first item (the
+                // struct declaration already carries its own `#[cfg]`) and stack a redundant,
+                // identical attribute onto it. ~keep
+                builder.add_item(&classes::gen_struct(
+                    typ,
+                    &mapper,
+                    &module_name,
+                    &core_import,
+                    has_explicit_impl_default,
+                    &config.trait_bridges,
+                    delegate_deserialize,
                 ));
                 if generates_default {
                     builder.add_item(&prepend_cfg(
@@ -907,6 +911,9 @@ mod cfg_variant_e2e_tests;
 
 #[cfg(test)]
 mod type_cfg_gate_tests;
+
+#[cfg(test)]
+mod companion_impl_cfg_census_tests;
 
 #[cfg(test)]
 #[path = "default_timeout_pairing_tests.rs"]

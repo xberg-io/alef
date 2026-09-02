@@ -1,4 +1,5 @@
-#[derive(Clone)]
+{% if cfg %}#[cfg({{ cfg }})]
+{% endif %}#[derive(Clone)]
 #[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {
     {%- if needs_mutex %}
@@ -8,13 +9,16 @@ pub struct {{ struct_name }} {
     {%- endif %}
 }
 
-unsafe impl IntoValueFromNative for {{ struct_name }} {}
+{% if cfg %}#[cfg({{ cfg }})]
+{% endif %}unsafe impl IntoValueFromNative for {{ struct_name }} {}
 
-impl magnus::TryConvert for {{ struct_name }} {
+{% if cfg %}#[cfg({{ cfg }})]
+{% endif %}impl magnus::TryConvert for {{ struct_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
         let r: &{{ struct_name }} = magnus::TryConvert::try_convert(val)?;
         Ok(r.clone())
     }
 }
 
-unsafe impl TryConvertOwned for {{ struct_name }} {}
+{% if cfg %}#[cfg({{ cfg }})]
+{% endif %}unsafe impl TryConvertOwned for {{ struct_name }} {}

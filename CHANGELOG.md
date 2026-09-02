@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [#285]: https://github.com/xberg-io/alef/issues/285
 
+- **Ruby/magnus: a cfg-gated struct's companion impls were emitted unconditionally, exploding the
+  build the moment the gating feature was off.** `struct_def.rs.jinja`/`opaque_struct.rs.jinja`
+  render a struct declaration together with its `IntoValueFromNative`, `magnus::TryConvert`,
+  `TryConvertOwned`, and (when eligible) delegating-`Deserialize` companion impls as one
+  multi-item string, and the call site gated that whole blob with a single `#[cfg(...)]`
+  prepended to the front. A `#[cfg(...)]` attribute only binds to the item immediately following
+  it, so only the struct declaration was ever actually gated — measured against xberg's generated
+  `packages/ruby/ext/xberg_rb/src/lib.rs`: 67 gated type declarations, 259 ungated companion
+  impls, 0 of them gated. On Windows, where the feature set legitimately narrows and the gated
+  types (e.g. `ChunkInfo`, `DeepseekOcrBackendOptions`) genuinely don't exist, those impls still
+  referenced them unconditionally — 827 compile errors, the sole failure in xberg's publish run.
+  `typ.cfg` is now threaded into both templates and repeated before every companion item, and a
+  structural census test parses generated output with `syn` and asserts, over every `impl` item
+  in the file, that none targets a cfg-gated type without carrying the identical gate.
+
 ## [0.82.0] - 2026-09-02
 
 ### Removed

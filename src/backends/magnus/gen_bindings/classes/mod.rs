@@ -32,6 +32,14 @@ fn is_thread_unsafe_field(field: &FieldDef, trait_bridges: &[TraitBridgeConfig])
 }
 
 /// Generate an opaque Magnus-wrapped struct with inner Arc or Arc<Mutex<>>.
+///
+/// `opaque_struct.rs.jinja` renders the struct declaration AND its three companion impls
+/// (`IntoValueFromNative`, `magnus::TryConvert`, `TryConvertOwned`) as one multi-item block. A
+/// `#[cfg(...)]` attribute only binds to the single item immediately following it, so `typ.cfg`
+/// is threaded into the template itself and repeated before every item there -- gating the
+/// returned string at the call site (a single `#[cfg]` prepended to the whole blob) would gate
+/// only the struct declaration and leave the impls unconditionally referencing a type the core
+/// crate never compiled in. ~keep
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
@@ -44,6 +52,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &
             class_path => &class_path,
             core_path => &core_path,
             needs_mutex => needs_mutex,
+            cfg => typ.cfg.as_deref(),
         },
     )
 }
@@ -401,6 +410,15 @@ fn gen_opaque_async_instance_method(
 /// `From<core::Type> for {{ struct_name }}` will also be emitted this run -- see
 /// `crate::codegen::generators::struct_wants_deserialize_delegation`'s doc comment for why this
 /// function cannot safely make that call on its own.
+///
+/// `struct_def.rs.jinja` renders the struct declaration AND its companion impls
+/// (`IntoValueFromNative`, `magnus::TryConvert`, `TryConvertOwned`, and -- when
+/// `delegate_deserialize` -- a delegating `Deserialize`) as one multi-item block. A `#[cfg(...)]`
+/// attribute only binds to the single item immediately following it, so `typ.cfg` is threaded
+/// into the template itself (repeated before every item there) and applied again here to the
+/// separately-appended delegating-`Deserialize` impl -- gating the returned string at the call
+/// site (a single `#[cfg]` prepended to the whole blob) would gate only the struct declaration
+/// and leave the impls unconditionally referencing a type the core crate never compiled in. ~keep
 pub(super) fn gen_struct(
     typ: &TypeDef,
     mapper: &MagnusMapper,
@@ -441,6 +459,7 @@ pub(super) fn gen_struct(
         })
         .collect();
 
+    let typ_cfg = typ.cfg.as_deref();
     let mut rendered = crate::backends::magnus::template_env::render(
         "struct_def.rs.jinja",
         minijinja::context! {
@@ -450,10 +469,12 @@ pub(super) fn gen_struct(
             has_default => typ.has_default,
             generates_default => generates_default,
             delegate_deserialize => delegate_deserialize,
+            cfg => typ_cfg,
         },
     );
     if delegate_deserialize {
-        rendered.push_str(&generators::gen_delegating_deserialize_impl(typ, core_import, "", &[]));
+        let deserialize_impl = generators::gen_delegating_deserialize_impl(typ, core_import, "", &[]);
+        rendered.push_str(&super::prepend_cfg(typ_cfg, deserialize_impl));
     }
     rendered
 }
