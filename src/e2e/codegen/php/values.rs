@@ -164,6 +164,28 @@ pub(super) fn emit_php_object_array_with_mock_base(
     }
 }
 
+/// Find the `FieldDef` on `struct_name` that fixture key `key` refers to, matching either the
+/// field's Rust name or its wire name (`#[serde(rename = ...)]` / a container `rename_all`) —
+/// a fixture may key a field either way. Without the wire-name arm, a field whose wire name
+/// diverges from its Rust name (e.g. `ChatCompletionTool.tool_type` renamed to wire `type`) is
+/// invisible to every lookup here even though the fixture key is exactly what that field
+/// declares, since only `field.name` was ever compared. ~keep
+fn resolve_field<'a>(
+    struct_name: &str,
+    key: &str,
+    type_defs: &'a [crate::core::ir::TypeDef],
+) -> Option<&'a crate::core::ir::FieldDef> {
+    let definition = type_defs.iter().find(|td| td.name == struct_name)?;
+    definition.fields.iter().find(|field| {
+        field.name == key
+            || crate::codegen::naming::wire_field_name(
+                &field.name,
+                field.serde_rename.as_deref(),
+                definition.serde_rename_all.as_deref(),
+            ) == key
+    })
+}
+
 /// True when `field_name` on `struct_name` is a plain `String` or `Optional<String>`
 /// field — i.e. a field where an empty string `""` is a meaningful value the fixture
 /// intends to send (e.g. `ExtractInput.mime_type = ""` to exercise the empty-MIME
@@ -177,10 +199,7 @@ pub(super) fn field_is_string_typed(
     let Some(struct_name) = struct_name else {
         return false;
     };
-    type_defs
-        .iter()
-        .find(|td| td.name == struct_name)
-        .and_then(|td| td.fields.iter().find(|f| f.name == field_name))
+    resolve_field(struct_name, field_name, type_defs)
         .map(|field| match &field.ty {
             TypeRef::String => true,
             TypeRef::Optional(inner) => matches!(**inner, TypeRef::String),
@@ -253,24 +272,21 @@ pub(super) fn json_to_php(value: &serde_json::Value) -> String {
 
 /// Get the field type name for a given struct and field name.
 ///
-/// Returns the string name of the field's type if it's a Named type, otherwise None.
+/// Returns the string name of the field's type if it names one through any number of
+/// `Option`/`Vec` wrappers (see [`crate::e2e::codegen::call_ir::named_type`]), otherwise None.
+/// Unwrapping `Vec` matters here as much as `Option` does: a `Vec<ChatCompletionTool>` field
+/// (e.g. `ChatCompletionRequest.tools`) used to resolve to `None`, so every element of the
+/// array below recursed with `current_type_name` reset to `None` — losing the owner type for
+/// exactly the array-of-struct shape a tool-calling request is built from, and silently
+/// re-enabling the blind per-key camelCase this module exists to avoid one level down. ~keep
 pub(super) fn get_field_type_name(
     struct_name: &str,
     field_name: &str,
     type_defs: &[crate::core::ir::TypeDef],
 ) -> Option<String> {
-    type_defs
-        .iter()
-        .find(|td| td.name == struct_name)
-        .and_then(|td| td.fields.iter().find(|f| f.name == field_name))
-        .and_then(|field| match &field.ty {
-            TypeRef::Named(name) => Some(name.clone()),
-            TypeRef::Optional(inner) => match &**inner {
-                TypeRef::Named(name) => Some(name.clone()),
-                _ => None,
-            },
-            _ => None,
-        })
+    resolve_field(struct_name, field_name, type_defs)
+        .and_then(|field| crate::e2e::codegen::call_ir::named_type(&field.ty))
+        .map(str::to_string)
 }
 
 /// Like `json_to_php` but optionally converts object keys to lowerCamelCase.
@@ -297,8 +313,23 @@ pub(super) fn json_to_php_camel_keys_with_types(
             let items: Vec<String> = map
                 .iter()
                 .map(|(k, v)| {
+                    // `k` is the fixture's WIRE key (e.g. `type` for `ChatCompletionTool` from
+                    // the core Rust struct's own `#[serde(rename = "type")]`), but the PHP
+                    // binding's host property/alias is always spelled off the RUST FIELD name
+                    // (`tool_type` -> `toolType`), never off that wire name -- see
+                    // `codegen::naming::wire`'s module doc. Blindly camelCasing `k` itself
+                    // produced `"type"` (`to_lower_camel_case("type") == "type"`) against a
+                    // binding that only accepts `tool_type`/`toolType`, silently leaving the
+                    // field at its `#[serde(default)]` value. Resolving through the field
+                    // first, and camelCasing ITS name, fixes both the unrenamed case (already
+                    // identical) and the renamed one. A key IR cannot resolve (an opaque/
+                    // untyped object, or `current_type_name` unset) falls back to the previous
+                    // blind conversion. ~keep
                     let final_key = if serde_rename_all == Some("camelCase") {
-                        k.to_lower_camel_case()
+                        match current_type_name.and_then(|tn| resolve_field(tn, k, type_defs)) {
+                            Some(field) => crate::codegen::naming::to_php_name(&field.name),
+                            None => k.to_lower_camel_case(),
+                        }
                     } else {
                         k.to_string()
                     };
@@ -414,5 +445,76 @@ mod native_dto_tests {
             rendered.contains("content: file_get_contents(\"guide.pdf\")"),
             "{rendered}"
         );
+    }
+}
+
+#[cfg(test)]
+mod wire_name_tests {
+    use super::*;
+    use crate::core::ir::{FieldDef, TypeDef};
+
+    /// A field keyed by its WIRE name (`#[serde(rename = "type")]`, e.g.
+    /// `ChatCompletionTool.tool_type`) must resolve to the PHP binding's property name
+    /// (`toolType`, off the Rust field), not a blind camelCase of the wire key itself
+    /// (`type`). Regression for the liter-llm `tool_calling` e2e defect. ~keep
+    #[test]
+    fn wire_renamed_field_resolves_to_the_php_property_name() {
+        let type_defs = [TypeDef {
+            name: "ChatCompletionTool".into(),
+            fields: vec![FieldDef {
+                name: "tool_type".into(),
+                ty: TypeRef::String,
+                serde_rename: Some("type".into()),
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        }];
+
+        let rendered = json_to_php_camel_keys_with_types(
+            &serde_json::json!({"type": "function"}),
+            Some("ChatCompletionTool"),
+            Some("camelCase"),
+            &type_defs,
+        );
+
+        assert_eq!(rendered, "[\"toolType\" => \"function\"]");
+    }
+
+    /// A `Vec<Named>` field (e.g. `ChatCompletionRequest.tools: Vec<ChatCompletionTool>`) must
+    /// propagate its unwrapped element type to array elements, not just an `Option<Named>`
+    /// field -- otherwise every element recurses with no owner type and the wire-renamed field
+    /// above is unreachable from a real request body.
+    #[test]
+    fn array_of_struct_field_propagates_element_type_to_items() {
+        let type_defs = [
+            TypeDef {
+                name: "ChatCompletionRequest".into(),
+                fields: vec![FieldDef {
+                    name: "tools".into(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("ChatCompletionTool".into()))),
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "ChatCompletionTool".into(),
+                fields: vec![FieldDef {
+                    name: "tool_type".into(),
+                    ty: TypeRef::String,
+                    serde_rename: Some("type".into()),
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+        ];
+
+        let rendered = json_to_php_camel_keys_with_types(
+            &serde_json::json!({"tools": [{"type": "function"}]}),
+            Some("ChatCompletionRequest"),
+            Some("camelCase"),
+            &type_defs,
+        );
+
+        assert_eq!(rendered, "[\"tools\" => [[\"toolType\" => \"function\"]]]");
     }
 }

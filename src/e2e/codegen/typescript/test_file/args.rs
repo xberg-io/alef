@@ -1,10 +1,12 @@
 use super::*;
 
-/// `target` is what the core IR declares about the parameters these arguments fill. Only the
-/// documentation-snippet caller supplies a real one; the e2e test-file callers pass
-/// [`crate::e2e::codegen::call_ir::TargetParams::IrAbsent`], which licenses no claim, so every
-/// rendering below falls back to exactly what it emitted before the seam existed. Mirrors the
-/// `go` emitter, which threads the same seam to the same two kinds of caller. ~keep
+/// `target` is what the core IR declares about the parameters these arguments fill. Both the
+/// documentation-snippet caller and the e2e test-file caller supply a real one (via
+/// `ResolvedE2eCallRecipe::target_params`, opted into IR-aware lowering with `.with_functions`);
+/// a handful of unit tests below still pass
+/// [`crate::e2e::codegen::call_ir::TargetParams::IrAbsent`] directly, which licenses no claim, so
+/// every rendering falls back to exactly what it emitted before the seam existed for those.
+/// Mirrors the `go` emitter, which threads the same seam to the same two kinds of caller. ~keep
 #[allow(clippy::too_many_arguments)]
 pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
     input: &serde_json::Value,
@@ -506,16 +508,34 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         } else {
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
                         }
-                    } else if lang == "node" {
-                        // For node (napi-rs), tagged-data enum discriminants are
-                        // always exposed as `"kind"` in TypeScript, regardless of the
-                        // original Rust serde_tag attribute. Pre-process the JSON to
-                        // rename serde_tag keys (e.g. `role`, `type`) to `"kind"` when
-                        // the value matches a known enum variant, then convert to JS.
-                        let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
-                        parts.push(json_to_js_camel(&preprocessed));
                     } else {
-                        parts.push(json_to_js_camel(v));
+                        // No `options_type`/`element_type` was configured for this
+                        // call/language -- e.g. node's `chat` call, whose binding needs no
+                        // runtime constructor for a plain `ChatCompletionRequest` object
+                        // literal, so nobody configured one. Ask the core IR what this
+                        // argument's parameter is actually declared as, so the fallback
+                        // converter below can resolve a serde-renamed field's key correctly
+                        // instead of blindly camelCasing the fixture's wire key -- see
+                        // `json_to_js_camel_with_types`'s doc for why it is that (narrower)
+                        // converter and not the full `ts_builder_expression` typed-object
+                        // path. A resolved name absent from `type_defs` (an external/opaque
+                        // type) is filtered out: there is no declared field set to resolve
+                        // against, so `json_to_js_camel_with_types` would behave identically
+                        // to the blind converter anyway. ~keep
+                        let declared_type_name = target
+                            .declared_type_name(&arg.name, idx)
+                            .filter(|declared| type_defs.iter().any(|definition| &definition.name == declared));
+                        if lang == "node" {
+                            // For node (napi-rs), tagged-data enum discriminants are
+                            // always exposed as `"kind"` in TypeScript, regardless of the
+                            // original Rust serde_tag attribute. Pre-process the JSON to
+                            // rename serde_tag keys (e.g. `role`, `type`) to `"kind"` when
+                            // the value matches a known enum variant, then convert to JS.
+                            let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
+                            parts.push(json_to_js_camel_with_types(&preprocessed, declared_type_name, type_defs));
+                        } else {
+                            parts.push(json_to_js_camel_with_types(v, declared_type_name, type_defs));
+                        }
                     }
                     continue;
                 } else {

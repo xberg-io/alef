@@ -204,6 +204,17 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
 
     let handle_config_type = per_call_override.and_then(|o| o.handle_config_type.clone());
 
+    // `recipe` was already opted into IR-aware lowering via `.with_functions(functions)` above
+    // (for `ir_is_async`), so this e2e test-file call is just as entitled to ask `target_params`
+    // what the core IR declares about its arguments as the documentation-snippet path
+    // (`snippet.rs`), which was the only caller that did before this. Without it, a
+    // `json_object` arg with no `options_type` configured (node's `chat` call has none; every
+    // other language's `chat` override does) had no way to discover its declared type and fell
+    // all the way to `json_to_js_camel`'s blind per-key camelCase -- correct only when every
+    // field's wire name matches its Rust name, and wrong for a `#[serde(rename = "type")]`
+    // field like `ChatCompletionTool.tool_type`. ~keep
+    let target_params = recipe.target_params(lang);
+
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -220,7 +231,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         config,
         false,
         referenced_enums,
-        crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        target_params,
     );
     // The builders above recognise an undeclared fixture key many frames down, where nothing
     // knows which call or language is being served. This is the frame that does, and the only
