@@ -43,8 +43,8 @@ pub(crate) use text_helpers::capitalize_first;
 pub use text_helpers::{parse_author, xml_escape};
 
 pub(crate) use cargo_deps::{
-    dependency_sort_key, join_sorted_target_dep_blocks, render_core_dep, render_core_dep_with_overrides,
-    render_extra_deps, render_workspace_dep_or, sort_dependency_lines,
+    cargo_dependency_declared, dependency_sort_key, join_sorted_target_dep_blocks, render_core_dep,
+    render_core_dep_with_overrides, render_extra_deps, render_workspace_dep_or, sort_dependency_lines,
 };
 
 pub(crate) use cargo_lints::{cargo_lints_clippy_block_with_rationale, cargo_lints_section};

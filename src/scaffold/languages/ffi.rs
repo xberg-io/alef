@@ -108,6 +108,22 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             }
         }
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            let key = format!("{name} =");
+            if !extra_dep_lines.iter().any(|line| line.starts_with(&key)) {
+                extra_dep_lines.push(dependency);
+            }
+        }
+    }
     crate::scaffold::sort_dependency_lines(&mut extra_dep_lines);
 
     let mut machete_ignored: Vec<&str> = vec!["ahash", "serde", "serde_json", "tokio"];
@@ -313,7 +329,7 @@ tempfile = "{tempfile}"
         },
     );
 
-    Ok(vec![
+    let files = vec![
         GeneratedFile {
             path: PathBuf::from(format!("crates/{}-ffi/Cargo.toml", core_crate_dir)),
             content,
@@ -327,7 +343,8 @@ tempfile = "{tempfile}"
             content: cmake_content,
             generated_header: true,
         },
-    ])
+    ];
+    Ok(files)
 }
 
 #[cfg(test)]

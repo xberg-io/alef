@@ -1,6 +1,7 @@
 //! Magnus (Ruby) backend for alef: orchestrates struct, enum, and function code generation.
 
 mod classes;
+mod components;
 pub mod functions;
 mod method_result_wrap;
 pub mod service_api;
@@ -216,6 +217,10 @@ impl Backend for MagnusBackend {
         // `#[magnus::function]` entrypoints are compiled and can be registered in
         if !api.services.is_empty() {
             builder.add_item("pub mod service;");
+        }
+
+        if !config.components.is_empty() {
+            builder.add_item(&components::generate(config));
         }
 
         let opaque_types: AHashSet<String> = api
@@ -786,6 +791,14 @@ impl Backend for MagnusBackend {
             if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
                 public_functions.push(func.name.clone());
             }
+        }
+        if !config.components.is_empty() {
+            public_functions.extend([
+                "component_load".to_string(),
+                "component_prefetch".to_string(),
+                "component_status".to_string(),
+                "component_cache_path".to_string(),
+            ]);
         }
         public_functions.sort();
 

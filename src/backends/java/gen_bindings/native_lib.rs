@@ -157,6 +157,41 @@ pub(crate) fn gen_native_lib(
     let mut function_handles = Vec::new();
     let mut optional_symbols = BTreeSet::new();
 
+    if !config.components.is_empty() {
+        let prefix_upper = prefix.to_uppercase();
+        for (handle_suffix, symbol_suffix, descriptor) in [
+            (
+                "COMPONENT_LOAD",
+                "component_load",
+                "FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS)",
+            ),
+            (
+                "COMPONENT_PREFETCH",
+                "component_prefetch",
+                "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)",
+            ),
+            (
+                "COMPONENT_STATUS",
+                "component_status",
+                "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)",
+            ),
+            (
+                "COMPONENT_CACHE_PATH",
+                "component_cache_path",
+                "FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.ADDRESS)",
+            ),
+        ] {
+            function_handles.push(crate::backends::java::template_env::render(
+                "method_handle_normal.jinja",
+                minijinja::context! {
+                    handle_name => format!("{prefix_upper}_{handle_suffix}"),
+                    ffi_name => format!("{prefix}_{symbol_suffix}"),
+                    layout => descriptor,
+                },
+            ));
+        }
+    }
+
     for func in &api.functions {
         let handle_name = format!("{}_{}", prefix.to_uppercase(), func.name.to_uppercase());
 

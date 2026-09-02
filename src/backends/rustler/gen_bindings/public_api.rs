@@ -760,6 +760,12 @@ pub(super) fn generate_public_api(
         },
     );
 
+    if !config.components.is_empty() {
+        content.push_str(&format!(
+            "  @spec component_load(String.t()) :: {{:ok, nil}} | {{:error, String.t()}}\n  def component_load(component), do: {native_mod}.component_load(component)\n\n  @spec component_prefetch([String.t()] | nil) :: {{:ok, [String.t()]}} | {{:error, String.t()}}\n  def component_prefetch(components \\\\ nil), do: {native_mod}.component_prefetch(components)\n\n  @spec component_status(String.t()) :: {{:ok, String.t()}} | {{:error, String.t()}}\n  def component_status(component), do: {native_mod}.component_status(component)\n\n  @spec component_cache_path(String.t()) :: {{:ok, String.t()}} | {{:error, String.t()}}\n  def component_cache_path(component), do: {native_mod}.component_cache_path(component)\n\n"
+        ));
+    }
+
     if !tagged_enums_used.is_empty() {
         let mut sorted: Vec<&String> = tagged_enums_used.iter().collect();
         sorted.sort();

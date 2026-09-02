@@ -1,4 +1,5 @@
 mod capsule;
+mod components;
 mod field_ownership;
 mod functions;
 mod helpers;
