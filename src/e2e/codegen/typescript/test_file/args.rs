@@ -589,7 +589,11 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             // rename serde_tag keys (e.g. `role`, `type`) to `"kind"` when
                             // the value matches a known enum variant, then convert to JS.
                             let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
-                            parts.push(json_to_js_camel_with_types(&preprocessed, declared_type_name, type_defs));
+                            parts.push(json_to_js_camel_with_types(
+                                &preprocessed,
+                                declared_type_name,
+                                type_defs,
+                            ));
                         } else {
                             parts.push(json_to_js_camel_with_types(v, declared_type_name, type_defs));
                         }
