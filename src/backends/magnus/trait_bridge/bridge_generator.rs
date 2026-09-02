@@ -632,6 +632,7 @@ impl MagnusBridgeGenerator {
                 has_error => has_error,
                 needs_json => self.needs_json_marshalling(&method.return_type),
                 native_return_binding => self.native_struct_return(&method.return_type),
+                bytes_return => matches!(method.return_type, TypeRef::Bytes),
                 indent => indent,
                 rust_ty => rust_ty,
                 err_non_json => err_non_json,
@@ -666,8 +667,12 @@ impl MagnusBridgeGenerator {
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
             TypeRef::String => format!("ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value()"),
+            // `str_from_slice` (not `str_new(String::from_utf8_lossy(..))`) preserves NULs and
+            // arbitrary byte sequences as an ASCII-8BIT Ruby string instead of lossily
+            // transcoding to UTF-8, matching the String this binding exposes for `Bytes`
+            // everywhere else (type_map.rs, the `.rbs`, sorbet).
             TypeRef::Bytes => {
-                format!("ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value()")
+                format!("ruby.str_from_slice(AsRef::<[u8]>::as_ref(&{var})).as_value()")
             }
             // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
             TypeRef::Named(n) if self.is_native_struct_param(n) => {

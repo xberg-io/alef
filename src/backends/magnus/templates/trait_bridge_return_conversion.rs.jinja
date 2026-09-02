@@ -1,4 +1,23 @@
-{%- if native_return_binding %}
+{%- if bytes_return %}
+{% if has_error %}
+{{ indent }}// SAFETY: `bytes` is the `RString` just converted from `val`, still rooted by the
+{{ indent }}// caller for the duration of this expression; the slice is copied into an owned
+{{ indent }}// `Vec` immediately, before any further Ruby API call can invalidate it.
+{{ indent }}<magnus::RString as magnus::TryConvert>::try_convert(val)
+{{ indent }}    .map(|bytes| unsafe { bytes.as_slice() }.to_vec())
+{{ indent }}    .map_err(|e| {{ err_convert }})
+{% else %}
+{{ indent }}// SAFETY: `bytes` is the `RString` just converted from `val`, still rooted by the
+{{ indent }}// caller for the duration of this expression; the slice is copied into an owned
+{{ indent }}// `Vec` immediately, before any further Ruby API call can invalidate it.
+{{ indent }}<magnus::RString as magnus::TryConvert>::try_convert(val)
+{{ indent }}    .map(|bytes| unsafe { bytes.as_slice() }.to_vec())
+{{ indent }}    .unwrap_or_else(|e| {
+{{ indent }}        tracing::warn!(wrapper = "{{ wrapper }}", method = "{{ method_name }}", error = %e, "host returned a non-string byte value; returning default");
+{{ indent }}        Default::default()
+{{ indent }}    })
+{%- endif %}
+{%- elif native_return_binding %}
 {{ indent }}// Native-object return: the binding struct's `TryConvert` accepts the host's native wrapped
 {{ indent }}// object (and still a Hash/JSON via `to_json`); `From<{{ native_return_binding }}>` yields core.
 {% if has_error %}
