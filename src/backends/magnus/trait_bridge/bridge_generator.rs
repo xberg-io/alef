@@ -522,6 +522,7 @@ impl MagnusBridgeGenerator {
                 has_error => has_error,
                 needs_json => self.needs_json_marshalling(&method.return_type),
                 native_return_binding => self.native_struct_return(&method.return_type),
+                bytes_return => matches!(method.return_type, TypeRef::Bytes),
                 indent => indent,
                 rust_ty => rust_ty,
                 err_non_json => err_non_json,
@@ -564,7 +565,7 @@ impl MagnusBridgeGenerator {
                 "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"
             ),
             TypeRef::Bytes => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"
+                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_from_slice(AsRef::<[u8]>::as_ref(&{var})).as_value() }}"
             ),
             // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
             TypeRef::Named(n) if self.is_native_struct_param(n) => format!(

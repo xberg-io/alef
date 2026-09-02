@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus (trait bridges): preserve `Bytes` as binary Ruby strings in both callback directions.**
+  Rust-to-Ruby callback arguments previously passed `Vec<u8>` through
+  `String::from_utf8_lossy` and `Ruby::str_new`, replacing invalid UTF-8 and changing the value's
+  encoding instead of preserving source bytes. Ruby-to-Rust callback returns then used generic
+  `TryConvert<Vec<u8>>`, which expects a Ruby Array rather than the String exposed for `Bytes` by
+  the rest of the Magnus binding. Trait bridges now create ASCII-8BIT strings with
+  `Ruby::str_from_slice` and copy returned `RString` bytes directly, preserving NULs and arbitrary
+  byte sequences without transcoding.
+
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
   napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
   but the TypeScript e2e generator emitted `String(e.kind).includes("Function")`, and
