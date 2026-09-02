@@ -59,6 +59,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
     };
 
     let error_path = spec.error_path();
+    let version_is_fallible = generator.plugin_version_is_fallible();
 
     let version_method = MethodDef {
         name: "version".to_string(),
@@ -66,7 +67,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         return_type: crate::core::ir::TypeRef::String,
         is_async: false,
         is_static: false,
-        error_type: None,
+        error_type: version_is_fallible.then(|| error_path.clone()),
         doc: String::new(),
         receiver: Some(crate::core::ir::ReceiverKind::Ref),
         cfg: None,
@@ -143,6 +144,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
             wrapper_name => wrapper,
             error_path => error_path,
             version_lines => version_lines,
+            version_is_fallible => version_is_fallible,
             init_lines => init_lines,
             shutdown_lines => shutdown_lines,
         },

@@ -1793,6 +1793,39 @@ mod trait_bridge {
     }
 
     #[test]
+    fn test_plugin_bridge_preserves_fallible_version_from_super_trait() {
+        let trait_def = make_trait_def(
+            "PostProcessor",
+            vec![make_method("process", TypeRef::String, true, false)],
+        );
+        let cfg = make_plugin_bridge_cfg("PostProcessor");
+        let mut api = make_api();
+        api.types.push(make_trait_def(
+            "Plugin",
+            vec![make_method("version", TypeRef::String, true, false)],
+        ));
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "my_lib",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &api,
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("fn version(&self) -> std::result::Result<String, my_lib::MyError>"),
+            "fallible plugin version signature must match the source trait:\n{code}"
+        );
+        assert!(
+            code.contains("Ruby method 'version' failed") && !code.contains("method = \"version\""),
+            "Ruby version failures must propagate instead of returning a default:\n{code}"
+        );
+    }
+
+    #[test]
     fn test_plugin_bridge_emits_trait_impl() {
         let trait_def = make_trait_def(
             "Validator",

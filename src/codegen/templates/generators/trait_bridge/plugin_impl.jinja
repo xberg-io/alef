@@ -3,7 +3,7 @@ impl {{ super_trait_path }} for {{ wrapper_name }} {
         &self.cached_name
     }
 
-    fn version(&self) -> String {
+    fn version(&self) -> {% if version_is_fallible %}std::result::Result<String, {{ error_path }}>{% else %}String{% endif %} {
 {% for line in version_lines %}
         {{ line }}
 {% endfor %}
