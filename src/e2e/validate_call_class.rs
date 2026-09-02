@@ -191,8 +191,13 @@ fn check_class_override(
 /// Each arm calls the exact function the corresponding backend's codegen uses for this name
 /// (not a re-derivation), so a rename on either side breaks a test rather than silently
 /// drifting:
-/// - `Kotlin` emits the crate module object as `to_pascal_case(crate_name)` with no
-///   suffix stripping — `src/backends/kotlin/gen_bindings/mod.rs`'s `module_name`.
+/// - `Kotlin` emits the crate module object via `to_pascal_case(crate_name)` with no
+///   suffix stripping (`src/backends/kotlin/gen_bindings/mod.rs`'s `generate_jvm`, `module_name`
+///   binding). That `to_pascal_case` is `shared::kotlin_pascal_case`, i.e.
+///   `naming::public_host_identifier(Language::Kotlin, PublicIdentifierKind::Type, crate_name)`
+///   — not bare `heck::ToPascalCase` — because it also backtick-escapes Kotlin keywords, so
+///   this arm calls that same function rather than the generic `to_class_name` helper other
+///   arms use for languages with no keyword-escaping step. ~keep
 /// - `Java` emits *two* real classes an override can legitimately name: the raw FFI wrapper
 ///   via `crate::backends::java::naming::main_class_name` (PascalCased crate name, trailing
 ///   `Rs` kept/added — `src/backends/java/gen_bindings/mod.rs`'s `main_class`), and the
@@ -202,15 +207,27 @@ fn check_class_override(
 /// - `KotlinAndroid` emits its wrapper object via
 ///   `crate::codegen::naming::kotlin_android_wrapper_object_name`, the same PascalCase-then-
 ///   strip-`Rs` algorithm as Java's public facade, under its own name.
-/// - `Php` emits the facade class as `[crates.php] extension_name` (or the crate name with
-///   hyphens replaced by underscores, `ResolvedCrateConfig::php_extension_name`) PascalCased
-///   — `src/backends/php/gen_bindings/public_api.rs`'s `class_name`.
+/// - `Php` emits *two* real classes an override can legitimately name, the same raw/public
+///   split as Java and Ruby: the hand-facing wrapper class via
+///   `crate::backends::php::naming::php_public_class_name` (extension_name PascalCased, no
+///   suffix — `src/backends/php/gen_bindings/public_api.rs`'s `class_name`), and the
+///   `#[php_class]` extension class that actually holds the generated static methods via
+///   `..::php_ext_api_class_name` (the same name with an `Api` suffix appended — the
+///   `#[php(name = "...")]` struct emitted into `lib.rs`). The wrapper forwards to the `Api`
+///   class, so both are genuine, independently callable entry points; an e2e call override is
+///   free to target either. ~keep
 /// - `Ruby` emits *two* real modules an override can legitimately name, the same
 ///   raw/public split as Java: the compiled native extension registers itself as
-///   `to_pascal_case(crate_name)` (`src/backends/magnus/gen_bindings/mod.rs`'s
+///   `to_pascal_case(crate_name)` (`src/backends/magnus/gen_bindings/mod.rs`'s private
 ///   `get_module_name(&api.crate_name)`), and a wrapper module re-exports its types and
 ///   delegates its functions under `to_pascal_case([crates.ruby] gem_name)` (that file's
-///   `get_module_name(&config.ruby_gem_name())`). For a crate named `sample-widget-rs`, the crate name PascalCases to `SampleWidgetRs` (the
+///   `get_module_name(&config.ruby_gem_name())`). `get_module_name` is `crate_name.to_upper_camel_case()`
+///   and this arm uses `naming::to_class_name`, i.e. `heck::ToPascalCase`; unlike the Kotlin
+///   drift above this is not a coincidence to fix but a provable identity — heck's
+///   `impl ToPascalCase for T { fn to_pascal_case(&self) { self.to_upper_camel_case() } }`
+///   (`heck::upper_camel`) makes `ToPascalCase` a compile-time alias of `ToUpperCamelCase`, so
+///   the two calls can never diverge without a heck major-version change this crate would pin
+///   against anyway. For a crate named `sample-widget-rs`, the crate name PascalCases to `SampleWidgetRs` (the
 ///   native module `lib/sample_widget/native.rb` loads and `const_get`s from), while
 ///   its `[crates.ruby] gem_name = "sample-widget"` PascalCases to `SampleWidget`,
 ///   the wrapper `lib/sample_widget.rb` declares and e2e specs call `.convert` on
@@ -226,13 +243,20 @@ fn check_class_override(
 /// fallback in `check_class_override`, rather than inheriting a guessed candidate silently.
 fn crate_facade_class_names(naming_lang: Language, config: &ResolvedCrateConfig) -> Option<Vec<String>> {
     match naming_lang {
-        Language::Kotlin => Some(vec![naming::to_class_name(&config.name)]),
+        Language::Kotlin => Some(vec![naming::public_host_identifier(
+            Language::Kotlin,
+            PublicIdentifierKind::Type,
+            &config.name,
+        )]),
         Language::Java => Some(vec![
             crate::backends::java::naming::main_class_name(&config.name),
             crate::backends::java::naming::public_class_name(&config.name),
         ]),
         Language::KotlinAndroid => Some(vec![naming::kotlin_android_wrapper_object_name(&config.name)]),
-        Language::Php => Some(vec![naming::to_class_name(&config.php_extension_name())]),
+        Language::Php => Some(vec![
+            crate::backends::php::naming::php_public_class_name(&config.php_extension_name()),
+            crate::backends::php::naming::php_ext_api_class_name(&config.php_extension_name()),
+        ]),
         Language::Ruby => Some(vec![
             naming::to_class_name(&config.name),
             naming::to_class_name(&config.ruby_gem_name()),
@@ -754,31 +778,102 @@ lib_name = "widget"
         );
     }
 
+    /// Guards against the exact failure mode that let the Php arm ship broken: a test
+    /// literally named "matches each backend's own derivation" that in fact never called
+    /// any backend's own derivation for Php, and would have kept passing even if a second
+    /// arm (or every arm) suffered the same drift, because nothing here counted how many
+    /// arms were actually exercised.
+    ///
+    /// Two things every arm below must do, not just one:
+    /// 1. Compare `crate_facade_class_names`'s output against a call to the *real* function
+    ///    the corresponding backend's codegen uses (never a hardcoded string, never a
+    ///    re-derivation with a generic helper) — a rename on either side must break this
+    ///    test rather than silently drift, per `crate_facade_class_names`'s doc comment.
+    /// 2. Push its `Language` into `checked` so the final count assertion can catch an arm
+    ///    being silently skipped (e.g. by a stray early `continue`/`return`, or simply
+    ///    never being added when a language is wired into `CLASS_CONSUMING_LANGUAGES`).
+    ///    Without that count check, a loop or a copy-paste that dropped an arm would pass
+    ///    having verified nothing for it — indistinguishable, from the test's green result,
+    ///    from having checked every arm.
     #[test]
     fn crate_facade_class_names_matches_each_backends_own_derivation() {
         let sample_widget = make_config("sample-widget-rs");
+        let mut checked: Vec<Language> = Vec::new();
+
+        checked.push(Language::Kotlin);
         assert_eq!(
             crate_facade_class_names(Language::Kotlin, &sample_widget),
-            Some(vec!["SampleWidgetRs".to_string()]),
-            "plain kotlin does not strip the Rs suffix"
+            Some(vec![naming::public_host_identifier(
+                Language::Kotlin,
+                PublicIdentifierKind::Type,
+                &sample_widget.name,
+            )]),
+            "kotlin must match shared::kotlin_pascal_case (public_host_identifier), the \
+             keyword-escaping function the real emitter uses — not bare heck::ToPascalCase"
         );
+
+        checked.push(Language::Java);
         assert_eq!(
             crate_facade_class_names(Language::Java, &sample_widget),
-            Some(vec!["SampleWidgetRs".to_string(), "SampleWidget".to_string()]),
+            Some(vec![
+                crate::backends::java::naming::main_class_name(&sample_widget.name),
+                crate::backends::java::naming::public_class_name(&sample_widget.name),
+            ]),
             "java's raw FFI class and its Rs-stripped public facade are both real candidates"
         );
+
+        checked.push(Language::KotlinAndroid);
         assert_eq!(
             crate_facade_class_names(Language::KotlinAndroid, &sample_widget),
-            Some(vec!["SampleWidget".to_string()])
+            Some(vec![naming::kotlin_android_wrapper_object_name(&sample_widget.name)])
         );
+
+        checked.push(Language::Php);
+        assert_eq!(
+            crate_facade_class_names(Language::Php, &sample_widget),
+            Some(vec![
+                crate::backends::php::naming::php_public_class_name(&sample_widget.php_extension_name()),
+                crate::backends::php::naming::php_ext_api_class_name(&sample_widget.php_extension_name()),
+            ]),
+            "php's hand-facing wrapper class and the Api-suffixed #[php_class] extension \
+             facade it forwards to are both real, independently callable candidates"
+        );
+
+        checked.push(Language::Ruby);
         assert_eq!(
             crate_facade_class_names(Language::Ruby, &sample_widget),
-            Some(vec!["SampleWidgetRs".to_string(), "SampleWidgetRs".to_string()]),
+            Some(vec![
+                crate::backends::magnus::gen_bindings::get_module_name(&sample_widget.name),
+                crate::backends::magnus::gen_bindings::get_module_name(&sample_widget.ruby_gem_name()),
+            ]),
             "ruby's native module (crate name) and its gem_name-derived wrapper module are \
              both real candidates; with no `[crates.ruby] gem_name` configured, gem_name \
              defaults to the crate name with hyphens replaced by underscores, which \
              PascalCases identically to the crate name itself"
         );
+
+        checked.push(Language::Dart);
+        assert_eq!(
+            crate_facade_class_names(Language::Dart, &sample_widget),
+            Some(vec![sample_widget.dart_bridge_class_name()])
+        );
+
+        assert_eq!(
+            checked.len(),
+            CLASS_CONSUMING_LANGUAGES.len(),
+            "every language wired into CLASS_CONSUMING_LANGUAGES must have its own comparison \
+             against that backend's real naming function in this test; a missing comparison \
+             would let this test pass having verified nothing for that arm, which is exactly \
+             how the Php arm shipped broken"
+        );
+        for (name, lang) in CLASS_CONSUMING_LANGUAGES {
+            assert!(
+                checked.contains(lang),
+                "CLASS_CONSUMING_LANGUAGES lists \"{name}\" but this test never compared it \
+                 against that backend's real derivation"
+            );
+        }
+
         assert_eq!(crate_facade_class_names(Language::Python, &sample_widget), None);
     }
 }
