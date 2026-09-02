@@ -166,7 +166,7 @@ impl StreamingFieldResolver {
 ",
                 "        const _nc = {module_name}.c.{stream_next}({stream_var});
 ",
-                "        if (_nc == null) break;
+                "        if (_nc == 0) break;
 ",
                 "        const _np = {module_name}.c.{chunk_to_json}(_nc);
 ",
