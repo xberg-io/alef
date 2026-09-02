@@ -654,3 +654,129 @@ fn async_free_function_returning_wrapper_mapped_type_keeps_from() {
         "a wrapper-mapped return must not detour through serde:\n{out}"
     );
 }
+
+/// Regression for the `extract`/`extract_batch`/`map_url` config-marshalling defect: a single
+/// `Named` async parameter backed by a generated `#[wasm_bindgen]` wrapper (i.e. the mapper does
+/// not redirect it to the opaque `JsValue`) must take the typed wrapper and `.into()` it, exactly
+/// like the sibling `Vec<Named>` path already does for `actions`/`inputs`. Routing it through
+/// `serde_wasm_bindgen::from_value::<CoreType>` instead is the bug: that walks the *core* struct's
+/// snake_case serde field names against the wasm-bindgen wrapper's camelCase getters, so every
+/// multi-word field misses and silently falls back to its serde default.
+#[test]
+fn async_named_param_with_wrapper_takes_typed_option_and_into() {
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let func = async_function(vec![param("config", TypeRef::Named("ExtractionConfig".to_string()))]);
+    let api = crate::core::ir::ApiSurface {
+        types: vec![crate::core::ir::TypeDef {
+            name: "ExtractionConfig".to_string(),
+            has_default: true,
+            ..Default::default()
+        }],
+        ..empty_surface()
+    };
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &api,
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("config: Option<WasmExtractionConfig>"),
+        "a wrapper-backed Named param must take the typed wrapper, not JsValue:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "let config_core: sample_fixture::ExtractionConfig = config.map(Into::into).unwrap_or_default();"
+        ),
+        "omitting the param must still fall back to the core type's Default:\n{out}"
+    );
+    assert!(
+        !out.contains("serde_wasm_bindgen::from_value::<sample_fixture::ExtractionConfig>"),
+        "must not round-trip a wrapper-backed type through serde_wasm_bindgen:\n{out}"
+    );
+}
+
+/// Same fixture, but the param is IR-optional. The Rust parameter type stays `Option<Wasm...>`
+/// either way (that's what lets an omitted argument still resolve to the core Default above); what
+/// changes is the binding, which keeps `None` as `None` instead of substituting a default.
+#[test]
+fn async_named_optional_param_with_wrapper_maps_into_option() {
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let func = async_function(vec![ParamDef {
+        optional: true,
+        ..param("config", TypeRef::Named("ExtractionConfig".to_string()))
+    }]);
+    let api = crate::core::ir::ApiSurface {
+        types: vec![crate::core::ir::TypeDef {
+            name: "ExtractionConfig".to_string(),
+            has_default: true,
+            ..Default::default()
+        }],
+        ..empty_surface()
+    };
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &api,
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("config: Option<WasmExtractionConfig>"),
+        "an optional wrapper-backed Named param must still take the typed wrapper:\n{out}"
+    );
+    assert!(
+        out.contains("let config_core: Option<sample_fixture::ExtractionConfig> = config.map(Into::into);"),
+        "an optional param must map into an Option without a Default substitution:\n{out}"
+    );
+}
+
+/// Negative control: when a `wasm.type_overrides` entry redirects this Named type to the opaque
+/// `JsValue` (no generated wrapper exists to convert from), the original serde round-trip is the
+/// only route available and must be preserved.
+#[test]
+fn async_named_param_overridden_to_js_value_keeps_serde_round_trip() {
+    let mut overrides = HashMap::new();
+    overrides.insert("ExtractionConfig".to_string(), "JsValue".to_string());
+    let mapper = WasmMapper::new(overrides, "Wasm".to_string());
+    let func = async_function(vec![param("config", TypeRef::Named("ExtractionConfig".to_string()))]);
+    let api = crate::core::ir::ApiSurface {
+        types: vec![crate::core::ir::TypeDef {
+            name: "ExtractionConfig".to_string(),
+            has_default: true,
+            ..Default::default()
+        }],
+        ..empty_surface()
+    };
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &api,
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("config: JsValue"),
+        "a JsValue-overridden Named param must keep the JsValue signature:\n{out}"
+    );
+    assert!(
+        out.contains("serde_wasm_bindgen::from_value::<sample_fixture::ExtractionConfig>(config)"),
+        "with no generated wrapper to convert from, the serde round-trip is the only route:\n{out}"
+    );
+}

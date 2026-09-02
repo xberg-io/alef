@@ -1,0 +1,1 @@
+let {% if is_mut %}mut {% endif %}{{ param_name }}_core: {{ core_path }} = {% if has_default %}{{ param_name }}.map(Into::into).unwrap_or_default(){% else %}{{ param_name }}.map(Into::into).ok_or_else(|| JsValue::from_str("{{ param_name }} is required"))?{% endif %};
