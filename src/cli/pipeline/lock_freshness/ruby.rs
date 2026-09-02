@@ -100,9 +100,14 @@ pub(crate) fn check_generated_gemfile_lock_freshness_tolerating_pending_publish(
     if findings.is_empty() {
         return None;
     }
-    let Some(self_dependency) =
-        resolved_cfg.and_then(|cfg| registry_self_dependency(cfg, "ruby", normalize_gemfile_requirement))
-    else {
+    let Some(self_dependency) = resolved_cfg.and_then(|cfg| {
+        registry_self_dependency(
+            cfg,
+            "ruby",
+            |package| package.name.clone(),
+            normalize_gemfile_requirement,
+        )
+    }) else {
         return Some(anyhow::anyhow!(stale_gemfile_lock_message(&findings)));
     };
 

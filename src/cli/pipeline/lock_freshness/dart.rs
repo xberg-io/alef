@@ -105,7 +105,8 @@ pub(crate) fn check_generated_dart_lock_freshness_tolerating_pending_publish(
     if findings.is_empty() {
         return None;
     }
-    let Some(self_dependency) = resolved_cfg.and_then(|cfg| registry_self_dependency(cfg, "dart", str::to_string))
+    let Some(self_dependency) = resolved_cfg
+        .and_then(|cfg| registry_self_dependency(cfg, "dart", |package| package.name.clone(), str::to_string))
     else {
         return Some(anyhow::anyhow!(stale_dart_lock_message(&findings)));
     };

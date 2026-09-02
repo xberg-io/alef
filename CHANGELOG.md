@@ -255,6 +255,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arm64 macOS plus x86_64 Linux, and the dropped entry is documented in place with a `~keep`
   comment so re-adding it is a decision rather than an oversight.
 
+- **The Go pending-publish lock-freshness exemption was structurally unreachable.**
+  `registry_self_dependency` read only `[crates.e2e.registry.packages.go].name`, but Go has no
+  `name` concept and every real config keys the package by `module` instead, so the exemption
+  always resolved to `None` and a not-yet-published self-dependency version hard-failed
+  `alef generate` instead of downgrading to a warning — exactly the html-to-markdown incident this
+  closes. `registry_self_dependency` now takes an `identity` extractor per language; every
+  ecosystem but Go still resolves by `name`, and Go resolves by `name` falling back to `module`.
+
 ## [0.81.0] - 2026-09-01
 
 ### Fixed

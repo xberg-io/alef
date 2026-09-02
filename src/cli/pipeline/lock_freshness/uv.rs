@@ -102,6 +102,7 @@ pub(crate) fn check_generated_uv_lock_freshness_tolerating_pending_publish(
         registry_self_dependency(
             cfg,
             "python",
+            |package| package.name.clone(),
             crate::e2e::codegen::python::config::normalize_python_version,
         )
     }) else {

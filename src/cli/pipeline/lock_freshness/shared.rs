@@ -27,13 +27,22 @@ use std::path::{Path, PathBuf};
 /// explicit range operator" comment) so the returned `requirement` is byte-identical to what the
 /// generator itself would have written, not a semver-equivalent reconstruction.
 ///
-/// Deliberately conservative, returning `None` (never an exemption) unless BOTH `name` and
-/// `version` are explicitly set on `[crates.e2e.registry.packages.<lang>]` (falling back to the
-/// base `[crates.e2e.packages.<lang>]` only as `resolve_package` itself already does): the real
+/// Deliberately conservative, returning `None` (never an exemption) unless BOTH an identity (per
+/// `identity`, typically `name`, but `module` for Go -- see below) and `version` are explicitly
+/// set on `[crates.e2e.registry.packages.<lang>]` (falling back to the base
+/// `[crates.e2e.packages.<lang>]` only as `resolve_package` itself already does): the real
 /// generators have a further fallback of their own for an unset name (derived from the e2e call's
 /// `module`) and version (`resolved_version()`, then `"0.1.0"`), but registry-mode test apps are
 /// only ever meaningful with an explicit, publishable package identity in practice, and guessing
 /// at that derived fallback here risks matching a name this check has no real authority over.
+///
+/// `identity` extracts the field `lang`'s ecosystem actually keys a dependency requirement on --
+/// `name` for every ecosystem except Go, which has no `name` concept at all and instead pins by
+/// `module` (a Go module path, e.g. `github.com/xberg-io/html-to-markdown/packages/go/v3`); the Go
+/// caller passes `|package| package.name.clone().or_else(|| package.module.clone())` so a
+/// `name`-based override still wins if one is ever configured. Threaded as a closure, the same
+/// shape as `normalize`, rather than a Go-specific branch here, per this module's own doc: neither
+/// helper should name a language.
 ///
 /// Precise by construction for every caller: `lang` selects a single `[crates.e2e...packages.<lang>]`
 /// row, so this can only ever match the requirement written for the crate actually being
@@ -43,13 +52,14 @@ use std::path::{Path, PathBuf};
 pub(super) fn registry_self_dependency(
     resolved_cfg: &crate::core::config::ResolvedCrateConfig,
     lang: &str,
+    identity: impl Fn(&crate::core::config::e2e::PackageRef) -> Option<String>,
     normalize: impl Fn(&str) -> String,
 ) -> Option<RegistrySelfDependency> {
     let mut e2e_config = resolved_cfg.e2e.clone()?;
     e2e_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
     let package = e2e_config.resolve_package(lang)?;
-    let name = package.name?;
-    let version = package.version?;
+    let version = package.version.clone()?;
+    let name = identity(&package)?;
     Some(RegistrySelfDependency {
         name,
         requirement: normalize(&version),

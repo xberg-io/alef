@@ -261,7 +261,9 @@ mod pending_publish {
     use crate::core::config::e2e::{E2eConfig, PackageRef, RegistryConfig};
 
     /// A crate whose `[crates.e2e.registry.packages.go]` explicitly names `pkg_name` at
-    /// `pkg_version` -- the only shape [`registry_self_dependency`] ever vouches for.
+    /// `pkg_version`. One of two shapes [`registry_self_dependency`] vouches for -- see
+    /// [`resolved_cfg_with_go_registry_module`] for the `module`-keyed shape real Go configs
+    /// actually use (Go has no `name` concept; alef.toml configures Go packages by `module`).
     fn resolved_cfg_with_go_registry_package(pkg_name: &str, pkg_version: &str) -> ResolvedCrateConfig {
         let e2e = E2eConfig {
             registry: RegistryConfig {
@@ -269,6 +271,34 @@ mod pending_publish {
                     "go".to_string(),
                     PackageRef {
                         name: Some(pkg_name.to_string()),
+                        version: Some(pkg_version.to_string()),
+                        ..PackageRef::default()
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..RegistryConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+        ResolvedCrateConfig {
+            e2e: Some(e2e),
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
+    /// A crate whose `[crates.e2e.registry.packages.go]` sets only `module` (no `name`) --
+    /// the real shape every Go `alef.toml` in the wild actually uses (e.g.
+    /// `module = "github.com/xberg-io/html-to-markdown/packages/go/v3"`). Regression fixture for
+    /// the bug where [`registry_self_dependency`] read only `name`, making this exemption
+    /// structurally unreachable for Go.
+    fn resolved_cfg_with_go_registry_module(module: &str, pkg_version: &str) -> ResolvedCrateConfig {
+        let e2e = E2eConfig {
+            registry: RegistryConfig {
+                packages: [(
+                    "go".to_string(),
+                    PackageRef {
+                        module: Some(module.to_string()),
                         version: Some(pkg_version.to_string()),
                         ..PackageRef::default()
                     },
@@ -353,6 +383,48 @@ mod pending_publish {
                 .is_some(),
             "a third-party ledger drift unrelated to this crate's own registry self-dependency \
              must still fail the run"
+        );
+    }
+
+    /// The html-to-markdown regression itself: `[crates.e2e.registry.packages.go]` set by
+    /// `module` alone (no `name` -- the real shape, e.g.
+    /// `module = "github.com/xberg-io/html-to-markdown/packages/go/v3"`) must still be recognized
+    /// as this crate's own pending self-dependency. Before the `module`-fallback fix,
+    /// `registry_self_dependency` read only `name`, so this config resolved to `None` and this
+    /// exact finding hard-failed instead of being tolerated.
+    #[test]
+    fn tolerating_variant_warns_instead_of_failing_when_the_requirement_matches_a_module_configured_self_dependency() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_go_mod(root, GO_STALE_VERSION);
+        write_go_sum(root, GO_FRESH_PIN);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        let resolved_cfg = resolved_cfg_with_go_registry_module(GO_MODULE, GO_STALE_VERSION);
+
+        let result = check_generated_go_sum_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg));
+        assert!(
+            result.is_none(),
+            "a disagreement fully explained by this crate's own `module`-configured registry \
+             self-dependency must not fail the run: {result:?}"
+        );
+    }
+
+    /// The over-correction guard alongside the previous test: a `module`-configured self-dependency
+    /// must not blanket-suppress a genuinely stale, UNRELATED module drift at a different version.
+    #[test]
+    fn tolerating_variant_with_module_configured_self_dependency_still_fails_on_an_unrelated_drift() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_go_mod(root, GO_STALE_VERSION);
+        write_go_sum(root, GO_FRESH_PIN);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        let resolved_cfg = resolved_cfg_with_go_registry_module("example.com/unrelated", "v9.9.9");
+
+        assert!(
+            check_generated_go_sum_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg))
+                .is_some(),
+            "a third-party ledger drift unrelated to this crate's own `module`-configured registry \
+             self-dependency must still fail the run"
         );
     }
 }

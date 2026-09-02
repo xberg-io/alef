@@ -98,8 +98,14 @@ pub(crate) fn check_generated_go_sum_freshness_tolerating_pending_publish(
     if findings.is_empty() {
         return None;
     }
-    let Some(self_dependency) = resolved_cfg.and_then(|cfg| registry_self_dependency(cfg, "go", normalize_go_version))
-    else {
+    let Some(self_dependency) = resolved_cfg.and_then(|cfg| {
+        registry_self_dependency(
+            cfg,
+            "go",
+            |package| package.name.clone().or_else(|| package.module.clone()),
+            normalize_go_version,
+        )
+    }) else {
         return Some(anyhow::anyhow!(stale_go_sum_message(&findings)));
     };
 
