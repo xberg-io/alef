@@ -735,3 +735,118 @@ fn a_declared_type_that_is_not_an_ir_enum_keeps_the_existing_dart_lowering() {
         "a non-enum declared type must keep today's literal, got:\n{output}"
     );
 }
+
+/// Regression for the standalone-mock-server spawn re-deriving
+/// `Directory.current.uri.resolve('../rust/Cargo.toml')`, which only resolves correctly when
+/// `Directory.current` is `e2e/dart/`. The generated test's own `Process.run` invocation
+/// (`--manifest-path`, cargo's own error) reproduced as `Bad state: mock-server build failed:
+/// error: manifest path ... does not exist` whenever the process was started from any other
+/// cwd -- six suites failing in `setUpAll` with zero fixture assertions run. The fix routes
+/// the standalone-mock-server branch through `startMockServer()` in the shared, alef-generated
+/// `e2e_helpers.dart` (`DartE2eCodegen::generate` / `project::render_e2e_helpers`), whose
+/// `_findRepoRoot()` walks up from `Directory.current` to a stable `Cargo.toml` +
+/// `test_documents/` marker instead of resolving a fixed relative path against it.
+#[test]
+fn dart_standalone_mock_server_spawn_delegates_to_the_shared_helper() {
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::{HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
+
+    let mut fixture = make_fixture("http_fixture");
+    fixture.http = Some(HttpFixture {
+        handler: HttpHandler {
+            route: "/user".to_string(),
+            method: "GET".to_string(),
+            body_schema: None,
+            parameters: Default::default(),
+            middleware: None,
+        },
+        request: HttpRequest {
+            method: "GET".to_string(),
+            path: "/user".to_string(),
+            headers: Default::default(),
+            query_params: Default::default(),
+            cookies: Default::default(),
+            body: None,
+            form_data: None,
+            content_type: None,
+        },
+        expected_response: HttpExpectedResponse {
+            status_code: 200,
+            body: Some(serde_json::json!({"id": 1})),
+            body_partial: None,
+            headers: Default::default(),
+            validation_errors: None,
+        },
+    });
+
+    let e2e_config = E2eConfig::default();
+    let config = crate::core::config::ResolvedCrateConfig::default();
+    let type_defs = [];
+    let enums = [];
+    let adapters = [];
+    let dart_first_class_map = crate::e2e::field_access::DartFirstClassMap::default();
+
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[&fixture],
+        &e2e_config,
+        "dart",
+        "samplecli",
+        "RustLib",
+        "RustLibBridge",
+        &dart_first_class_map,
+        &adapters,
+        &config,
+        &type_defs,
+        &enums,
+        &[],
+        &[],
+    );
+
+    assert!(
+        !output.contains("Directory.current.uri.resolve('../rust/Cargo.toml')"),
+        "the standalone-mock-server branch must not re-derive a cwd-relative manifest path, got:\n{output}"
+    );
+    assert!(
+        output.contains("import 'e2e_helpers.dart';"),
+        "a file that spawns the standalone mock server must import the shared helper, got:\n{output}"
+    );
+    assert!(
+        output.contains("final _handle = await startMockServer();"),
+        "the standalone-mock-server branch must delegate to the shared helper, got:\n{output}"
+    );
+    assert!(
+        output.contains("await _mockServerHandle?.stop();"),
+        "tearDownAll must stop a helper-owned mock server, got:\n{output}"
+    );
+}
+
+/// A crate whose dart e2e fixtures never spawn the standalone mock server (e.g. one that
+/// only ever runs the server-pattern `app_harness.dart` branch, or has no HTTP/`mock_url`
+/// fixtures at all) must regenerate to an unchanged file set: `e2e_helpers.dart` must not
+/// appear as a new, unreferenced file. Companion to
+/// `dart_standalone_mock_server_spawn_delegates_to_the_shared_helper` above, which covers
+/// the crate that DOES need it.
+#[test]
+fn crate_with_no_standalone_mock_server_fixture_does_not_gain_an_unreferenced_helper_file() {
+    use super::E2eCodegen;
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::FixtureGroup;
+
+    let group = FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![make_fixture("plain_fixture")],
+    };
+    let e2e_config = E2eConfig::default();
+    let config = crate::core::config::ResolvedCrateConfig::default();
+
+    let files = super::DartE2eCodegen
+        .generate(&[group], &e2e_config, &config, &[], &[], &[], &[])
+        .expect("dart e2e generation must succeed for a plain fixture");
+
+    assert!(
+        !files.iter().any(|f| f.path.ends_with("e2e_helpers.dart")),
+        "a crate with no standalone-mock-server fixture must not gain e2e_helpers.dart, got files: {:?}",
+        files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+    );
+}
