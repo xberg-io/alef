@@ -71,21 +71,31 @@ fn validate_dart_library_name(config: &ResolvedCrateConfig) -> Result<(), AlefEr
         .map_err(|detail| AlefError::Config(format!("crate `{}`: {detail}", config.name)))
 }
 
-/// Reject a trait bridge that declares a registration function it cannot emit.
+/// Reject direct host registration for backends that cannot emit it.
 ///
-/// `registry_getter` is `Option` on the config struct, but the FFI backend's registration
-/// emitter needs it and `expect`s it — so a bridge with `register_fn` and no `registry_getter`
-/// passed validation, survived extraction, and panicked several stages later inside binding
-/// generation, naming an internal function rather than the config key at fault. Checking it here
-/// fails at load with the bridge named, before any file is written. ~keep
+/// Magnus can resolve `register_fn` as a core host function when no `registry_getter` is
+/// configured. Other backends still need the getter: FFI expects it and some scripting
+/// backends otherwise omit the registration function. Fail those mixed or non-Ruby configs
+/// before generation while permitting a Ruby-only bridge to delegate lifecycle and locking.
 fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
     for bridge in &config.trait_bridges {
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
-            return Err(AlefError::Config(format!(
-                "trait bridge `{}` sets `register_fn` but no `registry_getter`. Add `registry_getter` \
-                 to `[[crates.trait_bridges]]` for `{}`, or drop `register_fn`.",
-                bridge.trait_name, bridge.trait_name
-            )));
+            let unsupported_languages = config
+                .languages
+                .iter()
+                .filter(|language| **language != Language::Ruby && bridge.is_active_for(&language.to_string()))
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            if !unsupported_languages.is_empty() {
+                return Err(AlefError::Config(format!(
+                    "trait bridge `{}` sets `register_fn` but no `registry_getter`; direct host \
+                     registration is not supported for active language(s): {}. Add \
+                     `registry_getter`, exclude those languages from this bridge, or drop \
+                     `register_fn`.",
+                    bridge.trait_name,
+                    unsupported_languages.join(", ")
+                )));
+            }
         }
     }
     Ok(())
@@ -812,5 +822,49 @@ python = "packages/python"
             "fixture must carry the hazard through unvalidated"
         );
         validate_resolved(&config).expect("a crate not targeting dart must not be checked");
+    }
+
+    #[test]
+    fn ruby_trait_bridge_accepts_direct_host_registration() {
+        let config = resolve_first(
+            r#"
+[workspace]
+languages = ["ruby"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "SamplePlugin"
+register_fn = "register_sample_plugin"
+"#,
+        );
+
+        validate_resolved(&config).expect("Magnus supports direct core host registration");
+    }
+
+    #[test]
+    fn non_ruby_trait_bridge_rejects_direct_host_registration() {
+        let config = resolve_first(
+            r#"
+[workspace]
+languages = ["ruby", "python"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "SamplePlugin"
+register_fn = "register_sample_plugin"
+"#,
+        );
+
+        let error = validate_resolved(&config).expect_err("Python still requires a registry getter");
+        assert!(
+            error.to_string().contains("active language(s): python"),
+            "error must identify the unsupported active language: {error}"
+        );
     }
 }
