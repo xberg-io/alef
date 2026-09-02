@@ -1255,3 +1255,119 @@ fn a_fixture_with_no_declared_assertions_keeps_its_smoke_test_shape() {
         "a fixture with no assertions must never be recorded as refused"
     );
 }
+
+/// Regression test for the fabricated-completion defect: a chat-shaped fixture that never
+/// declares `stream_complete` (here, `empty_stream`'s real shape -- `count_min chunks >= 0`
+/// plus `equals stream_content == ""`, an explicit statement that zero chunks is acceptable)
+/// must not have `Assert.True(streamComplete);` invented on its behalf. That expectation would
+/// contradict rather than check a fixture like this one. ~keep
+#[test]
+fn a_fixture_that_never_declares_stream_complete_gets_no_invented_expectation() {
+    let fixture = Fixture {
+        id: "empty_stream".into(),
+        description: "Streaming chat completion that produces no content chunks".into(),
+        assertions: vec![
+            Assertion {
+                assertion_type: "count_min".into(),
+                field: Some("chunks".into()),
+                value: Some(serde_json::json!(0)),
+                ..Assertion::default()
+            },
+            Assertion {
+                assertion_type: "equals".into(),
+                field: Some("stream_content".into()),
+                value: Some(serde_json::json!("")),
+                ..Assertion::default()
+            },
+        ],
+        ..Fixture::default()
+    };
+    let call_config = CallConfig::default();
+    let e2e_config = E2eConfig::default();
+    let config = ResolvedCrateConfig {
+        name: "sample".into(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let mut out = String::new();
+    super::render_streaming_test_method(
+        &mut out,
+        &fixture,
+        "Widget",
+        &call_config,
+        None,
+        &e2e_config,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        "WidgetException",
+        &[],
+        &config,
+        &[],
+        &[],
+        &[],
+        Some("ChatCompletionChunk"),
+    );
+
+    assert!(
+        !out.contains("Assert.True(streamComplete);"),
+        "no expectation may be invented for a field this fixture never declared. got:\n{out}"
+    );
+}
+
+/// The other half: a chat-shaped fixture that DOES declare `stream_complete` (the real
+/// liter-llm `stream_done_signal` shape) must still get a real, falsifiable expectation -- the
+/// fix must not regress the declared case into silence.
+#[test]
+fn a_fixture_that_declares_stream_complete_still_gets_a_real_expectation() {
+    let fixture = Fixture {
+        id: "stream_done_signal".into(),
+        description: "Verify that the DONE sentinel terminates the stream".into(),
+        assertions: vec![
+            Assertion {
+                assertion_type: "equals".into(),
+                field: Some("stream_content".into()),
+                value: Some(serde_json::json!("done")),
+                ..Assertion::default()
+            },
+            Assertion {
+                assertion_type: "is_true".into(),
+                field: Some("stream_complete".into()),
+                ..Assertion::default()
+            },
+        ],
+        ..Fixture::default()
+    };
+    let call_config = CallConfig::default();
+    let e2e_config = E2eConfig::default();
+    let config = ResolvedCrateConfig {
+        name: "sample".into(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let mut out = String::new();
+    super::render_streaming_test_method(
+        &mut out,
+        &fixture,
+        "Widget",
+        &call_config,
+        None,
+        &e2e_config,
+        &HashMap::new(),
+        &HashMap::new(),
+        &HashMap::new(),
+        "WidgetException",
+        &[],
+        &config,
+        &[],
+        &[],
+        &[],
+        Some("ChatCompletionChunk"),
+    );
+
+    assert_eq!(
+        out.matches("Assert.True(streamComplete);").count(),
+        1,
+        "a declared `stream_complete` assertion must render exactly once. got:\n{out}"
+    );
+}
