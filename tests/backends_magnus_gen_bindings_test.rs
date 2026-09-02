@@ -1678,6 +1678,49 @@ mod trait_bridge {
     }
 
     #[test]
+    fn test_plugin_bridge_bytes_preserve_binary_strings_in_both_directions() {
+        let mut round_trip = make_method("round_trip", TypeRef::Bytes, true, false);
+        round_trip.params.push(ParamDef {
+            name: "payload".to_string(),
+            ty: TypeRef::Bytes,
+            ..ParamDef::default()
+        });
+        let trait_def = make_trait_def("BinaryBackend", vec![round_trip]);
+        let cfg = make_plugin_bridge_cfg("BinaryBackend");
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "sample_crate",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("ruby.str_from_slice(AsRef::<[u8]>::as_ref(&payload)).as_value()"),
+            "byte params must become binary Ruby strings without transcoding:\n{code}"
+        );
+        assert!(
+            !code.contains("String::from_utf8_lossy"),
+            "byte params must not use lossy UTF-8 conversion:\n{code}"
+        );
+        assert!(
+            code.contains("<magnus::RString as magnus::TryConvert>::try_convert(val)"),
+            "byte returns must decode from a Ruby string:\n{code}"
+        );
+        assert!(
+            code.contains(".map(|bytes| unsafe { bytes.as_slice().to_vec() })"),
+            "byte returns must copy the Ruby string's exact bytes:\n{code}"
+        );
+        assert!(
+            !code.contains("<Vec<u8> as magnus::TryConvert>::try_convert(val)"),
+            "byte returns must not require a Ruby array of integers:\n{code}"
+        );
+    }
+
+    #[test]
     fn test_plugin_bridge_emits_struct_when_register_fn_configured() {
         let trait_def = make_trait_def(
             "OcrBackend",
