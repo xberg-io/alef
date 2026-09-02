@@ -38,6 +38,17 @@ const STREAM_CONTENT_ACCESSOR: &str = "Enum.join(Enum.map(chunks, fn c -> \
 
 /// The exact `stream_complete` accessor the Elixir backend must emit.
 const STREAM_COMPLETE_ACCESSOR: &str = concat!(
+    "(case List.last(chunks) do nil -> false; c -> case ",
+    "List.first(Map.get(c, :choices, []) || []) do nil -> false; ",
+    "choice -> Map.get(choice, :finish_reason) != nil end end)"
+);
+
+/// The pre-fix `stream_complete` accessor: a `case/do/end` emitted as a bare paren-less
+/// expression. Pasted into `assert <expr>`, Elixir's `do` block binds to the OUTERMOST
+/// paren-less call (`assert`) rather than `case`, reparsing the clause list as `assert`'s own
+/// do-block and failing to compile with "misplaced operator ->". Kept verbatim so the scanner
+/// below can be shown to reject the shape that actually broke a consumer build. ~keep
+const DEFECTIVE_STREAM_COMPLETE_ACCESSOR: &str = concat!(
     "case List.last(chunks) do nil -> false; c -> case ",
     "List.first(Map.get(c, :choices, []) || []) do nil -> false; ",
     "choice -> Map.get(choice, :finish_reason) != nil end end"
@@ -77,6 +88,50 @@ fn has_top_level_pipe(expr: &str) -> bool {
             b'(' | b'[' | b'{' => depth += 1,
             b')' | b']' | b'}' => depth -= 1,
             b'|' if depth == 0 && bytes.get(index + 1) == Some(&b'>') => return true,
+            _ => {}
+        }
+        index += 1;
+    }
+    false
+}
+
+/// True when `expr` contains a keyword `do` block (`case`/`fn`/`if`/`cond`/... `do ... end`)
+/// outside every bracket group — the shape that cannot be pasted into `assert <expr>` or
+/// `<expr> not in [...]`. Elixir's `do` block binds to the OUTERMOST paren-less call in its
+/// statement, so a bare `case ... do ... end` substituted into `assert <expr>` reparses as
+/// `assert(case(...), do: [...])`: the clause list becomes `assert`'s own do-block and the
+/// generated file fails to compile with "misplaced operator ->". A `do` nested inside `(...)`,
+/// `[...]` or `%{...}` is already a self-contained primary expression and parses correctly, so
+/// only a depth-0 `do` is flagged. String literals are skipped so a `"do"` inside a generated
+/// Elixir string is not mistaken for the keyword. ~keep
+fn has_top_level_do_block(expr: &str) -> bool {
+    let bytes = expr.as_bytes();
+    let mut depth: i32 = 0;
+    let mut in_string = false;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_string {
+            match byte {
+                b'\\' => index += 1,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'd' if depth == 0 && bytes[index..].starts_with(b"do") => {
+                let is_identifier_byte = |b: u8| (b as char).is_alphanumeric() || b == b'_';
+                let before_is_boundary = index == 0 || !is_identifier_byte(bytes[index - 1]);
+                let after_is_boundary = bytes.get(index + 2).is_none_or(|&b| !is_identifier_byte(b));
+                if before_is_boundary && after_is_boundary {
+                    return true;
+                }
+            }
             _ => {}
         }
         index += 1;
@@ -302,9 +357,10 @@ fn not_empty_on_stream_content_emits_a_parsable_membership_test() {
     );
 }
 
-/// Defect-class sweep: NO Elixir streaming accessor may lead with a pipe, not just the two that
-/// did. A future accessor written as `chunks |> ...` fails here even if nothing asserts
-/// `not_empty` on it yet.
+/// Defect-class sweep: NO Elixir streaming accessor may lead with a pipe or a bare `do` block,
+/// not just the instances that actually broke a consumer build. A future accessor written as
+/// `chunks |> ...` or `case ... do ... end` fails here even if nothing pastes it into an
+/// operator or paren-less context yet.
 #[test]
 fn no_elixir_streaming_accessor_leads_with_a_top_level_pipe() {
     let mut fields: Vec<&str> = STREAMING_VIRTUAL_FIELDS.to_vec();
@@ -351,6 +407,12 @@ fn no_elixir_streaming_accessor_leads_with_a_top_level_pipe() {
             "elixir accessor for '{field}' leads with a pipe and cannot be pasted before \
              `not in [...]`: {expr}"
         );
+        assert!(
+            !has_top_level_do_block(expr),
+            "elixir accessor for '{field}' leads with a bare `do` block and cannot be pasted \
+             into `assert <expr>` -- Elixir's `do` would bind to the outermost paren-less call \
+             instead of this accessor's own keyword construct: {expr}"
+        );
     }
 }
 
@@ -368,6 +430,26 @@ fn the_top_level_pipe_scanner_flags_the_shape_that_broke_the_build() {
     // report it, or "no top-level pipe" would degrade into "no pipe anywhere". ~keep
     assert!(!has_top_level_pipe("Enum.join(a |> Enum.map(f), \"\")"));
     assert!(!has_top_level_pipe("Enum.map(c, fn x -> x |> to_string() end)"));
+}
+
+/// Same wiring proof for the `do`-block scanner: the verbatim pre-fix `stream_complete`
+/// accessor (a bare `case ... do ... end`) must be flagged, and the shipped, parenthesized one
+/// must not. ~keep
+#[test]
+fn the_top_level_do_block_scanner_flags_the_shape_that_broke_the_build() {
+    assert!(
+        has_top_level_do_block(DEFECTIVE_STREAM_COMPLETE_ACCESSOR),
+        "scanner missed the pre-fix accessor"
+    );
+    assert!(!has_top_level_do_block(STREAM_COMPLETE_ACCESSOR));
+    assert!(!has_top_level_do_block(TOOL_CALLS_ACCESSOR));
+    assert!(!has_top_level_do_block(STREAM_CONTENT_ACCESSOR));
+    // A `do` nested inside a bracket group (e.g. an anonymous function literal passed as an
+    // argument) is delimited and legal — the scanner must not report it. ~keep
+    assert!(!has_top_level_do_block("Enum.map(c, fn x -> case x do y -> y end end)"));
+    // A `do` that is merely a substring of a longer identifier (e.g. `undo`) must not trip the
+    // word-boundary check.
+    assert!(!has_top_level_do_block("undo(chunks)"));
 }
 
 /// Control: a pipe in STATEMENT position is valid Elixir and must survive untouched. A "fix"

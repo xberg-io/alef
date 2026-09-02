@@ -474,9 +474,10 @@ pub(super) fn render_assertion(
                 // (e.g. `DataNodeKind`, which has no `rename_all`). ~keep
                 if field_is_enum && expected.is_string() {
                     let expected_wire = expected.as_str().unwrap_or_default();
+                    let serializer_options = super::UNESCAPED_JSON_SERIALIZER_OPTIONS;
                     let _ = writeln!(
                         out,
-                        "        Assert.Equal(\"{}\", {field_expr} == null ? null : System.Text.Json.JsonSerializer.Serialize({field_expr}).Trim('\"'));",
+                        "        Assert.Equal(\"{}\", {field_expr} == null ? null : System.Text.Json.JsonSerializer.Serialize({field_expr}, {serializer_options}).Trim('\"'));",
                         escape_csharp(expected_wire)
                     );
                     return;
