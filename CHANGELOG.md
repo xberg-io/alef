@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never-nil Go kind (a resolved struct/enum or a bare scalar); a map whose value type is itself a
   pointer, slice, another map, or an interface (sealed union) keeps its `nil` comparison exactly
   as before.
+- **python e2e generator:** the import-line scanner and the constructor-call renderer for
+  `json_object` call args walked the fixture value independently, so an enum field nested inside
+  a nested config object (e.g. `PreprocessingOptions.preset: PreprocessingPreset` inside
+  `ConversionOptions`) was constructed correctly in the test body but never added to the
+  `from <module> import ...` line, failing every consumer whose fixtures exercise such a field
+  with `NameError`. The import scan now records enum usages through the same recursive traversal
+  that renders the constructor call, instead of a second pass that only checked the arg's
+  top-level keys.
 
 - **publish (Ruby platform gems):** precompiled platform gemspecs now load the generated source
   gemspec as their metadata authority, then replace only the version, platform, files, and native

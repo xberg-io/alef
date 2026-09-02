@@ -375,9 +375,9 @@ fn render_value_for_type_ref_returns_none_for_non_struct_map_value() {
     };
     let type_ref = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
     let value = serde_json::json!({"a": "b"});
-    let mut used_struct_types = BTreeSet::new();
+    let mut used_types = UsedTypeNames::default();
 
-    let result = render_value_for_type_ref(&type_ref, &value, "", context, &mut used_struct_types);
+    let result = render_value_for_type_ref(&type_ref, &value, "", context, &mut used_types);
     assert!(result.is_none(), "got: {result:?}");
 }
 
@@ -412,9 +412,9 @@ fn render_value_for_type_ref_unwraps_optional_map_of_structs() {
         Box::new(TypeRef::Named("NestedConfig".to_string())),
     )));
     let value = serde_json::json!({"first": {"model": "standard"}});
-    let mut used_struct_types = BTreeSet::new();
+    let mut used_types = UsedTypeNames::default();
 
-    let result = render_value_for_type_ref(&type_ref, &value, "", context, &mut used_struct_types);
+    let result = render_value_for_type_ref(&type_ref, &value, "", context, &mut used_types);
     assert_eq!(result.as_deref(), Some(r#"{"first": NestedConfig(model="standard")}"#));
 }
 

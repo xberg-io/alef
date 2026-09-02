@@ -24,7 +24,9 @@ use super::visitors::{
 use args::build_args_and_setup;
 use error_assertions::emit_error_assertion;
 use result_assertions::emit_result_and_assertions;
-pub(super) use typed_values::{KwargRenderContext, LeafSource, render_kwarg_field_value, resolve_field_enum_type};
+pub(super) use typed_values::{
+    KwargRenderContext, LeafSource, UsedTypeNames, render_kwarg_field_value, resolve_field_enum_type,
+};
 
 /// Read-only inputs to [`render_test_function`], bundled because every field is invariant
 /// borrowed/`Copy` state describing the fixture category being rendered -- `out`, the string

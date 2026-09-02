@@ -25,11 +25,11 @@ use super::super::json::json_to_python_literal;
 /// for the whole recursion, so it belongs here rather than as a parallel argument threaded
 /// through every function in the call tree.
 ///
-/// `used_struct_types` is deliberately NOT a field here: it is a per-call *output* accumulator
-/// that every level mutates, not read-only shared state, so it stays its own `&mut` argument at
-/// each call site. Folding a mutable accumulator into an otherwise `Copy`, read-only bundle
-/// would force every function to take `&mut KwargRenderContext` and forfeit the very simplicity
-/// -- cheap, ordinary reborrows -- this struct exists to buy. ~keep
+/// `used_types` is deliberately NOT a field here: it is a per-call *output* accumulator that
+/// every level mutates, not read-only shared state, so it stays its own `&mut` argument at each
+/// call site. Folding a mutable accumulator into an otherwise `Copy`, read-only bundle would
+/// force every function to take `&mut KwargRenderContext` and forfeit the very simplicity --
+/// cheap, ordinary reborrows -- this struct exists to buy. ~keep
 #[derive(Clone, Copy)]
 pub(in crate::e2e::codegen::python) struct KwargRenderContext<'a> {
     pub type_defs: &'a [crate::core::ir::TypeDef],
@@ -37,6 +37,18 @@ pub(in crate::e2e::codegen::python) struct KwargRenderContext<'a> {
     pub enum_fields: &'a HashMap<String, String>,
     pub docs_files: &'a [FixtureDocsFileInput],
     pub leaf_source: LeafSource<'a>,
+}
+
+/// Output accumulator for one `render_kwarg_field_value` traversal: every nested config/struct
+/// class and every enum class it actually constructs, kept in two separate sets so a caller
+/// merging them into an import list can keep the existing grouped ordering (config classes,
+/// then enum classes) instead of collapsing both kinds into one alphabetically-interleaved list
+/// -- a class-only rename here would otherwise reorder the import line of every generated file
+/// that references more than one enum, not just the ones that were missing an import. ~keep
+#[derive(Default)]
+pub(in crate::e2e::codegen::python) struct UsedTypeNames {
+    pub structs: BTreeSet<String>,
+    pub enums: BTreeSet<String>,
 }
 
 /// Where a leaf field value's Python expression comes from -- see the `leaf_source` doc on
@@ -118,27 +130,26 @@ pub(in crate::e2e::codegen::python) fn resolve_field_enum_type(
 /// Render one field's JSON value as a Python expression for a `kwargs`-mode constructor call,
 /// recursing into nested config/struct fields so a field whose type is itself a generated
 /// pyclass (e.g. `nested: NestedConfig` inside `ExtractionConfig`) is constructed with
-/// that class instead of a raw dict literal. `used_struct_types` records every nested
-/// constructor name this rendering references, so a caller collecting imports can run the
-/// identical traversal instead of a second copy that could disagree with what actually gets
-/// emitted (the same technique `handle_values::collect_used_nested_types` uses). ~keep
+/// that class instead of a raw dict literal. `used_types` records every nested constructor name
+/// this rendering references -- struct classes in `used_types.structs`, enum classes in
+/// `used_types.enums` -- so a caller collecting imports can run the identical traversal instead
+/// of a second copy that could disagree with what actually gets emitted (the same technique
+/// `handle_values::collect_used_nested_types` uses). ~keep
 pub(in crate::e2e::codegen::python) fn render_kwarg_field_value(
     field_name: &str,
     value: &serde_json::Value,
     containing_type: Option<&str>,
     pointer: &str,
     context: KwargRenderContext<'_>,
-    used_struct_types: &mut BTreeSet<String>,
+    used_types: &mut UsedTypeNames,
 ) -> String {
-    if let Some(rendered) = render_enum_field_value(field_name, value, containing_type, context) {
+    if let Some(rendered) = render_enum_field_value(field_name, value, containing_type, context, used_types) {
         return rendered;
     }
     if let Some(rendered) = render_docs_file_field_value(pointer, context.docs_files) {
         return rendered;
     }
-    if let Some(rendered) =
-        render_typed_field_value(field_name, value, containing_type, pointer, context, used_struct_types)
-    {
+    if let Some(rendered) = render_typed_field_value(field_name, value, containing_type, pointer, context, used_types) {
         return rendered;
     }
 
@@ -195,12 +206,12 @@ fn render_typed_field_value(
     containing_type: Option<&str>,
     pointer: &str,
     context: KwargRenderContext<'_>,
-    used_struct_types: &mut BTreeSet<String>,
+    used_types: &mut UsedTypeNames,
 ) -> Option<String> {
     let opts_type = containing_type?;
     let type_def = context.type_defs.iter().find(|t| t.name == opts_type)?;
     let field = type_def.fields.iter().find(|f| f.name == field_name)?;
-    render_value_for_type_ref(&field.ty, value, pointer, context, used_struct_types)
+    render_value_for_type_ref(&field.ty, value, pointer, context, used_types)
 }
 
 /// Uniform recursive core replacing the former shape-by-shape dispatch (one arm each for a
@@ -223,7 +234,7 @@ fn render_value_for_type_ref(
     value: &serde_json::Value,
     pointer: &str,
     context: KwargRenderContext<'_>,
-    used_struct_types: &mut BTreeSet<String>,
+    used_types: &mut UsedTypeNames,
 ) -> Option<String> {
     use crate::core::ir::TypeRef;
 
@@ -231,16 +242,10 @@ fn render_value_for_type_ref(
         TypeRef::Named(name) => {
             let type_def = context.type_defs.iter().find(|t| &t.name == name)?;
             let obj = value.as_object()?;
-            Some(render_struct_constructor(
-                type_def,
-                obj,
-                pointer,
-                context,
-                used_struct_types,
-            ))
+            Some(render_struct_constructor(type_def, obj, pointer, context, used_types))
         }
         TypeRef::Optional(_) if value.is_null() => Some("None".to_string()),
-        TypeRef::Optional(inner) => render_value_for_type_ref(inner, value, pointer, context, used_struct_types),
+        TypeRef::Optional(inner) => render_value_for_type_ref(inner, value, pointer, context, used_types),
         TypeRef::Vec(inner) => {
             let items = value
                 .as_array()?
@@ -248,7 +253,7 @@ fn render_value_for_type_ref(
                 .enumerate()
                 .map(|(index, item)| {
                     let item_pointer = array_item_pointer(pointer, index, context.leaf_source);
-                    render_value_for_type_ref(inner, item, &item_pointer, context, used_struct_types)
+                    render_value_for_type_ref(inner, item, &item_pointer, context, used_types)
                 })
                 .collect::<Option<Vec<String>>>()?;
             Some(format!("[{}]", items.join(", ")))
@@ -259,8 +264,7 @@ fn render_value_for_type_ref(
                 .iter()
                 .map(|(key, entry)| {
                     let entry_pointer = format!("{pointer}/{}", escape_json_pointer(key));
-                    let rendered =
-                        render_value_for_type_ref(value_ty, entry, &entry_pointer, context, used_struct_types)?;
+                    let rendered = render_value_for_type_ref(value_ty, entry, &entry_pointer, context, used_types)?;
                     Some(format!("\"{}\": {rendered}", escape_python(key)))
                 })
                 .collect::<Option<Vec<String>>>()?;
@@ -274,20 +278,35 @@ fn render_value_for_type_ref(
 /// an auto-detected enum field type, renders as `EnumType("variant")`. Mirrors the original
 /// inline logic exactly -- an `enum_fields` hit with a non-string value falls through to the
 /// remaining branches rather than trying auto-detection.
+///
+/// Records the resolved enum type name into `used_types.enums` -- the enum half of the same
+/// [`UsedTypeNames`] accumulator [`render_struct_constructor`] records nested config classes
+/// into (`used_types.structs`) -- so a caller collecting import candidates by running this
+/// traversal sees every type it constructs, enum or struct, through one shared output instead of
+/// a second hand-maintained scan that could disagree with it. Before this, an enum field nested
+/// inside a nested config object (e.g. `PreprocessingOptions.preset: PreprocessingPreset` inside
+/// `ConversionOptions`) was rendered correctly here but never recorded anywhere, so the import
+/// list omitted it even though the emitted body referenced it. Kept in its own set rather than
+/// merged into `used_types.structs` so a caller can still emit config classes and enum classes
+/// as two separately-ordered groups, matching the import line's existing shape instead of
+/// re-sorting every name in the file together. ~keep
 fn render_enum_field_value(
     field_name: &str,
     value: &serde_json::Value,
     containing_type: Option<&str>,
     context: KwargRenderContext<'_>,
+    used_types: &mut UsedTypeNames,
 ) -> Option<String> {
     if let Some(enum_type) = context.enum_fields.get(field_name) {
         if let Some(s) = value.as_str() {
+            used_types.enums.insert(enum_type.clone());
             return Some(format!("{enum_type}(\"{s}\")"));
         }
     } else if let Some(auto_enum_type) =
         resolve_field_enum_type(field_name, containing_type, context.type_defs, context.enums)
         && let Some(s) = value.as_str()
     {
+        used_types.enums.insert(auto_enum_type.clone());
         return Some(format!("{auto_enum_type}(\"{s}\")"));
     }
     None
@@ -324,9 +343,9 @@ fn render_struct_constructor(
     obj: &serde_json::Map<String, serde_json::Value>,
     pointer: &str,
     context: KwargRenderContext<'_>,
-    used_struct_types: &mut BTreeSet<String>,
+    used_types: &mut UsedTypeNames,
 ) -> String {
-    used_struct_types.insert(type_def.name.clone());
+    used_types.structs.insert(type_def.name.clone());
     let kwargs: Vec<String> = obj
         .iter()
         .map(|(field_name, field_value)| {
@@ -338,7 +357,7 @@ fn render_struct_constructor(
                 Some(type_def.name.as_str()),
                 &field_pointer,
                 context,
-                used_struct_types,
+                used_types,
             );
             format!("{snake_key}={rendered}")
         })
@@ -491,14 +510,13 @@ fn build_typed_kwargs_constructor(
     context: KwargRenderContext<'_>,
 ) -> Option<String> {
     let obj = value.as_object()?;
-    let mut used_struct_types = BTreeSet::new();
+    let mut used_types = UsedTypeNames::default();
     let kwargs: Vec<String> = obj
         .iter()
         .map(|(k, v)| {
             let snake_key = k.to_snake_case();
             let field_pointer = format!("/{}", escape_json_pointer(k));
-            let py_val =
-                render_kwarg_field_value(k, v, Some(opts_type), &field_pointer, context, &mut used_struct_types);
+            let py_val = render_kwarg_field_value(k, v, Some(opts_type), &field_pointer, context, &mut used_types);
             format!("{snake_key}={py_val}")
         })
         .collect();
@@ -686,14 +704,13 @@ fn emit_python_typed_instance(
     pointer: &str,
     context: KwargRenderContext<'_>,
 ) -> String {
-    let mut used_struct_types = BTreeSet::new();
+    let mut used_types = UsedTypeNames::default();
     let kwargs: Vec<String> = obj
         .iter()
         .map(|(k, v)| {
             let snake_key = k.to_snake_case();
             let field_pointer = format!("{pointer}/{}", escape_json_pointer(k));
-            let rendered =
-                render_kwarg_field_value(k, v, Some(elem_type), &field_pointer, context, &mut used_struct_types);
+            let rendered = render_kwarg_field_value(k, v, Some(elem_type), &field_pointer, context, &mut used_types);
             format!("{snake_key}={rendered}")
         })
         .collect();
