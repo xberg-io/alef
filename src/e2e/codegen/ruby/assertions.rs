@@ -261,7 +261,7 @@ pub(super) fn render_assertion(
         };
         // Passing the block parameter as the result var is what lets a nested element
         // sub-path resolve against the block variable instead of the result. ~keep
-        let elem_accessor = field_resolver.accessor(&elem_part, "ruby", "e");
+        let elem_accessor = field_resolver.element_accessor(&elem_part, "ruby", "e");
         match assertion.assertion_type.as_str() {
             "contains" | "contains_all" | "not_contains" => {
                 let expected_bool = if assertion.assertion_type == "not_contains" {

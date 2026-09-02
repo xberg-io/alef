@@ -232,6 +232,8 @@ impl E2eCodegen for RubyCodegen {
 
 mod args;
 mod assertions;
+#[cfg(test)]
+mod element_accessor_wildcard_tests;
 mod enum_variant_access;
 mod examples;
 mod http;

@@ -11,6 +11,19 @@
 //! envelope shape reads identically to a genuinely unreachable field: both answer `Some(false)`.
 //! [`FieldResolver::anchor_leaf`] tries every `result_fields` entry as a candidate prefix before
 //! agreeing with that refusal.
+//!
+//! The candidate search must be exhaustive and order-independent: `result_fields` is a
+//! [`HashSet`], whose iteration order is reseeded per process, so a search that stops at the
+//! first accepting prefix (`Iterator::find_map`) returns whichever prefix the hash happens to
+//! yield first. When more than one prefix reaches a declaring type — a genuine prefix and a
+//! decoy alike — that made the rescue's answer a coin flip run to run. The search below visits
+//! every `result_fields` entry, confirms each with the STRICT [`super::ir_result_fields::root_declares_path`]
+//! (the same check [`FieldResolver::result_relative_path`]'s `envelope_projected_path` applies
+//! when accepting the result), and requires EXACTLY ONE confirming prefix. Zero confirms is the
+//! pre-existing honest refusal; more than one is a newly-recognized ambiguity that must also
+//! refuse rather than silently pick one — a scalar `result_fields` entry that only looks
+//! plausible under the permissive `result_field_oracle_knows` (see that oracle's flat,
+//! name-keyed fallback) must never be able to shadow the one real answer.
 
 use std::collections::HashSet;
 
@@ -46,16 +59,35 @@ impl FieldResolver {
         }
     }
 
+    /// Scans every `result_fields` entry — never short-circuits on the first hit — and accepts
+    /// only when EXACTLY ONE is confirmed by the strict [`super::ir_result_fields::root_declares_path`].
+    /// Zero confirmations is the honest refusal `anchor_leaf`'s caller already expects; more than
+    /// one is an ambiguity this must also refuse, since picking either would be an unproven guess.
+    /// Visiting the whole set rather than stopping early is what makes the answer independent of
+    /// `HashSet`'s per-process iteration order. ~keep
     fn anchor_leaf_via_result_fields(&self, leaf: &str, result_fields: &HashSet<String>) -> Option<LeafAnchor> {
-        result_fields.iter().find_map(|prefix| {
+        let mut sorted_prefixes: Vec<&String> = result_fields.iter().collect();
+        sorted_prefixes.sort();
+
+        let mut confirmed: Option<String> = None;
+        for prefix in sorted_prefixes {
             let prefix_path = if self.is_collection_root(prefix) {
                 format!("{prefix}[0]")
             } else {
                 prefix.clone()
             };
             let candidate = format!("{prefix_path}.{leaf}");
-            (self.result_field_oracle_knows(&candidate) == Some(true)).then_some(LeafAnchor::Prefixed(prefix_path))
-        })
+            let declares =
+                super::ir_result_fields::root_declares_path(&self.ir_result_field_map, &candidate) == Some(true);
+            if declares {
+                if confirmed.is_some() {
+                    // A second confirming prefix -- ambiguous, decline rather than guess.
+                    return None;
+                }
+                confirmed = Some(prefix_path);
+            }
+        }
+        confirmed.map(LeafAnchor::Prefixed)
     }
 }
 
@@ -174,6 +206,51 @@ mod tests {
             resolver.anchor_leaf("chunks"),
             Some(LeafAnchor::Prefixed("results[0]".to_string()))
         );
+    }
+
+    /// `Envelope { results: Vec<Document>, archived: Vec<Document> }` — two DIFFERENT
+    /// `result_fields` entries that both genuinely reach `Document`, so both confirm `chunks`.
+    /// Unlike `unrelated` in [`a_result_fields_entry_that_does_not_reach_the_leaf_is_not_used`],
+    /// which is a decoy that reaches nothing, `archived` is a decoy that reaches the SAME leaf as
+    /// the real prefix — the shape a hash-order-dependent `find_map` could not tell apart from an
+    /// unambiguous single-prefix case, because it never looked past its first hit.
+    fn envelope_two_reaching_prefixes_type_defs() -> Vec<TypeDef> {
+        let mut type_defs = envelope_document_metadata_type_defs();
+        let envelope = type_defs
+            .iter_mut()
+            .find(|t| t.name == "Envelope")
+            .expect("Envelope type present");
+        envelope.fields.push(FieldDef {
+            name: "archived".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Named("Document".to_string()))),
+            ..FieldDef::default()
+        });
+        type_defs
+    }
+
+    /// The new rule this fix adds: when MORE THAN ONE `result_fields` prefix is confirmed by the
+    /// strict IR walk to reach the same leaf, the anchor must decline rather than pick either one
+    /// — picking would be exactly the unproven, hash-order-dependent guess this fix removes. Before
+    /// this fix, `find_map` would have returned whichever of `results[0]`/`archived[0]` its
+    /// `HashSet` iteration produced first, silently and differently across runs.
+    #[test]
+    fn two_result_fields_prefixes_both_reaching_the_leaf_is_declined_as_ambiguous() {
+        let type_defs = envelope_two_reaching_prefixes_type_defs();
+        let result_field_map = FieldResolver::ir_result_field_facts(&type_defs, "rust");
+        let collection_map = FieldResolver::ir_collection_fields(&type_defs);
+        let (reachable, excluded, optional) = FieldResolver::ir_field_sets(&type_defs);
+        let result_fields: HashSet<String> = ["results", "archived"].iter().map(|s| s.to_string()).collect();
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &HashSet::new(),
+            &result_fields,
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_ir_result_fields(result_field_map, Some("Envelope".to_string()))
+        .with_ir_collection_map(collection_map, Some("Envelope".to_string()))
+        .with_ir_fields(reachable, excluded, optional);
+        assert_eq!(resolver.anchor_leaf("chunks"), None);
     }
 
     /// No anchored root type at all (the state of every call site before this fix, and every
