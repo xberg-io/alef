@@ -240,6 +240,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   re-deriving the name would not reliably catch it. An empty map renders byte-identically, so no
   other language moves.
 
+- **magnus (trait bridge plugin lifecycle):** generated plugin super-trait
+  implementations now preserve a fallible `version` signature from the
+  extracted super-trait. Previously Magnus always emitted `fn version() ->
+  String`, returned a silent default after Ruby failures, and failed to compile
+  when the source contract declared `Result<String, E>`.
+
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
   napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
   but the TypeScript e2e generator emitted `String(e.kind).includes("Function")`, and

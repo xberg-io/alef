@@ -69,6 +69,15 @@ pub fn gen_trait_bridge(
                 .collect();
         let forwardable_defaulted =
             crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
+        let plugin_version_is_fallible = bridge_cfg
+            .super_trait
+            .as_deref()
+            .and_then(|name| {
+                let short_name = name.rsplit("::").next().unwrap_or(name);
+                api.types.iter().find(|typ| typ.is_trait && typ.name == short_name)
+            })
+            .and_then(|typ| typ.methods.iter().find(|method| method.name == "version"))
+            .is_some_and(|method| method.error_type.is_some());
         let generator = MagnusBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
@@ -77,6 +86,7 @@ pub fn gen_trait_bridge(
             struct_param_types,
             struct_return_types,
             forwardable_defaulted,
+            plugin_version_is_fallible,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types
@@ -146,6 +156,8 @@ struct MagnusBridgeGenerator {
     /// threads where the Ruby object cannot be probed. Methods absent here keep
     /// the trait's Rust default unconditionally.
     forwardable_defaulted: std::collections::HashSet<String>,
+    /// Whether the extracted plugin super-trait returns `Result` from `version`.
+    plugin_version_is_fallible: bool,
 }
 
 impl MagnusBridgeGenerator {
@@ -195,6 +207,10 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
 
     fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         Some(format!("self.has_{}", method.name))
+    }
+
+    fn plugin_version_is_fallible(&self) -> bool {
+        self.plugin_version_is_fallible
     }
 
     fn extra_bridge_fields(&self, spec: &TraitBridgeSpec) -> Vec<(String, String)> {
@@ -682,6 +698,7 @@ mod forwarding_tests {
             struct_param_types: std::collections::HashSet::new(),
             struct_return_types: std::collections::HashSet::new(),
             forwardable_defaulted: std::collections::HashSet::new(),
+            plugin_version_is_fallible: false,
         }
     }
 
