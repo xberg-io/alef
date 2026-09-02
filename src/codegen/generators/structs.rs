@@ -121,14 +121,35 @@ pub fn struct_wants_deserialize_delegation(
 /// before this fallback runs. serde rejects two `#[serde(default...)]` attributes on one field
 /// outright, and the valued form is strictly more specific than the bare one this fallback
 /// would add, so this returns `None` whenever `already_emitted_attrs` already carries any
-/// `serde(default...)` rather than emitting a second, colliding one. ~keep
+/// `serde(default...)` rather than emitting a second, colliding one.
+///
+/// A valued `#[serde(default = "path")]` is mirrored only when [`FieldDef::typed_default`] is
+/// `PublicFunctionCall` -- the classification `extract::extractor::postprocess` already assigns
+/// to a zero-argument default function proven callable from a generated binding crate. `path`
+/// itself is always just the literal identifier written after the core struct field (see
+/// `extract_field` in `extract::extractor::helpers::fields`, which folds it to `FunctionCall`
+/// before postprocessing decides whether it upgrades), with no information here about which
+/// module it lives in; a private or module-local function (still `FunctionCall`, e.g. one
+/// `#[cfg(feature = "serde")]`-gated or simply not `pub`) reads back fine on the *core* type,
+/// where the derive sees it in scope, but copied verbatim onto the mirror struct in a different
+/// crate/module it is an unresolvable path (`E0425: cannot find function`) -- exactly how
+/// `crawlberg`'s `SsrfPolicy::scheme_allowlist` (`default = "default_scheme_allowlist"`, private
+/// to `net::ssrf`) broke `crawlberg-php` once the duplicate-attribute defect above stopped
+/// masking it. Skipping the mirror in that case reproduces the pre-#305 gap (the field goes back
+/// to being required on the derived, field-by-field mirror) rather than shipping a crate that
+/// does not compile -- the same recovery this classification already backs for constructor
+/// defaults, see `codegen::shared::format_default_value`. ~keep
 fn serde_default_field_attr(field: &crate::core::ir::FieldDef, already_emitted_attrs: &[String]) -> Option<String> {
     if already_emitted_attrs.iter().any(|a| a.starts_with("serde(default")) {
         return None;
     }
     match field.default.as_deref() {
         Some("/* serde(default) */") => Some("serde(default)".to_string()),
-        Some(text) if text.starts_with("serde(default") => Some(text.to_string()),
+        Some(text) if text.starts_with("serde(default") => matches!(
+            field.typed_default,
+            Some(crate::core::ir::DefaultValue::PublicFunctionCall(_))
+        )
+        .then(|| text.to_string()),
         _ => None,
     }
 }

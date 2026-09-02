@@ -6,7 +6,8 @@ use super::{
 use crate::codegen::generators::{AsyncPattern, RustBindingConfig};
 use crate::codegen::type_mapper::IdentityMapper;
 use crate::core::ir::{
-    CoreWrapper, FieldDef, MethodDef, PrimitiveType, ReceiverKind, SerdeContainerConversion, TypeDef, TypeRef,
+    CoreWrapper, DefaultValue, FieldDef, MethodDef, PrimitiveType, ReceiverKind, SerdeContainerConversion, TypeDef,
+    TypeRef,
 };
 use ahash::AHashSet;
 
@@ -607,6 +608,11 @@ fn gen_struct_with_rename_mirrors_serde_default_when_delegation_blocked_by_sibli
 fn gen_struct_bare_mirrors_serde_default_path_when_delegation_not_requested() {
     let mut field = f64_field("retries");
     field.default = Some("serde(default = \"default_retries\")".to_string());
+    // `extract_field` never produces the valued attribute text without also resolving
+    // `typed_default` to (at least) `FunctionCall`; postprocessing upgrades it to
+    // `PublicFunctionCall` once it proves `default_retries` is callable from a generated binding
+    // crate. Only the upgraded form is safe to mirror -- see `serde_default_field_attr`.
+    field.typed_default = Some(DefaultValue::PublicFunctionCall("default_retries".to_string()));
     let typ = type_with_fields("Retry", vec![field], Default::default());
     // No `delegate_deserialize_to_core_for_types` entry for "Retry" -- delegation is never even
     // attempted for this type in this run.
@@ -616,7 +622,34 @@ fn gen_struct_bare_mirrors_serde_default_path_when_delegation_not_requested() {
     assert!(derive_line(&rendered).contains("serde::Deserialize"), "{rendered}");
     assert!(
         rendered.contains("serde(default = \"default_retries\")"),
-        "a `default = \"path\"` field must also be mirrored verbatim: {rendered}"
+        "a `default = \"path\"` field proven callable from the binding crate must be mirrored verbatim: {rendered}"
+    );
+}
+
+// --- Regression: an unresolvable `default = "path"` must never be mirrored onto the binding --
+//
+// crawlberg's `SsrfPolicy::scheme_allowlist` carries `#[serde(default = "default_scheme_allowlist")]`
+// where `default_scheme_allowlist` is a private helper in `net::ssrf`. That reads fine on the
+// *core* type, where the derive sees the function in its own module, but delegation for
+// `SsrfPolicy` is blocked by an unrelated field, so this same per-field fallback used to copy the
+// attribute verbatim onto the php mirror -- a different crate and module -- producing
+// `error[E0425]: cannot find function 'default_scheme_allowlist' in this scope`. Extraction
+// already tells the two cases apart via `FieldDef::typed_default`: `FunctionCall` for a default
+// whose callability across crates postprocessing could not prove (this case), `PublicFunctionCall`
+// once it can (see the positive control above). Only the latter may be mirrored.
+#[test]
+fn gen_struct_bare_never_mirrors_a_default_path_not_proven_callable_from_the_binding_crate() {
+    let mut field = f64_field("scheme_allowlist");
+    field.default = Some("serde(default = \"default_scheme_allowlist\")".to_string());
+    field.typed_default = Some(DefaultValue::FunctionCall("default_scheme_allowlist".to_string()));
+    let typ = type_with_fields("SsrfPolicy", vec![field], Default::default());
+    let cfg = base_cfg();
+    let rendered = gen_struct(&typ, &IdentityMapper, &cfg);
+
+    assert!(
+        !rendered.contains("serde(default"),
+        "a default fn not proven callable from the binding crate must not be mirrored, \
+         it would not compile there: {rendered}"
     );
 }
 
