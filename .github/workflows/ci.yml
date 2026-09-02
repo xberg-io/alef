@@ -84,6 +84,18 @@ jobs:
           # JDK is also `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires.
           java-version: "25"
       - uses: xberg-io/actions/setup-maven@v1
+      # Go is NOT preinstalled on every GitHub-hosted image. The arm64 macOS images carry none,
+      # which is why `Test (macos-latest)` failed nine generated-Go fixtures on every run from
+      # 2026-08-31 (the commit that added them) onward while `ALEF_REQUIRE_GO` below turned the
+      # skip into a panic. Installing it explicitly on all three legs is far cheaper than
+      # weakening the fixtures, and it is what makes `--require go` in the census step below
+      # honest. Pinned to the minor line alef itself emits into generated `go.mod` files
+      # (`go 1.26`, see `e2e::codegen::go`), so the toolchain CI compiles the output with can
+      # never be older than the directive that output declares. ~keep
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
       - uses: xberg-io/actions/setup-zig@v1
       - uses: xberg-io/actions/setup-elixir@v1
         with:
@@ -111,6 +123,20 @@ jobs:
         uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4 # v2.0
         with:
           version: "2.4.10"
+      # Swift is the one toolchain here that genuinely cannot be installed on every leg: it ships
+      # with Xcode on macOS, while the Windows toolchain is a multi-gigabyte installer with no
+      # first-party setup action and Linux would need a separate swift.org tarball -- for a single
+      # fixture. So macOS is where the SwiftPM compile gate has to run, and the census step below
+      # is what proves it did rather than assuming it. ~keep
+      - name: Require the Swift toolchain on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "ALEF_REQUIRE_SWIFT=1" >> "$GITHUB_ENV"
+      # The cargo cache restores `target/`, so a previous run's tallies would otherwise be summed
+      # into this one and could report fixtures as executed that this run never reached.
+      - name: Clear the toolchain fixture census
+        shell: bash
+        run: rm -rf target/toolchain-census
       - name: Run tests
         env:
           ALEF_REQUIRE_ELIXIR: "1"
@@ -125,10 +151,11 @@ jobs:
           ALEF_REQUIRE_JAVAC: "1"
           ALEF_REQUIRE_DOTNET: "1"
           ALEF_REQUIRE_KOTLINC: "1"
-          # Go needs no dedicated setup step above (GitHub-hosted runner images preinstall a Go
-          # LTS toolchain), but the two `go test` compile canaries in
-          # `backends::go::gen_bindings::service_api::tests` silently skipped when `go` was
-          # missing just the same as the dotnet ones did -- see `required_go` there.
+          # Paired with the `Set up Go` step above, which is not optional: the claim this comment
+          # used to make -- that GitHub-hosted images all preinstall a Go LTS toolchain, so this
+          # variable needed no `uses:` step -- is false for the arm64 macOS images, and setting
+          # the variable without installing Go only converted a silent skip into a permanently red
+          # leg. `ci_requires_go_for_runtime_regressions` now asserts both halves are present.
           ALEF_REQUIRE_GO: "1"
         run: cargo test --workspace
       # Every Elixir escaping oracle is #[ignore]d, so the step above runs none of them and
@@ -138,6 +165,25 @@ jobs:
       # not this comment, which contains both needles) and fails if either goes missing.
       - name: Run the Elixir escaping oracles
         run: cargo test --lib elixir_oracle -- --ignored --nocapture
+      # Counts what the two steps above actually executed, per toolchain, and fails when a
+      # toolchain this leg installed executed zero fixtures.
+      #
+      # A fixture that shells out to a real toolchain has three possible outcomes and only two of
+      # them are honest: it can pass, it can fail, or it can quietly verify nothing and be counted
+      # as a pass. `cargo test`'s own summary cannot tell the third apart from the first -- both
+      # print `test result: ok` -- so this step prints the ratio instead: "12 of 12 go fixtures
+      # executed" versus "0 of 12 executed". `if: ${{ !cancelled() }}` so the ratio is still
+      # reported when the suite failed, which is when it is most useful for telling an
+      # environmental failure from a real one. ~keep
+      - name: Toolchain fixture census
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            scripts/toolchain-census.sh --require go --require swift
+          else
+            scripts/toolchain-census.sh --require go
+          fi
 
   # Runs the consumer's own toolchain gate over a tree alef emits, in a scratch directory.
   # The `validate` job above lints alef; this one lints alef's *output*, which nothing

@@ -40,7 +40,17 @@ tasks:
   test:
     desc: "Run all tests"
     cmds:
+      - rm -rf target/toolchain-census
       - cargo test --workspace
+      - task: test:census
+
+  test:census:
+    desc: "Report how many toolchain-dependent fixtures the last test run actually executed"
+    cmds:
+      # No `--require` locally: a contributor without Go or Swift installed should see the ratio,
+      # not a failure. CI passes `--require` for the toolchains its runner installs, which is
+      # where a zero-execution run has to be fatal.
+      - ./scripts/toolchain-census.sh
 
   test:release:
     desc: "Run all tests in release mode (catches release-only optimizer/lifetime issues)"

@@ -11,6 +11,8 @@
 //! modules could still run concurrently and race. [`CWD_LOCK`] is the one lock every cwd-mutating
 //! test in this crate now shares. ~keep
 
+pub(crate) mod toolchain;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;

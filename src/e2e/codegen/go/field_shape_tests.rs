@@ -415,7 +415,9 @@ fn rendered_assertion_shapes_compile_and_run_in_one_go_test() {
         module_path: SHAPE_BATCH_MODULE.to_owned(),
         extra_args: Vec::new(),
     };
-    let report = run_go_batch(&layout, &cases);
+    let Some(report) = run_go_batch(&layout, &cases) else {
+        return;
+    };
 
     report.assert_inventory(&inventory);
     for name in &passing {

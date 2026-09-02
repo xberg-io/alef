@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::test_support::toolchain;
+
 /// One case in a batch: a single Go package directory inside the shared batch module.
 pub(super) struct GoBatchCase {
     /// Directory name under the batch module root. Must be unique and a valid Go import
@@ -131,9 +133,14 @@ impl GoBatchReport {
 }
 
 /// Write every case into one throwaway Go module and run them all in a single `go test`.
-pub(super) fn run_go_batch(layout: &GoBatchLayout, cases: &[GoBatchCase]) -> GoBatchReport {
+///
+/// `None` means the Go toolchain is not installed, so nothing was compiled and the caller must
+/// return without asserting. The skip is already counted by [`toolchain::ToolchainGate::open`],
+/// which is what stops a batch that ran zero cases from reading as a batch that passed them
+/// all. ~keep
+pub(super) fn run_go_batch(layout: &GoBatchLayout, cases: &[GoBatchCase]) -> Option<GoBatchReport> {
     assert!(!cases.is_empty(), "a batched Go run must contain at least one case");
-    let go = which::which("go").expect("Go is required for generated-Go batch fixtures");
+    let go = toolchain::GO.open()?;
     let root = tempfile::tempdir().expect("create batched Go module root");
     for (path, content) in &layout.root_files {
         write_batch_file(&root.path().join(path), content);
@@ -159,11 +166,11 @@ pub(super) fn run_go_batch(layout: &GoBatchLayout, cases: &[GoBatchCase]) -> GoB
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let parsed = parse_case_blocks(&stdout, &stderr, &layout.module_path);
-    GoBatchReport {
+    Some(GoBatchReport {
         cases: parsed,
         stderr,
         _root: root,
-    }
+    })
 }
 
 fn write_batch_file(path: &Path, content: &str) {
