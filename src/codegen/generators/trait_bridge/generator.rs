@@ -90,6 +90,16 @@ pub trait TraitBridgeGenerator {
         None
     }
 
+    /// Whether the configured plugin super-trait declares `version` as fallible.
+    ///
+    /// The shared plugin implementation historically assumed `fn version() ->
+    /// String`. Backends that can inspect the configured super-trait must opt in
+    /// when its extracted signature is `Result<String, E>` so generated code
+    /// preserves the source trait contract and propagates host failures.
+    fn plugin_version_is_fallible(&self) -> bool {
+        false
+    }
+
     /// Extra fields on the wrapper struct, as `(name, rust_type)` pairs.
     ///
     /// Backends whose foreign objects cannot be probed safely at call time
