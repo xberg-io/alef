@@ -9,15 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Operational note: an interrupted `alef generate` must be redone with its `alef:hash:` stamps
-  cleared, not merely re-run.** The stamp makes a regeneration skip a file whose recorded hash
-  matches its current content, which is what keeps an unchanged tree cheap. The same property means
-  a run that was killed part-way — or two runs racing the same tree, which is easy to produce with a
-  wrapper that times out while the `alef` child survives the signal — can leave a file stamped
-  against interleaved content that every later run then treats as up to date. Deleting the affected
-  generated files before regenerating is the reliable remedy; re-running alone is not. This is the
-  same stickiness that made the nondeterministic accessor bug above survive a second pass, and it is
-  worth knowing because a raced tree presents exactly like a generator defect.
+- **Operational note: any generated file restored from an older commit is sticky, and re-running
+  `alef generate` will not repair it.** The `alef:hash:` stamp makes a regeneration skip a file
+  whose recorded hash matches its current content, which is what keeps an unchanged tree cheap. The
+  consequence is that *any* route which puts stamp-valid stale content on disk defeats the next
+  generate: `git restore`, `git checkout`, a branch switch, a revert, a cherry-pick, an interrupted
+  run, or two runs racing the same tree. Each leaves a file whose stamp agrees with its own content
+  while disagreeing with what the current generator would write, so the up-to-date check passes on
+  stamp validity and never compares the two. Deleting the affected files before regenerating is the
+  reliable remedy; re-running alone is not. This is worth knowing because a stale tree presents
+  exactly like a generator defect — it was mistaken for one twice while preparing this release, once
+  as a suspected incomplete nondeterminism fix and once as a suspected failure to emit.
 
 - **`alef update` now runs `gradle dependencyUpdates` for Kotlin/Android where four of five
   consumer repos had overridden it to a no-op.** 0.82.0 removed `[crates.update.<lang>]` on the
