@@ -69,17 +69,18 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let options_dataclass_types =
         crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, reexported_types);
 
-    // Return types `options.py` publishes itself. A function returning one of these must name the
-    // public type and convert into it, not name the native `#[pyclass]` behind the same word.
+    // Return types `options.py` publishes itself (as `@dataclass`, never `TypedDict` -- see
+    // `types::gen_options_py`'s doc). A function returning one of these must name the public type
+    // and convert into it, not name the native `#[pyclass]` behind the same word.
     let options_return_types =
-        crate::backends::pyo3::gen_bindings::types::options_return_typeddict_names(api, dto, reexported_types);
+        crate::backends::pyo3::gen_bindings::types::options_return_dataclass_names(api, dto, reexported_types);
 
     // The question a RETURN value (a plain function's, an adapter's, or a streaming adapter's
     // item) has to answer is "does `options.py` publish this name", which is
     // `options_dataclass_types` OR `options_return_types` -- not `options_dataclass_types` alone
     // and not `options_return_types` alone. `api.py`'s own import classification
     // (`options_type_names` further below) already consults the union, so a return type that is
-    // a public *input* dataclass (not a return-only `TypedDict`) still gets imported from
+    // a public *input* dataclass (not a return-only published type) still gets imported from
     // `.options` and named in the `-> ReturnType` annotation. `adapter_return_converter` /
     // `streaming_item_converter` (adapters) and `emit_function_wrappers` / `function_return_converters`
     // (plain functions) must all be handed this union, not either half alone, or the annotation
@@ -397,7 +398,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         reexported_types,
         config,
         &crate::backends::pyo3::gen_bindings::types::OptionsFieldDefaults::new(api),
-        &options_return_types,
     );
 
     emit_function_wrappers(

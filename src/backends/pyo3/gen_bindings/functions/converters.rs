@@ -62,7 +62,6 @@ pub(super) fn emit_converters(
     reexported_types: &[String],
     config: &crate::core::config::ResolvedCrateConfig,
     field_defaults: &crate::backends::pyo3::gen_bindings::types::OptionsFieldDefaults<'_>,
-    options_return_types: &std::collections::HashSet<String>,
 ) {
     let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     out.push_str("_E = TypeVar(\"_E\")\n\n");
@@ -76,7 +75,14 @@ pub(super) fn emit_converters(
         let typ = default_types[type_name];
         let snake = type_name.to_snake_case();
 
-        let is_typeddict = options_return_types.contains(type_name);
+        // `options.py` never renders a literal `TypedDict` anymore (see
+        // `crate::backends::pyo3::gen_bindings::types::gen_options_py`'s doc, fixed alongside
+        // tree-sitter-language-pack#183): a published return-position type is a `@dataclass`,
+        // exactly like every other type here, so a value handed to `_to_rust_*` is never a plain
+        // `dict` and always supports attribute access. Kept as a named `let` (not deleted
+        // outright) so every branch below that used to depend on it keeps reading as the "this
+        // type could be a dict" check it always was, now permanently false. ~keep
+        let is_typeddict = false;
         let is_reexported = reexported_names.contains(type_name.as_str());
         let helpers_insert_pos = out.len();
         let mut optional_kwarg_helpers = String::new();
@@ -102,10 +108,9 @@ pub(super) fn emit_converters(
         };
 
         // `name` is a raw Rust field name, but what is being read here is the *emitted* Python
-        // attribute / TypedDict key, and both of those are already escaped (`types.rs` and
-        // `types/typeddict.rs` build them with `python_ident`). Reading `value.global` would be a
-        // SyntaxError, and `value.get("global")` would miss the `"global_"` key that is actually
-        // there. `python_ident` is idempotent, so non-keyword names are untouched. ~keep
+        // attribute name, and that is already escaped (`types.rs` builds it with `python_ident`).
+        // Reading `value.global` would be a SyntaxError. `python_ident` is idempotent, so
+        // non-keyword names are untouched. ~keep
         let field_access = |name: &str| -> String {
             let name = crate::core::keywords::python_ident(name);
             if is_typeddict {

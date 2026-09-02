@@ -6,7 +6,6 @@
 use std::collections::{HashMap, HashSet};
 
 use super::*;
-use crate::core::config::PythonDtoStyle;
 use crate::core::ir::{FieldDef, TypeDef, TypeRef};
 use crate::e2e::field_access::{FieldResolver, PythonTypedDictMap};
 use crate::e2e::fixture::Assertion;
@@ -127,9 +126,9 @@ fn map_owner_type_defs() -> Vec<TypeDef> {
     ]
 }
 
-fn production_map_resolver(reexported_types: &[String]) -> FieldResolver {
+fn production_map_resolver() -> FieldResolver {
     empty_resolver().with_python_typeddict_facts(
-        FieldResolver::python_typeddict_facts(&map_owner_type_defs(), PythonDtoStyle::TypedDict, reexported_types),
+        FieldResolver::python_typeddict_facts(&map_owner_type_defs()),
         Some("Report".to_string()),
     )
 }
@@ -447,39 +446,29 @@ fn a_scalar_field_on_a_non_typeddict_result_type_renders_an_attribute_assertion(
     assert_eq!(out, "    assert result.status_code == 200\n");
 }
 
+/// REGRESSION (tree-sitter-language-pack#183): both `Report` and `Metadata` are `is_return_type`,
+/// so `FieldResolver::python_typeddict_facts` (the real pyo3-backend-agreeing classifier) never
+/// puts either in `typeddict_types` -- the whole chain renders attribute access, matching the
+/// native `#[pyclass]` the pyo3 backend actually returns for both. Before the fix, a `["Metadata"
+/// not reexported]`-style config could make the classifier disagree between the two, subscripting
+/// one side of the chain; that branch no longer exists, so there is nothing left to distinguish.
 #[test]
-fn a_typeddict_map_value_under_a_native_owner_runs_the_generated_assertion() {
-    let resolver = production_map_resolver(&["Report".to_string()]);
+fn a_return_type_map_value_under_a_return_type_owner_runs_the_generated_assertion() {
+    let resolver = production_map_resolver();
     let out = render_field_assertion(
         &resolver,
         &make_assertion("equals", Some("entries[alpha].title"), Some(serde_json::json!("Doc"))),
     );
-    assert_eq!(out, "    assert result.entries.get(\"alpha\")[\"title\"] == \"Doc\"\n");
-    assert_generated_python_runs(
-        concat!(
-            "class Report:\n",
-            "    def __init__(self):\n",
-            "        self.entries = {\"alpha\": {\"title\": \"Doc\"}}\n\n",
-            "result = Report()",
-        ),
-        &out,
-    );
-}
-
-#[test]
-fn a_native_map_value_under_a_typeddict_owner_runs_the_generated_assertion() {
-    let resolver = production_map_resolver(&["Metadata".to_string()]);
-    let out = render_field_assertion(
-        &resolver,
-        &make_assertion("equals", Some("entries[alpha].title"), Some(serde_json::json!("Doc"))),
-    );
-    assert_eq!(out, "    assert result[\"entries\"].get(\"alpha\").title == \"Doc\"\n");
+    assert_eq!(out, "    assert result.entries.get(\"alpha\").title == \"Doc\"\n");
     assert_generated_python_runs(
         concat!(
             "class Metadata:\n",
             "    def __init__(self):\n",
             "        self.title = \"Doc\"\n\n",
-            "result = {\"entries\": {\"alpha\": Metadata()}}",
+            "class Report:\n",
+            "    def __init__(self):\n",
+            "        self.entries = {\"alpha\": Metadata()}\n\n",
+            "result = Report()",
         ),
         &out,
     );

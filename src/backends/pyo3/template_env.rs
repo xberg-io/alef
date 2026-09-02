@@ -364,15 +364,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/pyo3_capsule_param_extract.jinja"),
     ),
     (
-        "typeddict_header.jinja",
-        include_str!("templates/typeddict_header.jinja"),
-    ),
-    ("typeddict_field.jinja", include_str!("templates/typeddict_field.jinja")),
-    (
-        "typeddict_field_docstring.jinja",
-        include_str!("templates/typeddict_field_docstring.jinja"),
-    ),
-    (
         "stub_param_wrapped_noqa.jinja",
         include_str!("templates/stub_param_wrapped_noqa.jinja"),
     ),

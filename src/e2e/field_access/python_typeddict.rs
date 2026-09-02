@@ -1,32 +1,34 @@
 //! Derives which IR types the pyo3 backend emits as a Python `TypedDict` (subscript access,
-//! `result["field"]`) rather than a `@dataclass` / `pydantic.BaseModel` / `msgspec.Struct` /
-//! native `#[pyclass]` (attribute access, `result.field`), so the python e2e generator renders
-//! accessors that agree with what the backend actually emits.
+//! `result["field"]`) rather than a `@dataclass` / native `#[pyclass]` (attribute access,
+//! `result.field`), so the python e2e generator renders accessors that agree with what the
+//! backend actually emits.
 //!
 //! Before this module existed, the python e2e renderer had no way to know which shape the pyo3
 //! backend chose for a `[workspace.dto] python_output = "typed-dict"` crate: it always emitted
 //! `.field` attribute access, which is `AttributeError: 'dict' object has no attribute 'field'`
-//! against a return type the backend actually emits as a `TypedDict` (a plain `dict` at
-//! runtime). The fix asks the pyo3 backend's own predicate
-//! (`crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config`) instead of
-//! reimplementing `python_output_style()`-plus-`is_return_type` here — see the
-//! `two-generators-disagree` skill: a second, parallel copy of that rule is the defect shape
-//! this fixes, not a valid alternative fix. ~keep
+//! against a return type the backend actually emitted as a `TypedDict` (a plain `dict` at
+//! runtime) under that style.
+//!
+//! `options.py` no longer has a `TypedDict` rendering path at all
+//! (`crate::backends::pyo3::gen_bindings::types::gen_options_py`): every type it publishes
+//! renders as `@dataclass`, and a return-position type it does not publish stays the native
+//! `#[pyclass]` -- both are attribute access. tree-sitter-language-pack#183 was exactly the
+//! `TypedDict` branch this module used to detect; the fix removed that branch from the backend
+//! rather than teaching this module to route around it, so `typeddict_types` is now always
+//! empty and this module no longer needs to ask `is_dataclass_backed_config` at all. It is kept
+//! (rather than deleted outright) so a path can still be traced field-by-field for other
+//! purposes -- see `record_edge` below -- and so a future rendering path that DOES need
+//! subscript access has somewhere to plug back in without re-deriving this module's shape. ~keep
 use std::collections::{HashMap, HashSet};
 
-use crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config;
-use crate::core::config::PythonDtoStyle;
 use crate::core::ir::TypeDef;
 use crate::e2e::codegen::call_ir::{map_value_named_type, named_type};
 
 use super::types::{PythonMapValueEdges, PythonTypedDictFacts, PythonTypedDictMap};
 
-/// Build the `TypedDict`-membership set and `(type, field) -> next type` traversal edges
-/// [`PythonTypedDictMap`] needs, by inspecting every `TypeDef` this crate declares.
-///
-/// A type is classified as `TypedDict` under the exact same condition `options.py` uses to
-/// decide whether to emit it as one: `typ.is_return_type && is_dataclass_backed_config(typ,
-/// output_style, reexported)`. A field is additionally recorded as a traversal edge when its
+/// Build the `TypedDict`-membership set (always empty -- see this module's header comment) and
+/// `(type, field) -> next type` traversal edges [`PythonTypedDictMap`] needs, by inspecting every
+/// `TypeDef` this crate declares. A field is recorded as a traversal edge when its
 /// [`named_type`]-resolved type is another `TypeDef` in this crate, exactly as
 /// `ir_enum::build_ir_enum_map` and `ir_collection::build_ir_collection_map` do, so a
 /// multi-segment path can advance its "current owner type" cursor one segment at a time before
@@ -39,20 +41,12 @@ use super::types::{PythonMapValueEdges, PythonTypedDictFacts, PythonTypedDictMap
 /// `extras[key]` actually is. The map's VALUE type is recorded as its own edge so that question
 /// has a derived answer instead of a retained one. The two edge sets stay separate because they
 /// answer different hops — see [`PythonTypedDictMap`].
-pub(super) fn build_python_typeddict_facts(
-    type_defs: &[TypeDef],
-    output_style: PythonDtoStyle,
-    reexported_types: &[String],
-) -> PythonTypedDictFacts {
+pub(super) fn build_python_typeddict_facts(type_defs: &[TypeDef]) -> PythonTypedDictFacts {
     let struct_names: HashSet<&str> = type_defs.iter().map(|t| t.name.as_str()).collect();
-    let reexported: ahash::AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
 
     let mut facts = PythonTypedDictFacts::default();
 
     for type_def in type_defs {
-        if type_def.is_return_type && is_dataclass_backed_config(type_def, output_style, &reexported) {
-            facts.typeddict_map.typeddict_types.insert(type_def.name.clone());
-        }
         for field in &type_def.fields {
             record_edge(
                 &mut facts.typeddict_map.field_types,
@@ -68,12 +62,8 @@ pub(super) fn build_python_typeddict_facts(
     facts
 }
 
-pub(super) fn build_python_typeddict_map(
-    type_defs: &[TypeDef],
-    output_style: PythonDtoStyle,
-    reexported_types: &[String],
-) -> PythonTypedDictMap {
-    build_python_typeddict_facts(type_defs, output_style, reexported_types).typeddict_map
+pub(super) fn build_python_typeddict_map(type_defs: &[TypeDef]) -> PythonTypedDictMap {
+    build_python_typeddict_facts(type_defs).typeddict_map
 }
 
 fn record_map_value_edge(
@@ -134,7 +124,8 @@ mod tests {
     }
 
     /// `ParseOutput { metadata: Metadata }`, `Metadata { title: String }`, both `is_return_type`.
-    /// Under `TypedDict` output style neither is reexported, so both classify as `TypedDict`.
+    /// Neither is ever classified as `TypedDict` -- see this module's header comment
+    /// (tree-sitter-language-pack#183).
     fn type_defs() -> Vec<TypeDef> {
         vec![
             return_type(
@@ -145,29 +136,19 @@ mod tests {
         ]
     }
 
+    /// REGRESSION (tree-sitter-language-pack#183): a return-position type is never classified as
+    /// `TypedDict`, so the python e2e generator never renders subscript access (`result["field"]`)
+    /// for one -- it always renders attribute access, agreeing with the native `#[pyclass]` the
+    /// pyo3 backend actually returns and with `_native.pyi`'s declared shape.
     #[test]
-    fn a_typed_dict_output_style_return_type_is_classified_as_typeddict() {
-        let map = build_python_typeddict_map(&type_defs(), PythonDtoStyle::TypedDict, &[]);
-        assert!(map.typeddict_types.contains("ParseOutput"));
-        assert!(map.typeddict_types.contains("Metadata"));
-    }
-
-    #[test]
-    fn a_reexported_return_type_is_not_classified_as_typeddict() {
-        let map = build_python_typeddict_map(&type_defs(), PythonDtoStyle::TypedDict, &["ParseOutput".to_string()]);
-        assert!(!map.typeddict_types.contains("ParseOutput"));
-        assert!(map.typeddict_types.contains("Metadata"));
-    }
-
-    #[test]
-    fn a_dataclass_output_style_return_type_is_not_classified_as_typeddict() {
-        let map = build_python_typeddict_map(&type_defs(), PythonDtoStyle::Dataclass, &[]);
+    fn a_return_type_is_never_classified_as_typeddict() {
+        let map = build_python_typeddict_map(&type_defs());
         assert!(map.typeddict_types.is_empty());
     }
 
     #[test]
     fn a_named_field_is_recorded_as_a_traversal_edge_regardless_of_typeddict_classification() {
-        let map = build_python_typeddict_map(&type_defs(), PythonDtoStyle::Dataclass, &[]);
+        let map = build_python_typeddict_map(&type_defs());
         assert_eq!(
             map.field_types.get("ParseOutput").and_then(|f| f.get("metadata")),
             Some(&"Metadata".to_string())
@@ -192,11 +173,8 @@ mod tests {
     /// the internal map-value namespace empty and the renderer with nothing to advance to.
     #[test]
     fn a_map_valued_field_records_the_value_type_as_a_map_value_edge() {
-        let facts = build_python_typeddict_facts(
-            &map_field_type_defs(string_map(TypeRef::Named("Metadata".to_string()))),
-            PythonDtoStyle::TypedDict,
-            &[],
-        );
+        let facts =
+            build_python_typeddict_facts(&map_field_type_defs(string_map(TypeRef::Named("Metadata".to_string()))));
         assert_eq!(
             facts
                 .map_value_edges
@@ -211,11 +189,7 @@ mod tests {
     /// yields a `dict`, not a `Metadata`, and only the key-access segment may advance. ~keep
     #[test]
     fn a_map_valued_field_records_no_plain_field_edge() {
-        let map = build_python_typeddict_map(
-            &map_field_type_defs(string_map(TypeRef::Named("Metadata".to_string()))),
-            PythonDtoStyle::TypedDict,
-            &[],
-        );
+        let map = build_python_typeddict_map(&map_field_type_defs(string_map(TypeRef::Named("Metadata".to_string()))));
         assert_eq!(map.field_types.get("ParseOutput").and_then(|f| f.get("extras")), None);
     }
 
@@ -230,7 +204,7 @@ mod tests {
             TypeRef::Vec(Box::new(named())),
             TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(named())))),
         ] {
-            let facts = build_python_typeddict_facts(&map_field_type_defs(wrapped), PythonDtoStyle::TypedDict, &[]);
+            let facts = build_python_typeddict_facts(&map_field_type_defs(wrapped));
             assert_eq!(
                 facts
                     .typeddict_map
@@ -252,11 +226,7 @@ mod tests {
     /// target.
     #[test]
     fn a_map_of_scalars_records_no_map_value_edge() {
-        let facts = build_python_typeddict_facts(
-            &map_field_type_defs(string_map(TypeRef::String)),
-            PythonDtoStyle::TypedDict,
-            &[],
-        );
+        let facts = build_python_typeddict_facts(&map_field_type_defs(string_map(TypeRef::String)));
         assert!(facts.map_value_edges.is_empty());
     }
 }

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use alef::core::config::PythonDtoStyle;
 use alef::core::ir::{FieldDef, TypeDef, TypeRef};
 use alef::e2e::field_access::{FieldResolver, PythonTypedDictMap};
 
@@ -41,7 +40,7 @@ fn generated_map_value_edges_are_not_observable_through_the_public_field_map() {
         },
     ];
 
-    let map = FieldResolver::python_typeddict_fields(&types, PythonDtoStyle::TypedDict, &[]);
+    let map = FieldResolver::python_typeddict_fields(&types);
 
     assert_eq!(map.advance(Some("Report"), "\0map-value:entries"), None);
     assert!(

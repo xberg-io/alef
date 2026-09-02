@@ -22,10 +22,10 @@ use crate::core::ir::{ApiSurface, TypeDef};
 use ahash::{AHashMap, AHashSet};
 
 /// Classify the dataclass-backed config-DTO type names: their public name resolves to a
-/// `@dataclass`/`dict` (via `options.py`), not the compiled `#[pyclass]`. Enum-variant payload
-/// fields of these types must accept the public wrapper or a dict — coerced into the core type —
-/// for parity with struct-field `_to_rust_*` coercion. Native-return types stay compiled and are
-/// left untouched. Same source of truth as `gen_init_py`'s import routing.
+/// `@dataclass` (via `options.py`), not the compiled `#[pyclass]`. Enum-variant payload fields of
+/// these types must accept the public wrapper or a raw dict — coerced into the core type — for
+/// parity with struct-field `_to_rust_*` coercion. Native-return types stay compiled and are left
+/// untouched. Same source of truth as `gen_init_py`'s import routing.
 pub(in crate::backends::pyo3) fn coercible_dto_names<'a>(
     api: &'a ApiSurface,
     config: &ResolvedCrateConfig,

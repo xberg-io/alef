@@ -1,16 +1,22 @@
 //! An `AsyncMethod` adapter's declared return type must name the type the package publishes
 //! under that word, exactly as `public_return_type_tests.rs` proves for a plain (non-adapter)
-//! function -- and, before this fix, an adapter did NOT hold that guarantee for a return type
-//! `options.py` publishes only as a return-only `TypedDict` (never accepted as an input).
+//! function -- and, before an earlier fix, an adapter did NOT hold that guarantee for a return
+//! type `options.py` publishes as a public *input* dataclass (a type that is `has_default`,
+//! `is_return_type = false`, and used as a parameter elsewhere in the surface).
 //!
 //! `emit_adapter_wrapper`'s return-conversion check (`adapter_return_converter`) used to be
-//! handed only `options_dataclass_type_names` -- the *input*-dataclass family, which explicitly
-//! excludes `is_return_type` types. `api.py`'s own import classification (`options_type_names` in
-//! `orchestration.rs`) already consulted the union of both families, so a `TypedDict`-only return
-//! type still got imported from `.options` and named in the `-> ReturnType` annotation -- while
-//! the wrapper body, unable to find a converter, hedge back to `return await engine.<name>(...)`,
-//! the untouched native `#[pyclass]`. The annotation named the public type; the value was the
-//! private one. ~keep
+//! handed only `options_dataclass_type_names` -- which already covers this shape, so that part
+//! was never the bug; the bug was a NARROWER copy of that same set being consulted elsewhere and
+//! disagreeing. `api.py`'s own import classification (`options_type_names` in
+//! `orchestration.rs`) already consulted the type, so it still got imported from `.options` and
+//! named in the `-> ReturnType` annotation -- while the wrapper body, unable to find a converter,
+//! fell back to `return await engine.<name>(...)`, the untouched native `#[pyclass]`. The
+//! annotation named the public type; the value was the private one.
+//!
+//! A pure return-position type (`is_return_type = true`) is a different case entirely: it is
+//! never published by `options.py` at all, under any DTO output style -- see
+//! `is_dataclass_backed_config` and `public_return_type_tests.rs`
+//! (tree-sitter-language-pack#183). ~keep
 
 use crate::core::backend::Backend;
 use crate::core::config::ResolvedCrateConfig;
@@ -57,9 +63,12 @@ type = "String"
     cfg.resolve().expect("fixture alef.toml resolves").remove(0)
 }
 
-/// One `has_default`, `is_return_type` struct -- the shape `options.py` publishes as a
-/// `TypedDict` under the `typed-dict` output style -- and one native-pyclass-only struct that
-/// nothing in `options.py` ever publishes (no `has_default`).
+/// One `has_default`, non-`is_return_type` struct -- the shape `options.py` publishes as a
+/// public *input* `@dataclass` (e.g. it is also accepted as a parameter somewhere else in the
+/// real surface) which an adapter also happens to return, exactly as
+/// `plain_function_dataclass_return_conversion_tests.rs`'s `ScanResult` fixture does for a plain
+/// function -- and one native-pyclass-only struct that nothing in `options.py` ever publishes
+/// (no `has_default`).
 fn surface() -> ApiSurface {
     ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -70,7 +79,7 @@ fn surface() -> ApiSurface {
                 rust_path: format!("test_lib::{RETURN_TYPE}"),
                 has_serde: true,
                 has_default: true,
-                is_return_type: true,
+                is_return_type: false,
                 fields: vec![FieldDef {
                     name: "url".to_string(),
                     ty: TypeRef::String,
@@ -105,17 +114,22 @@ fn render_public_api(config: &ResolvedCrateConfig) -> (String, String, String) {
     (find("api.py"), find("options.py"), find("__init__.py"))
 }
 
-/// REPRODUCTION: an adapter whose return type `options.py` publishes ONLY as a return-only
-/// `TypedDict` must convert the engine's native return value before handing it back -- the same
+/// REPRODUCTION: an adapter whose return type `options.py` publishes as a public *input*
+/// `@dataclass` must convert the engine's native return value before handing it back -- the same
 /// requirement a plain function wrapper already gets.
 #[test]
-fn an_adapter_converts_its_native_return_value_into_a_typeddict_only_published_type() {
+fn an_adapter_converts_its_native_return_value_into_a_dataclass_published_type() {
     let config = config_with_adapter(RETURN_TYPE, ADAPTER_NAME);
     let (api_py, options_py, init_py) = render_public_api(&config);
 
     assert!(
-        options_py.contains(&format!("class {RETURN_TYPE}(TypedDict, total=False):")),
+        options_py.contains(&format!("class {RETURN_TYPE}:")),
         "the fixture must reach the case under test -- options.py has to publish {RETURN_TYPE}:\n{options_py}"
+    );
+    assert!(
+        !options_py.contains(&format!("class {RETURN_TYPE}(TypedDict")),
+        "the fixture must reach the dataclass case, not a TypedDict case -- tree-sitter-language\
+         -pack#183 is exactly a return type wrongly published this way:\n{options_py}"
     );
     assert!(
         init_py.contains(&format!("from .options import {RETURN_TYPE}")),

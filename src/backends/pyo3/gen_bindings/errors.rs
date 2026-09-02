@@ -7,19 +7,26 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeDef};
 use ahash::AHashSet;
 
-/// True when `typ` is rendered as a pure-Python dataclass / TypedDict in `options.py` rather than
-/// being re-exported from the native module. For such types the public name resolves to the
-/// wrapper (a `@dataclass` or a plain `dict`), NOT the compiled `#[pyclass]`. This is the single
-/// source of truth for the config-vs-native-return split: `gen_init_py` uses it to route imports,
-/// and the data-enum variant-constructor generator uses it to decide which `Named` payload fields
-/// must be coerced (a native-return type stays compiled, so no coercion is needed or wanted).
+/// True when `typ` is rendered as a pure-Python `@dataclass` in `options.py` rather than being
+/// re-exported from the native module. For such types the public name resolves to the
+/// `@dataclass` wrapper, NOT the compiled `#[pyclass]`. This is the single source of truth for
+/// the config-vs-native-return split: `gen_init_py` uses it to route imports, and the data-enum
+/// variant-constructor generator uses it to decide which `Named` payload fields must be coerced
+/// (a native-return type stays compiled, so no coercion is needed or wanted).
+///
+/// `options.py` no longer has a `TypedDict` rendering path at all (see
+/// `crate::backends::pyo3::gen_bindings::types::gen_options_py`'s doc): every type this predicate
+/// selects renders as `@dataclass`, so it is always attribute access (`result.field`), matching
+/// the native `#[pyclass]`'s own shape and the `.pyi` stub's declared attributes. A return type
+/// this predicate does NOT select stays that native `#[pyclass]` untouched -- also attribute
+/// access. There is therefore no longer a subscript-access (`result["field"]`) outcome anywhere
+/// this predicate feeds (tree-sitter-language-pack#183).
 ///
 /// `pub(crate)` (not `pub(super)`) because `crate::e2e::field_access::python_typeddict` also
-/// calls this directly: `typ.is_return_type && is_dataclass_backed_config(..)` is the exact
-/// condition under which `options.py` emits `typ` as a `TypedDict` (subscript access) rather
-/// than an attribute-access class, and the python e2e generator asks this function for that
-/// answer instead of carrying its own copy of the rule (see the `two-generators-disagree`
-/// skill — a duplicated copy is exactly the defect shape it warns about). ~keep
+/// calls this directly, so the python e2e generator's own classification can only ever agree with
+/// what the pyo3 backend actually emits instead of carrying its own copy of the rule (see the
+/// `two-generators-disagree` skill — a duplicated copy is exactly the defect shape it warns
+/// against). ~keep
 pub(crate) fn is_dataclass_backed_config(
     typ: &TypeDef,
     output_style: PythonDtoStyle,

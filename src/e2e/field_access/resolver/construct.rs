@@ -455,26 +455,20 @@ impl FieldResolver {
     /// once from the crate's IR" shape. The returned map has no `root_type` set yet —
     /// `with_python_typeddict_map` anchors it to the specific call being rendered.
     ///
-    /// `output_style` and `reexported_types` come straight from the crate's resolved config
-    /// (`config.dto.python_output_style()` and `config.python.reexported_types`) — the same two
-    /// facts `crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config` itself
-    /// consults, so this can only ever agree with what the pyo3 backend actually emits.
-    pub fn python_typeddict_fields(
-        type_defs: &[crate::core::ir::TypeDef],
-        output_style: crate::core::config::PythonDtoStyle,
-        reexported_types: &[String],
-    ) -> PythonTypedDictMap {
-        build_python_typeddict_map(type_defs, output_style, reexported_types)
+    /// This asks the same predicate
+    /// (`crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config`) the pyo3
+    /// backend itself consults, so this can only ever agree with what it actually emits. That
+    /// predicate no longer varies by DTO output style or by `reexported_types` for a
+    /// return-position type (tree-sitter-language-pack#183: such a type is never redefined as a
+    /// `TypedDict`), so this classification takes no config input anymore either.
+    pub fn python_typeddict_fields(type_defs: &[crate::core::ir::TypeDef]) -> PythonTypedDictMap {
+        build_python_typeddict_map(type_defs)
     }
 
     /// Compute the complete internal Python accessor facts, including map-value traversal edges
     /// that are intentionally absent from the public [`PythonTypedDictMap`] representation.
-    pub(crate) fn python_typeddict_facts(
-        type_defs: &[crate::core::ir::TypeDef],
-        output_style: crate::core::config::PythonDtoStyle,
-        reexported_types: &[String],
-    ) -> PythonTypedDictFacts {
-        build_python_typeddict_facts(type_defs, output_style, reexported_types)
+    pub(crate) fn python_typeddict_facts(type_defs: &[crate::core::ir::TypeDef]) -> PythonTypedDictFacts {
+        build_python_typeddict_facts(type_defs)
     }
 
     /// Attach the Python `TypedDict` classification to this resolver, anchored at `root_type` —

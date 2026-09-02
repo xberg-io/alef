@@ -1,4 +1,4 @@
-//! Python type generation: `options.py` (enums, dataclasses, TypedDicts) and helpers.
+//! Python type generation: `options.py` (enums and dataclasses) and helpers.
 
 use crate::codegen::doc_emission::doc_first_paragraph_joined;
 use crate::codegen::generators;
@@ -10,9 +10,6 @@ use ahash::{AHashMap, AHashSet};
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
-mod typeddict;
-use typeddict::gen_typeddict;
-
 /// Convert a Rust variant name to snake_case for Python enum members (PEP 8),
 /// escaping any result that collides with a Python reserved keyword or `str` method name
 /// (e.g. `Del` → `del_`, `Title` → `title_`).
@@ -21,14 +18,22 @@ fn to_python_enum_variant(name: &str) -> String {
     crate::core::keywords::python_str_enum_ident(&name.to_snake_case())
 }
 
-/// Generate options.py — Python-side enums (StrEnum) and @dataclass / TypedDict config types.
+/// Generate options.py — Python-side enums (StrEnum) and `@dataclass` config types.
 ///
 /// Enum fields in dataclasses use `str` type (not enum class) so users can pass
 /// plain strings like `"atx"` instead of `HeadingStyle.Atx`.
 /// Default values come from `typed_default` if available, otherwise type-appropriate zeros.
 ///
-/// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`,
-/// it is emitted as a `TypedDict` (with `total=False`) instead of a `@dataclass`.
+/// When `dto.python_output_style() == TypedDict` and a type has `is_return_type = true`, it is
+/// (when selected -- see [`options_return_dataclass_names`]) still emitted as a `@dataclass`, the
+/// same representation every other type here uses -- never as a `TypedDict`. `options.py` no
+/// longer has a `TypedDict` rendering path at all: a `TypedDict` is a plain `dict` at runtime, so
+/// it cannot give the attribute access (`result.field`) the native `#[pyclass]` this type mirrors
+/// already provides, the `.pyi` stub already declares, and every consumer README documents.
+/// Rendering it as a `TypedDict` discarded that access for no benefit (tree-sitter-language-pack
+/// issue #183: `ProcessResult.chunks` raised `AttributeError`, breaking chonkie's
+/// `CodeChunker._process_code` and every downstream `agno-agi/agno` CI run pinned against it).
+/// ~keep
 /// Names of the types `options.py` emits as `@dataclass` config DTOs: non-trait,
 /// `has_default`, not a return type, not an internal `*Update` type, and not
 /// re-exported as a native pyclass. This is the public *input* type family — the
@@ -52,14 +57,21 @@ pub(in crate::backends::pyo3) fn options_dataclass_type_names(
         .collect()
 }
 
-/// Names of the return types `options.py` defines itself, as public `TypedDict`s, instead of
+/// Names of the return types `options.py` defines itself, as public `@dataclass`es, instead of
 /// leaving them to the native module's `#[pyclass]`.
 ///
 /// Every emitter that has to decide whether a return type's public spelling lives in `.options`
 /// or in the extension module asks this. `api.py` restating it as "is a return type and is not
 /// config-re-exported" is how `-> _rust.<Name>` came to annotate a function whose name
-/// `__init__.py` re-exports from `.options` -- two different types under one public name. ~keep
-pub(in crate::backends::pyo3) fn options_return_typeddict_names(
+/// `__init__.py` re-exports from `.options` -- two different types under one public name.
+///
+/// Named `..._dataclass_names`, not `..._typeddict_names`: this used to select the types
+/// `options.py` renders as `TypedDict` under the `typed-dict` output style. It still selects
+/// exactly the same types (this function's own logic is unchanged, and still honors
+/// `reexported_types` as the per-type escape hatch to keep a specific return type native even
+/// under that style -- xberg-io/alef#134), but every selected type now renders as `@dataclass`
+/// like every other type `options.py` defines. See [`gen_options_py`]'s doc for why. ~keep
+pub(in crate::backends::pyo3) fn options_return_dataclass_names(
     api: &ApiSurface,
     dto: &DtoConfig,
     reexported_types: &[String],
@@ -103,15 +115,15 @@ pub(super) fn gen_options_py(
         .collect();
 
     let output_style = dto.python_output_style();
-    let return_typeddict_names = options_return_typeddict_names(api, dto, reexported_types);
-    let any_typeddict = !return_typeddict_names.is_empty();
+    let published_return_type_names = options_return_dataclass_names(api, dto, reexported_types);
 
     // Must track `gen_from_native_converters`' own set exactly: a converter emitted for a
-    // return-type `TypedDict` annotates its parameter `Any` just like a dataclass one does, and
-    // an `Any` used without its import is a NameError in the file a consumer installs. ~keep
+    // published return-type `@dataclass` annotates its parameter `Any` just like an input
+    // dataclass one does, and an `Any` used without its import is a NameError in the file a
+    // consumer installs. ~keep
     let emits_from_native_converters = {
         let mut options_types = options_dataclass_type_names(api, reexported_types);
-        options_types.extend(return_typeddict_names.iter().cloned());
+        options_types.extend(published_return_type_names.iter().cloned());
         api.types.iter().any(|t| options_types.contains(&t.name))
     };
     // Json-typed fields used to render as `dict[str, Any]` and so pulled in `Any`. They now
@@ -177,7 +189,7 @@ pub(super) fn gen_options_py(
             if typ.has_default && !typ.is_return_type {
                 local.insert(typ.name.as_str());
             }
-            if return_typeddict_names.contains(&typ.name) {
+            if published_return_type_names.contains(&typ.name) {
                 local.insert(typ.name.as_str());
             }
         }
@@ -215,7 +227,9 @@ pub(super) fn gen_options_py(
         out.push_str("from enum import Enum\n");
     }
     let needs_type_checking = !type_checking_only_imports.is_empty();
-    let needs_typing_import = needs_type_checking || needs_any || any_typeddict;
+    // `options.py` never renders a literal `TypedDict` class anymore (see `gen_options_py`'s doc),
+    // so nothing here ever needs to import the name.
+    let needs_typing_import = needs_type_checking || needs_any;
     if needs_typing_import {
         let mut typing_names = Vec::new();
         if needs_type_checking {
@@ -223,9 +237,6 @@ pub(super) fn gen_options_py(
         }
         if needs_any {
             typing_names.push("Any");
-        }
-        if any_typeddict {
-            typing_names.push("TypedDict");
         }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "typing_import.jinja",
@@ -327,104 +338,96 @@ pub(super) fn gen_options_py(
             continue;
         }
 
-        let use_typeddict = return_typeddict_names.contains(&typ.name);
-
-        // Return types are defined authoritatively by the Rust native module as #[pyclass]
-        if typ.is_return_type && !use_typeddict {
+        // Return types are defined authoritatively by the Rust native module as #[pyclass],
+        // unless this return type is one `options_return_dataclass_names` selects for
+        // publication -- in which case it renders through the exact same `@dataclass` path as
+        // every other type below (never `TypedDict`; see `gen_options_py`'s doc). ~keep
+        if typ.is_return_type && !published_return_type_names.contains(&typ.name) {
             continue;
         }
 
-        if use_typeddict {
-            out.push_str(&gen_typeddict(
-                typ,
+        out.push_str("@dataclass(frozen=True, slots=True)\n");
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "dataclass_header.jinja",
+            minijinja::context! { name => &typ.name },
+        ));
+        let class_doc = if !typ.doc.is_empty() {
+            let raw = doc_first_paragraph_joined(&typ.doc);
+            let first = sanitize_python_doc(&raw);
+            let content = if first.len() > 89 {
+                first[..89].to_string()
+            } else {
+                first
+            };
+            if content.ends_with(['.', '?', '!']) {
+                content
+            } else {
+                format!("{}.", content)
+            }
+        } else {
+            class_name_to_docstring(&typ.name)
+        };
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "class_docstring.jinja",
+            minijinja::context! { doc => &class_doc },
+        ));
+        out.push('\n');
+
+        if binding_fields(&typ.fields).next().is_none() {
+            out.push('\n');
+            continue;
+        }
+
+        for field in binding_fields(&typ.fields) {
+            let type_hint = python_field_type(
+                &field.ty,
+                field.optional,
                 &enum_names,
                 &data_enum_names,
                 &str_coercible_data_enums,
-            ));
-        } else {
-            out.push_str("@dataclass(frozen=True, slots=True)\n");
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "dataclass_header.jinja",
-                minijinja::context! { name => &typ.name },
-            ));
-            let class_doc = if !typ.doc.is_empty() {
-                let raw = doc_first_paragraph_joined(&typ.doc);
-                let first = sanitize_python_doc(&raw);
-                let content = if first.len() > 89 {
-                    first[..89].to_string()
-                } else {
-                    first
-                };
-                if content.ends_with(['.', '?', '!']) {
-                    content
-                } else {
-                    format!("{}.", content)
-                }
-            } else {
-                class_name_to_docstring(&typ.name)
-            };
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "class_docstring.jinja",
-                minijinja::context! { doc => &class_doc },
-            ));
-            out.push('\n');
+                EmitContext::OptionsModule,
+            );
 
-            if binding_fields(&typ.fields).next().is_none() {
-                out.push('\n');
-                continue;
-            }
-
-            for field in binding_fields(&typ.fields) {
-                let type_hint = python_field_type(
-                    &field.ty,
-                    field.optional,
-                    &enum_names,
-                    &data_enum_names,
-                    &str_coercible_data_enums,
-                    EmitContext::OptionsModule,
-                );
-
-                let default = field_defaults.literal(field);
-                let type_hint_with_none = if field.typed_default.is_none() && field.optional {
-                    if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
-                        format!("{} | None", type_hint)
-                    } else {
-                        type_hint.clone()
-                    }
-                } else if default == "None" && !type_hint.contains("None") {
+            let default = field_defaults.literal(field);
+            let type_hint_with_none = if field.typed_default.is_none() && field.optional {
+                if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
                     format!("{} | None", type_hint)
                 } else {
                     type_hint.clone()
-                };
-
-                let safe_name = crate::core::keywords::python_ident(&field.name);
-                if !field.doc.is_empty() {
-                    out.push_str(&crate::backends::pyo3::template_env::render(
-                        "trait_bridge/dataclass_field_with_default.jinja",
-                        minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
-                    ));
-                    out.push('\n');
-                    let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
-                    let safe_doc = if doc_line.ends_with('"') {
-                        format!("{doc_line} ")
-                    } else {
-                        doc_line
-                    };
-                    out.push_str(&crate::backends::pyo3::template_env::render(
-                        "trait_bridge/python_docstring.jinja",
-                        minijinja::context! { text => &safe_doc },
-                    ));
-                    out.push('\n');
-                } else {
-                    out.push_str(&crate::backends::pyo3::template_env::render(
-                        "trait_bridge/dataclass_field_with_default.jinja",
-                        minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
-                    ));
-                    out.push('\n');
                 }
+            } else if default == "None" && !type_hint.contains("None") {
+                format!("{} | None", type_hint)
+            } else {
+                type_hint.clone()
+            };
+
+            let safe_name = crate::core::keywords::python_ident(&field.name);
+            if !field.doc.is_empty() {
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "trait_bridge/dataclass_field_with_default.jinja",
+                    minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
+                ));
+                out.push('\n');
+                let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
+                let safe_doc = if doc_line.ends_with('"') {
+                    format!("{doc_line} ")
+                } else {
+                    doc_line
+                };
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "trait_bridge/python_docstring.jinja",
+                    minijinja::context! { text => &safe_doc },
+                ));
+                out.push('\n');
+            } else {
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "trait_bridge/dataclass_field_with_default.jinja",
+                    minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
+                ));
+                out.push('\n');
             }
-            out.push('\n');
         }
+        out.push('\n');
     }
 
     out.push_str(&gen_from_native_converters(api, dto, reexported_types));
@@ -432,19 +435,19 @@ pub(super) fn gen_options_py(
     out
 }
 
-/// Emit `_from_native_<snake>(native)` module-level converters for every public type
-/// `options.py` defines itself — the input dataclasses and the return-type `TypedDict`s.
+/// Emit `_from_native_<snake>(native)` module-level converters for every public `@dataclass`
+/// `options.py` defines itself — both the input dataclasses and the selected return-type ones.
 /// Nested public fields recurse (including through `Optional`/`Vec`/`Map` wrappers); every
 /// other field passes through unchanged — enums and re-exported types keep their single
 /// native identity.
 ///
-/// A return-type `TypedDict` needs one for the same reason a dataclass does: `api.py` publishes
-/// that name as the function's return type, but the extension module hands back a `#[pyclass]`.
-/// A `TypedDict` is constructed by keyword exactly like a dataclass, so one template serves
-/// both. ~keep
+/// A published return-type `@dataclass` needs one for the same reason an input dataclass does:
+/// `api.py` publishes that name as the function's return type, but the extension module hands
+/// back a `#[pyclass]`. Both shapes are constructed by keyword identically, so one template
+/// serves both. ~keep
 fn gen_from_native_converters(api: &ApiSurface, dto: &DtoConfig, reexported_types: &[String]) -> String {
     let mut options_types = options_dataclass_type_names(api, reexported_types);
-    options_types.extend(options_return_typeddict_names(api, dto, reexported_types));
+    options_types.extend(options_return_dataclass_names(api, dto, reexported_types));
     let mut out = String::new();
     let mut emitted: Vec<&crate::core::ir::TypeDef> =
         api.types.iter().filter(|t| options_types.contains(&t.name)).collect();

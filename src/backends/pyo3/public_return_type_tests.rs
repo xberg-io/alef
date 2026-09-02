@@ -1,11 +1,20 @@
 //! A wrapper's declared return type must name the type the package publishes under that word.
 //!
 //! `_rust` is the private extension module. When `options.py` defines a return type itself -- it
-//! does for every `is_return_type` config type under the `typed-dict` output style -- that
-//! definition is what `__init__.py` re-exports and what a consumer imports, so a wrapper
-//! annotated `-> _rust.<Name>` publishes one name for two different types. The value has to move
-//! with the annotation: the extension module still hands back its own `#[pyclass]`, so the
-//! wrapper converts it, exactly as an adapter wrapper already does for a public `options` type. ~keep
+//! does for every `is_return_type` config type the `typed-dict` output style selects and
+//! `reexported_types` does not exempt -- that definition is what `__init__.py` re-exports and
+//! what a consumer imports, so a wrapper annotated `-> _rust.<Name>` publishes one name for two
+//! different types. The value has to move with the annotation: the extension module still hands
+//! back its own `#[pyclass]`, so the wrapper converts it, exactly as an adapter wrapper already
+//! does for a public `options` type.
+//!
+//! Critically, a selected return type is ALWAYS published as `@dataclass`, never `TypedDict`
+//! (`crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config`'s doc). `TypedDict`
+//! used to be the representation here: a plain `dict` at runtime with no attribute access, while
+//! `_native.pyi` kept declaring the same class name with real attributes. A consumer reading the
+//! documented `.field` shape got `AttributeError` (tree-sitter-language-pack#183:
+//! `ProcessResult.chunks`, which broke chonkie's `CodeChunker._process_code` and every downstream
+//! `agno-agi/agno` CI run pinned against it). ~keep
 
 use crate::core::backend::Backend;
 use crate::core::config::ResolvedCrateConfig;
@@ -97,14 +106,32 @@ fn render_public_api(config: &ResolvedCrateConfig) -> (String, String, String) {
     (find("api.py"), find("options.py"), find("__init__.py"))
 }
 
+/// The `.pyi` stub the native module publishes for this crate.
+fn render_type_stub(config: &ResolvedCrateConfig) -> String {
+    let files = crate::backends::pyo3::Pyo3Backend
+        .generate_type_stubs(&surface(), config)
+        .expect("type stub generation succeeds");
+    files
+        .into_iter()
+        .find(|file| file.path.extension().is_some_and(|ext| ext == "pyi"))
+        .expect(".pyi stub is generated")
+        .content
+}
+
 /// The published name and the annotated name must be the same name.
 #[test]
 fn should_annotate_the_options_type_when_options_publishes_the_return_type() {
     let (api_py, options_py, init_py) = render_public_api(&typed_dict_config());
 
     assert!(
-        options_py.contains(&format!("class {RETURN_TYPE}(TypedDict, total=False):")),
+        options_py.contains(&format!("class {RETURN_TYPE}:")),
         "the fixture must reach the case under test -- options.py has to publish {RETURN_TYPE}:\n{options_py}"
+    );
+    assert!(
+        !options_py.contains(&format!("class {RETURN_TYPE}(TypedDict")),
+        "REGRESSION (tree-sitter-language-pack#183): a published return type must render as \
+         `@dataclass` (attribute access), never `TypedDict` (a plain dict at runtime with no \
+         attribute access):\n{options_py}"
     );
     assert!(
         init_py.contains(&format!("from .options import {RETURN_TYPE}")),
@@ -148,6 +175,28 @@ fn should_convert_the_native_return_value_into_the_published_type() {
     assert!(
         api_py.contains("_from_native_render_outcome,") || api_py.contains("_from_native_render_outcome\n"),
         "api.py must import the converter from .options:\n{api_py}"
+    );
+}
+
+/// REGRESSION (tree-sitter-language-pack#183): the `.pyi` stub and `options.py`'s published
+/// definition must agree on the shape a consumer actually gets -- both attribute access, with the
+/// same field names. The stub always describes the native `#[pyclass]` (unconditional on DTO
+/// style, since the Rust struct itself is unaffected by it); `options.py`'s `@dataclass` mirrors
+/// the same fields, so `result.label`/`result.width` work against whichever object a reader
+/// happens to be holding.
+#[test]
+fn the_pyi_stub_and_the_published_dataclass_agree_on_attribute_access() {
+    let config = typed_dict_config();
+    let options_py = render_public_api(&config).1;
+    let stub = render_type_stub(&config);
+
+    assert!(
+        stub.contains(&format!("class {RETURN_TYPE}:")) && stub.contains("label: str") && stub.contains("width: int"),
+        "the .pyi stub must declare the native class with real attributes:\n{stub}"
+    );
+    assert!(
+        options_py.contains("label: str") && options_py.contains("width: int"),
+        "options.py's dataclass must declare the same attributes, not dict keys:\n{options_py}"
     );
 }
 

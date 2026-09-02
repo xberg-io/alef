@@ -55,6 +55,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parallelization. Detection is keyed on the crate's declared bridge operations rather than any
   trait or fixture name, so every declared bridge is covered.
 
+- **Python: a return-only type under the `typed-dict` output style lost attribute access,
+  breaking every documented consumer.** Under `dto.python_output = "typed-dict"`,
+  `options.py` redefined a published `is_return_type` config type as
+  `TypedDict(total=False)` — a plain `dict` at runtime — while `_native.pyi` kept declaring the
+  same class name with real attributes (a genuine `#[pyclass]` with `__init__`), so the stub and
+  the runtime disagreed. tree-sitter-language-pack shipped exactly this in 1.16.0/1.16.1:
+  `ProcessResult.chunks` raised `AttributeError` where 1.15.8 returned the native object directly,
+  breaking chonkie's `CodeChunker._process_code` and every downstream `agno-agi/agno` CI run
+  pinned against it (tree-sitter-language-pack#183). `options.py` no longer has a `TypedDict`
+  rendering path at all: a selected return type now always renders as `@dataclass`, exactly like
+  every other type it defines, restoring the attribute access the `.pyi` stub, every consumer
+  README, and the pre-1.16 runtime all already agreed on. The classification of *which* return
+  types `options.py` publishes (`reexported_types` as the per-type escape hatch, `xberg-io/alef#134`)
+  is unchanged — only the representation is. Affects any crate configuring
+  `python_output = "typed-dict"`; the default (`dataclass`) output style was never affected.
+
 ## [0.82.0] - 2026-09-02
 
 ### Removed
