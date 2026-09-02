@@ -12,7 +12,16 @@ use super::*;
 /// over the only two things that actually change as it descends: the JSON key and its value.
 /// `nested_types` is the raw call override and `effective_nested_types` is that override merged
 /// over the IR-derived classes — [`ts_builder_expression_inner`] re-derives its own merge for
-/// whatever type it is handed, so it must keep receiving the raw override, not the merged map. ~keep
+/// whatever type it is handed, so it must keep receiving the raw override, not the merged map.
+///
+/// `owner_type` is the un-prefixed IR name of the struct whose fields are being rendered at the
+/// current recursion depth (the handle's config type at the top level), so a scalar field can be
+/// resolved back to its IR [`crate::core::ir::TypeRef`] and routed through the same enum/bigint
+/// typing [`ts_builder_expression_inner`] already applies to nested objects. It is cleared to
+/// `None` when recursion descends into a plain object this generator has no type mapping for —
+/// that object's fields belong to some other, unknown struct, and resolving them against the
+/// outer `owner_type` would attribute a field to the wrong owner. ~keep
+#[derive(Clone, Copy)]
 pub(in crate::e2e::codegen::typescript::test_file) struct HandleConfigContext<'a> {
     pub nested_types: &'a std::collections::HashMap<String, String>,
     pub effective_nested_types: &'a std::collections::HashMap<String, String>,
@@ -22,6 +31,7 @@ pub(in crate::e2e::codegen::typescript::test_file) struct HandleConfigContext<'a
     pub type_defs: &'a [TypeDef],
     pub enums: &'a [EnumDef],
     pub wasm_type_prefix: &'a str,
+    pub owner_type: Option<&'a str>,
 }
 
 /// Render one handle-config field value as a TypeScript expression.
@@ -98,16 +108,37 @@ fn render_value(
                 )
             }
             None => {
+                // This object has no known IR type, so its fields cannot be resolved against
+                // `context.owner_type` — that name belongs to a different struct. ~keep
+                let inner_context = HandleConfigContext {
+                    owner_type: None,
+                    ..*context
+                };
                 let entries: Vec<String> = fields
                     .iter()
                     .map(|(field, field_value)| {
-                        let rendered = render_value(field, field_value, context, used_types, referenced_enums);
+                        let rendered = render_value(field, field_value, &inner_context, used_types, referenced_enums);
                         format!("{}: {rendered}", js_object_key(&underscore_camel_case(field)))
                     })
                     .collect();
                 format!("{{ {} }}", entries.join(", "))
             }
         },
-        scalar => json_to_js(scalar),
+        scalar => {
+            let camel_key = underscore_camel_case(key);
+            wasm_scalar_value_expression(
+                context.owner_type,
+                key,
+                &camel_key,
+                scalar,
+                context.lang,
+                context.enum_fields,
+                context.bigint_fields,
+                context.type_defs,
+                context.enums,
+                context.wasm_type_prefix,
+                referenced_enums,
+            )
+        }
     }
 }

@@ -260,13 +260,21 @@ fn to_bigint_literal(value_expr: &str) -> String {
 /// TypeScript type error, and at runtime a `TypeError: Cannot convert a Number to a BigInt`.
 /// The list stays honoured on top of this, since it also covers fields whose owner the IR
 /// lookup cannot resolve. Gated on `wasm`: NAPI (`lang == "node"`) marshals `i64` as `number`.
+///
+/// `TypeRef::Duration` is included alongside the bigint primitives: `TypeMapper::duration()`
+/// (default, unoverridden by [`crate::backends::wasm::type_map::WasmMapper`]) lowers every
+/// `Duration` field to Rust `u64` before wasm-bindgen ever sees it, in `gen_struct`'s field-type
+/// derivation and in the function-parameter input-DTO conversion alike — so a `Duration` field
+/// is a `bigint` setter on the wasm boundary exactly as if the IR had declared `u64` directly. ~keep
 fn wasm_bigint_field(lang: &str, field_type: Option<&crate::core::ir::TypeRef>) -> bool {
-    lang == "wasm"
-        && matches!(
-            field_type,
-            Some(crate::core::ir::TypeRef::Primitive(prim))
-                if crate::backends::wasm::gen_bindings::is_bigint_primitive(prim)
-        )
+    if lang != "wasm" {
+        return false;
+    }
+    matches!(
+        field_type,
+        Some(crate::core::ir::TypeRef::Primitive(prim))
+            if crate::backends::wasm::gen_bindings::is_bigint_primitive(prim)
+    ) || matches!(field_type, Some(crate::core::ir::TypeRef::Duration))
 }
 
 /// The BigInt literal for a fixture value assigned to a wasm-bindgen `u64`/`i64` setter.
@@ -294,6 +302,8 @@ fn wasm_typed_value_expression(val: &serde_json::Value, field_type: &TypeRef) ->
         TypeRef::Primitive(primitive) if crate::backends::wasm::gen_bindings::is_bigint_primitive(primitive) => {
             Some(bigint_value_literal(val))
         }
+        // `Duration` lowers to Rust `u64` on the wasm boundary — see `wasm_bigint_field`. ~keep
+        TypeRef::Duration => Some(bigint_value_literal(val)),
         TypeRef::Vec(inner) => {
             let values = val.as_array()?;
             let constructor = match inner.as_ref() {
@@ -340,6 +350,71 @@ fn resolve_owner_field<'a>(owner_type: Option<&'a TypeDef>, key: &str) -> Option
                 definition.serde_rename_all.as_deref(),
             ) == key
     })
+}
+
+/// Render a single wasm handle-config scalar field, resolving enum members and bigint literals
+/// from the field's IR type exactly as [`ts_builder_expression_inner`] does for the same field
+/// on a nested object.
+///
+/// `owner_type` is the un-prefixed IR name of the struct that declares `key` (e.g.
+/// `EngineConfig` for `WasmEngineConfig`), so the field's [`TypeRef`] can be resolved; `None`
+/// when the caller has no IR-resolved owner at this point (a fixture key inside a plain nested
+/// object this generator has no type mapping for), in which case only the `enum_fields`/
+/// `bigint_fields` override maps are consulted, matching the owner-less call sites in
+/// `node_value_expression`. ~keep
+#[allow(clippy::too_many_arguments)]
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_scalar_value_expression(
+    owner_type: Option<&str>,
+    key: &str,
+    camel_key: &str,
+    val: &serde_json::Value,
+    lang: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
+    bigint_fields: &std::collections::BTreeSet<String>,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    wasm_type_prefix: &str,
+    referenced_enums: &mut std::collections::BTreeSet<String>,
+) -> String {
+    let owner = owner_type.and_then(|name| type_defs.iter().find(|definition| definition.name == name));
+    let field_type = resolve_owner_field(owner, key).map(|field| match &field.ty {
+        crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    });
+
+    if lang == "wasm"
+        && let Some(field_type) = field_type
+        && let Some(expression) = wasm_typed_value_expression(val, field_type)
+    {
+        return expression;
+    }
+
+    if let Some(crate::core::ir::TypeRef::Named(enum_type)) = field_type
+        && enums.iter().any(|definition| definition.name == *enum_type)
+        && !wasm_enum_bridged_as_raw_value(enum_type, enums, wasm_type_prefix)
+        && let serde_json::Value::String(variant) = val
+    {
+        let member = declared_enum_member_for_prefixed(enum_type, enums, wasm_type_prefix, variant);
+        let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
+        return enum_member_reference(&enum_type, &member, referenced_enums);
+    }
+
+    if let Some(enum_type) = resolve_enum_type(enum_fields, owner_type, key, camel_key)
+        && !wasm_enum_bridged_as_raw_value(enum_type, enums, wasm_type_prefix)
+        && let serde_json::Value::String(s) = val
+    {
+        let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
+        let member = declared_enum_member_for_prefixed(&enum_type, enums, wasm_type_prefix, s);
+        return enum_member_reference(&enum_type, &member, referenced_enums);
+    }
+
+    let is_bigint =
+        bigint_fields.contains(camel_key) || bigint_fields.contains(key) || wasm_bigint_field(lang, field_type);
+    if is_bigint {
+        return bigint_value_literal(val);
+    }
+
+    json_to_js(val)
 }
 
 /// Resolve the napi-rs / wasm-bindgen public JS field identifier for fixture key `key` on

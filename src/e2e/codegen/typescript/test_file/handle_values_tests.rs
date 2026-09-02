@@ -29,6 +29,7 @@ fn render(key: &str, value: &serde_json::Value, classes: &[(&str, &str)]) -> Str
         type_defs: &[],
         enums: &[],
         wasm_type_prefix: "Wasm",
+        owner_type: None,
     };
     build_handle_config_value(key, value, &context, &mut std::collections::BTreeSet::new())
 }
@@ -44,10 +45,87 @@ fn collect(key: &str, value: &serde_json::Value, classes: &[(&str, &str)]) -> st
         type_defs: &[],
         enums: &[],
         wasm_type_prefix: "Wasm",
+        owner_type: None,
     };
     let mut used_types = std::collections::BTreeSet::new();
     collect_used_handle_config_types(key, value, &context, &mut used_types);
     used_types
+}
+
+fn field(name: &str, ty: TypeRef) -> crate::core::ir::FieldDef {
+    crate::core::ir::FieldDef {
+        name: name.to_string(),
+        ty,
+        ..Default::default()
+    }
+}
+
+/// An `EngineConfig` IR type carrying the three field shapes the wasm scalar path must
+/// distinguish: an enum-typed field, a `Duration` (bigint on the wasm boundary — see
+/// `wasm_bigint_field`) field, and a plain `u32` field.
+///
+/// `request_timeout` is declared `Duration`, not `TypeRef::Primitive(U64)`, on purpose: that is
+/// crawlberg's actual IR shape (`crates/crawlberg/src/types/config.rs`'s `CrawlConfig::
+/// request_timeout: Duration`), and it is the shape that first exposed the gap — `Duration`
+/// lowers to Rust `u64` at the wasm-bindgen boundary just as directly as a primitive `u64` field
+/// does, but was not itself recognised as bigint-typed. ~keep
+fn engine_config_type_def() -> TypeDef {
+    TypeDef {
+        name: "EngineConfig".to_string(),
+        fields: vec![
+            field("crawl_strategy", TypeRef::Named("CrawlStrategyKind".to_string())),
+            field("request_timeout", TypeRef::Duration),
+            field(
+                "max_body_size",
+                TypeRef::Optional(Box::new(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64))),
+            ),
+            field("max_depth", TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)),
+        ],
+        ..Default::default()
+    }
+}
+
+fn crawl_strategy_enum() -> EnumDef {
+    EnumDef {
+        name: "CrawlStrategyKind".to_string(),
+        variants: vec![
+            crate::core::ir::EnumVariant {
+                name: "Bfs".to_string(),
+                ..Default::default()
+            },
+            crate::core::ir::EnumVariant {
+                name: "Dfs".to_string(),
+                ..Default::default()
+            },
+        ],
+        serde_rename_all: Some("snake_case".to_string()),
+        ..Default::default()
+    }
+}
+
+/// Renders a top-level `EngineConfig` scalar field through the real traversal, with the IR
+/// registry populated so `owner_type` resolution can find the field's declared type.
+fn render_engine_config_field(
+    key: &str,
+    value: &serde_json::Value,
+    referenced_enums: &mut std::collections::BTreeSet<String>,
+) -> String {
+    let type_defs = [engine_config_type_def()];
+    let enums = [crawl_strategy_enum()];
+    let empty_map = std::collections::HashMap::new();
+    let empty_set = std::collections::BTreeSet::new();
+    let context = HandleConfigContext {
+        nested_types: &empty_map,
+        effective_nested_types: &empty_map,
+        lang: "wasm",
+        enum_fields: &empty_map,
+        bigint_fields: &empty_set,
+        type_defs: &type_defs,
+        enums: &enums,
+        wasm_type_prefix: "Wasm",
+        owner_type: Some("EngineConfig"),
+    };
+    build_handle_config_value(key, value, &context, referenced_enums)
 }
 
 fn built(class_name: &str, body: &str) -> String {
@@ -205,4 +283,70 @@ fn handle_config_list_entries_are_constructed_through_build_args_and_setup() {
         !setup.contains("engineConfig.rules = [{ deny: true }];"),
         "must not fall back to the untyped json_to_js_camel dump: {setup}"
     );
+}
+
+/// A top-level handle-config scalar whose IR field type is a wasm-bindgen C-style enum must
+/// render as an `EnumType.Member` reference, not the fixture's raw wire string. Before the
+/// `owner_type` seam existed, `engineConfig.crawlStrategy = "dfs"` compiled and ran, but
+/// `ToInt32("dfs")` coerces to `0`, which is `WasmCrawlStrategyKind.Bfs` — the test silently
+/// exercised the wrong algorithm.
+#[test]
+fn should_render_a_top_level_enum_scalar_as_a_member_reference() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field("crawl_strategy", &serde_json::json!("dfs"), &mut referenced_enums);
+    assert_eq!(rendered, "WasmCrawlStrategyKind.Dfs");
+    assert!(
+        referenced_enums.contains("WasmCrawlStrategyKind"),
+        "enum member reference must register its import: {referenced_enums:?}"
+    );
+}
+
+/// A top-level handle-config scalar whose IR field type is a wasm `u64`/`i64` must render as a
+/// BigInt literal — wasm-bindgen's setter rejects a plain `Number`, throwing `TypeError: Cannot
+/// convert 500 to a BigInt` at run time for `engineConfig.requestTimeout = 500;`.
+#[test]
+fn should_render_a_top_level_bigint_scalar_as_a_bigint_literal() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field("request_timeout", &serde_json::json!(500), &mut referenced_enums);
+    assert_eq!(rendered, "500n");
+}
+
+/// Zero is exact-integer-shaped too, and must not be special-cased away from the `n` suffix.
+#[test]
+fn should_render_a_top_level_bigint_scalar_of_zero_as_a_bigint_literal() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field("request_timeout", &serde_json::json!(0), &mut referenced_enums);
+    assert_eq!(rendered, "0n");
+}
+
+/// A magnitude past `2^53` must survive intact: routing the JSON number through an f64/i64 round
+/// trip before appending `n` would already have lost precision by the time the suffix is added.
+#[test]
+fn should_preserve_bigint_precision_past_the_f64_safe_integer_range() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field(
+        "request_timeout",
+        &serde_json::json!(9_007_199_254_740_993u64),
+        &mut referenced_enums,
+    );
+    assert_eq!(rendered, "9007199254740993n");
+}
+
+/// A `TypeRef::Primitive(U64)` field — the original, narrower bigint case — must still render as
+/// a BigInt literal alongside the `Duration` case above.
+#[test]
+fn should_render_a_top_level_primitive_u64_scalar_as_a_bigint_literal() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field("max_body_size", &serde_json::json!(1024), &mut referenced_enums);
+    assert_eq!(rendered, "1024n");
+}
+
+/// A plain scalar field (neither enum nor bigint) must keep rendering as an ordinary JS literal —
+/// proving the new `owner_type` resolution does not misclassify unrelated fields.
+#[test]
+fn should_leave_a_plain_scalar_field_unaffected_by_owner_type_resolution() {
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let rendered = render_engine_config_field("max_depth", &serde_json::json!(3), &mut referenced_enums);
+    assert_eq!(rendered, "3");
+    assert!(referenced_enums.is_empty());
 }
