@@ -53,7 +53,7 @@ pub(crate) use lock_freshness::{
     check_generated_node_lock_freshness_tolerating_pending_publish,
     check_generated_uv_lock_freshness_tolerating_pending_publish,
 };
-pub use toolchains::enforce_required_toolchains;
+pub use toolchains::{enforce_required_toolchains, enforce_required_toolchains_for_all};
 pub use version::sync_versions;
 pub use version_core::{set_version, verify_versions};
 pub(crate) use version_lockfiles::check_release_lock_freshness;

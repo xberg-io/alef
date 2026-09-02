@@ -132,13 +132,20 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
             for resolved_cfg in &crates_to_process {
                 let languages = resolve_languages(resolved_cfg, None)?;
-                // ~keep `alef all` is the chain the repos actually run, and it was the one command
-                // resolving `languages` without the hard toolchain gate the other five got: a
-                // missing `uv`/`pnpm`/`cargo-upgrade` reached the per-language steps and each one
-                // skipped itself, so the whole run reported success having built nothing for that
-                // language. `warn_missing_formatters` below is deliberately NOT that check -- it
+                // ~keep `alef all` never runs `build`/`test`/`setup`/`update`/`clean`'s pipeline
+                // functions -- it only extracts, generates, formats, and unconditionally runs the
+                // cargo-based post-build steps in `complete_generated_artifacts` (the FFI header
+                // refresh, and Swift's generate-time `cargo check`). Using the same per-language
+                // tool UNION those five commands need (`enforce_required_toolchains`) was itself a
+                // regression: it demanded `dart`/`gradle`/`dotnet` etc. for a command that never
+                // shells out to them directly (alef 0.82.0's "cargo-upgrade required by `alef
+                // test`" bug, same shape). `enforce_required_toolchains_for_all` is scoped to what
+                // `all` actually needs -- `cargo`, and only when `ffi`/`swift` trigger it. Dart's
+                // own tool-invoking steps (`flutter_rust_bridge_codegen`, the lockfile relock)
+                // already tolerate a missing tool on their own, see `cli::pipeline::toolchains`'s
+                // doc. `warn_missing_formatters` below is deliberately NOT a hard gate either -- it
                 // warns about optional formatters, which a skipped step can tolerate.
-                pipeline::enforce_required_toolchains(&languages, &resolved_cfg.tools)?;
+                pipeline::enforce_required_toolchains_for_all(&languages)?;
                 pipeline::warn_missing_formatters(&languages);
                 if multi {
                     tracing::info!(

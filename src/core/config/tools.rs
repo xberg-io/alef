@@ -143,8 +143,27 @@ pub fn require_tools(tools: &[&str]) -> String {
     tools.iter().map(|t| require_tool(t)).collect::<Vec<_>>().join(" && ")
 }
 
+/// Which top-level alef command is asking [`required_tools_for_language`] for a language's
+/// required toolchain.
+///
+/// This is the fix for the 0.82.0 regression where `enforce_required_toolchains` demanded the
+/// UNION of every tool any command might ever need from an enabled language, regardless of which
+/// command was actually about to run: `alef test --lang rust` hard-failed over a missing
+/// `cargo-upgrade` even though `test` never shells out to it -- only `Update`'s Rust arm (`cargo
+/// upgrade --incompatible`, see `cli::pipeline::commands::update`) does. Scoping the probe to the
+/// invoked command keeps the hard failure (a command that genuinely needs a tool must still bail,
+/// not silently skip) while not demanding tools a command never touches. ~keep
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolchainCommand {
+    Build,
+    Test,
+    Setup,
+    Update,
+    Clean,
+}
+
 /// The toolchain probe names a `Language`, once enabled for a crate, cannot do anything
-/// without -- its package manager or primary build tool.
+/// without -- its package manager or primary build tool -- for the given `command`.
 ///
 /// Deliberately narrower than every `require_tool` precondition scattered across
 /// `*_defaults.rs`: those also gate optional per-step tools (`ruff`, `ktfmt`, `gofmt`,
@@ -155,14 +174,18 @@ pub fn require_tools(tools: &[&str]) -> String {
 /// entry: it is an FFI consumer test target, not a language alef generates or builds anything
 /// for. ~keep
 #[must_use]
-pub fn required_tools_for_language(lang: Language, tools: &ToolsConfig) -> Vec<String> {
+pub fn required_tools_for_language(command: ToolchainCommand, lang: Language, tools: &ToolsConfig) -> Vec<String> {
     match lang {
         // ~keep `cargo-upgrade` is cargo-edit's `cargo upgrade` subcommand. It cannot be probed
         // as `cargo-upgrade --version` (that binary expects to be invoked as a cargo subcommand
         // and rejects the bare flag); `command -v cargo-upgrade` -- what `is_tool_available`
         // does -- is the check that actually works, since cargo subcommand binaries are always
-        // plain executables on PATH named `cargo-<name>`.
-        Language::Rust => vec!["cargo".to_string(), "cargo-upgrade".to_string()],
+        // plain executables on PATH named `cargo-<name>`. Required only for `Update`: that is the
+        // only command whose Rust arm ever invokes `cargo upgrade`.
+        Language::Rust if command == ToolchainCommand::Update => {
+            vec!["cargo".to_string(), "cargo-upgrade".to_string()]
+        }
+        Language::Rust => vec!["cargo".to_string()],
         Language::Python => vec![tools.python_pm().to_string()],
         Language::Node => vec![tools.node_pm().to_string()],
         Language::Wasm => vec!["wasm-pack".to_string()],
@@ -379,13 +402,28 @@ mod tests {
         assert_eq!(cfg.node_pm(), "pnpm");
     }
 
+    /// `cargo-upgrade` is scoped to `Update` -- no other command's Rust arm ever runs `cargo
+    /// upgrade`. This is the fix for the 0.82.0 regression where `alef test --lang rust` demanded
+    /// `cargo-upgrade` even though `test` never shells out to it.
     #[test]
-    fn rust_required_tools_include_cargo_edit_alongside_cargo() {
+    fn rust_required_tools_include_cargo_edit_only_for_update() {
         let tools = ToolsConfig::default();
         assert_eq!(
-            required_tools_for_language(Language::Rust, &tools),
+            required_tools_for_language(ToolchainCommand::Update, Language::Rust, &tools),
             vec!["cargo".to_string(), "cargo-upgrade".to_string()]
         );
+        for command in [
+            ToolchainCommand::Build,
+            ToolchainCommand::Test,
+            ToolchainCommand::Setup,
+            ToolchainCommand::Clean,
+        ] {
+            assert_eq!(
+                required_tools_for_language(command, Language::Rust, &tools),
+                vec!["cargo".to_string()],
+                "{command:?} must not require cargo-upgrade"
+            );
+        }
     }
 
     #[test]
@@ -396,29 +434,29 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            required_tools_for_language(Language::Python, &tools),
+            required_tools_for_language(ToolchainCommand::Build, Language::Python, &tools),
             vec!["poetry".to_string()]
         );
         assert_eq!(
-            required_tools_for_language(Language::Node, &tools),
+            required_tools_for_language(ToolchainCommand::Build, Language::Node, &tools),
             vec!["yarn".to_string()]
         );
     }
 
     #[test]
     fn c_has_no_required_toolchain() {
-        assert!(required_tools_for_language(Language::C, &ToolsConfig::default()).is_empty());
+        assert!(required_tools_for_language(ToolchainCommand::Build, Language::C, &ToolsConfig::default()).is_empty());
     }
 
     #[test]
     fn ffi_and_jni_require_only_cargo() {
         let tools = ToolsConfig::default();
         assert_eq!(
-            required_tools_for_language(Language::Ffi, &tools),
+            required_tools_for_language(ToolchainCommand::Build, Language::Ffi, &tools),
             vec!["cargo".to_string()]
         );
         assert_eq!(
-            required_tools_for_language(Language::Jni, &tools),
+            required_tools_for_language(ToolchainCommand::Build, Language::Jni, &tools),
             vec!["cargo".to_string()]
         );
     }

@@ -76,7 +76,8 @@ pub use schema::{
 };
 pub use service::{EntrypointSpec, HandlerContractConfig, RegistrationSpec, ServiceConfig};
 pub use tools::{
-    DEFAULT_RUST_DEV_TOOLS, LangContext, ToolsConfig, require_tool, require_tools, required_tools_for_language,
+    DEFAULT_RUST_DEV_TOOLS, LangContext, ToolchainCommand, ToolsConfig, require_tool, require_tools,
+    required_tools_for_language,
 };
 pub use trait_bridge::{BridgeBinding, TraitBridgeConfig};
 pub use verify::VerifyConfig;
