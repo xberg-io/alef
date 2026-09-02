@@ -93,6 +93,34 @@ pub fn struct_wants_deserialize_delegation(
         && struct_deserialize_delegation_field_sound(typ, opaque_type_names, serializable_opaque_type_names)
 }
 
+/// Render `field.default` (the core field's `#[serde(default)]` / `#[serde(default = "path")]`,
+/// see [`FieldDef::default`]) back into the literal attribute text for the mirror field, for use
+/// when whole-type `Deserialize` delegation does not fire (see [`struct_wants_deserialize_delegation`]
+/// and [`should_delegate_deserialize`]).
+///
+/// Delegation is all-or-nothing per type: one unsound field (an unwrapped opaque, a
+/// non-`Cow` sanitized field, a cfg-gated field) blocks it for the *entire* struct, including
+/// every other field that has nothing to do with the unsound one. Without this fallback, such a
+/// struct's derived, field-by-field `Deserialize` makes an absent-tolerant core field required on
+/// the mirror, rejecting a partial JSON payload the core type itself accepts (the same failure
+/// mode delegation exists to prevent, just not caught by it in this case). Mirroring the literal
+/// attribute here keeps that one field absent-tolerant even though the struct as a whole still
+/// uses the derived impl.
+///
+/// `extract_field` (see `extract::extractor::helpers::fields`) records a bare `#[serde(default)]`
+/// as the `"/* serde(default) */"` sentinel (not valid attribute syntax on its own -- it is a
+/// marker other call sites already match on verbatim, e.g. `backends::pyo3::gen_bindings::constructors`
+/// and `backends::pyo3::gen_bindings::functions::converters`) and `#[serde(default = "path")]` as
+/// the literal `"serde(default = \"path\")"` attribute text. Returns `None` when the core field
+/// carries no serde default. ~keep
+fn serde_default_field_attr(field: &crate::core::ir::FieldDef) -> Option<String> {
+    match field.default.as_deref() {
+        Some("/* serde(default) */") => Some("serde(default)".to_string()),
+        Some(text) if text.starts_with("serde(default") => Some(text.to_string()),
+        _ => None,
+    }
+}
+
 /// Compose the fully-qualified core type path for `typ`: applies crate remaps when
 /// `rust_path` already carries a module path, or falls back to `{core_import}::{name}` for a
 /// bare (unqualified) path. Shared by [`gen_delegating_default_impl`] and
@@ -300,6 +328,14 @@ pub fn gen_struct_with_per_field_attrs(
         {
             attrs.push("serde(skip)".to_string());
         }
+        // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
+        // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
+        // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
+        if has_serde && !delegate_deserialize && !attrs.iter().any(|a| a == "serde(skip)")
+            && let Some(default_attr) = serde_default_field_attr(field)
+        {
+            attrs.push(default_attr);
+        }
         sb.add_field_with_doc(&field.name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
@@ -423,6 +459,14 @@ pub fn gen_struct_with_rename(
         {
             attrs.push(format!("serde(rename = \"{rename}\")"));
         }
+        // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
+        // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
+        // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
+        if has_serde && !delegate_deserialize && !attrs.iter().any(|a| a == "serde(skip)")
+            && let Some(default_attr) = serde_default_field_attr(field)
+        {
+            attrs.push(default_attr);
+        }
         let emit_name = name_override.unwrap_or_else(|| field.name.clone());
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
@@ -513,6 +557,14 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         let emit_name = crate::core::keywords::rust_raw_ident(&field.name);
         if emit_name != field.name && !attrs.iter().any(|a| a.starts_with("serde(rename")) {
             attrs.push(format!("serde(rename = \"{}\")", field.name));
+        }
+        // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
+        // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
+        // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
+        if !delegate_deserialize
+            && let Some(default_attr) = serde_default_field_attr(field)
+        {
+            attrs.push(default_attr);
         }
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }

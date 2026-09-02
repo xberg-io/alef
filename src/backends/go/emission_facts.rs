@@ -10,6 +10,15 @@ pub(crate) struct GoEmissionFacts<'a> {
     pub(crate) unit_enums: HashSet<&'a str>,
     pub(crate) passthrough_enums: HashSet<&'a str>,
     pub(crate) data_enums: HashSet<&'a str>,
+    /// Enums [`super::go_enum_representation`] classifies as
+    /// [`super::GoEnumRepresentation::ExternallyTaggedStruct`] -- `gen_externally_tagged_union_type`
+    /// emits one struct field per variant, unconditionally typed `*<payload struct>` (every
+    /// variant but the active one is absent, so every field must tolerate nil). Recorded here so
+    /// `e2e::field_access::ir_result_fields` can extend its owner/field walk across a tagged-union
+    /// projection like `format.excel` with the SAME authority a literal struct field gets, instead
+    /// of guessing: the pointer-ness is a fact this backend's own generator template always
+    /// produces, not an inference over incomplete information. ~keep
+    pub(crate) externally_tagged_struct_enums: HashSet<&'a str>,
 }
 
 impl<'a> GoEmissionFacts<'a> {
@@ -60,6 +69,13 @@ impl<'a> GoEmissionFacts<'a> {
             data_enums: emitted_enums
                 .iter()
                 .filter(|definition| super::is_data_interface_struct_field_enum(definition))
+                .map(|definition| definition.name.as_str())
+                .collect(),
+            externally_tagged_struct_enums: emitted_enums
+                .iter()
+                .filter(|definition| {
+                    super::go_enum_representation(definition) == super::GoEnumRepresentation::ExternallyTaggedStruct
+                })
                 .map(|definition| definition.name.as_str())
                 .collect(),
         }

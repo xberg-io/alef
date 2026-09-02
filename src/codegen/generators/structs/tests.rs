@@ -530,6 +530,96 @@ fn gen_struct_bare_delegates_for_container_level_serde_default() {
     );
 }
 
+// --- Per-field `#[serde(default)]` fallback when whole-type delegation cannot fire ------------
+//
+// Regression coverage for the `ExtractionConfig` bug: the core struct had one field
+// (`mime_detection_policy`) carrying a bare `#[serde(default)]`, and a *different*, unrelated
+// field referencing an opaque handle type (`ocr: Option<OcrConfig>`, mapped via `#[serde(skip)]`
+// on the mirror). `struct_deserialize_delegation_field_sound` correctly refuses whole-type
+// delegation because of the unrelated opaque field, which used to mean `mime_detection_policy`
+// silently lost its `#[serde(default)]` too -- `ExtractionConfig.from_json("{}")` raised
+// `ValueError: missing field 'mime_detection_policy'` even though the core type accepted the
+// omission. These tests build the same shape (one opaque-blocked field, one sibling with a bare
+// serde default) for each of the three struct generators and assert the sibling still gets
+// `#[serde(default)]` on the derived, field-by-field `Deserialize` mirror.
+
+fn opaque_field(name: &str) -> FieldDef {
+    plain_field(name, TypeRef::Named("OpaqueHandle".to_string()))
+}
+
+#[test]
+fn gen_struct_with_per_field_attrs_mirrors_serde_default_when_delegation_blocked_by_sibling_field() {
+    let typ = type_with_fields(
+        "ExtractionConfig",
+        vec![opaque_field("ocr"), field_with_serde_default("mime_detection_policy")],
+        Default::default(),
+    );
+    let delegatable: AHashSet<String> = ["ExtractionConfig".to_string()].into_iter().collect();
+    let opaque = vec!["OpaqueHandle".to_string()];
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        opaque_type_names: &opaque,
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_per_field_attrs(&typ, &IdentityMapper, &cfg, |_| vec![]);
+
+    assert!(
+        derive_line(&rendered).contains("serde::Deserialize"),
+        "delegation must NOT fire while an unrelated field is opaque-blocked: {rendered}"
+    );
+    assert!(
+        !rendered.contains("impl<'de> serde::Deserialize<'de> for ExtractionConfig {"),
+        "no delegating impl expected: {rendered}"
+    );
+    assert!(
+        rendered.contains("#[serde(default)]") && rendered.contains("pub mime_detection_policy"),
+        "the sibling field must keep its own serde(default) on the derived mirror: {rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_with_rename_mirrors_serde_default_when_delegation_blocked_by_sibling_field() {
+    let typ = type_with_fields(
+        "ExtractionConfig",
+        vec![opaque_field("ocr"), field_with_serde_default("mime_detection_policy")],
+        Default::default(),
+    );
+    let delegatable: AHashSet<String> = ["ExtractionConfig".to_string()].into_iter().collect();
+    let opaque = vec!["OpaqueHandle".to_string()];
+    let cfg = RustBindingConfig {
+        delegate_deserialize_to_core_for_types: Some(&delegatable),
+        opaque_type_names: &opaque,
+        ..base_cfg()
+    };
+    let rendered = gen_struct_with_rename(&typ, &IdentityMapper, &cfg, |_| vec![], |_| None);
+
+    assert!(
+        derive_line(&rendered).contains("serde::Deserialize"),
+        "delegation must NOT fire while an unrelated field is opaque-blocked: {rendered}"
+    );
+    assert!(
+        rendered.contains("#[serde(default)]") && rendered.contains("pub mime_detection_policy"),
+        "the sibling field must keep its own serde(default) on the derived mirror: {rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_bare_mirrors_serde_default_path_when_delegation_not_requested() {
+    let mut field = f64_field("retries");
+    field.default = Some("serde(default = \"default_retries\")".to_string());
+    let typ = type_with_fields("Retry", vec![field], Default::default());
+    // No `delegate_deserialize_to_core_for_types` entry for "Retry" -- delegation is never even
+    // attempted for this type in this run.
+    let cfg = base_cfg();
+    let rendered = gen_struct(&typ, &IdentityMapper, &cfg);
+
+    assert!(derive_line(&rendered).contains("serde::Deserialize"), "{rendered}");
+    assert!(
+        rendered.contains("serde(default = \"default_retries\")"),
+        "a `default = \"path\"` field must also be mirrored verbatim: {rendered}"
+    );
+}
+
 #[test]
 fn gen_struct_with_rename_delegates_for_field_with_serde_with_codec() {
     let mut field = f64_field("elapsed");

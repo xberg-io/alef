@@ -27,7 +27,7 @@ impl GoCrateResolverFacts {
         let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) =
             FieldResolver::ir_field_sets(type_defs);
         let emission = crate::backends::go::emission_facts::GoEmissionFacts::from_config(type_defs, enums, config);
-        let ir_result_fields = FieldResolver::go_ir_result_field_facts_from_emission(type_defs, &emission);
+        let ir_result_fields = FieldResolver::go_ir_result_field_facts_from_emission(type_defs, enums, &emission);
         let ir_collection_fields = FieldResolver::ir_collection_fields(type_defs);
         let reserved_type_names = emission
             .structs
