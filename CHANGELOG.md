@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gemspec as their metadata authority, then replace only the version, platform, files, and native
   extension build hook. The previous synthesized gemspec dropped required fields such as
   `authors`, causing `gem build` to reject every platform package, and also silently discarded
-  runtime dependencies, licenses, homepage, metadata, and other package declarations.
+  runtime dependencies, licenses, homepage, metadata, and other package declarations. RubyGems
+  now writes directly to the requested output directory, and temporary gemspec/native staging is
+  cleaned on both success and failure instead of leaving packaging residue in the source tree.
 
 ## [0.82.1] - 2026-09-02
 

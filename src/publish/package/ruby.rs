@@ -74,21 +74,21 @@ pub fn package_ruby(
     let platform_gemspec = generate_platform_gemspec(&source_gemspec_name, version, &platform, &rb_files)?;
     fs::write(&gemspec_path, platform_gemspec)?;
 
-    run_gem_build(&pkg_dir, &gemspec_name)?;
-
-    let gem_file = find_gem_file(&pkg_dir, &gem_name, version, &platform)
-        .with_context(|| format!("gem build did not produce expected .gem in {}", pkg_dir.display()))?;
-
-    let gem_filename = gem_file
-        .file_name()
-        .context("gem has no filename")?
-        .to_string_lossy()
-        .to_string();
-    let dest = output_dir.join(&gem_filename);
-    fs::copy(&gem_file, &dest)?;
-
-    let _ = fs::remove_file(&gemspec_path);
-    let _ = fs::remove_file(&lib_dest);
+    let gem_filename = format!("{gem_name}-{version}-{platform}.gem");
+    fs::create_dir_all(output_dir).with_context(|| format!("creating {}", output_dir.display()))?;
+    let dest = output_dir
+        .canonicalize()
+        .with_context(|| format!("resolving {}", output_dir.display()))?
+        .join(&gem_filename);
+    let build_result = run_gem_build(&pkg_dir, &gemspec_name, &dest);
+    let gemspec_cleanup = fs::remove_file(&gemspec_path);
+    let native_cleanup = fs::remove_file(&lib_dest);
+    if build_result.is_err() {
+        let _ = fs::remove_file(&dest);
+    }
+    build_result?;
+    gemspec_cleanup.with_context(|| format!("removing staged gemspec {}", gemspec_path.display()))?;
+    native_cleanup.with_context(|| format!("removing staged native library {}", lib_dest.display()))?;
 
     Ok(PackageArtifact {
         path: dest,
@@ -97,20 +97,22 @@ pub fn package_ruby(
     })
 }
 
-fn gem_build_command(gemspec_name: &str) -> Command {
+fn gem_build_command(gemspec_name: &str, output: &Path) -> Command {
     let mut command = Command::new("ruby");
-    command.args(["-S", "gem", "build", gemspec_name]);
+    command.args(["-S", "gem", "build", gemspec_name, "--output"]);
+    command.arg(output);
     command
 }
 
-fn run_gem_build(pkg_dir: &Path, gemspec_name: &str) -> Result<()> {
-    let output = gem_build_command(gemspec_name)
+fn run_gem_build(pkg_dir: &Path, gemspec_name: &str, gem_path: &Path) -> Result<()> {
+    let output = gem_build_command(gemspec_name, gem_path)
         .current_dir(pkg_dir)
         .output()
         .context("failed to execute `ruby -S gem build`")?;
     anyhow::ensure!(
         output.status.success(),
-        "`ruby -S gem build {gemspec_name}` failed with {}: {}",
+        "`ruby -S gem build {gemspec_name} --output {}` failed with {}: {}",
+        gem_path.display(),
         output.status,
         String::from_utf8_lossy(&output.stderr).trim()
     );
@@ -194,48 +196,6 @@ spec
     ))
 }
 
-/// Locate the `.gem` `gem build` just produced.
-///
-/// The exact `{gem_name}-{version}-{platform}.gem` wins; the fallback exists only because
-/// RubyGems normalizes some platform strings (`arm64-darwin` -> `arm64-darwin-23`), so it is
-/// anchored on the `{gem_name}-{version}-` prefix rather than a bare "name contains the
-/// version" test, and it refuses to choose between several matches — a stale gem from an
-/// earlier run would otherwise be published under this run's name. ~keep
-fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> Result<PathBuf> {
-    let expected = dir.join(format!("{gem_name}-{version}-{platform}.gem"));
-    if expected.exists() {
-        return Ok(expected);
-    }
-    let prefix = format!("{gem_name}-{version}-");
-    let mut candidates: Vec<PathBuf> = fs::read_dir(dir)
-        .with_context(|| format!("reading {}", dir.display()))?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "gem"))
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(&prefix))
-        })
-        .collect();
-    candidates.sort();
-
-    match candidates.as_slice() {
-        [] => anyhow::bail!("no .gem file for {gem_name}-{version} found in {}", dir.display()),
-        [only] => Ok(only.clone()),
-        many => anyhow::bail!(
-            "ambiguous .gem for {gem_name}-{version} in {}: expected {}, found {}: {}",
-            dir.display(),
-            expected.display(),
-            many.len(),
-            many.iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-    }
-}
-
 fn ruby_abi_for_packaging() -> Result<String> {
     if let Some(abi) = ruby_abi_override(std::env::var("RUBY_ABI").ok()) {
         return Ok(abi);
@@ -312,7 +272,7 @@ mod tests {
         );
         let direct = Command::new(&gem).arg("build").arg("package.gemspec").status();
         assert!(direct.is_err() || direct.is_ok_and(|status| !status.success()));
-        let status = gem_build_command("package.gemspec")
+        let status = gem_build_command("package.gemspec", Path::new("dist/package.gem"))
             .env("PATH", path)
             .env("ABI_PROBE", &marker)
             .status()
@@ -320,7 +280,7 @@ mod tests {
         assert!(status.success());
         assert_eq!(
             std::fs::read_to_string(marker).expect("read marker"),
-            "build package.gemspec\n"
+            "build package.gemspec --output dist/package.gem\n"
         );
     }
 
@@ -408,9 +368,15 @@ end
             .expect("generate platform gemspec");
         std::fs::write(tmp.path().join("mylib-platform.gemspec"), platform_gemspec).expect("write platform gemspec");
 
-        run_gem_build(tmp.path(), "mylib-platform.gemspec").expect("build platform gem");
-        let gem = tmp.path().join("mylib-1.2.3-x86_64-linux.gem");
+        let output_dir = tmp.path().join("dist");
+        std::fs::create_dir(&output_dir).expect("create output directory");
+        let gem = output_dir.join("mylib-1.2.3-x86_64-linux.gem");
+        run_gem_build(tmp.path(), "mylib-platform.gemspec", &gem).expect("build platform gem");
         assert!(gem.is_file(), "expected {}", gem.display());
+        assert!(
+            !tmp.path().join("mylib-1.2.3-x86_64-linux.gem").exists(),
+            "gem build must not leave a package-directory artifact"
+        );
 
         let assertion = r#"
 require "rubygems/package"
@@ -465,70 +431,6 @@ abort "native" unless spec.files.include?("lib/mylib/3.2.0/libmylib_rb.so")
             scan_rb_files(&lib).is_err(),
             "a non-directory lib path must be an error"
         );
-    }
-
-    #[test]
-    fn find_gem_file_expected_path() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let gem_path = tmp.path().join("mygem-1.0.0-x86_64-linux.gem");
-        std::fs::write(&gem_path, b"fake").unwrap();
-
-        let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux").unwrap();
-        assert_eq!(result, gem_path);
-    }
-
-    #[test]
-    fn find_gem_file_missing_errors() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let result = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux");
-        assert!(result.is_err());
-    }
-
-    /// The fallback exists for RubyGems' platform-string normalization only; an unrelated gem
-    /// that merely contains the version string must never be published under this gem's name.
-    #[test]
-    fn find_gem_file_ignores_unrelated_gem_with_matching_version() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("othergem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
-
-        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "x86_64-linux")
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("no .gem file for mygem-1.0.0"),
-            "unexpected error: {error}"
-        );
-    }
-
-    /// The normalization the fallback exists for: RubyGems rewrites `arm64-darwin` to
-    /// `arm64-darwin-23`, and a single such match is still unambiguous.
-    #[test]
-    fn find_gem_file_accepts_single_platform_normalized_variant() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let normalized = tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem");
-        std::fs::write(&normalized, b"fake").unwrap();
-
-        let found = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin").unwrap();
-        assert_eq!(found, normalized);
-    }
-
-    /// Several same-version gems (a stale one from an earlier run) must error naming all of
-    /// them, not resolve by directory-iteration order.
-    #[test]
-    fn find_gem_file_errors_when_several_same_version_gems_exist() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("mygem-1.0.0-arm64-darwin-23.gem"), b"fake").unwrap();
-        std::fs::write(tmp.path().join("mygem-1.0.0-x86_64-linux.gem"), b"fake").unwrap();
-
-        let error = find_gem_file(tmp.path(), "mygem", "1.0.0", "arm64-darwin")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("ambiguous .gem"), "unexpected error: {error}");
-        assert!(
-            error.contains("arm64-darwin-23.gem"),
-            "must name every candidate: {error}"
-        );
-        assert!(error.contains("x86_64-linux.gem"), "must name every candidate: {error}");
     }
 
     /// `find_ruby_native_lib` now delegates to
