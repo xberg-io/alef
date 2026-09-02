@@ -179,6 +179,11 @@ pub(super) fn render_test_file(
         let _ = writeln!(out, "import 'dart:ffi';");
         let _ = writeln!(out, "import 'package:ffi/ffi.dart';");
     }
+    // `e2e_helpers.dart` provides `startMockServer()`/`MockServerHandle`, the shared
+    // repo-root-relative standalone-mock-server spawn used by `render_dart_sut_spawn`.
+    if has_http_fixtures || has_mock_url_refs {
+        let _ = writeln!(out, "import 'e2e_helpers.dart';");
+    }
     let _ = writeln!(out);
 
     // Emit file-level HTTP client and serialization mutex.
@@ -254,6 +259,10 @@ pub(super) fn render_test_file(
     if needs_sut_spawn {
         let _ = writeln!(out, "Process? _sutProcess;");
         let _ = writeln!(out, "String? _spawnedSutUrl;");
+        // Set only by the standalone mock-server branch of `render_dart_sut_spawn` (via
+        // `startMockServer()` in `e2e_helpers.dart`), which owns its own process and is
+        // stopped through `MockServerHandle.stop()` rather than `_sutProcess`.
+        let _ = writeln!(out, "MockServerHandle? _mockServerHandle;");
         // Per-fixture origin-root URLs captured from the `MOCK_SERVERS=` sentinel
         // line. Populated by the spawn-and-listen setUpAll body below or seeded
         // from `MOCK_SERVERS` env when a parent process already started the server.
@@ -424,6 +433,7 @@ pub(super) fn render_test_file(
         let _ = writeln!(out, "      proc.kill();");
         let _ = writeln!(out, "      await proc.exitCode;");
         let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    await _mockServerHandle?.stop();");
     }
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
@@ -518,79 +528,29 @@ fn render_dart_sut_spawn(out: &mut String) {
         "        await _ready.future.timeout(const Duration(seconds: 15), onTimeout: () {{}});"
     );
     // When app_harness.dart is absent this is a mock-server test (not a server-pattern
-    // test). Build the alef-generated mock-server binary if it is missing, then spawn
-    // it and capture `MOCK_SERVER_URL=` from its stdout — the same sentinel line that
-    // Ruby spec_helper and the `alef test-apps run` orchestrator read.
-    // Resolve paths relative to the test file to locate the mock-server project.
+    // test). Delegate to `startMockServer()` in `e2e_helpers.dart`: it builds the
+    // alef-generated mock-server binary if missing and captures `MOCK_SERVER_URL=` /
+    // `MOCK_SERVERS=` from its stdout — the same sentinel lines Ruby spec_helper and the
+    // `alef test-apps run` orchestrator read.
+    // ~keep This used to re-derive the mock-server binary/manifest paths inline via
+    // `Directory.current.uri.resolve(...)`, which only resolves correctly when
+    // `Directory.current` is `e2e/dart/`. `dart test` actually runs with `Directory.current`
+    // at the repo root, so `'../rust/Cargo.toml'` resolved to `<repo_root>/../rust/Cargo.toml`
+    // -- `Bad state: mock-server build failed: error: manifest path ... does not exist`, six
+    // suites failing in `setUpAll` with zero fixture assertions run. `startMockServer()`
+    // resolves the mock-server project by walking up from `Directory.current` to the repo
+    // root (a `Cargo.toml` + `test_documents/` pair), so it is correct regardless of the
+    // process's working directory. Reuse it here instead of re-deriving the same paths a
+    // second, cwd-fragile way.
     let _ = writeln!(out, "      }} else {{");
     let _ = writeln!(
         out,
-        "        // Standalone mock-server mode: build if missing, then spawn."
+        "        // Standalone mock-server mode: delegate to the shared helper."
     );
-    let _ = writeln!(
-        out,
-        "        final _mockBin = Directory.current.uri.resolve('../rust/target/release/mock-server').toFilePath();"
-    );
-    let _ = writeln!(
-        out,
-        "        final _mockManifest = Directory.current.uri.resolve('../rust/Cargo.toml').toFilePath();"
-    );
-    let _ = writeln!(out, "        if (!File(_mockBin).existsSync()) {{");
-    let _ = writeln!(
-        out,
-        "          final _build = await Process.run('cargo', ['build', '--release', '--manifest-path', _mockManifest, '--bin', 'mock-server']);"
-    );
-    let _ = writeln!(
-        out,
-        "          if (_build.exitCode != 0) throw StateError('mock-server build failed: ${{_build.stderr}}');"
-    );
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(
-        out,
-        "        final _fixturesDir = Directory.current.uri.resolve('../../fixtures').toFilePath();"
-    );
-    let _ = writeln!(
-        out,
-        "        _sutProcess = await Process.start(_mockBin, [_fixturesDir], mode: ProcessStartMode.normal);"
-    );
-    let _ = writeln!(out, "        final _ready2 = Completer<void>();");
-    let _ = writeln!(out, "        _sutProcess!.stdout");
-    let _ = writeln!(out, "            .transform(utf8.decoder)");
-    let _ = writeln!(out, "            .transform(const LineSplitter())");
-    let _ = writeln!(out, "            .listen((_line) {{");
-    let _ = writeln!(out, "          final _trimmed = _line.trim();");
-    let _ = writeln!(out, "          if (_trimmed.startsWith('MOCK_SERVER_URL=')) {{");
-    let _ = writeln!(
-        out,
-        "            _spawnedSutUrl = _trimmed.substring('MOCK_SERVER_URL='.length);"
-    );
-    let _ = writeln!(out, "          }}");
-    let _ = writeln!(out, "          if (_trimmed.startsWith('MOCK_SERVERS=')) {{");
-    let _ = writeln!(
-        out,
-        "            final _payload = _trimmed.substring('MOCK_SERVERS='.length);"
-    );
-    let _ = writeln!(out, "            try {{");
-    let _ = writeln!(out, "              final _decoded = jsonDecode(_payload);");
-    let _ = writeln!(out, "              if (_decoded is Map) {{");
-    let _ = writeln!(out, "                _decoded.forEach((k, v) {{");
-    let _ = writeln!(out, "                  if (k is String && v is String) {{");
-    let _ = writeln!(out, "                    _fixtureUrls[k] = v;");
-    let _ = writeln!(out, "                  }}");
-    let _ = writeln!(out, "                }});");
-    let _ = writeln!(out, "              }}");
-    let _ = writeln!(out, "            }} catch (_) {{}}");
-    let _ = writeln!(out, "            if (!_ready2.isCompleted) _ready2.complete();");
-    let _ = writeln!(out, "          }} else if (_spawnedSutUrl != null) {{");
-    let _ = writeln!(out, "            if (!_ready2.isCompleted) _ready2.complete();");
-    let _ = writeln!(out, "          }}");
-    let _ = writeln!(out, "        }}, onDone: () {{");
-    let _ = writeln!(out, "          if (!_ready2.isCompleted) _ready2.complete();");
-    let _ = writeln!(out, "        }});");
-    let _ = writeln!(
-        out,
-        "        await _ready2.future.timeout(const Duration(seconds: 60), onTimeout: () {{}});"
-    );
+    let _ = writeln!(out, "        final _handle = await startMockServer();");
+    let _ = writeln!(out, "        _mockServerHandle = _handle;");
+    let _ = writeln!(out, "        _spawnedSutUrl = _handle.url;");
+    let _ = writeln!(out, "        _fixtureUrls.addAll(_handle.fixtureUrls);");
     let _ = writeln!(out, "      }}");
     let _ = writeln!(out, "    }}");
 }

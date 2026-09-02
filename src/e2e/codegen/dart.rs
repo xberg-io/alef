@@ -80,6 +80,18 @@ impl E2eCodegen for DartE2eCodegen {
 
         let test_base = output_base.join("test");
 
+        // Shared standalone-mock-server spawn + repo-root-relative path resolution,
+        // imported by every generated `*_test.dart` file that needs to spawn the
+        // standalone mock-server (see `test_file::render_dart_sut_spawn`). Emitted
+        // unconditionally: `alef verify`/`--clean` regeneration must reproduce it even
+        // when no fixture group happens to need it in a given run, and an unreferenced
+        // file costs nothing.
+        files.push(GeneratedFile {
+            path: test_base.join("e2e_helpers.dart"),
+            content: project::render_e2e_helpers(),
+            generated_header: false,
+        });
+
         // One test file per fixture group.
         let bridge_class = config.dart_bridge_class_name();
 
