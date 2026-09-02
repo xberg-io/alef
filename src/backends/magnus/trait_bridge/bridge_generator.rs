@@ -472,9 +472,6 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let Some(register_fn) = spec.bridge_config.register_fn.as_deref() else {
             return String::new();
         };
-        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
-            return String::new();
-        };
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
         let required_methods: Vec<_> = spec
@@ -490,16 +487,21 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             .as_deref()
             .map(|a| format!(", {a}"))
             .unwrap_or_default();
+        let registration_call = if let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() {
+            format!("{registry_getter}().write().register(arc{register_extra_args})")
+        } else {
+            let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, register_fn);
+            format!("{host_path}(arc{register_extra_args})")
+        };
 
         crate::backends::magnus::template_env::render(
             "trait_bridge_registration_fn.rs.jinja",
             minijinja::context! {
                 register_fn => register_fn,
-                registry_getter => registry_getter,
                 wrapper => wrapper,
                 trait_path => trait_path,
                 required_methods => required_methods,
-                register_extra_args => register_extra_args,
+                registration_call => registration_call,
             },
         )
     }

@@ -1770,6 +1770,40 @@ mod trait_bridge {
     }
 
     #[test]
+    fn test_plugin_bridge_can_register_through_core_host_function() {
+        let trait_def = make_trait_def(
+            "EmbeddingBackend",
+            vec![make_method(
+                "embed",
+                TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F64))),
+                true,
+                false,
+            )],
+        );
+        let mut cfg = make_plugin_bridge_cfg("EmbeddingBackend");
+        cfg.registry_getter = None;
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "sample_crate",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("sample_crate::plugins::register_embedding_backend(arc).map_err"),
+            "registration without a registry getter must delegate locking and lifecycle to the core host function:\n{code}"
+        );
+        assert!(
+            !code.contains(".write().register(arc)"),
+            "direct core registration must not acquire a generated registry lock:\n{code}"
+        );
+    }
+
+    #[test]
     fn test_plugin_bridge_emits_plugin_impl() {
         let trait_def = make_trait_def(
             "PostProcessor",
