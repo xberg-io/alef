@@ -11,9 +11,16 @@ use crate::docs::clean_doc;
 ///
 /// - `_free_string`: wraps the C `{prefix}_free_string` symbol to release
 ///   FFI-allocated strings. Caller must NOT use the pointer after this call.
-/// - `_last_error`: reads the thread-local last-error state set by the FFI
-///   layer. Returns a Zig slice pointing into thread-local storage; the
-///   pointer is valid until the next FFI call.
+/// - `_last_error`: returns the binding-owned copy of the last captured error
+///   message, if any. `_capture_error_message` populates that copy from the
+///   FFI layer's thread-local state *before* `_error_with_message` returns —
+///   every generated wrapper function's deferred `_free` calls run once the
+///   error value is produced but before the caller regains control, and each
+///   `_free` re-enters the FFI layer through `catch_ffi_panic`, which clears
+///   that thread-local state on entry. Reading it lazily from `_last_error`
+///   after the wrapper returns would therefore observe an already-cleared
+///   (and potentially freed) buffer; capturing eagerly, before any deferred
+///   call can run, is mandatory.
 ///
 /// `declared_errors` is the list of error sets declared in the module (in
 /// declaration order). `_error_with_message` dispatches on the stable numeric
@@ -44,24 +51,44 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
     ));
     out.push_str("}\n\n");
 
-    out.push_str("/// Retrieve the last error set by the FFI layer, if any.\n");
-    out.push_str("/// Returns a slice into thread-local storage valid until the next FFI call.\n");
+    out.push_str("/// Binding-owned copy of the last error message captured by\n");
+    out.push_str("/// `_capture_error_message`. Freed and replaced each time a new error is\n");
+    out.push_str("/// captured; outlives the deferred FFI calls that clear the underlying\n");
+    out.push_str("/// thread-local state in the FFI layer.\n");
+    out.push_str("threadlocal var _captured_error: ?[]u8 = null;\n\n");
+
+    out.push_str("/// Retrieve the last error message captured by `_error_with_message`, if any.\n");
+    out.push_str("/// Returns a slice into binding-owned storage, valid until the next captured\n");
+    out.push_str("/// error overwrites it.\n");
     out.push_str("pub fn _last_error() ?[]const u8 {\n");
+    out.push_str("    return _captured_error;\n");
+    out.push_str("}\n\n");
+
+    out.push_str("/// Copy the FFI layer's current error message into binding-owned storage.\n");
+    out.push_str(&format!(
+        "/// Must run before any deferred `_free` call: every `{prefix}_*` FFI entry point\n"
+    ));
+    out.push_str("/// clears the thread-local error state on entry (`catch_ffi_panic` opens with\n");
+    out.push_str("/// `clear_last_error()`), so a `_free` invoked between the failing call and this\n");
+    out.push_str("/// capture would wipe the message before it could be read.\n");
+    out.push_str("fn _capture_error_message() void {\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_code.jinja",
         minijinja::context! {
             symbol => error_code_symbol,
         },
     ));
-    out.push_str("    if (_code == 0) return null;\n");
+    out.push_str("    if (_code == 0) return;\n");
     out.push_str(&crate::backends::zig::template_env::render(
         "helper_last_error_ctx.jinja",
         minijinja::context! {
             symbol => error_context_symbol,
         },
     ));
-    out.push_str("    if (_ctx == null) return null;\n");
-    out.push_str("    return std.mem.sliceTo(_ctx, 0);\n");
+    out.push_str("    if (_ctx == null) return;\n");
+    out.push_str("    const _msg = std.mem.sliceTo(_ctx, 0);\n");
+    out.push_str("    if (_captured_error) |_old| std.heap.c_allocator.free(_old);\n");
+    out.push_str("    _captured_error = std.heap.c_allocator.dupe(u8, _msg) catch null;\n");
     out.push_str("}\n\n");
 
     let dispatching: Vec<&ErrorDef> = declared_errors
@@ -79,7 +106,7 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
         out.push_str("/// A code matching no declared variant maps to `error.UnknownFfiError`.\n");
     }
     out.push_str("inline fn _error_with_message(comptime E: type) E {\n");
-    out.push_str("    _ = _last_error();\n");
+    out.push_str("    _capture_error_message();\n");
     if !dispatching.is_empty() {
         out.push_str(&format!(
             "    const code = @as(i32, @intCast(c.{error_code_symbol}()));\n"
@@ -198,6 +225,40 @@ mod tests {
         assert!(
             !out.contains("Dispatches exclusively on the stable numeric FFI taxonomy code"),
             "the emitted doc must not claim a dispatch that does not exist:\n{out}"
+        );
+    }
+
+    /// Regression: `_error_with_message` used to discard the FFI error message with
+    /// `_ = _last_error();` when no declared variant carried a taxonomy code. Every generated
+    /// wrapper function's deferred `_free` calls run before the caller regains control and
+    /// re-enter the FFI layer, which clears the thread-local error state on entry -- so by the
+    /// time a caller invoked `_last_error()` afterwards, the message was already gone. The fix
+    /// captures the message into binding-owned storage inside `_error_with_message`, before any
+    /// deferred call can run. ~keep
+    #[test]
+    fn error_with_message_captures_context_into_binding_owned_storage() {
+        let mut out = String::new();
+        emit_helpers("example_pack", &[], &mut out);
+
+        assert!(
+            !out.contains("_ = _last_error();"),
+            "the FFI error context must not be read and discarded:\n{out}"
+        );
+        assert!(
+            out.contains("threadlocal var _captured_error: ?[]u8 = null;"),
+            "missing binding-owned error message storage:\n{out}"
+        );
+        assert!(
+            out.contains("fn _capture_error_message() void {"),
+            "missing the capture routine:\n{out}"
+        );
+        assert!(
+            out.contains("    _capture_error_message();\n"),
+            "_error_with_message must capture before returning:\n{out}"
+        );
+        assert!(
+            out.contains("pub fn _last_error() ?[]const u8 {\n    return _captured_error;\n}"),
+            "_last_error must read the binding-owned copy, not the FFI layer directly:\n{out}"
         );
     }
 

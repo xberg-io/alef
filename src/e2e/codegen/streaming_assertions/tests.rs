@@ -143,6 +143,13 @@ fn collect_snippet_zig_drains_via_ffi() {
         "zig collect: {snip}"
     );
     assert!(snip.contains(".empty;"), "zig collect (Zig 0.16 unmanaged): {snip}");
+    // Regression: `_nc` holds the u64 handle returned by the FFI `_next` call (like the
+    // `_stream_handle` handle it iterates from), not a pointer -- `_nc == null` fails to
+    // compile in Zig ("comparison of 'u64' with null"). `_np`, in contrast, really is a
+    // `*const c_char` from `_to_json` and must keep comparing against `null`.
+    assert!(snip.contains("if (_nc == 0) break;"), "zig collect: {snip}");
+    assert!(!snip.contains("_nc == null"), "zig collect: {snip}");
+    assert!(snip.contains("if (_np == null) continue;"), "zig collect: {snip}");
 }
 
 #[test]
