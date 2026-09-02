@@ -13,7 +13,7 @@
 use super::PackageArtifact;
 use crate::core::config::ResolvedCrateConfig;
 use crate::publish::package::BuildProfile;
-use crate::publish::platform::RustTarget;
+use crate::publish::platform::{Os, RustTarget};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,15 +40,16 @@ pub fn package_ruby(
 
     let rb_crate = crate::publish::crate_name_from_output(config, crate::core::config::extras::Language::Ruby)
         .unwrap_or_else(|| format!("{}-rb", config.name));
-    let lib_filename = target.shared_lib_name(&rb_crate.replace('-', "_"));
-    let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &lib_filename)?;
+    let ext_name = rb_crate.replace('-', "_");
+    let cargo_lib_filename = target.shared_lib_name(&ext_name);
+    let native_lib = find_ruby_native_lib(workspace_root, target, &rb_crate, &cargo_lib_filename)?;
+    let packaged_lib_filename = ruby_extension_filename(target, &ext_name);
 
     let ruby_abi = ruby_abi_for_packaging()?;
-    let ext_name = rb_crate.replace('-', "_");
 
     let lib_dest_dir = pkg_dir.join("lib").join(&ext_name).join(&ruby_abi);
     fs::create_dir_all(&lib_dest_dir).with_context(|| format!("creating {}", lib_dest_dir.display()))?;
-    let lib_dest = lib_dest_dir.join(&lib_filename);
+    let lib_dest = lib_dest_dir.join(&packaged_lib_filename);
     fs::copy(&native_lib, &lib_dest).with_context(|| format!("copying native lib to {}", lib_dest.display()))?;
 
     let lib_dir = pkg_dir.join("lib");
@@ -58,7 +59,7 @@ pub fn package_ruby(
         .filter_map(|p| p.strip_prefix(&pkg_dir).ok().map(|r| r.to_string_lossy().into_owned()))
         .collect();
     rb_files.sort();
-    let native_lib_path = format!("lib/{ext_name}/{ruby_abi}/{lib_filename}");
+    let native_lib_path = format!("lib/{ext_name}/{ruby_abi}/{packaged_lib_filename}");
     if !rb_files.contains(&native_lib_path) {
         rb_files.push(native_lib_path);
     }
@@ -95,6 +96,14 @@ pub fn package_ruby(
         name: gem_filename,
         checksum: None,
     })
+}
+
+fn ruby_extension_filename(target: &RustTarget, extension_name: &str) -> String {
+    let extension = match target.os {
+        Os::MacOs => "bundle",
+        Os::Linux | Os::Windows | Os::Unknown => "so",
+    };
+    format!("{extension_name}.{extension}")
 }
 
 fn gem_build_command(gemspec_name: &str, output: &Path) -> Command {
@@ -294,6 +303,19 @@ mod tests {
         assert_eq!(ruby_abi_override(Some("   ".to_string())), None);
         assert_eq!(ruby_abi_override(Some(String::new())), None);
         assert_eq!(ruby_abi_override(None), None);
+    }
+
+    #[test]
+    fn ruby_extension_filename_matches_ruby_loader_conventions() {
+        let cases = [
+            ("x86_64-unknown-linux-gnu", "mylib.so"),
+            ("aarch64-apple-darwin", "mylib.bundle"),
+            ("x86_64-pc-windows-msvc", "mylib.so"),
+        ];
+        for (triple, expected) in cases {
+            let target = RustTarget::parse(triple).expect("parse target");
+            assert_eq!(ruby_extension_filename(&target, "mylib"), expected);
+        }
     }
 
     #[test]

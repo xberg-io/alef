@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime dependencies, licenses, homepage, metadata, and other package declarations. RubyGems
   now writes directly to the requested output directory, and temporary gemspec/native staging is
   cleaned on both success and failure instead of leaving packaging residue in the source tree.
+  Packaged native extensions also use Ruby loader filenames (`name.so` or `name.bundle`) instead
+  of Cargo library filenames (`libname.so` or `libname.dylib`), so Ruby requests the initializer
+  symbol the Magnus extension actually exports.
 
 ## [0.82.1] - 2026-09-02
 
