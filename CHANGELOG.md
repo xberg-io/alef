@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.82.0] - 2026-09-02
+
 ### Removed
 
 - **`[lint.<lang>]`, `[setup.<lang>]`, `[update.<lang>]`, `[clean.<lang>]`, and
@@ -73,7 +75,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `precondition` hook — deleting an override on any of those either changes nothing (no consumer
   had one) or produces the intended parse error, never a silent behavior change.
 
+  **Migration.** Before upgrading, delete every `[workspace.lint.*]`, `[workspace.setup.*]`,
+  `[workspace.update.*]`, `[workspace.clean.*]` and `[workspace.build_commands.*]` table from
+  `alef.toml`, and the `[crates.*]` equivalents (`[crates.lint.*]`, `[crates.setup.*]`,
+  `[crates.update.*]`, `[crates.clean.*]`, `[crates.build_commands.*]`). A leftover table is a
+  hard parse error — every alef command fails with serde's `unknown field` until it is gone, so
+  the upgrade is not partially survivable. `[workspace.test.<lang>]` and `[crates.test.<lang>]`
+  are unaffected and need no change. There is no replacement key for the deleted tables: alef's
+  own default is what runs, and for every consumer surveyed it is what was already running.
+
+### Added
+
+- **Manifest-vs-lockfile freshness for PHP, Ruby, Go and Dart.** Cargo, pnpm and uv were gated;
+  the other four ecosystems were not, so a `composer.json` requirement its `composer.lock` could
+  not satisfy passed unnoticed. Dart had a check already but it was internal-only — used to decide
+  whether to re-run `dart pub get`, never surfaced as a finding. Each new gate implements its own
+  ecosystem's version semantics rather than borrowing Cargo's: Composer's two-component `~`
+  differs from Cargo's, RubyGems has the pessimistic `~>`, and Go has no range concept at all so
+  the check is `go.sum` ledger presence for the exact `go.mod` pin, skipping `replace`-covered
+  modules.
+
+  All four use the precise, resolved-config-scoped pending-publish exemption, not the looser
+  "any in-tree package matching name and version" form whose false-negative is documented in
+  `lock_freshness_pending_publish_collision_tests.rs`.
+
+  `lock_freshness.rs` was 1361 lines and `lock_freshness_tests.rs` 1386, both over the
+  file-modularization cap, so they were split per ecosystem first as a separate behaviour-
+  preserving step — the pre-existing 50 tests moved verbatim, no assertion or name changed — and
+  only then extended. All 17 resulting files are under the cap.
+
 ### Changed
+
+- **A missing toolchain is now a hard error for every enabled language, not a silent skip.**
+  `require_tool` built a `command -v <tool>` precondition that `check_precondition` treated as a
+  skip switch, and its own doc committed to that contract: "a missing tool causes a graceful
+  warn-and-skip rather than a hard failure". The consequence was that an absent `uv`, `pnpm`,
+  `gradle` or `cargo-upgrade` made `build`, `test`, `setup`, `clean`, `update` and `all` report
+  success for a language they had done nothing for -- a green run that proves nothing, which is
+  the same defect class as a check that passes because it examined nothing.
+
+  `enforce_required_toolchains` now runs before any per-command precondition is evaluated, and
+  bails. It is scoped to the languages a crate actually enables, so a repo that does not enable
+  Ruby is never asked for Ruby's toolchain. `cargo-edit` (`cargo upgrade`) joins the required set
+  for Rust. Ruby requires `bundle` as well as `ruby`: the interpreter alone is present on
+  essentially every image, so probing only for it would have left the vacuous check in place for
+  the one language whose steps all run through Bundler.
+
+  `require_tool`/`require_tools` remain for the genuine single-step gates (Elixir's `mix deps.get`
+  check, the Python venv check) that a skipped step can tolerate, and their docs no longer claim
+  the toolchain-enforcement contract they had stopped honouring.
+
+- **`alef update` now reaches every Rust manifest alef generated, not just the current
+  directory.** Its Rust arm ran `cargo update` once in the CWD with no per-directory iteration,
+  unlike every other language, whose default is templated `cd {output_dir} && ...`. A
+  workspace-EXCLUDED manifest — a Ruby, R, or Elixir native-extension crate, or an `e2e/rust`
+  crate — is therefore structurally unreachable: not a member, so a root `cargo update -w` never
+  touches it, and `alef update` never enters its directory. That is how three lockfiles in one
+  repo drifted until `cargo metadata --locked` failed in CI.
+
+  Discovery reuses `version_manifests::discover_cargo_locks` rather than adding a second
+  mechanism. `--latest` delegates to `cargo upgrade --incompatible` before `cargo update`, but
+  never against an alef-generated manifest: `cargo upgrade` rewrites the manifest and so
+  invalidates the `alef:hash:` stamp the generator just wrote, which would make the next
+  `alef verify` report drift on a file alef itself asked cargo to rewrite. Generated-ness is read
+  from the file's own header, not a path allowlist. A lock blocked on this workspace's own pending
+  publish is skipped; discovering no lockfiles at all is an error rather than a silent no-op.
+
+- **`alef generate` now proves its lockfile refresh worked instead of assuming it.**
+  `relock_one` returned `()`, so a `cargo update` that failed both offline and online was a
+  `warn!` no caller could see or act on — the manifest change landed on disk carrying the exact
+  disagreement `cargo metadata --locked` would later fail on, and generate returned as though
+  nothing had happened. `relock_one` now returns `Result`, and
+  `relock_lockfiles_beside_changed_manifests` re-runs the freshness check against the manifest it
+  just rewrote. Re-checking rather than trusting the exit code is what makes this non-vacuous:
+  `cargo update` exiting 0 proves some resolution succeeded, not that this manifest's new
+  requirement is satisfied.
+
+  Every changed manifest is relocked and every failure reported together. The incident behind this
+  had three stale locks in one tree; returning on the first would have named one, left two
+  untouched, and cost a full regenerate per lock while reporting a single problem each time.
+
+  The version-sync callers keep their documented best-effort contract. `alef build` and
+  `alef scaffold` still run no lock-freshness check anywhere in their command path — that gap is
+  now named in the source rather than left for a reader to infer from a `warn!`.
 
 - **`alef verify` now enumerates version checks from config instead of a hardcoded path list.**
   `verify_versions` carried literal paths like `"packages/python/pyproject.toml"`, so it checked
@@ -109,98 +193,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the renamed artifact. `gen_build_gradle` now asserts the pin is at or past the 0.55.0 boundary,
   so reverting it fails a test rather than silently reintroducing the four workarounds.
 
-### Added
+- **e2e (C#/Dart): a doc snippet stepping into a tagged-union payload emitted a field chain
+  neither binding can spell.** C# rendered `.Format!.Html!.Title`, naming the variant *type* where
+  a property is required (CS0572), and Dart rendered `.format?.html?.title` against a freezed
+  sealed class that has no such getter. Both failed to compile in the consumer. The assertion
+  emitters have always crossed these correctly; only the presentation path did not, because it
+  called `presentation::resolve` -- whose `build_resolver` supplies no per-language representation
+  facts -- where php and swift call `resolve_with` with their own. Both now furnish a resolver the
+  way php already did, rather than anchoring the maps into the shared constructor and moving
+  output for languages nobody has measured.
 
-- **Manifest-vs-lockfile freshness for PHP, Ruby, Go and Dart.** Cargo, pnpm and uv were gated;
-  the other four ecosystems were not, so a `composer.json` requirement its `composer.lock` could
-  not satisfy passed unnoticed. Dart had a check already but it was internal-only — used to decide
-  whether to re-run `dart pub get`, never surfaced as a finding. Each new gate implements its own
-  ecosystem's version semantics rather than borrowing Cargo's: Composer's two-component `~`
-  differs from Cargo's, RubyGems has the pessimistic `~>`, and Go has no range concept at all so
-  the check is `go.sum` ledger presence for the exact `go.mod` pin, skipping `replace`-covered
-  modules.
-
-  All four use the precise, resolved-config-scoped pending-publish exemption, not the looser
-  "any in-tree package matching name and version" form whose false-negative is documented in
-  `lock_freshness_pending_publish_collision_tests.rs`.
-
-  `lock_freshness.rs` was 1361 lines and `lock_freshness_tests.rs` 1386, both over the
-  file-modularization cap, so they were split per ecosystem first as a separate behaviour-
-  preserving step — the pre-existing 50 tests moved verbatim, no assertion or name changed — and
-  only then extended. All 17 resulting files are under the cap.
-
-### Changed
-
-- **`alef update` now reaches every Rust manifest alef generated, not just the current
-  directory.** Its Rust arm ran `cargo update` once in the CWD with no per-directory iteration,
-  unlike every other language, whose default is templated `cd {output_dir} && ...`. A
-  workspace-EXCLUDED manifest — a Ruby, R, or Elixir native-extension crate, or an `e2e/rust`
-  crate — is therefore structurally unreachable: not a member, so a root `cargo update -w` never
-  touches it, and `alef update` never enters its directory. That is how three lockfiles in one
-  repo drifted until `cargo metadata --locked` failed in CI.
-
-  Discovery reuses `version_manifests::discover_cargo_locks` rather than adding a second
-  mechanism. `--latest` delegates to `cargo upgrade --incompatible` before `cargo update`, but
-  never against an alef-generated manifest: `cargo upgrade` rewrites the manifest and so
-  invalidates the `alef:hash:` stamp the generator just wrote, which would make the next
-  `alef verify` report drift on a file alef itself asked cargo to rewrite. Generated-ness is read
-  from the file's own header, not a path allowlist. A lock blocked on this workspace's own pending
-  publish is skipped; discovering no lockfiles at all is an error rather than a silent no-op.
-
-### Fixed
-
-- **A Dart codegen test asserted a property of the CI environment rather than of the generated
-  code.** `generated_json_decoder_returns_error_for_excluded_variant_at_runtime` spawns a child
-  `cargo run` over a scratch crate, and a child cargo inherits the parent's environment — so where
-  CI exports `RUSTFLAGS=-D warnings`, two warnings in the synthetic fixture became hard errors.
-  The test failed on all three runners while passing on every developer machine. Neither warning
-  is a defect in what alef emits: the fixture's hand-written enum is private while the generated
-  function is `pub`, and the generated catch-all arm is unreachable only because the fixture
-  declares no cfg-gated variant — that arm exists precisely because a wrapper crate cannot forward
-  a foreign cfg. The child now runs with `RUSTFLAGS` removed, so the test asserts what it claims
-  to: that the generated bridge compiles and returns `Err` without panicking.
-
-### Changed
-
-- **`alef generate` now proves its lockfile refresh worked instead of assuming it.**
-  `relock_one` returned `()`, so a `cargo update` that failed both offline and online was a
-  `warn!` no caller could see or act on — the manifest change landed on disk carrying the exact
-  disagreement `cargo metadata --locked` would later fail on, and generate returned as though
-  nothing had happened. `relock_one` now returns `Result`, and
-  `relock_lockfiles_beside_changed_manifests` re-runs the freshness check against the manifest it
-  just rewrote. Re-checking rather than trusting the exit code is what makes this non-vacuous:
-  `cargo update` exiting 0 proves some resolution succeeded, not that this manifest's new
-  requirement is satisfied.
-
-  Every changed manifest is relocked and every failure reported together. The incident behind this
-  had three stale locks in one tree; returning on the first would have named one, left two
-  untouched, and cost a full regenerate per lock while reporting a single problem each time.
-
-  The version-sync callers keep their documented best-effort contract. `alef build` and
-  `alef scaffold` still run no lock-freshness check anywhere in their command path — that gap is
-  now named in the source rather than left for a reader to infer from a `warn!`.
-
-
-- **A missing toolchain is now a hard error for every enabled language, not a silent skip.**
-  `require_tool` built a `command -v <tool>` precondition that `check_precondition` treated as a
-  skip switch, and its own doc committed to that contract: "a missing tool causes a graceful
-  warn-and-skip rather than a hard failure". The consequence was that an absent `uv`, `pnpm`,
-  `gradle` or `cargo-upgrade` made `build`, `test`, `setup`, `clean`, `update` and `all` report
-  success for a language they had done nothing for -- a green run that proves nothing, which is
-  the same defect class as a check that passes because it examined nothing.
-
-  `enforce_required_toolchains` now runs before any per-command precondition is evaluated, and
-  bails. It is scoped to the languages a crate actually enables, so a repo that does not enable
-  Ruby is never asked for Ruby's toolchain. `cargo-edit` (`cargo upgrade`) joins the required set
-  for Rust. Ruby requires `bundle` as well as `ruby`: the interpreter alone is present on
-  essentially every image, so probing only for it would have left the vacuous check in place for
-  the one language whose steps all run through Bundler.
-
-  `require_tool`/`require_tools` remain for the genuine single-step gates (Elixir's `mix deps.get`
-  check, the Python venv check) that a skipped step can tolerate, and their docs no longer claim
-  the toolchain-enforcement contract they had stopped honouring.
-
-### Fixed
+  The two languages need different mechanisms: C# renames a segment, Dart wraps the prefix in a
+  cast and so resolves before the chain renderer runs. C# additionally forces the null-forgiving
+  operator after a narrowing, because `As<Variant>` is generated as `T?` and returns null for
+  every other variant -- keying it off `optional_fields` alone would trade CS0572 for CS8602. The
+  accessor names are read from the code that emits them (`variant_accessor_properties`, extracted
+  from the C# enum generator and re-exported; Dart's `<Union>_<Variant>` from the assertion
+  emitter that already relies on flutter_rust_bridge's spelling), so a snippet can never reference
+  a property the binding never generated -- the snippet gate compiles only a subset, so
+  re-deriving the name would not reliably catch it. An empty map renders byte-identically, so no
+  other language moves.
 
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
   napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
@@ -221,6 +233,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   releases, and because `publish-node` gates on `needs.e2e-node.result == 'success'`, npm silently
   never received a build for those versions. A unit-only `#[napi(string_enum)]` is a bare string on
   the wire and is deliberately left on the existing scalar comparison.
+
+- **A Dart codegen test asserted a property of the CI environment rather than of the generated
+  code.** `generated_json_decoder_returns_error_for_excluded_variant_at_runtime` spawns a child
+  `cargo run` over a scratch crate, and a child cargo inherits the parent's environment — so where
+  CI exports `RUSTFLAGS=-D warnings`, two warnings in the synthetic fixture became hard errors.
+  The test failed on all three runners while passing on every developer machine. Neither warning
+  is a defect in what alef emits: the fixture's hand-written enum is private while the generated
+  function is `pub`, and the generated catch-all arm is unreachable only because the fixture
+  declares no cfg-gated variant — that arm exists precisely because a wrapper crate cannot forward
+  a foreign cfg. The child now runs with `RUSTFLAGS` removed, so the test asserts what it claims
+  to: that the generated bridge compiles and returns `Err` without panicking.
+
+- **publish: the Intel macOS bottle no longer reverts a shipped release to a draft.** From
+  2026-09-01 Homebrew serves no `openssl@3` bottle for x86_64 macOS -- "We do not provide support
+  for this platform" -- after Apple dropped Intel in macOS 27, so that leg cannot build and no
+  change in this repo can fix it. Leaving it in the matrix was not harmless: its failure
+  propagated into the aggregate release-status job, which reverts the GitHub release to a DRAFT
+  *after* every registry has already received its packages. liter-llm 1.19.1 and crawlberg 1.5.0
+  both shipped and both were invisible until manually un-drafted. The bottle matrix is now
+  arm64 macOS plus x86_64 Linux, and the dropped entry is documented in place with a `~keep`
+  comment so re-adding it is a decision rather than an oversight.
 
 ## [0.81.0] - 2026-09-01
 
