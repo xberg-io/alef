@@ -197,7 +197,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   constructors again.** Function bridges cache a companion required `name: String` parameter when
   one is present, while anonymous callback and options-field bridges retain an empty identity.
   Both paths had continued emitting the obsolete one-argument constructor after direct host
-  registration added the cached-name argument.
+  registration added the cached-name argument. Function bridges also preserve the extractor's
+  core-wrapper contract: `Arc<dyn Trait>` parameters receive the generated bridge directly, while
+  `Arc<Mutex<dyn Trait>>` handles retain their mutex wrapper.
 
 - **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9
   fix.** Four of the five consumer repos independently overrode `[crates.update.kotlin_android]`

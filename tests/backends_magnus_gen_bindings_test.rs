@@ -4833,6 +4833,7 @@ fn magnus_function_param_bridge_caches_companion_name() {
             ParamDef {
                 name: "provider".to_string(),
                 ty: TypeRef::Named("Greeter".to_string()),
+                core_wrapper: CoreWrapper::Arc,
                 ..ParamDef::default()
             },
             ParamDef {
@@ -4871,6 +4872,7 @@ fn magnus_function_param_bridge_caches_companion_name() {
 
     assert!(content.contains("provider: magnus::Value, name: String"));
     assert!(content.contains("RbGreeterBridge::new(provider, name.clone())?"));
+    assert!(content.contains("Arc::new(bridge) as std::sync::Arc<dyn test_lib::Greeter>"));
     assert!(content.contains("test_lib::replace_greeter(provider, name)"));
     assert!(content.contains("RbGreeterBridge::new(provider, String::new())?"));
 }
