@@ -14,7 +14,7 @@ pub(crate) mod type_map;
 
 pub use gen_bindings::KotlinBackend;
 
-pub(crate) use gen_bindings::default_constructible_type_names;
+pub(crate) use gen_bindings::{default_constructible_type_names, kotlin_field_default};
 pub use gen_bindings::{
     ValueMethodBridge, emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_jvm_client_class,
     emit_jvm_client_class_with_package, emit_kdoc_pub, emit_type_pub,

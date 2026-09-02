@@ -20,7 +20,7 @@ use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, Par
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-pub(crate) use object_wrapper::default_constructible_type_names;
+pub(crate) use object_wrapper::{default_constructible_type_names, kotlin_field_default};
 pub use shared::{
     ValueMethodBridge, escape_kotlin_ident, kotlin_field_name, kotlin_field_name_with_type, to_lower_camel,
     to_lower_camel_unescaped, to_pascal_case, to_screaming_snake,

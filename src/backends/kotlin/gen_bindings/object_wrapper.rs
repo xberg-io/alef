@@ -31,4 +31,4 @@ pub(crate) use dto::emit_type_with_imports;
 pub(crate) use enums::emit_enum;
 pub(crate) use errors::emit_error_type_with_imports;
 pub(crate) use methods::{emit_function, format_param_with_imports};
-pub(crate) use types::{default_constructible_type_names, kotlin_type_with_string_imports};
+pub(crate) use types::{default_constructible_type_names, kotlin_field_default, kotlin_type_with_string_imports};
