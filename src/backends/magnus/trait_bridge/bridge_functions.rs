@@ -106,11 +106,6 @@ pub fn gen_bridge_function(
         .copied()
         .any(|(_, p)| !default_types.contains(named_type_name(&p.ty).unwrap_or_default()));
 
-    let has_error = func.error_type.is_some() || params_need_fallible_deser;
-    let ret = mapper.wrap_return(&return_type, has_error);
-
-    let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
-
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name}: Option<{bridge_handle_type}> = match {param_name} {{\n        \
@@ -129,6 +124,19 @@ pub fn gen_bridge_function(
              }};"
         )
     };
+
+    // `has_error` must reflect every fallible operation this function's body actually emits.
+    // `bridge_wrap` above always constructs the bridge via `{struct_name}::new(...)?` (the
+    // constructor validates required methods and builds the runtime dispatcher, both fallible
+    // since #292 made trait-bridge constructors return `Result`) — read that fact from the
+    // generated code itself rather than asserting it as a separate constant, so a future change
+    // to `bridge_wrap` that removes or conditions the `?` is picked up here automatically instead
+    // of needing a second, independent edit that can drift out of sync. ~keep
+    let bridge_construction_is_fallible = bridge_wrap.contains('?');
+    let has_error = func.error_type.is_some() || params_need_fallible_deser || bridge_construction_is_fallible;
+    let ret = mapper.wrap_return(&return_type, has_error);
+
+    let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
     let serde_bindings: String = deser_params
         .into_iter()
@@ -223,18 +231,17 @@ pub fn gen_bridge_function(
         } else {
             format!("{bridge_wrap}\n    {serde_bindings}{core_call}.map(|val| {return_wrap}){err_conv}")
         }
-    } else if has_error {
-        // The core call returns a bare value, but `serde_bindings` above used `?` on at least one
-        // param (`params_need_fallible_deser`), which forced the signature to be `Result`-shaped.
-        // The tail expression must match that: wrap the plain call in `Ok(..)` instead of handing
-        // back the bare value the `Result<T, Error>` signature above no longer fits. ~keep
+    } else {
+        // The core call returns a bare value, but `bridge_construction_is_fallible` above is
+        // always true for this generator (`bridge_wrap`'s constructor call is unconditionally
+        // fallible; `serde_bindings` may add its own `?`s on top), so `has_error` is always true
+        // here too and the signature above is `Result`-shaped. The tail expression must match
+        // that: wrap the plain call in `Ok(..)` instead of handing back a bare value. ~keep
         if return_wrap == "val" {
             format!("{bridge_wrap}\n    {serde_bindings}Ok({core_call})")
         } else {
             format!("{bridge_wrap}\n    {serde_bindings}let val = {core_call};\n    Ok({return_wrap})")
         }
-    } else {
-        format!("{bridge_wrap}\n    {serde_bindings}{core_call}")
     };
 
     let func_name = &func.name;

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Magnus (Ruby) trait-bridge functions with no declared error type and no fallible parameter
+  emitted a Rust `?` inside a bare (non-`Result`) return type, which does not compile.** PR #292
+  (0.82.1) made every generated bridge constructor call fallible —
+  `RbFooBridge::new(value, name)?`, unconditionally, to validate the Ruby object's required
+  methods and build the runtime dispatcher — but the wrapper function's return-type computation
+  was never taught about it: it stayed `func.error_type.is_some() || <param needs fallible
+  deserialization>`, neither of which is true for a plain bridge-only function. Any consumer
+  configuring a `[[crates.trait_bridges]]` entry bound to a function with no core error type and
+  no other fallible parameter got a generated Ruby binding that fails `rustc` with E0277 ("the `?`
+  operator can only be used in a function that returns `Result` or `Option`"). Caught only by
+  `cargo test --test backends_magnus_trait_bridge_test`, an integration test that `cargo test
+  --lib` does not run — the regression shipped in 0.82.1 undetected.
+
 - **publish (Ruby platform gems):** precompiled platform gemspecs now load the generated source
   gemspec as their metadata authority, then replace only the version, platform, files, and native
   extension build hook. The previous synthesized gemspec dropped required fields such as
