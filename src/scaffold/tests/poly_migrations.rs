@@ -42,6 +42,49 @@ fn should_remove_the_retracted_alef_snippets_pre_commit_hook() {
     );
 }
 
+/// Regression coverage for the real consumer variant observed in `crawlberg/poly.toml`: the same
+/// retracted `alef snippets check --strict --cache off` invocation, wrapped in a `sh -c` guard
+/// that skips the check when `alef` is absent from `PATH` (a hardening added while the hook was
+/// still alef's own, for a lint job that never installs alef). A byte-exact match on
+/// [`STALE_SNIPPET_HOOK_RUN`] never recognises this shape -- the hardening drifted the table off
+/// the one string the migration used to key off, so it was misclassified as consumer-repurposed
+/// and silently preserved forever.
+#[test]
+fn should_remove_the_stale_hook_wrapped_in_a_consumers_path_guard() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let poly_toml = "[discovery]\nexclude = []\n\n\
+         [hooks.pre-commit.commands.alef-snippets]\n\
+         run = \"sh -c 'command -v alef >/dev/null 2>&1 && exec alef snippets check --strict --cache off || echo \\\"alef not on PATH - snippet check runs in the ci-lint Alef snippets job\\\"'\"\n\
+         root = \".\"\n\
+         workspace = true\n\
+         files = \"{alef.toml,fixtures/**/*.json,docs-site/src/snippets/**}\"\n";
+    std::fs::write(dir.path().join("poly.toml"), poly_toml).expect("write poly.toml");
+
+    let changed = migrate_poly_toml_drop_snippet_hook(dir.path()).expect("migration must not error");
+    assert!(
+        changed,
+        "the retracted hook wrapped in a consumer's PATH guard must still be recognised as stale"
+    );
+
+    let on_disk = std::fs::read_to_string(dir.path().join("poly.toml")).expect("read migrated file");
+    assert!(
+        !on_disk.contains("alef-snippets"),
+        "the retracted hook table must be gone: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains("alef snippets check"),
+        "the retracted hook command must be gone: {on_disk}"
+    );
+    assert!(on_disk.contains("[discovery]"));
+    toml::from_str::<toml::Value>(&on_disk).expect("migrated poly.toml must still parse");
+
+    let changed_again = migrate_poly_toml_drop_snippet_hook(dir.path()).expect("second pass must not error");
+    assert!(
+        !changed_again,
+        "second pass over an already-migrated file must be a no-op"
+    );
+}
+
 #[test]
 fn should_not_touch_a_consumer_added_pre_commit_command_of_a_different_name() {
     let dir = tempfile::tempdir().expect("tempdir");

@@ -10,11 +10,14 @@ use std::path::Path;
 /// Path of the repo-root poly config this migration repairs, relative to the repo root.
 const POLY_CONFIG_RELATIVE: &str = "poly.toml";
 
-/// The exact `run` command `workspace_hook`'s retracted snippet-check call site (`snippet_check_hook`,
+/// The exact `run` invocation `workspace_hook`'s retracted snippet-check call site (`snippet_check_hook`,
 /// dropped in `a139a680`, "drops the alef-snippets pre-commit hook from generated poly.toml") last
-/// emitted -- the one fact this migration keys off, alongside `workspace = true`, so a consumer's own
-/// unrelated `[hooks.pre-commit.commands.alef-snippets]` entry running a different command is never a
-/// match. ~keep
+/// emitted -- matched as a *substring* of the table's `run` command, alongside `workspace = true`, so
+/// a consumer's own unrelated `[hooks.pre-commit.commands.alef-snippets]` entry running a different
+/// command is never a match, while a consumer who wrapped this exact invocation in their own shell
+/// guard (observed on a real consumer: `sh -c 'command -v alef >/dev/null 2>&1 && exec alef snippets
+/// check --strict --cache off || echo ...'`, hardening against `alef` being absent from a lint job's
+/// `PATH`) is still recognised as carrying alef's own retracted hook, not a repurposed one. ~keep
 const STALE_SNIPPET_HOOK_RUN: &str = "alef snippets check --strict --cache off";
 
 /// Remove a pre-existing `[hooks.pre-commit.commands.alef-snippets]` table from `poly.toml` --
@@ -31,10 +34,14 @@ const STALE_SNIPPET_HOOK_RUN: &str = "alef snippets check --strict --cache off";
 /// this hook runs on shells out to an `alef` binary the consumer's lint job never installs,
 /// failing `poly lint`/pre-commit with `alef-snippets: 1: alef: not found`.
 ///
-/// Guarded on the table's own `run` command matching [`STALE_SNIPPET_HOOK_RUN`] -- the one
-/// string alef itself ever emitted here -- AND `workspace = true`, the only mode `workspace_hook`
-/// ever set for it. Matching on the table's name alone would risk removing a consumer's own,
-/// differently-configured `alef-snippets` command; this guard leaves that untouched. Silent
+/// Guarded on the table's own `run` command *containing* [`STALE_SNIPPET_HOOK_RUN`] -- the exact
+/// invocation alef itself ever emitted here -- AND `workspace = true`, the only mode
+/// `workspace_hook` ever set for it. Matching on the table's name alone would risk removing a
+/// consumer's own, differently-configured `alef-snippets` command; this guard leaves that
+/// untouched. Substring rather than exact-equality containment is deliberate: it still recognises
+/// alef's own retracted call site inside a consumer's shell wrapper around it (e.g. a `command -v
+/// alef` PATH guard), while a table whose `run` never invokes this call at all -- a genuine
+/// repurposing -- still does not match. Silent
 /// (returns `Ok(false)`) on a missing `poly.toml`, unparsable TOML, a `poly.toml` with no such
 /// table, or a table that no longer matches (idempotent: nothing left to remove on a second
 /// pass). ~keep
@@ -63,7 +70,9 @@ pub(crate) fn migrate_poly_toml_drop_snippet_hook(base_dir: &Path) -> anyhow::Re
         .get("alef-snippets")
         .and_then(toml_edit::Item::as_table)
         .is_some_and(|hook| {
-            hook.get("run").and_then(toml_edit::Item::as_str) == Some(STALE_SNIPPET_HOOK_RUN)
+            hook.get("run")
+                .and_then(toml_edit::Item::as_str)
+                .is_some_and(|run| run.contains(STALE_SNIPPET_HOOK_RUN))
                 && hook.get("workspace").and_then(toml_edit::Item::as_bool) == Some(true)
         });
     if !is_stale_snippet_hook {
