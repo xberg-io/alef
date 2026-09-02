@@ -869,6 +869,25 @@ fn test_async_function() {
         "Should contain async/tokio runtime handling"
     );
 
+    assert_eq!(
+        content.matches("rb_sys::rb_thread_call_without_gvl").count(),
+        1,
+        "Should emit one shared without-GVL helper"
+    );
+    assert_eq!(
+        content.matches("alef_magnus_run_without_gvl(move ||").count(),
+        2,
+        "Both generated Ruby entrypoints should release the GVL"
+    );
+    assert!(
+        content.contains("tokio::runtime::Builder::new_current_thread()"),
+        "Should poll the future on the calling Ruby OS thread"
+    );
+    assert!(
+        !content.contains("tokio::runtime::Runtime::new()"),
+        "Async free-function wrappers must not block a multi-thread runtime under the GVL"
+    );
+
     assert!(
         content.contains("function!("),
         "Should use function! macro for free functions"

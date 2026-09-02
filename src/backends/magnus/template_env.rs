@@ -97,6 +97,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/function_async_body.rs.jinja"),
     ),
     (
+        "function_async_gvl_helper.rs.jinja",
+        include_str!("templates/function_async_gvl_helper.rs.jinja"),
+    ),
+    (
         "function_result_body.rs.jinja",
         include_str!("templates/function_result_body.rs.jinja"),
     ),

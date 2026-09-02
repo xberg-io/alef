@@ -13,8 +13,8 @@ use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use ahash::AHashSet;
 
 /// ~keep The async wrapper's return type is fallible unconditionally, independent of whether the
-/// core function declares an error type: every emitted body opens by building a tokio runtime with
-/// `Runtime::new()...?` and closes with `Ok(..)` (see `function_async_body.rs.jinja`), so the
+/// core function declares an error type: every emitted body runs a tokio runtime without the GVL
+/// and closes with `Ok(..)` (see `function_async_body.rs.jinja`), so the
 /// delegable path — the authority on the signature — only compiles inside `Result<T, Error>`. The
 /// unimplemented body must be selected against this same fact, or it emits `compile_error!`/a bare
 /// `()` into a `Result` slot for a non-delegable function with no declared error type.

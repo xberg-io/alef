@@ -218,6 +218,13 @@ impl Backend for MagnusBackend {
             builder.add_item("pub mod service;");
         }
 
+        if api.functions.iter().any(|func| func.is_async) {
+            builder.add_item(&crate::backends::magnus::template_env::render(
+                "function_async_gvl_helper.rs.jinja",
+                minijinja::context! {},
+            ));
+        }
+
         let opaque_types: AHashSet<String> = api
             .types
             .iter()
