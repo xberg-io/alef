@@ -112,8 +112,20 @@ pub fn struct_wants_deserialize_delegation(
 /// marker other call sites already match on verbatim, e.g. `backends::pyo3::gen_bindings::constructors`
 /// and `backends::pyo3::gen_bindings::functions::converters`) and `#[serde(default = "path")]` as
 /// the literal `"serde(default = \"path\")"` attribute text. Returns `None` when the core field
-/// carries no serde default. ~keep
-fn serde_default_field_attr(field: &crate::core::ir::FieldDef) -> Option<String> {
+/// carries no serde default.
+///
+/// `already_emitted_attrs` is the field's attribute list as built up so far by the caller. A
+/// backend's own `extra_field_attrs` callback (e.g. php's, which resolves a per-field default
+/// function through `serde_defaults::serde_default_fn_name` and pushes a valued
+/// `serde(default = "path")` itself) can already have written a serde default onto that list
+/// before this fallback runs. serde rejects two `#[serde(default...)]` attributes on one field
+/// outright, and the valued form is strictly more specific than the bare one this fallback
+/// would add, so this returns `None` whenever `already_emitted_attrs` already carries any
+/// `serde(default...)` rather than emitting a second, colliding one. ~keep
+fn serde_default_field_attr(field: &crate::core::ir::FieldDef, already_emitted_attrs: &[String]) -> Option<String> {
+    if already_emitted_attrs.iter().any(|a| a.starts_with("serde(default")) {
+        return None;
+    }
     match field.default.as_deref() {
         Some("/* serde(default) */") => Some("serde(default)".to_string()),
         Some(text) if text.starts_with("serde(default") => Some(text.to_string()),
@@ -334,7 +346,7 @@ pub fn gen_struct_with_per_field_attrs(
         if has_serde
             && !delegate_deserialize
             && !attrs.iter().any(|a| a == "serde(skip)")
-            && let Some(default_attr) = serde_default_field_attr(field)
+            && let Some(default_attr) = serde_default_field_attr(field, &attrs)
         {
             attrs.push(default_attr);
         }
@@ -467,7 +479,7 @@ pub fn gen_struct_with_rename(
         if has_serde
             && !delegate_deserialize
             && !attrs.iter().any(|a| a == "serde(skip)")
-            && let Some(default_attr) = serde_default_field_attr(field)
+            && let Some(default_attr) = serde_default_field_attr(field, &attrs)
         {
             attrs.push(default_attr);
         }
@@ -565,7 +577,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
         // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
         // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
-        if !delegate_deserialize && let Some(default_attr) = serde_default_field_attr(field) {
+        if !delegate_deserialize && let Some(default_attr) = serde_default_field_attr(field, &attrs) {
             attrs.push(default_attr);
         }
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
