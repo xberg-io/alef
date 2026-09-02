@@ -297,6 +297,19 @@ pub(super) fn gen_init_py(
     imports_from_native.extend(needed_data_enums.iter().cloned());
     native_return_types.sort();
     imports_from_native.extend(native_return_types.iter().cloned());
+    // Each error with whitelisted introspection methods gets a companion `{Error}Info`
+    // #[pyclass] and a `{error}_info` free #[pyfunction], both registered directly on the
+    // native module (`pyo3::gen_bindings::methods::gen_module_init`) rather than flowing
+    // through `api.functions`/`api.types`. Without this, the public facade never re-exports
+    // them even though the native module does (liter-llm `liter_llm_error_info` gap).
+    let mut error_info_names: Vec<String> = Vec::new();
+    for error in &api.errors {
+        if crate::codegen::error_gen::pyo3_error_has_methods(error) {
+            error_info_names.push(crate::codegen::error_gen::pyo3_error_info_struct_name(error));
+            error_info_names.push(crate::codegen::error_gen::pyo3_error_info_fn_name(error));
+        }
+    }
+    imports_from_native.extend(error_info_names);
     imports_from_native.retain(|n| !capsule_types.contains_key(n));
     // are external references not registered as #[pyclass] in the native module, so they must
     // Opaque types WITHOUT a capsule override DO get a binding-side #[pyclass] wrapper struct
@@ -759,6 +772,130 @@ mod tests {
         assert!(
             !result.contains("drop_async"),
             "excluded async fn leaked into __all__:\n{result}"
+        );
+    }
+
+    /// Regression (liter-llm E2E `test_batches.py`/`test_files.py`/`test_list_models.py`/
+    /// `test_responses.py`): an error with whitelisted introspection methods gets a companion
+    /// `{Error}Info` #[pyclass] and a `{error}_info` free #[pyfunction] registered directly on
+    /// the native module (see `pyo3_error_has_methods`/`pyo3_error_info_fn_name` in
+    /// `codegen::error_gen`), bypassing `api.functions`/`api.types` entirely. Without this,
+    /// `__init__.py` never re-exports either symbol, so `AttributeError: module 'liter_llm' has
+    /// no attribute 'liter_llm_error_info'` fires for any e2e call whose override does not
+    /// force `native_module` to the internal bindings module.
+    #[test]
+    fn gen_init_py_reexports_error_info_class_and_function() {
+        use crate::core::ir::{ErrorDef, MethodDef};
+
+        let mut api = empty_api();
+        api.errors.push(ErrorDef {
+            name: "LiterLlmError".to_string(),
+            rust_path: "liter_llm::LiterLlmError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![
+                MethodDef {
+                    name: "status_code".to_string(),
+                    ..Default::default()
+                },
+                MethodDef {
+                    name: "is_transient".to_string(),
+                    ..Default::default()
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        });
+
+        let dto = DtoConfig::default();
+        let extra = std::collections::BTreeMap::new();
+        let caps = std::collections::HashMap::new();
+        let adapters = vec![];
+        let opaque = std::collections::HashMap::new();
+        let result = gen_init_py(
+            &api,
+            "_internal_bindings",
+            "1.2.3",
+            &dto,
+            &[],
+            &[],
+            &extra,
+            &caps,
+            &adapters,
+            &opaque,
+            &ahash::AHashSet::new(),
+        );
+
+        let import_line = result
+            .lines()
+            .find(|l| l.starts_with("from ._internal_bindings import"))
+            .unwrap_or_else(|| panic!("no native import statement in:\n{result}"));
+        assert!(
+            import_line.contains("liter_llm_error_info"),
+            "liter_llm_error_info missing from the native import statement: {import_line}",
+        );
+        assert!(
+            import_line.contains("LiterLlmErrorInfo"),
+            "LiterLlmErrorInfo missing from the native import statement: {import_line}",
+        );
+        assert!(
+            result.contains("\"liter_llm_error_info\""),
+            "liter_llm_error_info missing from __all__:\n{result}",
+        );
+        assert!(
+            result.contains("\"LiterLlmErrorInfo\""),
+            "LiterLlmErrorInfo missing from __all__:\n{result}",
+        );
+    }
+
+    /// An error with NO whitelisted introspection methods gets no companion info class/function
+    /// (`gen_pyo3_error_methods_impl` returns an empty string and nothing is registered on the
+    /// native module for it), so `gen_init_py` must not invent one either.
+    #[test]
+    fn gen_init_py_omits_error_info_when_error_has_no_methods() {
+        use crate::core::ir::ErrorDef;
+
+        let mut api = empty_api();
+        api.errors.push(ErrorDef {
+            name: "PlainError".to_string(),
+            rust_path: "lib::PlainError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        });
+
+        let dto = DtoConfig::default();
+        let extra = std::collections::BTreeMap::new();
+        let caps = std::collections::HashMap::new();
+        let adapters = vec![];
+        let opaque = std::collections::HashMap::new();
+        let result = gen_init_py(
+            &api,
+            "_internal_bindings",
+            "1.2.3",
+            &dto,
+            &[],
+            &[],
+            &extra,
+            &caps,
+            &adapters,
+            &opaque,
+            &ahash::AHashSet::new(),
+        );
+
+        assert!(
+            !result.contains("plain_error_info"),
+            "no info function should exist for a method-less error:\n{result}",
+        );
+        assert!(
+            !result.contains("PlainErrorInfo"),
+            "no info class should exist for a method-less error:\n{result}",
         );
     }
 }

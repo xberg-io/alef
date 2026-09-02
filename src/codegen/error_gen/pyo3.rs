@@ -121,6 +121,25 @@ pub fn converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_py_err", to_snake_case(&error.name))
 }
 
+/// Field specs `(name, Python type annotation)` for the `{Error}Info` companion class,
+/// derived from `error.methods`. `code` is always present; the rest are whitelisted
+/// introspection methods the error type actually implements. Shared by
+/// `gen_pyo3_error_methods_impl` (the native `#[pyclass]`) and the pyo3 backend's `.pyi`
+/// stub generator so the two can never drift on which fields the info class exposes.
+pub fn pyo3_error_info_field_specs(error: &ErrorDef) -> Vec<(&'static str, &'static str)> {
+    let mut specs = vec![("code", "int")];
+    if error.methods.iter().any(|m| m.name == "status_code") {
+        specs.push(("status_code", "int"));
+    }
+    if error.methods.iter().any(|m| m.name == "is_transient") {
+        specs.push(("is_transient", "bool"));
+    }
+    if error.methods.iter().any(|m| m.name == "error_type") {
+        specs.push(("error_type", "str"));
+    }
+    specs
+}
+
 pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
     if error.methods.is_empty() {
         return String::new();
@@ -129,6 +148,10 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
     let struct_name = format!("{}Info", error.name);
     let snake_name = to_snake_case(&error.name);
     let fn_name = format!("{snake_name}_info");
+    let field_specs = pyo3_error_info_field_specs(error);
+    let has_status_code = field_specs.iter().any(|(name, _)| *name == "status_code");
+    let has_is_transient = field_specs.iter().any(|(name, _)| *name == "is_transient");
+    let has_error_type = field_specs.iter().any(|(name, _)| *name == "error_type");
 
     let mut fields = vec!["    pub code: u32,".to_string()];
     let mut getters = vec![
@@ -142,10 +165,6 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
         )
         .to_string(),
     ];
-
-    let has_status_code = error.methods.iter().any(|m| m.name == "status_code");
-    let has_is_transient = error.methods.iter().any(|m| m.name == "is_transient");
-    let has_error_type = error.methods.iter().any(|m| m.name == "error_type");
 
     if has_status_code {
         fields.push("    pub status_code: u16,".to_string());
