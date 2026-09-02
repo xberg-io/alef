@@ -160,7 +160,13 @@ pub(super) fn emit_error_assertion(
 /// native module (`m.add_function(wrap_pyfunction!({info_fn}, m)?)?;` in
 /// `pyo3::gen_bindings::methods::gen_module_init`) — asked for by name via
 /// `pyo3_error_info_fn_name` rather than re-derived, so this can never spell a function the
-/// native module does not actually export.
+/// native module does not actually export. That guarantee covers the NAME only, not the
+/// MODULE: `native_module` here is whatever the caller passed (see `test_function.rs`'s
+/// `from_json_module` resolution), which for a body-less call falls back to the public facade
+/// package, not the native extension module. `gen_init_py` (`gen_bindings/errors.rs`) now
+/// re-exports every `pyo3_error_info_fn_name`/`pyo3_error_info_struct_name` pair from the
+/// facade too, so both resolutions work — but if that re-export ever regresses, this function
+/// would silently render an assertion against a name the target module does not carry.
 fn emit_resolved_error_field_assertions(
     out: &mut String,
     resolved_fields: &[ResolvedErrorField<'_>],

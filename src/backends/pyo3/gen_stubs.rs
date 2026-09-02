@@ -334,6 +334,31 @@ pub fn gen_stubs(
         }
     }
 
+    // Companion `{Error}Info` class + `{error}_info` free function for each error with
+    // whitelisted introspection methods -- see `gen_init_py`'s matching block in
+    // `gen_bindings/errors.rs` for why these must be declared here too (they never flow
+    // through `api.functions`/`api.types`, so nothing else in this file would emit them).
+    {
+        let mut info_lines: Vec<String> = Vec::new();
+        for error in &api.errors {
+            if !crate::codegen::error_gen::pyo3_error_has_methods(error) {
+                continue;
+            }
+            let struct_name = crate::codegen::error_gen::pyo3_error_info_struct_name(error);
+            let fn_name = crate::codegen::error_gen::pyo3_error_info_fn_name(error);
+            info_lines.push(format!("class {struct_name}:"));
+            for (field, py_type) in crate::codegen::error_gen::pyo3_error_info_field_specs(error) {
+                info_lines.push(format!("    {field}: {py_type}"));
+            }
+            info_lines.push("".to_string());
+            info_lines.push(format!("def {fn_name}(err: Any) -> {struct_name}: ..."));
+        }
+        if !info_lines.is_empty() {
+            body_lines.extend(info_lines);
+            body_lines.push("".to_string());
+        }
+    }
+
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         body_lines.push(gen_function_stub(
             func,
@@ -643,6 +668,86 @@ module_name = "test_lib"
         assert!(
             !stub.contains("def from_json"),
             "unexpected from_json declaration:\n{stub}"
+        );
+    }
+
+    /// Regression (liter-llm E2E failures): the `.pyi` stub must declare the companion
+    /// `{Error}Info` class and `{error}_info` free function alongside every other symbol the
+    /// native module exports -- see the matching regression test in `gen_bindings/errors.rs`
+    /// for why these are otherwise invisible (they never flow through `api.functions`/
+    /// `api.types`).
+    #[test]
+    fn gen_stubs_declares_error_info_class_and_function() {
+        use crate::core::ir::{ErrorDef, MethodDef};
+
+        let api = ApiSurface {
+            errors: vec![ErrorDef {
+                name: "LiterLlmError".to_string(),
+                rust_path: "liter_llm::LiterLlmError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                methods: vec![MethodDef {
+                    name: "status_code".to_string(),
+                    ..Default::default()
+                }],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            ..Default::default()
+        };
+
+        let stub = gen_stubs(&api, &[], &python_config(), &ahash::AHashSet::default());
+
+        assert!(
+            stub.contains("class LiterLlmErrorInfo:"),
+            "missing LiterLlmErrorInfo class declaration:\n{stub}"
+        );
+        assert!(
+            stub.contains("    code: int"),
+            "missing code: int field:\n{stub}"
+        );
+        assert!(
+            stub.contains("    status_code: int"),
+            "missing status_code: int field:\n{stub}"
+        );
+        assert!(
+            stub.contains("def liter_llm_error_info(err: Any) -> LiterLlmErrorInfo: ..."),
+            "missing liter_llm_error_info function declaration:\n{stub}"
+        );
+    }
+
+    /// An error with no whitelisted introspection methods gets no companion info class or
+    /// function -- `gen_stubs` must not invent one either.
+    #[test]
+    fn gen_stubs_omits_error_info_when_error_has_no_methods() {
+        use crate::core::ir::ErrorDef;
+
+        let api = ApiSurface {
+            errors: vec![ErrorDef {
+                name: "PlainError".to_string(),
+                rust_path: "lib::PlainError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                methods: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            ..Default::default()
+        };
+
+        let stub = gen_stubs(&api, &[], &python_config(), &ahash::AHashSet::default());
+
+        assert!(
+            !stub.contains("PlainErrorInfo"),
+            "no info class should exist for a method-less error:\n{stub}"
+        );
+        assert!(
+            !stub.contains("plain_error_info"),
+            "no info function should exist for a method-less error:\n{stub}"
         );
     }
 }

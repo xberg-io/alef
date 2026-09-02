@@ -19,7 +19,8 @@ pub use native::{
 };
 pub use pyo3::{
     converter_fn_name, gen_pyo3_error_converter, gen_pyo3_error_methods_impl, gen_pyo3_error_registration,
-    gen_pyo3_error_types, pyo3_error_has_methods, pyo3_error_info_fn_name, pyo3_error_info_struct_name,
+    gen_pyo3_error_types, pyo3_error_has_methods, pyo3_error_info_field_specs, pyo3_error_info_fn_name,
+    pyo3_error_info_struct_name,
 };
 pub use shared::{acronym_aware_snake_phrase, python_exception_name, strip_thiserror_placeholders};
 
