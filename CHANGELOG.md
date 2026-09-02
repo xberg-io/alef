@@ -66,9 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pinned against it (tree-sitter-language-pack#183). `options.py` no longer has a `TypedDict`
   rendering path at all: a selected return type now always renders as `@dataclass`, exactly like
   every other type it defines, restoring the attribute access the `.pyi` stub, every consumer
-  README, and the pre-1.16 runtime all already agreed on. The classification of *which* return
-  types `options.py` publishes (`reexported_types` as the per-type escape hatch, `xberg-io/alef#134`)
-  is unchanged — only the representation is. Affects any crate configuring
+  README, and the pre-1.16 runtime all already agreed on. `python_output = "typed-dict"` is not a
+  no-op: it still decides *which* return types `options.py` publishes as `@dataclass` (versus
+  leaving them to the native `#[pyclass]`, unconditionally on `reexported_types` as the per-type
+  escape hatch — `xberg-io/alef#134`) — a real difference in generated imports, converters, and
+  class identity. It no longer decides field-access *syntax*: both outcomes are now attribute
+  access, where before only the native-`#[pyclass]` outcome was. Affects any crate configuring
   `python_output = "typed-dict"`; the default (`dataclass`) output style was never affected.
 
 ## [0.82.0] - 2026-09-02
