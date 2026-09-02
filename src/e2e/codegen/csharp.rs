@@ -157,6 +157,12 @@ impl E2eCodegen for CSharpCodegen {
             .flat_map(|g| g.fixtures.iter())
             .any(|f| f.needs_mock_server());
 
+        // See `project::assembly_has_registry_mutating_fixture` for why: a fixture that mutates a
+        // process-global trait-bridge registry can race a concurrently-scheduled class that
+        // reads it, since xUnit parallelizes test classes within an assembly by default.
+        let has_registry_mutating_fixture =
+            assembly_has_registry_mutating_fixture(groups, lang, e2e_config, config, fixture_has_csharp_callable);
+
         // Emit a TestSetup.cs whose ModuleInitializer chdirs to test_documents
         // so fixture-relative paths like "docx/fake.docx" resolve correctly when
         // dotnet test runs from bin/{Configuration}/{Tfm}, and (when fixtures
@@ -165,6 +171,7 @@ impl E2eCodegen for CSharpCodegen {
             path: output_base.join("TestSetup.cs"),
             content: render_test_setup(
                 needs_mock_server,
+                has_registry_mutating_fixture,
                 &e2e_config.test_documents_dir,
                 &namespace,
                 &e2e_config.env,
@@ -998,7 +1005,7 @@ mod visitor;
 use assertions::render_assertion;
 use declared_error_value::declared_error_value_check;
 use http::render_http_test_method;
-use project::{render_csproj, render_test_setup};
+use project::{assembly_has_registry_mutating_fixture, render_csproj, render_test_setup};
 use setup::build_args_and_setup;
 use streaming::{render_streaming_test_method, resolve_csharp_streaming_item_type};
 use values::{json_to_csharp, render_sealed_display};
@@ -1132,6 +1139,8 @@ mod object_initializer_tests;
 mod object_initializer_type_name_tests;
 #[cfg(test)]
 mod optional_segment_len_tests;
+#[cfg(test)]
+mod registry_mutation_parallelization_tests;
 #[cfg(test)]
 mod sealed_display_wire_name_tests;
 #[cfg(test)]

@@ -6,6 +6,34 @@ use crate::core::template_versions as tv;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
+/// ~keep Detect whether any fixture that will actually run in this assembly invokes a
+/// trait-bridge registry mutation (`register_fn` / `unregister_fn` / `clear_fn` declared on any
+/// `[[trait_bridges]]` entry — see `crate::core::config::trait_bridge::TraitBridgeConfig`). Those
+/// functions mutate a process-global registry (OcrBackend, DocumentExtractor, PostProcessor,
+/// Validator, EmbeddingBackend, Renderer, ... — whatever bridges the crate declares), and xUnit
+/// parallelizes test classes within an assembly by default, so a class that clears/(un)registers
+/// a backend can race a concurrently-scheduled class that reads the same registry through the
+/// ordinary call path. No fixture metadata declares which OTHER fixtures read a given registry,
+/// so there is no generically sound way to scope the fix to just the affected classes --
+/// serializing the whole assembly whenever any such mutating fixture is present is the only
+/// mitigation that does not depend on knowing that in advance. Keyed on the trait-bridge config
+/// rather than any specific trait or fixture name, so every declared bridge is covered, not just
+/// one.
+pub(super) fn assembly_has_registry_mutating_fixture(
+    groups: &[crate::e2e::fixture::FixtureGroup],
+    lang: &str,
+    e2e_config: &crate::e2e::config::E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    fixture_has_callable: fn(&crate::e2e::fixture::Fixture, &crate::e2e::config::E2eConfig) -> bool,
+) -> bool {
+    groups
+        .iter()
+        .flat_map(|g| g.fixtures.iter())
+        .filter(|f| crate::e2e::codegen::should_include_fixture(f, lang, e2e_config))
+        .filter(|f| fixture_has_callable(f, e2e_config))
+        .any(|f| crate::e2e::codegen::recipe::trait_bridge_function_identity(config, f).is_some())
+}
+
 pub(super) fn render_csproj(
     pkg_name: &str,
     nuget_package_id: &str,
@@ -67,6 +95,7 @@ pub(super) fn render_csproj(
 
 pub(super) fn render_test_setup(
     needs_mock_server: bool,
+    disable_test_parallelization: bool,
     test_documents_dir: &str,
     namespace: &str,
     env: &HashMap<String, String>,
@@ -78,7 +107,18 @@ pub(super) fn render_test_setup(
     if needs_mock_server {
         out.push_str("using System.Diagnostics;\n");
     }
-    out.push_str("using System.Runtime.CompilerServices;\n\n");
+    out.push_str("using System.Runtime.CompilerServices;\n");
+    if disable_test_parallelization {
+        out.push_str("using Xunit;\n\n");
+        // ~keep A fixture in this assembly clears/(un)registers a process-global trait-bridge
+        // registry (see `assembly_has_registry_mutating_fixture` above). xUnit parallelizes test
+        // classes within an assembly by default, so without this a class that mutates a registry
+        // can race a concurrently-scheduled class that reads it, producing intermittent failures
+        // that never reproduce when run alone.
+        out.push_str("[assembly: CollectionBehavior(DisableTestParallelization = true)]\n\n");
+    } else {
+        out.push('\n');
+    }
     let _ = writeln!(out, "namespace {namespace};\n");
     out.push_str("internal static class TestSetup\n");
     out.push_str("{\n");
@@ -178,7 +218,7 @@ mod tests {
         env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
         env.insert("BETA_VAR".to_string(), "b_value".to_string());
 
-        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
 
         assert!(output.contains("ALPHA_VAR"));
         assert!(output.contains("a_value"));
@@ -200,7 +240,7 @@ mod tests {
     #[test]
     fn test_render_test_setup_empty_env() {
         let env = HashMap::new();
-        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
 
         // Should not contain SetEnvironmentVariable calls for empty env
         assert!(!output.contains("Environment.SetEnvironmentVariable("));
@@ -214,7 +254,7 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
-        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
 
         // Verify null-check pattern: if null, set via the native-aware helper.
         assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));
