@@ -1,6 +1,3 @@
-// SAFETY: bridge methods are only invoked from threads holding the GVL
-let ruby = unsafe { magnus::Ruby::get_unchecked() };
-let value = self.inner.get_inner_with(&ruby);
 let val: magnus::Value = match {{ call }} {
     Ok(v) => v,
     Err(e) => {

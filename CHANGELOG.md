@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Magnus trait bridges now route callbacks from native Rust workers through a
+  bounded dispatcher serviced by a Ruby-created thread. Direct callbacks require
+  a proven GVL, async workers no longer use Ruby APIs from `spawn_blocking`, and
+  the dispatcher roots its host object until bridge shutdown. ([#285])
+
+[#285]: https://github.com/xberg-io/alef/issues/285
+
 ## [0.82.0] - 2026-09-02
 
 ### Removed
