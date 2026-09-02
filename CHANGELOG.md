@@ -9,6 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef e2e generate` emitted a different field accessor from run to run.** Ruby and R rendered
+  a wildcard fixture's element half through `FieldResolver::accessor`, which re-anchors a path
+  against the call's *result* type — but the block variable is already a collection element, so the
+  container path was prefixed back on: `e.imports[0].source` against an `ImportInfo` that declares
+  `source` and has no `imports` field. Ten backends had already been migrated to
+  `element_accessor`, which takes an element path literally; ruby and r were missed. The rescue
+  path they wrongly reached was itself hash-order dependent — it scanned `result_fields`, a
+  `HashSet` whose `RandomState` is reseeded per process, and stopped at the first *permissively*
+  accepting prefix, while the caller re-confirmed with a *stricter* check. A prefix passing the
+  first gate and failing the second aborted the whole rescue, so the previously-correct output was
+  a lucky short-circuit rather than a correct answer. The scan now visits every prefix in sorted
+  order, confirms each with the strict check the caller applies, and requires exactly one
+  confirmation — declining on zero and on ambiguity. Measured over ten delete-and-regenerate runs
+  per repo: before, 2/10 broken in one file and up to three distinct outputs from another; after,
+  10/10 byte-identical everywhere.
+
+- **A missing toolchain failed commands that never used it.** 0.82.0 made an absent tool a hard
+  error — correctly — but computed the requirement as the union of every tool any command might
+  need for an enabled language, independent of the command actually running. So `alef test --lang
+  rust` demanded `cargo-upgrade`, which only `alef update`'s Rust arm invokes, and `alef all` on a
+  crate with Dart enabled demanded `dart` even though it never shells out to it. The requirement is
+  now scoped to the invoked command, and `alef all` computes its own set from the post-build steps
+  it actually runs. The hard failure is unchanged where a command genuinely needs a tool.
+
+- **The e2e generators emitted a fixture's wire key where the binding declares a host property.**
+  A field carrying `#[serde(rename = "type")]` has wire name `type` and Rust field name
+  `tool_type`; the binding generators name the host property from the Rust field, per alef's own
+  centralized-naming rule, while the e2e generators case-converted the wire key —
+  `camelCase("type")` is `type`. The two halves agree wherever the wire name equals the field name
+  and diverge exactly on serde-renamed fields, so generated tests passed a key the binding does not
+  accept. Both converters now resolve the fixture key through the IR field definition to the host
+  property name, falling back to case conversion only where the owner type is genuinely
+  unresolvable.
+
+- **Ruby and C# asserted `stream_complete` on fixtures that never declared it.** Both streaming
+  emitters rode an implicit "the stream finished" check onto any chat-shaped fixture without one.
+  For a zero-chunk stream the derived accessor is false, so the generator synthesised an
+  expectation the fixture not only never asked for but explicitly contradicts — its own `count_min`
+  of 0 states that zero chunks is acceptable. The gate had been tightened once already, from an
+  unconditional `true` to "only where derived"; it asked whether the value *could* be derived when
+  the question is whether the fixture *asked* for it. A census across the other fifteen languages
+  found no equivalent fabrication.
+
+- **Magnus async free-function wrappers no longer retain Ruby's GVL while blocking on Rust
+  futures.** Both generated entrypoints now convert their arguments first, release the GVL on the
+  calling Ruby thread, and drive a current-thread Tokio runtime until the future completes. Ruby
+  error construction and result conversion happen only after the GVL is restored. This prevents
+  deadlock when an async core function calls back through a generated Ruby host trait bridge and
+  allows unrelated Ruby threads to run while Rust work is pending.
+
+- **Magnus function-parameter and options-field trait bridges compile with named bridge
+  constructors again.** Function bridges cache a companion required `name: String` parameter when
+  one is present, while anonymous callback and options-field bridges retain an empty identity.
+  Both paths had continued emitting the obsolete one-argument constructor after direct host
+  registration added the cached-name argument. Function bridges also preserve the extractor's
+  core-wrapper contract: `Arc<dyn Trait>` parameters receive the generated bridge directly, while
+  `Arc<Mutex<dyn Trait>>` handles retain their mutex wrapper. Function parameter extraction now
+  records these existing `CoreWrapper` variants instead of recording only `Cow` and discarding the
+  other wrapper evidence before code generation.
+
 - Magnus trait bridges now route callbacks from native Rust workers through a
   bounded dispatcher serviced by a Ruby-created thread. Direct callbacks require
   a proven GVL, async workers no longer use Ruby APIs from `spawn_blocking`, and
@@ -243,23 +303,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directory.
 
 ### Fixed
-
-- **Magnus async free-function wrappers no longer retain Ruby's GVL while blocking on Rust
-  futures.** Both generated entrypoints now convert their arguments first, release the GVL on the
-  calling Ruby thread, and drive a current-thread Tokio runtime until the future completes. Ruby
-  error construction and result conversion happen only after the GVL is restored. This prevents
-  deadlock when an async core function calls back through a generated Ruby host trait bridge and
-  allows unrelated Ruby threads to run while Rust work is pending.
-
-- **Magnus function-parameter and options-field trait bridges compile with named bridge
-  constructors again.** Function bridges cache a companion required `name: String` parameter when
-  one is present, while anonymous callback and options-field bridges retain an empty identity.
-  Both paths had continued emitting the obsolete one-argument constructor after direct host
-  registration added the cached-name argument. Function bridges also preserve the extractor's
-  core-wrapper contract: `Arc<dyn Trait>` parameters receive the generated bridge directly, while
-  `Arc<Mutex<dyn Trait>>` handles retain their mutex wrapper. Function parameter extraction now
-  records these existing `CoreWrapper` variants instead of recording only `Cow` and discarding the
-  other wrapper evidence before code generation.
 
 - **The Kotlin/Android `update` default was pinned to the last release before its own Gradle 9
   fix.** Four of the five consumer repos independently overrode `[crates.update.kotlin_android]`
