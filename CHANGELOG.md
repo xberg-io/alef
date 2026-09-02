@@ -246,6 +246,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   String`, returned a silent default after Ruby failures, and failed to compile
   when the source contract declared `Result<String, E>`.
 
+- **Magnus trait bridges can delegate registration to the core crate.** When a bridge
+  configures `register_fn` without `registry_getter`, generated Ruby registration now calls
+  that core host function with the bridged `Arc`. This lets the core own validation,
+  lifecycle callbacks, and lock boundaries instead of forcing callbacks beneath an
+  Alef-generated registry write lock. Existing registry-getter configurations are unchanged.
+
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
   napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
   but the TypeScript e2e generator emitted `String(e.kind).includes("Function")`, and

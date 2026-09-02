@@ -15,7 +15,7 @@ pub fn {{ register_fn }}(rb_obj: magnus::Value, name: String) -> Result<(), magn
     let wrapper = {{ wrapper }}::new(rb_obj, name)?;
     let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
 
-    {{ registry_getter }}().write().register(arc{{ register_extra_args }}).map_err(|e| {
+    {{ registration_call }}.map_err(|e| {
         let ruby = unsafe { magnus::Ruby::get_unchecked() };
         magnus::Error::new(ruby.exception_runtime_error(), format!("register failed: {}", e))
     })?;
