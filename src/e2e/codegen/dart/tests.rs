@@ -820,3 +820,33 @@ fn dart_standalone_mock_server_spawn_delegates_to_the_shared_helper() {
         "tearDownAll must stop a helper-owned mock server, got:\n{output}"
     );
 }
+
+/// A crate whose dart e2e fixtures never spawn the standalone mock server (e.g. one that
+/// only ever runs the server-pattern `app_harness.dart` branch, or has no HTTP/`mock_url`
+/// fixtures at all) must regenerate to an unchanged file set: `e2e_helpers.dart` must not
+/// appear as a new, unreferenced file. Companion to
+/// `dart_standalone_mock_server_spawn_delegates_to_the_shared_helper` above, which covers
+/// the crate that DOES need it.
+#[test]
+fn crate_with_no_standalone_mock_server_fixture_does_not_gain_an_unreferenced_helper_file() {
+    use super::E2eCodegen;
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::FixtureGroup;
+
+    let group = FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![make_fixture("plain_fixture")],
+    };
+    let e2e_config = E2eConfig::default();
+    let config = crate::core::config::ResolvedCrateConfig::default();
+
+    let files = super::DartE2eCodegen
+        .generate(&[group], &e2e_config, &config, &[], &[], &[], &[])
+        .expect("dart e2e generation must succeed for a plain fixture");
+
+    assert!(
+        !files.iter().any(|f| f.path.ends_with("e2e_helpers.dart")),
+        "a crate with no standalone-mock-server fixture must not gain e2e_helpers.dart, got files: {:?}",
+        files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+    );
+}

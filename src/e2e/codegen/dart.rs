@@ -80,18 +80,6 @@ impl E2eCodegen for DartE2eCodegen {
 
         let test_base = output_base.join("test");
 
-        // Shared standalone-mock-server spawn + repo-root-relative path resolution,
-        // imported by every generated `*_test.dart` file that needs to spawn the
-        // standalone mock-server (see `test_file::render_dart_sut_spawn`). Emitted
-        // unconditionally: `alef verify`/`--clean` regeneration must reproduce it even
-        // when no fixture group happens to need it in a given run, and an unreferenced
-        // file costs nothing.
-        files.push(GeneratedFile {
-            path: test_base.join("e2e_helpers.dart"),
-            content: project::render_e2e_helpers(),
-            generated_header: false,
-        });
-
         // One test file per fixture group.
         let bridge_class = config.dart_bridge_class_name();
 
@@ -114,6 +102,7 @@ impl E2eCodegen for DartE2eCodegen {
         // accessors in Vec<T> contains assertions.
         let dart_first_class_map = values::build_dart_first_class_map(type_defs, enums, e2e_config);
 
+        let first_test_file_index = files.len();
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
@@ -162,6 +151,25 @@ impl E2eCodegen for DartE2eCodegen {
                 path: test_base.join(filename),
                 content,
                 generated_header: true,
+            });
+        }
+
+        // Shared standalone-mock-server spawn + repo-root-relative path resolution,
+        // imported by every generated `*_test.dart` file that spawns the standalone
+        // mock-server (see `test_file::render_dart_sut_spawn`). Only crates whose e2e
+        // fixtures actually need that branch (an HTTP fixture or a `mock_url`
+        // reference; the same condition `render_test_file` uses for the import
+        // itself) get this file -- a crate with no such fixture (e.g. one whose dart
+        // suite exercises only the server-pattern `app_harness.dart`) must regenerate
+        // to an unchanged file set, not gain an unreferenced helper. ~keep
+        let any_file_needs_helper = files[first_test_file_index..]
+            .iter()
+            .any(|f| f.content.contains("import 'e2e_helpers.dart';"));
+        if any_file_needs_helper {
+            files.push(GeneratedFile {
+                path: test_base.join("e2e_helpers.dart"),
+                content: project::render_e2e_helpers(),
+                generated_header: false,
             });
         }
 
