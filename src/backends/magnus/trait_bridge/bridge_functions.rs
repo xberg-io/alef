@@ -17,6 +17,18 @@ fn named_type_name(ty: &crate::core::ir::TypeRef) -> Option<&str> {
     }
 }
 
+/// Use a companion `name: String` parameter as the bridge's cached plugin identity when present.
+/// Per-call callback bridges generally have no identity and retain the historical empty name.
+fn bridge_name_expr(func: &crate::core::ir::FunctionDef, bridge_param_idx: usize) -> &'static str {
+    let has_name = func.params.iter().enumerate().any(|(idx, param)| {
+        idx != bridge_param_idx
+            && param.name == "name"
+            && !param.optional
+            && matches!(param.ty, crate::core::ir::TypeRef::String)
+    });
+    if has_name { "name.clone()" } else { "String::new()" }
+}
+
 /// Generate a Magnus free function that has one parameter replaced by `magnus::Value` (a trait
 /// bridge). The bridge is constructed before calling the core function.
 #[allow(clippy::too_many_arguments)]
@@ -37,6 +49,18 @@ pub fn gen_bridge_function(
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
+    let bridge_name = bridge_name_expr(func, bridge_param_idx);
+    let (bridge_handle_type, bridge_value) = if bridge_param.core_wrapper == crate::core::ir::CoreWrapper::Arc {
+        (
+            format!("std::sync::Arc<dyn {handle_path}>"),
+            "std::sync::Arc::new(bridge)".to_string(),
+        )
+    } else {
+        (
+            handle_path.clone(),
+            "std::sync::Arc::new(std::sync::Mutex::new(bridge))".to_string(),
+        )
+    };
 
     let mut sig_parts = Vec::new();
     for (idx, p) in func.params.iter().enumerate() {
@@ -47,7 +71,7 @@ pub fn gen_bridge_function(
                 sig_parts.push(format!("{}: magnus::Value", p.name));
             }
         } else {
-            let promoted = idx > bridge_param_idx || func.params[..idx].iter().any(|pp| pp.optional);
+            let promoted = (is_optional && idx > bridge_param_idx) || func.params[..idx].iter().any(|pp| pp.optional);
             let ty = if p.optional || promoted {
                 format!("Option<{}>", mapper.map_type(&p.ty))
             } else {
@@ -89,10 +113,10 @@ pub fn gen_bridge_function(
 
     let bridge_wrap = if is_optional {
         format!(
-            "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
+            "let {param_name}: Option<{bridge_handle_type}> = match {param_name} {{\n        \
              Some(v) if !v.is_nil() => {{\n            \
-             let bridge = {struct_name}::new(v);\n            \
-             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
+             let bridge = {struct_name}::new(v, {bridge_name})?;\n            \
+             Some({bridge_value} as {bridge_handle_type})\n        \
              }},\n        \
              _ => None,\n    \
              }};"
@@ -100,8 +124,8 @@ pub fn gen_bridge_function(
     } else {
         format!(
             "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new({param_name});\n        \
-             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
+             let bridge = {struct_name}::new({param_name}, {bridge_name})?;\n        \
+             {bridge_value} as {bridge_handle_type}\n    \
              }};"
         )
     };

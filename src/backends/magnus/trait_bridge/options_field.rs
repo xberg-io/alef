@@ -119,7 +119,7 @@ pub fn gen_options_field_bridge_function(
          }} else if let Ok(opts_binding) = <&{options_type} as magnus::TryConvert>::try_convert(v) {{\n            \
          opts_binding.clone().into()\n        \
          }} else {{\n            \
-         let bridge = {struct_name}::new(v);\n            \
+         let bridge = {struct_name}::new(v, String::new())?;\n            \
          let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path};\n            \
          let mut opts = {core_import}::{options_type}::default();\n            \
          opts.{options_field} = Some(handle);\n            \
