@@ -689,7 +689,10 @@ pub(super) fn render_test_file_inner(
                     out,
                     "                    override fun serialize(value: kotlin.time.Duration, gen: com.fasterxml.jackson.core.JsonGenerator, serializers: com.fasterxml.jackson.databind.SerializerProvider) {{"
                 );
-                let _ = writeln!(out, "                        gen.writeNumber(value.inWholeMilliseconds)");
+                let _ = writeln!(
+                    out,
+                    "                        gen.writeNumber(value.inWholeMilliseconds)"
+                );
                 let _ = writeln!(out, "                    }}");
                 let _ = writeln!(out, "                }})");
                 let _ = writeln!(

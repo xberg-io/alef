@@ -1019,8 +1019,7 @@ use visitor::{build_csharp_visitor, resolve_csharp_visitor_config};
 /// must pass this options object, or the comparison fails on any expected text containing one of
 /// those characters (e.g. `"4 + 4 equals 8."`, `"I'm running locally."`) while passing silently
 /// for text that happens not to need escaping. ~keep
-pub(super) const UNESCAPED_JSON_SERIALIZER_OPTIONS: &str =
-    "new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }";
+pub(super) const UNESCAPED_JSON_SERIALIZER_OPTIONS: &str = "new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }";
 
 /// Build a C# call expression for a `method_result` assertion on a sample_language Tree.
 ///

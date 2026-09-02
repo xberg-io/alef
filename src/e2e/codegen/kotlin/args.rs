@@ -219,8 +219,7 @@ pub(super) fn build_args_and_setup(
                     // `createEngine`/other `handle`-typed args' config JSON takes, so a fixture
                     // like `warc_basic_output`'s `{"respect_robots_txt":false,...}` (no `ssrf` key
                     // at all) needs it here, not just the `json_object` DTO-arg path below. ~keep
-                    let normalized_config =
-                        normalize_typed_json(config_value, &config_type, &kotlin_fill_context);
+                    let normalized_config = normalize_typed_json(config_value, &config_type, &kotlin_fill_context);
                     let json_str = serde_json::to_string(&normalized_config).unwrap_or_default();
                     setup_lines.push(format!(
                         "val {name}Config = MAPPER.readValue({}, {config_type}::class.java)",
@@ -571,8 +570,7 @@ pub(super) fn build_args_and_setup(
                                 Some((index, marker, file.path.clone()))
                             })
                             .collect::<Vec<_>>();
-                        let json_value =
-                            normalize_typed_json(&json_value, &config_type, &kotlin_fill_context);
+                        let json_value = normalize_typed_json(&json_value, &config_type, &kotlin_fill_context);
                         let json_str = serde_json::to_string(&json_value).unwrap_or_default();
                         let var_name = format!("{}_Config", arg.name);
                         if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
@@ -847,7 +845,12 @@ fn normalize_typed_value(
         crate::core::ir::TypeRef::Vec(inner) => serde_json::Value::Array(
             value
                 .as_array()
-                .map(|items| items.iter().map(|item| normalize_typed_value(item, inner, ctx)).collect())
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|item| normalize_typed_value(item, inner, ctx))
+                        .collect()
+                })
                 .unwrap_or_default(),
         ),
         _ => value.clone(),

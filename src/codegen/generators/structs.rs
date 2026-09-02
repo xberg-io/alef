@@ -331,7 +331,9 @@ pub fn gen_struct_with_per_field_attrs(
         // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
         // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
         // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
-        if has_serde && !delegate_deserialize && !attrs.iter().any(|a| a == "serde(skip)")
+        if has_serde
+            && !delegate_deserialize
+            && !attrs.iter().any(|a| a == "serde(skip)")
             && let Some(default_attr) = serde_default_field_attr(field)
         {
             attrs.push(default_attr);
@@ -462,7 +464,9 @@ pub fn gen_struct_with_rename(
         // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
         // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
         // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
-        if has_serde && !delegate_deserialize && !attrs.iter().any(|a| a == "serde(skip)")
+        if has_serde
+            && !delegate_deserialize
+            && !attrs.iter().any(|a| a == "serde(skip)")
             && let Some(default_attr) = serde_default_field_attr(field)
         {
             attrs.push(default_attr);
@@ -561,9 +565,7 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
         // Whole-type delegation didn't fire for `typ` (or wasn't requested for it) -- mirror
         // this field's own `#[serde(default)]` directly so it stays absent-tolerant even under
         // the derived, field-by-field `Deserialize`. See `serde_default_field_attr`.
-        if !delegate_deserialize
-            && let Some(default_attr) = serde_default_field_attr(field)
-        {
+        if !delegate_deserialize && let Some(default_attr) = serde_default_field_attr(field) {
             attrs.push(default_attr);
         }
         sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));

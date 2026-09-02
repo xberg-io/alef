@@ -704,10 +704,7 @@ module_name = "test_lib"
             stub.contains("class LiterLlmErrorInfo:"),
             "missing LiterLlmErrorInfo class declaration:\n{stub}"
         );
-        assert!(
-            stub.contains("    code: int"),
-            "missing code: int field:\n{stub}"
-        );
+        assert!(stub.contains("    code: int"), "missing code: int field:\n{stub}");
         assert!(
             stub.contains("    status_code: int"),
             "missing status_code: int field:\n{stub}"

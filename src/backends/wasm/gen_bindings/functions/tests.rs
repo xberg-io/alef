@@ -691,9 +691,7 @@ fn async_named_param_with_wrapper_takes_typed_option_and_into() {
         "a wrapper-backed Named param must take the typed wrapper, not JsValue:\n{out}"
     );
     assert!(
-        out.contains(
-            "let config_core: sample_fixture::ExtractionConfig = config.map(Into::into).unwrap_or_default();"
-        ),
+        out.contains("let config_core: sample_fixture::ExtractionConfig = config.map(Into::into).unwrap_or_default();"),
         "omitting the param must still fall back to the core type's Default:\n{out}"
     );
     assert!(

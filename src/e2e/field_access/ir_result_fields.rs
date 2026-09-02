@@ -108,10 +108,11 @@ pub(super) fn build_go_ir_result_field_map(
             record_ir_result_field(&mut map, type_def, field, rule, &names);
         }
     }
-    for enum_def in enums
-        .iter()
-        .filter(|definition| emitted.externally_tagged_struct_enums.contains(definition.name.as_str()))
-    {
+    for enum_def in enums.iter().filter(|definition| {
+        emitted
+            .externally_tagged_struct_enums
+            .contains(definition.name.as_str())
+    }) {
         record_externally_tagged_enum_variants(&mut map, enum_def, names.structs);
     }
     map
@@ -126,7 +127,11 @@ pub(super) fn build_go_ir_result_field_map(
 /// Every recorded field is unconditionally a pointer: that generator emits `*<payload>` for
 /// every variant field, not just some, because at most one variant is ever populated -- this is
 /// the Go template's own fact, not an inference over an unresolved field. ~keep
-fn record_externally_tagged_enum_variants(map: &mut IrResultFieldMap, enum_def: &EnumDef, struct_names: &HashSet<&str>) {
+fn record_externally_tagged_enum_variants(
+    map: &mut IrResultFieldMap,
+    enum_def: &EnumDef,
+    struct_names: &HashSet<&str>,
+) {
     for variant in &enum_def.variants {
         let Some(field) = variant.fields.first() else {
             continue;
@@ -208,7 +213,12 @@ fn record_ir_result_field(
     record_ir_result_field_kind(map, type_def, field, names);
 }
 
-fn record_ir_result_field_kind(map: &mut IrResultFieldMap, type_def: &TypeDef, field: &FieldDef, names: &GoFieldTypeNames<'_>) {
+fn record_ir_result_field_kind(
+    map: &mut IrResultFieldMap,
+    type_def: &TypeDef,
+    field: &FieldDef,
+    names: &GoFieldTypeNames<'_>,
+) {
     if type_ref_is_display_safe(&field.ty) {
         map.display_safe_fields
             .entry(type_def.name.clone())

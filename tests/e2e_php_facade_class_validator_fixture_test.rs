@@ -146,13 +146,7 @@ class = "Xberg\\XbergApi"
         cfg.crates[0].e2e.clone().expect("e2e config present")
     };
 
-    let errors = validate_call_class_overrides(
-        &e2e_config,
-        &resolved,
-        &minimal_type_defs(),
-        &[],
-        &["php".to_string()],
-    );
+    let errors = validate_call_class_overrides(&e2e_config, &resolved, &minimal_type_defs(), &[], &["php".to_string()]);
 
     assert!(
         errors.is_empty(),
@@ -194,13 +188,7 @@ class = "Xberg\\Xberg"
     .expect("fixture config must parse");
     let e2e_config = cfg.crates[0].e2e.clone().expect("e2e config present");
 
-    let errors = validate_call_class_overrides(
-        &e2e_config,
-        &resolved,
-        &minimal_type_defs(),
-        &[],
-        &["php".to_string()],
-    );
+    let errors = validate_call_class_overrides(&e2e_config, &resolved, &minimal_type_defs(), &[], &["php".to_string()]);
 
     assert!(
         errors.is_empty(),

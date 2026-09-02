@@ -1,7 +1,9 @@
 use crate::core::ir::{ApiSurface, DefaultValue, MethodDef, TypeDef, UnsupportedPublicItem};
 use ahash::AHashMap;
 
-use super::super::defaults::{ConstructorIndex, FreeFunctionIndex, extract_default_values, fold_constant_default_functions};
+use super::super::defaults::{
+    ConstructorIndex, FreeFunctionIndex, extract_default_values, fold_constant_default_functions,
+};
 use super::super::helpers::{build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, is_test_gated};
 use super::extract_method;
 

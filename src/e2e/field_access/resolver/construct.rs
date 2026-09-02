@@ -561,7 +561,12 @@ impl FieldResolver {
         enums: &[crate::core::ir::EnumDef],
         emitted: &crate::backends::go::emission_facts::GoEmissionFacts<'_>,
     ) -> IrResultFieldMap {
-        super::super::ir_result_fields::build_go_ir_result_field_map(type_defs, enums, OptionalityRule::DeclaredType, emitted)
+        super::super::ir_result_fields::build_go_ir_result_field_map(
+            type_defs,
+            enums,
+            OptionalityRule::DeclaredType,
+            emitted,
+        )
     }
 
     /// Attach IR field facts anchored at `root_type` — the IR type name the call's declared
