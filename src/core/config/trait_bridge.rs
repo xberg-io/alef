@@ -16,11 +16,14 @@ pub struct TraitBridgeConfig {
     /// Rust path to the registry getter function
     /// (e.g., `"sample_core::plugins::registry::get_ocr_backend_registry"`).
     /// Optional — when set, the generated registration function inserts the bridge into a registry.
+    /// When omitted, supporting backends call the core host function named by `register_fn`
+    /// directly, allowing the core to own validation, lifecycle, and locking.
     #[serde(default)]
     pub registry_getter: Option<String>,
     /// Name of the registration function to generate
     /// (e.g., `"register_ocr_backend"`).
-    /// Optional — when set, a `#[pyfunction]` registration function is generated.
+    /// Optional — when set, a host-language registration function is generated. If
+    /// `registry_getter` is absent, this is also the core host function name.
     /// When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).
     #[serde(default)]
     pub register_fn: Option<String>,
