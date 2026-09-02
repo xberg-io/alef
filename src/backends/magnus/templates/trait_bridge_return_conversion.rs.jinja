@@ -1,11 +1,11 @@
 {%- if bytes_return %}
 {% if has_error %}
 {{ indent }}<magnus::RString as magnus::TryConvert>::try_convert(val)
-{{ indent }}    .map(|bytes| unsafe { bytes.as_slice().to_vec() })
+{{ indent }}    .map(|bytes| unsafe { bytes.as_slice() }.to_vec())
 {{ indent }}    .map_err(|e| {{ err_convert }})
 {% else %}
 {{ indent }}<magnus::RString as magnus::TryConvert>::try_convert(val)
-{{ indent }}    .map(|bytes| unsafe { bytes.as_slice().to_vec() })
+{{ indent }}    .map(|bytes| unsafe { bytes.as_slice() }.to_vec())
 {{ indent }}    .unwrap_or_else(|e| {
 {{ indent }}        tracing::warn!(wrapper = "{{ wrapper }}", method = "{{ method_name }}", error = %e, "host returned a non-string byte value; returning default");
 {{ indent }}        Default::default()

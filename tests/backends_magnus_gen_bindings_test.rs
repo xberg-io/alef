@@ -1711,7 +1711,7 @@ mod trait_bridge {
             "byte returns must decode from a Ruby string:\n{code}"
         );
         assert!(
-            code.contains(".map(|bytes| unsafe { bytes.as_slice().to_vec() })"),
+            code.contains(".map(|bytes| unsafe { bytes.as_slice() }.to_vec())"),
             "byte returns must copy the Ruby string's exact bytes:\n{code}"
         );
         assert!(
