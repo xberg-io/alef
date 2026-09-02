@@ -31,6 +31,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   structural census test parses generated output with `syn` and asserts, over every `impl` item
   in the file, that none targets a cfg-gated type without carrying the identical gate.
 
+- **A consumer who wrapped the retracted `alef-snippets` pre-commit hook in a `PATH` guard kept it
+  forever.** `migrate_poly_toml_drop_snippet_hook` exists to delete the
+  `[hooks.pre-commit.commands.alef-snippets]` table that `a139a680` stopped scaffolding, and
+  guarded the deletion on the table's `run` being byte-equal to
+  `alef snippets check --strict --cache off` — so that a consumer's own, differently-configured
+  table of the same name is never removed. crawlberg had hardened alef's own hook, while it was
+  still alef's, against `alef` being absent from a lint job's `PATH`:
+  `sh -c 'command -v alef >/dev/null 2>&1 && exec <it> || echo ...'`. That drifted the table off
+  the exact string the migration keyed on, so it was classified as consumer-repurposed and
+  preserved — the migration written to remove this hook could not remove the one instance of it
+  that exists in the fleet. The guard now matches the retracted invocation as a substring of
+  `run`, which still declines to touch a table whose command never invokes it at all.
+
+- **A generated C# test that mutates a trait-bridge registry could race a class reading it.**
+  xUnit parallelizes test classes within an assembly by default, and a fixture calling a declared
+  `register_fn`/`unregister_fn`/`clear_fn` mutates a process-global registry, so a class clearing
+  a backend could run concurrently with one resolving that same backend through the ordinary call
+  path — intermittent contract-test failures that never reproduced when the class was run alone.
+  `TestSetup.cs` now emits `[assembly: CollectionBehavior(DisableTestParallelization = true)]`,
+  but only when the generated fixture set actually contains such a mutation, so a crate that
+  declares no `[[trait_bridges]]` generates a byte-identical `TestSetup.cs` and keeps full
+  parallelization. Detection is keyed on the crate's declared bridge operations rather than any
+  trait or fixture name, so every declared bridge is covered.
+
 ## [0.82.0] - 2026-09-02
 
 ### Removed
