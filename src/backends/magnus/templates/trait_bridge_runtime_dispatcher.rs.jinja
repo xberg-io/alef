@@ -1,0 +1,83 @@
+type {{ job_name }} = Box<dyn FnOnce(&magnus::Ruby, magnus::Value) + Send + 'static>;
+
+#[derive(Clone)]
+struct {{ dispatcher_name }} {
+    sender: std::sync::mpsc::SyncSender<{{ job_name }}>,
+}
+
+impl {{ dispatcher_name }} {
+    const QUEUE_CAPACITY: usize = 64;
+
+    fn new(ruby: &magnus::Ruby, rb_obj: magnus::Value) -> Result<Self, magnus::Error> {
+        use magnus::value::InnerValue as _;
+
+        let (sender, receiver) = std::sync::mpsc::sync_channel(Self::QUEUE_CAPACITY);
+        let inner = magnus::value::Opaque::from(rb_obj);
+        let thread = ruby.thread_create_from_fn(move |ruby| {
+            while let Ok(job) = Self::recv_without_gvl(&receiver) {
+                let value = inner.get_inner_with(ruby);
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    job(ruby, value);
+                }));
+            }
+        });
+
+        // The active Ruby thread is VM-rooted; its ivar keeps the host object live
+        // until every bridge sender is gone and the dispatcher exits.
+        use magnus::Object as _;
+        thread.ivar_set("__alef_trait_bridge_host", rb_obj)?;
+        Ok(Self { sender })
+    }
+
+    fn dispatch<T, F>(&self, callback: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&magnus::Ruby, magnus::Value) -> T + Send + 'static,
+    {
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+        self.sender
+            .send(Box::new(move |ruby, value| {
+                let result = callback(ruby, value);
+                let _ = result_sender.send(result);
+            }))
+            .map_err(|_| "Ruby runtime dispatcher is not available".to_string())?;
+        result_receiver
+            .recv()
+            .map_err(|_| "Ruby runtime dispatcher callback did not return".to_string())
+    }
+
+    fn recv_without_gvl(
+        receiver: &std::sync::mpsc::Receiver<{{ job_name }}>,
+    ) -> Result<{{ job_name }}, std::sync::mpsc::RecvError> {
+        struct ReceiveState<'a> {
+            receiver: &'a std::sync::mpsc::Receiver<{{ job_name }}>,
+            result: Option<Result<{{ job_name }}, std::sync::mpsc::RecvError>>,
+        }
+
+        unsafe extern "C" fn receive(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+            // SAFETY: the state pointer remains valid until Ruby returns from the
+            // without-GVL callback on this same Ruby-created thread.
+            let state = unsafe { &mut *(data as *mut ReceiveState<'_>) };
+            state.result = Some(state.receiver.recv());
+            std::ptr::null_mut()
+        }
+
+        let mut state = ReceiveState {
+            receiver,
+            result: None,
+        };
+        // SAFETY: this runs on the dedicated Ruby-created dispatcher thread. The
+        // callback touches only Rust channel state and the sender disconnect wakes it.
+        unsafe {
+            rb_sys::rb_thread_call_without_gvl(
+                Some(receive),
+                &mut state as *mut ReceiveState<'_> as *mut std::ffi::c_void,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        state
+            .result
+            .unwrap_or_else(|| Err(std::sync::mpsc::RecvError))
+    }
+}

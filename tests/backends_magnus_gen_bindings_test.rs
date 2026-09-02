@@ -1821,6 +1821,70 @@ mod trait_bridge {
     }
 
     #[test]
+    fn test_plugin_bridge_dispatches_native_worker_calls_on_a_ruby_thread() {
+        let trait_def = make_trait_def(
+            "Validator",
+            vec![make_method(
+                "validate",
+                TypeRef::Primitive(PrimitiveType::Bool),
+                true,
+                false,
+            )],
+        );
+        let cfg = make_plugin_bridge_cfg("Validator");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "sample_crate",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("const QUEUE_CAPACITY: usize = 64;"),
+            "queue must be bounded:\n{code}"
+        );
+        assert!(
+            code.contains("ruby.thread_create_from_fn")
+                && code.contains("rb_sys::rb_thread_call_without_gvl")
+                && code.contains("__alef_trait_bridge_host"),
+            "dispatcher must be Ruby-created, wait without the GVL, and root its host:\n{code}"
+        );
+        assert!(
+            code.contains("match magnus::Ruby::get()") && code.contains("self.runtime_dispatcher.dispatch(callback)"),
+            "sync calls must use a proven GVL or runtime-affine dispatch:\n{code}"
+        );
+    }
+
+    #[test]
+    fn test_async_plugin_bridge_dispatches_instead_of_using_ruby_on_spawn_blocking_worker() {
+        let mut method = make_method("validate", TypeRef::Primitive(PrimitiveType::Bool), true, false);
+        method.is_async = true;
+        let trait_def = make_trait_def("Validator", vec![method]);
+        let cfg = make_plugin_bridge_cfg("Validator");
+        let code = gen_trait_bridge(
+            &trait_def,
+            &cfg,
+            "sample_crate",
+            "MyError",
+            "MyError::Plugin {{ message: {msg}, plugin_name: String::new() }}",
+            &make_api(),
+        )
+        .expect("trait bridge generation should succeed");
+
+        assert!(
+            code.contains("spawn_blocking(move || dispatcher.dispatch(callback))"),
+            "async worker must send through the Ruby dispatcher:\n{code}"
+        );
+        assert!(
+            !code.contains("spawn_blocking(move || ->") && !code.contains("spawn_blocking thread acquires GVL"),
+            "async worker must not call Ruby directly:\n{code}"
+        );
+    }
+
+    #[test]
     fn test_plugin_bridge_skip_when_excluded() {
         let trait_def = make_trait_def(
             "SomeBackend",

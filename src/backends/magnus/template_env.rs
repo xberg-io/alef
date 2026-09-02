@@ -69,6 +69,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge_constructor.rs.jinja"),
     ),
     (
+        "trait_bridge_runtime_dispatcher.rs.jinja",
+        include_str!("templates/trait_bridge_runtime_dispatcher.rs.jinja"),
+    ),
+    (
         "trait_bridge_registration_fn.rs.jinja",
         include_str!("templates/trait_bridge_registration_fn.rs.jinja"),
     ),

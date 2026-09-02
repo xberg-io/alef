@@ -2,6 +2,8 @@ impl {{ wrapper }} {
     /// Create a new bridge wrapping a Ruby object.
     /// Validates that the Ruby object responds to all required methods.
     pub fn new(rb_obj: magnus::Value, name: String) -> Result<Self, magnus::Error> {
+        // SAFETY: constructors are called by generated Magnus registration functions.
+        let ruby = unsafe { magnus::Ruby::get_unchecked() };
 {%- for req_method in required_methods %}
         if !rb_obj.respond_to("{{ req_method }}", false).unwrap_or(false) {
             let ruby = unsafe { magnus::Ruby::get_unchecked() };
@@ -11,10 +13,12 @@ impl {{ wrapper }} {
             ));
         }
 {%- endfor %}
+        let runtime_dispatcher = {{ dispatcher_name }}::new(&ruby, rb_obj)?;
 
         Ok(Self {
             inner: magnus::value::Opaque::from(rb_obj),
             cached_name: name,
+            runtime_dispatcher,
 {%- for opt_method in optional_methods %}
             has_{{ opt_method }}: rb_obj.respond_to("{{ opt_method }}", false).unwrap_or(false),
 {%- endfor %}

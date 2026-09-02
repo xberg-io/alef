@@ -107,6 +107,8 @@ pub fn gen_trait_bridge(
             prefixed.push_str(imp);
             prefixed.push_str(" as _;\n");
         }
+        prefixed.push_str(&generator.runtime_dispatcher_support(&spec));
+        prefixed.push_str("\n\n");
         prefixed.push_str(&output.code);
         Ok(prefixed)
     }
@@ -147,6 +149,24 @@ struct MagnusBridgeGenerator {
 }
 
 impl MagnusBridgeGenerator {
+    fn runtime_dispatcher_name(&self, spec: &TraitBridgeSpec) -> String {
+        format!("{}RuntimeDispatcher", spec.wrapper_name())
+    }
+
+    fn runtime_job_name(&self, spec: &TraitBridgeSpec) -> String {
+        format!("{}RuntimeJob", spec.wrapper_name())
+    }
+
+    fn runtime_dispatcher_support(&self, spec: &TraitBridgeSpec) -> String {
+        crate::backends::magnus::template_env::render(
+            "trait_bridge_runtime_dispatcher.rs.jinja",
+            minijinja::context! {
+                dispatcher_name => self.runtime_dispatcher_name(spec),
+                job_name => self.runtime_job_name(spec),
+            },
+        )
+    }
+
     /// Build the fully-qualified error path (`{core_import}::{error_type}` unless already qualified).
     fn error_path(&self) -> String {
         if self.error_type.contains("::") || self.error_type.contains('<') {
@@ -189,6 +209,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             fields.push(("has_initialize".to_string(), "bool".to_string()));
             fields.push(("has_shutdown".to_string(), "bool".to_string()));
         }
+        fields.push(("runtime_dispatcher".to_string(), self.runtime_dispatcher_name(spec)));
         fields
     }
 
@@ -203,8 +224,13 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let name = &method.name;
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
+        let conversion_bindings = self.owned_param_bindings(method);
 
-        let args: Vec<String> = method.params.iter().map(|p| self.ruby_arg_expr(p)).collect();
+        let args: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| self.ruby_arg_expr_custom(&p.ty, &format!("{}_owned", p.name)))
+            .collect();
 
         let call = if args.is_empty() {
             format!("value.funcall::<_, _, magnus::Value>(\"{name}\", ())")
@@ -223,7 +249,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
             String::new()
         };
 
-        let mut body = crate::backends::magnus::template_env::render(
+        let mut callback_body = crate::backends::magnus::template_env::render(
             "sync_method_body.rs.jinja",
             minijinja::context! {
                 wrapper => spec.wrapper_name(),
@@ -236,10 +262,41 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         );
 
         if !is_unit {
-            body.push_str(&self.return_conversion(method, spec, has_error, ""));
+            callback_body.push_str(&self.return_conversion(method, spec, has_error, ""));
         }
 
-        body
+        let result_type = self.method_result_type(method);
+        let indented_callback = callback_body
+            .lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let dispatch_failure = if has_error {
+            format!(
+                "Err({})",
+                self.make_error(&format!(
+                    "format!(\"Ruby runtime dispatcher failed for method '{name}': {{}}\", error)"
+                ))
+            )
+        } else {
+            format!(
+                "{{ tracing::warn!(wrapper = \"{}\", method = \"{name}\", %error, \"Ruby runtime dispatcher failed; returning default\"); Default::default() }}",
+                spec.wrapper_name()
+            )
+        };
+
+        format!(
+            "{conversion_bindings}let callback = move |ruby: &magnus::Ruby, value: magnus::Value| -> {result_type} {{\n\
+             {indented_callback}\n\
+             }};\n\
+             match magnus::Ruby::get() {{\n\
+                 Ok(ruby) => callback(&ruby, self.inner.get_inner_with(&ruby)),\n\
+                 Err(_) => match self.runtime_dispatcher.dispatch(callback) {{\n\
+                     Ok(result) => result,\n\
+                     Err(error) => {dispatch_failure},\n\
+                 }},\n\
+             }}"
+        )
     }
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
@@ -247,51 +304,12 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         let has_error = method.error_type.is_some();
         let is_unit = matches!(method.return_type, TypeRef::Unit);
 
-        let conversions: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| match (&p.ty, p.is_ref) {
-                (TypeRef::String, true) => format!("let {}_owned = {}.to_string();\n", p.name, p.name),
-                (TypeRef::Bytes, true) => format!("let {}_owned = {}.to_vec();\n", p.name, p.name),
-                (TypeRef::Path, true) => format!("let {}_owned = {}.to_path_buf();\n", p.name, p.name),
-                _ => format!("let {}_owned = {}.clone();\n", p.name, p.name),
-            })
-            .collect();
-        let conversion_bindings = conversions.join("");
-
-        let return_type_rust = if is_unit {
-            "()".to_string()
-        } else {
-            self.return_rust_type(&method.return_type)
-        };
-        let err_path = self.error_path();
-        let result_ty = if has_error {
-            format!("std::result::Result<{return_type_rust}, {err_path}>")
-        } else {
-            return_type_rust.clone()
-        };
-
-        let conversions = format!(
-            "let inner = self.inner;\n\
-let cached_name = self.cached_name.clone();\n\
-// cached_name is referenced both inside the spawn_blocking closure and after\n\
-// the await for the JoinError fallback, so clone once for each consumer.\n\
-let cached_name_for_blocking = cached_name.clone();\n\
-{conversion_bindings}\n",
-            conversion_bindings = conversion_bindings,
-        );
+        let conversion_bindings = self.owned_param_bindings(method);
 
         let args: Vec<String> = method
             .params
             .iter()
-            .map(|p| {
-                let param_name = if matches!(&p.ty, TypeRef::String) && p.is_ref {
-                    format!("{}_owned.as_str()", p.name)
-                } else {
-                    format!("{}_owned", p.name)
-                };
-                self.ruby_arg_expr_custom(&p.ty, &param_name)
-            })
+            .map(|p| self.ruby_arg_expr_custom(&p.ty, &format!("{}_owned", p.name)))
             .collect();
 
         let call = if args.is_empty() {
@@ -305,27 +323,64 @@ let cached_name_for_blocking = cached_name.clone();\n\
             format!("value.funcall::<_, _, magnus::Value>(\"{name}\", {args_tuple})")
         };
 
-        let err_expr_call = self.make_error(&format!(
-            "format!(\"Plugin '{{}}' method '{name}' failed: {{}}\", cached_name_for_blocking, e)"
-        ));
-        let err_expr_join = if has_error {
-            self.make_error("format!(\"spawn_blocking failed for '{}': {}\", cached_name, e)")
+        let err_expr_call = if has_error {
+            self.make_error(&format!("format!(\"Ruby method '{name}' failed: {{}}\", e)"))
         } else {
             String::new()
         };
-
-        crate::backends::magnus::template_env::render(
-            "trait_bridge_async_method_body.rs.jinja",
+        let mut callback_body = crate::backends::magnus::template_env::render(
+            "sync_method_body.rs.jinja",
             minijinja::context! {
-                conversions => conversions,
+                wrapper => spec.wrapper_name(),
+                method_name => name,
                 call => call,
                 has_error => has_error,
                 is_unit => is_unit,
-                result_ty => result_ty,
-                err_expr_call => err_expr_call,
-                err_expr_join => err_expr_join,
-                return_conversion => self.return_conversion(method, spec, has_error, "            "),
+                err_expr => err_expr_call,
             },
+        );
+        if !is_unit {
+            callback_body.push_str(&self.return_conversion(method, spec, has_error, ""));
+        }
+        let indented_callback = callback_body
+            .lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result_ty = self.method_result_type(method);
+        let dispatch_failure = if has_error {
+            format!(
+                "Err({})",
+                self.make_error(&format!(
+                    "format!(\"Ruby runtime dispatcher failed for method '{name}': {{}}\", error)"
+                ))
+            )
+        } else {
+            "{ tracing::warn!(%error, \"Ruby runtime dispatcher failed; returning default\"); Default::default() }"
+                .to_string()
+        };
+        let join_failure = if has_error {
+            format!(
+                "Err({})",
+                self.make_error(&format!(
+                    "format!(\"Ruby runtime dispatcher task failed for method '{name}': {{}}\", error)"
+                ))
+            )
+        } else {
+            "{ tracing::warn!(%error, \"Ruby runtime dispatcher task failed; returning default\"); Default::default() }"
+                .to_string()
+        };
+
+        format!(
+            "{conversion_bindings}let dispatcher = self.runtime_dispatcher.clone();\n\
+             let callback = move |ruby: &magnus::Ruby, value: magnus::Value| -> {result_ty} {{\n\
+             {indented_callback}\n\
+             }};\n\
+             match tokio::task::spawn_blocking(move || dispatcher.dispatch(callback)).await {{\n\
+                 Ok(Ok(result)) => result,\n\
+                 Ok(Err(error)) => {dispatch_failure},\n\
+                 Err(error) => {join_failure},\n\
+             }}"
         )
     }
 
@@ -350,6 +405,7 @@ let cached_name_for_blocking = cached_name.clone();\n\
                 wrapper => wrapper,
                 required_methods => required_methods,
                 optional_methods => optional_methods,
+                dispatcher_name => self.runtime_dispatcher_name(spec),
             },
         )
     }
@@ -426,6 +482,34 @@ let cached_name_for_blocking = cached_name.clone();\n\
 }
 
 impl MagnusBridgeGenerator {
+    fn method_result_type(&self, method: &MethodDef) -> String {
+        let value = self.return_rust_type(&method.return_type);
+        match method.error_type.as_ref() {
+            Some(_) => format!("std::result::Result<{value}, {}>", self.error_path()),
+            None => value,
+        }
+    }
+
+    fn owned_param_bindings(&self, method: &MethodDef) -> String {
+        method
+            .params
+            .iter()
+            .map(|param| {
+                let conversion = if !param.is_ref {
+                    param.name.clone()
+                } else {
+                    match &param.ty {
+                        TypeRef::String => format!("{}.to_string()", param.name),
+                        TypeRef::Bytes => format!("{}.to_vec()", param.name),
+                        TypeRef::Path => format!("{}.to_path_buf()", param.name),
+                        _ => format!("{}.clone()", param.name),
+                    }
+                };
+                format!("let {}_owned = {conversion};\n", param.name)
+            })
+            .collect()
+    }
+
     /// The fully-qualified Rust return type as it appears in the trait method
     /// signature — uses `core_import::Foo` for Named types.
     fn return_rust_type(&self, ty: &TypeRef) -> String {
@@ -550,34 +634,27 @@ impl MagnusBridgeGenerator {
         self.struct_param_types.contains(name)
     }
 
-    /// Build a Ruby arg expression for funcall given a Rust parameter.
-    fn ruby_arg_expr(&self, p: &crate::core::ir::ParamDef) -> String {
-        self.ruby_arg_expr_custom(&p.ty, &p.name)
-    }
-
     /// Build a Ruby arg expression for funcall given a type and variable name.
     /// Wraps `var` in deref/borrow as needed so the expression always type-checks
     /// regardless of whether `var` is owned (`String`, `Vec<u8>`, ...) or borrowed.
     fn ruby_arg_expr_custom(&self, ty: &TypeRef, var: &str) -> String {
         match ty {
-            TypeRef::String => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value() }}"
-            ),
-            TypeRef::Bytes => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value() }}"
-            ),
+            TypeRef::String => format!("ruby.str_new(AsRef::<str>::as_ref(&{var})).as_value()"),
+            TypeRef::Bytes => {
+                format!("ruby.str_new(String::from_utf8_lossy(AsRef::<[u8]>::as_ref(&{var})).as_ref()).as_value()")
+            }
             // fields (`{Binding}::from(core_value)`). The `#[magnus::wrap]` struct implements
-            TypeRef::Named(n) if self.is_native_struct_param(n) => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(&ruby) }}"
-            ),
+            TypeRef::Named(n) if self.is_native_struct_param(n) => {
+                format!("{{ use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(ruby) }}")
+            }
             TypeRef::Named(_) | TypeRef::Json => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
+                "serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value())"
             ),
             TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Optional(_) => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value()) }}"
+                "serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value())"
             ),
             TypeRef::Path => format!(
-                "{{ let ruby = unsafe {{ magnus::Ruby::get_unchecked() }}; ruby.str_new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value() }}"
+                "ruby.str_new(<_ as AsRef<std::path::Path>>::as_ref(&{var}).to_string_lossy().as_ref()).as_value()"
             ),
             _ => var.to_string(),
         }
@@ -657,7 +734,13 @@ mod forwarding_tests {
         let fields = generator.extra_bridge_fields(&spec);
         assert_eq!(
             fields,
-            vec![("has_supports_table_detection".to_string(), "bool".to_string())]
+            vec![
+                ("has_supports_table_detection".to_string(), "bool".to_string()),
+                (
+                    "runtime_dispatcher".to_string(),
+                    "RbOcrBackendBridgeRuntimeDispatcher".to_string()
+                )
+            ]
         );
 
         let ctor = generator.gen_constructor(&spec);
