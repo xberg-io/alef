@@ -548,14 +548,20 @@ impl FieldResolver {
             excluded_names.clone(),
             HashSet::new(),
         );
-        super::super::ir_result_fields::build_go_ir_result_field_map(type_defs, OptionalityRule::DeclaredType, &emitted)
+        super::super::ir_result_fields::build_go_ir_result_field_map(
+            type_defs,
+            enums,
+            OptionalityRule::DeclaredType,
+            &emitted,
+        )
     }
 
     pub(crate) fn go_ir_result_field_facts_from_emission(
         type_defs: &[crate::core::ir::TypeDef],
+        enums: &[crate::core::ir::EnumDef],
         emitted: &crate::backends::go::emission_facts::GoEmissionFacts<'_>,
     ) -> IrResultFieldMap {
-        super::super::ir_result_fields::build_go_ir_result_field_map(type_defs, OptionalityRule::DeclaredType, emitted)
+        super::super::ir_result_fields::build_go_ir_result_field_map(type_defs, enums, OptionalityRule::DeclaredType, emitted)
     }
 
     /// Attach IR field facts anchored at `root_type` — the IR type name the call's declared

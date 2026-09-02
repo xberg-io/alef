@@ -83,11 +83,12 @@ pub(super) fn build_ir_result_field_map_with_enums(
     rule: OptionalityRule,
 ) -> IrResultFieldMap {
     let emitted = GoEmissionFacts::new(type_defs, enums, HashSet::new(), HashSet::new());
-    build_go_ir_result_field_map(type_defs, rule, &emitted)
+    build_go_ir_result_field_map(type_defs, enums, rule, &emitted)
 }
 
 pub(super) fn build_go_ir_result_field_map(
     type_defs: &[TypeDef],
+    enums: &[EnumDef],
     rule: OptionalityRule,
     emitted: &GoEmissionFacts<'_>,
 ) -> IrResultFieldMap {
@@ -96,6 +97,7 @@ pub(super) fn build_go_ir_result_field_map(
         enums: &emitted.unit_enums,
         passthrough_enums: &emitted.passthrough_enums,
         data_enums: &emitted.data_enums,
+        externally_tagged_struct_enums: &emitted.externally_tagged_struct_enums,
     };
     let mut map = IrResultFieldMap::default();
     for type_def in type_defs
@@ -106,7 +108,56 @@ pub(super) fn build_go_ir_result_field_map(
             record_ir_result_field(&mut map, type_def, field, rule, &names);
         }
     }
+    for enum_def in enums
+        .iter()
+        .filter(|definition| emitted.externally_tagged_struct_enums.contains(definition.name.as_str()))
+    {
+        record_externally_tagged_enum_variants(&mut map, enum_def, names.structs);
+    }
     map
+}
+
+/// Extend the map across an `ExternallyTaggedStruct` enum's variant boundary the same way a
+/// literal struct field does -- see [`GoEmissionFacts::externally_tagged_struct_enums`].
+///
+/// Mirrors `backends::go::gen_bindings::types::enums::gen_externally_tagged_union_type`'s own
+/// iteration exactly (`variant.fields.first()` narrowed to `TypeRef::Named`, keyed by
+/// `wire_variant_value`) so the two can never name a different field for the same variant.
+/// Every recorded field is unconditionally a pointer: that generator emits `*<payload>` for
+/// every variant field, not just some, because at most one variant is ever populated -- this is
+/// the Go template's own fact, not an inference over an unresolved field. ~keep
+fn record_externally_tagged_enum_variants(map: &mut IrResultFieldMap, enum_def: &EnumDef, struct_names: &HashSet<&str>) {
+    for variant in &enum_def.variants {
+        let Some(field) = variant.fields.first() else {
+            continue;
+        };
+        let TypeRef::Named(struct_type_name) = &field.ty else {
+            continue;
+        };
+        let wire_name = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
+        map.declared_fields
+            .entry(enum_def.name.clone())
+            .or_default()
+            .insert(wire_name.clone());
+        map.pointer_fields
+            .entry(enum_def.name.clone())
+            .or_default()
+            .insert(wire_name.clone());
+        map.optional_fields
+            .entry(enum_def.name.clone())
+            .or_default()
+            .insert(wire_name.clone());
+        if struct_names.contains(struct_type_name.as_str()) {
+            map.field_types
+                .entry(enum_def.name.clone())
+                .or_default()
+                .insert(wire_name, struct_type_name.clone());
+        }
+    }
 }
 
 struct GoFieldTypeNames<'a> {
@@ -114,6 +165,7 @@ struct GoFieldTypeNames<'a> {
     enums: &'a HashSet<&'a str>,
     passthrough_enums: &'a HashSet<&'a str>,
     data_enums: &'a HashSet<&'a str>,
+    externally_tagged_struct_enums: &'a HashSet<&'a str>,
 }
 
 fn record_ir_result_field(
@@ -153,15 +205,10 @@ fn record_ir_result_field(
             .or_default()
             .insert(field.name.clone());
     }
-    record_ir_result_field_kind(map, type_def, field, names.structs);
+    record_ir_result_field_kind(map, type_def, field, names);
 }
 
-fn record_ir_result_field_kind(
-    map: &mut IrResultFieldMap,
-    type_def: &TypeDef,
-    field: &FieldDef,
-    struct_names: &HashSet<&str>,
-) {
+fn record_ir_result_field_kind(map: &mut IrResultFieldMap, type_def: &TypeDef, field: &FieldDef, names: &GoFieldTypeNames<'_>) {
     if type_ref_is_display_safe(&field.ty) {
         map.display_safe_fields
             .entry(type_def.name.clone())
@@ -171,7 +218,11 @@ fn record_ir_result_field_kind(
     let Some(named) = named_type(&field.ty) else {
         return;
     };
-    let target = if struct_names.contains(named) {
+    // A field typed as an `ExternallyTaggedStruct` enum also advances the walk: its own
+    // variants are recorded as this enum's pseudo-fields by `record_externally_tagged_enum_variants`,
+    // so a path like `metadata.format.excel` can cross `format` the same way it crosses any
+    // literal struct field, instead of stopping at `path_crosses_unwalkable_field`.
+    let target = if names.structs.contains(named) || names.externally_tagged_struct_enums.contains(named) {
         &mut map.field_types
     } else {
         map.unresolvable_named_fields
