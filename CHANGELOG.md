@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **publish (Ruby platform gems):** precompiled platform gemspecs now load the generated source
+  gemspec as their metadata authority, then replace only the version, platform, files, and native
+  extension build hook. The previous synthesized gemspec dropped required fields such as
+  `authors`, causing `gem build` to reject every platform package, and also silently discarded
+  runtime dependencies, licenses, homepage, metadata, and other package declarations.
+
 ## [0.82.1] - 2026-09-02
 
 ### Fixed
@@ -472,7 +480,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rest of the Magnus binding. Trait bridges now create ASCII-8BIT strings with
   `Ruby::str_from_slice` and copy returned `RString` bytes directly, preserving NULs and arbitrary
   byte sequences without transcoding.
-
 - **e2e (node/napi): an enum-typed assertion compared the whole tagged object as a scalar.** The
   napi backend lowers a tagged data enum to an internally-tagged object (`{ type: "Function" }`),
   but the TypeScript e2e generator emitted `String(e.kind).includes("Function")`, and
