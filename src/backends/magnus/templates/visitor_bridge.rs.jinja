@@ -18,8 +18,9 @@ impl std::fmt::Debug for {{ struct_name }} {
 }
 
 impl {{ struct_name }} {
-    pub fn new(rb_obj: magnus::Value) -> Self {
-        Self { rb_obj }
+    pub fn new({{ ctor_params }}) -> {{ ctor_return_type }} {
+        let _ = name;
+        Ok(Self { rb_obj })
     }
 }
 

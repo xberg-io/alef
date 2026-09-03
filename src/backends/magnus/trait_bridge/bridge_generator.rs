@@ -430,6 +430,8 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
                 required_methods => required_methods,
                 optional_methods => optional_methods,
                 dispatcher_name => self.runtime_dispatcher_name(spec),
+                ctor_params => super::bridge_functions::BRIDGE_CTOR_PARAMS,
+                ctor_return_type => super::bridge_functions::BRIDGE_CTOR_RETURN_TYPE,
             },
         )
     }
