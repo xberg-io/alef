@@ -297,7 +297,7 @@ pub mod maven {
     pub const JUNIT: &str = "6.1.3";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-compiler-plugin
-    pub const MAVEN_COMPILER_PLUGIN: &str = "3.15.0";
+    pub const MAVEN_COMPILER_PLUGIN: &str = "3.16.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
     pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.5.6";
