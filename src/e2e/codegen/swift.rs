@@ -129,7 +129,16 @@ impl E2eCodegen for SwiftE2eCodegen {
                 has_http_fixtures,
                 package_swift_extras,
             ),
-            generated_header: false,
+            // `true`, unlike the root/package scaffold's `Package.swift` (which is a
+            // hand-grown, create-once seed): this manifest is fully re-rendered from
+            // config on every run, and `version_swift::sync_swift_package_versions`
+            // keeps its dependency pin current between full regenerations. Both need
+            // the write guard to recognise this file as alef-owned so it is neither
+            // frozen (no marker => refused forever) nor silently overwritten with an
+            // unmarked file that re-freezes itself on the next run -- see
+            // `write::ensure_generated_header`'s `swift-tools-version` case for how the
+            // header is kept off the mandatory first line.
+            generated_header: true,
         });
 
         // For registry mode, SwiftPM fetches the package directly from GitHub.

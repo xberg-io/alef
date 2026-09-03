@@ -981,3 +981,115 @@ mod merge_managed_toml_tests {
         toml::from_str::<toml::Value>(&on_disk).expect("repaired poly.toml must still parse");
     }
 }
+
+/// Regression coverage for the self-sustaining `test_apps/swift_e2e/Package.swift` defect: a
+/// `Package.swift` emitted through this write path, across repeated `overwrite = true` runs
+/// (the shape `e2e generate` / `test-apps generate` always use), must keep carrying its
+/// provenance marker instead of having each run's freshly rendered, unmarked body silently
+/// replace whatever marker a prior run (or an out-of-band edit) had left in place.
+///
+/// Reproduces the exact incident: html-to-markdown's `test_apps/swift_e2e/Package.swift` carried
+/// a hand-added `alef:hash:` + prose header (`89628650fa`) that survived one version-sync-driven
+/// rewrite (`c2cc6931e6`, which only ever touches the `branch:` pin and never re-derives the
+/// header), then vanished -- 2 lines deleted, nothing added -- the next time `alef test-apps
+/// generate` re-rendered the file from its templates (`e940ccb1e3`), because that render path
+/// authorised the overwrite on the strength of the marker already on disk and then wrote content
+/// that never carried one. Once gone, `alef verify` reports the path as a create-once seed the
+/// write guard refuses forever -- see [`super::write::ensure_generated_header`]'s doc for the
+/// `swift-tools-version` positional case this closes. ~keep
+#[cfg(test)]
+mod swift_package_manifest_marker_tests {
+    use super::*;
+
+    const RENDERED_BODY: &str = "// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n  \
+                                  name: \"E2eSwift\"\n)\n";
+
+    fn rendered_package_swift() -> GeneratedFile {
+        GeneratedFile {
+            path: "test_apps/swift_e2e/Package.swift".into(),
+            content: RENDERED_BODY.to_owned(),
+            generated_header: true,
+        }
+    }
+
+    /// A `Package.swift` already on disk with an out-of-band marker (the shape a hand-authored
+    /// `sync.text_replacements`-based workaround, or an earlier `alef adopt`, leaves behind)
+    /// converges to alef's own header on the first overwrite, and -- the actual regression --
+    /// keeps carrying a marker across every subsequent overwrite instead of losing it on the
+    /// first render that never itself added one.
+    #[test]
+    fn overwriting_a_marked_swift_package_manifest_preserves_its_marker_across_repeated_runs() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let base = temporary.path();
+        let relative = std::path::Path::new("test_apps/swift_e2e/Package.swift");
+        std::fs::create_dir_all(base.join("test_apps/swift_e2e")).expect("test_apps/swift_e2e directory");
+        std::fs::write(
+            base.join(relative),
+            "// swift-tools-version: 6.0\n\
+             // The first-party dependency pin below is managed by alef (sync.text_replacements); do not edit it \
+             by hand.\n\
+             // alef:hash:0000000000000000000000000000000000000000000000000000000000000000\n\
+             import PackageDescription\n\n\
+             let package = Package(\n  name: \"E2eSwift\"\n)\n",
+        )
+        .expect("seed a Package.swift carrying an out-of-band marker");
+
+        for run in 1..=3 {
+            let report =
+                write_scaffold_files_report(&[rendered_package_swift()], base, true).expect("overwrite must succeed");
+            assert_eq!(
+                report.refused_paths.len(),
+                0,
+                "run {run}: an already-marked Package.swift must never be refused, {:?}",
+                report.refused_paths
+            );
+            let on_disk = std::fs::read_to_string(base.join(relative)).expect("read Package.swift");
+            assert!(
+                on_disk.starts_with("// swift-tools-version: 6.0\n"),
+                "run {run}: swift-tools-version must stay the literal first line, got:\n{on_disk}"
+            );
+            assert!(
+                crate::core::hash::content_has_alef_marker(&on_disk),
+                "run {run}: THE REGRESSION -- Package.swift lost its provenance marker on an \
+                 authorised overwrite, which is exactly what re-freezes it out of every later \
+                 `alef generate`:\n{on_disk}"
+            );
+        }
+    }
+
+    /// The counterpart proving the assertion above is not vacuous: with `generated_header: false`
+    /// (this repository's state before the fix), the identical sequence loses the marker on the
+    /// very first overwrite -- the write guard still authorises the write (the pre-existing file
+    /// carries a marker), but nothing re-adds one to the content it writes.
+    #[test]
+    fn the_pre_fix_generated_header_false_shape_reproduces_the_marker_loss() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let base = temporary.path();
+        let relative = std::path::Path::new("test_apps/swift_e2e/Package.swift");
+        std::fs::create_dir_all(base.join("test_apps/swift_e2e")).expect("test_apps/swift_e2e directory");
+        std::fs::write(
+            base.join(relative),
+            "// swift-tools-version: 6.0\n\
+             // The first-party dependency pin below is managed by alef (sync.text_replacements); do not edit it \
+             by hand.\n\
+             // alef:hash:0000000000000000000000000000000000000000000000000000000000000000\n\
+             import PackageDescription\n\n\
+             let package = Package(\n  name: \"E2eSwift\"\n)\n",
+        )
+        .expect("seed a Package.swift carrying an out-of-band marker");
+
+        let unmarked_rendering = GeneratedFile {
+            generated_header: false,
+            ..rendered_package_swift()
+        };
+        write_scaffold_files_report(&[unmarked_rendering], base, true).expect("overwrite must succeed");
+
+        let on_disk = std::fs::read_to_string(base.join(relative)).expect("read Package.swift");
+        assert!(
+            !crate::core::hash::content_has_alef_marker(&on_disk),
+            "this test documents the historical defect and must start failing (proving it is \
+             fixed) only if `generated_header: false` itself stops losing the marker -- if it \
+             does, delete this test rather than the assertion:\n{on_disk}"
+        );
+    }
+}

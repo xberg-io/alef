@@ -400,6 +400,18 @@ fn split_xml_declaration(content: &str) -> Option<(&str, &str)> {
     Some((declaration, body.strip_prefix('\n').unwrap_or(body)))
 }
 
+/// Prepend the standard alef header, positioned below any directive line a format requires
+/// to lead the file (a shebang, `<?php`, an XML declaration, or SwiftPM's
+/// `// swift-tools-version:` line).
+///
+/// The `swift-tools-version` case exists because SwiftPM requires that directive to be the
+/// literal first line of a `Package.swift` -- placing the header above it produces a manifest
+/// SwiftPM refuses to parse. Before this case existed, a `Package.swift` emitted with
+/// `generated_header: true` would never actually receive a header (any write that did would
+/// break the manifest), so the only paths that used this file's `//`-comment marker relied on a
+/// generator baking one into `content` by hand and set `generated_header: false` to avoid a
+/// second, misplaced one -- leaving the write guard's ownership check with nothing durable to
+/// find once that hand-baked header went stale or was regenerated away. ~keep
 pub(crate) fn ensure_generated_header(path: &Path, content: &str) -> String {
     if hash::content_has_alef_marker(content) {
         return content.to_owned();
@@ -420,6 +432,12 @@ pub(crate) fn ensure_generated_header(path: &Path, content: &str) -> String {
     }
     if let Some((declaration, body)) = split_xml_declaration(content) {
         return format!("{declaration}\n{header}\n{body}");
+    }
+    if let Some((tools_version, body)) = content
+        .split_once('\n')
+        .filter(|(line, _)| line.starts_with("// swift-tools-version:"))
+    {
+        return format!("{tools_version}\n{header}\n{body}");
     }
     format!("{header}\n{content}")
 }

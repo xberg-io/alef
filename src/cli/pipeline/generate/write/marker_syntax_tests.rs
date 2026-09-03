@@ -109,6 +109,45 @@ fn should_stamp_xml_whose_declaration_has_no_trailing_newline() {
     assert_read_side_agrees(&stamped, &hashed);
 }
 
+/// `// swift-tools-version:` must stay the literal first line of a `Package.swift` for
+/// SwiftPM to parse it -- the header goes on the line after it, exactly like the shebang
+/// and `<?php` cases above, never before it.
+///
+/// THE DEFECT this closes: before this case existed, a `Package.swift` had nowhere safe to
+/// carry a marker via this path, so `test_apps/swift_e2e/Package.swift` was emitted with
+/// `generated_header: false` and no self-marked header instead. Every regeneration overwrote
+/// it with the unmarked rendering; the write guard proved ownership from a marker a PRIOR,
+/// out-of-band edit had left in place, authorised the write, and the write then replaced
+/// that marker with nothing -- destroying the very evidence it had just relied on. The next
+/// run found no marker at all and refused to touch the file forever. See
+/// `ensure_generated_header`'s doc for the full history. ~keep
+#[test]
+fn should_stamp_swift_package_manifest_after_the_tools_version_line_never_before_it() {
+    let (stamped, hashed) = emit_and_stamp(
+        "test_apps/swift_e2e/Package.swift",
+        "// swift-tools-version: 6.0\nimport PackageDescription\n",
+    );
+    assert_eq!(
+        stamped,
+        format!("// swift-tools-version: 6.0\n{SLASH_HEADER}\nimport PackageDescription\n")
+    );
+    assert_read_side_agrees(&stamped, &hashed);
+}
+
+/// A previously-adopted `Package.swift` (this run's `content` has no marker, but the file on
+/// disk already carries one from an out-of-band edit or an earlier `alef adopt`) must not be
+/// re-stamped with a second header above the `swift-tools-version` line -- `ensure_generated_header`
+/// only ever sees the fresh `content`, so this exercises the read side `content_has_alef_marker`
+/// gates on instead.
+#[test]
+fn should_not_double_stamp_a_swift_package_manifest_that_already_carries_a_marker() {
+    let already = format!("// swift-tools-version: 6.0\n{SLASH_HEADER}\nimport PackageDescription\n");
+    assert_eq!(
+        ensure_generated_header(Path::new("test_apps/swift_e2e/Package.swift"), &already),
+        already
+    );
+}
+
 #[test]
 fn should_stamp_csproj_without_declaration_at_line_zero() {
     let (stamped, hashed) = emit_and_stamp(
