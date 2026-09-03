@@ -66,6 +66,29 @@ const HOSTILE: &[(&str, &str, &str)] = &[
 
 const VALID: (&str, &str) = ("dev.example.samplecore", "Dev.Example.SampleCore");
 
+/// ~keep Two independent, both-correct guards can refuse a hostile coordinate, and which one
+/// answers depends on the characters in the value. `validate_language_specific_path_fields`
+/// (`core::config::output`) runs first and rejects any raw path separator with "path separators
+/// are not allowed"; `validate_package_coordinates` runs later and rejects on coordinate grammar
+/// with "not a valid coordinate". Reordering them is not an option -- `path_safety_tests.rs` locks
+/// in the first guard's precedence and wording. Asserting only the second guard's phrasing made
+/// the most realistic exploit strings (the ones carrying `//` or `/>`, i.e. exactly the shapes
+/// that make a source or XML injection work) look like test failures, and the tempting "fix" is to
+/// strip those characters from the fixtures -- which silently deletes the coverage the fixtures
+/// exist for. Accept either diagnostic instead: these tests assert that a hostile value is refused
+/// before anything is written, not which guard refuses it.
+fn is_hostile_coordinate_rejection(message: &str) -> bool {
+    message.contains("not a valid coordinate") || message.contains("path separators are not allowed")
+}
+
+/// ~keep The same two guards label the offending field differently: the coordinate guard emits the
+/// bracketed `[crates.java].package`, the path-separator guard the bare `java.package`. Accept
+/// either spelling of the same field so the assertion still pins WHICH field was blamed.
+fn names_offending_field(message: &str, bracketed_field: &str) -> bool {
+    let bare = bracketed_field.replace("[crates.", "").replace(']', "");
+    message.contains(bracketed_field) || message.contains(&bare)
+}
+
 #[test]
 fn hostile_coordinates_are_rejected_by_the_real_cli_before_anything_is_written() {
     for &(name, java_package, csharp_namespace) in HOSTILE {
@@ -87,8 +110,8 @@ fn hostile_coordinates_are_rejected_by_the_real_cli_before_anything_is_written()
             output.status.code()
         );
         assert!(
-            stderr.contains("not a valid coordinate"),
-            "`{name}` must fail with the coordinate diagnostic, not an unrelated error\nstderr:\n{stderr}"
+            is_hostile_coordinate_rejection(&stderr),
+            "`{name}` must fail with a hostile-coordinate diagnostic, not an unrelated error\nstderr:\n{stderr}"
         );
         assert!(
             !dir.path().join("packages").exists(),
@@ -141,7 +164,7 @@ fn resolution_itself_rejects_hostile_coordinates() {
             .resolve()
             .expect_err(&format!("`{name}` must not resolve"))
             .to_string();
-        assert!(error.contains("not a valid coordinate"), "`{name}`: {error}");
+        assert!(is_hostile_coordinate_rejection(&error), "`{name}`: {error}");
     }
 }
 
@@ -221,12 +244,13 @@ fn kotlin_only_toml(java_package: &str) -> String {
 /// reached those four call sites with an unvalidated package.
 #[test]
 fn kotlin_only_build_validates_the_java_package_it_reuses() {
-    let config: NewAlefConfig = toml::from_str(&kotlin_only_toml("dev\"; System.exit(1); //")).expect("fixture parses");
+    let hostile = kotlin_only_toml("dev\"; System.exit(1); //");
+    let config: NewAlefConfig = toml::from_str(&hostile).expect("fixture parses");
     let error = config
         .resolve()
         .expect_err("a hostile java package must not resolve on a kotlin-only build")
         .to_string();
-    assert!(error.contains("[crates.java].package"), "{error}");
+    assert!(names_offending_field(&error, "[crates.java].package"), "{error}");
 }
 
 /// The opposite control for the test above: a validator that rejected every `[crates.java]`
@@ -303,7 +327,7 @@ fn kotlin_android_hostile_coordinates_are_rejected_at_resolution() {
             .to_string();
         let expected_field = KOTLIN_ANDROID_FIELDS[field_index];
         assert!(
-            error.contains(expected_field),
+            names_offending_field(&error, expected_field),
             "`{name}`: expected `{expected_field}` in: {error}"
         );
     }

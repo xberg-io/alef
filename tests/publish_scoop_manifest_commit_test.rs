@@ -16,6 +16,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -47,6 +48,7 @@ fn git_ok(dir: &Path, args: &[&str]) {
 /// so `git push origin HEAD` in the script under test succeeds without network access.
 struct BucketFixture {
     dir: tempfile::TempDir,
+    clone_counter: AtomicUsize,
 }
 
 impl BucketFixture {
@@ -69,7 +71,10 @@ impl BucketFixture {
         git_ok(&bucket_dir, &["commit", "-q", "-m", "seed: other-app manifest"]);
         git_ok(&bucket_dir, &["push", "-q", "origin", "HEAD"]);
 
-        Self { dir }
+        Self {
+            dir,
+            clone_counter: AtomicUsize::new(0),
+        }
     }
 
     fn bucket_dir(&self) -> PathBuf {
@@ -80,7 +85,14 @@ impl BucketFixture {
     /// relying on the working checkout's own (possibly stale) view.
     fn reclone(&self) -> PathBuf {
         let bare_dir = self.dir.path().join("origin.git");
-        let target = self.dir.path().join("verify-checkout");
+        // ~keep A unique target per call. `no_op_retry_on_unchanged_manifest_makes_no_commit`
+        // reclones twice -- once after each script run -- to compare the pushed HEAD before and
+        // after; a fixed path made the second `git clone` fail with "destination path already
+        // exists and is not an empty directory", which reads as a script failure rather than as
+        // the harness colliding with itself. Reusing one path by deleting it first would also
+        // invalidate the PathBuf the caller still holds from the first clone.
+        let index = self.clone_counter.fetch_add(1, Ordering::Relaxed);
+        let target = self.dir.path().join(format!("verify-checkout-{index}"));
         git_ok(
             self.dir.path(),
             &["clone", "-q", bare_dir.to_str().unwrap(), target.to_str().unwrap()],

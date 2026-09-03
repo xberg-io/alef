@@ -66,14 +66,15 @@ extension_name = "test_lib"
     cfg.resolve().expect("test config must resolve").remove(0)
 }
 
-fn toml_basic_string(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
+/// The absolute temp output dir is installed on `output_paths` *after* `resolve()`, not through a
+/// `[crates.output]` table: `resolve_output_paths` runs `validate_output_path` on every explicit
+/// per-crate output value and rejects an absolute one, because the write sink
+/// `contained_output_path` does `base_dir.join(emitted_path)` and `join` discards the base for an
+/// absolute right-hand side. A relative path is not a substitute -- `detect_serde_available` walks
+/// up from the output dir, and from the test process's CWD (the alef checkout) it would find
+/// alef's own serde-carrying root manifest and report `true` for the wrong crate. ~keep
 fn make_config_with_php_output(output_path: &std::path::Path) -> ResolvedCrateConfig {
-    let output = toml_basic_string(&output_path.to_string_lossy());
-    let toml = format!(
-        r#"
+    let toml = r#"
 [workspace]
 languages = ["php"]
 
@@ -81,15 +82,13 @@ languages = ["php"]
 name = "test-lib"
 sources = ["src/lib.rs"]
 
-[crates.output]
-php = {output}
-
 [crates.php]
 extension_name = "test_lib"
-"#
-    );
-    let cfg: NewAlefConfig = toml::from_str(&toml).expect("test config must parse");
-    cfg.resolve().expect("test config must resolve").remove(0)
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let mut config = cfg.resolve().expect("test config must resolve").remove(0);
+    config.output_paths.insert("php".to_string(), output_path.to_path_buf());
+    config
 }
 
 fn make_config_with_php_excludes() -> ResolvedCrateConfig {
