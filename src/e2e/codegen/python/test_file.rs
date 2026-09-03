@@ -109,17 +109,25 @@ pub(super) fn render_test_file(
     };
     // Only honor "from_json" when the pyo3 backend actually injects a from_json() staticmethod
     // for this type (gated on per-type has_serde AND crate-level serde availability AND
-    // core→binding convertibility) — every DTO still has a plain kwargs constructor, so
+    // core→binding convertibility) AND the type's public name isn't shadowed by options.py's
+    // method-less dataclass mirror — every DTO still has a plain kwargs constructor, so
     // downgrading keeps the emitted call and its import valid. Computed once per file/snippet
     // render; `type_defs`/`enums`/`config` don't change across fixtures in the same category. ~keep
     let convertible_types = helpers::core_to_binding_convertible_types(type_defs, enums);
     let crate_has_serde = crate::backends::pyo3::gen_bindings::crate_has_serde(config);
+    let reexported_types = config
+        .python
+        .as_ref()
+        .map(|c| c.reexported_types.clone())
+        .unwrap_or_default();
+    let options_wrapped_types = helpers::options_wrapped_type_names(type_defs, enums, &config.dto, &reexported_types);
     let effective_options_via = helpers::effective_options_via_for_type(
         effective_options_via,
         effective_options_type.as_deref(),
         type_defs,
         &convertible_types,
         crate_has_serde,
+        &options_wrapped_types,
     );
 
     let enum_fields = resolve_enum_fields(e2e_config);
@@ -394,6 +402,7 @@ pub(super) fn render_test_file(
             type_defs,
             convertible_types: &convertible_types,
             crate_has_serde,
+            options_wrapped_types: &options_wrapped_types,
         };
         build_thirdparty_imports(thirdparty_import_context, &mut thirdparty_from);
     }
@@ -421,6 +430,7 @@ pub(super) fn render_test_file(
                 force_bind_result,
                 convertible_types: &convertible_types,
                 crate_has_serde,
+                options_wrapped_types: &options_wrapped_types,
             };
             render_test_function(&mut fixtures_body, fixture, render_test_function_context);
         }
@@ -545,6 +555,7 @@ struct ThirdpartyImportContext<'a> {
     type_defs: &'a [crate::core::ir::TypeDef],
     convertible_types: &'a ahash::AHashSet<String>,
     crate_has_serde: bool,
+    options_wrapped_types: &'a std::collections::HashSet<String>,
 }
 
 fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_from: &mut Vec<String>) {
@@ -567,6 +578,7 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
         type_defs,
         convertible_types,
         crate_has_serde,
+        options_wrapped_types,
     } = context;
 
     let handle_constructors: Vec<String> = e2e_config
@@ -752,6 +764,7 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
                 type_defs,
                 convertible_types,
                 crate_has_serde,
+                options_wrapped_types,
             ) == "from_json"
         {
             let native_module = python_override.from_json_module.as_deref().unwrap_or(module);
@@ -875,6 +888,7 @@ mod tests {
             type_defs: &[],
             convertible_types: &ahash::AHashSet::new(),
             crate_has_serde: false,
+            options_wrapped_types: &std::collections::HashSet::new(),
         };
         build_thirdparty_imports(thirdparty_import_context, &mut thirdparty_from);
 

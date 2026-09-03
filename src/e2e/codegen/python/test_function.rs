@@ -49,6 +49,7 @@ pub(super) struct RenderTestFunctionContext<'a> {
     pub force_bind_result: bool,
     pub convertible_types: &'a ahash::AHashSet<String>,
     pub crate_has_serde: bool,
+    pub options_wrapped_types: &'a HashSet<String>,
 }
 
 /// Render a pytest test function for a non-HTTP fixture.
@@ -68,6 +69,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         force_bind_result,
         convertible_types,
         crate_has_serde,
+        options_wrapped_types,
     } = context;
 
     let fn_name = sanitize_ident(&fixture.id);
@@ -147,14 +149,16 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         .unwrap_or(options_via);
     // Only honor "from_json" when the pyo3 backend actually injects a from_json()
     // staticmethod for this type (gated on per-type has_serde AND crate-level serde
-    // availability AND core→binding convertibility) — every DTO still has a plain kwargs
-    // constructor, so downgrading keeps the emitted call valid. ~keep
+    // availability AND core→binding convertibility) AND the type's public name isn't
+    // shadowed by options.py's method-less dataclass mirror — every DTO still has a plain
+    // kwargs constructor, so downgrading keeps the emitted call valid. ~keep
     let effective_options_via = helpers::effective_options_via_for_type(
         effective_options_via,
         effective_options_type,
         type_defs,
         convertible_types,
         crate_has_serde,
+        options_wrapped_types,
     );
 
     let desc_with_period = if description.ends_with('.') {
@@ -483,6 +487,7 @@ mod tests {
             force_bind_result: false,
             convertible_types: &ahash::AHashSet::new(),
             crate_has_serde: false,
+            options_wrapped_types: &HashSet::new(),
         };
         render_test_function(&mut out, &fixture, context);
         assert!(out.contains("pytest.mark.skip"), "got: {out}");

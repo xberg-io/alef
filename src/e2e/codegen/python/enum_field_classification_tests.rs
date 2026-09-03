@@ -137,6 +137,7 @@ fn render(
     let handle_nested_types = std::collections::HashMap::new();
     let handle_dict_types = std::collections::HashSet::new();
     let convertible_types = ahash::AHashSet::new();
+    let options_wrapped_types = std::collections::HashSet::new();
     let context = RenderTestFunctionContext {
         e2e_config,
         config: &config,
@@ -152,6 +153,7 @@ fn render(
         force_bind_result: false,
         convertible_types: &convertible_types,
         crate_has_serde: false,
+        options_wrapped_types: &options_wrapped_types,
     };
     render_test_function(&mut out, fixture, context);
     out

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The python e2e generator emitted `Type.from_json(...)` for types whose public name resolves
+  to `options.py`'s method-less dataclass, not the native `#[pyclass]`.** The eligibility check
+  asked pyo3's Rust-codegen gate whether the *native* class carries `from_json` -- a true answer
+  that says nothing about which class the package actually exports under that name. When a type
+  is options-wrapped, `__init__.py` imports it from `.options`, and `gen_options_py` never emits
+  a method on any dataclass it writes, so `from_json` is unreachable through the public name
+  however the native class underneath is generated. The check now consults the pyo3 backend's own
+  export decision (`options_dataclass_type_names` ∪ `options_return_dataclass_names`) before
+  trusting the native gate, rather than re-deriving a third, independently-drifting copy of it,
+  and falls back to the kwargs constructor every generated DTO exposes. `reexported_types`
+  remains the per-type escape hatch that keeps a type native.
+
 ## [0.82.2] - 2026-09-03
 
 Patch release. Two entries are regressions shipped in 0.82.1 -- both generated crates that do not
