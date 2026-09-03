@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A generated `test_apps/swift_e2e/Package.swift` destroyed the provenance marker that
+  authorised its own overwrite, and was then frozen out of every later regeneration.** SwiftPM
+  requires `// swift-tools-version:` to be the literal first line, and the header writer had no
+  case for it -- putting the header above that line produces a manifest SwiftPM refuses to parse.
+  With nowhere safe to put a marker, the file was emitted `generated_header: false`. Each
+  regeneration then proved ownership from a marker some earlier out-of-band edit had left on
+  disk, authorised the write, and replaced that marker with a rendering carrying none, so the
+  next run found an unmarked file and refused to touch it forever. `ensure_generated_header` now
+  positions the header on the line *after* `// swift-tools-version:`, the same way it already
+  handles a shebang, `<?php` and an XML declaration, and the manifest is emitted with
+  `generated_header: true`. Observed in `html-to-markdown`, where the marker survived a
+  version-sync rewrite (which only edits the `branch:` pin) and then vanished on the next full
+  render -- two lines deleted, nothing added.
+
 ## [0.82.2] - 2026-09-03
 
 Patch release. Two entries are regressions shipped in 0.82.1 -- both generated crates that do not
