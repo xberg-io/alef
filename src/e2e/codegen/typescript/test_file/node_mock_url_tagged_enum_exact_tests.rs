@@ -101,16 +101,18 @@ fn node_mock_url_object_tags_enum_field_exactly() {
         crate::e2e::codegen::call_ir::CallIr::default(),
     );
 
-    let json_stringify_line = setup_lines
-        .iter()
-        .find(|line| line.starts_with("const requestJson ="))
-        .expect("a $mock_url-templated node object argument must build via JSON.stringify/replaceAll");
-    assert_eq!(
-        json_stringify_line,
-        "const requestJson = JSON.stringify({ outputFormat: { type: \"markdown\" } as OutputFormat, \
-         uri: \"$mock_url/pdf/fake.pdf\" } as ExtractInput).replaceAll(\"$mock_url\", \
-         requestMockBaseUrl);",
-        "the enum field must render as a tagged object, not a bare wire string: {json_stringify_line}"
+    // ~keep node now splices the runtime URL into the builder source instead of round-tripping
+    // through JSON, so the whole typed expression is the call argument and the only setup line is
+    // the base-url binding. Pinned exactly, because this test exists to catch the enum field
+    // silently degrading to a bare wire string.
+    assert!(
+        setup_lines.iter().all(|line| !line.contains("JSON.stringify")),
+        "the lossy JSON round trip must be gone: {setup_lines:?}"
     );
-    assert_eq!(call_args, "request");
+    assert_eq!(
+        call_args,
+        "{ outputFormat: { type: \"markdown\" } as OutputFormat, \
+         uri: `${requestMockBaseUrl}/pdf/fake.pdf` } as ExtractInput",
+        "the enum field must render as a tagged object, not a bare wire string"
+    );
 }

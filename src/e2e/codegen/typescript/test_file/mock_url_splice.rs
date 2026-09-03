@@ -1,9 +1,11 @@
 //! Splices a `$mock_url` placeholder into typed-builder-generated TypeScript source.
 //!
-//! `args.rs`'s `mock_url` handling for a `json_object` array/object argument keeps the node path
-//! on its existing `JSON.stringify(...).replaceAll(...)` / `JSON.parse(...) as T` round trip --
-//! harmless there because napi's generated types are structural, so a plain object satisfies them.
-//! wasm cannot take that path: `ts_builder_expression` already emits real `T.default()` /
+//! `args.rs`'s `mock_url` handling for a `json_object` array/object argument routes BOTH node and
+//! wasm through this splice. node once used a `JSON.stringify(...).replaceAll(...)` /
+//! `JSON.parse(...) as T` round trip on the theory that napi's structural types accept a plain
+//! object -- true only for values JSON can represent. A `bytes` field emitted as
+//! `Uint8Array.from([...])` serialised to `{"0":66,"1":97,...}` and napi rejected it, so node now
+//! splices too. wasm never could take the JSON path at all: `ts_builder_expression` already emits real `T.default()` /
 //! `new T()` construction with field setters, and JSON.parse-ing that construction's stringified
 //! output throws away the class instance, so wasm-bindgen's `instanceof` check in `_assertClass`
 //! rejects the plain object the round trip produces at runtime. Splicing the runtime mock-url

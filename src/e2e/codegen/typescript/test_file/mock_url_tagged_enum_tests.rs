@@ -103,7 +103,7 @@ fn node_mock_url_array_element_still_tags_nested_enum_field() {
     }];
     let config = crate::core::config::ResolvedCrateConfig::default();
 
-    let (setup_lines, _call_args) = build_args_and_setup(
+    let (setup_lines, call_args) = build_args_and_setup(
         &input,
         &args,
         None,
@@ -123,19 +123,23 @@ fn node_mock_url_array_element_still_tags_nested_enum_field() {
         crate::e2e::codegen::call_ir::CallIr::default(),
     );
 
-    let json_stringify_line = setup_lines
-        .iter()
-        .find(|line| line.contains("JSON.stringify"))
-        .expect("a $mock_url-templated array argument must build via JSON.stringify/replaceAll/JSON.parse");
+    // ~keep The mock-url value is spliced into the builder's own source now, so it can land in
+    // either the setup lines or the call expression depending on `bind_typed_json_objects`.
+    // Search both: what matters is that the tagged discriminator survived, not where it sits.
+    let emitted = format!("{}\n{}", setup_lines.join("\n"), call_args);
     assert!(
-        json_stringify_line.contains(r#"outputFormat: { type: "markdown" } as OutputFormat"#),
-        "tagged-data enum field lost its `type` discriminator in the mock_url-templated array \
-         path: {json_stringify_line}"
+        !emitted.contains("JSON.stringify"),
+        "the lossy JSON round trip must be gone from the node array path: {emitted}"
     );
     assert!(
-        !json_stringify_line.contains(r#"outputFormat: "markdown""#),
+        emitted.contains(r#"outputFormat: { type: "markdown" } as OutputFormat"#),
+        "tagged-data enum field lost its `type` discriminator in the mock_url-templated array \
+         path: {emitted}"
+    );
+    assert!(
+        !emitted.contains(r#"outputFormat: "markdown""#),
         "regression: enum field rendered as a bare wire string instead of the tagged object \
-         the napi binding requires: {json_stringify_line}"
+         the napi binding requires: {emitted}"
     );
 }
 
@@ -166,7 +170,7 @@ fn node_mock_url_single_object_still_tags_nested_enum_field() {
     }];
     let config = crate::core::config::ResolvedCrateConfig::default();
 
-    let (setup_lines, _call_args) = build_args_and_setup(
+    let (setup_lines, call_args) = build_args_and_setup(
         &input,
         &args,
         Some("ExtractInput"),
@@ -186,18 +190,22 @@ fn node_mock_url_single_object_still_tags_nested_enum_field() {
         crate::e2e::codegen::call_ir::CallIr::default(),
     );
 
-    let json_stringify_line = setup_lines
-        .iter()
-        .find(|line| line.contains("JSON.stringify"))
-        .expect("a $mock_url-templated object argument must build via JSON.stringify/replaceAll/JSON.parse");
+    // ~keep The mock-url value is spliced into the builder's own source now, so it can land in
+    // either the setup lines or the call expression depending on `bind_typed_json_objects`.
+    // Search both: what matters is that the tagged discriminator survived, not where it sits.
+    let emitted = format!("{}\n{}", setup_lines.join("\n"), call_args);
     assert!(
-        json_stringify_line.contains(r#"outputFormat: { type: "markdown" } as OutputFormat"#),
-        "tagged-data enum field lost its `type` discriminator in the mock_url-templated \
-         single-object path: {json_stringify_line}"
+        !emitted.contains("JSON.stringify"),
+        "the lossy JSON round trip must be gone from the node object path: {emitted}"
     );
     assert!(
-        !json_stringify_line.contains(r#"outputFormat: "markdown""#),
+        emitted.contains(r#"outputFormat: { type: "markdown" } as OutputFormat"#),
+        "tagged-data enum field lost its `type` discriminator in the mock_url-templated \
+         single-object path: {emitted}"
+    );
+    assert!(
+        !emitted.contains(r#"outputFormat: "markdown""#),
         "regression: enum field rendered as a bare wire string instead of the tagged object \
-         the napi binding requires: {json_stringify_line}"
+         the napi binding requires: {emitted}"
     );
 }
