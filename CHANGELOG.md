@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PHP mirror structs defaulted an enum-typed field to the empty string, so every `from_json`
+  and every absent-field deserialization failed with `invalid value "" for field 'output_format'`
+  (60 of 97 errors in xberg's PHP e2e suite).** The shared struct generator mirrors a core field's
+  bare `#[serde(default)]` onto the PHP mirror (`codegen::generators::structs::
+  serde_default_field_attr`). On the core type the field is an enum whose `Default` is a real
+  variant; on the mirror PHP lowers it to `String`, where the same attribute means
+  `String::default()` — `""`, which is not a variant of anything. Worse, a *field*-level
+  `serde(default)` overrides the container-level one, so the correct `impl Default` that delegates
+  to the core type was never consulted. The PHP backend now emits a named
+  `#[serde(default = "crate::serde_defaults::…")]` returning the enum's wire value (`"plain"`),
+  which also suppresses the harmful bare mirror because the shared generator skips its own
+  attribute once a valued one is present. Unknown values still throw, as before — only *absent*
+  ones now default.
+- **NAPI tagged enums synthesized `impl Default` with an empty discriminant.** The tagged-object
+  path hardcoded `{tag}_tag: String::new()` and never consulted `is_default`, so
+  `Default::default()` produced a value no deserializer could accept. It now emits the
+  `#[default]`-marked variant's wire value (falling back to the first declared variant), matching
+  what the flat string-enum path and the wasm backend already did. The adjacent
+  `#[allow(clippy::derivable_impls)]` is retired: the impl is no longer derivable once the tag
+  carries a real variant name.
+- **Elixir e2e and documentation snippets read fixture bytes with `File.read!`, producing a raw
+  binary that crashed on the JSON hop (`Jason.EncodeError: invalid byte 0xC4`, alef#308).** Both
+  the file-read and base64 paths now emit a byte-integer list via `:binary.bin_to_list/1`, the
+  shape the already-working inline-array path produces. This is not only a test-harness concern:
+  `Xberg.extract/1` passes a raw binary through untouched but sends a *struct* through
+  `Jason.encode!`, so a user following the generated snippet with any non-UTF-8 file hit the same
+  crash — the snippet documented code that could not run.
+- **The TypeScript/wasm e2e emitter destroyed class instances when substituting a mock URL.** A
+  mock-URL short-circuit ran before any typed routing and replaced the builder expression with
+  `JSON.parse(...) as T`. A TypeScript `as` cast is erased at runtime, so wasm-bindgen's
+  `_assertClass` rejected the resulting plain object (`expected instance of WasmExtractInput`, 8
+  failing tests), and enum-tagging was unreachable on that path. Mock-URL substitution now
+  composes with the builder — the typed expression is constructed first and the placeholder is
+  spliced into its source — so real instances and tagged enums survive. The wasm type name also
+  now carries its `Wasm` prefix.
 - **Magnus (Ruby) visitor-bridge structs (e.g. a `visitor` callback parameter) emitted a one-arg,
   infallible constructor while every call site called it with two arguments and a `?`, which does
   not compile (E0061).** PR #292 changed the trait-bridge constructor *call site* in
@@ -106,6 +141,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trusting the native gate, rather than re-deriving a third, independently-drifting copy of it,
   and falls back to the kwargs constructor every generated DTO exposes. `reexported_types`
   remains the per-type escape hatch that keeps a type native.
+- **PyO3 (Python) mirror structs left a field required when its core default came from a
+  private, module-local free function** (e.g. `ExtractionConfig::use_cache`'s
+  `#[serde(default = "default_true")]`, `fn default_true() -> bool { true }` in the same module),
+  even though the core type accepts a partial JSON payload omitting it entirely.
+  `postprocess::resolve_public_default_functions` only promotes `Owner::method`-shaped paths to a
+  reusable `PublicFunctionCall`, so a bare free-function path is never resolved, and the shared
+  `codegen::generators::structs::serde_default_field_attr` fallback correctly declines to copy an
+  unresolvable path onto the mirror rather than emit code that fails to compile -- but that left
+  the field required, so `ExtractionConfig.from_json('{"chunking": {...}}')` raised where the core
+  type would have defaulted it. A separate gap left `Option<T>` scalar fields with a *resolved*
+  function default (e.g. `ExtractionConfig::extraction_timeout_secs`) uncovered too: the
+  function's folded body is a call expression like `Some(600)`, not a literal, so no existing path
+  could re-wrap it. The pyo3 backend now synthesizes its own `crate::serde_defaults::…` function
+  from the already-folded literal (for the free-function case) or by calling the resolved function
+  directly (for the `Option<T>` case), the same mechanism already shipped for PHP above, ported
+  and narrowed to pyo3's simpler needs (pyo3 keeps real enums as pyclass enums instead of
+  lowering them to strings, so there is no enum-wire-value handling to port, and no core primitive
+  needs narrowing for pyo3 the way PHP narrows every wide integer to `i64`).
+- **A generated Swift package's `cargo build --manifest-path`/`cargo check --manifest-path`
+  argument embedded a Windows backslash separator** (`packages/swift\rust\Cargo.toml`), a
+  host-dependent string that also disagreed with the `packages/swift/rust/Cargo.toml` literal
+  hard-coded elsewhere in the same build config for that identical crate. `Path::join` writes the
+  host's native separator, and nothing normalized the result before it was leaked into the
+  `RunCommand` arguments. `cargo` itself accepts `/` on Windows, so the manifest-path argument is
+  now canonicalized to forward slashes unconditionally, regardless of the host that ran
+  `alef generate`.
+- **Batch snippet validation for Go and Python misattributed every diagnostic to every snippet
+  in the batch when run on Windows**, reporting passing snippets as broken. Diagnostic
+  attribution matches a toolchain's file-path output against the batch's file keys, which are
+  always minted with `/`; on Windows, `go vet`/`go build` and `pyrefly` name files with the host
+  `\` separator (`snippet_batch_1\snippet.go:5:27:`, `C:\Users\…\snippet_batch_1.py`), so the raw
+  line never matched any key, the diagnostic went unowned, and an unowned diagnostic on a failing
+  batch command is charged to every snippet in it. The Go validator now normalizes both the
+  toolchain's per-line paths and the file-owner lookup to `/` before matching; the Python
+  validator's location-suffix parser also now skips a Windows drive prefix (`C:`) before cutting
+  at the first colon, and its file-owner lookup splits on both separators since these paths
+  originate in another process's diagnostics and can reach a build for the opposite host.
 
 ## [0.82.2] - 2026-09-03
 
