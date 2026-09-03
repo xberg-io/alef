@@ -25,6 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `backends::magnus::trait_bridge::bridge_functions`) by both the call site's `?` derivation and
   both constructor-definition templates (the full trait-bridge path and the visitor-bridge path),
   so the two sides cannot independently drift again.
+- **Generated `test_apps/<lang>/go.mod` listed only testify's own transitive dependencies, so
+  `go test -mod=readonly ./...` failed on an incomplete module graph while `go build
+  -mod=readonly` passed.** Go's module-graph pruning (go >= 1.17,
+  <https://go.dev/ref/mod#graph-pruning>) requires the *importing* module's own `go.mod` to carry
+  an explicit `// indirect` requirement for every module providing a package transitively
+  imported through a directly required module. The generator emitted the hardcoded
+  `TESTIFY_INDIRECT_DEPS` set and nothing else, silently dropping the module-under-test's own
+  dependency graph — for `tree-sitter-language-pack` that meant `go-tree-sitter` and
+  `go-pointer`, and `go test -mod=readonly ./...` aborted with "updates to go.mod needed,
+  disabled by -mod=readonly; to update it: go mod tidy". The build never needed those modules
+  (that is exactly what pruning buys), so a `go build` gate reported the file correct while it
+  was still broken. The `// indirect` block is now the testify set merged with every `require`
+  (direct or indirect) declared in the required module's own on-disk `go.mod`, minus anything
+  already required directly, and degrades to the testify-only set when that `go.mod` is missing
+  rather than failing generation.
+- **The generated `require (...)` block was not in the order `gofmt`/`go mod tidy` produce**, so
+  even a complete `go.mod` came back dirty from `go mod tidy`. The module-under-test was written
+  first and testify second; every consumer's module path is `github.com/xberg-io/...`, which
+  sorts *after* `github.com/stretchr/testify`, so the hand-written order was wrong for every
+  consumer, always. Direct requires are now sorted by module path.
 
 ## [0.82.2] - 2026-09-03
 
