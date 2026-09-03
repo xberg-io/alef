@@ -47,7 +47,7 @@ heck = "0.5"
 # two tables carry as part of the NuGet package-ID contract, and a caret bump would move that
 # version silently. See `tests/unicode_dependency_pins.rs`. ~keep
 icu_casemap = "=2.3.0"
-jsonschema = { version = "0.52", default-features = false, features = ["resolve-file"] }
+jsonschema = { version = "0.53", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
 minijinja = "2"
 quote = "1"
