@@ -31,7 +31,7 @@ pub mod npm {
     pub const TYPESCRIPT: &str = "^7.0.2";
 
     // renovate: datasource=npm depName=vitest
-    pub const VITEST: &str = "^4.1.11";
+    pub const VITEST: &str = "^5.0.0";
 
     // ~keep `@vitest/coverage-v8` ships one release per vitest core release and declares an
     // exact-match peerDependency on that same version (npm rejects installing a mismatched
@@ -39,7 +39,7 @@ pub mod npm {
     // identical value to VITEST above -- if a Renovate run ever bumps one without the other,
     // realign them by hand before merging rather than letting the pair drift apart.
     // renovate: datasource=npm depName=@vitest/coverage-v8
-    pub const VITEST_COVERAGE_V8: &str = "^4.1.11";
+    pub const VITEST_COVERAGE_V8: &str = "^5.0.0";
 
     // renovate: datasource=npm depName=@types/node
     pub const TYPES_NODE: &str = "^26.4.0";
