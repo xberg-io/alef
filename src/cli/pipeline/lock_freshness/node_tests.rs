@@ -281,6 +281,172 @@ mod pending_publish {
         }
     }
 
+    const WASM_DIR_RELATIVE: &str = "e2e/wasm";
+    const WASM_DEPENDENCY: &str = "sample-pkg-wasm";
+    const WASM_STALE_SPEC: &str = "1.3.0";
+    const WASM_FRESH_SPEC: &str = "1.2.3";
+
+    fn wasm_dir(root: &Path) -> PathBuf {
+        root.join(WASM_DIR_RELATIVE)
+    }
+
+    /// The alef-generated wasm e2e `package.json`, matching `crate::e2e::codegen::wasm`'s own
+    /// shape (see that module's counterpart to `render_package_json`): a sibling npm package
+    /// under its own name, not `"node"`'s.
+    fn write_wasm_package_json(root: &Path, specifier: &str) -> PathBuf {
+        let dir = wasm_dir(root);
+        std::fs::create_dir_all(&dir).expect("create wasm dir");
+        let manifest = dir.join("package.json");
+        std::fs::write(
+            &manifest,
+            format!(
+                "{{\n  \"name\": \"sample-pkg-e2e-wasm\",\n  \"version\": \"0.1.0\",\n  \"private\": \
+                 true,\n  \"devDependencies\": {{\n    \"{WASM_DEPENDENCY}\": \"{specifier}\"\n  }}\n}}\n"
+            ),
+        )
+        .expect("write package.json");
+        manifest
+    }
+
+    fn write_wasm_pnpm_lock(root: &Path, locked_specifier: &str) {
+        std::fs::write(
+            wasm_dir(root).join("pnpm-lock.yaml"),
+            format!(
+                "lockfileVersion: '9.0'\n\nimporters:\n  .:\n    devDependencies:\n      \
+                 {WASM_DEPENDENCY}:\n        specifier: {locked_specifier}\n        version: \
+                 {locked_specifier}\n"
+            ),
+        )
+        .expect("write pnpm-lock.yaml");
+    }
+
+    /// Both `[crates.e2e.registry.packages.node]` and `[crates.e2e.registry.packages.wasm]`
+    /// explicitly named -- the shape a crate publishing both an npm package and its wasm
+    /// sibling (the html-to-markdown / tree-sitter-language-pack incident) actually has.
+    fn resolved_cfg_with_node_and_wasm_registry_packages(
+        node_name: &str,
+        node_version: &str,
+        wasm_name: &str,
+        wasm_version: &str,
+    ) -> ResolvedCrateConfig {
+        let e2e = E2eConfig {
+            registry: RegistryConfig {
+                packages: [
+                    (
+                        "node".to_string(),
+                        PackageRef {
+                            name: Some(node_name.to_string()),
+                            version: Some(node_version.to_string()),
+                            ..PackageRef::default()
+                        },
+                    ),
+                    (
+                        "wasm".to_string(),
+                        PackageRef {
+                            name: Some(wasm_name.to_string()),
+                            version: Some(wasm_version.to_string()),
+                            ..PackageRef::default()
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                ..RegistryConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+        ResolvedCrateConfig {
+            e2e: Some(e2e),
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
+    /// The reported defect (alef #A6): the `"wasm"` test_app has its own pending self-dependency
+    /// row (its own not-yet-published version), the exact shape of `"node"`'s already-tolerated
+    /// row but under a different package name. Before the fix, only `"node"`'s self-dependency
+    /// was ever resolved, so this row fell through to `real` and hard-failed generation on a
+    /// specifier the release itself cannot satisfy until it ships.
+    #[test]
+    fn tolerating_variant_downgrades_the_wasm_test_apps_own_pending_self_dependency() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_wasm_package_json(root, WASM_STALE_SPEC);
+        write_wasm_pnpm_lock(root, WASM_FRESH_SPEC);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        let resolved_cfg = resolved_cfg_with_node_and_wasm_registry_packages(
+            NODE_DEPENDENCY,
+            NODE_STALE_SPEC,
+            WASM_DEPENDENCY,
+            WASM_STALE_SPEC,
+        );
+
+        let result =
+            check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg));
+
+        assert!(
+            result.is_none(),
+            "the wasm test_app's own pending self-dependency must be tolerated exactly like node's: {result:?}"
+        );
+    }
+
+    /// The exact reported incident: both `test_apps/node` and `test_apps/wasm` carry the
+    /// crate's own pending, not-yet-published version in the same run -- `"node"`'s row was
+    /// already tolerated before this fix; `"wasm"`'s identical row, under its own package name,
+    /// was not, and alone made `alef generate` exit 1. Both must be tolerated together.
+    #[test]
+    fn tolerating_variant_downgrades_both_the_node_and_wasm_test_apps_pending_self_dependencies_together() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let node_manifest = write_package_json(root, NODE_STALE_SPEC);
+        write_pnpm_lock_v9(root, NODE_FRESH_SPEC);
+        let wasm_manifest = write_wasm_package_json(root, WASM_STALE_SPEC);
+        write_wasm_pnpm_lock(root, WASM_FRESH_SPEC);
+        let generated: HashSet<PathBuf> = [node_manifest, wasm_manifest].into_iter().collect();
+        let resolved_cfg = resolved_cfg_with_node_and_wasm_registry_packages(
+            NODE_DEPENDENCY,
+            NODE_STALE_SPEC,
+            WASM_DEPENDENCY,
+            WASM_STALE_SPEC,
+        );
+
+        let result =
+            check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg));
+
+        assert!(
+            result.is_none(),
+            "both test_apps' own pending self-dependencies must be tolerated in the same run: {result:?}"
+        );
+    }
+
+    /// The false-negative guard for the wasm test_app, mirroring
+    /// `tolerating_variant_still_fails_on_a_disagreement_not_explained_by_pending_publish` for
+    /// node: a genuinely stale THIRD-PARTY pin in the wasm test_app's lock must still fail even
+    /// though a resolved config with a `"wasm"` registry package is supplied -- recognising the
+    /// wasm self-dependency must not blanket-suppress every wasm finding.
+    #[test]
+    fn tolerating_variant_still_fails_on_the_wasm_test_apps_drift_not_explained_by_pending_publish() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_wasm_package_json(root, WASM_STALE_SPEC);
+        write_wasm_pnpm_lock(root, WASM_FRESH_SPEC);
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        // The configured wasm registry package name/version do NOT match this finding's own
+        // dependency/requirement at all -- an unrelated self-dependency identity.
+        let resolved_cfg = resolved_cfg_with_node_and_wasm_registry_packages(
+            NODE_DEPENDENCY,
+            NODE_STALE_SPEC,
+            "unrelated-wasm-package",
+            "9.9.9",
+        );
+
+        assert!(
+            check_generated_node_lock_freshness_tolerating_pending_publish(&generated, root, Some(&resolved_cfg),)
+                .is_some(),
+            "a third-party lock drift in the wasm test_app unrelated to its own registry \
+             self-dependency must still fail the run"
+        );
+    }
+
     const SIBLING_DEPENDENCY: &str = "sibling-pkg";
     const SIBLING_STALE_SPEC: &str = "^1.0.0";
     const SIBLING_LOCKED_SPEC: &str = "^2.0.0";

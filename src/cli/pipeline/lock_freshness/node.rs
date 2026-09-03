@@ -8,13 +8,26 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::shared::{registered_unmarkable_manifest_dirs, registry_self_dependency};
+use super::shared::{RegistrySelfDependency, registered_unmarkable_manifest_dirs, registry_self_dependency};
 
 /// Dependency buckets alef itself writes into a generated `package.json` -- see
 /// `crate::e2e::codegen::typescript::config::render_package_json` (and its wasm counterpart),
 /// which only ever populate `dependencies` / `devDependencies`. Checking a bucket alef never
 /// writes would find nothing but a hand-authored drift this module has no business reporting.
 const NODE_DEPENDENCY_BUCKETS: [&str; 2] = ["dependencies", "devDependencies"];
+
+/// Every `[crates.e2e...packages.<lang>]` key whose e2e codegen can emit a `package.json` --
+/// see `crate::e2e::codegen::typescript::config::render_package_json` (`"node"`) and its wasm
+/// counterpart in `crate::e2e::codegen::wasm` (`"wasm"`). Both land in their own `test_apps/*`
+/// directory with their own `pnpm-lock.yaml`, so [`collect_generated_node_lock_findings`] walks
+/// both, and this check's pending-publish exemption must resolve a self-dependency identity for
+/// both too -- see the doc comment on
+/// [`check_generated_node_lock_freshness_tolerating_pending_publish`] for the incident this
+/// closes. Not derived by pattern-matching a `-wasm` name suffix on purpose: that would be a
+/// second, independent guess at the same fact `registry_self_dependency` already computes
+/// authoritatively from `[crates.e2e.registry.packages.<lang>]`. Extending this list is the only
+/// change needed the day a third lang starts emitting `package.json` into this ecosystem.
+const PACKAGE_JSON_EMITTING_LANGS: [&str; 2] = ["node", "wasm"];
 
 /// One `package.json` specifier whose sibling `pnpm-lock.yaml` records a different specifier for
 /// the same dependency name and bucket.
@@ -122,6 +135,17 @@ fn collect_generated_node_lock_findings(
 /// operator cannot run yet. Once the release actually publishes, `collect_generated_node_lock_findings`
 /// stops reporting the self-dependency row at all (the specifiers agree), so this exemption
 /// narrows back down to nothing on its own -- it never permanently hides a lock's other findings.
+///
+/// ~keep alef #A6: one self-dependency identity is not enough. `collect_generated_node_lock_findings`
+/// walks every `test_apps/*` directory holding an alef-generated `package.json`, and that
+/// includes BOTH the `"node"` test_app (`@xberg-io/html-to-markdown`) AND the `"wasm"` test_app
+/// (`@xberg-io/html-to-markdown-wasm`) -- two different `[crates.e2e...packages.<lang>]` rows,
+/// two different published npm packages, each with its own pending-publish window. Resolving
+/// only `"node"`'s self-dependency left the wasm test_app's identical pending-self-version row
+/// unrecognised: it does not match the node identity by name, so it fell through to `real` and
+/// hard-failed generation on a specifier the release itself cannot satisfy until it ships. Every
+/// lang in [`PACKAGE_JSON_EMITTING_LANGS`] gets its own [`registry_self_dependency`] call, and a
+/// finding is pending if it matches ANY of them.
 pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
     generated_paths: &HashSet<PathBuf>,
     base_dir: &Path,
@@ -131,16 +155,24 @@ pub(crate) fn check_generated_node_lock_freshness_tolerating_pending_publish(
     if findings.is_empty() {
         return None;
     }
-    let Some(self_dependency) = resolved_cfg
-        .and_then(|cfg| registry_self_dependency(cfg, "node", |package| package.name.clone(), str::to_string))
-    else {
+    let self_dependencies: Vec<RegistrySelfDependency> = resolved_cfg
+        .map(|cfg| {
+            PACKAGE_JSON_EMITTING_LANGS
+                .into_iter()
+                .filter_map(|lang| registry_self_dependency(cfg, lang, |package| package.name.clone(), str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    if self_dependencies.is_empty() {
         return Some(anyhow::anyhow!(stale_node_lock_message(&findings)));
-    };
+    }
 
     let pending_locks: HashSet<PathBuf> = findings
         .iter()
         .filter(|finding| {
-            finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
+            self_dependencies.iter().any(|self_dependency| {
+                finding.dependency == self_dependency.name && finding.requirement == self_dependency.requirement
+            })
         })
         .map(|finding| finding.lock.clone())
         .collect();
