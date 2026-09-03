@@ -13,7 +13,7 @@
 //! to answer `true` for every language but R, wasm included. So a core crate declaring
 //! `default = ["native-http"]` produced `default = ["native-http", ...]` in the wasm manifest,
 //! whose forwarding row `native-http = ["<core>/native-http"]` re-enabled the exact feature the
-//! dependency line had turned off. In the liter-llm consumer that feature pulls in reqwest and
+//! dependency line had turned off. In a downstream consumer that feature pulls in reqwest and
 //! tokio's native I/O stack, and the wasm32 build died on `This wasm target is unsupported by
 //! mio. If using Tokio, disable the net feature.` ~keep
 //!
@@ -99,7 +99,7 @@ fn dependency_line(cargo_toml: &str, name: &str) -> String {
 }
 
 /// THE LEAK. Reverting `core_default_features_active`'s `Language::Wasm` arm makes this fail with
-/// `default = ["native-http", "wasm-http"]` -- the byte-for-byte shape liter-llm shipped, and the
+/// `default = ["native-http", "wasm-http"]` -- the byte-for-byte shape a downstream crate shipped, and the
 /// one that dragged mio into a wasm32 build.
 #[test]
 fn wasm_features_default_excludes_a_core_default_the_dependency_line_disabled() {

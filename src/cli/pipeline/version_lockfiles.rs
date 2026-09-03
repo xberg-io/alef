@@ -347,8 +347,8 @@ fn dart_lock_has_stale_declared_pin(directory: &Path) -> bool {
 /// `blocked_on_publish`/[`relock_cargo_lockfiles`] pre-check and Node's `registry_self_dependency`
 /// tolerance.
 ///
-/// ~keep alef #A6 (tslp incident): `test_apps/dart/pubspec.yaml` pins
-/// `tree_sitter_language_pack: 1.16.1` as a plain registry dependency -- not yet published to
+/// ~keep alef #A6 (a real downstream incident): `test_apps/dart/pubspec.yaml` pins
+/// a downstream package at `1.16.1` as a plain registry dependency -- not yet published to
 /// pub.dev -- so `dart pub get` fails identically offline and online with "version solving
 /// failed", both attempts wasted on a state this run already knows is expected and temporary.
 /// `dart pub get` resolves a manifest's whole dependency graph in one pass, so ANY unresolvable

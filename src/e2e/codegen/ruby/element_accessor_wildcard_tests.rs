@@ -1,9 +1,9 @@
-//! Regression coverage for the tree-sitter-language-pack nondeterminism: a wildcard fixture's
+//! Regression coverage for a real downstream crate's nondeterminism: a wildcard fixture's
 //! element half (`imports[].source`) must resolve against the bound block variable's OWN type
 //! (`ImportInfo`), never re-anchored against the call's result type the way the container half
 //! is. This is the exact shape CI caught: `ImportInfo` declares `source` and has no `imports`
 //! field, so `NoMethodError: undefined method 'imports' for an instance of
-//! TreeSitterLanguagePack::ImportInfo` fired when the element half was rendered through
+//! SomeBinding::ImportInfo` fired when the element half was rendered through
 //! `FieldResolver::accessor` instead of `FieldResolver::element_accessor`.
 //!
 //! `accessor()` re-anchors a path against the call's result type via

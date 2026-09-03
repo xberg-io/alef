@@ -87,8 +87,8 @@ fn collect_generated_uv_lock_findings(generated_paths: &HashSet<PathBuf>) -> Vec
 /// [`crate::cli::pipeline::lock_freshness::cargo::check_generated_lock_freshness_tolerating_pending_publish`].
 /// See [`registry_self_dependency`]'s doc for what "explained" means here and why it is deliberately
 /// conservative, and [`crate::e2e::codegen::python::config::normalize_python_version`] for why the
-/// requirement text needs PEP 508 normalization before comparison (the html-to-markdown incident
-/// this closes: `test_apps/python/pyproject.toml` requires `html-to-markdown>=3.12.0` while PyPI
+/// requirement text needs PEP 508 normalization before comparison (a real downstream incident
+/// this closes: `test_apps/python/pyproject.toml` requires a downstream package `>=3.12.0` while PyPI
 /// still only has `3.11.6` published).
 pub(crate) fn check_generated_uv_lock_freshness_tolerating_pending_publish(
     generated_paths: &HashSet<PathBuf>,

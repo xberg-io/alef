@@ -65,7 +65,7 @@ fn parse_module_version_pair(text: &str) -> Option<(String, String)> {
 /// any module already in `direct_modules` -- a module cannot be required both directly and as
 /// `// indirect` in the same go.mod. `direct_modules` always contains the required module path
 /// itself and `testify`, and in Local dep mode may also contain a `harness_extras` entry that
-/// duplicates one of the dependency's own direct requires (e.g. `tree-sitter-language-pack`'s
+/// duplicates one of the dependency's own direct requires (e.g. a real downstream crate's
 /// `e2e/go` harness extra for `go-tree-sitter`, which its `packages/go/go.mod` also requires
 /// directly).
 ///

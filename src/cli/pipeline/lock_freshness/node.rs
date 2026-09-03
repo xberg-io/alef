@@ -126,7 +126,7 @@ fn collect_generated_node_lock_findings(
 /// deliberately conservative.
 ///
 /// ~keep alef #A5: tolerance is scoped to the whole LOCK, not just the self-dependency row that
-/// explains it. A pending self-dependency (`@xberg-io/tree-sitter-language-pack@1.16.1`, not yet
+/// explains it. A pending self-dependency (a scoped downstream package at `1.16.1`, not yet
 /// published) makes the *entire* `pnpm-lock.yaml` unresolvable -- pnpm cannot even attempt to
 /// relock the file to pick up an unrelated sibling drift (`@types/node`, `vitest`, `rollup`)
 /// until that self-dependency publishes, so `pnpm install --lockfile-only` fails immediately with
@@ -138,8 +138,8 @@ fn collect_generated_node_lock_findings(
 ///
 /// ~keep alef #A6: one self-dependency identity is not enough. `collect_generated_node_lock_findings`
 /// walks every `test_apps/*` directory holding an alef-generated `package.json`, and that
-/// includes BOTH the `"node"` test_app (`@xberg-io/html-to-markdown`) AND the `"wasm"` test_app
-/// (`@xberg-io/html-to-markdown-wasm`) -- two different `[crates.e2e...packages.<lang>]` rows,
+/// includes BOTH the `"node"` test_app (a downstream crate's npm package) AND the `"wasm"` test_app
+/// (that same crate's wasm sibling package) -- two different `[crates.e2e...packages.<lang>]` rows,
 /// two different published npm packages, each with its own pending-publish window. Resolving
 /// only `"node"`'s self-dependency left the wasm test_app's identical pending-self-version row
 /// unrecognised: it does not match the node identity by name, so it fell through to `real` and

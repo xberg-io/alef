@@ -125,8 +125,8 @@ fn warn_sync_target_not_updated(path: &std::path::Path, version: &str, reason: &
 ///
 /// ~keep alef #A2: a pattern that never matches is indistinguishable on disk from a file that is
 /// already current -- both leave the file byte-for-byte unchanged -- so nothing here signalled
-/// the difference before this warning existed. The `liter-llm` incident this closes: a
-/// `text_replacements` entry searched for a `liter-llm.git` URL with `from:`, but the target file
+/// the difference before this warning existed. A real downstream incident this closes: a
+/// `text_replacements` entry searched for a downstream repo's `.git` URL with `from:`, but the target file
 /// had moved to a non-`.git` URL with `branch:`; the pattern matched nothing for three releases in
 /// a row and every one of those runs looked identical to "already correct." The same rule applies
 /// here as everywhere else this fix touches: a substitution must prove it changed something, or

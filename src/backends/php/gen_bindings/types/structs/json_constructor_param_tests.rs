@@ -7,8 +7,8 @@
 //! expression lives directly in `representable_field_init` (`constructor_init.rs`).
 //!
 //! Modelled after the real trigger for this widening:
-//! `xberg::StructuredExtractionConfig.schema: serde_json::Value` (required) and
-//! `xberg::OcrPipelineStage.paddle_ocr_config: Option<serde_json::Value>` (optional).
+//! `<core>::StructuredExtractionConfig.schema: serde_json::Value` (required) and
+//! `<core>::OcrPipelineStage.paddle_ocr_config: Option<serde_json::Value>` (optional).
 
 use super::*;
 use crate::backends::php::type_map::PhpMapper;

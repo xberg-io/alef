@@ -6,8 +6,8 @@
 //! (`func.cfg`/`method.cfg` in `gen_bindings::mod`); the two loops over `api.types` that emit a
 //! struct's own declaration and its `From` conversions never consulted `typ.cfg` the same way,
 //! so a consumer whose own feature set disabled the gate still got an unconditional reference to
-//! a type the core crate never compiled in -- 41 ungated `xberg::candle_ocr::*` references on
-//! Ruby/Windows, the sole failure in xberg's Publish Release dry run.
+//! a type the core crate never compiled in -- 41 ungated `<core>::candle_ocr::*` references on
+//! Ruby/Windows, the sole failure in a downstream crate's Publish Release dry run.
 //!
 //! `MagnusBackend::generate_bindings` is exercised end to end (not `classes::gen_struct` /
 //! `classes::gen_from_binding_to_core_filtered` directly), since the defect was in the call

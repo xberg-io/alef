@@ -65,8 +65,8 @@ fn field(name: &str, ty: TypeRef) -> crate::core::ir::FieldDef {
 /// `wasm_bigint_field`) field, and a plain `u32` field.
 ///
 /// `request_timeout` is declared `Duration`, not `TypeRef::Primitive(U64)`, on purpose: that is
-/// crawlberg's actual IR shape (`crates/crawlberg/src/types/config.rs`'s `CrawlConfig::
-/// request_timeout: Duration`), and it is the shape that first exposed the gap — `Duration`
+/// a real downstream crate's actual IR shape (`crates/<crate>/src/types/config.rs`'s
+/// `CrawlConfig::request_timeout: Duration`), and it is the shape that first exposed the gap — `Duration`
 /// lowers to Rust `u64` at the wasm-bindgen boundary just as directly as a primitive `u64` field
 /// does, but was not itself recognised as bigint-typed. ~keep
 fn engine_config_type_def() -> TypeDef {

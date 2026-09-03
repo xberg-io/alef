@@ -12,7 +12,7 @@
 //! (`crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config`'s doc). `TypedDict`
 //! used to be the representation here: a plain `dict` at runtime with no attribute access, while
 //! `_native.pyi` kept declaring the same class name with real attributes. A consumer reading the
-//! documented `.field` shape got `AttributeError` (tree-sitter-language-pack#183:
+//! documented `.field` shape got `AttributeError` (a downstream project's issue #183:
 //! `ProcessResult.chunks`, which broke chonkie's `CodeChunker._process_code` and every downstream
 //! `agno-agi/agno` CI run pinned against it). ~keep
 
@@ -129,7 +129,7 @@ fn should_annotate_the_options_type_when_options_publishes_the_return_type() {
     );
     assert!(
         !options_py.contains(&format!("class {RETURN_TYPE}(TypedDict")),
-        "REGRESSION (tree-sitter-language-pack#183): a published return type must render as \
+        "REGRESSION (downstream project issue #183): a published return type must render as \
          `@dataclass` (attribute access), never `TypedDict` (a plain dict at runtime with no \
          attribute access):\n{options_py}"
     );
@@ -178,7 +178,7 @@ fn should_convert_the_native_return_value_into_the_published_type() {
     );
 }
 
-/// REGRESSION (tree-sitter-language-pack#183): the `.pyi` stub and `options.py`'s published
+/// REGRESSION (downstream project issue #183): the `.pyi` stub and `options.py`'s published
 /// definition must agree on the shape a consumer actually gets -- both attribute access, with the
 /// same field names. The stub always describes the native `#[pyclass]` (unconditional on DTO
 /// style, since the Rust struct itself is unaffected by it); `options.py`'s `@dataclass` mirrors

@@ -325,7 +325,7 @@ fn dart_relock_retries_online_after_offline_resolution_failure() {
 }
 
 /// The A6 regression, reproducing the tslp incident: `test_apps/dart/pubspec.yaml` pins
-/// `tree_sitter_language_pack` as a plain (non-path) registry dependency at exactly the version
+/// a downstream package as a plain (non-path) registry dependency at exactly the version
 /// `packages/dart/pubspec.yaml` declares for itself this run -- not yet published to pub.dev.
 /// Before this guard, `relock_dart_lockfiles_with` still invoked the resolver here, and both the
 /// offline and online `dart pub get` attempts necessarily failed identically with "version
@@ -337,17 +337,17 @@ fn dart_lock_blocked_on_publish_skips_a_pending_self_dependency_registry_pin() {
     write_file(
         root,
         "packages/dart/pubspec.yaml",
-        "name: tree_sitter_language_pack\nversion: 1.16.1\n",
+        "name: sample_pending_pkg\nversion: 1.16.1\n",
     );
     write_file(
         root,
         "test_apps/dart/pubspec.yaml",
-        "name: e2e_dart\nversion: 0.1.0\ndependencies:\n  tree_sitter_language_pack: 1.16.1\n",
+        "name: e2e_dart\nversion: 0.1.0\ndependencies:\n  sample_pending_pkg: 1.16.1\n",
     );
     write_file(
         root,
         "test_apps/dart/pubspec.lock",
-        "packages:\n  tree_sitter_language_pack:\n    version: \"1.15.8\"\n",
+        "packages:\n  sample_pending_pkg:\n    version: \"1.15.8\"\n",
     );
     let files = [
         GeneratedFile {
@@ -486,7 +486,7 @@ fn shell_output(exit_code: i32, marker: &str) -> std::process::Output {
 
 /// The A6 stdio regression: `dart pub get`'s own stdout must be attributed into alef's log
 /// through `tracing`, not silently inherited into alef's own raw stdout with no level prefix
-/// (the html-to-markdown incident: an unattributed "18 packages have newer versions..." notice
+/// (a real downstream incident: an unattributed "18 packages have newer versions..." notice
 /// that read as alef's own output).
 #[traced_test]
 #[test]

@@ -24,7 +24,7 @@ use tempfile::TempDir;
 const CRATE_NAME: &str = "my-lib";
 
 /// The class directory `[crates.output] php` resolves to for [`CRATE_NAME`] with no override --
-/// the same shape crawlberg configures explicitly (`crates/crawlberg-php/src/`).
+/// the same shape a real downstream crate configures explicitly (`crates/<crate>-php/src/`).
 const CO_LOCATED_CLASS_DIR: &str = "crates/my-lib-php/src";
 
 fn toml_path(path: &Path) -> String {
@@ -94,10 +94,10 @@ fn write_scaffolded_composer_files(root: &Path, config: &ResolvedCrateConfig) ->
 
 /// ~keep The generator's own output must pass the validator. `scaffold_php` emits ONE manifest for
 /// the co-located layout -- the repository-root one -- so requiring `{pkg_dir}/composer.json`
-/// reported a file no stage writes. crawlberg (`php = "crates/crawlberg-php/src/"`) fails
-/// `alef publish validate` on exactly this today; html-to-markdown, liter-llm and
-/// tree-sitter-language-pack pass only because a pre-`c159e2dc0` leftover manifest still sits in
-/// their class directory, so they would start failing the moment that leftover is removed.
+/// reported a file no stage writes. A real downstream crate (`php = "crates/<crate>-php/src/"`)
+/// fails `alef publish validate` on exactly this today; three other real downstream crates using
+/// this same php class-dir shape pass only because a pre-`c159e2dc0` leftover manifest still sits
+/// in their class directory, so they would start failing the moment that leftover is removed.
 #[test]
 fn scaffolded_co_located_layout_passes_validation() {
     let temp_dir = TempDir::new().unwrap();

@@ -88,7 +88,7 @@ fn vec_of_enum_type_stays_representable() {
 }
 
 /// End-to-end regression pin, shaped after the real defect this widening fixes
-/// (`xberg::ChunkClassificationConfig.definitions: Vec<ChunkClassificationDefinition>`): a
+/// (`<core>::ChunkClassificationConfig.definitions: Vec<ChunkClassificationDefinition>`): a
 /// required `Vec<Named>` field of a plain struct must
 ///   - render its param as `&ext_php_rs::types::ZendHashTable` (not the bare struct's own type),
 ///   - decode through a `{param}_core` let-binding containing a fallible `return Err(...)`,

@@ -77,7 +77,7 @@ pub(super) fn sync_swift_package_versions(
 /// whether it currently holds the placeholder *or* an already-substituted literal from a
 /// previous release. It must never be one-way -- a one-way substitution destroys its own
 /// trigger the moment a real checksum lands on `main`, so every release after the first
-/// silently no-ops forever. This is not hypothetical: it happened in crawlberg, where
+/// silently no-ops forever. This is not hypothetical: it happened in a real downstream crate, where
 /// `e1d2b2293` injected a literal checksum for v1.4.0 and nothing ever restored the
 /// placeholder afterward, so every `release/swift/*` branch and checksum substitution
 /// after that commit silently skipped while reporting success. ~keep

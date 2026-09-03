@@ -306,8 +306,8 @@ fn zig_build_zig_guards_set_cwd_on_working_directory_existence() {
 /// manifest path .../rust/Cargo.toml does not exist` in CI, six suites failing in `setUpAll`
 /// with zero fixture assertions run. A fixture SET must combine a file-input fixture (drives
 /// `needs_chdir`) with a mock-url fixture (drives `needs_sut_spawn`) in the SAME group --
-/// xberg's real `contract_test.dart`/`format_specific_test.dart`/`url_test.dart` shape --
-/// neither flag alone reaches the interaction. ~keep
+/// a real downstream crate's actual `contract_test.dart`/`format_specific_test.dart`/
+/// `url_test.dart` shape -- neither flag alone reaches the interaction. ~keep
 #[test]
 fn dart_chdir_and_sut_spawn_combined_setup_resolves_sut_paths_before_the_chdir() {
     let (e2e_config, mut group, request) = nested_bytes_fixture();

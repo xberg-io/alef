@@ -4,10 +4,10 @@
 //! companion impls (`IntoValueFromNative`, `magnus::TryConvert`, `TryConvertOwned`, and a
 //! delegating `Deserialize`) as ONE multi-item string, and a `#[cfg(...)]` attribute only binds
 //! to the single item immediately following it. Prepending `#[cfg(...)]` once to the front of
-//! that whole blob therefore gated only the struct declaration -- xberg's generated
-//! `packages/ruby/ext/xberg_rb/src/lib.rs` carried 67 gated type declarations and 259 ungated
+//! that whole blob therefore gated only the struct declaration -- a downstream crate's generated
+//! `packages/ruby/ext/<crate>_rb/src/lib.rs` carried 67 gated type declarations and 259 ungated
 //! companion impls, the sole cause of 827 compile errors and the only failing job
-//! (`Build Ruby gem (windows-x86_64)`) in xberg's publish run.
+//! (`Build Ruby gem (windows-x86_64)`) in that crate's publish run.
 //!
 //! This is a CENSUS, not a spot check: it parses the real generated `lib.rs` with `syn` and
 //! asserts, over every `impl` item in the file, that none of them targets a type whose

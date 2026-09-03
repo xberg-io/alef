@@ -565,9 +565,9 @@ mod tests {
 /// string itself (`TypeRef::Bytes => value.as_str().is_some_and(is_relative_document_path)`).
 /// A fixture is equally free to write the real byte literals inline and record the file
 /// separately for docs purposes (`docs.presentation.files: [{field, path}]`) — the shape
-/// `fixtures/batch/bytes_happy.json` actually uses in xberg, with the doc file entry nested
-/// under an ARRAY argument element (`"/inputs/1/bytes"`). `docs_files_for_arg`'s prefix-match
-/// against that argument's `field` (`"input.inputs"` -> base `"/inputs"`) is what
+/// `fixtures/batch/bytes_happy.json` actually uses in a real downstream crate, with the doc file
+/// entry nested under an ARRAY argument element (`"/inputs/1/bytes"`). `docs_files_for_arg`'s
+/// prefix-match against that argument's `field` (`"input.inputs"` -> base `"/inputs"`) is what
 /// `scan_fixture`'s early-return check consults BEFORE ever walking the argument's element
 /// type, so this must resolve correctly independent of `ExtractInput`'s own struct/enum shape.
 /// ~keep

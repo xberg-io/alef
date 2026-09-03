@@ -39,6 +39,14 @@ pub(super) fn render_equals(out_ref: &mut String, assertion: &Assertion, target:
         } else if field_is_pointer && !field_expr.starts_with("len(") {
             let _ = writeln!(out_ref, "\tif {field_expr} == nil || {deref_field_expr} != {go_val} {{");
         } else if is_optional && !field_expr.starts_with("len(") {
+            // ~keep Latent, unpatched: `is_optional` here can be true while `field_is_pointer`
+            // is false for a nilable slice/map (comparing it to a scalar `go_val` fails to
+            // compile) OR for a data-interface field, where `field_expr != go_val` against
+            // `interface{}` actually DOES compile for a comparable literal -- so this branch is
+            // not provably wrong in general. No downstream fixture reaches it with a non-string
+            // value today, and no failing case was found to pin a fix against (tdd-workflow:
+            // no red test, no patch). Left as-is pending a concrete repro; do not delete this
+            // note or "fix" this blind without one.
             let _ = writeln!(out_ref, "\tif {field_expr} != nil && {field_expr} != {go_val} {{");
         } else {
             let _ = writeln!(out_ref, "\tif {field_expr} != {go_val} {{");

@@ -149,7 +149,7 @@ fn config_only_enum_classification_leaves_the_fixture_literal_untranslated() {
     );
 }
 
-/// THE REGRESSION for the CI-confirmed defect on the PRE-UNWRAPPED path (liter-llm,
+/// THE REGRESSION for the CI-confirmed defect on the PRE-UNWRAPPED path (a real downstream crate,
 /// `FinishReason`/`ContentFilter`, CI run 33482291337): when the call-site unwrap pass has
 /// already produced a `String` local holding the enum's `Display` rendering (which, per
 /// `FieldResolver::rust_unwrap_binding`'s own doc, is the serde WIRE spelling for a

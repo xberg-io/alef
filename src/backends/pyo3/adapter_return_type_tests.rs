@@ -16,7 +16,7 @@
 //! A pure return-position type (`is_return_type = true`) is a different case entirely: it is
 //! never published by `options.py` at all, under any DTO output style -- see
 //! `is_dataclass_backed_config` and `public_return_type_tests.rs`
-//! (tree-sitter-language-pack#183). ~keep
+//! (downstream project issue #183). ~keep
 
 use crate::core::backend::Backend;
 use crate::core::config::ResolvedCrateConfig;

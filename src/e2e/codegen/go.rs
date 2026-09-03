@@ -439,7 +439,7 @@ fn render_go_mod(
     // ./...` fails on the missing entries, so this is a correctness gap a build-only check
     // wouldn't catch. `direct_modules` excludes anything already required directly above (e.g. a
     // Local-mode `harness_extras` entry that duplicates one of the dependency's own direct
-    // requires, as `tree-sitter-language-pack`'s `e2e/go` does with `go-tree-sitter`) -- a module
+    // requires, as a real downstream crate's `e2e/go` does with `go-tree-sitter`) -- a module
     // cannot be required both directly and as `// indirect` in the same go.mod. See
     // `dependency_requires::resolve_indirect_requires`.
     let indirect_requires = dependency_requires::resolve_indirect_requires(dependency_go_mod_dir, &direct_modules);

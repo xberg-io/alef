@@ -314,8 +314,8 @@ fn text_replacement_already_current_does_not_warn_even_without_an_alef_marker() 
 
 /// alef #A2 regression: a declared `sync.text_replacements` search pattern that matches nothing
 /// in a file alef successfully opened must warn -- silence here is indistinguishable from
-/// "already current" and hid a real drift for three consecutive releases in the liter-llm
-/// incident this closes: a `search` shaped for a `liter-llm.git` URL with `from:` against a file
+/// "already current" and hid a real drift for three consecutive releases in a real downstream
+/// incident this closes: a `search` shaped for a downstream repo's `.git` URL with `from:` against a file
 /// that had moved to a non-`.git` URL with `branch:`.
 #[traced_test]
 #[test]

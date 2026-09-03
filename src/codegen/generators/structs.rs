@@ -132,10 +132,10 @@ pub fn struct_wants_deserialize_delegation(
 /// module it lives in; a private or module-local function (still `FunctionCall`, e.g. one
 /// `#[cfg(feature = "serde")]`-gated or simply not `pub`) reads back fine on the *core* type,
 /// where the derive sees it in scope, but copied verbatim onto the mirror struct in a different
-/// crate/module it is an unresolvable path (`E0425: cannot find function`) -- exactly how
-/// `crawlberg`'s `SsrfPolicy::scheme_allowlist` (`default = "default_scheme_allowlist"`, private
-/// to `net::ssrf`) broke `crawlberg-php` once the duplicate-attribute defect above stopped
-/// masking it. Skipping the mirror in that case reproduces the pre-#305 gap (the field goes back
+/// crate/module it is an unresolvable path (`E0425: cannot find function`) -- exactly how a real
+/// downstream crate's `SsrfPolicy::scheme_allowlist` (`default = "default_scheme_allowlist"`,
+/// private to `net::ssrf`) broke its PHP binding crate once the duplicate-attribute defect above
+/// stopped masking it. Skipping the mirror in that case reproduces the pre-#305 gap (the field goes back
 /// to being required on the derived, field-by-field mirror) rather than shipping a crate that
 /// does not compile -- the same recovery this classification already backs for constructor
 /// defaults, see `codegen::shared::format_default_value`. ~keep

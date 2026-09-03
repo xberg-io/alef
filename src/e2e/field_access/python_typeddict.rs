@@ -12,8 +12,8 @@
 //! `options.py` no longer has a `TypedDict` rendering path at all
 //! (`crate::backends::pyo3::gen_bindings::types::gen_options_py`): every type it publishes
 //! renders as `@dataclass`, and a return-position type it does not publish stays the native
-//! `#[pyclass]` -- both are attribute access. tree-sitter-language-pack#183 was exactly the
-//! `TypedDict` branch this module used to detect; the fix removed that branch from the backend
+//! `#[pyclass]` -- both are attribute access. A real downstream crate's issue #183 was exactly
+//! the `TypedDict` branch this module used to detect; the fix removed that branch from the backend
 //! rather than teaching this module to route around it, so `typeddict_types` is now always
 //! empty and this module no longer needs to ask `is_dataclass_backed_config` at all. It is kept
 //! (rather than deleted outright) so a path can still be traced field-by-field for other
@@ -125,7 +125,7 @@ mod tests {
 
     /// `ParseOutput { metadata: Metadata }`, `Metadata { title: String }`, both `is_return_type`.
     /// Neither is ever classified as `TypedDict` -- see this module's header comment
-    /// (tree-sitter-language-pack#183).
+    /// (a real downstream crate's issue #183).
     fn type_defs() -> Vec<TypeDef> {
         vec![
             return_type(
@@ -136,7 +136,7 @@ mod tests {
         ]
     }
 
-    /// REGRESSION (tree-sitter-language-pack#183): a return-position type is never classified as
+    /// REGRESSION (a real downstream crate's issue #183): a return-position type is never classified as
     /// `TypedDict`, so the python e2e generator never renders subscript access (`result["field"]`)
     /// for one -- it always renders attribute access, agreeing with the native `#[pyclass]` the
     /// pyo3 backend actually returns and with `_native.pyi`'s declared shape.

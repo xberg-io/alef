@@ -2,7 +2,7 @@
 //!
 //! ~keep Same FALSE FAILURE class as `wasm_enum_tests`, and invisible for the same reason: a
 //! correctly authored fixture against a correctly generated binding produced an assertion that
-//! could never hold. This one shipped — it kept tree-sitter-language-pack's Node e2e gate red
+//! could never hold. This one shipped — it kept a real downstream crate's Node e2e gate red
 //! across releases, and because `publish-node` gates on that gate, npm silently never received a
 //! build. The generic path lowered `kind` to `String(result.kind).includes("Function")`; napi
 //! hands over `{ type: "Function" }`, which stringifies to `"[object Object]"`.
@@ -30,7 +30,7 @@ fn payload_field() -> FieldDef {
     }
 }
 
-/// `StructureKind { Function, Other(String) }` — the real tree-sitter-language-pack shape: unit
+/// `StructureKind { Function, Other(String) }` — the real shape from a downstream crate: unit
 /// variants plus one payload variant, serde default. `is_tagged_data_enum` routes it to the
 /// tagged-object emitter, so it is `{ type: "Function" }` on the wire.
 /// `Format { Markdown, Html }` — all unit variants, so `#[napi(string_enum)]`: a bare string.
@@ -154,7 +154,7 @@ fn should_leave_a_unit_only_string_enum_as_a_scalar_comparison() {
 
 /// The shape that actually shipped broken: `structure[].kind` is a WILDCARD path, and the
 /// wildcard branch returns before the non-wildcard enum dispatch is reached. Fixing only the
-/// plain path would leave this — the real tree-sitter-language-pack assertion — unchanged, so
+/// plain path would leave this — the real downstream-crate assertion — unchanged, so
 /// this test is the one that pins the defect rather than a neighbouring case.
 #[test]
 fn should_read_the_discriminant_for_a_wildcard_enum_element() {

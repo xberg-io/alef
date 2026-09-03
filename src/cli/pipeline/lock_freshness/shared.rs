@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 ///
 /// `identity` extracts the field `lang`'s ecosystem actually keys a dependency requirement on --
 /// `name` for every ecosystem except Go, which has no `name` concept at all and instead pins by
-/// `module` (a Go module path, e.g. `github.com/xberg-io/html-to-markdown/packages/go/v3`); the Go
+/// `module` (a Go module path, e.g. `github.com/example-org/example-crate/packages/go/v3`); the Go
 /// caller passes `|package| package.name.clone().or_else(|| package.module.clone())` so a
 /// `name`-based override still wins if one is ever configured. Threaded as a closure, the same
 /// shape as `normalize`, rather than a Go-specific branch here, per this module's own doc: neither

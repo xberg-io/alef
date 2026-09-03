@@ -289,7 +289,7 @@ mod pending_publish {
 
     /// A crate whose `[crates.e2e.registry.packages.go]` sets only `module` (no `name`) --
     /// the real shape every Go `alef.toml` in the wild actually uses (e.g.
-    /// `module = "github.com/xberg-io/html-to-markdown/packages/go/v3"`). Regression fixture for
+    /// `module = "github.com/example-org/example-crate/packages/go/v3"`). Regression fixture for
     /// the bug where [`registry_self_dependency`] read only `name`, making this exemption
     /// structurally unreachable for Go.
     fn resolved_cfg_with_go_registry_module(module: &str, pkg_version: &str) -> ResolvedCrateConfig {
@@ -386,9 +386,9 @@ mod pending_publish {
         );
     }
 
-    /// The html-to-markdown regression itself: `[crates.e2e.registry.packages.go]` set by
+    /// The real downstream regression itself: `[crates.e2e.registry.packages.go]` set by
     /// `module` alone (no `name` -- the real shape, e.g.
-    /// `module = "github.com/xberg-io/html-to-markdown/packages/go/v3"`) must still be recognized
+    /// `module = "github.com/example-org/example-crate/packages/go/v3"`) must still be recognized
     /// as this crate's own pending self-dependency. Before the `module`-fallback fix,
     /// `registry_self_dependency` read only `name`, so this config resolved to `None` and this
     /// exact finding hard-failed instead of being tolerated.

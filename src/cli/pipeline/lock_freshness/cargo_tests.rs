@@ -207,7 +207,7 @@ fn stale_lock_findings_ignores_a_git_dependency() {
     );
 }
 
-/// The A4 regression, reproducing the crawlberg incident structurally: `tower-http` is declared
+/// The A4 regression, reproducing a real downstream incident structurally: `tower-http` is declared
 /// `optional = true` and only reachable behind a feature (`api`) that neither the generated
 /// manifest's requested features nor the path dependency's default feature set activates. Before
 /// this guard, alef read the bare `version` off the optional entry and reported a hard failure on
@@ -389,8 +389,8 @@ fn check_generated_lock_freshness_ignores_non_manifest_paths() {
 
 /// Coverage for [`check_generated_lock_freshness_tolerating_pending_publish`]'s exemption for a
 /// disagreement fully explained by this crate's own not-yet-published release version -- the
-/// `html-to-markdown` incident this exists for: `test_apps/rust/Cargo.toml` requires
-/// `html-to-markdown-rs` at the exact version being released, but the registry still only has the
+/// real downstream incident this exists for: `test_apps/rust/Cargo.toml` requires
+/// a downstream crate at the exact version being released, but the registry still only has the
 /// previous one, so `cargo update` cannot resolve it until publish. Reuses
 /// [`registry_dependencies_on_local_crates`]'s exact shape (a registry, not path, dependency on a
 /// local crate pinned at exactly its own canonical version) rather than inventing a new fixture

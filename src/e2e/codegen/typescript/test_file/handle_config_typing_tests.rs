@@ -53,7 +53,7 @@ fn content_filter_kind_enum_def() -> EnumDef {
 fn create_engine_function_def() -> crate::core::ir::FunctionDef {
     crate::core::ir::FunctionDef {
         name: "create_engine".into(),
-        rust_path: "crawlberg::create_engine".into(),
+        rust_path: "my_crate::create_engine".into(),
         params: vec![crate::core::ir::ParamDef {
             name: "config".into(),
             ty: TypeRef::Named("CrawlConfig".into()),
@@ -79,7 +79,7 @@ fn engine_handle_arg() -> ArgMapping {
     }
 }
 
-/// Regression for the crawlberg `E2E (node)` failure: five `tests/filter.test.ts` cases threw
+/// Regression for a real downstream crate's `E2E (node)` failure: five `tests/filter.test.ts` cases threw
 /// `value "bm25" does not match any variant of enum JsContentFilterKind on
 /// JsCrawlConfig.contentFilter` at run time.
 ///

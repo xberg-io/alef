@@ -272,8 +272,8 @@ fn check_generated_uv_lock_freshness_ignores_non_manifest_paths() {
 
 /// Coverage for [`check_generated_uv_lock_freshness_tolerating_pending_publish`]'s exemption
 /// -- the uv sibling of the cargo `pending_publish` module, and the actual
-/// `html-to-markdown` incident this closes: `test_apps/python/pyproject.toml` requires
-/// `html-to-markdown>=3.12.0` while PyPI still only has `3.11.6` published.
+/// real downstream incident this closes: `test_apps/python/pyproject.toml` requires
+/// a downstream package `>=3.12.0` while PyPI still only has `3.11.6` published.
 mod pending_publish {
     use super::*;
     use crate::core::config::ResolvedCrateConfig;

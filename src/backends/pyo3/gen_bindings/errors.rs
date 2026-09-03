@@ -20,7 +20,7 @@ use ahash::AHashSet;
 /// the native `#[pyclass]`'s own shape and the `.pyi` stub's declared attributes. A return type
 /// this predicate does NOT select stays that native `#[pyclass]` untouched -- also attribute
 /// access. There is therefore no longer a subscript-access (`result["field"]`) outcome anywhere
-/// this predicate feeds (tree-sitter-language-pack#183).
+/// this predicate feeds (downstream project issue #183).
 ///
 /// `pub(crate)` (not `pub(super)`) because `crate::e2e::field_access::python_typeddict` also
 /// calls this directly, so the python e2e generator's own classification can only ever agree with
@@ -301,7 +301,7 @@ pub(super) fn gen_init_py(
     // #[pyclass] and a `{error}_info` free #[pyfunction], both registered directly on the
     // native module (`pyo3::gen_bindings::methods::gen_module_init`) rather than flowing
     // through `api.functions`/`api.types`. Without this, the public facade never re-exports
-    // them even though the native module does (liter-llm `liter_llm_error_info` gap).
+    // them even though the native module does (a downstream crate's `*_error_info` gap).
     let mut error_info_names: Vec<String> = Vec::new();
     for error in &api.errors {
         if crate::codegen::error_gen::pyo3_error_has_methods(error) {

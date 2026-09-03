@@ -313,8 +313,8 @@ impl Backend for MagnusBackend {
             // `prepend_cfg(method.cfg...)` below); the struct declaration loop never did, so a
             // consumer whose own feature set disables the gate still got an unconditional
             // reference to a type the core crate never compiled in -- 41 ungated
-            // `xberg::candle_ocr::*` references on Ruby/Windows, the sole failure in xberg's
-            // Publish Release dry run. ~keep
+            // `<core>::candle_ocr::*` references on Ruby/Windows, the sole failure in a
+            // downstream crate's Publish Release dry run. ~keep
             let typ_cfg = typ.cfg.as_deref();
             if typ.is_opaque {
                 // `gen_opaque_struct` renders a struct declaration plus three companion impls as

@@ -77,7 +77,7 @@ pub(super) fn emit_converters(
 
         // `options.py` never renders a literal `TypedDict` anymore (see
         // `crate::backends::pyo3::gen_bindings::types::gen_options_py`'s doc, fixed alongside
-        // tree-sitter-language-pack#183): a published return-position type is a `@dataclass`,
+        // a downstream project's issue #183): a published return-position type is a `@dataclass`,
         // exactly like every other type here, so a value handed to `_to_rust_*` is never a plain
         // `dict` and always supports attribute access. Kept as a named `let` (not deleted
         // outright) so every branch below that used to depend on it keeps reading as the "this

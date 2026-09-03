@@ -248,7 +248,7 @@ fn check_generated_node_lock_freshness_ignores_non_manifest_paths() {
 
 /// Coverage for [`check_generated_node_lock_freshness_tolerating_pending_publish`]'s
 /// exemption -- the npm sibling of the cargo `pending_publish` module above. Reproduces the
-/// `@xberg-io/html-to-markdown` shape: `test_apps/typescript/package.json` requires the
+/// a real scoped npm package's shape: `test_apps/typescript/package.json` requires the
 /// crate's own published npm package at the exact range `[crates.e2e.registry.packages.node]`
 /// currently declares, but the registry has not published it yet.
 mod pending_publish {
@@ -322,7 +322,7 @@ mod pending_publish {
 
     /// Both `[crates.e2e.registry.packages.node]` and `[crates.e2e.registry.packages.wasm]`
     /// explicitly named -- the shape a crate publishing both an npm package and its wasm
-    /// sibling (the html-to-markdown / tree-sitter-language-pack incident) actually has.
+    /// sibling (a real incident where two downstream crates' npm/wasm pair diverged) actually has.
     fn resolved_cfg_with_node_and_wasm_registry_packages(
         node_name: &str,
         node_version: &str,
@@ -453,7 +453,7 @@ mod pending_publish {
 
     /// A `package.json` declaring both the pending self-dependency and an unrelated sibling
     /// dependency in the same `devDependencies` bucket -- the tslp shape: one `package.json`
-    /// pinning `@xberg-io/tree-sitter-language-pack` at the not-yet-published release version
+    /// pinning a scoped downstream package at the not-yet-published release version
     /// alongside `@types/node`/`vitest`/`rollup` specifiers the lock also disagrees with.
     fn write_package_json_with_sibling(root: &Path, self_specifier: &str, sibling_specifier: &str) -> PathBuf {
         let dir = node_dir(root);

@@ -12,8 +12,8 @@
 //! some OTHER in-tree crate happens to share both a name and a version with the dependency a
 //! lock has genuinely drifted on, the drift is wrongly exempted.
 //!
-//! The real xberg incident this module's sibling tests were built for did NOT hit this path --
-//! `git ls-files '*Cargo.toml' | xargs grep -l '^name = "crawlberg"'` in that repo returns
+//! The real downstream incident this module's sibling tests were built for did NOT hit this path --
+//! `git ls-files '*Cargo.toml' | xargs grep -l '^name = "<the-downstream-crate>"'` in that repo returns
 //! nothing, so no such collision existed there. This is a latent defect proven on a synthetic
 //! fixture, not a reproduction of the field incident.
 

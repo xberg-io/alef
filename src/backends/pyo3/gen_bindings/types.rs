@@ -30,7 +30,7 @@ fn to_python_enum_variant(name: &str) -> String {
 /// longer has a `TypedDict` rendering path at all: a `TypedDict` is a plain `dict` at runtime, so
 /// it cannot give the attribute access (`result.field`) the native `#[pyclass]` this type mirrors
 /// already provides, the `.pyi` stub already declares, and every consumer README documents.
-/// Rendering it as a `TypedDict` discarded that access for no benefit (tree-sitter-language-pack
+/// Rendering it as a `TypedDict` discarded that access for no benefit (a downstream project's
 /// issue #183: `ProcessResult.chunks` raised `AttributeError`, breaking chonkie's
 /// `CodeChunker._process_code` and every downstream `agno-agi/agno` CI run pinned against it).
 /// ~keep

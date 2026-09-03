@@ -123,7 +123,7 @@ pub struct FieldResolver {
     ///
     /// ~keep Absent this, node assertions on an enum-typed field compared the whole object as a
     /// scalar: `String(e.kind).includes("Function")` against `{ type: "Function" }` stringifies to
-    /// `"[object Object]"` and can never match, which is what kept tree-sitter-language-pack's
+    /// `"[object Object]"` and can never match, which is what kept a real downstream crate's
     /// Node e2e gate red and its npm publish permanently blocked. Empty for every non-node
     /// resolver, in which case `napi_tagged_object_discriminant` answers `None` and the previous
     /// scalar comparison stands.

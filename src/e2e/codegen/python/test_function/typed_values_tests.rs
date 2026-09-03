@@ -243,8 +243,8 @@ fn emit_json_object_arg_batch_mode_constructs_nested_struct_field_in_each_item()
         ..Default::default()
     };
     let item_type = TypeDef {
-        name: "BatchFileItem".to_string(),
-        rust_path: "demo::BatchFileItem".to_string(),
+        name: "SampleFileItem".to_string(),
+        rust_path: "demo::SampleFileItem".to_string(),
         fields: vec![FieldDef {
             name: "nested".to_string(),
             ty: TypeRef::Named("NestedConfig".to_string()),
@@ -262,7 +262,7 @@ fn emit_json_object_arg_batch_mode_constructs_nested_struct_field_in_each_item()
         kwarg_exprs: &mut exprs,
     };
     let value = serde_json::json!([{"nested": {"model": "standard"}}]);
-    let element_type = Some("BatchFileItem".to_string());
+    let element_type = Some("SampleFileItem".to_string());
     let spec = ConstructorSpec {
         options_type: None,
         options_via: "kwargs",
@@ -284,7 +284,7 @@ fn emit_json_object_arg_batch_mode_constructs_nested_struct_field_in_each_item()
     assert!(done);
     assert_eq!(
         bindings,
-        [r#"    items = [BatchFileItem(nested=NestedConfig(model="standard"))]"#],
+        [r#"    items = [SampleFileItem(nested=NestedConfig(model="standard"))]"#],
         "each batch item's nested struct field must be constructed with its own class, got: {bindings:?}"
     );
 }

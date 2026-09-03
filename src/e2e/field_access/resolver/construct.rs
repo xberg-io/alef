@@ -459,8 +459,8 @@ impl FieldResolver {
     /// (`crate::backends::pyo3::gen_bindings::errors::is_dataclass_backed_config`) the pyo3
     /// backend itself consults, so this can only ever agree with what it actually emits. That
     /// predicate no longer varies by DTO output style or by `reexported_types` for a
-    /// return-position type (tree-sitter-language-pack#183: such a type is never redefined as a
-    /// `TypedDict`), so this classification takes no config input anymore either.
+    /// return-position type (a real downstream crate's issue #183: such a type is never redefined
+    /// as a `TypedDict`), so this classification takes no config input anymore either.
     pub fn python_typeddict_fields(type_defs: &[crate::core::ir::TypeDef]) -> PythonTypedDictMap {
         build_python_typeddict_map(type_defs)
     }

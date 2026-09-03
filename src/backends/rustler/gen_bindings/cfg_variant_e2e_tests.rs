@@ -173,8 +173,8 @@ fn generate_bindings_keeps_catch_all_for_tagged_enum_foreign_variant_not_proven_
     );
 }
 
-/// THE `unreachable_patterns` REGRESSION reproduced end to end against `html-to-markdown-rs`'s
-/// real `TierStrategy` (xberg CI run 33428741012, `packages/elixir/native/xberg_nif/src/lib.rs`):
+/// THE `unreachable_patterns` REGRESSION reproduced end to end against a downstream crate's
+/// real `TierStrategy` (a downstream CI run 33428741012, `packages/elixir/native/<crate>_nif/src/lib.rs`):
 /// Rustler's own unit/tagged enum declaration (`types::gen_enum`'s `declared_variants`, fed by
 /// [`crate::codegen::conversions::enum_variant_declaration`]) DOES drop a FOREIGN cfg-gated
 /// variant this binding's own configured feature set proves unreachable -- since alef

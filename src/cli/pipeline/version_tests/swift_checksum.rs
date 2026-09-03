@@ -187,7 +187,7 @@ fn precompute_swift_checksum_skips_when_no_zip_and_build_fails() {
 /// must still rewrite that field on the next release rather than treating the literal's mere
 /// presence as "already done, nothing to do". Without the fix, this test fails because the
 /// function returns `Ok(None)` and leaves the stale checksum from the previous release in
-/// place, exactly as observed in crawlberg after commit `e1d2b2293`.
+/// place, exactly as observed in a real downstream crate after commit `e1d2b2293`.
 #[test]
 fn precompute_swift_checksum_rewrites_existing_literal_checksum() {
     use crate::core::config::NewAlefConfig;

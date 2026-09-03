@@ -988,7 +988,7 @@ mod merge_managed_toml_tests {
 /// provenance marker instead of having each run's freshly rendered, unmarked body silently
 /// replace whatever marker a prior run (or an out-of-band edit) had left in place.
 ///
-/// Reproduces the exact incident: html-to-markdown's `test_apps/swift_e2e/Package.swift` carried
+/// Reproduces the exact incident: a real downstream repo's `test_apps/swift_e2e/Package.swift` carried
 /// a hand-added `alef:hash:` + prose header (`89628650fa`) that survived one version-sync-driven
 /// rewrite (`c2cc6931e6`, which only ever touches the `branch:` pin and never re-derives the
 /// header), then vanished -- 2 lines deleted, nothing added -- the next time `alef test-apps

@@ -94,7 +94,7 @@ pub(in crate::e2e::codegen::go) fn fixture_has_go_callable(fixture: &Fixture, e2
 /// silently mis-set `is_array_for_len`/`is_slice` in `assertion_field_shape.rs`, which combined
 /// with a resolution gap in `target_field_is_pointer` produced the wrong `.unwrap_or(is_optional &&
 /// !is_array_for_len)` guess for e.g. `Chunks []Chunk` — `len(*result.Chunks)` against a plain
-/// slice, a Go compile error (`cannot indirect ... variable of type []xberg.Chunk`).
+/// slice, a Go compile error (`cannot indirect ... variable of type []mycrate.Chunk`).
 pub(super) fn build_call_field_resolver_with_facts(
     e2e_config: &E2eConfig,
     call_config: &CallConfig,

@@ -719,7 +719,7 @@ mod tests {
         assert!(!path_crosses_unwalkable_field(&map, "metadata.format.variant.detail"));
     }
 
-    /// Regression for the xberg `SheetCount` defect: PR #305 taught this walk to cross an
+    /// Regression for a real downstream crate's `SheetCount` defect: PR #305 taught this walk to cross an
     /// *externally* tagged union's variant boundary (`GoEnumRepresentation::ExternallyTaggedStruct`)
     /// but left out an internally tagged one -- `#[serde(tag = "format_type")]`, which Go
     /// classifies as `GoEnumRepresentation::TupleTaggedStruct` and renders through the identical
