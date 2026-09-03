@@ -314,6 +314,7 @@ pub(super) fn render_test_file(
                     constructor_type,
                     context,
                     &mut used_config_types,
+                    &mut used_enum_types,
                 );
             }
 

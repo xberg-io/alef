@@ -10,27 +10,37 @@ use crate::e2e::config::ArgMapping;
 use crate::e2e::fixture::Fixture;
 
 use super::super::helpers::is_skipped;
-use super::super::test_function::{KwargRenderContext, render_kwarg_field_value};
+use super::super::test_function::{KwargRenderContext, UsedTypeNames, render_kwarg_field_value};
 use super::references_identifier;
 
-/// Collect nested config/struct type names referenced by a `json_object` arg's value -- both the
-/// single-object shape (a field whose own type is a generated pyclass, e.g. `nested:
-/// NestedConfig` inside `ExtractionConfig`) and the "batch" array-of-typed-items shape
-/// (`element_type`, e.g. `BatchFileItem`).
+/// Collect nested config/struct AND enum type names referenced by a `json_object` arg's value --
+/// both the single-object shape (a field whose own type is a generated pyclass, e.g. `nested:
+/// NestedConfig` inside `ExtractionConfig`, or an enum-typed field at any nesting depth, e.g.
+/// `preset: PreprocessingPreset` inside `PreprocessingOptions` inside `ConversionConfig`) and the
+/// "batch" array-of-typed-items shape (`element_type`, e.g. `BatchFileItem`).
 ///
 /// Runs the identical traversal `render_kwarg_field_value` (typed_values.rs) uses to emit the
 /// actual constructor calls, discarding the rendered text and keeping only the type names it
-/// references -- so what gets constructed and what gets imported cannot silently disagree. ~keep
+/// references -- so what gets constructed and what gets imported cannot silently disagree.
+///
+/// Struct and enum names land in the caller's two separate sets (`used_config_types` /
+/// `used_enum_types`), mirroring the split `render_kwarg_field_value` already returns via
+/// `UsedTypeNames`. Merging both into one set here would fold every enum-typed field --
+/// including the top-level ones `collect_json_object_enum_types` already finds -- into the
+/// config-class import group, alphabetically interleaving two groups the import line otherwise
+/// keeps apart and reordering every generated file with more than one enum, not just the ones
+/// missing an import. ~keep
 pub(super) fn collect_nested_config_types(
     arg: &ArgMapping,
     value: &serde_json::Value,
     constructor_type: Option<&str>,
     context: KwargRenderContext<'_>,
     used_config_types: &mut BTreeSet<String>,
+    used_enum_types: &mut BTreeSet<String>,
 ) {
     if let Some(obj) = value.as_object() {
         for (key, field_value) in obj.iter() {
-            let mut nested = BTreeSet::new();
+            let mut nested = UsedTypeNames::default();
             let _ = render_kwarg_field_value(
                 key,
                 field_value,
@@ -39,7 +49,8 @@ pub(super) fn collect_nested_config_types(
                 context,
                 &mut nested,
             );
-            used_config_types.extend(nested);
+            used_config_types.extend(nested.structs);
+            used_enum_types.extend(nested.enums);
         }
     }
 
@@ -48,7 +59,7 @@ pub(super) fn collect_nested_config_types(
     {
         for item in arr.iter().filter_map(|v| v.as_object()) {
             for (key, field_value) in item.iter() {
-                let mut nested = BTreeSet::new();
+                let mut nested = UsedTypeNames::default();
                 let _ = render_kwarg_field_value(
                     key,
                     field_value,
@@ -57,7 +68,8 @@ pub(super) fn collect_nested_config_types(
                     context,
                     &mut nested,
                 );
-                used_config_types.extend(nested);
+                used_config_types.extend(nested.structs);
+                used_enum_types.extend(nested.enums);
             }
         }
     }
@@ -245,6 +257,7 @@ mod tests {
         let arg = config_arg();
         let value = serde_json::json!({"nested": {"value": "x"}});
         let mut used_config_types: BTreeSet<String> = BTreeSet::new();
+        let mut used_enum_types: BTreeSet<String> = BTreeSet::new();
         let context = KwargRenderContext {
             type_defs: &type_defs,
             enums: &[],
@@ -252,7 +265,14 @@ mod tests {
             docs_files: &[],
             leaf_source: LeafSource::Literal,
         };
-        collect_nested_config_types(&arg, &value, Some("ExtractionConfig"), context, &mut used_config_types);
+        collect_nested_config_types(
+            &arg,
+            &value,
+            Some("ExtractionConfig"),
+            context,
+            &mut used_config_types,
+            &mut used_enum_types,
+        );
 
         assert_eq!(
             used_config_types,
@@ -294,6 +314,7 @@ mod tests {
         let arg = config_arg();
         let value = serde_json::json!({"profiles": {"first": {"value": "x"}}});
         let mut used_config_types: BTreeSet<String> = BTreeSet::new();
+        let mut used_enum_types: BTreeSet<String> = BTreeSet::new();
         let context = KwargRenderContext {
             type_defs: &type_defs,
             enums: &[],
@@ -301,7 +322,14 @@ mod tests {
             docs_files: &[],
             leaf_source: LeafSource::Literal,
         };
-        collect_nested_config_types(&arg, &value, Some("ExtractionConfig"), context, &mut used_config_types);
+        collect_nested_config_types(
+            &arg,
+            &value,
+            Some("ExtractionConfig"),
+            context,
+            &mut used_config_types,
+            &mut used_enum_types,
+        );
 
         assert_eq!(
             used_config_types,
@@ -340,6 +368,7 @@ mod tests {
         arg.element_type = Some("BatchFileItem".to_string());
         let value = serde_json::json!([{"nested": {"value": "x"}}]);
         let mut used_config_types: BTreeSet<String> = BTreeSet::new();
+        let mut used_enum_types: BTreeSet<String> = BTreeSet::new();
         let context = KwargRenderContext {
             type_defs: &type_defs,
             enums: &[],
@@ -347,7 +376,14 @@ mod tests {
             docs_files: &[],
             leaf_source: LeafSource::Literal,
         };
-        collect_nested_config_types(&arg, &value, None, context, &mut used_config_types);
+        collect_nested_config_types(
+            &arg,
+            &value,
+            None,
+            context,
+            &mut used_config_types,
+            &mut used_enum_types,
+        );
 
         assert_eq!(
             used_config_types,
@@ -388,6 +424,7 @@ mod tests {
         let arg = config_arg();
         let value = serde_json::json!({"nested": {"value": "x"}});
         let mut used_config_types: BTreeSet<String> = BTreeSet::new();
+        let mut used_enum_types: BTreeSet<String> = BTreeSet::new();
         let context = KwargRenderContext {
             type_defs: &type_defs,
             enums: &[],
@@ -395,7 +432,14 @@ mod tests {
             docs_files: &[],
             leaf_source: LeafSource::Literal,
         };
-        collect_nested_config_types(&arg, &value, Some("ExtractionConfig"), context, &mut used_config_types);
+        collect_nested_config_types(
+            &arg,
+            &value,
+            Some("ExtractionConfig"),
+            context,
+            &mut used_config_types,
+            &mut used_enum_types,
+        );
         assert!(
             used_config_types.contains("GhostConfig"),
             "test setup: GhostConfig must be collected as a candidate for this to be a real test of pruning"
@@ -587,6 +631,75 @@ mod tests {
         assert!(
             out.contains("NestedConfig(inner=DeeperConfig(value="),
             "both levels must be constructed, got:\n{out}"
+        );
+    }
+
+    /// Regression test for the shipped defect: an enum-typed field nested inside a nested config
+    /// object (e.g. `PreprocessingOptions.preset: PreprocessingPreset` inside `ConversionOptions`,
+    /// html-to-markdown's `test_options.py`) is rendered correctly by `render_kwarg_field_value`
+    /// (which calls `PreprocessingPreset("Aggressive")`) but, before this fix, was never recorded
+    /// into `used_config_types` -- only the nested *struct* class (`PreprocessingOptions`) was.
+    /// The import line must carry both names the body actually references.
+    #[test]
+    fn render_test_file_imports_enum_type_nested_inside_a_nested_config_object() {
+        let outer = TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "demo::ConversionOptions".to_string(),
+            fields: vec![FieldDef {
+                name: "preprocessing".to_string(),
+                ty: TypeRef::Named("PreprocessingOptions".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let inner = TypeDef {
+            name: "PreprocessingOptions".to_string(),
+            rust_path: "demo::PreprocessingOptions".to_string(),
+            fields: vec![FieldDef {
+                name: "preset".to_string(),
+                ty: TypeRef::Named("PreprocessingPreset".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let type_defs = vec![outer, inner];
+        let enums = vec![crate::core::ir::EnumDef {
+            name: "PreprocessingPreset".to_string(),
+            rust_path: "demo::PreprocessingPreset".to_string(),
+            ..Default::default()
+        }];
+
+        let e2e_config = e2e_config_with_options_type("ConversionOptions");
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let fixture = fixture_with_input(
+            "preprocessing_aggressive",
+            serde_json::json!({"config": {"preprocessing": {"preset": "Aggressive"}}}),
+        );
+        let fixtures: Vec<&Fixture> = vec![&fixture];
+
+        let out = super::super::render_test_file(
+            "smoke",
+            &fixtures,
+            &e2e_config,
+            &config,
+            &type_defs,
+            &enums,
+            &[],
+            &[],
+            false,
+        );
+
+        let import_line = out
+            .lines()
+            .find(|line| line.starts_with("from sample_pkg import"))
+            .unwrap_or_else(|| panic!("no `from sample_pkg import ...` line in output, got:\n{out}"));
+        assert!(
+            import_line.contains("PreprocessingPreset"),
+            "the nested enum type must be imported alongside its containing class, got: {import_line:?}"
+        );
+        assert!(
+            out.contains("PreprocessingPreset(\"Aggressive\")"),
+            "the nested enum field must be constructed, got:\n{out}"
         );
     }
 
