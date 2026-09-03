@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `NameError`. The import scan now records enum usages through the same recursive traversal
   that renders the constructor call, instead of a second pass that only checked the arg's
   top-level keys.
+- **`alef generate` errored on a crate's own wasm test_app pinning its not-yet-published version,
+  while the identical situation one package over only warned.** The pnpm lock-freshness check's
+  pending-publish exemption resolved a self-dependency identity for the `"node"` e2e package only,
+  so `test_apps/node/pnpm-lock.yaml` pinning the crate's own pending version was correctly
+  downgraded to a warning, but `test_apps/wasm/pnpm-lock.yaml` pinning that same crate's pending
+  version under its own npm package name (e.g. `@xberg-io/html-to-markdown-wasm`) fell through to
+  a hard error — a specifier the release itself cannot satisfy until it ships. The exemption now
+  resolves a self-dependency identity for every e2e language that can emit a `package.json`
+  (`node` and `wasm`), matching a finding against any of them.
 
 - **publish (Ruby platform gems):** precompiled platform gemspecs now load the generated source
   gemspec as their metadata authority, then replace only the version, platform, files, and native
