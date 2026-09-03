@@ -70,6 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JsFileExtractionConfig.outputFormat on JsExtractInput.config`. Both branches now build the
   typed literal first and reuse it whether or not a placeholder is present, so the templated and
   non-templated paths can no longer disagree about an enum's wire shape.
+- **The Go e2e generator compared a `*uint32` against an untyped int when the guarded field sat
+  behind an internally tagged union**, producing `invalid operation: mismatched types *uint32 and
+  untyped int` in the generated `greater_than`/`less_than` family. PR #305 taught the result-field
+  walk to cross an *externally* tagged union's variant boundary
+  (`GoEnumRepresentation::ExternallyTaggedStruct`) but left out the internally tagged form
+  (`#[serde(tag = "...")]`, which Go classifies as `TupleTaggedStruct`) -- even though both
+  generators render the identical one-pointer-per-variant struct template, so the pointer
+  invariant the walk relies on is the same fact in both cases. The walk stopped one segment early,
+  `target_field_is_pointer` returned `None`, and the assertion emitted a raw pointer comparison.
+  Both classifications are now one set, named for the property that actually matters
+  (`pointer_variant_enums`) rather than for one of the two wire taggings. Seen as `xberg`'s
+  `metadata.format.excel.sheet_count` assertion.
 
 ## [0.82.2] - 2026-09-03
 
