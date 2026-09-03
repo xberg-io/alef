@@ -90,7 +90,10 @@ pub(super) fn core_to_binding_convertible_types(
 /// `093c42f31`, `type_has_from_json` is the single predicate shared by both the raw-text
 /// `#[pymethods]` injection and the `.pyi` stub generator, so passing this gate also means the
 /// shipped stub declares the method — verified against a consumer's `CreateImageRequest`, where
-/// `_internal_bindings.pyi` carries `def from_json`. ~keep
+/// `_internal_bindings.pyi` carries `def from_json`.
+///
+/// This says only what the *native* `#[pyclass]` carries. It says nothing about which class a
+/// type's public name actually resolves to — see [`options_wrapped_type_names`]. ~keep
 pub(super) fn pyo3_would_inject_from_json(
     name: &str,
     type_defs: &[crate::core::ir::TypeDef],
@@ -103,25 +106,73 @@ pub(super) fn pyo3_would_inject_from_json(
         .is_some_and(|t| crate::codegen::conversions::pyo3_from_json_eligible(t, crate_has_serde, convertible_types))
 }
 
-/// Downgrade `options_via` from `"from_json"` to `"kwargs"` unless the target type actually
-/// passes pyo3's Rust-codegen gate ([`pyo3_would_inject_from_json`]) — the gate that also
-/// controls whether the `.pyi` stub declares the method, so passing it guarantees the emitted
-/// call type-checks against the shipped stub. Every generated DTO still exposes a plain kwargs
-/// constructor, so falling back there keeps the emitted call valid for types that don't clear
-/// the gate. ~keep
+/// Names of the types whose public Python spelling is `options.py`'s `@dataclass` mirror rather
+/// than the native `#[pyclass]` — the exact union `__init__.py`/`api.py` import from `.options`
+/// (`options_dataclass_type_names` ∪ `options_return_dataclass_names`,
+/// `src/backends/pyo3/gen_bindings/types.rs`). `gen_options_py` never emits a method on any
+/// dataclass it writes (see that function's doc comment): a type in this set exposes `from_json`
+/// -- or any other native-only method -- through its public name only by accident of a caller
+/// never checking, regardless of whether pyo3 injected `from_json` on the native class
+/// underneath. Built from a synthetic `ApiSurface` over the same `type_defs`/`enums` slices
+/// already threaded through e2e codegen, mirroring [`core_to_binding_convertible_types`] above,
+/// so this reads the pyo3 backend's actual export decision instead of re-deriving a third,
+/// independently-drifting copy of it. ~keep
+pub(super) fn options_wrapped_type_names(
+    type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
+    dto: &crate::core::config::DtoConfig,
+    reexported_types: &[String],
+) -> HashSet<String> {
+    let surface = crate::core::ir::ApiSurface {
+        types: type_defs.to_vec(),
+        enums: enums.to_vec(),
+        ..Default::default()
+    };
+    let mut names = crate::backends::pyo3::gen_bindings::options_dataclass_type_names(&surface, reexported_types);
+    names.extend(crate::backends::pyo3::gen_bindings::options_return_dataclass_names(
+        &surface,
+        dto,
+        reexported_types,
+    ));
+    names
+}
+
+/// Downgrade `options_via` from `"from_json"` to `"kwargs"` unless the target type's *public*
+/// name actually resolves to a class carrying `from_json`. Two independent conditions must both
+/// hold:
+///
+/// 1. The name is not in [`options_wrapped_type_names`] -- otherwise `__init__.py` exports it
+///    from `.options`, a plain dataclass with no methods at all, and `from_json` is unreachable
+///    through the public name no matter what the native class underneath carries.
+/// 2. Failing that (or when there's no wrapper for the type at all), the native class itself must
+///    pass pyo3's Rust-codegen gate ([`pyo3_would_inject_from_json`]) -- the gate that also
+///    controls whether the `.pyi` stub declares the method, so passing it guarantees the emitted
+///    call type-checks against the shipped stub.
+///
+/// Every generated DTO still exposes a plain kwargs constructor, so falling back there keeps the
+/// emitted call valid for types that clear neither condition. ~keep
 pub(super) fn effective_options_via_for_type<'a>(
     options_via: &'a str,
     options_type: Option<&str>,
     type_defs: &[crate::core::ir::TypeDef],
     convertible_types: &ahash::AHashSet<String>,
     crate_has_serde: bool,
+    options_wrapped_types: &HashSet<String>,
 ) -> &'a str {
     if options_via != "from_json" {
         return options_via;
     }
-    let is_declared = options_type
-        .is_some_and(|name| pyo3_would_inject_from_json(name, type_defs, convertible_types, crate_has_serde));
-    if is_declared { options_via } else { "kwargs" }
+    let Some(name) = options_type else {
+        return "kwargs";
+    };
+    if options_wrapped_types.contains(name) {
+        return "kwargs";
+    }
+    if pyo3_would_inject_from_json(name, type_defs, convertible_types, crate_has_serde) {
+        options_via
+    } else {
+        "kwargs"
+    }
 }
 
 /// Resolve enum field mappings from the Python override config.
@@ -435,7 +486,14 @@ mod tests {
         ));
 
         assert_eq!(
-            effective_options_via_for_type("from_json", Some("WidgetRequest"), &type_defs, &convertible, true),
+            effective_options_via_for_type(
+                "from_json",
+                Some("WidgetRequest"),
+                &type_defs,
+                &convertible,
+                true,
+                &HashSet::new()
+            ),
             "from_json"
         );
     }
@@ -450,7 +508,14 @@ mod tests {
         let convertible = core_to_binding_convertible_types(&type_defs, &[]);
 
         assert_eq!(
-            effective_options_via_for_type("from_json", Some("WidgetRequest"), &type_defs, &convertible, true),
+            effective_options_via_for_type(
+                "from_json",
+                Some("WidgetRequest"),
+                &type_defs,
+                &convertible,
+                true,
+                &HashSet::new()
+            ),
             "kwargs"
         );
     }
@@ -465,7 +530,14 @@ mod tests {
         let convertible = core_to_binding_convertible_types(&type_defs, &[]);
 
         assert_eq!(
-            effective_options_via_for_type("from_json", Some("WidgetRequest"), &type_defs, &convertible, false),
+            effective_options_via_for_type(
+                "from_json",
+                Some("WidgetRequest"),
+                &type_defs,
+                &convertible,
+                false,
+                &HashSet::new()
+            ),
             "kwargs"
         );
     }
@@ -474,7 +546,14 @@ mod tests {
     fn effective_options_via_for_type_downgrades_to_kwargs_when_type_is_unknown() {
         let convertible = core_to_binding_convertible_types(&[], &[]);
         assert_eq!(
-            effective_options_via_for_type("from_json", Some("WidgetRequest"), &[], &convertible, true),
+            effective_options_via_for_type(
+                "from_json",
+                Some("WidgetRequest"),
+                &[],
+                &convertible,
+                true,
+                &HashSet::new()
+            ),
             "kwargs"
         );
     }
@@ -483,12 +562,87 @@ mod tests {
     fn effective_options_via_for_type_leaves_non_from_json_values_untouched() {
         let convertible = core_to_binding_convertible_types(&[], &[]);
         assert_eq!(
-            effective_options_via_for_type("dict", None, &[], &convertible, true),
+            effective_options_via_for_type("dict", None, &[], &convertible, true, &HashSet::new()),
             "dict"
         );
         assert_eq!(
-            effective_options_via_for_type("kwargs", None, &[], &convertible, true),
+            effective_options_via_for_type("kwargs", None, &[], &convertible, true, &HashSet::new()),
             "kwargs"
+        );
+    }
+
+    /// The exact xberg `ExtractInput` defect: a type is both native-`from_json`-eligible (serde
+    /// derive, crate has serde, convertible) AND options-wrapped (`has_default`, not a return
+    /// type, not reexported) -- e.g. any config/input DTO with a hand-written constructor like
+    /// `from_bytes`/`from_uri` alongside pyo3's mechanically-injected `from_json`. `__init__.py`
+    /// exports the wrapped name from `.options`, a plain dataclass with zero methods, so
+    /// `from_json` must downgrade to `kwargs` even though the native gate alone says "keep it".
+    #[test]
+    fn effective_options_via_for_type_downgrades_to_kwargs_when_type_is_options_wrapped() {
+        let type_defs = vec![crate::core::ir::TypeDef {
+            name: "ExtractInput".to_string(),
+            has_serde: true,
+            has_default: true,
+            ..Default::default()
+        }];
+        let convertible = core_to_binding_convertible_types(&type_defs, &[]);
+        assert!(
+            pyo3_would_inject_from_json("ExtractInput", &type_defs, &convertible, true),
+            "test setup: the native class must still pass pyo3's own gate"
+        );
+
+        let dto = crate::core::config::DtoConfig::default();
+        let options_wrapped = options_wrapped_type_names(&type_defs, &[], &dto, &[]);
+        assert!(
+            options_wrapped.contains("ExtractInput"),
+            "test setup: a has_default, non-return, non-reexported type must be options-wrapped"
+        );
+
+        assert_eq!(
+            effective_options_via_for_type(
+                "from_json",
+                Some("ExtractInput"),
+                &type_defs,
+                &convertible,
+                true,
+                &options_wrapped
+            ),
+            "kwargs",
+            "the public name resolves to options.py's method-less dataclass, not the native class"
+        );
+    }
+
+    /// Symmetric case: `reexported_types` is the documented per-type escape hatch
+    /// (`xberg-io/alef#134`) that keeps a type native despite otherwise qualifying for the
+    /// `options.py` wrapper. A reexported type's public name IS the native class, so `from_json`
+    /// must be kept when the native gate says so.
+    #[test]
+    fn effective_options_via_for_type_keeps_from_json_when_type_is_reexported() {
+        let type_defs = vec![crate::core::ir::TypeDef {
+            name: "ExtractionResult".to_string(),
+            has_serde: true,
+            has_default: true,
+            ..Default::default()
+        }];
+        let convertible = core_to_binding_convertible_types(&type_defs, &[]);
+        let dto = crate::core::config::DtoConfig::default();
+        let reexported = vec!["ExtractionResult".to_string()];
+        let options_wrapped = options_wrapped_type_names(&type_defs, &[], &dto, &reexported);
+        assert!(
+            !options_wrapped.contains("ExtractionResult"),
+            "test setup: reexported_types must exclude the type from the options.py wrapper set"
+        );
+
+        assert_eq!(
+            effective_options_via_for_type(
+                "from_json",
+                Some("ExtractionResult"),
+                &type_defs,
+                &convertible,
+                true,
+                &options_wrapped
+            ),
+            "from_json"
         );
     }
 

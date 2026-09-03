@@ -22,10 +22,15 @@ mod support_items;
 #[cfg(test)]
 mod tests;
 pub mod types;
-pub(in crate::backends::pyo3) use types::{options_dataclass_type_names, type_has_from_json};
-// pub(crate): e2e::codegen::python calls this to mirror the pyo3 backend's crate-level serde
-// detection when computing the shared from_json eligibility predicate. ~keep
-pub(crate) use types::{crate_has_serde, python_visible_field_name};
+pub(in crate::backends::pyo3) use types::type_has_from_json;
+// pub(crate): e2e::codegen::python calls `crate_has_serde` to mirror the pyo3 backend's
+// crate-level serde detection, and `options_dataclass_type_names`/`options_return_dataclass_names`
+// to know which type names `__init__.py` exports as the method-less `options.py` dataclass rather
+// than the native `#[pyclass]` -- required before trusting the from_json eligibility predicate,
+// which only knows what the native class carries, not which class the public name resolves to. ~keep
+pub(crate) use types::{
+    crate_has_serde, options_dataclass_type_names, options_return_dataclass_names, python_visible_field_name,
+};
 pub(in crate::backends::pyo3) mod wire_schema;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;

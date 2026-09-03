@@ -39,7 +39,13 @@ fn to_python_enum_variant(name: &str) -> String {
 /// re-exported as a native pyclass. This is the public *input* type family — the
 /// trait-callback marshalling and the Protocol stubs use the same set so the type
 /// a host is handed is the type the package exports under that name.
-pub(in crate::backends::pyo3) fn options_dataclass_type_names(
+///
+/// `pub(crate)`: `e2e::codegen::python` calls this (alongside [`options_return_dataclass_names`])
+/// to know when a type's public spelling is this method-less dataclass rather than the native
+/// `#[pyclass]`, before trusting [`crate::codegen::conversions::pyo3_from_json_eligible`]'s
+/// verdict that the native class carries `from_json` -- that verdict says nothing about which
+/// class the public name actually resolves to. ~keep
+pub(crate) fn options_dataclass_type_names(
     api: &ApiSurface,
     reexported_types: &[String],
 ) -> std::collections::HashSet<String> {
@@ -70,8 +76,11 @@ pub(in crate::backends::pyo3) fn options_dataclass_type_names(
 /// exactly the same types (this function's own logic is unchanged, and still honors
 /// `reexported_types` as the per-type escape hatch to keep a specific return type native even
 /// under that style -- xberg-io/alef#134), but every selected type now renders as `@dataclass`
-/// like every other type `options.py` defines. See [`gen_options_py`]'s doc for why. ~keep
-pub(in crate::backends::pyo3) fn options_return_dataclass_names(
+/// like every other type `options.py` defines. See [`gen_options_py`]'s doc for why.
+///
+/// `pub(crate)`: see [`options_dataclass_type_names`]'s visibility note -- the two together are
+/// the complete set of names `e2e::codegen::python` must treat as method-less. ~keep
+pub(crate) fn options_return_dataclass_names(
     api: &ApiSurface,
     dto: &DtoConfig,
     reexported_types: &[String],
