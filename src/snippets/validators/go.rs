@@ -89,7 +89,8 @@ impl GoValidator {
         let mut current = None;
         for line in output.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || files.iter().any(|file| trimmed == file) {
+            let normalized_trimmed = trimmed.replace('\\', "/");
+            if trimmed.is_empty() || files.iter().any(|file| normalized_trimmed == *file) {
                 continue;
             }
             if let Some(header) = trimmed.strip_prefix("# ") {
@@ -119,8 +120,15 @@ impl GoValidator {
             .collect()
     }
 
+    /// The batch's file keys are always minted with `/` (`validate_batch_with_context`), while the
+    /// Go toolchain names files with the host separator — `snippet_batch_1\snippet.go:5:27:` on
+    /// Windows. Matching the raw line there leaves the diagnostic unowned, and `batch_results`
+    /// charges an unowned diagnostic on a failing command to EVERY snippet, so the working
+    /// snippets get reported as broken. `go vet` emits no `# <import path>` header for analysis
+    /// findings, so the package fallback cannot rescue the attribution either. ~keep
     fn file_owner(files: &[String], line: &str) -> Option<usize> {
-        files.iter().position(|file| line.contains(file.as_str()))
+        let normalized = line.replace('\\', "/");
+        files.iter().position(|file| normalized.contains(file.as_str()))
     }
 
     fn package_owner(directories: &[String], import_path: &str) -> Option<usize> {
@@ -799,6 +807,54 @@ mod tests {
                 Some("vet: snippet_batch_1/snippet.go:3:15: undefined: missing".to_string())
             )
         );
+    }
+
+    /// A Windows Go toolchain names files with `\`, while the batch's own file keys are minted with
+    /// `/`. Attributing by raw substring left the diagnostic unowned, and an unowned diagnostic on a
+    /// failing command is charged to EVERY snippet — reporting the passing snippets as broken. The
+    /// `# <import path>` fallback cannot cover for it: `go vet` emits no such header for analysis
+    /// findings, which is why only the vet path regressed. ~keep
+    #[test]
+    fn a_windows_style_toolchain_path_attributes_only_to_the_snippet_it_names() {
+        let files = vec![
+            "snippet_batch_0/snippet.go".to_string(),
+            "snippet_batch_1/snippet.go".to_string(),
+        ];
+        let directories = vec!["snippet_batch_0".to_string(), "snippet_batch_1".to_string()];
+        let output = "vet: snippet_batch_1\\snippet.go:5:27: fmt.Printf format %d has arg of wrong type\n";
+
+        let results = GoValidator::batch_results(&files, &directories, false, output);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], (SnippetStatus::Pass, None), "{:?}", results[0]);
+        assert_eq!(results[1].0, SnippetStatus::Fail);
+        assert_eq!(
+            results[1].1.as_deref(),
+            Some("vet: snippet_batch_1\\snippet.go:5:27: fmt.Printf format %d has arg of wrong type"),
+            "the diagnostic must reach the named snippet with its own text unrewritten"
+        );
+    }
+
+    /// `gofmt -l` lists unformatted files by name with no error attached. Normalizing the toolchain
+    /// path in `file_owner` for attribution must not make a listing line printed with `\` look like
+    /// a diagnostic, so the listing guard normalizes too.
+    ///
+    /// This test pins a regression the `file_owner` normalization could introduce, so it is only
+    /// red when the listing guard's own normalization is reverted while `file_owner` keeps its.
+    /// Reverting BOTH leaves it green (an unowned listing line on a successful command is simply
+    /// dropped) — a full revert passing here is expected, not evidence the test is vacuous. ~keep
+    #[test]
+    fn windows_style_gofmt_listing_lines_are_not_read_as_failures() {
+        let files = vec![
+            "snippet_batch_0/snippet.go".to_string(),
+            "snippet_batch_1/snippet.go".to_string(),
+        ];
+        let directories = vec!["snippet_batch_0".to_string(), "snippet_batch_1".to_string()];
+        let output = "snippet_batch_0\\snippet.go\nsnippet_batch_1\\snippet.go\n";
+
+        let results = GoValidator::batch_results(&files, &directories, true, output);
+
+        assert_eq!(results, vec![(SnippetStatus::Pass, None), (SnippetStatus::Pass, None)]);
     }
 
     /// A header for a package outside the batch — a dependency of a snippet, say — must clear the

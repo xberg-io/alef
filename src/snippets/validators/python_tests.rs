@@ -306,6 +306,36 @@ fn pyrefly_blocks_attach_to_the_file_named_on_their_location_line() {
     );
 }
 
+/// A Windows `pyrefly` location opens with a drive prefix (`C:\…`). Cutting the `:line:col` suffix
+/// at the first colon left `C`, which owns no file, and an unattributed block on a failing run is
+/// charged to every snippet — so the two passing snippets were reported as broken. Driven with a
+/// synthetic Windows location so the parse is exercised on every host, not only on Windows. ~keep
+#[test]
+fn pyrefly_blocks_naming_a_windows_path_attach_to_the_file_they_name() {
+    let file_names = vec!["snippet_batch_0.py".to_string(), "snippet_batch_1.py".to_string()];
+    let output = concat!(
+        "ERROR Could not find name `missing` [unknown-name]\n",
+        " --> C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\x\\snippet_batch_1.py:1:1\n",
+        "  |\n",
+        "1 | missing()\n",
+        " INFO 1 error\n"
+    );
+
+    let results = PythonValidator::typecheck_results(&file_names, false, output);
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0], (SnippetStatus::Pass, None), "{:?}", results[0]);
+    assert_eq!(results[1].0, SnippetStatus::Fail);
+    assert!(
+        results[1]
+            .1
+            .as_deref()
+            .is_some_and(|message| message.contains("unknown-name")),
+        "{:?}",
+        results[1].1
+    );
+}
+
 #[test]
 fn a_type_checker_failure_naming_no_file_fails_every_snippet_with_the_real_output() {
     let file_names = vec!["snippet_batch_0.py".to_string(), "snippet_batch_1.py".to_string()];

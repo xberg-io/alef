@@ -260,16 +260,35 @@ impl PythonValidator {
                 Some((_, rest)) => rest,
                 None => line.trim_start().strip_prefix("ERROR ")?,
             };
-            let path = candidate.split(':').next()?;
-            Self::owner(file_names, path.trim())
+            Self::owner(file_names, Self::strip_location_suffix(candidate.trim()))
         })
     }
 
+    /// Cuts `pyrefly`'s trailing `:line:col` (and, in the one-line `min-text` form, everything after
+    /// it) off a location. A Windows path opens with a drive prefix — `C:\Users\…\snippet_batch_1.py`
+    /// — so cutting at the first colon yields `C`, which owns no file; an unattributed block on a
+    /// failing run is then charged to every snippet, reporting the passing ones as broken. Only the
+    /// colon that follows a single-letter drive is skipped. ~keep
+    fn strip_location_suffix(candidate: &str) -> &str {
+        let bytes = candidate.as_bytes();
+        let drive = if bytes.len() > 1 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            2
+        } else {
+            0
+        };
+        match candidate[drive..].find(':') {
+            Some(offset) => &candidate[..drive + offset],
+            None => candidate,
+        }
+    }
+
+    /// Splits on both separators rather than going through `Path::file_name`: the paths parsed here
+    /// come out of another process's diagnostics, so a `\`-separated path can reach a non-Windows
+    /// build (and the reverse), and `Path` only honours the separators of the host it was compiled
+    /// for. ~keep
     fn owner(file_names: &[String], path: &str) -> Option<usize> {
-        let name = std::path::Path::new(path).file_name()?;
-        file_names
-            .iter()
-            .position(|file_name| std::ffi::OsStr::new(file_name.as_str()) == name)
+        let name = path.rsplit(['/', '\\']).next()?;
+        file_names.iter().position(|file_name| file_name.as_str() == name)
     }
 
     fn interpreter() -> &'static str {
