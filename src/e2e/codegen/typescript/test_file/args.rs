@@ -398,31 +398,6 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                     }
                 } else if arg.arg_type == "json_object" {
                     if v.is_array() {
-                        // Array args use fixture-shaped object literals; element_type is
-                        // still used by typed bindings/imports, not product-specific constructors.
-                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
-                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
-                            let var_prefix = sanitize_ident(&arg.name);
-                            setup_lines.push(format!(
-                                "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
-                            ));
-                            let json_literal = json_to_js_camel(v);
-                            setup_lines.push(format!(
-                                "const {var_prefix}Json = JSON.stringify({json_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
-                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                            ));
-                            let array_type = arg
-                                .element_type
-                                .as_deref()
-                                .map(|raw| format!("{}[]", canonical_ts_type_name(lang, raw, config)))
-                                .unwrap_or_else(|| "unknown[]".to_string());
-                            setup_lines.push(format!(
-                                "const {name} = JSON.parse({var_prefix}Json) as {array_type};",
-                                name = arg.name
-                            ));
-                            parts.push(arg.name.clone());
-                            continue;
-                        }
                         // A raw `json_to_js_camel` dump only camelCases keys — it does not know
                         // that a node/napi element type can be a tagged-data enum whose payload
                         // napi nests under a synthesized per-variant field (see
@@ -440,7 +415,18 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         // (`TS2739: missing properties`). The single-object branch below already
                         // prefixes wasm element types via `wasm_prefixed_wrapped_type`; array
                         // elements must do the same rather than falling through to
-                        // `json_to_js_camel`'s plain literal. ~keep
+                        // `json_to_js_camel`'s plain literal.
+                        //
+                        // This typed literal is built BEFORE the mock-url check below, and reused
+                        // for both outcomes: a `$mock_url` placeholder changes how the literal
+                        // reaches the runtime value (JSON.stringify/replaceAll/JSON.parse, so a
+                        // template string can be substituted into it) but must never change what
+                        // that value IS -- an enum field's wire shape is a fact this literal
+                        // builder resolves through the same IR the napi binding was generated
+                        // from, and letting the mock-url path fall back to `json_to_js_camel`
+                        // once already dropped a tagged-data enum's `type` discriminator
+                        // entirely, because plain `json_to_js_camel` does not know that the
+                        // binding's `#[napi(object)]` type expects one. ~keep
                         let element_type = arg
                             .element_type
                             .as_deref()
@@ -448,7 +434,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         let is_known_element_type = element_type.as_deref().is_some_and(|name| {
                             type_defs.iter().any(|t| t.name == name) || enums.iter().any(|e| e.name == name)
                         });
-                        if (lang == "node" || lang == "wasm")
+                        let array_literal = if (lang == "node" || lang == "wasm")
                             && let Some(element_type) = element_type.filter(|_| is_known_element_type)
                         {
                             let builder_type_name = if lang == "wasm" {
@@ -488,9 +474,32 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                                     None => json_to_js(item),
                                 })
                                 .collect();
-                            parts.push(format!("[{}]", items.join(", ")));
+                            format!("[{}]", items.join(", "))
                         } else {
-                            parts.push(json_to_js_camel(v));
+                            json_to_js_camel(v)
+                        };
+                        if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let var_prefix = sanitize_ident(&arg.name);
+                            setup_lines.push(format!(
+                                "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                            ));
+                            setup_lines.push(format!(
+                                "const {var_prefix}Json = JSON.stringify({array_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            ));
+                            let array_type = arg
+                                .element_type
+                                .as_deref()
+                                .map(|raw| format!("{}[]", canonical_ts_type_name(lang, raw, config)))
+                                .unwrap_or_else(|| "unknown[]".to_string());
+                            setup_lines.push(format!(
+                                "const {name} = JSON.parse({var_prefix}Json) as {array_type};",
+                                name = arg.name
+                            ));
+                            parts.push(arg.name.clone());
+                        } else {
+                            parts.push(array_literal);
                         }
                     } else if let Some(raw_type) =
                         crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, v)
@@ -523,26 +532,16 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                                 parts.push("undefined".to_string());
                             }
                         } else if let Some(obj) = v.as_object() {
-                            if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
-                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
-                                let var_prefix = sanitize_ident(&arg.name);
-                                setup_lines.push(format!(
-                                    "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
-                                ));
-                                let json_literal = json_to_js_camel(v);
-                                setup_lines.push(format!(
-                                    "const {var_prefix}Json = JSON.stringify({json_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
-                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                                ));
-                                setup_lines.push(format!(
-                                    "const {name} = JSON.parse({var_prefix}Json) as {opts_type};",
-                                    name = arg.name
-                                ));
-                                parts.push(arg.name.clone());
-                                continue;
-                            }
                             // Build TypeScript code to construct the options object properly,
-                            // handling nested types via their static factory methods.
+                            // handling nested types via their static factory methods. Built
+                            // BEFORE the mock-url check below and reused for both outcomes: a
+                            // `$mock_url` placeholder only changes how the literal reaches the
+                            // runtime value (JSON.stringify/replaceAll/JSON.parse, so a template
+                            // string can be substituted into it), never what that value IS -- an
+                            // enum-typed field's wire shape is a fact this builder resolves
+                            // through the same IR the napi binding was generated from, and a raw
+                            // `json_to_js_camel` dump here (as before) does not know a tagged-data
+                            // enum needs a `type` discriminator at all. ~keep
                             let ts_code = ts_builder_expression(
                                 obj,
                                 &opts_type,
@@ -556,7 +555,22 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                                 &fixture.docs_files_for_arg(&arg.field),
                                 &mut *referenced_enums,
                             );
-                            if bind_typed_json_objects {
+                            if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                let var_prefix = sanitize_ident(&arg.name);
+                                setup_lines.push(format!(
+                                    "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                                ));
+                                setup_lines.push(format!(
+                                    "const {var_prefix}Json = JSON.stringify({ts_code}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                ));
+                                setup_lines.push(format!(
+                                    "const {name} = JSON.parse({var_prefix}Json) as {opts_type};",
+                                    name = arg.name
+                                ));
+                                parts.push(arg.name.clone());
+                            } else if bind_typed_json_objects {
                                 let suffix = format!(" as {opts_type}");
                                 let expression = ts_code.strip_suffix(&suffix).unwrap_or(&ts_code);
                                 setup_lines.push(crate::e2e::template_env::render(
