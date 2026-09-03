@@ -204,6 +204,14 @@ fn record_ir_result_field(
             .or_default()
             .insert(field.name.clone());
     }
+    if let Some(value_ty) = map_value_type(&field.ty)
+        && !map_value_is_go_nilable(value_ty, names)
+    {
+        map.map_scalar_value_fields
+            .entry(type_def.name.clone())
+            .or_default()
+            .insert(field.name.clone());
+    }
     if named_type(&field.ty).is_some_and(|name| names.data_enums.contains(name)) {
         map.data_interface_fields
             .entry(type_def.name.clone())
@@ -211,6 +219,37 @@ fn record_ir_result_field(
             .insert(field.name.clone());
     }
     record_ir_result_field_kind(map, type_def, field, names);
+}
+
+/// The `Map<K, V>` value type `ty` declares, peeling any wrapping `Option<..>` first so a
+/// `Map<K, V>` field and an `Option<Map<K, V>>` field answer identically — a nil Go map still
+/// safely returns `V`'s zero value on a missing-key read, so the field's own optionality never
+/// changes what an indexed read of it can produce. `None` for every other shape.
+fn map_value_type(ty: &TypeRef) -> Option<&TypeRef> {
+    match ty {
+        TypeRef::Map(_, value) => Some(value),
+        TypeRef::Optional(inner) => map_value_type(inner),
+        _ => None,
+    }
+}
+
+/// Whether a map's value type `value_ty` is a Go-nilable kind: a pointer (`Optional<T>`), a
+/// slice (`Vec<T>`, `Bytes`, `Json` — `json.RawMessage` is slice-backed), another map, or an
+/// `interface{}` (a sealed-interface/data-enum `Named` type, or any `Named` type the IR could
+/// not resolve to a struct/enum at all, which alef itself renders as `*json.RawMessage`).
+/// `false` for every plain Go value kind: bare scalars, `Duration`, `Path`, a resolved struct,
+/// or a resolved non-sealed enum — indexing a map of one of those can never produce `nil`.
+fn map_value_is_go_nilable(value_ty: &TypeRef, names: &GoFieldTypeNames<'_>) -> bool {
+    match value_ty {
+        TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Bytes | TypeRef::Json | TypeRef::Map(_, _) => true,
+        TypeRef::Named(name) => {
+            names.data_enums.contains(name.as_str())
+                || !(names.enums.contains(name.as_str())
+                    || names.passthrough_enums.contains(name.as_str())
+                    || names.structs.contains(name.as_str()))
+        }
+        _ => false,
+    }
 }
 
 fn record_ir_result_field_kind(
@@ -292,6 +331,21 @@ pub(super) fn pointer_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
         map.pointer_fields
+            .get(owner)
+            .is_some_and(|fields| fields.contains(&leaf)),
+    )
+}
+
+/// Whether `path`'s leaf is a `Map<K, V>` field (see [`map_value_type`]) whose value type `V`
+/// is a plain, never-nil Go value kind, per [`map_value_is_go_nilable`]. `None` when the IR
+/// cannot resolve `path` at all — callers must not treat that as "no" (a plain string value)
+/// on an unresolved path, since that would wrongly strip a nil guard the IR never actually
+/// vouched for.
+pub(super) fn map_value_is_scalar_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
+    let root = map.root_type.as_deref()?;
+    let (owner, leaf) = walk_to_owner_from(map, root, path)?;
+    Some(
+        map.map_scalar_value_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )

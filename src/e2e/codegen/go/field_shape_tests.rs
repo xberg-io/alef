@@ -792,3 +792,91 @@ fn unresolved_optional_field_is_never_guessed_as_a_pointer() {
         "an unresolved field must never be GUESSED as a pointer"
     );
 }
+
+/// A root result type with a `Map<String, String>` field -- the exact shape
+/// `DocumentMetadata::open_graph` has in html-to-markdown -- and a `Map<String, Option<String>>`
+/// field standing in for a map whose VALUE type genuinely can be absent in Go (`map[string]
+/// *string`), both reached the same bracket-index way `alef.toml`'s `fields_optional` declares a
+/// map key lookup (`open_graph[title]`).
+fn map_key_fixture() -> Vec<TypeDef> {
+    vec![TypeDef {
+        name: "DocumentMetadata".into(),
+        fields: vec![
+            FieldDef {
+                name: "open_graph".into(),
+                ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "pointer_labels".into(),
+                ty: TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Optional(Box::new(TypeRef::String))),
+                ),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }]
+}
+
+fn map_key_resolver() -> FieldResolver {
+    let types = map_key_fixture();
+    let mut optional = HashSet::new();
+    optional.insert("open_graph".to_string());
+    optional.insert("open_graph[title]".to_string());
+    optional.insert("pointer_labels[title]".to_string());
+    FieldResolver::new(
+        &Default::default(),
+        &optional,
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .with_ir_result_fields(
+        FieldResolver::go_ir_result_field_facts(&types, &[], &HashSet::new()),
+        Some("DocumentMetadata".into()),
+    )
+}
+
+/// THE H2M REGRESSION (shipped alef 0.79.4 through 0.82.2): `open_graph[title]` names a
+/// config-declared optional map-key lookup into `Map<String, String>` -- correct cross-language
+/// modeling of "the key might be absent" (Python's `.get()`, TypeScript's `undefined`), but Go's
+/// `m["key"]` on a `map[string]string` always yields a `string`, even for a missing key or a nil
+/// map. Before the fix this leaf inherited the container's declared optionality unchanged and the
+/// `equals` assertion family emitted `result.Metadata.Document.OpenGraph["title"] == nil` --
+/// `invalid operation: mismatched types string and untyped nil`, a Go compile failure in the
+/// generated e2e suite, not a warning.
+#[test]
+fn map_key_lookup_into_a_scalar_value_map_is_not_treated_as_nullable() {
+    let resolver = map_key_resolver();
+    let shape = shape_for(&resolver, "open_graph[title]");
+    assert!(
+        !shape.is_optional,
+        "a string value can never be nil, regardless of config"
+    );
+    assert!(!shape.is_pointer, "a map[string]string element is never a Go pointer");
+    assert!(!shape.is_nullable, "must not compile a `== nil` check against a string");
+
+    // Control: the bare map field (no key lookup) keeps its real declared optionality --
+    // proving the override fires only on the indexed leaf, not on `open_graph` in general.
+    let container_shape = shape_for(&resolver, "open_graph");
+    assert!(
+        container_shape.is_optional,
+        "control: the un-indexed field is still config-declared optional"
+    );
+}
+
+/// THE GUARDRAIL: a map whose VALUE type genuinely can be `nil` in Go (here `map[string]
+/// *string`) must keep its nil comparison. The fix must not blanket-strip the guard for every
+/// bracket-indexed leaf -- only for leaves the IR can positively prove are backed by a plain Go
+/// value type.
+#[test]
+fn map_key_lookup_into_a_pointer_value_map_keeps_its_nil_guard() {
+    let resolver = map_key_resolver();
+    let shape = shape_for(&resolver, "pointer_labels[title]");
+    assert!(
+        shape.is_nullable,
+        "a map[string]*string element can genuinely be nil and must keep its guard"
+    );
+}

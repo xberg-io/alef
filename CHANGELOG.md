@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operator can only be used in a function that returns `Result` or `Option`"). Caught only by
   `cargo test --test backends_magnus_trait_bridge_test`, an integration test that `cargo test
   --lib` does not run — the regression shipped in 0.82.1 undetected.
+- **Go e2e generator emitted a `nil` comparison against a `map[string]string` value, failing
+  `go vet`/compilation.** A config-declared `fields_optional` entry for a map-key lookup (e.g.
+  `metadata.document.open_graph[title]`) is legitimately optional cross-language — the key may be
+  absent — but that optionality was pushed onto the Go accessor unchanged. Go's e2e `equals`
+  (and related) assertions then emitted `result.Metadata.Document.OpenGraph["title"] == nil`
+  against a plain `string`, a compile error (`invalid operation: mismatched types string and
+  untyped nil`) rather than a warning, breaking the generated e2e suite for every consumer with a
+  `map[string]<scalar>` field named in `fields_optional`. Shipped since 0.79.4
+  (`1cf185b68e`). The Go generator now consults the map's declared value type: a bracket-indexed
+  leaf only drops its nil guard when the IR can positively prove the value type is a plain,
+  never-nil Go kind (a resolved struct/enum or a bare scalar); a map whose value type is itself a
+  pointer, slice, another map, or an interface (sealed union) keeps its `nil` comparison exactly
+  as before.
 
 - **publish (Ruby platform gems):** precompiled platform gemspecs now load the generated source
   gemspec as their metadata authority, then replace only the version, platform, files, and native
