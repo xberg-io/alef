@@ -17,6 +17,7 @@ use super::client;
 
 mod assertion_field_shape;
 mod assertion_render_helpers;
+mod dependency_requires;
 
 #[cfg(test)]
 mod field_shape_tests;
@@ -155,6 +156,12 @@ impl E2eCodegen for GoCodegen {
             crate::e2e::config::DependencyMode::Local => e2e_config.harness_extras.get(self.language_name()),
             crate::e2e::config::DependencyMode::Registry => None,
         };
+        // `replace_path` (unlike `effective_replace`) is populated in both dep modes -- it is
+        // the on-disk location of the required Go package regardless of whether this run emits
+        // a `replace` directive for it. Use it (unconditionally) to read that package's own
+        // go.mod so its direct+indirect requires can be folded into the `// indirect` block
+        // below; see `dependency_requires::resolve_indirect_requires`.
+        let dependency_go_mod_dir = replace_path.as_ref().map(|path| output_base.join(path));
         files.push(GeneratedFile {
             path: output_base.join("go.mod"),
             content: render_go_mod(
@@ -162,6 +169,7 @@ impl E2eCodegen for GoCodegen {
                 effective_replace.as_deref(),
                 &effective_go_version,
                 go_extras,
+                dependency_go_mod_dir.as_deref(),
             ),
             generated_header: false,
         });
@@ -366,6 +374,7 @@ fn render_go_mod(
     replace_path: Option<&str>,
     version: &str,
     extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
+    dependency_go_mod_dir: Option<&std::path::Path>,
 ) -> String {
     let mut out = String::new();
     // The generated test module must not be a subpath of the module under test.
@@ -385,36 +394,58 @@ fn render_go_mod(
     let _ = writeln!(out);
     let _ = writeln!(out, "go 1.26");
     let _ = writeln!(out);
-    let _ = writeln!(out, "require (");
-    let _ = writeln!(out, "\t{go_module_path} {version}");
-    let _ = writeln!(out, "\tgithub.com/stretchr/testify v1.11.1");
 
+    // Build the full direct-require set and sort it alphabetically by module path -- `gofmt`/`go
+    // mod tidy` sort `require (...)` blocks alphabetically, and every consumer module path is
+    // `github.com/xberg-io/...`, which always sorts after `github.com/stretchr/testify` ('s' <
+    // 'x'). Hand-ordering module-then-testify was therefore wrong for every consumer, always.
+    let mut direct_requires: Vec<(String, String)> = vec![
+        (go_module_path.to_string(), version.to_string()),
+        ("github.com/stretchr/testify".to_string(), "v1.11.1".to_string()),
+    ];
     // Inject extras: Go has no dev/runtime distinction, so merge both buckets
     if let Some(e) = extras
         && !e.is_empty()
     {
         let mut extra_modules: Vec<(&String, &crate::core::config::manifest_extras::ExtraDepSpec)> =
             e.dependencies.iter().chain(e.dev_dependencies.iter()).collect();
-        // Sort for deterministic output (BTreeMap already sorted, but we're chaining two maps)
+        // Sort for deterministic iteration below (BTreeMap already sorted, but we're chaining
+        // two maps).
         extra_modules.sort_by_key(|(k, _)| k.as_str());
         for (module_path, spec) in extra_modules {
             if let Some(version_str) = spec.version() {
-                let _ = writeln!(out, "\t{module_path} {version_str}");
+                direct_requires.push((module_path.clone(), version_str.to_string()));
             }
         }
     }
+    direct_requires.sort_by(|a, b| a.0.cmp(&b.0));
+    let direct_modules: std::collections::BTreeSet<String> =
+        direct_requires.iter().map(|(module, _)| module.clone()).collect();
 
+    let _ = writeln!(out, "require (");
+    for (module_path, module_version) in &direct_requires {
+        let _ = writeln!(out, "\t{module_path} {module_version}");
+    }
     let _ = writeln!(out, ")");
 
-    // Emit testify's transitive dependencies as an explicit `// indirect` require
-    // block. Without them `go test` / `go mod download` abort with
-    // "updates to go.mod needed; to update it: go mod tidy" because the generated
-    // go.mod would be an incomplete dependency graph. Listing them here makes the
-    // published test_app build without a manual `go mod tidy` (and offline). These
-    // are the pinned transitive deps of `github.com/stretchr/testify v1.11.1`.
+    // Emit an explicit `// indirect` require block covering both testify's own pinned
+    // transitive deps AND the required module's own direct+indirect requires. Without the
+    // former, `go test` / `go mod download` abort with "updates to go.mod needed; to update it:
+    // go mod tidy" because the generated go.mod would be an incomplete dependency graph. Without
+    // the latter, Go's module-graph-pruning rule (go >= 1.17, go.dev/ref/mod#graph-pruning)
+    // still requires this importing module's own go.mod to carry explicit indirect requirements
+    // for every module that provides a package transitively imported through the required
+    // module -- `go build -mod=readonly` doesn't need them (pruning), but `go test -mod=readonly
+    // ./...` fails on the missing entries, so this is a correctness gap a build-only check
+    // wouldn't catch. `direct_modules` excludes anything already required directly above (e.g. a
+    // Local-mode `harness_extras` entry that duplicates one of the dependency's own direct
+    // requires, as `tree-sitter-language-pack`'s `e2e/go` does with `go-tree-sitter`) -- a module
+    // cannot be required both directly and as `// indirect` in the same go.mod. See
+    // `dependency_requires::resolve_indirect_requires`.
+    let indirect_requires = dependency_requires::resolve_indirect_requires(dependency_go_mod_dir, &direct_modules);
     let _ = writeln!(out);
     let _ = writeln!(out, "require (");
-    for (module_path, module_version) in TESTIFY_INDIRECT_DEPS {
+    for (module_path, module_version) in &indirect_requires {
         let _ = writeln!(out, "\t{module_path} {module_version} // indirect");
     }
     let _ = writeln!(out, ")");
