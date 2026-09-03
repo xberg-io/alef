@@ -66,9 +66,8 @@ pub struct JsSampleKind {
     pub function: Option<String>,
 }
 
-#[allow(clippy::derivable_impls)]
 impl Default for JsSampleKind {
-    fn default() -> Self { Self { type_tag: String::new(), function: None } }
+    fn default() -> Self { Self { type_tag: \"Function\".to_string(), function: None } }
 }";
     assert_eq!(runtime, expected);
 }

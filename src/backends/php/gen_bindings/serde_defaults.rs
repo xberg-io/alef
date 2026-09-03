@@ -1,5 +1,6 @@
-use crate::codegen::naming::pascal_to_snake;
+use crate::codegen::naming::{pascal_to_snake, wire_variant_value};
 use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use ahash::AHashSet;
 
 /// Where the body of a `crate::serde_defaults::*` function comes from, once
 /// [`serde_default_source`] has decided the function exists at all.
@@ -94,6 +95,48 @@ fn resolved_function_call(path: &str, ty: &TypeRef) -> Option<(&'static str, Str
     }
 }
 
+/// Resolve the wire value (post `rename`/`rename_all`) for a field's `DefaultValue::EnumVariant`.
+///
+/// `variant_ref` is the raw text `extract_field` recorded, which is sometimes the bare variant
+/// name and sometimes qualified as `"Enum::Variant"` -- strip any such prefix before the lookup.
+/// Returns `None` when the enum or variant cannot be found in `api`, which happens only if the
+/// extractor and this backend have disagreed about the surface (a bug elsewhere, not a case to
+/// paper over with a fabricated value). ~keep
+fn enum_variant_wire_value(api: &ApiSurface, enum_name: &str, variant_ref: &str) -> Option<String> {
+    let variant_name = variant_ref.rsplit_once("::").map_or(variant_ref, |(_, v)| v);
+    let enum_def = api.enums.iter().find(|e| e.name == enum_name)?;
+    let variant = enum_def.variants.iter().find(|v| v.name == variant_name)?;
+    Some(wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    ))
+}
+
+/// A field's bare `#[serde(default)]` where the core type is a named enum the PHP backend lowers
+/// to `String` (`enum_names`, from `PhpMapper::enum_names` -- see `rust_bindings::generate_bindings`).
+/// The core `Default` impl supplies a *variant name* (`DefaultValue::EnumVariant`), but the mirror
+/// field is a bare `String`, so the generated fn must return the enum's *wire* value (e.g.
+/// `"plain"`, not `"Plain"`) or `from_json`/absent-field deserialization produces a string the
+/// enum's own `TryFrom`/match at deserialize time would reject. ~keep
+fn enum_default_wire_source(field: &FieldDef, enum_names: &AHashSet<String>, api: &ApiSurface) -> Option<String> {
+    // Only the bare-default sentinel: a field with no `#[serde(default...)]` on the core type at
+    // all must stay required on the mirror, same as every other arm in this module. ~keep
+    if field.default.as_deref() != Some("/* serde(default) */") {
+        return None;
+    }
+    let TypeRef::Named(enum_name) = &field.ty else {
+        return None;
+    };
+    if !enum_names.contains(enum_name) {
+        return None;
+    }
+    let DefaultValue::EnumVariant(variant_ref) = field.typed_default.as_ref()? else {
+        return None;
+    };
+    enum_variant_wire_value(api, enum_name, variant_ref)
+}
+
 /// The single decision point for "does `typ.field` get a `crate::serde_defaults::*` function?".
 ///
 /// Both emitters go through it: [`gen_serde_defaults_module`] to write the `pub fn`, and
@@ -102,7 +145,12 @@ fn resolved_function_call(path: &str, ty: &TypeRef) -> Option<(&'static str, Str
 /// separately, from two hand-mirrored type tables, and a field the reference side accepted but
 /// the definition side dropped produced a generated crate that could not compile. Rendering is
 /// infallible once this returns `Some`, so the two sides cannot disagree. ~keep
-fn serde_default_source<'a>(typ: &TypeDef, field: &'a FieldDef) -> Option<SerdeDefaultSource<'a>> {
+fn serde_default_source<'a>(
+    typ: &TypeDef,
+    field: &'a FieldDef,
+    enum_names: &AHashSet<String>,
+    api: &ApiSurface,
+) -> Option<SerdeDefaultSource<'a>> {
     if !typ.has_default || field.optional || field.binding_excluded {
         return None;
     }
@@ -131,6 +179,13 @@ fn serde_default_source<'a>(typ: &TypeDef, field: &'a FieldDef) -> Option<SerdeD
         return Some(SerdeDefaultSource::ResolvedFunctionPath { return_type, call });
     }
 
+    if let Some(wire_value) = enum_default_wire_source(field, enum_names, api) {
+        return Some(SerdeDefaultSource::Literal {
+            return_type: "String",
+            body: format!("{wire_value:?}.to_string()"),
+        });
+    }
+
     None
 }
 
@@ -157,17 +212,22 @@ fn default_fn_signature(source: &SerdeDefaultSource<'_>, field: &FieldDef, api: 
 
 /// The `crate::serde_defaults::…` function name for a field, or `None` when no function will be
 /// generated for it. The reference side must not emit an attribute when this returns `None`.
-pub(super) fn serde_default_fn_name(typ: &TypeDef, field: &FieldDef) -> Option<String> {
-    serde_default_source(typ, field).map(|_| default_fn_ident(&typ.name, &field.name))
+pub(super) fn serde_default_fn_name(
+    typ: &TypeDef,
+    field: &FieldDef,
+    enum_names: &AHashSet<String>,
+    api: &ApiSurface,
+) -> Option<String> {
+    serde_default_source(typ, field, enum_names, api).map(|_| default_fn_ident(&typ.name, &field.name))
 }
 
-pub(super) fn gen_serde_defaults_module(api: &ApiSurface) -> Option<String> {
+pub(super) fn gen_serde_defaults_module(api: &ApiSurface, enum_names: &AHashSet<String>) -> Option<String> {
     let functions: Vec<minijinja::Value> = api
         .types
         .iter()
         .flat_map(|typ| typ.fields.iter().map(move |field| (typ, field)))
         .filter_map(|(typ, field)| {
-            let source = serde_default_source(typ, field)?;
+            let source = serde_default_source(typ, field, enum_names, api)?;
             let (return_type, body) = default_fn_signature(&source, field, api);
             Some(minijinja::context! {
                 name => default_fn_ident(&typ.name, &field.name),
@@ -233,7 +293,7 @@ mod tests {
             ..Default::default()
         };
 
-        let module = gen_serde_defaults_module(&api).expect("module generated");
+        let module = gen_serde_defaults_module(&api, &AHashSet::new()).expect("module generated");
         assert!(
             module.contains("pub fn fetch_config_ssrf() -> crate::SsrfPolicy { mylib::SsrfPolicy::from_env().into() }"),
             "expected mirror return type with `.into()` conversion, got:\n{module}"
@@ -253,7 +313,7 @@ mod tests {
             ..Default::default()
         };
 
-        let module = gen_serde_defaults_module(&api).expect("module generated");
+        let module = gen_serde_defaults_module(&api, &AHashSet::new()).expect("module generated");
         assert!(
             module.contains("pub fn fetch_config_ssrf() -> mylib::SsrfPolicy { mylib::SsrfPolicy::from_env() }"),
             "expected core return type without conversion, got:\n{module}"

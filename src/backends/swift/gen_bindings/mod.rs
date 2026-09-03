@@ -106,6 +106,20 @@ struct SwiftBuildPaths {
     manifest_path: &'static str,
 }
 
+/// The `cargo --manifest-path` argument for the swift-bridge crate under `package_root`.
+///
+/// `Path::join` writes the host's separator, so this came out as `packages/swift\rust\Cargo.toml` on
+/// Windows — a host-dependent argument inside an emitted build config, and a different string from
+/// the `packages/swift/rust/Cargo.toml` literal `build_config` hard-codes for that very same crate.
+/// Cargo accepts `/` separators on Windows, so the emitted form is canonicalized unconditionally. ~keep
+fn manifest_path_argument(package_root: &std::path::Path) -> String {
+    package_root
+        .join("rust")
+        .join("Cargo.toml")
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
 /// Derive `SwiftBuildPaths` from `config`.
 ///
 /// The literal `--manifest-path` baked into `build_config()` is only correct for a single,
@@ -125,8 +139,7 @@ fn swift_build_paths(config: &ResolvedCrateConfig) -> SwiftBuildPaths {
     let base_dir = resolve_output_dir(config.output_paths.get("swift"), &config.name, "packages/swift");
     let package_root = swift_package_root(&base_dir, config.explicit_output.swift.is_some());
 
-    let manifest_path = package_root.join("rust").join("Cargo.toml");
-    let manifest_path: &'static str = Box::leak(manifest_path.to_string_lossy().into_owned().into_boxed_str());
+    let manifest_path: &'static str = Box::leak(manifest_path_argument(&package_root).into_boxed_str());
 
     SwiftBuildPaths {
         binding_crate_name,
@@ -847,6 +860,23 @@ mod build_config_manifest_path_tests {
     use crate::core::backend::{Backend, PostBuildStep};
     use crate::core::config::NewAlefConfig;
 
+    /// `Path::join` writes the host separator, so on Windows the emitted `--manifest-path` was
+    /// `packages/swift\rust\Cargo.toml`: host-dependent, and a different string from the
+    /// `packages/swift/rust/Cargo.toml` literal `build_config` hard-codes for the same crate. The
+    /// `\`-bearing root makes the canonicalization observable on every host rather than only on
+    /// the one whose separator it is. ~keep
+    #[test]
+    fn the_manifest_path_argument_is_canonicalized_to_forward_slashes() {
+        assert_eq!(
+            super::manifest_path_argument(std::path::Path::new(r"packages\swift")),
+            "packages/swift/rust/Cargo.toml"
+        );
+        assert_eq!(
+            super::manifest_path_argument(std::path::Path::new("custom/output")),
+            "custom/output/rust/Cargo.toml"
+        );
+    }
+
     /// alef #169: `build_config()`'s `--manifest-path` used to be the literal
     /// `packages/swift/rust/Cargo.toml`, independent of `config.output_paths` -- wrong for any
     /// consumer that sets an explicit `[crates.output] swift` path, since `gen_rust_crate::emit`
@@ -878,10 +908,8 @@ swift = "custom/output/Sources/TestLib"
             .build_config_with_config(&config)
             .expect("swift backend must produce a build config");
 
-        // The manifest path is built with `Path::join`, so its separators are the host's --
-        // `\` on Windows, which is what `cargo --manifest-path` wants there. Comparing the
-        // raw string would assert the host OS, not the override-following behaviour under
-        // test, so separators are normalised at the assertion boundary. ~keep
+        // `manifest_path_argument` canonicalizes to `/` on every host, so the normalization below
+        // is a no-op — kept so the assertion cannot start asserting the host OS again. ~keep
         let manifest_path_args: Vec<String> = build_config
             .post_build
             .iter()

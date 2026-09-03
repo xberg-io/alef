@@ -749,3 +749,49 @@ fn gen_enum_keeps_foreign_variant_not_ruled_out_by_configured_features() {
         "a variant the configured features do not rule out must stay declared, got:\n{output}"
     );
 }
+
+/// Regression: a tagged enum's synthesized `impl Default` must set the tag field to a REAL
+/// variant's wire value, not an empty string -- `String::new()` is not a valid discriminant
+/// for any variant, so `Default::default()` on the generated type used to produce a value
+/// nothing could deserialize. This fixture's `#[default]` variant (`Retry`) is neither first
+/// nor last, so a fix that only special-cased the first or last declared variant would still
+/// fail this assertion. ~keep
+#[test]
+fn gen_tagged_enum_default_impl_uses_the_default_variants_wire_value() {
+    let enum_def = EnumDef {
+        name: "Outcome".to_string(),
+        rust_path: "test::Outcome".to_string(),
+        serde_tag: Some("kind".to_string()),
+        has_serde: true,
+        variants: vec![
+            EnumVariant {
+                name: "Success".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Retry".to_string(),
+                is_default: true,
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Failure".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let output = gen_enum(&enum_def, "Js", true, "test_core", None);
+
+    let expected_default_impl = "impl Default for JsOutcome {\n    \
+        fn default() -> Self { Self { kind_tag: \"Retry\".to_string(),  } }\n\
+        }";
+    assert!(
+        output.contains(expected_default_impl),
+        "expected the exact Default impl to use the #[default] variant's wire value \"Retry\", got:\n{output}"
+    );
+    assert!(
+        !output.contains("String::new()"),
+        "the tag field must never default to an empty string -- it is not a valid variant, got:\n{output}"
+    );
+}

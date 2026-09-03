@@ -376,6 +376,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 Some(&php_namespace),
                 &enum_names,
                 &lang_rename_all,
+                api,
             ));
             builder.add_item(&types::gen_struct_methods_with_exclude(
                 typ,
@@ -765,7 +766,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
 
     // Referenced by #[serde(default = "crate::serde_defaults::...")] on struct fields.
-    if has_serde && let Some(serde_module) = gen_serde_defaults_module(api) {
+    if has_serde && let Some(serde_module) = gen_serde_defaults_module(api, &enum_names) {
         builder.add_item(&serde_module);
     }
 

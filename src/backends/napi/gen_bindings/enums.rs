@@ -538,11 +538,29 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
         .chain(synth_fields.iter().cloned())
         .map(|f| format!("{f}: None"))
         .collect();
+    // The tag field must default to a REAL variant's wire value -- an empty string is not a
+    // valid discriminant for any variant, so `Default::default()` on this type would produce a
+    // value nothing can deserialize. Prefer the `#[default]`-marked variant, falling back to the
+    // first declared variant, exactly like the flat string-enum cascade
+    // (`default_impl_cfg_cascade`) and the wasm backend's tagged/plain enum `Default` impl do. ~keep
+    let default_variant = enum_def
+        .variants
+        .iter()
+        .find(|variant| variant.is_default)
+        .or_else(|| enum_def.variants.first());
+    let default_tag_wire_value = default_variant
+        .map(|variant| {
+            crate::codegen::naming::wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                enum_def.serde_rename_all.as_deref(),
+            )
+        })
+        .unwrap_or_default();
     lines.push(String::new());
-    lines.push("#[allow(clippy::derivable_impls)]".to_string());
     lines.push(format!("impl Default for {prefix}{} {{", enum_def.name));
     lines.push(format!(
-        "    fn default() -> Self {{ Self {{ {tag_field}_tag: String::new(), {} }} }}",
+        "    fn default() -> Self {{ Self {{ {tag_field}_tag: \"{default_tag_wire_value}\".to_string(), {} }} }}",
         default_inits.join(", ")
     ));
     lines.push("}".to_string());

@@ -4,7 +4,7 @@ use crate::codegen::builder::ImplBuilder;
 use crate::codegen::generators::{self, RustBindingConfig};
 use crate::codegen::shared::partition_methods;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{EnumDef, FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToPascalCase};
 
@@ -249,6 +249,7 @@ pub(crate) fn gen_php_struct(
     php_namespace: Option<&str>,
     enum_names: &AHashSet<String>,
     _lang_rename_all: &str,
+    api: &ApiSurface,
 ) -> String {
     let binding_type = constructor_init::php_binding_type(typ, cfg.never_skip_cfg_field_names);
     // Build the php_class attributes: with namespace → plain #[php_class] + #[php(name = "Ns\\ClassName")],
@@ -312,7 +313,7 @@ pub(crate) fn gen_php_struct(
         // The name comes from `serde_defaults`, the module that will emit the function, so the
         // attribute can never reference a function that module decides not to generate. ~keep
         if cfg.has_serde
-            && let Some(fn_name) = super::super::serde_defaults::serde_default_fn_name(typ, field)
+            && let Some(fn_name) = super::super::serde_defaults::serde_default_fn_name(typ, field, enum_names, api)
         {
             attrs.push(format!("serde(default = \"crate::serde_defaults::{fn_name}\")"));
         }

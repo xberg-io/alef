@@ -17,6 +17,7 @@ mod mutex;
 mod opaque_helpers;
 mod postprocess;
 mod public_files;
+mod serde_defaults;
 pub mod service_api;
 mod support_items;
 #[cfg(test)]
@@ -411,7 +412,7 @@ impl Backend for Pyo3Backend {
                             None
                         };
 
-                        if config_ref
+                        let mut attrs = if config_ref
                             .resolve_field_name(crate::core::config::Language::Python, &type_name, &field.name)
                             .is_some()
                         {
@@ -437,7 +438,23 @@ impl Backend for Pyo3Backend {
                             vec![a]
                         } else {
                             vec![]
+                        };
+                        // A field whose core `#[serde(default = "path")]` names a private,
+                        // unresolvable free function (e.g. `default_true`), or whose folded
+                        // default is a resolved core function on an `Option<T>` field, cannot
+                        // have that path mirrored verbatim -- `serde_default_field_attr`'s
+                        // fallback in `codegen::generators::structs` correctly declines it and
+                        // would leave the field required. Synthesize our own named function from
+                        // the same folded `Default` value the extractor already proved for this
+                        // field instead. Pushed here, before that fallback runs inside
+                        // `gen_struct_with_rename`, whose `already_emitted_attrs` guard skips a
+                        // field that already carries a `serde(default...)` attribute. ~keep
+                        if !attrs.iter().any(|a| a.starts_with("serde(default"))
+                            && let Some(fn_name) = serde_defaults::serde_default_fn_name(typ, field)
+                        {
+                            attrs.push(format!("serde(default = \"crate::serde_defaults::{fn_name}\")"));
                         }
+                        attrs
                     },
                     |field| config_ref.resolve_field_name(crate::core::config::Language::Python, &type_name, &field.name),
                 ));
@@ -533,6 +550,11 @@ impl Backend for Pyo3Backend {
             &error_type_names,
             opaque_types.is_empty(),
         );
+
+        // Referenced by #[serde(default = "crate::serde_defaults::...")] on struct fields.
+        if has_serde && let Some(serde_module) = serde_defaults::gen_serde_defaults_module(api) {
+            builder.add_item(&serde_module);
+        }
 
         // `@dataclass`/`dict`, not the compiled `#[pyclass]`) so enum-variant payloads of those
         let coercible_dto_names = wire_schema::coercible_dto_names(api, config);

@@ -197,3 +197,93 @@ fn binding_excluded_field_gets_neither_reference_nor_definition() {
         "binding-excluded field must not be defined, got:\n{lib_rs}"
     );
 }
+
+/// Shaped like `OutputFormat`: a `#[derive(Default)]` unit-variant enum with `#[default] Plain`
+/// and `#[serde(rename_all = "lowercase")]`, mirrored to `String` in the PHP binding (see
+/// `PhpMapper::named`). ~keep
+fn output_format_enum() -> EnumDef {
+    EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "sample_core::OutputFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".to_string(),
+                is_default: true,
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".to_string()),
+        has_default: true,
+        ..Default::default()
+    }
+}
+
+/// Shaped like `ExtractionConfig.output_format`: a bare `#[serde(default)]` on a named-enum
+/// field whose `Default` impl resolves to the enum's `#[default]` variant name, not a wire
+/// value. Regression coverage for the `invalid value "" for field 'output_format'` defect: the
+/// bare sentinel used to be mirrored verbatim, defaulting the `String` mirror field to `""`. ~keep
+fn output_format_field() -> FieldDef {
+    FieldDef {
+        name: "output_format".to_string(),
+        ty: TypeRef::Named("OutputFormat".to_string()),
+        optional: false,
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(DefaultValue::EnumVariant("OutputFormat::Plain".to_string())),
+        ..Default::default()
+    }
+}
+
+fn extraction_config() -> TypeDef {
+    TypeDef {
+        name: "ExtractionConfig".to_string(),
+        rust_path: "sample_core::ExtractionConfig".to_string(),
+        has_default: true,
+        fields: vec![output_format_field()],
+        ..Default::default()
+    }
+}
+
+fn enum_default_fixture_api() -> ApiSurface {
+    ApiSurface {
+        types: vec![extraction_config()],
+        // `serde_forcing_enum()` has nothing to do with `output_format` -- it is here only to
+        // make `php_crate_requires_serde` true in this fixture-driven test, same as
+        // `fixture_api()` above (no real `Cargo.toml` to probe `php_serde_available` from). ~keep
+        enums: vec![output_format_enum(), serde_forcing_enum()],
+        ..Default::default()
+    }
+}
+
+/// The generated attribute must reference a named `crate::serde_defaults::…` function returning
+/// the enum's wire value, never a bare `#[serde(default)]` (which would default the `String`
+/// mirror field to `""`, the exact defect this test locks in as fixed).
+#[test]
+fn enum_default_field_gets_named_wire_value_function_not_bare_default() {
+    let lib_rs = generated_lib_rs(&enum_default_fixture_api());
+    assert!(
+        lib_rs.contains("serde(default = \"crate::serde_defaults::extraction_config_output_format\")"),
+        "expected a named serde_defaults reference for output_format, got:\n{lib_rs}"
+    );
+    assert!(
+        !lib_rs.contains("pub output_format: String,\n    #[serde(default)]")
+            && !lib_rs.contains("#[serde(default)]\n    pub output_format"),
+        "must not emit a bare `#[serde(default)]` on output_format, got:\n{lib_rs}"
+    );
+}
+
+/// The defined function must return the enum's *wire* value (`"plain"`, from
+/// `#[serde(rename_all = "lowercase")]`), not the raw variant name (`"Plain"`) — a mismatch would
+/// pass pairing but still 500 on `from_json` when the enum's `TryFrom` rejects the un-lowered
+/// string at deserialize time.
+#[test]
+fn enum_default_function_returns_exact_wire_value() {
+    let lib_rs = generated_lib_rs(&enum_default_fixture_api());
+    assert!(
+        lib_rs.contains("pub fn extraction_config_output_format() -> String { \"plain\".to_string() }"),
+        "expected the wire value \"plain\", got:\n{lib_rs}"
+    );
+}
