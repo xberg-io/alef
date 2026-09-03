@@ -56,6 +56,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   neither union member. A struct-shaped variant's literal now asserts its own enum type, so the
   tag cannot widen however deeply the literal is nested or however its caller binds it. Seen as
   16 `fixture_node_auth_*` failures in `crawlberg`.
+- **alef#309 instance 1: node/wasm e2e payloads for a `$mock_url`-templated `json_object`
+  argument dropped a tagged-data enum's `type` discriminator.** The array and single-object
+  branches of the TypeScript e2e arg renderer (`build_args_and_setup` in
+  `src/e2e/codegen/typescript/test_file/args.rs`) that detect a `$mock_url` placeholder built
+  their `JSON.stringify(...).replaceAll(...)`/`JSON.parse(...)` literal from a plain
+  `json_to_js_camel` dump instead of the same `ts_builder_expression`/per-element typed builder
+  the non-templated sibling branches already use. A fixture field typed as a data-carrying enum
+  (e.g. `OutputFormat`, internally tagged under napi's default `"type"` key) rendered as its bare
+  wire string (`outputFormat: "markdown"`) whenever the same array element or object also needed
+  URL templating, instead of the tagged object the napi binding requires
+  (`{ type: "markdown" }`) -- failing with `Missing field 'type' on
+  JsFileExtractionConfig.outputFormat on JsExtractInput.config`. Both branches now build the
+  typed literal first and reuse it whether or not a placeholder is present, so the templated and
+  non-templated paths can no longer disagree about an enum's wire shape.
 
 ## [0.82.2] - 2026-09-03
 

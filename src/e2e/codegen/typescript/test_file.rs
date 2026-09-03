@@ -31,6 +31,8 @@ mod json_object_field_agreement_tests;
 #[cfg(test)]
 mod loop_binding_tests;
 #[cfg(test)]
+mod mock_url_tagged_enum_tests;
+#[cfg(test)]
 mod node_enum_import_tests;
 #[cfg(test)]
 mod optional_segment_len_tests;
