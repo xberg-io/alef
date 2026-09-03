@@ -400,7 +400,10 @@ pub(super) fn render_test_function_with_facts(
         .any(|a| matches!(a.arg_type.as_str(), "json_object" | "bytes"));
     let effective_returns_result = returns_result || binding_returns_error || client_factory.is_some();
 
-    if !effective_returns_result && result_is_simple {
+    // ~keep `returns_void` means the only return is `error`, where nil is success. It must
+    // win over `result_is_simple`, or the branch below asserts the error is NON-nil and the
+    // test passes only when the call fails.
+    if !effective_returns_result && result_is_simple && !returns_void {
         // A fixture that declared an assertion but produced none usable here (e.g. its
         // only assertion is `not_error`, and this function has no error return to check
         // in the first place) used to be indistinguishable from a genuinely empty

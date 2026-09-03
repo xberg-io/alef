@@ -253,6 +253,60 @@ fn declared_not_error_only_fixture_on_a_simple_errorless_call_still_gets_a_real_
     );
 }
 
+/// ~keep `returns_void` means the Go signature's ONLY return is `error`, where `nil`
+/// is success. Combined with `result_is_simple` it used to take the errorless-value
+/// branch and emit `result := f(); if result == nil { fatal }` -- an assertion that
+/// passes only when the call FAILS. This inverted 19 generated tests across the
+/// plugin-registry surface. `returns_void` must win over `result_is_simple`.
+#[test]
+fn returns_void_with_simple_result_asserts_the_error_is_nil_not_non_nil() {
+    let e2e_config = E2eConfig {
+        call: CallConfig {
+            function: "clear_ocr_backends".to_string(),
+            module: "github.com/example/mylib".to_string(),
+            result_var: "result".to_string(),
+            returns_result: false,
+            returns_void: true,
+            result_is_simple: true,
+            ..CallConfig::default()
+        },
+        ..E2eConfig::default()
+    };
+    let fixture = make_fixture("clear_ocr_backends_smoke");
+    let mut out = String::new();
+    let config = crate::core::config::ResolvedCrateConfig::default();
+    let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+    let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
+    render_test_function(
+        &mut out,
+        &fixture,
+        GoTestFunctionContext {
+            import_alias: "sample_crate",
+            e2e_config: &e2e_config,
+            adapters: &[],
+            data_enum_names: &std::collections::HashSet::new(),
+            config: &config,
+            type_defs: &type_defs,
+            enums: &enums,
+            errors: &[],
+            functions: &[],
+        },
+    );
+
+    assert!(
+        !out.contains("expected non-nil result"),
+        "an error-only return must never be asserted non-nil -- nil IS success, got:\n{out}"
+    );
+    assert!(
+        out.contains("err := sample_crate.ClearOcrBackends("),
+        "expected the error-return call shape, got:\n{out}"
+    );
+    assert!(
+        out.contains("if err != nil {") && out.contains("t.Fatalf(\"call failed: %v\", err)"),
+        "expected the standard error check, got:\n{out}"
+    );
+}
+
 /// Positive control for the same fix: a fixture with genuinely zero declared
 /// assertions is left exactly as before (deliberate smoke-test contract) — the
 /// result is still discarded, since there is nothing to fall back on behalf of.
