@@ -1,7 +1,7 @@
 impl {{ wrapper }} {
     /// Create a new bridge wrapping a Ruby object.
     /// Validates that the Ruby object responds to all required methods.
-    pub fn new(rb_obj: magnus::Value, name: String) -> Result<Self, magnus::Error> {
+    pub fn new({{ ctor_params }}) -> {{ ctor_return_type }} {
         // SAFETY: constructors are called by generated Magnus registration functions.
         let ruby = unsafe { magnus::Ruby::get_unchecked() };
 {%- for req_method in required_methods %}

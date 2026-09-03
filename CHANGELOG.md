@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Magnus (Ruby) visitor-bridge structs (e.g. a `visitor` callback parameter) emitted a one-arg,
+  infallible constructor while every call site called it with two arguments and a `?`, which does
+  not compile (E0061).** PR #292 changed the trait-bridge constructor *call site* in
+  `gen_bridge_function` to unconditionally emit `{struct}::new(value, name)?` for every magnus
+  bridge parameter; PR #316 (0.82.2) then made the wrapper function's return type `Result`-shaped
+  to match. Neither PR touched the separate constructor *definition* emitter for the
+  visitor-bridge shape (`is_visitor_bridge` in `gen_trait_bridge`: a `type_alias`-only bridge with
+  no `register_fn`/`super_trait`, every trait method carrying a Rust default impl) — its
+  `visitor_bridge.rs.jinja` template kept rendering the pre-#292 `pub fn new(rb_obj:
+  magnus::Value) -> Self`. Any consumer with a visitor-shaped magnus trait bridge (e.g.
+  html-to-markdown's `RbHtmlVisitorBridge`) got a Ruby binding that fails `rustc` with E0061,
+  shipped since 0.82.1 and still present in 0.82.2. The constructor's parameter list and return
+  type are now read from one pair of constants (`BRIDGE_CTOR_PARAMS`, `BRIDGE_CTOR_RETURN_TYPE` in
+  `backends::magnus::trait_bridge::bridge_functions`) by both the call site's `?` derivation and
+  both constructor-definition templates (the full trait-bridge path and the visitor-bridge path),
+  so the two sides cannot independently drift again.
+
 ## [0.82.2] - 2026-09-03
 
 Patch release. Two entries are regressions shipped in 0.82.1 -- both generated crates that do not

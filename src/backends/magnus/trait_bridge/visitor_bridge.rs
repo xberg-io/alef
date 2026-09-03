@@ -39,6 +39,8 @@ pub(super) fn gen_visitor_bridge(
             struct_name => struct_name,
             trait_path => trait_path,
             methods => methods,
+            ctor_params => super::bridge_functions::BRIDGE_CTOR_PARAMS,
+            ctor_return_type => super::bridge_functions::BRIDGE_CTOR_RETURN_TYPE,
         },
     );
     let debug_count = rendered.matches("impl std::fmt::Debug").count();

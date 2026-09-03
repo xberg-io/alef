@@ -1,6 +1,21 @@
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
 
+/// The parameter list and return-type shape of every generated Magnus trait-bridge constructor.
+/// This is the single decision point for the constructor's arity and fallibility: `bridge_wrap`
+/// below builds its `{struct_name}::new(...)` call (args and the trailing `?`) from these
+/// constants, and both constructor-definition emitters -- the full bridge path's
+/// `trait_bridge_constructor.rs.jinja` (via `bridge_generator::gen_constructor`) and the
+/// visitor-bridge path's `visitor_bridge.rs.jinja` (via `gen_visitor_bridge`) -- render their
+/// `fn new(...)` signature from these same strings instead of retyping it. A future change to
+/// arity or fallibility is made once here and takes effect everywhere, instead of requiring two
+/// independently maintained copies that can silently drift apart -- which is exactly how the
+/// visitor-bridge definition was left behind on the pre-#292 one-arg infallible shape after the
+/// call site here moved to two args and a `?`. ~keep
+pub(super) const BRIDGE_CTOR_PARAMS: &str = "rb_obj: magnus::Value, name: String";
+pub(super) const BRIDGE_CTOR_RETURN_TYPE: &str = "Result<Self, magnus::Error>";
+pub(super) const BRIDGE_CTOR_IS_FALLIBLE: bool = true;
+
 /// A `Named` type, or a `Named` type behind one layer of `Optional`, extracts to its name;
 /// anything else (primitives, `Vec`, opaque handles, deeper nesting) is not a candidate for the
 /// `let {name}_core = ...` binding `gen_bridge_function` emits for non-opaque named params. Shared
@@ -106,11 +121,15 @@ pub fn gen_bridge_function(
         .copied()
         .any(|(_, p)| !default_types.contains(named_type_name(&p.ty).unwrap_or_default()));
 
+    // Derived from `BRIDGE_CTOR_IS_FALLIBLE` above rather than hardcoded, so the `?` here and the
+    // constructor definitions' `Result`-shaped return type can never independently drift. ~keep
+    let ctor_try = if BRIDGE_CTOR_IS_FALLIBLE { "?" } else { "" };
+
     let bridge_wrap = if is_optional {
         format!(
             "let {param_name}: Option<{bridge_handle_type}> = match {param_name} {{\n        \
              Some(v) if !v.is_nil() => {{\n            \
-             let bridge = {struct_name}::new(v, {bridge_name})?;\n            \
+             let bridge = {struct_name}::new(v, {bridge_name}){ctor_try};\n            \
              Some({bridge_value} as {bridge_handle_type})\n        \
              }},\n        \
              _ => None,\n    \
@@ -119,7 +138,7 @@ pub fn gen_bridge_function(
     } else {
         format!(
             "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new({param_name}, {bridge_name})?;\n        \
+             let bridge = {struct_name}::new({param_name}, {bridge_name}){ctor_try};\n        \
              {bridge_value} as {bridge_handle_type}\n    \
              }};"
         )
@@ -254,4 +273,148 @@ pub fn gen_bridge_function(
     out.push_str(&sig);
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::magnus::type_map::MagnusMapper;
+    use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+
+    /// Depth-aware arity of the parenthesized call/signature immediately following `needle` in
+    /// `text` (top-level comma count + 1) -- so a nested-paren arg like `String::new()` isn't
+    /// mistaken for an extra one.
+    fn arity_after(text: &str, needle: &str) -> usize {
+        let start = text
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle:?} not found in:\n{text}"))
+            + needle.len();
+        let mut depth = 1usize;
+        let mut top_level_commas = 0usize;
+        for ch in text[start..].chars() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                ',' if depth == 1 => top_level_commas += 1,
+                _ => {}
+            }
+        }
+        top_level_commas + 1
+    }
+
+    /// Byte offset just past the closing paren of the parenthesized call/signature that starts
+    /// right after `needle` in `text`.
+    fn close_paren_after(text: &str, needle: &str) -> usize {
+        let start = text
+            .find(needle)
+            .unwrap_or_else(|| panic!("{needle:?} not found in:\n{text}"))
+            + needle.len();
+        let mut depth = 1usize;
+        for (i, ch) in text[start..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return start + i + 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unbalanced parens after {needle:?} in:\n{text}");
+    }
+
+    /// Whether a generated `{struct}::new(...)` CALL SITE is fallible: the first character
+    /// after the closing paren is `?`.
+    fn call_site_is_fallible(text: &str, needle: &str) -> bool {
+        text[close_paren_after(text, needle)..].starts_with('?')
+    }
+
+    /// Whether a generated `pub fn new(...) -> ReturnType {` constructor DEFINITION is
+    /// fallible: its return type (the text between the closing paren and the opening brace)
+    /// names `Result`.
+    fn definition_is_fallible(text: &str, needle: &str) -> bool {
+        let after_close = close_paren_after(text, needle);
+        let brace = text[after_close..]
+            .find('{')
+            .unwrap_or_else(|| panic!("no constructor body opening brace after {needle:?} in:\n{text}"));
+        text[after_close..after_close + brace].contains("Result")
+    }
+
+    /// The regression this test guards: a visitor-shaped bridge (`is_visitor_bridge` in
+    /// `bridge_generator::gen_trait_bridge` -- `type_alias` set, no `register_fn`/`super_trait`,
+    /// every method carrying a Rust default impl) is exactly the shape PR #292's call-site change
+    /// reached but its definition emitter (`gen_visitor_bridge`) did not: the call site here always
+    /// emits a two-arg, `?`-suffixed `{struct}::new(value, name)` for every magnus bridge parameter,
+    /// so every constructor DEFINITION must match that arity and fallibility -- independent of
+    /// whether it takes the visitor-bridge path or the full trait-bridge path. ~keep
+    #[test]
+    fn visitor_bridge_constructor_matches_call_site_arity_and_fallibility() {
+        let (api, trait_type, bridge_cfg) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
+
+        let definition = super::super::gen_trait_bridge(
+            &trait_type,
+            &bridge_cfg,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+        )
+        .expect("visitor bridge definition should generate");
+        assert!(
+            definition.contains("pub fn new("),
+            "visitor bridge must declare a constructor:\n{definition}"
+        );
+        let def_arity = arity_after(&definition, "pub fn new(");
+        let def_is_fallible = definition_is_fallible(&definition, "pub fn new(");
+
+        let func = FunctionDef {
+            name: "inspect".to_string(),
+            rust_path: "sample_core::inspect".to_string(),
+            params: vec![ParamDef {
+                name: "walker".to_string(),
+                ty: TypeRef::Named("DocumentWalkerHandle".to_string()),
+                optional: true,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::Unit,
+            ..FunctionDef::default()
+        };
+        let call_site = gen_bridge_function(
+            &api,
+            &func,
+            0,
+            &bridge_cfg,
+            &MagnusMapper,
+            &ahash::AHashSet::default(),
+            &std::collections::HashSet::new(),
+            "sample_core",
+        );
+
+        let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", &bridge_cfg);
+        let ctor_call_needle = format!("{struct_name}::new(");
+        assert!(
+            call_site.contains(&ctor_call_needle),
+            "call site must construct the bridge via {ctor_call_needle:?}:\n{call_site}"
+        );
+        let call_arity = arity_after(&call_site, &ctor_call_needle);
+        let call_fallible = call_site_is_fallible(&call_site, &ctor_call_needle);
+
+        assert_eq!(
+            def_arity, call_arity,
+            "constructor definition arity ({def_arity}) must match call site arity ({call_arity}); \
+             definition:\n{definition}\ncall site:\n{call_site}"
+        );
+        assert_eq!(
+            def_is_fallible, call_fallible,
+            "constructor definition fallibility ({def_is_fallible}) must match call site \
+             fallibility ({call_fallible}); definition:\n{definition}\ncall site:\n{call_site}"
+        );
+    }
 }
