@@ -6,7 +6,8 @@ use super::{
 use crate::codegen::generators::{AsyncPattern, RustBindingConfig};
 use crate::codegen::type_mapper::IdentityMapper;
 use crate::core::ir::{
-    CoreWrapper, FieldDef, MethodDef, PrimitiveType, ReceiverKind, SerdeContainerConversion, TypeDef, TypeRef,
+    CoreWrapper, DefaultValue, FieldDef, MethodDef, PrimitiveType, ReceiverKind, SerdeContainerConversion, TypeDef,
+    TypeRef,
 };
 use ahash::AHashSet;
 
@@ -607,6 +608,11 @@ fn gen_struct_with_rename_mirrors_serde_default_when_delegation_blocked_by_sibli
 fn gen_struct_bare_mirrors_serde_default_path_when_delegation_not_requested() {
     let mut field = f64_field("retries");
     field.default = Some("serde(default = \"default_retries\")".to_string());
+    // `extract_field` never produces the valued attribute text without also resolving
+    // `typed_default` to (at least) `FunctionCall`; postprocessing upgrades it to
+    // `PublicFunctionCall` once it proves `default_retries` is callable from a generated binding
+    // crate. Only the upgraded form is safe to mirror -- see `serde_default_field_attr`.
+    field.typed_default = Some(DefaultValue::PublicFunctionCall("default_retries".to_string()));
     let typ = type_with_fields("Retry", vec![field], Default::default());
     // No `delegate_deserialize_to_core_for_types` entry for "Retry" -- delegation is never even
     // attempted for this type in this run.
@@ -616,8 +622,122 @@ fn gen_struct_bare_mirrors_serde_default_path_when_delegation_not_requested() {
     assert!(derive_line(&rendered).contains("serde::Deserialize"), "{rendered}");
     assert!(
         rendered.contains("serde(default = \"default_retries\")"),
-        "a `default = \"path\"` field must also be mirrored verbatim: {rendered}"
+        "a `default = \"path\"` field proven callable from the binding crate must be mirrored verbatim: {rendered}"
     );
+}
+
+// --- Regression: an unresolvable `default = "path"` must never be mirrored onto the binding --
+//
+// crawlberg's `SsrfPolicy::scheme_allowlist` carries `#[serde(default = "default_scheme_allowlist")]`
+// where `default_scheme_allowlist` is a private helper in `net::ssrf`. That reads fine on the
+// *core* type, where the derive sees the function in its own module, but delegation for
+// `SsrfPolicy` is blocked by an unrelated field, so this same per-field fallback used to copy the
+// attribute verbatim onto the php mirror -- a different crate and module -- producing
+// `error[E0425]: cannot find function 'default_scheme_allowlist' in this scope`. Extraction
+// already tells the two cases apart via `FieldDef::typed_default`: `FunctionCall` for a default
+// whose callability across crates postprocessing could not prove (this case), `PublicFunctionCall`
+// once it can (see the positive control above). Only the latter may be mirrored.
+#[test]
+fn gen_struct_bare_never_mirrors_a_default_path_not_proven_callable_from_the_binding_crate() {
+    let mut field = f64_field("scheme_allowlist");
+    field.default = Some("serde(default = \"default_scheme_allowlist\")".to_string());
+    field.typed_default = Some(DefaultValue::FunctionCall("default_scheme_allowlist".to_string()));
+    let typ = type_with_fields("SsrfPolicy", vec![field], Default::default());
+    let cfg = base_cfg();
+    let rendered = gen_struct(&typ, &IdentityMapper, &cfg);
+
+    assert!(
+        !rendered.contains("serde(default"),
+        "a default fn not proven callable from the binding crate must not be mirrored, \
+         it would not compile there: {rendered}"
+    );
+}
+
+// --- Regression: a field-level valued `#[serde(default = "path")]` must not be duplicated ----
+//
+// 0.82.1 (#305, "keep serde defaults on mirror fields") added the per-field mirroring above
+// unconditionally: it pushed the core field's own `#[serde(default...)]` even when the caller's
+// `extra_field_attrs` (php's `field_attrs_fn`, which resolves a per-field default function via
+// `serde_defaults::serde_default_fn_name` and pushes a valued `serde(default = "path")` itself)
+// had already written one. serde rejects two `#[serde(default...)]` attributes on one field
+// outright ("duplicate serde attribute `default`"), which is exactly what shipped as the
+// crawlberg-php / xberg-php regression: `capture_network_events` carried both
+// `serde(default = "crate::serde_defaults::browser_config_capture_network_events")` from the
+// backend's own attribute and a bare `serde(default)` from this fallback. These tests build the
+// same shape -- a bare core default plus a caller-supplied valued default on the same field --
+// for each of the three struct generators and assert exactly one `serde(default...)` survives.
+
+#[test]
+fn gen_struct_with_per_field_attrs_keeps_only_the_valued_default_already_emitted_by_the_caller() {
+    let typ = type_with_fields(
+        "BrowserConfig",
+        vec![field_with_serde_default("capture_network_events")],
+        Default::default(),
+    );
+    let cfg = base_cfg();
+    let rendered = gen_struct_with_per_field_attrs(&typ, &IdentityMapper, &cfg, |_| {
+        vec!["serde(default = \"crate::serde_defaults::browser_config_capture_network_events\")".to_string()]
+    });
+
+    let default_attr_count = rendered.matches("serde(default").count();
+    assert_eq!(
+        default_attr_count, 1,
+        "exactly one serde(default...) attribute must survive on the field, got {default_attr_count}: {rendered}"
+    );
+    assert!(
+        rendered.contains("serde(default = \"crate::serde_defaults::browser_config_capture_network_events\")"),
+        "the valued default from extra_field_attrs must win over the bare fallback: {rendered}"
+    );
+    assert!(
+        !rendered.contains("#[serde(default)]"),
+        "the bare fallback default must not also be emitted: {rendered}"
+    );
+}
+
+#[test]
+fn gen_struct_with_rename_keeps_only_the_valued_default_already_emitted_by_the_caller() {
+    let typ = type_with_fields(
+        "BrowserConfig",
+        vec![field_with_serde_default("capture_network_events")],
+        Default::default(),
+    );
+    let cfg = base_cfg();
+    let rendered = gen_struct_with_rename(
+        &typ,
+        &IdentityMapper,
+        &cfg,
+        |_| vec!["serde(default = \"crate::serde_defaults::browser_config_capture_network_events\")".to_string()],
+        |_| None,
+    );
+
+    let default_attr_count = rendered.matches("serde(default").count();
+    assert_eq!(
+        default_attr_count, 1,
+        "exactly one serde(default...) attribute must survive on the field, got {default_attr_count}: {rendered}"
+    );
+    assert!(!rendered.contains("#[serde(default)]"), "{rendered}");
+}
+
+#[test]
+fn gen_struct_bare_keeps_only_the_valued_default_already_present_in_field_attrs() {
+    let typ = type_with_fields(
+        "BrowserConfig",
+        vec![field_with_serde_default("capture_network_events")],
+        Default::default(),
+    );
+    let field_attrs = ["serde(default = \"crate::serde_defaults::browser_config_capture_network_events\")"];
+    let cfg = RustBindingConfig {
+        field_attrs: &field_attrs,
+        ..base_cfg()
+    };
+    let rendered = gen_struct(&typ, &IdentityMapper, &cfg);
+
+    let default_attr_count = rendered.matches("serde(default").count();
+    assert_eq!(
+        default_attr_count, 1,
+        "exactly one serde(default...) attribute must survive on the field, got {default_attr_count}: {rendered}"
+    );
+    assert!(!rendered.contains("#[serde(default)]"), "{rendered}");
 }
 
 #[test]
