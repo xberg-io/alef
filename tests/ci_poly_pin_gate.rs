@@ -19,10 +19,10 @@ use workflow_job_block_support::workflow_job_block;
 /// unpinned Homebrew tap.
 const GATE_JOB: &str = "generated-output-gate";
 
-/// The commit SHA `Goldziher/poly@v0` resolved to when this pin was written -- tag `v0.23.0`.
+/// The commit SHA `Goldziher/poly@v0` resolved to when this pin was written -- tag `v0.24.0`.
 /// A mutable major-version tag (`@v0`) is not itself a supply-chain pin, so the `uses:` line
 /// must name this SHA directly, not the tag. ~keep
-const PINNED_POLY_SHA: &str = "5f609e9f6913a9e0e9046fc02fe76c0515a8e276";
+const PINNED_POLY_SHA: &str = "2303580a69638d6887db17d2f4e9bbffe7c4218b";
 
 /// The `version:` value the action's `with:` block, and the "Verify downstream tooling"
 /// step's own runtime check, must both agree on.

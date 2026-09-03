@@ -97,8 +97,11 @@ fn generate_category_test() -> String {
 #[test]
 fn namespace_prefixed_array_field_uses_the_slice_stringifier() {
     let generated = generate_category_test();
+    // ~keep `jsonString` gained a leading `t *testing.T` parameter (commit 301c4e9b9, "align
+    // emitted types and assertions") so a marshal failure can `t.Fatal` instead of being
+    // swallowed; every call site, including this one, now passes `t` first.
     assert!(
-        generated.contains("jsonString(result.ActionResults)"),
+        generated.contains("jsonString(t, result.ActionResults)"),
         "a slice-valued contains must serialize the slice; got:\n{generated}"
     );
 }

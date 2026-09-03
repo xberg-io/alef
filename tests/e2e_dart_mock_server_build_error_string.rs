@@ -1,11 +1,15 @@
 //! Verifies that Dart e2e codegen correctly emits Dart string interpolation
 //! in the mock-server build error message without over-escaping braces.
 //!
-//! Regression test: The error message was emitted as
-//! `'mock-server build failed: \${_build.stderr}'` with double braces,
-//! which Dart interpreted as a literal string instead of interpolating
-//! `${_build.stderr}`. The fix removes the unnecessary escaping so the
-//! output Dart source contains `${_build.stderr}` exactly.
+//! Originally a regression test for the error message being emitted as
+//! `'mock-server build failed: \${_build.stderr}'` with double braces in the
+//! per-fixture `*_test.dart` file. `fix(e2e): spawn the dart mock server
+//! through a generated shared helper (#306)` removed that per-file inline
+//! generation entirely and moved the build/spawn logic into the shared,
+//! alef-generated `e2e_helpers.dart` (`project::render_e2e_helpers`), which
+//! emits the message as a plain raw-string literal (no `format!`/`write!`
+//! escaping involved) using a `build` local, not `_build`. This test now
+//! checks that file for the same thing: correct, un-escaped interpolation. ~keep
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -100,14 +104,14 @@ fn render(fixtures: Vec<Fixture>) -> String {
         .expect("generation succeeds");
     files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("http_test.dart"))
-        .expect("http_test.dart is emitted")
+        .find(|f| f.path.to_string_lossy().ends_with("e2e_helpers.dart"))
+        .expect("e2e_helpers.dart is emitted for a crate with a standalone-mock-server fixture")
         .content
         .clone()
 }
 
 /// Verify that the mock-server build error message contains proper Dart
-/// string interpolation: `${_build.stderr}` with single braces, not double.
+/// string interpolation: `${build.stderr}` with single braces, not double.
 #[test]
 fn mock_server_build_error_string_interpolation_correct() {
     let fixtures = vec![make_http_fixture(
@@ -118,7 +122,7 @@ fn mock_server_build_error_string_interpolation_correct() {
     let rendered = render(fixtures);
 
     assert!(
-        rendered.contains("mock-server build failed: ${_build.stderr}"),
+        rendered.contains("mock-server build failed: ${build.stderr}"),
         "mock-server build error must contain proper Dart string interpolation. Rendered:\n{rendered}"
     );
 
@@ -132,7 +136,7 @@ fn mock_server_build_error_string_interpolation_correct() {
     );
 
     assert!(
-        rendered.contains("throw StateError('mock-server build failed: ${_build.stderr}')"),
+        rendered.contains("throw StateError('mock-server build failed: ${build.stderr}')"),
         "full error statement must be present with correct interpolation. Rendered:\n{rendered}"
     );
 }

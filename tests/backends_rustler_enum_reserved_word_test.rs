@@ -164,9 +164,15 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         module_content
     );
 
+    // ~keep The atom itself must stay `:end`, not `:end_val`: `elixir_variant_atom` deliberately
+    // does not escape reserved words, because the value has to match what Rustler's
+    // `NifUnitEnum` actually decodes to at runtime (`pascal_to_snake(variant.name)`). Escaping it
+    // here would leave `wire_value/1`'s `:end` clause unreachable -- the exact
+    // `FunctionClauseError` fixed in commit 7fcf57e8f ("make wire_value/1's clauses reachable").
+    // Only the accessor/attribute *identifier* gets the `_val` suffix.
     assert!(
-        module_content.contains(":end_val"),
-        "Type definition should contain `:end_val` atom, got:\n{}",
+        module_content.contains("def wire_value(:end)"),
+        "wire_value/1 should dispatch on the true Rustler atom `:end`, got:\n{}",
         module_content
     );
 
@@ -317,19 +323,24 @@ fn enum_variant_with_multiple_reserved_words() {
         module_content
     );
 
+    // ~keep Same invariant as `enum_variant_with_reserved_word_end_escapes_in_module`: the atom
+    // must stay unescaped (`:do`, `:fn`, `:when`) because that is what Rustler's `NifUnitEnum`
+    // actually produces; only the accessor/attribute identifier gets the `_val` suffix. Asserting
+    // `:do_val` etc. here would pin the pre-fix behavior that made `wire_value/1`'s clauses
+    // unreachable (commit 7fcf57e8f).
     assert!(
-        module_content.contains(":do_val"),
-        "Type should contain `:do_val` atom, got:\n{}",
+        module_content.contains("def wire_value(:do)"),
+        "wire_value/1 should dispatch on the true Rustler atom `:do`, got:\n{}",
         module_content
     );
     assert!(
-        module_content.contains(":fn_val"),
-        "Type should contain `:fn_val` atom, got:\n{}",
+        module_content.contains("def wire_value(:fn)"),
+        "wire_value/1 should dispatch on the true Rustler atom `:fn`, got:\n{}",
         module_content
     );
     assert!(
-        module_content.contains(":when_val"),
-        "Type should contain `:when_val` atom, got:\n{}",
+        module_content.contains("def wire_value(:when)"),
+        "wire_value/1 should dispatch on the true Rustler atom `:when`, got:\n{}",
         module_content
     );
 }

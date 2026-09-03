@@ -213,8 +213,8 @@ jobs:
       # `install.sh`, so this is a true, verified pin, not a presence check. See
       # https://github.com/Goldziher/poly#github-actions. ~keep
       - name: Install poly
-        # Goldziher/poly@v0 resolved to tag v0.23.0 (commit
-        # 5f609e9f6913a9e0e9046fc02fe76c0515a8e276) when this pin was written -- pinned to that
+        # Goldziher/poly@v0 resolved to tag v0.24.0 (commit
+        # 2303580a69638d6887db17d2f4e9bbffe7c4218b) when this pin was written -- pinned to that
         # commit SHA below because a major-version tag like `v0` is mutable and can be
         # repointed, so the SHA is the real supply-chain pin; `version: v0.23.0` in `with:` is
         # kept as the human-readable/functional pin the action itself resolves against. To bump
