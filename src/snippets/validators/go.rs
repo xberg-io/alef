@@ -90,7 +90,7 @@ impl GoValidator {
         for line in output.lines() {
             let trimmed = line.trim();
             let normalized_trimmed = trimmed.replace('\\', "/");
-            if trimmed.is_empty() || files.iter().any(|file| normalized_trimmed == *file) {
+            if trimmed.is_empty() || files.contains(&normalized_trimmed) {
                 continue;
             }
             if let Some(header) = trimmed.strip_prefix("# ") {
