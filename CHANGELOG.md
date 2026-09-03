@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.82.2] - 2026-09-03
+
+Patch release. Two entries are regressions shipped in 0.82.1 -- both generated crates that do not
+compile, and both missed because every verification run was `cargo test --lib`, which does not run
+the integration tests that cover them. The rest are long-standing defects found while verifying
+those two, plus the first cross-platform CI signal this project has had: `main` had no green run in
+the last 200, and the Go compile fixtures had been failing on macOS since the day they were added.
+
 ### Fixed
 
 - **Magnus (Ruby) trait-bridge functions with no declared error type and no fallible parameter
