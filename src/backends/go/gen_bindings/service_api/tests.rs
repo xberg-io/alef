@@ -2,6 +2,7 @@ use super::*;
 use crate::core::ir::{
     EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef, ServiceDef, TypeRef,
 };
+use crate::test_support::toolchain;
 
 fn make_fixture_surface() -> ApiSurface {
     let constructor = MethodDef {
@@ -171,45 +172,16 @@ fn test_gen_service_go_produces_valid_go() {
     assert!(go.contains("owner C.uint64_t"));
 }
 
-/// Panics instead of returning `None` when `required` is `true` and `go` is unavailable -- the
-/// failure mode this exists to close: a runner whose Go setup silently regressed, where the two
-/// real `go test` compile checks below would otherwise just as silently skip.
-///
-/// `required` is a plain parameter, and `go` an already-resolved lookup, rather than this
-/// function reading `ALEF_REQUIRE_GO` or calling `which::which` itself, so
-/// `required_go_mode_fails_when_toolchain_is_unavailable` below can prove the panic fires with a
-/// fabricated "unavailable" input instead of needing to actually hide `go` from `PATH`.
-fn require_go_available(go: Option<std::path::PathBuf>, required: bool) -> Option<std::path::PathBuf> {
-    assert!(
-        go.is_some() || !required,
-        "ALEF_REQUIRE_GO is set but go is unavailable"
-    );
-    go
-}
-
 /// A `go` that actually runs, or `None` when it is not installed.
 ///
-/// A version-manager shim (e.g. `g`, `asdf`) resolves on `PATH` and spawns fine even with no Go
-/// toolchain installed behind it, then exits non-zero -- so `which::which("go").ok()` alone
-/// would leave `require_go_available`'s panic-free skip unreachable and fail the two real `go
-/// test` compile checks below on every such machine. ~keep
+/// Delegates to the crate-wide [`toolchain::GO`] gate rather than calling `which::which` here, so
+/// the two real `go test` compile checks below are counted in the same attempted/executed census
+/// every other generated-Go fixture reports into -- a skip that nothing counts is the failure
+/// mode the gate exists to close, and this file used to have its own uncounted copy of it. The
+/// gate also panics rather than skipping when `ALEF_REQUIRE_GO` is set, which is what makes a
+/// runner whose Go setup silently regressed fail loudly. ~keep
 fn required_go() -> Option<std::path::PathBuf> {
-    let go = which::which("go").ok().filter(|_| go_is_runnable());
-    require_go_available(go, std::env::var_os("ALEF_REQUIRE_GO").is_some())
-}
-
-/// Whether `go` runs, not merely resolves. See [`required_go`]. ~keep
-fn go_is_runnable() -> bool {
-    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *RUNNABLE.get_or_init(|| {
-        std::process::Command::new("go")
-            .arg("version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    })
+    toolchain::GO.open()
 }
 
 #[test]
@@ -567,27 +539,28 @@ func use(config Config) error {{
     );
 }
 
-/// Proves required-toolchain mode cannot turn a missing `go` into a silently-passed compile
-/// check, mirroring `tests/identifier_grammar_compiler_oracle.rs`'s
-/// `required_javac_mode_fails_when_toolchain_is_unavailable` and siblings.
-#[test]
-fn required_go_mode_fails_when_toolchain_is_unavailable() {
-    let result = std::panic::catch_unwind(|| require_go_available(None, true));
-    let panic = result.expect_err("required mode must fail when go is unavailable");
-    let message = panic
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| panic.downcast_ref::<&str>().copied())
-        .unwrap_or("non-string panic");
-    assert!(message.contains("ALEF_REQUIRE_GO is set"), "got: {message}");
-}
-
-/// Keeps required mode wired to a job that actually has `go` on `PATH`. GitHub-hosted runner
-/// images preinstall a Go LTS toolchain (`actions/go-versions`), so unlike
+/// Keeps required mode wired to a job that actually has `go` on `PATH`.
+///
+/// The env var alone is not enough, and assuming it was is exactly how this went wrong: the
+/// previous version of this test asserted only `ALEF_REQUIRE_GO`, on the stated grounds that
+/// "GitHub-hosted runner images preinstall a Go LTS toolchain, so unlike
 /// `ALEF_REQUIRE_JAVAC`/`ALEF_REQUIRE_DOTNET`/`ALEF_REQUIRE_KOTLINC` this needs no dedicated
-/// `uses:` setup step -- only the env var.
+/// `uses:` setup step". That is false for the arm64 macOS images, which carry no Go at all, so
+/// setting the variable there only converted a silent skip into a permanent, ignored red on
+/// `Test (macos-latest)` from 2026-08-31 onward. Requiring the explicit setup step means the
+/// claim is now enforced rather than assumed. ~keep
 #[test]
 fn ci_requires_go_for_runtime_regressions() {
     let workflow = include_str!("../../../../../.github/workflows/ci.yml");
-    assert!(workflow.contains("ALEF_REQUIRE_GO: \"1\""));
+
+    assert!(
+        workflow.contains("ALEF_REQUIRE_GO: \"1\""),
+        "the test job must make a missing Go toolchain a hard failure"
+    );
+    assert!(
+        workflow.contains("uses: actions/setup-go@"),
+        "`ALEF_REQUIRE_GO` needs an explicit Go install on every leg of the matrix: the arm64 \
+         macOS runner image does not preinstall one, so without this step the variable only \
+         turns a skip into a permanently red leg"
+    );
 }

@@ -239,7 +239,9 @@ fn generated_data_interface_packages_compile_and_run_in_one_go_test() {
         module_path: module_path_of(&manifest),
         extra_args: vec!["-mod=mod".to_owned()],
     };
-    let report = run_go_batch(&layout, &cases);
+    let Some(report) = run_go_batch(&layout, &cases) else {
+        return;
+    };
 
     report.assert_inventory(&inventory);
     for (assertion_type, _) in PASSING_ASSERTIONS {

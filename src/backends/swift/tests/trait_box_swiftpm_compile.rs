@@ -20,8 +20,6 @@
 //! 'Swift...Bridge' in scope" failure a generated doc snippet hit before the umbrella module
 //! re-exported the protocol.
 
-#![allow(clippy::print_stderr)]
-
 use crate::backends::swift::gen_bindings::boxes::emit_function_param_box_files;
 use crate::backends::swift::gen_bindings::trait_bridge::{
     gen_bridge_registration_overloads_file, gen_trait_bridge_files,
@@ -30,9 +28,10 @@ use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig}
 use crate::core::ir::{
     ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
 };
+use crate::test_support::spawn_from_stable_dir;
+use crate::test_support::toolchain;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Minimal stand-in for the swift-bridge runtime types that ship inside the real `RustBridge`
 /// target (`SwiftBridgeCore.swift`). Only the surface the generated box glue actually touches is
@@ -443,53 +442,28 @@ fn materialize_package(root: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Locate a `swift` driver, or explain loudly why the compile gate is not running.
+/// Locate a `swift` driver, or report that the compile gate did not run.
 ///
-/// On macOS a missing `swift` is an environment fault, not a portability concern -- failing there
-/// is deliberate, because a silently skipped compile gate is how this defect shipped in the first
-/// place. Elsewhere the toolchain genuinely may be absent, so the skip is allowed but shouted.
+/// Routed through the crate-wide [`toolchain::SWIFT`] gate, which counts this fixture as
+/// attempted and then as executed or skipped. The previous version of this function announced its
+/// own skip with `eprintln!`, which reads as loud and is not: `libtest` captures the stderr of a
+/// *passing* test, so that banner was invisible in every run where the gate actually lapsed --
+/// the one situation it was written for. The census file the gate writes is read by
+/// `scripts/toolchain-census.sh` after the run instead, where nothing can capture it.
 ///
-/// Resolution alone is not enough: a version-manager shim spawns fine then exits non-zero, which
-/// would make `which::which("swift")` report a driver that cannot actually build anything --
-/// silently defeating the "loud skip, never a silent one" contract this function exists for. ~keep
+/// On macOS a missing `swift` stays a hard failure, because the toolchain ships with Xcode there
+/// and CI sets `ALEF_REQUIRE_SWIFT` on that leg; elsewhere the toolchain genuinely may be absent,
+/// so the skip is allowed -- and counted. ~keep
 fn swift_driver() -> Option<PathBuf> {
-    if let Ok(path) = which::which("swift")
-        && swift_is_runnable()
-    {
-        return Some(path);
-    }
-    if cfg!(target_os = "macos") {
-        panic!(
-            "`swift` is not on PATH but this is macOS, where the Swift toolchain ships with Xcode. \
-             The two-target SwiftPM compile gate for the trait-box generator cannot run, and it is \
-             the only test that proves the generated Swift compiles. Install the toolchain rather \
-             than letting this gate lapse."
-        );
-    }
-    eprintln!(
-        "\n\
-         ================================================================\n\
-         SKIPPED: generated_trait_box_package_compiles\n\
-         No `swift` driver on PATH, so the generated Swift was NOT compiled.\n\
-         String-level assertions alone cannot catch alef #258; this run\n\
-         provides NO evidence that the trait-box output builds.\n\
-         ================================================================\n"
+    let driver = toolchain::SWIFT.open();
+    assert!(
+        driver.is_some() || !cfg!(target_os = "macos"),
+        "`swift` is not on PATH but this is macOS, where the Swift toolchain ships with Xcode. \
+         The two-target SwiftPM compile gate for the trait-box generator cannot run, and it is \
+         the only test that proves the generated Swift compiles. Install the toolchain rather \
+         than letting this gate lapse."
     );
-    None
-}
-
-/// Whether `swift` runs, not merely resolves. See [`swift_driver`]. ~keep
-fn swift_is_runnable() -> bool {
-    static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *RUNNABLE.get_or_init(|| {
-        std::process::Command::new("swift")
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
-    })
+    driver
 }
 
 /// The gate: alef's generated trait-box output must build in the two-target layout it is
@@ -528,7 +502,12 @@ fn generated_trait_box_package_compiles() {
     let root = keep.as_deref().unwrap_or_else(|| tmp.path());
     materialize_package(root).expect("write fixture SwiftPM package");
 
-    let output = Command::new(&swift)
+    // Every argument below is an absolute path, so this spawn does not care what directory it
+    // runs from -- but it does care that the directory still exists. Without the pin it inherits
+    // whatever process-wide cwd another test's `CwdGuard` last set, and `swift build` fails with
+    // "couldn't determine the current working directory" once that tempdir is gone, which is how
+    // this fixture failed on `Test (macos-latest)` with the Swift toolchain present. ~keep
+    let output = spawn_from_stable_dir(&swift.to_string_lossy())
         .arg("build")
         .arg("--package-path")
         .arg(root)

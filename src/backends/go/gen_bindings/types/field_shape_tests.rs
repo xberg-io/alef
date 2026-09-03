@@ -1,11 +1,17 @@
 use std::collections::HashSet;
 
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+use crate::test_support::toolchain;
 
 use super::gen_struct_type;
 
-fn go_compile(generated: &str, declarations: &str) -> std::process::Output {
-    let go = which::which("go").expect("Go is required for generated-Go compile fixtures");
+/// Compile the generated struct with the real Go toolchain, or `None` when Go is not installed.
+///
+/// `None` is not a pass: every caller must return without asserting, and
+/// [`toolchain::ToolchainGate::open`] has already counted the skip so the run reports how many of
+/// these fixtures actually executed. ~keep
+fn go_compile(generated: &str, declarations: &str) -> Option<std::process::Output> {
+    let go = toolchain::GO.open()?;
     let directory = tempfile::tempdir().expect("create Go compile fixture");
     std::fs::write(directory.path().join("go.mod"), "module example.com/shape\n\ngo 1.24\n").expect("write Go module");
     std::fs::write(
@@ -13,16 +19,20 @@ fn go_compile(generated: &str, declarations: &str) -> std::process::Output {
         format!("package shape\n\nimport \"encoding/json\"\n\n{declarations}\n{generated}"),
     )
     .expect("write generated Go source");
-    std::process::Command::new(go)
-        .arg("test")
-        .arg("./...")
-        .current_dir(directory.path())
-        .output()
-        .expect("run Go compiler")
+    Some(
+        std::process::Command::new(go)
+            .arg("test")
+            .arg("./...")
+            .current_dir(directory.path())
+            .output()
+            .expect("run Go compiler"),
+    )
 }
 
 fn assert_go_compiles(generated: &str, declarations: &str) {
-    let output = go_compile(generated, declarations);
+    let Some(output) = go_compile(generated, declarations) else {
+        return;
+    };
     assert!(
         output.status.success(),
         "generated Go failed to compile:\n{}\n{generated}",
@@ -47,8 +57,8 @@ const RUNTIME_INVARIANT_TEST_COUNT: usize = 1;
 /// assuming success. Kept separate from `assert_go_runtime_invariant` so a negative control can
 /// drive a deliberately failing invariant through this same path and observe the real failure —
 /// see `generated_go_runtime_invariant_control_rejects_broken_invariant` below. ~keep
-fn run_go_runtime_invariant(generated: &str, assertions: &str) -> std::process::Output {
-    let go = which::which("go").expect("Go is required for generated-Go runtime fixtures");
+fn run_go_runtime_invariant(generated: &str, assertions: &str) -> Option<std::process::Output> {
+    let go = toolchain::GO.open()?;
     let directory = tempfile::tempdir().expect("create Go runtime fixture");
     std::fs::write(directory.path().join("go.mod"), "module example.com/shape\n\ngo 1.24\n").expect("write Go module");
     std::fs::write(
@@ -63,17 +73,21 @@ fn run_go_runtime_invariant(generated: &str, assertions: &str) -> std::process::
         ),
     )
     .expect("write generated Go runtime test");
-    std::process::Command::new(go)
-        .args(["test", "-v", "./..."])
-        .current_dir(directory.path())
-        .output()
-        .expect("run Go runtime fixture")
+    Some(
+        std::process::Command::new(go)
+            .args(["test", "-v", "./..."])
+            .current_dir(directory.path())
+            .output()
+            .expect("run Go runtime fixture"),
+    )
 }
 
 /// Compile the generated struct and evaluate `assertions` inside a real `Test*` function,
 /// asserting the invariant ran and passed.
 fn assert_go_runtime_invariant(generated: &str, assertions: &str) {
-    let output = run_go_runtime_invariant(generated, assertions);
+    let Some(output) = run_go_runtime_invariant(generated, assertions) else {
+        return;
+    };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -116,10 +130,12 @@ fn generated_go_runtime_invariant_control_rejects_broken_invariant() {
     // through this exact harness by hand: it failed at `go build` with two "imported and not
     // used" errors and never reached `TestGeneratedStructRuntimeInvariant`, which is precisely
     // the false-negative shape this control must not have. ~keep
-    let output = run_go_runtime_invariant(
+    let Some(output) = run_go_runtime_invariant(
         "type Envelope struct {\n\tPayload *json.RawMessage `json:\"payload,omitempty\"`\n}\n",
         "\t_ = json.RawMessage{}\n\tt.Fatalf(\"deliberately broken invariant\")\n",
-    );
+    ) else {
+        return;
+    };
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !output.status.success(),
@@ -134,7 +150,9 @@ fn generated_go_runtime_invariant_control_rejects_broken_invariant() {
 
 #[test]
 fn generated_go_compile_check_rejects_broken_source() {
-    let output = go_compile("func broken() { missingSymbol() }", "");
+    let Some(output) = go_compile("func broken() { missingSymbol() }", "") else {
+        return;
+    };
     assert!(!output.status.success(), "compile control unexpectedly passed");
 }
 
