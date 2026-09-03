@@ -30,10 +30,13 @@ mod http;
 mod json_object_field_agreement_tests;
 #[cfg(test)]
 mod loop_binding_tests;
+mod mock_url_splice;
 #[cfg(test)]
 mod mock_url_tagged_enum_tests;
 #[cfg(test)]
 mod node_enum_import_tests;
+#[cfg(test)]
+mod node_mock_url_tagged_enum_exact_tests;
 #[cfg(test)]
 mod optional_segment_len_tests;
 mod render;
@@ -59,6 +62,8 @@ mod wasm_enum_import_tests;
 mod wasm_enum_member_agreement_tests;
 #[cfg(test)]
 mod wasm_handle_config_transitive_import_tests;
+#[cfg(test)]
+mod wasm_mock_url_instance_tests;
 #[cfg(test)]
 mod wasm_optional_chain_tests;
 #[cfg(test)]
@@ -90,6 +95,7 @@ pub(in crate::e2e::codegen::typescript::test_file) use helpers::{
     strip_setup_metadata, ts_method_helper_import,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use http::render_http_test_case;
+pub(in crate::e2e::codegen::typescript::test_file) use mock_url_splice::splice_mock_url_into_builder_code;
 pub(in crate::e2e::codegen::typescript::test_file) use test_case::render_test_case;
 pub(in crate::e2e::codegen::typescript::test_file) use visitor::{
     apply_wasm_visitor_arg, node_visitor_args, wasm_visitor_binding,

@@ -481,23 +481,32 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
                             let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
                             let var_prefix = sanitize_ident(&arg.name);
+                            let base_var = format!("{var_prefix}MockBaseUrl");
                             setup_lines.push(format!(
-                                "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                                "const {base_var} = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
                             ));
-                            setup_lines.push(format!(
-                                "const {var_prefix}Json = JSON.stringify({array_literal}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
-                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                            ));
-                            let array_type = arg
-                                .element_type
-                                .as_deref()
-                                .map(|raw| format!("{}[]", canonical_ts_type_name(lang, raw, config)))
-                                .unwrap_or_else(|| "unknown[]".to_string());
-                            setup_lines.push(format!(
-                                "const {name} = JSON.parse({var_prefix}Json) as {array_type};",
-                                name = arg.name
-                            ));
-                            parts.push(arg.name.clone());
+                            if lang == "wasm" {
+                                // wasm's typed builder already constructed real class instances
+                                // above -- splice the runtime URL into that source instead of
+                                // stringifying/re-parsing it, which would throw the instances away.
+                                // See `mock_url_splice` for why. ~keep
+                                parts.push(splice_mock_url_into_builder_code(&array_literal, &base_var));
+                            } else {
+                                setup_lines.push(format!(
+                                    "const {var_prefix}Json = JSON.stringify({array_literal}).replaceAll(\"{}\", {base_var});",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                ));
+                                let array_type = arg
+                                    .element_type
+                                    .as_deref()
+                                    .map(|raw| format!("{}[]", canonical_ts_type_name(lang, raw, config)))
+                                    .unwrap_or_else(|| "unknown[]".to_string());
+                                setup_lines.push(format!(
+                                    "const {name} = JSON.parse({var_prefix}Json) as {array_type};",
+                                    name = arg.name
+                                ));
+                                parts.push(arg.name.clone());
+                            }
                         } else {
                             parts.push(array_literal);
                         }
@@ -558,18 +567,37 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
                                 let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
                                 let var_prefix = sanitize_ident(&arg.name);
+                                let base_var = format!("{var_prefix}MockBaseUrl");
                                 setup_lines.push(format!(
-                                    "const {var_prefix}MockBaseUrl = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
+                                    "const {base_var} = process.env.{env_key} ?? `${{process.env.MOCK_SERVER_URL}}/fixtures/{fixture_id}`;"
                                 ));
-                                setup_lines.push(format!(
-                                    "const {var_prefix}Json = JSON.stringify({ts_code}).replaceAll(\"{}\", {var_prefix}MockBaseUrl);",
-                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                                ));
-                                setup_lines.push(format!(
-                                    "const {name} = JSON.parse({var_prefix}Json) as {opts_type};",
-                                    name = arg.name
-                                ));
-                                parts.push(arg.name.clone());
+                                if lang == "wasm" {
+                                    // See the array branch above and `mock_url_splice`: splice
+                                    // into the builder's own source rather than round-tripping it
+                                    // through JSON, which would discard the real class instance. ~keep
+                                    let spliced = splice_mock_url_into_builder_code(&ts_code, &base_var);
+                                    if bind_typed_json_objects {
+                                        let suffix = format!(" as {opts_type}");
+                                        let expression = spliced.strip_suffix(&suffix).unwrap_or(&spliced);
+                                        setup_lines.push(crate::e2e::template_env::render(
+                                            "typescript/typed_binding.jinja",
+                                            minijinja::context! { name => arg.name, type_name => opts_type, expression => expression },
+                                        ).trim_end().to_string());
+                                        parts.push(arg.name.clone());
+                                    } else {
+                                        parts.push(spliced);
+                                    }
+                                } else {
+                                    setup_lines.push(format!(
+                                        "const {var_prefix}Json = JSON.stringify({ts_code}).replaceAll(\"{}\", {base_var});",
+                                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                    ));
+                                    setup_lines.push(format!(
+                                        "const {name} = JSON.parse({var_prefix}Json) as {opts_type};",
+                                        name = arg.name
+                                    ));
+                                    parts.push(arg.name.clone());
+                                }
                             } else if bind_typed_json_objects {
                                 let suffix = format!(" as {opts_type}");
                                 let expression = ts_code.strip_suffix(&suffix).unwrap_or(&ts_code);

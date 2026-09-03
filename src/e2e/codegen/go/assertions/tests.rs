@@ -216,3 +216,45 @@ fn go_ir_excluded_field_present_in_result_fields_is_still_skipped() {
     let out = render_with_resolver(&assertion, &resolver);
     assert!(out.contains("skipped"), "got: {out}");
 }
+
+fn not_empty_assertion(field: &str) -> Assertion {
+    Assertion {
+        assertion_type: "not_empty".to_string(),
+        field: Some(field.to_string()),
+        ..Default::default()
+    }
+}
+
+fn is_empty_assertion(field: &str) -> Assertion {
+    Assertion {
+        assertion_type: "is_empty".to_string(),
+        field: Some(field.to_string()),
+        ..Default::default()
+    }
+}
+
+/// `render_with_optional_field` marks "notes" as an `Option<T>` field with NO IR at all, so
+/// `FieldResolver::target_field_is_pointer` returns `None` and (per `assertion_field_shape.rs`'s
+/// documented `unwrap_or(false)` policy) resolves to "not a pointer". `not_empty` must honor that
+/// exact answer instead of re-deriving pointer-ness from nullability alone: pre-fix, this emitted
+/// `len(*result.Notes)` against a field the resolver never proved was a pointer -- the inverse of
+/// the `SheetCount` defect. ~keep
+#[test]
+fn not_empty_on_optional_non_pointer_field_never_dereferences() {
+    let out = render_with_optional_field(&not_empty_assertion("notes"), "notes");
+    assert_eq!(
+        out,
+        "\tif result.Notes == nil || len(result.Notes) == 0 {\n\t\tt.Errorf(\"expected non-empty value\")\n\t}\n"
+    );
+}
+
+/// Symmetric regression for `is_empty` -- see
+/// `not_empty_on_optional_non_pointer_field_never_dereferences`. ~keep
+#[test]
+fn is_empty_on_optional_non_pointer_field_never_dereferences() {
+    let out = render_with_optional_field(&is_empty_assertion("notes"), "notes");
+    let expected = "\tif result.Notes != nil && len(result.Notes) != 0 {\n\
+        \t\tt.Errorf(\"expected empty value, got %v\", result.Notes)\n\
+        \t}\n";
+    assert_eq!(out, expected);
+}

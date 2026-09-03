@@ -595,6 +595,60 @@ fn go_result_shapes_follow_emitted_type_partitions() {
     }
 }
 
+/// Constructs the concrete case where `test_function.rs`'s pre-fix guess
+/// (`is_optional && !is_array`) and `assertion_field_shape.rs`'s `unwrap_or(false)` diverge:
+/// a path that crosses a data-enum (sealed-interface) variant boundary. `Choice`'s payload is
+/// never recorded in `field_types` (`ir_result_fields.rs` only extends it across `structs` and
+/// `pointer_variant_enums`), so the walk to `choice.value` genuinely cannot resolve --
+/// `target_field_is_pointer` returns `None` -- while `is_optional`/`is_array` still answer from
+/// the config-declared `fields_optional` set independently of that walk. Before harmonizing
+/// `test_function.rs` onto `unwrap_or(false)`, this divergence made it guess "pointer" for a
+/// leaf that is a plain, non-optional `string` field on `Choice`'s payload struct -- the
+/// `SheetCount`-shaped compile error PR #330 fixed, reappearing via a different unwalkable
+/// boundary. ~keep
+#[test]
+fn unresolved_data_enum_crossing_diverges_between_the_two_pointer_fallback_guesses() {
+    let types = vec![TypeDef {
+        name: "Envelope".into(),
+        fields: vec![FieldDef {
+            name: "choice".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Named("Choice".into()))),
+            optional: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let enums = vec![data_choice_enum()];
+    let optional: HashSet<String> = ["choice.value".into()].into_iter().collect();
+    let resolver = FieldResolver::new(
+        &Default::default(),
+        &optional,
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .with_ir_result_fields(
+        FieldResolver::ir_result_field_facts_with_enums(&types, &enums, "go"),
+        Some("Envelope".into()),
+    );
+
+    // The anchored IR cannot cross `Choice`'s variant boundary, so this path is genuinely
+    // unresolved -- `None`, not a positive "not a pointer" answer.
+    assert_eq!(resolver.target_field_is_pointer("choice.value"), None);
+
+    // `assertion_field_shape.rs`'s (and, after this fix, `test_function.rs`'s) answer for this
+    // exact unresolved path.
+    assert!(!resolver.target_field_is_pointer("choice.value").unwrap_or(false));
+
+    // `test_function.rs`'s pre-fix guess for the identical unresolved path: config-declared
+    // optional and not an array, so it answered `true`.
+    let old_guess = resolver.is_optional("choice.value") && !resolver.is_array("choice.value");
+    assert!(
+        old_guess,
+        "the two fallbacks must genuinely diverge for this case, or the regression is moot"
+    );
+}
+
 fn partitioned_type_fixture() -> (Vec<TypeDef>, Vec<EnumDef>, HashSet<String>) {
     let named_field = |name: &str, target: &str| FieldDef {
         name: name.into(),
@@ -639,7 +693,7 @@ fn partitioned_type_fixture() -> (Vec<TypeDef>, Vec<EnumDef>, HashSet<String>) {
 }
 /// A root result type reached through one `Vec<Struct>` hop before an `Option<Vec<T>>`/
 /// `Option<Vec<String>>` leaf -- the exact shape `results[0].chunks` and
-/// `results[0].detected_languages[0]` have in the real xberg crate. Every existing fixture in
+/// `results[0].detected_languages[0]` have in the real downstream crate. Every existing fixture in
 /// this file puts the field directly on a flat "Envelope" root, which never exercises the
 /// multi-hop `walk_to_owner_from` traversal the real compile failures went through.
 fn nested_option_vec_fixture() -> Vec<TypeDef> {
@@ -715,7 +769,7 @@ fn shape_for(resolver: &FieldResolver, field: &str) -> super::assertion_field_sh
 /// slice (`go_optional_type`'s `TypeRef::Vec(_) => go_type(ty)` arm). Before this fix, an
 /// unresolved (or IR-collection-blind) `is_array_for_len` made the `unwrap_or(is_optional &&
 /// !is_array_for_len)` guess fire `true`, and Go's e2e generator emitted `len(*result.Chunks)`
-/// against a `[]Chunk` -- `cannot indirect ... variable of type []xberg.Chunk`.
+/// against a `[]Chunk` -- `cannot indirect ... variable of type []pkg.Chunk`.
 #[test]
 fn nested_option_vec_field_through_a_struct_array_is_not_pointer() {
     let resolver = nested_option_vec_resolver();
@@ -796,7 +850,7 @@ fn unresolved_optional_field_is_never_guessed_as_a_pointer() {
 }
 
 /// A root result type with a `Map<String, String>` field -- the exact shape
-/// `DocumentMetadata::open_graph` has in html-to-markdown -- and a `Map<String, Option<String>>`
+/// `DocumentMetadata::open_graph` has downstream -- and a `Map<String, Option<String>>`
 /// field standing in for a map whose VALUE type genuinely can be absent in Go (`map[string]
 /// *string`), both reached the same bracket-index way `alef.toml`'s `fields_optional` declares a
 /// map key lookup (`open_graph[title]`).

@@ -540,8 +540,13 @@ mod tests {
         )
         .expect("snippet");
 
+        // The doc snippet shows the byte-integer-list form, not a bare `File.read!`, because the
+        // documented call path really does JSON-encode: `Xberg.extract/1` sends a struct through
+        // `Jason.encode!` (packages/elixir/lib/xberg.ex), and a raw binary of non-UTF-8 file bytes
+        // raises `Jason.EncodeError` there. A snippet reading `File.read!` documented code that
+        // crashed on any real PDF. See alef#308. ~keep
         assert!(
-            body.contains("%Sample.DocumentRequest{content: File.read!(\"document.pdf\")}"),
+            body.contains("%Sample.DocumentRequest{content: :binary.bin_to_list(File.read!(\"document.pdf\"))}"),
             "{body}"
         );
     }

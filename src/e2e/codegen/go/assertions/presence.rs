@@ -40,8 +40,20 @@ pub(super) fn render_not_empty(
         let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
     } else if field_is_nullable && field_is_slice {
         let _ = writeln!(out_ref, "\tif {field_expr} == nil || len({field_expr}) == 0 {{");
-    } else if field_is_nullable {
+    } else if field_is_pointer {
+        // `field_is_pointer && field_is_array` falls through the first branch above (which
+        // only fires on `!field_is_array`) -- a pointer to an array-like value still needs
+        // the `*` this branch supplies. ~keep
         let _ = writeln!(out_ref, "\tif {field_expr} == nil || len(*{field_expr}) == 0 {{");
+    } else if field_is_nullable {
+        // `field_is_nullable` alone (`is_optional` without `field_is_pointer`) means the
+        // resolver marked this field optional but did NOT prove it renders as a Go pointer
+        // -- a nilable slice/map/interface, or an unresolved path the resolver refused to
+        // guess pointer for (see `assertion_field_shape.rs`'s `unwrap_or(false)`).
+        // Dereferencing here regardless of that fact emitted `len(*result.Field)` against a
+        // plain, non-pointer nilable type -- a Go compile error, the inverse of the
+        // `SheetCount` defect. ~keep
+        let _ = writeln!(out_ref, "\tif {field_expr} == nil || len({field_expr}) == 0 {{");
     } else if is_numeric_scalar {
         return;
     } else {
@@ -76,8 +88,12 @@ pub(super) fn render_is_empty(
         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
     } else if field_is_nullable && field_is_slice {
         let _ = writeln!(out_ref, "\tif {field_expr} != nil && len({field_expr}) != 0 {{");
-    } else if field_is_nullable {
+    } else if field_is_pointer {
         let _ = writeln!(out_ref, "\tif {field_expr} != nil && len(*{field_expr}) != 0 {{");
+    } else if field_is_nullable {
+        // See `render_not_empty`'s identical branch: `field_is_nullable` without
+        // `field_is_pointer` must never dereference. ~keep
+        let _ = writeln!(out_ref, "\tif {field_expr} != nil && len({field_expr}) != 0 {{");
     } else {
         let _ = writeln!(out_ref, "\tif len({field_expr}) != 0 {{");
     }

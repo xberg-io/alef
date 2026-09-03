@@ -298,19 +298,27 @@ pub(super) fn build_args_and_setup(
                                 .is_some_and(|slash_pos| slash_pos > 0 && raw[slash_pos + 1..].contains('.'));
                         if is_file_path {
                             // Looks like "dir/file.ext" - read from the
-                            // configured test-documents directory.
+                            // configured test-documents directory. Convert to a byte-integer
+                            // list, not a raw binary: the value later crosses a Jason.encode!
+                            // hop (e.g. the ExtractInput struct's `bytes` field), and a
+                            // binary containing non-UTF-8 bytes crashes that encode. An
+                            // integer list matches the shape the already-working inline
+                            // Vec<u8> array path emits (see the `element_type` array branch
+                            // below), which the NIF already accepts. ~keep
                             let full_path = format!("{test_documents_path}/{raw}");
                             let escaped = escape_elixir(&full_path);
-                            setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
+                            setup_lines.push(format!("{var_name} = :binary.bin_to_list(File.read!(\"{escaped}\"))"));
                             if arg.optional {
                                 parts.push(format!("{}: {var_name}", arg.name));
                             } else {
                                 parts.push(var_name.to_string());
                             }
                         } else {
-                            // Treat as base64-encoded binary.
+                            // Treat as base64-encoded binary. Decoding to a raw binary has the
+                            // same non-UTF-8-crashes-Jason.encode! problem as the file-path
+                            // case above, so convert to a byte-integer list too. ~keep
                             setup_lines.push(format!(
-                                "{var_name} = Base.decode64!(\"{}\", padding: false)",
+                                "{var_name} = :binary.bin_to_list(Base.decode64!(\"{}\", padding: false))",
                                 escape_elixir(raw)
                             ));
                             if arg.optional {

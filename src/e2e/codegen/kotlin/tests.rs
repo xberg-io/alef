@@ -284,6 +284,140 @@ fn json_object_arg_with_mock_url_placeholder_binds_once_at_runtime() {
     );
 }
 
+/// Regression (issue #309, third instance this session): `alef` fixed three of four "generated
+/// data-class constructor param has no Kotlin default" cases (0.82.2, commit `e47a5bade`) by
+/// materialising a JSON stub through `KotlinFillContext` on the `handle` arg path. This is the
+/// fourth case: a `json_object` arg with no fixture value, whose target actually requires it,
+/// previously spliced a bare `TypeName()` unconditionally — which does not compile when
+/// `TypeName` is not in `default_constructible_type_names` (e.g. `ExtractionConfig`, bare only
+/// because `url: UrlExtractionConfig` is bare, itself bare only because `crawl: CrawlConfig` is
+/// bare, itself bare only because `crawl.ssrf: SsrfPolicy` has no Kotlin default — the same
+/// nested shape `fill_missing_required_kotlin_fields`'s own doc comment already worked through
+/// for the `handle` path). This pins that the `json_object` fallback now goes through the exact
+/// same recursive stub machinery, all the way down: `{"url":{"crawl":{"ssrf":{}}}}`, not a
+/// blind `{}` at any level. ~keep
+#[test]
+fn json_object_arg_without_default_constructor_falls_back_to_a_json_stub() {
+    use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+
+    let ssrf_policy = TypeDef {
+        name: "SsrfPolicy".to_string(),
+        rust_path: "crawlberg::SsrfPolicy".to_string(),
+        has_default: true,
+        fields: vec![FieldDef {
+            name: "deny_private".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            typed_default: Some(DefaultValue::BoolLiteral(true)),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let crawl_config = TypeDef {
+        name: "CrawlConfig".to_string(),
+        rust_path: "crawlberg::CrawlConfig".to_string(),
+        has_default: true,
+        fields: vec![
+            FieldDef {
+                name: "respect_robots_txt".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                typed_default: Some(DefaultValue::BoolLiteral(false)),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "ssrf".to_string(),
+                ty: TypeRef::Named("SsrfPolicy".to_string()),
+                // Required, no Kotlin default -- mirrors the real `crawlberg::CrawlConfig::ssrf`
+                // field the `fill_missing_required_kotlin_fields` doc comment already names.
+                typed_default: None,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let url_extraction_config = TypeDef {
+        name: "UrlExtractionConfig".to_string(),
+        rust_path: "xberg::UrlExtractionConfig".to_string(),
+        has_default: true,
+        fields: vec![FieldDef {
+            name: "crawl".to_string(),
+            ty: TypeRef::Named("CrawlConfig".to_string()),
+            // The real field's default is `UrlExtractionConfig::default_xberg_crawl_config()`,
+            // a `PublicFunctionCall` alef cannot fold across the `..Default::default()` spread
+            // in its body -- `kotlin_field_default` correctly renders no Kotlin default for it,
+            // and this stays permanent: the value depends on a foreign crate's `impl Default`
+            // alef's constant-folder cannot read across a crate boundary. ~keep
+            typed_default: Some(DefaultValue::PublicFunctionCall(
+                "UrlExtractionConfig::default_xberg_crawl_config".to_string(),
+            )),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let extraction_config = TypeDef {
+        name: "ExtractionConfig".to_string(),
+        rust_path: "xberg::ExtractionConfig".to_string(),
+        has_default: true,
+        fields: vec![FieldDef {
+            name: "url".to_string(),
+            ty: TypeRef::Named("UrlExtractionConfig".to_string()),
+            typed_default: Some(DefaultValue::Empty),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let type_defs = [ssrf_policy, crawl_config, url_extraction_config, extraction_config];
+
+    let args = vec![ArgMapping {
+        name: "options".to_string(),
+        field: "input.options".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: true,
+        owned: false,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "extraction_fixture".to_string(),
+        description: "test fixture".to_string(),
+        input: serde_json::json!({}),
+        ..Fixture::default()
+    };
+
+    let (setup, args_str) = build_args_and_setup(
+        &fixture.input,
+        &args,
+        KotlinArgsContext {
+            fixture: &fixture,
+            class_name: "Sample",
+            options_type: Some("ExtractionConfig"),
+            fixture_id: &fixture.id,
+            kotlin_android_style: true,
+            config: &ResolvedCrateConfig::default(),
+            type_defs: &type_defs,
+            owner_handle_is_receiver: false,
+            enums: &[],
+            target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        },
+    )
+    .expect("args build succeeds");
+
+    let rendered = setup.join("\n");
+    assert_eq!(args_str, "optionsDefault");
+    assert_eq!(
+        rendered,
+        "val optionsDefault = MAPPER.readValue(\"{\\\"url\\\":{\\\"crawl\\\":{\\\"ssrf\\\":{}}}}\", \
+         ExtractionConfig::class.java)",
+        "expected the fully recursive JSON stub down to `ssrf`, got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("ExtractionConfig()"),
+        "ExtractionConfig is not zero-arg constructible (`url` has no Kotlin default); \
+         the bare constructor must never be emitted, got:\n{rendered}"
+    );
+}
+
 /// Resolver for an optional field on a non-array result, e.g. `data` directly
 /// on the result (mirrors `action_results[0].data` after array-index resolution
 /// down to the leaf field on the accessed element).

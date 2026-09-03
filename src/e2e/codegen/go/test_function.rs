@@ -563,6 +563,16 @@ pub(super) fn render_test_function_with_facts(
                 continue;
             }
             let resolved = field_resolver.resolve(f);
+            // ~keep This site's `None` fallback deliberately DIFFERS from
+            // `assertion_field_shape.rs`'s `unwrap_or(false)`, and the difference is load-bearing:
+            // harmonizing the two was tried and reverted. There, `false` is right -- it prevents
+            // the `len(*result.Chunks)` deref of a plain `[]Chunk`. Here, `false` is wrong -- it
+            // DROPS a required deref, emitting `string(result.Content)` for a `*string` and
+            // failing `test_go_plain_optional_string_uses_string_deref_not_text_accessor` and
+            // `test_go_display_as_text_optional_uses_text_accessor_not_string_deref`. The two
+            // sites ask the same question about different path shapes, so neither fallback is
+            // universally safe. The real fix is to make `target_field_is_pointer` total for
+            // data-enum crossings so `None` stops happening; until then do not "unify" these.
             let is_pointer = field_resolver
                 .target_field_is_pointer(resolved)
                 .unwrap_or_else(|| field_resolver.is_optional(resolved) && !field_resolver.is_array(resolved));
