@@ -145,6 +145,84 @@ fn build_node_tagged_enum_variant_literal(
     ))
 }
 
+/// For a node-lang tagged-data enum whose matched variant is struct-shaped (named fields
+/// flattened directly alongside the tag, e.g. `AuthConfig::Basic { username, password }` under
+/// `#[serde(tag = "type")]`), napi's `.d.ts` union member keeps that exact flattened shape
+/// (`{ type: "basic"; username: string; password: string }`) — see `gen_tagged_enum_as_object`.
+///
+/// `node_value_expression`'s generic object path (the caller here) has no typed renderer for a
+/// `Named` field whose type is an [`EnumDef`] rather than a [`TypeDef`], so it fell through to
+/// treating the tag key like any other field and copied the fixture's wire string verbatim. That
+/// string is a real value of the discriminant's declared type ("basic" IS a member of
+/// `"basic" | "bearer" | "header"`), so nothing here is wrong in isolation -- the literal only
+/// breaks once something ELSE binds it to an unannotated `const` or otherwise loses the calling
+/// context that would contextually type it, at which point the tag widens to plain `string` and
+/// no longer matches the union (`TS2345`). Casting the object literal itself `as <type_name>`
+/// gives the WHOLE expression that exact type before it can be assigned to anything, so the tag
+/// never gets a chance to widen -- regardless of how deeply nested this literal ends up, or
+/// whether its caller binds it to a `const` first. ~keep
+///
+/// Returns `None` for anything this does not confidently know how to render (no tag key present,
+/// no variant matching the tag's wire value, or a tuple-shaped variant -- that shape nests its
+/// payload under a synthesized field name instead of flattening, and is
+/// `build_node_tagged_enum_variant_literal`'s to handle, not this one) so the caller falls back
+/// to the ordinary flatten path unchanged.
+#[allow(clippy::too_many_arguments)]
+fn node_tagged_struct_variant_literal(
+    type_name: &str,
+    enum_def: &EnumDef,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    enum_fields: &std::collections::HashMap<String, String>,
+    docs_files: &[crate::e2e::fixture::FixtureDocsFileInput],
+    pointer: &str,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    referenced_enums: &mut std::collections::BTreeSet<String>,
+) -> Option<String> {
+    if !crate::backends::napi::is_tagged_data_enum(enum_def) {
+        return None;
+    }
+    let tag_field = crate::backends::napi::tagged_enum_discriminant_js_name(enum_def);
+    let tag_value = obj.get(tag_field)?.as_str()?;
+    let variant = enum_def.variants.iter().find(|v| {
+        crate::codegen::naming::wire_variant_value(
+            &v.name,
+            v.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        ) == tag_value
+    })?;
+    if variant.is_tuple {
+        return None;
+    }
+    let fields = obj
+        .iter()
+        .map(|(key, val)| {
+            let js_key = node_field_public_key(None, key);
+            let expr = if key == tag_field {
+                serde_json::to_string(tag_value).expect("tag values serialize as JSON strings")
+            } else {
+                let nested_field_type = variant.fields.iter().find(|f| f.name == *key).map(|f| &f.ty);
+                node_value_expression(
+                    val,
+                    key,
+                    enum_fields,
+                    docs_files,
+                    &json_pointer_child(pointer, key),
+                    nested_field_type,
+                    type_defs,
+                    enums,
+                    None,
+                    referenced_enums,
+                )
+            };
+            format!("{js_key}: {expr}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    referenced_enums.insert(format!("type {type_name}"));
+    Some(format!("{{ {fields} }} as {type_name}"))
+}
+
 /// Pre-process a JSON value so that napi-rs (node) binding can deserialize it.
 ///
 /// The napi-rs backend exposes a tagged-data enum's discriminant under the
@@ -886,6 +964,23 @@ fn node_value_expression(
         }
         let member = declared_enum_member_for_prefixed(enum_type, enums, "", variant);
         return enum_member_reference(enum_type, &member, referenced_enums);
+    }
+    if let Some(crate::core::ir::TypeRef::Named(type_name)) = field_type
+        && let serde_json::Value::Object(object) = value
+        && let Some(enum_def) = enums.iter().find(|definition| definition.name == *type_name)
+        && let Some(literal) = node_tagged_struct_variant_literal(
+            type_name,
+            enum_def,
+            object,
+            enum_fields,
+            docs_files,
+            pointer,
+            type_defs,
+            enums,
+            referenced_enums,
+        )
+    {
+        return literal;
     }
     match value {
         serde_json::Value::Object(object) => {

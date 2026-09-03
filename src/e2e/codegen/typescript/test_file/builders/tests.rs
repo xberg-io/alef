@@ -978,3 +978,135 @@ fn node_field_keyed_by_a_wire_name_that_diverges_from_its_js_name_resolves_the_j
 
     assert_eq!(expression, "{ toolType: \"function\" } as ExampleTool");
 }
+
+/// `AuthConfig` is crawlberg's real `#[serde(tag = "type", rename_all = "lowercase")]` enum with
+/// two STRUCT variants — named fields flattened alongside the tag, which is the shape
+/// `internal_tagged_union_dts_lines` renders as `{ type: 'basic'; username: string; password:
+/// string } | { type: 'bearer'; token: string }`.
+fn auth_config_enum_def() -> EnumDef {
+    let string_field = |name: &str| crate::core::ir::FieldDef {
+        name: name.into(),
+        ty: TypeRef::String,
+        ..Default::default()
+    };
+    EnumDef {
+        name: "AuthConfig".into(),
+        serde_tag: Some("type".into()),
+        serde_rename_all: Some("lowercase".into()),
+        variants: vec![
+            crate::core::ir::EnumVariant {
+                name: "Basic".into(),
+                fields: vec![string_field("username"), string_field("password")],
+                ..Default::default()
+            },
+            crate::core::ir::EnumVariant {
+                name: "Bearer".into(),
+                fields: vec![string_field("token")],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+fn engine_config_type_def() -> TypeDef {
+    TypeDef {
+        name: "EngineConfig".into(),
+        fields: vec![
+            crate::core::ir::FieldDef {
+                name: "auth".into(),
+                ty: TypeRef::Named("AuthConfig".into()),
+                ..Default::default()
+            },
+            crate::core::ir::FieldDef {
+                name: "respect_robots_txt".into(),
+                ty: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+fn engine_config_expression() -> String {
+    ts_builder_expression(
+        serde_json::json!({
+            "auth": {"type": "basic", "username": "testuser", "password": "testpass"},
+            "respect_robots_txt": false,
+        })
+        .as_object()
+        .expect("object"),
+        "EngineConfig",
+        &Default::default(),
+        "node",
+        &Default::default(),
+        &Default::default(),
+        &[engine_config_type_def()],
+        &[auth_config_enum_def()],
+        "",
+        &[],
+        &mut Default::default(),
+    )
+}
+
+#[test]
+fn node_nested_tagged_struct_variant_literal_carries_its_own_type_assertion() {
+    let expression = engine_config_expression();
+    assert!(
+        expression.contains("} as AuthConfig"),
+        "the nested tagged-enum literal must assert its own union type so its discriminant \
+         cannot widen to `string`, got: {expression}"
+    );
+}
+
+/// The falsifiable half, and the shape the defect actually took in crawlberg's 16
+/// `fixture_node_auth_*` failures: `args.rs`'s `bind_typed_json_objects` path strips the outer
+/// ` as EngineConfig` and binds the literal to an unannotated `const` before passing it on, so
+/// the object literal is contextually typed by NOTHING. Without an assertion of its own, the
+/// nested `type: "basic"` widens from the literal type `"basic"` to plain `string`, which is not
+/// assignable to either member of the `AuthConfig` union — `TS2345`.
+///
+/// This typechecks the e2e generator's literal against the union the napi backend itself emits
+/// (`internal_tagged_union_dts_lines`), so the two generators cannot drift apart silently. Skips
+/// itself when `tsc` is not installed, like every other test in this file.
+#[test]
+fn node_nested_tagged_struct_variant_survives_binding_to_an_unannotated_const() {
+    let expression = engine_config_expression();
+    let literal = expression
+        .strip_suffix(" as EngineConfig")
+        .expect("node builder expressions end in an `as <type>` assertion");
+    let dts = crate::backends::napi::internal_tagged_union_dts_lines(&auth_config_enum_def(), "AuthConfig").join("\n");
+    let source = format!(
+        "{dts}\n\
+         interface EngineConfig {{ auth: AuthConfig; respectRobotsTxt: boolean }}\n\
+         declare function createEngine(config: EngineConfig): void;\n\
+         const engineConfig = {literal};\n\
+         createEngine(engineConfig);\n"
+    );
+    assert_strict_typescript_compiles(&source);
+}
+
+/// The neutralisation control: the same literal with the nested assertion removed is exactly
+/// what 0.82.2 emitted, and strict TypeScript must reject it. Without this, the test above
+/// cannot tell a real fix from a `tsc` that accepts anything.
+#[test]
+fn node_nested_tagged_struct_variant_without_its_assertion_is_rejected() {
+    let expression = engine_config_expression();
+    let literal = expression
+        .strip_suffix(" as EngineConfig")
+        .expect("node builder expressions end in an `as <type>` assertion")
+        .replace("} as AuthConfig", "}");
+    assert!(
+        !literal.contains("as AuthConfig"),
+        "neutralisation must remove the nested assertion, got: {literal}"
+    );
+    let dts = crate::backends::napi::internal_tagged_union_dts_lines(&auth_config_enum_def(), "AuthConfig").join("\n");
+    let source = format!(
+        "{dts}\n\
+         interface EngineConfig {{ auth: AuthConfig; respectRobotsTxt: boolean }}\n\
+         declare function createEngine(config: EngineConfig): void;\n\
+         const engineConfig = {literal};\n\
+         createEngine(engineConfig);\n"
+    );
+    assert_strict_typescript_rejects(&source);
+}

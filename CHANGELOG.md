@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A node e2e/snippet object literal whose field is a tagged-data enum lost its discriminant's
+  literal type, so the value stopped matching the union the napi binding declares (`TS2345`).**
+  The generic object path had no typed renderer for a `Named` field resolving to an `EnumDef`
+  rather than a `TypeDef`, so it treated the discriminant like any other field and copied the
+  fixture's wire string verbatim. Nothing is wrong with that literal in isolation — `"basic"` is
+  a real member of `"basic" | "bearer"` — but the argument builder binds the enclosing literal to
+  an unannotated `const` before passing it on (it strips the outer `as <OptionsType>` assertion
+  to do so), and with no contextual type left the tag widens to plain `string` and matches
+  neither union member. A struct-shaped variant's literal now asserts its own enum type, so the
+  tag cannot widen however deeply the literal is nested or however its caller binds it. Seen as
+  16 `fixture_node_auth_*` failures in `crawlberg`.
+
 ## [0.82.2] - 2026-09-03
 
 Patch release. Two entries are regressions shipped in 0.82.1 -- both generated crates that do not
