@@ -11,14 +11,18 @@ pub(crate) struct GoEmissionFacts<'a> {
     pub(crate) passthrough_enums: HashSet<&'a str>,
     pub(crate) data_enums: HashSet<&'a str>,
     /// Enums [`super::go_enum_representation`] classifies as
-    /// [`super::GoEnumRepresentation::ExternallyTaggedStruct`] -- `gen_externally_tagged_union_type`
-    /// emits one struct field per variant, unconditionally typed `*<payload struct>` (every
-    /// variant but the active one is absent, so every field must tolerate nil). Recorded here so
+    /// [`super::GoEnumRepresentation::ExternallyTaggedStruct`] (`gen_externally_tagged_union_type`)
+    /// OR [`super::GoEnumRepresentation::TupleTaggedStruct`] (`gen_tuple_tagged_union_type`) --
+    /// both render the SAME `tagged_union_variant_field.jinja` template, one struct field per
+    /// variant, unconditionally typed `*<payload struct>` (every variant but the active one is
+    /// absent, so every field must tolerate nil). The wire tagging differs (external key vs. an
+    /// internal `#[serde(tag = "...")]` discriminator field), but the Go struct shape and the
+    /// pointer invariant do not, so both classifications belong in one set. Recorded here so
     /// `e2e::field_access::ir_result_fields` can extend its owner/field walk across a tagged-union
     /// projection like `format.excel` with the SAME authority a literal struct field gets, instead
     /// of guessing: the pointer-ness is a fact this backend's own generator template always
     /// produces, not an inference over incomplete information. ~keep
-    pub(crate) externally_tagged_struct_enums: HashSet<&'a str>,
+    pub(crate) pointer_variant_enums: HashSet<&'a str>,
 }
 
 impl<'a> GoEmissionFacts<'a> {
@@ -71,10 +75,14 @@ impl<'a> GoEmissionFacts<'a> {
                 .filter(|definition| super::is_data_interface_struct_field_enum(definition))
                 .map(|definition| definition.name.as_str())
                 .collect(),
-            externally_tagged_struct_enums: emitted_enums
+            pointer_variant_enums: emitted_enums
                 .iter()
                 .filter(|definition| {
-                    super::go_enum_representation(definition) == super::GoEnumRepresentation::ExternallyTaggedStruct
+                    matches!(
+                        super::go_enum_representation(definition),
+                        super::GoEnumRepresentation::ExternallyTaggedStruct
+                            | super::GoEnumRepresentation::TupleTaggedStruct
+                    )
                 })
                 .map(|definition| definition.name.as_str())
                 .collect(),

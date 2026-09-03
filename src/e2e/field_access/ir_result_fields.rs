@@ -97,7 +97,7 @@ pub(super) fn build_go_ir_result_field_map(
         enums: &emitted.unit_enums,
         passthrough_enums: &emitted.passthrough_enums,
         data_enums: &emitted.data_enums,
-        externally_tagged_struct_enums: &emitted.externally_tagged_struct_enums,
+        pointer_variant_enums: &emitted.pointer_variant_enums,
     };
     let mut map = IrResultFieldMap::default();
     for type_def in type_defs
@@ -108,30 +108,28 @@ pub(super) fn build_go_ir_result_field_map(
             record_ir_result_field(&mut map, type_def, field, rule, &names);
         }
     }
-    for enum_def in enums.iter().filter(|definition| {
-        emitted
-            .externally_tagged_struct_enums
-            .contains(definition.name.as_str())
-    }) {
-        record_externally_tagged_enum_variants(&mut map, enum_def, names.structs);
+    for enum_def in enums
+        .iter()
+        .filter(|definition| emitted.pointer_variant_enums.contains(definition.name.as_str()))
+    {
+        record_pointer_variant_enum_fields(&mut map, enum_def, names.structs);
     }
     map
 }
 
-/// Extend the map across an `ExternallyTaggedStruct` enum's variant boundary the same way a
-/// literal struct field does -- see [`GoEmissionFacts::externally_tagged_struct_enums`].
+/// Extend the map across a struct-shaped tagged-union enum's variant boundary the same way a
+/// literal struct field does -- see [`GoEmissionFacts::pointer_variant_enums`].
 ///
-/// Mirrors `backends::go::gen_bindings::types::enums::gen_externally_tagged_union_type`'s own
-/// iteration exactly (`variant.fields.first()` narrowed to `TypeRef::Named`, keyed by
-/// `wire_variant_value`) so the two can never name a different field for the same variant.
-/// Every recorded field is unconditionally a pointer: that generator emits `*<payload>` for
-/// every variant field, not just some, because at most one variant is ever populated -- this is
-/// the Go template's own fact, not an inference over an unresolved field. ~keep
-fn record_externally_tagged_enum_variants(
-    map: &mut IrResultFieldMap,
-    enum_def: &EnumDef,
-    struct_names: &HashSet<&str>,
-) {
+/// Covers both `GoEnumRepresentation::ExternallyTaggedStruct`
+/// (`gen_externally_tagged_union_type`) and `GoEnumRepresentation::TupleTaggedStruct`
+/// (`gen_tuple_tagged_union_type`): both generators render the same
+/// `tagged_union_variant_field.jinja` template and pick a variant's payload field the same way
+/// (the first tuple-shaped field narrowed to `TypeRef::Named`), keyed by `wire_variant_value`, so
+/// the two can never name a different field for the same variant. Every recorded field is
+/// unconditionally a pointer: at most one variant is ever populated, regardless of whether the
+/// tag lives outside the payload object or alongside it as a `#[serde(tag = "...")]` field --
+/// this is the Go template's own fact, not an inference over an unresolved field. ~keep
+fn record_pointer_variant_enum_fields(map: &mut IrResultFieldMap, enum_def: &EnumDef, struct_names: &HashSet<&str>) {
     for variant in &enum_def.variants {
         let Some(field) = variant.fields.first() else {
             continue;
@@ -170,7 +168,7 @@ struct GoFieldTypeNames<'a> {
     enums: &'a HashSet<&'a str>,
     passthrough_enums: &'a HashSet<&'a str>,
     data_enums: &'a HashSet<&'a str>,
-    externally_tagged_struct_enums: &'a HashSet<&'a str>,
+    pointer_variant_enums: &'a HashSet<&'a str>,
 }
 
 fn record_ir_result_field(
@@ -271,7 +269,7 @@ fn record_ir_result_field_kind(
     // variants are recorded as this enum's pseudo-fields by `record_externally_tagged_enum_variants`,
     // so a path like `metadata.format.excel` can cross `format` the same way it crosses any
     // literal struct field, instead of stopping at `path_crosses_unwalkable_field`.
-    let target = if names.structs.contains(named) || names.externally_tagged_struct_enums.contains(named) {
+    let target = if names.structs.contains(named) || names.pointer_variant_enums.contains(named) {
         &mut map.field_types
     } else {
         map.unresolvable_named_fields
@@ -719,5 +717,85 @@ mod tests {
         );
         map.root_type = None;
         assert!(!path_crosses_unwalkable_field(&map, "metadata.format.variant.detail"));
+    }
+
+    /// Regression for the xberg `SheetCount` defect: PR #305 taught this walk to cross an
+    /// *externally* tagged union's variant boundary (`GoEnumRepresentation::ExternallyTaggedStruct`)
+    /// but left out an internally tagged one -- `#[serde(tag = "format_type")]`, which Go
+    /// classifies as `GoEnumRepresentation::TupleTaggedStruct` and renders through the identical
+    /// one-pointer-per-variant struct template. `pointer_at_path` silently stopped one segment
+    /// early (`Metadata.format` had no further hop in `field_types`), so
+    /// `FieldResolver::target_field_is_pointer` returned `None` and the go `greater_than`/
+    /// `less_than` family compared the raw `*uint32` pointer against an untyped int: `invalid
+    /// operation: mismatched types *uint32 and untyped int`.
+    #[test]
+    fn pointer_at_path_crosses_an_internally_tagged_tuple_struct_enum_variant() {
+        let excel_metadata = TypeDef {
+            name: "ExcelMetadata".to_string(),
+            fields: vec![FieldDef {
+                name: "sheet_count".to_string(),
+                ty: crate::core::ir::TypeRef::Optional(Box::new(crate::core::ir::TypeRef::Primitive(
+                    crate::core::ir::PrimitiveType::U32,
+                ))),
+                optional: true,
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![field(
+                "format",
+                crate::core::ir::TypeRef::Optional(Box::new(crate::core::ir::TypeRef::Named(
+                    "FormatMetadata".to_string(),
+                ))),
+            )],
+            ..TypeDef::default()
+        };
+        let envelope = TypeDef {
+            name: "Envelope".to_string(),
+            fields: vec![field(
+                "metadata",
+                crate::core::ir::TypeRef::Named("Metadata".to_string()),
+            )],
+            ..TypeDef::default()
+        };
+        let format_metadata = crate::core::ir::EnumDef {
+            name: "FormatMetadata".to_string(),
+            serde_tag: Some("format_type".to_string()),
+            serde_rename_all: Some("snake_case".to_string()),
+            variants: vec![crate::core::ir::EnumVariant {
+                name: "Excel".to_string(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: crate::core::ir::TypeRef::Named("ExcelMetadata".to_string()),
+                    ..FieldDef::default()
+                }],
+                ..crate::core::ir::EnumVariant::default()
+            }],
+            ..crate::core::ir::EnumDef::default()
+        };
+
+        let type_defs = vec![envelope, metadata, excel_metadata];
+        let enums = vec![format_metadata];
+
+        let emitted = GoEmissionFacts::new(&type_defs, &enums, HashSet::new(), HashSet::new());
+        assert!(
+            emitted.pointer_variant_enums.contains("FormatMetadata"),
+            "an internally tagged (`#[serde(tag = ...)]`) tuple-struct union must classify as a \
+             pointer-variant enum exactly like an externally tagged one does"
+        );
+
+        let mut map = build_ir_result_field_map_with_enums(&type_defs, &enums, OptionalityRule::DeclaredType);
+        map.root_type = Some("Envelope".to_string());
+
+        assert_eq!(
+            pointer_at_path(&map, "metadata.format.excel.sheet_count"),
+            Some(true),
+            "the walk must cross the internally tagged `format.excel` variant boundary and \
+             report `sheet_count` as a pointer, or the go comparison-assertion emitter derefs \
+             nothing"
+        );
     }
 }
