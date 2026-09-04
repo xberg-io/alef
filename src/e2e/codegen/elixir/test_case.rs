@@ -668,12 +668,14 @@ pub(super) fn render_test_case(
     apply_vacuous_assertion_fallback(
         &mut assertions_body,
         !fixture.assertions.is_empty(),
-        is_streaming,
-        chunks_var,
-        &result_var,
-        call_config.returns_void,
-        returns_result,
-        not_error_result_is_option,
+        &VacuousFallbackCall {
+            is_streaming,
+            chunks_binding: chunks_var,
+            result_binding: &result_var,
+            returns_void: call_config.returns_void,
+            returns_result,
+            not_error_result_is_option,
+        },
     );
     crate::e2e::codegen::fail_on_unavailable_field_markers(
         &assertions_body,
@@ -691,6 +693,21 @@ pub(super) fn render_test_case(
     let _ = writeln!(out, "  end");
 }
 
+/// The call-shape facts the fallback consults. Grouped into one value because the elixir
+/// variant needs six of them and a flat list crossed clippy's `too_many_arguments` cap. ~keep
+struct VacuousFallbackCall<'a> {
+    is_streaming: bool,
+    // ~keep Named `*_binding`, not `*_var`: these hold an ALREADY-resolved binding name (the
+    // caller passes `call_config.effective_result_var()`), and a field literally named
+    // `result_var` collides with the text guard in `core::config::e2e::raw_result_var_reads`,
+    // which exists to catch reads of `CallConfig`'s raw field and cannot tell the two apart.
+    chunks_binding: &'a str,
+    result_binding: &'a str,
+    returns_void: bool,
+    returns_result: bool,
+    not_error_result_is_option: bool,
+}
+
 /// When a fixture declares at least one assertion but the rendered body has no
 /// executable statement — every field assertion resolved to a "skipped" comment —
 /// inject a real assertion instead of leaving the test vacuous. `not_error` already
@@ -706,12 +723,7 @@ pub(super) fn render_test_case(
 fn apply_vacuous_assertion_fallback(
     assertions_body: &mut String,
     has_declared_assertions: bool,
-    is_streaming: bool,
-    chunks_var: &str,
-    result_var: &str,
-    returns_void: bool,
-    returns_result: bool,
-    not_error_result_is_option: bool,
+    call: &VacuousFallbackCall<'_>,
 ) {
     let has_real_assertion = assertions_body.lines().any(|line| {
         let trimmed = line.trim();
@@ -720,16 +732,16 @@ fn apply_vacuous_assertion_fallback(
     if !has_declared_assertions || has_real_assertion {
         return;
     }
-    let fallback_var = if is_streaming { chunks_var } else { result_var };
+    let fallback_var = if call.is_streaming { call.chunks_binding } else { call.result_binding };
     // ~keep A void call's binding is `nil` on success (rustler encodes Rust `()` that way), so
     // `refute is_nil(...)` would fail every successful call, not just an unsuccessful one. When
-    // `returns_result` is also true, the `{:ok, result} = call(...)` match this fallback's
+    // `call.returns_result` is also true, the `{:ok, result} = call(...)` match this fallback's
     // caller already emitted is the real check for the call — see `render_assertion`'s
-    // `not_error` arm for the identical reasoning. When `returns_result` is false there is no
+    // `not_error` arm for the identical reasoning. When `call.returns_result` is false there is no
     // such tuple and no match to rely on (a bare-atom fallible NIF, rustler convention
     // `Ok(_) => atom("ok")` / `Err(_) => atom("error")`), so a real check is still owed.
-    if returns_void {
-        if !returns_result {
+    if call.returns_void {
+        if !call.returns_result {
             let _ = writeln!(assertions_body, "      assert {fallback_var} == :ok");
         }
         return;
@@ -738,10 +750,10 @@ fn apply_vacuous_assertion_fallback(
     // `Option<T>` result may legitimately be `nil` on success, so `refute is_nil(...)` is wrong
     // here for exactly the same reason it would be wrong in `render_assertion`'s own `not_error`
     // arm, regardless of why `assertions_body` ended up empty.
-    if not_error_result_is_option {
+    if call.not_error_result_is_option {
         return;
     }
-    if returns_result {
+    if call.returns_result {
         let _ = writeln!(assertions_body, "      refute is_nil({fallback_var})");
     } else {
         // No tuple was matched above either, so the bare success value could just as easily
