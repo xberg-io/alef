@@ -249,7 +249,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
                     format!("__result.{} = {};", field.name, expr)
                 };
                 statements.push(match gate {
-                    Some(g) => format!("#[cfg({g})]\n        {statement}"),
+                    // ~keep The gate goes on a BLOCK, not on the statement itself. `__result.f =
+                    // v;` is an expression statement, and an attribute on an expression is
+                    // `E0658` -- unstable. A block is a stable place for one, so the assignment
+                    // moves inside it. Only this branch needs it: every struct-literal branch
+                    // attaches its gate to a field initialiser, which is already legal.
+                    Some(g) => format!("#[cfg({g})]\n        {{\n            {statement}\n        }}"),
                     None => statement,
                 });
             }

@@ -748,3 +748,75 @@ fn lifetime_type_enum_string_field_without_known_fallback_keeps_original_panic()
          rather than fabricate an unsound placeholder, got:\n{out}"
     );
 }
+
+/// A `#[cfg(...)]` on a bare assignment statement is `E0658` -- attributes on expressions are
+/// unstable, and `__result.field = value;` is an expression statement. The gate has to sit on a
+/// block, which is a stable place for one. Emitting it bare produced 19 compile errors in one
+/// consumer's NAPI crate, in generated code that no unit test covered because every other backend
+/// takes the struct-literal branch instead.
+#[test]
+fn a_gated_optionalized_field_wraps_its_assignment_in_a_block() {
+    let mut field = FieldDef {
+        name: "extracted_keywords".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        ..FieldDef::default()
+    };
+    field.cfg = Some(r#"feature = "keywords""#.to_string());
+    let typ = TypeDef {
+        name: "Document".to_string(),
+        rust_path: "test_lib::Document".to_string(),
+        fields: vec![field],
+        has_default: true,
+        ..TypeDef::default()
+    };
+    let config = ConversionConfig {
+        optionalize_defaults: true,
+        ..ConversionConfig::default()
+    };
+
+    let out = gen_from_binding_to_core_cfg(&typ, "test_lib", &config);
+
+    assert!(
+        out.contains(r#"#[cfg(feature = "keywords")]"#),
+        "the field's gate must still be emitted, got:\n{out}"
+    );
+    assert!(
+        !out.contains("#[cfg(feature = \"keywords\")]\n        __result."),
+        "the gate must not sit directly on a bare assignment statement (E0658), got:\n{out}"
+    );
+    assert!(
+        out.contains("#[cfg(feature = \"keywords\")]\n        {"),
+        "the gated assignment must be wrapped in a block, got:\n{out}"
+    );
+}
+
+/// CONTROL: an ungated field's assignment must stay a bare statement -- a fix that wrapped every
+/// assignment in a block would pass the test above while needlessly changing every other line.
+#[test]
+fn an_ungated_optionalized_field_keeps_a_bare_assignment() {
+    let typ = TypeDef {
+        name: "Document".to_string(),
+        rust_path: "test_lib::Document".to_string(),
+        fields: vec![FieldDef {
+            name: "title".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: true,
+            ..FieldDef::default()
+        }],
+        has_default: true,
+        ..TypeDef::default()
+    };
+    let config = ConversionConfig {
+        optionalize_defaults: true,
+        ..ConversionConfig::default()
+    };
+
+    let out = gen_from_binding_to_core_cfg(&typ, "test_lib", &config);
+
+    assert!(!out.contains("#[cfg("), "an ungated field must emit no gate, got:\n{out}");
+    assert!(
+        !out.contains("        {\n"),
+        "an ungated assignment must not be wrapped in a block, got:\n{out}"
+    );
+}
