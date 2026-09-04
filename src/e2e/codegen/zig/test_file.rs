@@ -1,9 +1,39 @@
 use super::args::build_args_and_setup;
 use super::assertions::{assertion_emits_code, render_assertion, render_json_assertion};
 use super::http::render_http_test_case;
+use super::stubs::test_backend_out_err_var_name;
 use super::visitor::{emit_visitor_test_body, resolve_zig_visitor_call_symbols};
 use super::*;
 use crate::core::hash::{self, CommentStyle};
+
+/// Emit a call whose Zig wrapper reports success via an `i32` return code plus an
+/// `out_error` pointer — the trait-bridge `register_*` shape — instead of a Zig
+/// error union. `_ = call(...)` alone discards both the return code and the
+/// pointer, so a registration that fails (bad vtable, duplicate name, a backend
+/// that fails its own validation) is indistinguishable from one that succeeds.
+/// This checks the return code, surfaces the `out_error` message naming the
+/// failing call, and frees the message on the failure path so it cannot leak. ~keep
+fn emit_test_backend_register_call(
+    out: &mut String,
+    call_prefix: &str,
+    function_name: &str,
+    args_str: &str,
+    out_err_var: &str,
+) {
+    let _ = writeln!(out, "    const _rc = {call_prefix}.{function_name}({args_str});");
+    let _ = writeln!(out, "    if (_rc != 0) {{");
+    let _ = writeln!(
+        out,
+        "        const _msg = if ({out_err_var}) |_m| std.mem.span(_m) else \"unknown error\";"
+    );
+    let _ = writeln!(
+        out,
+        "        std.debug.print(\"{function_name} failed: {{s}}\\n\", .{{_msg}});"
+    );
+    let _ = writeln!(out, "        if ({out_err_var}) |_m| {call_prefix}._free_string(_m);");
+    let _ = writeln!(out, "        return error.TestUnexpectedResult;");
+    let _ = writeln!(out, "    }}");
+}
 
 /// Close the error arm of the `if (call) |_| {..} else |_| {..}` shape and, when the fixture
 /// declares an `error` value this backend can substantiate, actually compare it — or, when the
@@ -247,6 +277,15 @@ fn render_test_fn(
     let result_var = call_config.effective_result_var();
     let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     let args = recipe.args;
+    // A `test_backend` arg means `emit_test_backend` (stubs.rs) declared an `out_error`
+    // pointer for this call. Combined with `call_returns_error_union == false` below, that
+    // identifies the register-fn shape: an `i32` return code plus an out-param, not a Zig
+    // error union `try` can unwrap. `None` when no such arg is present, so the ordinary
+    // `_ = call(...)` / `try` paths are unaffected. ~keep
+    let register_out_err_var = args
+        .iter()
+        .any(|arg| arg.arg_type == "test_backend")
+        .then(|| test_backend_out_err_var_name(&fixture.id));
     // Client factory: when set, the test instantiates a client object via
     // `module.factory_fn(...)` and calls methods on the instance rather than
     // calling top-level package functions directly.
@@ -514,6 +553,8 @@ fn render_test_fn(
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
         } else if call_returns_error_union {
             let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
+        } else if let Some(out_err_var) = register_out_err_var.as_deref() {
+            emit_test_backend_register_call(out, &call_prefix, &function_name, &args_str, out_err_var);
         } else {
             let _ = writeln!(out, "    _ = {call_prefix}.{function_name}({args_str});");
         }
@@ -722,6 +763,8 @@ fn render_test_fn(
             out.push_str(&assertions_body);
         } else if call_returns_error_union {
             let _ = writeln!(out, "    _ = try {call_prefix}.{function_name}({args_str});");
+        } else if let Some(out_err_var) = register_out_err_var.as_deref() {
+            emit_test_backend_register_call(out, &call_prefix, &function_name, &args_str, out_err_var);
         } else {
             let _ = writeln!(out, "    _ = {call_prefix}.{function_name}({args_str});");
         }
@@ -889,3 +932,7 @@ fn discarded_call_statement(line: &str) -> Option<&str> {
 #[cfg(test)]
 #[path = "discard_rebinding_tests.rs"]
 mod discard_rebinding_tests;
+
+#[cfg(test)]
+#[path = "register_call_check_tests.rs"]
+mod register_call_check_tests;

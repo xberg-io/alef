@@ -57,6 +57,34 @@ fn zig_stub_default_value(stub_type: &str) -> String {
     }
 }
 
+/// Emit a stub return value for `ty`, using a non-degenerate default for
+/// non-boolean integer primitives instead of the type's literal zero.
+///
+/// A stub that reports "zero of everything" is indistinguishable from a
+/// backend that is broken, so callers that validate their inputs (e.g.
+/// rejecting a non-empty declared count) reject it. Booleans, floats, and
+/// every non-primitive type keep `zig_stub_default_value`'s type-based
+/// default — `stub_type` alone can't distinguish an integer from a
+/// same-width boolean, so this dispatches on the IR type instead.
+fn zig_stub_nonzero_or_default(ty: &crate::core::ir::TypeRef, stub_type: &str) -> String {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(
+            PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32
+            | PrimitiveType::I64
+            | PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64
+            | PrimitiveType::Isize
+            | PrimitiveType::Usize,
+        ) => "1".to_string(),
+        _ => zig_stub_default_value(stub_type),
+    }
+}
+
 /// Determine if a method needs JSON-encoded default values for out_result parameters.
 /// This occurs for infallible (non-error) methods with complex return types that are
 /// wrapped in out_result parameters at the FFI boundary.
@@ -86,6 +114,16 @@ fn zig_json_default_for_type(return_type: &crate::core::ir::TypeRef) -> String {
         TypeRef::Named(_) => "\"{}\"".to_string(),  // Default JSON object for custom types
         _ => "\"{}\"".to_string(),                  // Fallback to empty object
     }
+}
+
+/// Deterministic name of the `out_error` pointer variable a `test_backend` arg's
+/// stub setup declares in [`emit_test_backend_inner`]. Call-site codegen (the
+/// register-shaped call in `test_file.rs`) needs the exact same name to read the
+/// pointer back after the call, so both sides go through this one function
+/// instead of duplicating the format string. ~keep
+pub(super) fn test_backend_out_err_var_name(fixture_id: &str) -> String {
+    let id_snake = crate::e2e::escape::sanitize_ident(&fixture_id.to_snake_case());
+    format!("out_err_{id_snake}")
 }
 
 /// Emit a Zig test backend stub with excluded type handling.
@@ -192,7 +230,7 @@ fn emit_test_backend_inner(
         let default_val = if method_needs_json_default(method) {
             zig_json_default_for_type(&method.return_type)
         } else {
-            zig_stub_default_value(&ret_ty)
+            zig_stub_nonzero_or_default(&method.return_type, &ret_ty)
         };
         let _ = _defaults; // unused but imported for future use
 
@@ -240,7 +278,7 @@ fn emit_test_backend_inner(
         "const {vtable_var} = lib.make_{trait_snake}_vtable({struct_name}, &{var_name});"
     );
 
-    let out_err_var = format!("out_err_{id_snake}");
+    let out_err_var = test_backend_out_err_var_name(&fixture.id);
     let _ = writeln!(setup, "var {out_err_var}: ?[*c]u8 = null;");
 
     // arg_expr expands into the argument list for the registration call site:
@@ -377,5 +415,114 @@ mod tests_trait_bridge {
                 emission.setup_block
             );
         }
+    }
+
+    fn base_method(name: &str, return_type: crate::core::ir::TypeRef) -> crate::core::ir::MethodDef {
+        use crate::core::ir::{MethodDef, ReceiverKind};
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            cfg: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }
+    }
+
+    fn base_fixture(id: &str) -> crate::e2e::fixture::Fixture {
+        use crate::e2e::fixture::Fixture;
+        Fixture {
+            docs: None,
+            requirements: Vec::new(),
+            id: id.to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            setup: Vec::new(),
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            asyncapi: None,
+            websocket: None,
+            preserve_input_urls: false,
+            assertions: vec![],
+            visitor: None,
+            args: vec![],
+            assertion_recipes: vec![],
+        }
+    }
+
+    /// A stub method returning a non-boolean integer primitive must return a
+    /// non-degenerate literal (`1`), not the type's zero — a caller that
+    /// validates its inputs (e.g. rejecting a zero-valued count) would
+    /// otherwise reject the stub itself.
+    #[test]
+    fn integer_return_is_nonzero() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{PrimitiveType, TypeRef};
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+        let method = base_method("count", TypeRef::Primitive(PrimitiveType::Usize));
+        let methods = vec![&method];
+        let fixture = base_fixture("integer_return_fixture");
+
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission
+                .setup_block
+                .contains("pub fn count(_: *@This()) u64 { return 1; }"),
+            "integer-returning stub method must return 1, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// A stub method returning a collection keeps today's empty-JSON default —
+    /// only the integer-primitive case is degenerate enough to reject a
+    /// validating caller. Pins the collection behavior against a future
+    /// change accidentally widening the non-degenerate-default fix.
+    #[test]
+    fn collection_return_stays_empty() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "TestTrait".to_string(),
+            register_fn: Some("register_test_trait".to_string()),
+            ..Default::default()
+        };
+        let method = base_method("items", TypeRef::Vec(Box::new(TypeRef::String)));
+        let methods = vec![&method];
+        let fixture = base_fixture("collection_return_fixture");
+
+        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission
+                .setup_block
+                .contains("pub fn items(_: *@This()) [*c]const u8 { return \"[]\"; }"),
+            "collection-returning stub method must stay empty, got:\n{}",
+            emission.setup_block
+        );
     }
 }
