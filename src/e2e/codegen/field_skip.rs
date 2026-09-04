@@ -146,14 +146,16 @@ field_skip_variants! {
         " crosses a tagged-union variant boundary (not expressible in Swift)",
     ),
     /// ~keep The node (NAPI) and wasm (wasm-bindgen) e2e suites are emitted by one TypeScript
-    /// generator, and neither binding gives the variant segment a member to spell. NAPI lowers a
-    /// data enum to a single FLATTENED `#[napi(object)]` struct — a discriminant field plus every
-    /// variant's own fields as optional siblings (see `backends::napi::gen_bindings::types`'s
-    /// `gen_enum` doc and its `gen_tagged_enum_struct_variant_emits_field_names` test), so
-    /// `format.excel.sheetCount` has no `excel` property at all and is `TS2339`, not a narrowing
-    /// problem. wasm-bindgen's structural `.d.ts` union (`backends::wasm::gen_bindings::ts_union`)
-    /// does keep the members apart, but a straight-line assertion cannot narrow to one of them,
-    /// which is the same reason Dart and Swift record.
+    /// generator. This still fires for the variant shapes that genuinely leave the crossing
+    /// segment with no member to spell: NAPI flattens a STRUCT-variant (inline named fields,
+    /// e.g. `Basic { username, password }`) so the payload's OWN field names land on the parent
+    /// object directly, with no `basic` property at all -- `format.basic.username` is `TS2339`.
+    /// It no longer fires for a single-tuple-Named-type variant (`Excel(ExcelMetadata)`): NAPI's
+    /// `gen_tagged_enum_as_object` gives THAT shape a real, variant-named optional field
+    /// (`excel: Option<JsExcelMetadata>`), and wasm's internally-tagged `JsValue` bridging
+    /// flattens the payload onto the discriminant's own object instead -- both are reachable, and
+    /// `FieldResolver::typescript_tagged_union_accessor` is what tells the two shapes apart. See
+    /// `field_refusal::refusal_line` for where that check now sits ahead of this skip.
     ///
     /// Classified with Ruby's and PHP's `EnumVariantAccessorNotAvailableIn*` — a property of the
     /// binding's chosen representation, which no `alef.toml` edit changes — rather than as an

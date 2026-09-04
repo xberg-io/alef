@@ -151,6 +151,61 @@ impl FieldResolver {
         narrowings
     }
 
+    /// Render `path` for TypeScript (node/wasm) when it crosses an internally-tagged union
+    /// variant boundary whose payload is single-field/Named-type-resolvable
+    /// ([`Self::union_variant_payload`]) -- the one shape `field_refusal::refusal_line` used to
+    /// treat as an unconditional TypeScript dead end regardless of what either binding actually
+    /// exposes. `None` when the path does not cross a declared tagged union at all, or when the
+    /// crossing's variant is not this shape (several fields, or fields inlined by name rather
+    /// than wrapped in one Named type) -- the caller's ordinary refusal still applies to those.
+    ///
+    /// node (NAPI): `backends::napi::gen_bindings::enums::gen_tagged_enum_as_object` gives this
+    /// shape a REAL optional field on the flattened binding struct, named after the variant
+    /// itself (`html`, `excel`, ...) via `tagged_enum_binding_field_js_name` -- the crossing has
+    /// a member to spell, it was simply never asked for one. `field_skip.rs`'s "no `excel`
+    /// property at all" note describes the OTHER shape napi also flattens (inline named fields,
+    /// exposed under their OWN names with no variant-named member at all), not this one.
+    ///
+    /// wasm: an internally-tagged enum (no `#[serde(tag = .., content = ..)]`) is bridged as
+    /// `JsValue` at the FIELD site regardless of shape (`mod.rs`'s `jsvalue_bridged_enum_names`
+    /// covers every `is_tagged_data_enum`), straight off the CORE value via
+    /// `serde_wasm_bindgen` -- and serde's internal tagging FLATTENS a struct-wrapping variant's
+    /// fields onto the SAME JS object as the discriminant. The crossing segment therefore has no
+    /// accessor of its own; the suffix reads directly off the container, untyped (`any`), so
+    /// nothing needs narrowing to compile. `gen_tagged_enum_as_struct`'s standalone class (a
+    /// discriminant plus a positionally-named payload slot shared by every tuple variant) is
+    /// dead code for this purpose -- nothing ever types an actual struct field as that class. An
+    /// adjacently-tagged enum (`tagged_enum_content_key` answers `Some`) does not flatten this
+    /// way, so this arm declines rather than guess a shape it was never shown to produce. ~keep
+    pub fn typescript_tagged_union_accessor(&self, path: &str, language: &str, result_var: &str) -> Option<String> {
+        let (prefix, union_type, variant, suffix) = self.ir_tagged_union_split(path)?;
+        self.union_variant_payload(&union_type, &variant)?;
+        let container = if prefix.is_empty() {
+            result_var.to_string()
+        } else {
+            self.accessor(&prefix, language, result_var)
+        };
+        match language {
+            "node" => {
+                let js_field = crate::codegen::naming::to_node_name(&variant);
+                if suffix.is_empty() {
+                    return Some(format!("{container}.{js_field}"));
+                }
+                let suffix_chain: Vec<String> =
+                    suffix.split('.').map(crate::codegen::naming::to_node_name).collect();
+                Some(format!("{container}.{js_field}?.{}", suffix_chain.join("?.")))
+            }
+            "wasm" if self.tagged_enum_content_key(&union_type).is_none() => {
+                if suffix.is_empty() {
+                    Some(container)
+                } else {
+                    Some(format!("{container}.{suffix}"))
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Render `path` for Dart when it steps into a tagged-union variant, or `None` when it does
     /// not and the ordinary chain renderer applies.
     ///
@@ -449,5 +504,127 @@ impl FieldResolver {
             format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).unwrap_or_default();")
         };
         Some((binding, local_var))
+    }
+}
+
+#[cfg(test)]
+mod typescript_tagged_union_accessor_tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..FieldDef::default()
+        }
+    }
+
+    /// The IR shape `metadata.format.html.title`/`metadata.format.excel.sheet_count` actually
+    /// have: an internally-tagged, single-tuple-Named-type-variant enum (`FormatMetadata`) with
+    /// no `content` key, reached through an `Option<FormatMetadata>` struct field -- matching
+    /// `tagged_union_crossing::collection_tests`'s `nested_headers_resolve_through_batch_and_tagged_union_ownership`.
+    fn resolver_over_format_metadata() -> FieldResolver {
+        let types = vec![
+            TypeDef {
+                name: "Metadata".to_string(),
+                fields: vec![field(
+                    "format",
+                    TypeRef::Optional(Box::new(TypeRef::Named("FormatMetadata".to_string()))),
+                )],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "HtmlMetadata".to_string(),
+                fields: vec![field("title", TypeRef::Optional(Box::new(TypeRef::String)))],
+                ..TypeDef::default()
+            },
+        ];
+        let enums = vec![EnumDef {
+            name: "FormatMetadata".to_string(),
+            serde_tag: Some("format_type".to_string()),
+            variants: vec![EnumVariant {
+                name: "Html".to_string(),
+                is_tuple: true,
+                fields: vec![field("_0", TypeRef::Named("HtmlMetadata".to_string()))],
+                ..EnumVariant::default()
+            }],
+            ..EnumDef::default()
+        }];
+        FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        )
+        .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()))
+    }
+
+    /// The defect: napi flattens `FormatMetadata` into a REAL optional `html` field
+    /// (`backends::napi::gen_bindings::enums::gen_tagged_enum_as_object`), so the crossing has a
+    /// member to spell. Node must reach it with optional chaining, not refuse it.
+    #[test]
+    fn node_reaches_the_napi_flattened_variant_field() {
+        let resolver = resolver_over_format_metadata();
+        assert_eq!(
+            resolver.typescript_tagged_union_accessor("format.html.title", "node", "result"),
+            Some("result.format.html?.title".to_string())
+        );
+    }
+
+    /// wasm bridges an internally-tagged enum as `JsValue` at the field site and serde flattens
+    /// the payload onto the same object as the discriminant, so the crossing segment itself has
+    /// no accessor -- the suffix reads straight off the container.
+    #[test]
+    fn wasm_reaches_the_flattened_serde_payload_with_no_variant_segment() {
+        let resolver = resolver_over_format_metadata();
+        assert_eq!(
+            resolver.typescript_tagged_union_accessor("format.html.title", "wasm", "result"),
+            Some("result.format.title".to_string())
+        );
+    }
+
+    /// The control that stops "every crossing is now reachable" from passing: a variant whose
+    /// payload is not a single Named type (here, two inline fields) is a shape neither binding
+    /// gives a real member for, so [`FieldResolver::union_variant_payload`] has nothing to
+    /// resolve and the accessor must still decline.
+    #[test]
+    fn a_multi_field_variant_crossing_still_declines() {
+        let types = vec![TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![field("format", TypeRef::Named("FormatMetadata".to_string()))],
+            ..TypeDef::default()
+        }];
+        let enums = vec![EnumDef {
+            name: "FormatMetadata".to_string(),
+            serde_tag: Some("format_type".to_string()),
+            variants: vec![EnumVariant {
+                name: "Basic".to_string(),
+                fields: vec![
+                    field("username", TypeRef::String),
+                    field("password", TypeRef::String),
+                ],
+                ..EnumVariant::default()
+            }],
+            ..EnumDef::default()
+        }];
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        )
+        .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()));
+
+        assert_eq!(
+            resolver.typescript_tagged_union_accessor("format.basic.username", "node", "result"),
+            None
+        );
+        assert_eq!(
+            resolver.typescript_tagged_union_accessor("format.basic.username", "wasm", "result"),
+            None
+        );
     }
 }

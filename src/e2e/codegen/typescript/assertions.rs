@@ -136,7 +136,7 @@ pub(super) fn render_assertion_with_streaming_item_type(
     // dotted accessor that could not compile. See `field_refusal::refusal_line`. ~keep
     if let Some(f) = assertion.field.as_deref()
         && !f.is_empty()
-        && let Some(line) = super::field_refusal::refusal_line(f, field_resolver)
+        && let Some(line) = super::field_refusal::refusal_line(f, field_resolver, lang)
     {
         out.push_str(&line);
         return;
@@ -178,8 +178,17 @@ pub(super) fn render_assertion_with_streaming_item_type(
         return;
     }
 
+    // A field surviving the refusal above by way of `typescript_tagged_union_accessor` needs
+    // THAT accessor, not the ordinary one: the ordinary renderer walks the fixture path as plain
+    // field segments and has no notion of a tagged-union variant crossing, so it would spell the
+    // variant segment (`html`, `excel`) as just another `.field` access -- correct for node's
+    // real flattened property, but wrong for wasm's flattened `JsValue` payload, which has no
+    // such segment at all. Falling back to the ordinary accessor for every other field keeps
+    // this additive. ~keep
     let mut field_expr = match &assertion.field {
-        Some(f) if !f.is_empty() => field_resolver.accessor(f, "typescript", result_var),
+        Some(f) if !f.is_empty() => field_resolver
+            .typescript_tagged_union_accessor(f, lang, result_var)
+            .unwrap_or_else(|| field_resolver.accessor(f, "typescript", result_var)),
         _ => result_var.to_string(),
     };
 
@@ -1229,6 +1238,9 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[path = "assertions/tagged_union_crossing_tests.rs"]
+mod tagged_union_crossing_tests;
 #[cfg(test)]
 #[path = "assertions/multiword_wire_tag_tsc_tests.rs"]
 mod multiword_wire_tag_tsc_tests;
