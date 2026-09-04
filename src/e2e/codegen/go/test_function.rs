@@ -628,6 +628,16 @@ pub(super) fn render_test_function_with_facts(
         .filter_map(|a| a.field.as_deref())
         .collect();
 
+    // Fields this fixture already asserts presence on via `not_empty` -- a guarded count
+    // assertion (`count_min`/`count_equals`) on the same field can rely on that sibling
+    // to fail the test on nil, instead of adding its own duplicate failing branch.
+    let presence_checked_fields: std::collections::HashSet<&str> = fixture
+        .assertions
+        .iter()
+        .filter(|a| a.assertion_type == "not_empty")
+        .filter_map(|a| a.field.as_deref())
+        .collect();
+
     // Call-invariant across every assertion in this fixture's loop below -- built once
     // rather than threaded as separate parameters through each `render_assertion` call.
     let assertion_context = super::assertions::AssertionRenderContext {
@@ -636,6 +646,7 @@ pub(super) fn render_test_function_with_facts(
         field_resolver,
         optional_locals: &optional_locals,
         numeric_scalar_fields: &numeric_scalar_fields,
+        presence_checked_fields: &presence_checked_fields,
         result_is_simple,
         result_is_array,
         is_streaming,

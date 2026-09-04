@@ -32,6 +32,7 @@ fn render(resolver: &FieldResolver) -> String {
         field_resolver: resolver,
         optional_locals: &HashMap::new(),
         numeric_scalar_fields: &HashSet::new(),
+        presence_checked_fields: &HashSet::new(),
         result_is_simple: false,
         result_is_array: false,
         is_streaming: false,

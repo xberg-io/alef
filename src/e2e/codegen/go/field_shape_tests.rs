@@ -568,6 +568,58 @@ fn pointer_length_and_count_pseudo_fields_compile_as_scalars() {
     }
 }
 
+/// Negative control for the `count_min`/`count_equals` no-silent-skip fix in
+/// `assertion_render_helpers.rs::render_count_assertion`. `label.length` is a `.length`
+/// PSEUDO field -- a derived scalar measurement (a string's length) taken through `label`'s
+/// optional pointer, not a named collection field in its own right. `label` being nil means
+/// "not populated", the same "no presence claim" semantics `render_guarded_scalar_comparison`
+/// already gives optional scalars like `QualityScore` -- so this must stay guard-only, unlike
+/// a real collection field (`elements`, `chunks`, `detected_languages`), which now fails on
+/// nil instead of silently skipping. Mirrors the `go_batch`
+/// `pointer_pseudo_length_count_min_nil_safe` case, which runs this exact rendered shape
+/// against a nil `*string` and requires `Test_FieldShape` to PASS. ~keep
+#[test]
+fn pointer_pseudo_length_count_min_stays_guard_only_on_nil() {
+    let output = render_field_assertion(
+        label_field(),
+        "label.length",
+        &[],
+        false,
+        "count_min",
+        Some(serde_json::json!(1)),
+    );
+    assert!(
+        output.contains("if result.Label != nil {"),
+        "expected a guard on the optional pointer, got: {output}"
+    );
+    assert!(
+        !output.contains("} else {"),
+        "a pseudo-length measurement through an optional pointer must not gain a failing else, got: {output}"
+    );
+}
+
+/// `count_equals` shares `render_count_assertion` with `count_min` -- confirm the `Equal`
+/// method path gets the same pseudo-length exemption.
+#[test]
+fn pointer_pseudo_count_count_equals_stays_guard_only_on_nil() {
+    let output = render_field_assertion(
+        label_field(),
+        "label.count",
+        &[],
+        false,
+        "count_equals",
+        Some(serde_json::json!(1)),
+    );
+    assert!(
+        output.contains("if result.Label != nil {"),
+        "expected a guard on the optional pointer, got: {output}"
+    );
+    assert!(
+        !output.contains("} else {"),
+        "a pseudo-count measurement through an optional pointer must not gain a failing else, got: {output}"
+    );
+}
+
 #[test]
 fn data_interface_string_assertion_families_compile_with_wire_json() {
     for (assertion_type, expected) in DATA_INTERFACE_STRING_FAMILIES {

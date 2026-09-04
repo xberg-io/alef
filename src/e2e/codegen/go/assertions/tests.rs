@@ -36,6 +36,7 @@ fn render_with_resolver(assertion: &Assertion, resolver: &FieldResolver) -> Stri
         field_resolver: resolver,
         optional_locals: &HashMap::new(),
         numeric_scalar_fields: &HashSet::new(),
+        presence_checked_fields: &HashSet::new(),
         result_is_simple: false,
         result_is_array: false,
         is_streaming: false,
@@ -257,4 +258,98 @@ fn is_empty_on_optional_non_pointer_field_never_dereferences() {
         \t\tt.Errorf(\"expected empty value, got %v\", result.Notes)\n\
         \t}\n";
     assert_eq!(out, expected);
+}
+
+fn count_min_assertion(field: &str, value: u64) -> Assertion {
+    Assertion {
+        assertion_type: "count_min".to_string(),
+        field: Some(field.to_string()),
+        value: Some(serde_json::Value::from(value)),
+        ..Default::default()
+    }
+}
+
+/// Render `assertion` against a resolver where `field` is declared both optional and an
+/// array (`Option<Vec<T>>` flattened to a nilable Go slice, the `Elements`/
+/// `DetectedLanguages` shape) and `presence_checked_fields` is populated iff
+/// `has_sibling_presence_check` -- the two states `render_count_assertion` branches on.
+fn render_count_on_nullable_slice(assertion: &Assertion, field: &str, has_sibling_presence_check: bool) -> String {
+    let optional: HashSet<String> = [field.to_string()].into_iter().collect();
+    let array_fields: HashSet<String> = [field.to_string()].into_iter().collect();
+    let resolver = FieldResolver::new(
+        &HashMap::new(),
+        &optional,
+        &HashSet::new(),
+        &array_fields,
+        &HashSet::new(),
+    );
+    let presence_checked_fields: HashSet<&str> = if has_sibling_presence_check {
+        [field].into_iter().collect()
+    } else {
+        HashSet::new()
+    };
+    let mut out = String::new();
+    let context = AssertionRenderContext {
+        effective_result_var: "result",
+        import_alias: "pkg",
+        field_resolver: &resolver,
+        optional_locals: &HashMap::new(),
+        numeric_scalar_fields: &HashSet::new(),
+        presence_checked_fields: &presence_checked_fields,
+        result_is_simple: false,
+        result_is_array: false,
+        is_streaming: false,
+        streaming_item_type: None,
+    };
+    render_assertion(&mut out, &context, assertion);
+    out
+}
+
+/// CONFIRMED DEFECT regression: a `count_min`/`count_equals` assertion on a nullable slice
+/// field with no sibling `not_empty` assertion must FAIL when the guard is nil, not
+/// silently skip the check and let the test pass. Mirrors the real
+/// `Test_ConfigElementTypes`/`Test_LanguageDetectionMultilingual` fixture shape, which
+/// assert only `count_min` on a nullable slice and have no other presence check. ~keep
+#[test]
+fn count_min_on_nullable_slice_without_sibling_presence_check_fails_on_nil() {
+    let assertion = count_min_assertion("tags", 1);
+    let out = render_count_on_nullable_slice(&assertion, "tags", false);
+    let expected = "\tif result.Tags != nil {\n\
+        \t\tassert.GreaterOrEqual(t, len(result.Tags), 1, \"expected at least 1 elements\")\n\
+        \t} else {\n\
+        \t\tt.Errorf(\"expected at least 1 elements, got nil\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
+}
+
+/// Positive control: when a sibling `not_empty` assertion on the same field already fails
+/// the test on nil (`render_not_empty`), the count assertion stays guard-only -- an `else`
+/// here would only duplicate that failure, not close a hole.
+#[test]
+fn count_min_on_nullable_slice_with_sibling_presence_check_stays_guard_only() {
+    let assertion = count_min_assertion("tags", 1);
+    let out = render_count_on_nullable_slice(&assertion, "tags", true);
+    let expected = "\tif result.Tags != nil {\n\
+        \t\tassert.GreaterOrEqual(t, len(result.Tags), 1, \"expected at least 1 elements\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
+}
+
+/// `count_equals` shares `render_count_assertion` with `count_min` -- confirm the `Equal`
+/// method path also gets the failing `else` when uncovered.
+#[test]
+fn count_equals_on_nullable_slice_without_sibling_presence_check_fails_on_nil() {
+    let assertion = Assertion {
+        assertion_type: "count_equals".to_string(),
+        field: Some("tags".to_string()),
+        value: Some(serde_json::Value::from(2u64)),
+        ..Default::default()
+    };
+    let out = render_count_on_nullable_slice(&assertion, "tags", false);
+    let expected = "\tif result.Tags != nil {\n\
+        \t\tassert.Equal(t, len(result.Tags), 2, \"expected exactly 2 elements\")\n\
+        \t} else {\n\
+        \t\tt.Errorf(\"expected exactly 2 elements, got nil\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
 }

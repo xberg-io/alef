@@ -17,6 +17,10 @@ pub(super) struct AssertionRenderContext<'a> {
     pub(super) field_resolver: &'a crate::e2e::field_access::FieldResolver,
     pub(super) optional_locals: &'a std::collections::HashMap<String, String>,
     pub(super) numeric_scalar_fields: &'a std::collections::HashSet<&'a str>,
+    /// Fields carrying a `not_empty` assertion elsewhere in this fixture -- proof that a
+    /// nil/empty value on the field already fails the test via `render_not_empty`, so a
+    /// guarded count assertion on the same field does not need its own failing `else`.
+    pub(super) presence_checked_fields: &'a std::collections::HashSet<&'a str>,
     pub(super) result_is_simple: bool,
     pub(super) result_is_array: bool,
     pub(super) is_streaming: bool,
@@ -85,8 +89,8 @@ fn dispatch_assertion_type(
         "greater_than_or_equal" => comparisons::render_greater_than_or_equal(out_ref, assertion, target),
         "less_than_or_equal" => comparisons::render_less_than_or_equal(out_ref, assertion, target),
         "starts_with" => string_matches::render_starts_with(out_ref, assertion, target),
-        "count_min" => size_ops::render_count_min(out_ref, assertion, target),
-        "count_equals" => size_ops::render_count_equals(out_ref, assertion, target),
+        "count_min" => size_ops::render_count_min(out_ref, context, assertion, target),
+        "count_equals" => size_ops::render_count_equals(out_ref, context, assertion, target),
         "is_true" => presence::render_is_true(out_ref, target),
         "is_false" => presence::render_is_false(out_ref, target),
         "method_result" => method_result::render_method_result(out_ref, context, assertion),
