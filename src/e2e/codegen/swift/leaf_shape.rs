@@ -49,6 +49,135 @@ pub(super) fn non_countable_leaf_count_skip(field_resolver: &FieldResolver, fiel
     Some(skip_line(FieldSkip::CountOnJsonBridgedLeafInSwift, field))
 }
 
+/// Recover a real element count for a `count_min`/`count_equals` assertion whose field IS a
+/// JSON-bridged collection leaf, rather than refusing it outright.
+///
+/// ~keep swift-bridge collapses `Option<Vec<T>>` / `Vec<Vec<_>>` / a map getter to one
+/// `RustString` of JSON text, so `swift_count_target` correctly refuses `.count` on the raw
+/// getter -- but the JSON text IS the serialized collection, and `JSONSerialization` (already
+/// available: every generated e2e file imports `Foundation`) can parse it back into a Swift
+/// `[Any]` whose `.count` is the real element count, with no matching `Codable` type required on
+/// the Swift side. `null` (Rust's `None`) and any text that fails to parse as a JSON array both
+/// read as zero elements, which is the correct count for an absent `Option<Vec<T>>`.
+///
+/// Scoped to the field being the bridged leaf itself, not a path that steps PAST it to a nested
+/// element (`chunks[0].content` still refuses via [`json_bridged_traversal_skip`], which fires
+/// earlier and returns before this is ever reached) -- decoding one further index or key
+/// generically is a distinct, larger feature this function does not attempt.
+pub(super) fn swift_json_bridged_count_expr(
+    field_resolver: &FieldResolver,
+    field: Option<&str>,
+    field_expr: &str,
+) -> Option<String> {
+    let field = field.filter(|f| !f.is_empty())?;
+    let resolved = field_resolver.resolve(field);
+    let is_collection = field_resolver.is_array(field)
+        || field_resolver.is_array(resolved)
+        || field_resolver.is_collection_root(field)
+        || field_resolver.is_collection_root(resolved);
+    if !is_collection || !field_resolver.leaf_is_json_bridged_via_swift_map(resolved) {
+        return None;
+    }
+    // An intermediate `?.` in the chain (an optional ancestor) makes the whole chain
+    // `Optional<RustString>`, so the trailing call needs its own `?.` too; coalesce the missing
+    // case to the JSON text for an absent collection ("null") rather than an empty string, which
+    // is not valid JSON and would make `jsonObject(with:)` throw regardless of the true count.
+    let json_text_expr = if field_expr.contains("?.") {
+        format!("({field_expr}?.toString() ?? \"null\")")
+    } else {
+        format!("{field_expr}.toString()")
+    };
+    Some(format!(
+        "((try? JSONSerialization.jsonObject(with: Data({json_text_expr}.utf8))) as? [Any])?.count ?? 0"
+    ))
+}
+
+#[cfg(test)]
+mod json_bridged_count_tests {
+    use super::swift_json_bridged_count_expr;
+    use crate::e2e::field_access::{FieldResolver, SwiftFirstClassMap};
+    use std::collections::{HashMap, HashSet};
+
+    fn resolver_with_json_bridged_array(field_name: &str) -> FieldResolver {
+        let swift_first_class_map = SwiftFirstClassMap {
+            json_bridged_field_names: HashSet::from([field_name.to_string()]),
+            ..SwiftFirstClassMap::default()
+        };
+        FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::from([field_name.to_string()]),
+            &HashSet::new(),
+            &HashMap::new(),
+            swift_first_class_map,
+        )
+    }
+
+    /// The confirmed-recoverable case: `results[0].chunks` is both a known array field (per
+    /// `fields_array`) and a JSON-bridged leaf, so a count is expressible by decoding the bridged
+    /// `RustString` rather than refusing outright.
+    #[test]
+    fn bare_json_bridged_array_leaf_yields_a_real_decode_and_count_expression() {
+        let resolver = resolver_with_json_bridged_array("chunks");
+
+        let expr = swift_json_bridged_count_expr(&resolver, Some("chunks"), "result.results()[0].chunks()");
+
+        let Some(expr) = expr else {
+            panic!("a JSON-bridged array leaf must yield a real count expression");
+        };
+        assert_eq!(
+            expr,
+            "((try? JSONSerialization.jsonObject(with: Data(result.results()[0].chunks().toString().utf8))) \
+             as? [Any])?.count ?? 0"
+        );
+    }
+
+    /// An optional ancestor in the chain (`?.`) makes the whole expression `Optional<RustString>`,
+    /// so the trailing call must also use `?.` and coalesce a missing value to valid JSON ("null")
+    /// rather than an empty string, which `JSONSerialization` would reject regardless of the true
+    /// count.
+    #[test]
+    fn optional_ancestor_chain_coalesces_to_null_json_text() {
+        let resolver = resolver_with_json_bridged_array("chunks");
+
+        let expr = swift_json_bridged_count_expr(&resolver, Some("chunks"), "result.document()?.chunks()");
+
+        let Some(expr) = expr else {
+            panic!("a JSON-bridged array leaf behind an optional ancestor must still yield a count expression");
+        };
+        assert!(
+            expr.contains("(result.document()?.chunks()?.toString() ?? \"null\")"),
+            "got: {expr}"
+        );
+    }
+
+    /// A field that is neither an array nor a JSON-bridged leaf (an ordinary scalar) must not get
+    /// a decode-and-count expression — that would silently count the characters of an arbitrary
+    /// string's JSON parse failure (always `None` from `jsonObject`) as zero, masking the real
+    /// reason no assertion should have been rendered here in the first place.
+    #[test]
+    fn non_collection_field_yields_no_count_expression() {
+        let empty = HashSet::new();
+        let resolver = FieldResolver::new(&HashMap::new(), &empty, &empty, &empty, &empty);
+
+        let expr = swift_json_bridged_count_expr(&resolver, Some("title"), "result.title()");
+
+        assert!(expr.is_none(), "got: {expr:?}");
+    }
+
+    /// No field path (a bare-result count) is out of scope for this recovery — it addresses only
+    /// a named collection LEAF, mirroring every other function in this module.
+    #[test]
+    fn no_field_yields_no_count_expression() {
+        let resolver = resolver_with_json_bridged_array("chunks");
+
+        let expr = swift_json_bridged_count_expr(&resolver, None, "result");
+
+        assert!(expr.is_none(), "got: {expr:?}");
+    }
+}
+
 /// Render the skip line for an emptiness assertion whose field every collection oracle calls a
 /// collection, but whose Swift leaf is a JSON-bridged `RustString`.
 ///

@@ -6,44 +6,38 @@ use std::fmt::Write as FmtWrite;
 
 /// Render the `not_error` assertion.
 ///
-/// An uncaught exception already fails the test, but `test_method.rs` only ever used
-/// `has_not_error_assertion` to decide whether to BIND the result (`let result = ...` vs
-/// `_ = ...`), never to assert on it — a fixture whose only assertion was `not_error` bound
-/// `result` and then never referenced it in an `XCTAssert*` call, leaving the test vacuous.
-/// Emit a real assertion instead, for the cases where one is actually meaningful:
+/// ~keep An uncaught exception already fails the test via `try` propagation, so this function's
+/// only job is deciding whether a *further* `XCTAssertNotNil` would add anything. It never can:
+/// every non-void call this renders for returns a Swift value declared NON-optional (`func
+/// extract(...) async throws -> ExtractionResult`, `func listOcrBackends() throws -> [String]`,
+/// the drained `chunks` array, ...), and Swift auto-promotes a non-optional to `Optional` at an
+/// `XCTAssertNotNil` call site, so the assertion compiles and can never fail regardless of what
+/// the call returned. An audit found this emitted at 40 sites across 15 generated Swift test
+/// files, all tautological, and four of them (`testChunkingConfigAndOutput`,
+/// `testChunkingRagHandoff`, `testLanguageDetectionConfig`, `testLanguageDetectionMultilingual`
+/// in the swift e2e suite) had it as their ONLY assertion once every other assertion on the same
+/// fixture was dropped as a `CountOnJsonBridgedLeafInSwift` skip — a document with zero chunks or
+/// zero detected languages passed those tests, which is exactly the regression two of them exist
+/// to catch.
 ///
 /// - `returns_void` calls bind no `result` at all (see `test_method.rs`'s `if
-///   call_config.returns_void` branch), so there's nothing to assert *on* the way the
-///   non-void cases below do. `test_method.rs` never even reaches this function for that
-///   case — its assertion loop skips `not_error` on a void call outright and instead wraps
-///   the call itself in `XCTAssertNoThrow` (sync) or a do/catch (async), via its
-///   `void_not_error` flag, so the real check lives one level up from here. This branch
-///   stays as this function's own correct behavior in isolation — asserting on an unbound
-///   variable would not compile — not because the void case goes unchecked. ~keep
-/// - Streaming fixtures assert on the drained `chunks` array (bound by the collect snippet
-///   before this runs) rather than the raw stream.
-/// - A bare `Optional<T>` result (`bare_result_is_option`) may legitimately be `nil` on
-///   success — `detectLanguageFromContent("")` returning `nil` is not an error. Asserting
-///   `XCTAssertNotNil` there is simply wrong, and directly contradicts a paired `is_empty`/
-///   `is_true` assertion on the same bare result, which correctly emits `XCTAssertNil`.
-///   Zig (`zig/assertions.rs`) and Kotlin (`kotlin/assertions.rs`) already treat `not_error`
-///   as inert in this shape; Swift did not, and emitted both `XCTAssertNotNil(result)` and
-///   `XCTAssertNil(result)` back to back — an assertion pair that can never pass. ~keep
-pub(super) fn render_not_error_assertion(
-    out: &mut String,
-    result_var: &str,
-    bare_result_is_option: bool,
-    is_streaming: bool,
-    returns_void: bool,
-) {
-    if bare_result_is_option {
-        let _ = writeln!(out, "        // not_error: covered by try propagation");
-    } else if returns_void {
+///   call_config.returns_void` branch), so there's nothing to assert *on* the way the non-void
+///   case below does. `test_method.rs` never even reaches this function for that case — its
+///   assertion loop skips `not_error` on a void call outright and instead wraps the call itself
+///   in `XCTAssertNoThrow` (sync) or a do/catch (async), via its `void_not_error` flag, so the
+///   real check lives one level up from here. This branch stays as this function's own correct
+///   behavior in isolation — asserting on an unbound variable would not compile — not because the
+///   void case goes unchecked. ~keep
+/// - Every other case (a bound `result`, the drained `chunks` array, or a bare `Optional<T>`
+///   result that may legitimately be `nil` on success) renders the same comment: there is no
+///   value it can bind that both compiles and can fail, so `not_error`'s entire contribution is
+///   the `try` above it. Collapsing all three to one wording — rather than three call sites that
+///   happen to agree — is what keeps a future fourth case from reinventing the tautology.
+pub(super) fn render_not_error_assertion(out: &mut String, returns_void: bool) {
+    if returns_void {
         // No variable to assert on; the exception path already covers this.
-    } else if is_streaming {
-        let _ = writeln!(out, "        XCTAssertNotNil(chunks)");
     } else {
-        let _ = writeln!(out, "        XCTAssertNotNil({result_var})");
+        let _ = writeln!(out, "        // not_error: covered by try propagation");
     }
 }
 
@@ -51,18 +45,14 @@ pub(super) fn render_not_error_assertion(
 mod tests {
     use super::render_not_error_assertion;
 
-    /// Regression: a bare `Optional<T>` result (no field path) must not get an
-    /// `XCTAssertNotNil` from `not_error` — `nil` is a valid non-error outcome, and a
-    /// paired `is_empty`/`is_true` assertion on the same bare result already emits
-    /// `XCTAssertNil`. Before this fix, `render_not_error_assertion` had no
-    /// `bare_result_is_option` branch and always emitted `XCTAssertNotNil(result)`,
-    /// producing a contradictory `XCTAssertNotNil(result)` + `XCTAssertNil(result)` pair
-    /// that can never pass (seen live in tslp's `testErrorDetectContentEmpty`).
+    /// A bare `Optional<T>` result (no field path) must not get an `XCTAssertNotNil` from
+    /// `not_error` — `nil` is a valid non-error outcome, and a paired `is_empty`/`is_true`
+    /// assertion on the same bare result already emits `XCTAssertNil`.
     #[test]
     fn bare_optional_result_emits_no_not_nil_assertion() {
         let mut out = String::new();
 
-        render_not_error_assertion(&mut out, "result", true, false, false);
+        render_not_error_assertion(&mut out, false);
 
         assert!(
             !out.contains("XCTAssertNotNil(result)"),
@@ -70,31 +60,39 @@ mod tests {
         );
     }
 
-    /// Non-optional bare results still get a real assertion, so a fixture whose only
-    /// assertion is `not_error` stays non-vacuous.
+    /// A non-optional bound result gets no `XCTAssertNotNil` either: the return type is declared
+    /// non-optional, so Swift's auto-promotion at the call site makes the assertion pass for
+    /// every possible value, including ones the fixture should have rejected. The `try` above it
+    /// is the only real check `not_error` can contribute here.
     #[test]
-    fn non_optional_result_still_asserts_not_nil() {
+    fn non_optional_result_emits_no_tautological_assertion() {
         let mut out = String::new();
 
-        render_not_error_assertion(&mut out, "result", false, false, false);
+        render_not_error_assertion(&mut out, false);
 
-        assert_eq!(out, "        XCTAssertNotNil(result)\n");
+        assert!(
+            !out.contains("XCTAssertNotNil"),
+            "non-optional result must not get a tautological XCTAssertNotNil: {out}"
+        );
+        assert_eq!(out, "        // not_error: covered by try propagation\n");
     }
 
+    /// The drained `chunks` array from a streaming call is declared non-optional too, so it gets
+    /// the same treatment as any other non-void result: no assertion, just the comment.
     #[test]
-    fn streaming_result_asserts_on_chunks() {
+    fn streaming_result_emits_no_tautological_assertion() {
         let mut out = String::new();
 
-        render_not_error_assertion(&mut out, "result", false, true, false);
+        render_not_error_assertion(&mut out, false);
 
-        assert_eq!(out, "        XCTAssertNotNil(chunks)\n");
+        assert!(!out.contains("XCTAssertNotNil(chunks)"));
     }
 
     #[test]
     fn void_result_emits_nothing() {
         let mut out = String::new();
 
-        render_not_error_assertion(&mut out, "result", false, false, true);
+        render_not_error_assertion(&mut out, true);
 
         assert!(out.is_empty());
     }

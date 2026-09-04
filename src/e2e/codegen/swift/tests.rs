@@ -166,13 +166,15 @@ fn not_error_assertion() -> Assertion {
     }
 }
 
-/// Regression test for the not_error vacuous-test defect: before this fix,
-/// `not_error` rendered nothing at all, and `test_method.rs` used a separate
-/// `has_not_error_assertion` flag only to decide whether to bind `let result =
-/// ...` — never to assert on it. A fixture whose only assertion was
-/// `not_error` bound a result that was never referenced by any `XCTAssert*`.
+/// Regression test for the not_error vacuous-test defect: before an earlier fix, `not_error`
+/// rendered nothing at all, and `test_method.rs` used a separate `has_not_error_assertion` flag
+/// only to decide whether to bind `let result = ...` — never to assert on it. That fix over-shot
+/// and replaced the silent no-op with a tautological `XCTAssertNotNil(result)`: the binding
+/// declares `result` non-optional, so Swift promotes it to `Optional` at the call site and the
+/// assertion can never fail regardless of what the call returned. `not_error`'s only real
+/// contribution is the `try` propagation above it, which a comment now documents instead.
 #[test]
-fn not_error_emits_a_real_xc_tassert_not_nil_on_the_result() {
+fn not_error_on_a_non_void_result_emits_no_tautological_assertion() {
     let resolver = FieldResolver::new(
         &HashMap::new(),
         &HashSet::new(),
@@ -195,11 +197,12 @@ fn not_error_emits_a_real_xc_tassert_not_nil_on_the_result() {
         false,
         false,
     );
-    assert_eq!(out, "        XCTAssertNotNil(result)\n");
+    assert!(!out.contains("XCTAssertNotNil"), "got: {out}");
+    assert_eq!(out, "        // not_error: covered by try propagation\n");
 }
 
 #[test]
-fn not_error_on_a_streaming_fixture_asserts_on_drained_chunks_not_result() {
+fn not_error_on_a_streaming_fixture_emits_no_tautological_assertion() {
     let resolver = FieldResolver::new(
         &HashMap::new(),
         &HashSet::new(),
@@ -222,7 +225,7 @@ fn not_error_on_a_streaming_fixture_asserts_on_drained_chunks_not_result() {
         true,
         false,
     );
-    assert_eq!(out, "        XCTAssertNotNil(chunks)\n");
+    assert!(!out.contains("XCTAssertNotNil(chunks)"), "got: {out}");
 }
 
 /// A `returns_void` call binds no `result` at all — asserting on it would not

@@ -291,18 +291,29 @@ fn count_equals(field: &str, expected: u64) -> Assertion {
 }
 
 /// The half of defect 2 that nothing observed. `count_min`/`count_equals` on a leaf that really IS
-/// JSON-bridged must refuse, not count the characters of the JSON text.
+/// JSON-bridged must never count the CHARACTERS of the JSON text — that silently compares the
+/// length of `"[]"` (or any other serialized array) against the expected element count.
 ///
 /// ~keep `count_min_on_a_collection_counts_elements_not_characters` above asserts on
 /// `section.entries`, which the owner-type fix correctly classifies as a genuine `Vec` — so it
-/// never reaches `swift_count_target`'s bridged-leaf branch at all. Reverting that branch to its
-/// old `Some("{expr}.toString()")` left the ENTIRE 10,436-test lib suite green, which is what a
-/// change no test can distinguish from its absence looks like. A consumer found the live instance:
-/// a `count_equals: 2` rendering as `...toolCalls().toString().count == 2`, comparing the length of
-/// `"[]"` against 2 for an empty collection. This test anchors on `archive.entries` — the fixture's
-/// genuinely bridged `Option<Vec<Entry>>` — so it exercises the branch the other one cannot reach.
+/// never reaches the bridged-leaf branch at all. Reverting that branch to
+/// `Some("{expr}.toString()")` left the ENTIRE 10,436-test lib suite green, which is what a change
+/// no test can distinguish from its absence looks like. A consumer found the live instance: a
+/// `count_equals: 2` rendering as `...toolCalls().toString().count == 2`, comparing the length of
+/// `"[]"` against 2 for an empty collection. This test anchors on `archive.entries` — the
+/// fixture's genuinely bridged `Option<Vec<Entry>>` — so it exercises the branch the other one
+/// cannot reach.
+///
+/// Was `..._is_refused_not_counted_as_characters`, asserting the registered skip comment. Refusal
+/// is no longer the honest answer: `swift_json_bridged_count_expr` (`leaf_shape.rs`) now decodes
+/// the bridged `RustString` back into a JSON array via `JSONSerialization` and asserts on the real
+/// element count, so the field is no longer unspellable. What must still never happen — reading
+/// `.count` on the bridged STRING itself, which answers a different question (character length,
+/// not element count) — is exactly what the first assertion below still catches: it fails
+/// unconditionally the moment anyone reintroduces `.toString().count` on this leaf, independent
+/// of whether that reintroduction goes through the old bridged-leaf branch or a new one.
 #[test]
-fn count_on_a_genuinely_bridged_collection_is_refused_not_counted_as_characters() {
+fn count_on_a_genuinely_bridged_collection_decodes_elements_not_characters() {
     for (label, out) in [
         ("count_equals", render(count_equals("archive.entries", 2))),
         ("count_min", render(count_min("archive.entries", 2))),
@@ -312,8 +323,12 @@ fn count_on_a_genuinely_bridged_collection_is_refused_not_counted_as_characters(
             "{label} must not count the characters of a stringified collection, got:\n{out}"
         );
         assert!(
-            out.contains("// skipped: field 'archive.entries' has no countable Swift leaf"),
-            "{label} on a bridged leaf must render the registered skip, got:\n{out}"
+            out.contains("JSONSerialization.jsonObject(with: Data(result.archive().entries().toString().utf8))"),
+            "{label} on a bridged leaf must decode it and count elements, got:\n{out}"
+        );
+        assert!(
+            !out.contains("// skipped: field 'archive.entries' has no countable Swift leaf"),
+            "{label} on a bridged collection leaf is no longer unspellable, got:\n{out}"
         );
     }
 }

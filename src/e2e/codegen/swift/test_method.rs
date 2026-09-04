@@ -604,35 +604,43 @@ pub(super) fn render_test_method(
             minijinja::context! { call_expr => call_expr },
         ));
     }
-    // ~keep Read here, but applied only after the call-emission decision below, so the
-    // `let result =` vs `_ =` choice is still made from the assertions that actually rendered.
-    // Swift has no formatter that objects to a body which runs a real stream and then ends on a
-    // lone `skipped:` comment, so this shape shipped green and would have kept shipping green.
+    // ~keep Order relative to the call-emission decision below no longer matters -- that
+    // decision now reads `fixture.assertions` directly rather than the rendered `body_buffer` --
+    // but this still has to run after every assertion has been appended, since it is exactly the
+    // rendered text (including any `skipped:` markers) it inspects. Swift has no formatter that
+    // objects to a body which runs a real stream and then ends on a lone `skipped:` comment, so
+    // this shape shipped green and would have kept shipping green.
     let refusal = inert_example::inert_verdict(&body_buffer, "swift", &fixture.id, &fixture.assertions);
 
-    // Decide how to emit the call based on return type and whether result is referenced.
+    // Decide how to emit the call based on return type and whether the fixture declares any
+    // assertion at all.
     // - void returns with a `not_error` assertion: the call already went into `body_buffer`
     //   above, wrapped in a real assertion — emit nothing more here.
     // - void returns otherwise: emit bare call
-    // - non-void with result referenced: bind with `let result = `
-    // - non-void without result referenced: discard with `_ = `
+    // - non-void with at least one declared assertion: bind with `let result = `
+    // - non-void with NO declared assertions at all: discard with `_ = ` (the "just call it"
+    //   smoke-test contract `inert_example`'s own doc names)
     //
-    // A `not_error`-only fixture no longer needs a special case here: the
-    // `render_assertion` "not_error" arm now emits a real `XCTAssertNotNil(result)`
-    // into `body_buffer` itself (see `assertions.rs`), so `body_buffer.contains
-    // (result_var)` is already true whenever that's the case. Previously a
-    // dedicated `has_not_error_assertion` flag forced the `let` binding here
-    // while `not_error` rendered no assertion at all — the bound result was
-    // never referenced anywhere, an unused-but-harmless variable standing in
-    // for what should have been a real assertion. ~keep
+    // ~keep Was `body_buffer.contains(result_var)` — whether the RENDERED text happened to
+    // mention `result` — which made the binding choice hostage to what each assertion arm chose
+    // to emit. `not_error`'s own fix (see `not_error_assertion.rs`) collapsed its output to a
+    // comment that never mentions `result`, and for a `not_error`-only fixture that flipped this
+    // check to `false` and downgraded `let result = try await SampleExtract.extract(...)` to
+    // `_ = try await SampleExtract.extract(...)` — same call, same fixture input JSON, but a
+    // documentation-facing example snippet that no longer reads as "call it and get `result`"
+    // (`swift_unified_extract_single_fixture_emits_input_json` caught this). The binding a
+    // fixture deserves is a property of what it DECLARED, not an accident of how one particular
+    // assertion type chose to render this month — `fixture.assertions.is_empty()` asks the first
+    // question directly and cannot be perturbed by a later change to any single assertion arm's
+    // wording.
     if void_not_error {
         // Already emitted into `body_buffer` above.
     } else if call_config.returns_void {
         let _ = writeln!(out, "        {call_expr}");
-    } else if body_buffer.contains(result_var) {
-        let _ = writeln!(out, "        let {result_var} = {call_expr}");
-    } else {
+    } else if fixture.assertions.is_empty() {
         let _ = writeln!(out, "        _ = {call_expr}");
+    } else {
+        let _ = writeln!(out, "        let {result_var} = {call_expr}");
     }
 
     // ~keep The call above is kept even when the example is refused: it is the one thing here that

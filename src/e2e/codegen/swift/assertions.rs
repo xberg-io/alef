@@ -810,6 +810,12 @@ pub(super) fn render_assertion(
                     Some(&field_expr),
                 ) {
                     let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({count_expr}, {n})");
+                } else if let Some(count_expr) = super::leaf_shape::swift_json_bridged_count_expr(
+                    field_resolver,
+                    assertion.field.as_deref(),
+                    &field_expr,
+                ) {
+                    let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({count_expr}, {n})");
                 } else {
                     out.push_str(&super::leaf_shape::non_countable_leaf_skip_line(
                         assertion.field.as_deref(),
@@ -826,6 +832,12 @@ pub(super) fn render_assertion(
                     result_var,
                     field_resolver,
                     Some(&field_expr),
+                ) {
+                    let _ = writeln!(out, "        XCTAssertEqual({count_expr}, {n})");
+                } else if let Some(count_expr) = super::leaf_shape::swift_json_bridged_count_expr(
+                    field_resolver,
+                    assertion.field.as_deref(),
+                    &field_expr,
                 ) {
                     let _ = writeln!(out, "        XCTAssertEqual({count_expr}, {n})");
                 } else {
@@ -871,13 +883,7 @@ pub(super) fn render_assertion(
             }
         }
         "not_error" => {
-            super::not_error_assertion::render_not_error_assertion(
-                out,
-                result_var,
-                bare_result_is_option,
-                is_streaming,
-                returns_void,
-            );
+            super::not_error_assertion::render_not_error_assertion(out, returns_void);
         }
         "error" => {
             // ~keep Handled at the test method level, via `render_error_catch_block`
