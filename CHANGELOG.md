@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The PHP backend silently dropped every `#[cfg(feature = "...")]`-gated field from its
+  generated mirror structs, even when the PHP binding's own Cargo features enabled that gate.**
+  `php_binding_keeps_field` drops any field with a `cfg` unless its name appears in
+  `never_skip_cfg_field_names`, and that allowlist was populated only from active trait-bridge
+  `OptionsField` names -- never from the binding's own configured features. In xberg's surface
+  that removed seven fields (`pdf_options`, `keywords`, `html_options`, `html_output`, `layout`,
+  `transcription`, `tree_sitter`) from the PHP extraction config, so PHP users could not set
+  those sections at all; because the core carries `#[serde(default)]`, the keys were dropped
+  silently rather than erroring. The magnus (Ruby) generator has no cfg filter at all and so was
+  never affected. The allowlist now also admits every field whose `cfg` this binding's
+  `enabled_features` already satisfies.
+- **Go struct-typed fields carrying a `#[serde(default)]` whose nested type has a hand-written
+  non-zero `impl Default` marshaled an all-zero substructure instead of omitting the key.** The
+  extractor folds any `<T>::default()` to `DefaultValue::Empty`, which asserts the type's default
+  equals the language-agnostic zero -- true for a derived `Default`, false for a manual one.
+  `needs_omitempty_pointer` trusted that fold for struct-typed fields, so xberg's
+  `KeywordConfig.ngram_range: NgramRange` (whose real default is `{min: 1, max: 3}`) emitted a
+  bare `NgramRange` field that Go serialized as `{"min":0,"max":0}`, defeating the field's own
+  serde default and tripping Rust's validation with `ngram range minimum must be at least 1, got
+  0`. A struct-typed field now takes pointer+`omitempty` unconditionally: a Go zero for a struct
+  is a populated substructure, never an absence marker, so dropping the key is correct whether or
+  not the nested default happens to match.
 - **PyO3 (Python) broke `xberg.CaptioningConfig(llm=xberg.LlmConfig(...))` and five other pairs
   with `TypeError: 'LlmConfig' object is not an instance of 'LlmConfig'`, a public API break in
   the generated Python package.** Whether a type gets a pure-Python `options.py` dataclass twin
