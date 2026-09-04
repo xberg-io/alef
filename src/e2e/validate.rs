@@ -831,7 +831,11 @@ mod tests {
     fn misspelled_variant_leaf_still_produces_unverified_warning() {
         let config = config_with_crossing("metadata.format.exccel");
         let errors = validate_field_classifications(&config, &ir_without_the_leaf(), &format_metadata_enum());
-        assert_eq!(errors.len(), 1, "a leaf naming no real variant must still warn: {errors:?}");
+        assert_eq!(
+            errors.len(),
+            1,
+            "a leaf naming no real variant must still warn: {errors:?}"
+        );
         assert!(
             errors[0].message.contains("exccel"),
             "warning must name the unresolved leaf: {}",
