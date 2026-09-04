@@ -510,6 +510,24 @@ pub(super) fn render_test_method(
             .iter()
             .any(|assertion| assertion.assertion_type == "not_error");
 
+    // ~keep The non-void sibling of `void_not_error`: a call that DOES bind a `result`, but whose
+    // declared assertions are `not_error` and nothing else, has no field to check `result`
+    // against either. `render_not_error_assertion` (see its doc) deliberately renders only a
+    // comment for a non-void call — an `XCTAssertNotNil` there would be tautological, since Swift
+    // auto-promotes the declared-non-optional return type to `Optional` at the call site and the
+    // assertion could never fail. That left a fixture whose ONLY assertion is `not_error` (e.g.
+    // `list_validators`, `format_pptx`) with zero executable lines, refused by
+    // `inert_example::inert_verdict` as `RenderedNothing` and dropped from the generated suite
+    // entirely, even though the call genuinely throwing IS the check the fixture asked for. Fires
+    // only when EVERY declared assertion is `not_error` — a fixture that pairs `not_error` with a
+    // real field assertion keeps binding `result` unchanged, since that assertion still needs it.
+    let non_void_not_error_only = !call_config.returns_void
+        && !fixture.assertions.is_empty()
+        && fixture
+            .assertions
+            .iter()
+            .all(|assertion| assertion.assertion_type == "not_error");
+
     // Add assertions to buffer.
     let mut void_skip_comment_emitted = false;
     for assertion in &fixture.assertions {
@@ -528,6 +546,13 @@ pub(super) fn render_test_method(
                 );
                 void_skip_comment_emitted = true;
             }
+            continue;
+        }
+
+        // A `not_error`-only non-void fixture: skip the vacuous comment here too, the same way
+        // the void branch above does — the call gets wrapped in a real assertion after this loop
+        // (see `non_void_not_error_only`) instead.
+        if non_void_not_error_only && assertion.assertion_type == "not_error" {
             continue;
         }
 
@@ -586,14 +611,17 @@ pub(super) fn render_test_method(
     }
     crate::e2e::codegen::fail_on_unavailable_field_markers(&body_buffer, "swift", &fixture.id, &fixture.assertions);
     crate::e2e::codegen::fail_on_unsupported_assertion_type_markers(&body_buffer, "swift", &fixture.id);
-    // A `not_error`-only void fixture gets its assertion here, before `inert_verdict` below —
-    // rather than as the bare call emitted at the call-emission site further down — so that a
-    // real executable line is already in `body_buffer` by the time `inert_verdict` looks for
-    // one. Before this, `body_buffer` held only the "no result to assert on" skip comment for
+    // A `not_error`-only void OR non-void fixture gets its assertion here, before `inert_verdict`
+    // below — rather than as the bare call emitted at the call-emission site further down — so
+    // that a real executable line is already in `body_buffer` by the time `inert_verdict` looks
+    // for one. Before this, `body_buffer` held only the "no result to assert on" skip comment for
     // every void fixture, `inert_verdict` saw no executable line, and substituted an
     // unconditional `try XCTSkipIf(true, ...)` in its place — the fixture's test method never
     // ran the check it declared, it silently skipped itself instead. ~keep
-    if void_not_error {
+    // `non_void_not_error_only` reuses the exact same templates: `XCTAssertNoThrow`/do-catch wraps
+    // any throwing expression and discards its result whether or not that expression has a return
+    // value, so the void machinery works unmodified for the non-void case too. ~keep
+    if void_not_error || non_void_not_error_only {
         let template = if is_async {
             "swift/void_not_error_async.jinja"
         } else {
@@ -616,6 +644,7 @@ pub(super) fn render_test_method(
     // assertion at all.
     // - void returns with a `not_error` assertion: the call already went into `body_buffer`
     //   above, wrapped in a real assertion — emit nothing more here.
+    // - non-void with ONLY a `not_error` assertion: same — already wrapped and emitted above.
     // - void returns otherwise: emit bare call
     // - non-void with at least one declared assertion: bind with `let result = `
     // - non-void with NO declared assertions at all: discard with `_ = ` (the "just call it"
@@ -633,7 +662,7 @@ pub(super) fn render_test_method(
     // assertion type chose to render this month — `fixture.assertions.is_empty()` asks the first
     // question directly and cannot be perturbed by a later change to any single assertion arm's
     // wording.
-    if void_not_error {
+    if void_not_error || non_void_not_error_only {
         // Already emitted into `body_buffer` above.
     } else if call_config.returns_void {
         let _ = writeln!(out, "        {call_expr}");

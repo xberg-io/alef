@@ -126,8 +126,13 @@ fn swift_unified_extract_single_fixture_emits_input_json() {
         .expect("ContractTests.swift is emitted")
         .content;
 
+    // Deliberately not anchored on `let result = `: a fixture whose only assertion is
+    // `not_error` no longer binds a result, it wraps the call in a do/catch that XCTFails on
+    // throw (see `non_void_not_error_only` in swift/test_method.rs). What this test exists to
+    // catch is the call losing its fixture input JSON, which the argument match below still
+    // pins exactly as before. ~keep
     assert!(
-        content.contains("let result = try await SampleExtract.extract(\"{"),
+        content.contains("try await SampleExtract.extract(\"{"),
         "Swift extract call must pass fixture input JSON. Generated:\n{content}"
     );
     assert!(

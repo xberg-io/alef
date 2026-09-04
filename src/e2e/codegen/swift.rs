@@ -292,6 +292,8 @@ mod json_bridged_traversal_tests;
 #[cfg(test)]
 mod materialise_vec_optional_tests;
 #[cfg(test)]
+mod non_void_not_error_only_tests;
+#[cfg(test)]
 mod optional_display_tests;
 #[cfg(test)]
 mod optional_parent_collection_tests;
