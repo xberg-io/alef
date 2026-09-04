@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.83.1] - 2026-09-04
+
+### Fixed
+
+- **A cfg-gated field assignment was emitted with the gate on the statement itself, which does not
+  compile.** 0.83.0 taught the shared binding→core renderer to repeat a field's `#[cfg(...)]` on
+  every reference to it. In the struct-literal branch that gate lands on a field initialiser and is
+  legal; in the builder-statement branch it landed on `__result.field = value;`, an expression
+  statement, and an attribute on an expression is `E0658` — unstable. Only backends taking the
+  statement branch were affected, which in one consumer meant 19 compile errors in the NAPI crate
+  and none anywhere else. That is also why the generator's own suite stayed green: no test covered
+  this branch, because every other backend takes the struct-literal path. The gate now sits on a
+  block wrapping the assignment, a stable placement, and a test pins it with a control asserting an
+  ungated assignment stays bare.
+- **The Python backend treated any convertible type as constructible with no arguments.**
+  `default_types` is deliberately wider than "has a Rust `Default` impl" — it is unioned with the
+  options-dataclass set so a type reachable only as a required nested field still gets a converter.
+  Two sites read membership in that wider set as proof of a zero-argument constructor, which holds
+  only for the `has_default` subset. A facade parameter was therefore given `= None` and, on `None`,
+  called `_rust.{Type}()`; for a closure-only type that constructor has required parameters, so the
+  call raised `TypeError` at run time. The same confusion widened a bare `#[serde(default)]` field
+  to `T | None` on a closure-only parent while the PyO3 signature generator requires the parent's
+  own `has_default` before granting that field a default. Both now render as required, matching the
+  stub and the native constructor. Neither change breaks a working caller: both shapes failed at
+  run time whenever the value was omitted, so the optionality they advertised could not be used.
+
 ## [0.83.0] - 2026-09-04
 
 ### Fixed
