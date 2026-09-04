@@ -191,13 +191,18 @@ impl Fixture {
                         match loaded {
                             Some(b) => b,
                             None => {
+                                // A declared body_file that cannot be read is a broken fixture, not a
+                                // zero-length document. Serving an empty 200 here let a provisioning gap
+                                // reach the consumer as whatever its HTTP client made of an empty body --
+                                // an error naming neither this fixture nor this file, and reproducing only
+                                // where the file happened to be absent. Abort with the path instead. ~keep
                                 eprintln!(
-                                    "warning: cannot read body_file {} (tried {} and {})",
+                                    "mock-server: cannot read body_file {} (tried {} and {})",
                                     file,
                                     candidates[0].display(),
                                     candidates[1].display()
                                 );
-                                Vec::new()
+                                std::process::exit(1);
                             }
                         }
                     } else {

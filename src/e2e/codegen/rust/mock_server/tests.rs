@@ -93,3 +93,34 @@ fn render_common_module_has_expected_symbols() {
     assert!(src.contains("MOCK_SERVERS"), "missing MOCK_SERVERS");
     assert!(src.contains("serde_json"), "missing serde_json parsing");
 }
+
+/// A fixture that declares a `body_file` the mock server cannot read is a broken fixture, not a
+/// zero-length document. Serving an empty 200 for it made a provisioning gap reach the consumer
+/// as whatever error its HTTP client invented for an empty body -- in one investigation, an
+/// intermittent `data_loss: error decoding response body` that named neither the fixture nor the
+/// file. The generated binary must abort with the path instead.
+#[test]
+fn an_unreadable_body_file_aborts_instead_of_serving_an_empty_body() {
+    let out = render_mock_server_binary();
+
+    assert!(
+        out.contains("std::process::exit(1)"),
+        "an unreadable body_file must abort the mock server, got:\n{out}"
+    );
+    assert!(
+        !out.contains("            Vec::new()\n                            }\n                        }"),
+        "the silent empty-body fallback for an unreadable body_file must be gone, got:\n{out}"
+    );
+}
+
+/// CONTROL: a route that legitimately declares no body at all still resolves to an empty body.
+/// A fix that aborted on every empty body would take these down with it.
+#[test]
+fn a_route_declaring_no_body_still_resolves_to_an_empty_body() {
+    let out = render_mock_server_binary();
+
+    assert!(
+        out.contains("} else {\n                        Vec::new()\n                    };"),
+        "a route with neither body nor body_file must still yield an empty body, got:\n{out}"
+    );
+}
