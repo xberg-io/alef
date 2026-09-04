@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A non-void call whose only declared assertion was `not_error` was refused and dropped from the
+  generated Swift suite entirely**, rather than published as a passing test. `not_error` renders
+  only a comment for a non-void call (an `XCTAssertNotNil` there would be tautological, since Swift
+  auto-promotes the declared-non-optional return type to `Optional` at the call site), so a fixture
+  with no other assertion left its test body with zero executable lines; the inert-example detector
+  then refused it as "rendered nothing" instead of publishing it as a skip or a real check. In one
+  consumer's suite this dropped 19 fixtures (`list_validators`, `format_pptx`, `error_empty_bytes`,
+  and 16 others) out of the generated Swift suite while every other language's suite kept them. The
+  call itself is now wrapped in `XCTAssertNoThrow` (sync) or a do/catch that fails on a caught error
+  (async) — reusing the same machinery already used for a void call's `not_error` assertion — so a
+  genuine throw fails the test. A fixture pairing `not_error` with a real field assertion is
+  unaffected: the result binding and that assertion's check are unchanged.
+- **Generated Kotlin `@Test` methods with an expression body were silently never executed.**
+  `fun testX() = runBlocking { ... }` takes its return type from the lambda's final expression,
+  and JUnit 5 does not run a `@Test` whose return type is not void -- it reports no error, no
+  skip, and the suite still exits successfully. Every assertion that hands back the value it
+  checked (`kotlin.test.assertNotNull`, which is what a `not_error` fixture renders) therefore
+  made its own test unrunnable. In xberg's kotlin-android suite this hid **18 of 97** tests
+  behind a `BUILD SUCCESSFUL`, including all five of `RegistryTest`, whose every method ends in
+  `assertNotNull(result)` over a `List<String>`. The emitter already knew the hazard -- it
+  appended a trailing `Unit` on the `assertFailsWith` path for exactly this reason -- but that
+  guard only covered the branch it sat on. The return type is now declared on the signature
+  (`fun testX(): Unit = runBlocking { ... }`), which constrains every branch at once and lets
+  Kotlin coerce the lambda's result. Affects the `kotlin` and `kotlin_android` backends, which
+  share this renderer.
 - **The generated Swift bridge polled a deep async future on a Swift concurrency cooperative thread**,
   whose stack is small, and aborted the process with SIGBUS on a nested archive extraction. Tokio's
   `block_on` runs a future on the calling thread, so raising the runtime's worker stack could not help
