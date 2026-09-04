@@ -42,6 +42,7 @@ pub(super) fn render_assertion(
     result_is_simple: bool,
     is_streaming: bool,
     returns_void: bool,
+    returns_result: bool,
     not_error_may_assert_presence: bool,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
@@ -670,40 +671,46 @@ pub(super) fn render_assertion(
             }
         }
         "not_error" => {
-            // `test_case.rs` already binds the call result via `{:ok, result} = call(...)`
-            // for `returns_result` calls — a real, meaningful check: an `{:error, _}`
-            // return fails the match with a `MatchError`, failing the test. But before
-            // this fix, rendering nothing here left `result` bound and never
-            // referenced. `actual_result_var` in `test_case.rs` only underscore-
-            // prefixes the binding when `fixture.assertions.is_empty()` — a
-            // `not_error`-only fixture has one (non-empty) assertion, so the binding
-            // stays named and unreferenced, an "unused variable" warning that `mix
-            // compile --warnings-as-errors` (used by downstream consumers of this
-            // generator) promotes to a build failure. Emit a real, visible assertion
-            // that also consumes the variable.
+            // `test_case.rs` binds the call result via `{:ok, result} = call(...)` only when
+            // `returns_result` is true — for that shape the match IS a real, meaningful check:
+            // an `{:error, _}` return fails the match with a `MatchError`, failing the test.
+            // A `returns_void` call taking that shape is the one exception within it: rustler
+            // encodes a Rust `()` success payload as the Elixir atom `nil`
+            // (`TypeRef::Unit => "nil"` in `backends/rustler/gen_bindings`), so `result` is
+            // `nil` on every SUCCESSFUL void call, not just a failed one — `refute
+            // is_nil(result)` there would fail every passing call, so this arm renders nothing
+            // and relies on the match above, the same way Rust's `.expect()` and Gleam's `let
+            // assert Ok(...)` already do for their own void calls.
             //
-            // `returns_void` calls are the one exception: rustler encodes a Rust `()`
-            // success payload as the Elixir atom `nil` (`TypeRef::Unit => "nil"` in
-            // `backends/rustler/gen_bindings`), so `result` is `nil` on every SUCCESSFUL
-            // void call, not just a failed one. `refute is_nil(result)` there would fail
-            // every passing call — a guaranteed-red test, worse than the vacuous check it
-            // replaced. There is nothing left to assert on a `nil` payload; the `{:ok,
-            // result} = call(...)` match above is already the real, visible `not_error`
-            // check (an `{:error, _}` return raises `MatchError`, failing the test), the
-            // same way Rust's `.expect()` and Gleam's `let assert Ok(...)` already are for
-            // their own void calls. ~keep
+            // When `returns_result` is false there is no tuple and no match to raise on
+            // failure — the NIF's wire value IS the whole story. Two such shapes exist:
+            // a `returns_void` call whose fallible NIF returns a bare atom directly (rustler
+            // convention: `Ok(_) => atom("ok")`, `Err(_) => atom("error")`, with no `Result`
+            // wrapper for Rustler to auto-tuple), and a non-void call whose bare success value
+            // could just as easily have arrived as that same `:error` sentinel. Neither has a
+            // match to lean on, so both need a real assertion of their own: `assert result ==
+            // :ok` for the void case, and `refute result in [nil, :error]` — strictly stronger
+            // than a plain nil check — for the non-void case. ~keep
             //
-            // WHETHER `refute is_nil(...)` may render at all is decided once, centrally, by
+            // WHETHER the non-void check may render at all is decided once, centrally, by
             // `not_error_presence::may_assert_presence` — a sibling assertion or an
             // `Option<T>` result both make it unsafe (e.g. a bare `Option<T>`-returning call
             // whose success path legitimately returns `None` -> Elixir `nil` would make this
             // arm directly contradict a sibling `is_empty`'s `assert is_nil(...)` on the same
             // variable). The caller (`test_case.rs`) already underscore-prefixes
-            // `actual_result_var` when this is `false` for a `not_error`-only fixture, so the
-            // unused-variable warning this arm used to dodge by asserting is dodged there
-            // instead. This arm only decides how. ~keep
-            if !returns_void && not_error_may_assert_presence {
-                let _ = writeln!(out, "      refute is_nil({result_var})");
+            // `actual_result_var` when this renders nothing, so the unused-variable warning
+            // this arm dodges by asserting is dodged there instead. This arm only decides how.
+            // ~keep
+            if returns_void {
+                if !returns_result {
+                    let _ = writeln!(out, "      assert {result_var} == :ok");
+                }
+            } else if not_error_may_assert_presence {
+                if returns_result {
+                    let _ = writeln!(out, "      refute is_nil({result_var})");
+                } else {
+                    let _ = writeln!(out, "      refute {result_var} in [nil, :error]");
+                }
             }
         }
         // ~keep Unreachable by construction: `expects_error` in test_case.rs is true
@@ -867,6 +874,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert!(!out.contains("skipped"), "got: {out}");
     }
@@ -896,6 +904,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert!(
             out.contains("c.metadata.heading_context != nil"),
@@ -944,6 +953,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert!(out.contains("skipped"), "got: {out}");
     }
@@ -975,6 +985,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert!(
             !out.contains("String.trim("),
@@ -1013,6 +1024,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert!(
             !out.contains("String.trim("),
@@ -1047,6 +1059,7 @@ mod tests {
                 false,
                 false,
                 false,
+                true,
             );
             out
         };
@@ -1085,6 +1098,7 @@ mod tests {
             is_streaming,
             false,
             false,
+            true,
         );
         out
     }
@@ -1203,6 +1217,7 @@ mod tests {
             false,
             false,
             true,
+            true,
         );
         assert_eq!(out, "      refute is_nil(result)\n");
     }
@@ -1233,6 +1248,7 @@ mod tests {
             true,
             false,
             true,
+            true,
         );
         assert_eq!(out, "      refute is_nil(chunks)\n");
     }
@@ -1240,9 +1256,11 @@ mod tests {
     /// Regression test for the void `not_error` defect: before this fix, a `returns_void`
     /// fixture whose only assertion was `not_error` still fell into the `refute is_nil(result)`
     /// branch above — but rustler encodes a Rust `()` success payload as the atom `nil`, so
-    /// that assertion FAILED on every successful call, not just an unsuccessful one. The
-    /// `{:ok, result} = call(...)` binding `test_case.rs` already emits is the real check for a
-    /// void call: an `{:error, _}` return raises `MatchError`, failing the test on its own.
+    /// that assertion FAILED on every successful call, not just an unsuccessful one. Covers
+    /// only the `returns_result: true` shape, where `test_case.rs` binds `{:ok, result} =
+    /// call(...)`: an `{:error, _}` return raises `MatchError`, failing the test on its own, so
+    /// this arm has nothing left to check. See `bare_atom_not_error_tests` for the
+    /// `returns_result: false` sibling, where there is no such match to rely on.
     #[test]
     fn void_not_error_emits_nothing_relying_on_the_ok_match_above() {
         let resolver = empty_resolver();
@@ -1263,6 +1281,7 @@ mod tests {
             &HashMap::new(),
             false,
             false,
+            true,
             true,
             false,
         );
@@ -1295,6 +1314,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
     }
 
@@ -1319,6 +1339,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert_eq!(
             out,
@@ -1348,6 +1369,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
     }
 
@@ -1372,6 +1394,7 @@ mod tests {
             false,
             false,
             false,
+            true,
         );
         assert_eq!(out, "      assert result != []\n");
     }
@@ -1402,6 +1425,7 @@ mod tests {
             true,
             false,
             false,
+            true,
         );
         assert_eq!(
             out.trim_end(),
@@ -1438,6 +1462,7 @@ mod tests {
             true,
             false,
             false,
+            true,
         );
         assert_eq!(out, "      assert length(result) >= 1\n");
     }

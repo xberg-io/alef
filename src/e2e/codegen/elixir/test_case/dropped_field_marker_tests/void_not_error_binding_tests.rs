@@ -1,6 +1,10 @@
-//! Regression coverage for a void `not_error` fixture: the unused `{:ok, result}` binding
-//! must be underscore-prefixed rather than asserted `refute is_nil`, since rustler encodes
-//! a Rust `()` success payload as `nil`.
+//! Regression coverage for a void `not_error` fixture whose call config also declares
+//! `returns_result: true`: the unused `{:ok, result}` binding must be underscore-prefixed
+//! rather than asserted `refute is_nil`, since rustler encodes a Rust `()` success payload as
+//! `nil`. This covers only that one shape — `returns_result: true` — where a real `{:ok, _}`/
+//! `{:error, _}` match happens. A `returns_void` fixture with `returns_result: false` (a
+//! bare-atom fallible NIF, no tuple to match on) is a DIFFERENT shape with no such match to
+//! rely on; see `bare_atom_not_error_tests` for that sibling.
 //!
 //! Split out of `test_case.rs`, which is over the 1000-line cap and may not grow.
 
@@ -9,13 +13,13 @@ use crate::e2e::config::{CallConfig, E2eConfig};
 use crate::e2e::fixture::{Assertion, Fixture};
 use std::collections::{HashMap, HashSet};
 
-/// Regression test for the void `not_error` defect: before this fix, a `returns_void`
-/// fixture whose only assertion was `not_error` still bound `{:ok, result} = call(...)` and
-/// then asserted `refute is_nil(result)` — but rustler encodes a Rust `()` success payload
-/// as `nil`, so that assertion FAILED every successful call, not just an unsuccessful one.
-/// The `{:ok, result} = call(...)` match itself is already the real check (an `{:error, _}`
-/// return raises `MatchError`), so the fix underscore-prefixes the unused binding and emits
-/// no `refute is_nil` line.
+/// Regression test for the void `not_error` defect: before this fix, a `returns_void`,
+/// `returns_result: true` fixture whose only assertion was `not_error` still bound
+/// `{:ok, result} = call(...)` and then asserted `refute is_nil(result)` — but rustler encodes
+/// a Rust `()` success payload as `nil`, so that assertion FAILED every successful call, not
+/// just an unsuccessful one. The `{:ok, result} = call(...)` match itself is already the real
+/// check for this shape (an `{:error, _}` return raises `MatchError`), so the fix
+/// underscore-prefixes the unused binding and emits no `refute is_nil` line.
 #[test]
 fn void_not_error_fixture_binds_underscored_and_emits_no_failing_assertion() {
     let fixture = Fixture {

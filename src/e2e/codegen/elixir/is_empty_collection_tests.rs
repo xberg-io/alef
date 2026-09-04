@@ -67,6 +67,7 @@ fn render(resolver: &FieldResolver, assertion: &Assertion) -> String {
         false,
         false,
         false,
+        false,
     );
     out
 }
@@ -125,6 +126,7 @@ fn is_empty_on_a_length_backed_expression_still_compares_to_zero() {
         &HashSet::new(),
         &HashMap::new(),
         true,
+        false,
         false,
         false,
         false,

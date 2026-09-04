@@ -573,19 +573,24 @@ pub(super) fn render_test_case(
 
     // If the result variable is never referenced in assertions or streaming operations,
     // prefix it with _ to avoid "unused variable" warnings in mix compile --warnings-as-errors.
-    // A `returns_void` call whose only assertions are `not_error` is the same case: rustler
-    // encodes a Rust `()` success payload as `nil`, so `render_assertion`'s `not_error` arm
-    // renders nothing for it (asserting non-nil there would fail every successful call) —
-    // the `{:ok, result} = call(...)` match above is already the real check. `result` would
-    // otherwise be bound and never referenced. A fixture whose only assertion is `not_error`
-    // on a bare `Option<T>` result is the same shape again: `not_error_may_assert_presence`
-    // (computed above) is `false` there too, so `render_assertion` renders nothing and
-    // `result` would otherwise go unreferenced. ~keep
+    // A `returns_void` call whose `returns_result` is also true is the one case where this is
+    // safe despite a `not_error` assertion being present: rustler encodes a Rust `()` success
+    // payload as `nil`, so `render_assertion`'s `not_error` arm renders nothing for it
+    // (asserting non-nil there would fail every successful call) — the `{:ok, result} =
+    // call(...)` match emitted below is the real check. `result` would otherwise be bound and
+    // never referenced. A `returns_void` call with `returns_result: false` (a bare-atom
+    // fallible NIF, no tuple to match on) is NOT this case: the call-emission branch below
+    // binds and asserts `result` directly, so it must stay referenced. A fixture whose only
+    // assertion is `not_error` on a bare `Option<T>` result is the same "renders nothing"
+    // shape again: `not_error_may_assert_presence` (computed above) is `false` there too, so
+    // `render_assertion` renders nothing and `result` would otherwise go unreferenced. ~keep
     let all_not_error = fixture
         .assertions
         .iter()
         .all(|assertion| assertion.assertion_type == "not_error");
-    let not_error_renders_nothing = all_not_error && (call_config.returns_void || !not_error_may_assert_presence);
+    let void_tuple_case = call_config.returns_void && returns_result;
+    let not_error_renders_nothing =
+        all_not_error && (void_tuple_case || (!call_config.returns_void && !not_error_may_assert_presence));
     let actual_result_var = if !is_streaming && (fixture.assertions.is_empty() || not_error_renders_nothing) {
         format!("_{result_var}")
     } else {
@@ -603,7 +608,13 @@ pub(super) fn render_test_case(
     if returns_result {
         let _ = writeln!(out, "      {{:ok, {actual_result_var}}} = {call_invocation}");
     } else {
-        // Non-Result function returns value directly (e.g., bool, String).
+        // Non-Result function returns value directly (e.g., bool, String). This is also the
+        // shape of a fallible NIF with no `Result` wrapper for rustler to auto-tuple: it
+        // encodes success/failure as the bare atoms `:ok`/`:error` directly (rustler
+        // convention: `Ok(_) => atom("ok")`, `Err(_) => atom("error")`). There is no `{:ok, _}`
+        // tuple to match on in that case, so unlike the branch above nothing raises a
+        // `MatchError` on failure — `render_assertion`'s `not_error` arm emits the real
+        // `assert result == :ok` check for it below, once assertions render. ~keep
         let _ = writeln!(out, "      {actual_result_var} = {call_invocation}");
     }
 
@@ -631,6 +642,7 @@ pub(super) fn render_test_case(
             result_is_simple,
             is_streaming,
             call_config.returns_void,
+            returns_result,
             not_error_may_assert_presence,
         );
     }
@@ -660,6 +672,7 @@ pub(super) fn render_test_case(
         chunks_var,
         &result_var,
         call_config.returns_void,
+        returns_result,
         not_error_result_is_option,
     );
     crate::e2e::codegen::fail_on_unavailable_field_markers(
@@ -697,6 +710,7 @@ fn apply_vacuous_assertion_fallback(
     chunks_var: &str,
     result_var: &str,
     returns_void: bool,
+    returns_result: bool,
     not_error_result_is_option: bool,
 ) {
     let has_real_assertion = assertions_body.lines().any(|line| {
@@ -706,11 +720,18 @@ fn apply_vacuous_assertion_fallback(
     if !has_declared_assertions || has_real_assertion {
         return;
     }
+    let fallback_var = if is_streaming { chunks_var } else { result_var };
     // ~keep A void call's binding is `nil` on success (rustler encodes Rust `()` that way), so
-    // `refute is_nil(...)` would fail every successful call, not just an unsuccessful one — the
-    // `{:ok, result} = call(...)` match this fallback's caller already emitted is the real check
-    // for a void call. See `render_assertion`'s `not_error` arm for the identical reasoning.
+    // `refute is_nil(...)` would fail every successful call, not just an unsuccessful one. When
+    // `returns_result` is also true, the `{:ok, result} = call(...)` match this fallback's
+    // caller already emitted is the real check for the call — see `render_assertion`'s
+    // `not_error` arm for the identical reasoning. When `returns_result` is false there is no
+    // such tuple and no match to rely on (a bare-atom fallible NIF, rustler convention
+    // `Ok(_) => atom("ok")` / `Err(_) => atom("error")`), so a real check is still owed.
     if returns_void {
+        if !returns_result {
+            let _ = writeln!(assertions_body, "      assert {fallback_var} == :ok");
+        }
         return;
     }
     // ~keep Same unsafety `not_error_presence::may_assert_presence` protects against: a bare
@@ -720,8 +741,14 @@ fn apply_vacuous_assertion_fallback(
     if not_error_result_is_option {
         return;
     }
-    let fallback_var = if is_streaming { chunks_var } else { result_var };
-    let _ = writeln!(assertions_body, "      refute is_nil({fallback_var})");
+    if returns_result {
+        let _ = writeln!(assertions_body, "      refute is_nil({fallback_var})");
+    } else {
+        // No tuple was matched above either, so the bare success value could just as easily
+        // have arrived as the `:error` sentinel — `is_nil` alone cannot catch that failure
+        // shape. See `render_assertion`'s `not_error` arm for the identical reasoning.
+        let _ = writeln!(assertions_body, "      refute {fallback_var} in [nil, :error]");
+    }
 }
 
 fn fixture_has_elixir_callable(fixture: &Fixture, e2e_config: &E2eConfig) -> bool {
@@ -953,4 +980,8 @@ mod dropped_field_marker_tests {
     #[cfg(test)]
     #[path = "void_not_error_binding_tests.rs"]
     mod void_not_error_binding_tests;
+
+    #[cfg(test)]
+    #[path = "bare_atom_not_error_tests.rs"]
+    mod bare_atom_not_error_tests;
 }

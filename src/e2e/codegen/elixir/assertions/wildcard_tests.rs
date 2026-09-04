@@ -33,6 +33,7 @@ fn render(assertion: &Assertion, resolver: &FieldResolver) -> String {
         false,
         false,
         false,
+        false,
     );
     out
 }

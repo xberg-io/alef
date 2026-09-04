@@ -68,6 +68,7 @@ fn render(assertion: &Assertion, not_error_may_assert_presence: bool) -> String 
         false,
         false,
         false,
+        true,
         not_error_may_assert_presence,
     );
     out
@@ -138,6 +139,7 @@ fn not_error_then_is_empty_in_sequence_emits_only_is_empty() {
             false,
             false,
             false,
+            true,
             may_assert,
         );
     }

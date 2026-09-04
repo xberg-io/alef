@@ -52,6 +52,7 @@ fn render(resolver: &FieldResolver, assertion: &Assertion) -> String {
         false,
         false,
         false,
+        false,
     );
     out
 }

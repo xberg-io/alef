@@ -170,6 +170,7 @@ fn render_streaming_assertion(assertion_type: &str, field: &str) -> String {
         true,
         false,
         false,
+        false,
     );
     out
 }

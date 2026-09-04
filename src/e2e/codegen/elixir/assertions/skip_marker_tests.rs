@@ -38,6 +38,7 @@ fn render_streaming(assertion_type: &str, field: &str, value: Option<serde_json:
         true,
         false,
         false,
+        false,
     );
     out
 }
