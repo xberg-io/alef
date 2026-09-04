@@ -1,14 +1,21 @@
 //! Regression coverage for the Swift *snippet* generator's treatment of a JSON-bridged leaf.
 //!
 //! swift-bridge collapses a JSON-bridged field to one `RustString`, which has no elements and no
-//! subscript. The e2e generator already refuses every step past such a leaf and writes a skip
-//! comment saying so; the snippet generator asked nothing and emitted the subscript anyway, so a
-//! documentation snippet could not compile while the e2e file generated beside it from the same IR
-//! declared that exact step impossible.
+//! subscript. The snippet generator asked nothing and emitted the subscript anyway, so a
+//! documentation snippet could not compile.
+//!
+//! The invariant these tests pin is about the SPELLING, not about either generator's verdict:
+//! neither generator may emit `accessor()[...]` on a JSON-bridged leaf, because that is the thing
+//! that does not compile. The two generators are deliberately allowed to differ on what they do
+//! INSTEAD. The e2e generator may decode the leaf with `JSONSerialization` and navigate the
+//! decoded value (see `json_bridged_navigation`), since a test only has to run; a documentation
+//! snippet must stay idiomatic and readable, so it clamps the path back to the leaf itself and
+//! shows that. An earlier version of this file used "does the e2e generator refuse?" as the
+//! oracle, which silently encoded the era when neither generator could express the step at all.
+//! ~keep
 //!
 //! These tests drive both real entry points — `render_test_method` and `snippet::render_with_ir` —
-//! against one IR and assert the two verdicts match, so a fix that teaches only one generator the
-//! rule cannot pass.
+//! against one IR, so a fix that teaches only one generator the rule cannot pass.
 
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{FieldDef, FunctionDef, PrimitiveType, TypeDef, TypeRef};
@@ -196,9 +203,15 @@ fn should_clamp_an_indexed_step_into_a_bridged_leaf() {
     let e2e = render_e2e(&fixture);
     let snippet = render_snippet(&fixture);
 
+    // ~keep Premise restated: the e2e generator now NAVIGATES this step by decoding the leaf,
+    // where it used to refuse it outright. What the snippet generator must not do is unchanged.
     assert!(
-        e2e.contains(JSON_BRIDGE_SKIP),
-        "premise: the e2e generator must refuse this step, got:\n{e2e}"
+        e2e.contains("JSONSerialization") && !e2e.contains(JSON_BRIDGE_SKIP),
+        "premise: the e2e generator must decode-and-navigate this step, not refuse it, got:\n{e2e}"
+    );
+    assert!(
+        !e2e.contains("headings()[0]") && !e2e.contains("headings()?[0]"),
+        "the e2e generator must not subscript a RustString leaf either, got:\n{e2e}"
     );
     assert!(
         !snippet.contains("headings()[0]") && !snippet.contains("headings()?[0]"),
@@ -245,27 +258,52 @@ fn should_leave_a_countable_vec_leaf_indexable_in_both_generators() {
     );
 }
 
-/// The invariant the preceding tests are instances of, stated once over a table: whenever the e2e
-/// generator refuses a step for the JSON-bridge reason, the snippet generator must not spell that
-/// step either — and whenever it does not refuse, the snippet must keep it.
+/// The invariant the preceding tests are instances of, stated once over a table: a subscript
+/// written directly on a JSON-bridged accessor does not compile, so NEITHER generator may spell
+/// one — and a countable `RustVec` leaf must still be indexed by both.
+///
+/// ~keep The oracle is the leaf's own shape, carried in the table, not "does the e2e generator
+/// refuse?". Keying off e2e's verdict encoded the era when a bridged leaf was unreachable for
+/// both generators; the e2e generator can now decode and navigate one, which is a different
+/// answer to a different question and must not drag the snippet rule along with it.
 #[test]
 fn should_agree_with_the_e2e_generator_about_every_step_past_a_leaf() {
+    // (path, accessor, leaf is a countable RustVec rather than a JSON-bridged RustString)
     let cases = [
-        ("metadata.labels[\"theme\"]", "labels()"),
-        ("metadata.headings[0].text", "headings()"),
-        ("metadata.sections[0].text", "sections()"),
+        ("metadata.labels[\"theme\"]", "labels()", false),
+        ("metadata.headings[0].text", "headings()", false),
+        ("metadata.sections[0].text", "sections()", true),
     ];
-    for (path, accessor) in cases {
+    for (path, accessor, countable) in cases {
         let fixture = fixture_showing(path);
         let e2e = render_e2e(&fixture);
         let snippet = render_snippet(&fixture);
-        let e2e_refuses = e2e.contains(JSON_BRIDGE_SKIP);
-        let snippet_steps_past =
-            snippet.contains(&format!("{accessor}[")) || snippet.contains(&format!("{accessor}?["));
+        let subscripted = |out: &str| {
+            out.contains(&format!("{accessor}[")) || out.contains(&format!("{accessor}?["))
+        };
         assert_eq!(
-            e2e_refuses, !snippet_steps_past,
-            "the two generators disagree about `{path}`: e2e refuses = {e2e_refuses}, \
-             snippet steps past = {snippet_steps_past}\n--- e2e ---\n{e2e}\n--- snippet ---\n{snippet}"
+            subscripted(&snippet),
+            countable,
+            "the snippet generator spells `{path}` wrongly: a bridged leaf must never be \
+             subscripted and a countable one always must\n--- snippet ---\n{snippet}"
         );
+        // ~keep The e2e generator HOISTS a countable vec into a local and subscripts that
+        // (`let _vec_sections_x = result.metadata().sections(); _vec_sections_x[0]`), where the
+        // snippet generator inlines the subscript onto the accessor call. Both are correct Swift,
+        // so the countable side can only require that a subscript appears somewhere; only the
+        // bridged side can require it appears on the accessor call nowhere.
+        if countable {
+            assert!(
+                e2e.contains("[0]"),
+                "the e2e generator must still index a countable RustVec leaf for `{path}`, \
+                 whether inline or through a hoisted local\n--- e2e ---\n{e2e}"
+            );
+        } else {
+            assert!(
+                !subscripted(&e2e),
+                "the e2e generator must never subscript the JSON-bridged accessor for `{path}`\
+                 \n--- e2e ---\n{e2e}"
+            );
+        }
     }
 }

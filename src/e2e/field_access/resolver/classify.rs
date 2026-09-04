@@ -7,9 +7,29 @@ use super::super::leaf_anchor::LeafAnchor;
 use super::super::parse::{
     normalize_indices_to_wildcards, normalize_numeric_indices, parse_path, strip_numeric_indices,
 };
-use super::super::types::{FieldResolver, PathSegment, StringyField};
+use super::super::types::{FieldResolver, JsonNavStep, PathSegment, StringyField};
 use std::borrow::Cow;
 use std::collections::HashSet;
+
+/// Appends the [`JsonNavStep::Index`] a segment's trailing `[..]` names, if any, to `steps`.
+///
+/// `Ok`-shaped as `Option<()>` so [`FieldResolver::swift_json_bridged_navigation`] can use `?` to
+/// abort its whole walk the moment one segment's bracket contents are not a plain non-negative
+/// integer -- a wildcard `[]` or a string map key `[key]` is a distinct traversal this walk does
+/// not attempt to decode generically. A segment with no bracket at all is not an error: it simply
+/// contributes no index step. ~keep
+fn push_numeric_bracket_step(segment: &str, steps: &mut Vec<JsonNavStep>) -> Option<()> {
+    let Some(open) = segment.find('[') else {
+        return Some(());
+    };
+    let Some(close) = segment[open..].find(']') else {
+        return Some(());
+    };
+    let inside = &segment[open + 1..open + close];
+    let index: usize = inside.parse().ok()?;
+    steps.push(JsonNavStep::Index(index));
+    Some(())
+}
 
 impl FieldResolver {
     /// Returns `true` when `fixture_field` (or its resolved alias, or a
@@ -111,6 +131,67 @@ impl FieldResolver {
             if steps_past && self.swift_first_class_map.is_json_bridged_field_name(bare) {
                 return Some(prefix.join("."));
             }
+        }
+        None
+    }
+
+    /// The bridged leaf's accessor path (a real `FieldResolver::accessor` input, bracket-free on
+    /// the leaf's own segment) plus the ordered [`JsonNavStep`]s a fixture path applies to that
+    /// leaf's decoded JSON, for a `field` that traverses PAST a swift-bridge JSON-bridged leaf.
+    ///
+    /// ~keep Walks the exact same boundary [`Self::swift_json_bridged_prefix_direct`] finds --
+    /// this is that walk's positive-data sibling, recording *what* the traversal is rather than
+    /// only *that* one exists. `swift_json_bridged_traversal_prefix` alone forced every stepping-
+    /// past path (`results[0].detected_languages[0]`, `results[0].metadata.output_format`,
+    /// `chunks[0].content`) into one blanket refusal, even though `JSONSerialization` (already
+    /// available: every generated e2e file imports `Foundation`) can decode the bridged
+    /// `RustString` and subscript/key into the result exactly as the count recovery in
+    /// `leaf_shape::swift_json_bridged_count_expr` already does for the narrower "count the
+    /// bridged leaf itself" case.
+    ///
+    /// Returns `None` when `field` does not traverse past a JSON-bridged leaf at all (mirrors
+    /// [`Self::swift_json_bridged_traversal_prefix`]), OR when a bracket segment's contents are
+    /// not a plain non-negative integer -- a wildcard `[]` or a string map key `[key]` names a
+    /// traversal this walk does not attempt to decode generically, and the caller's existing
+    /// refusal remains the honest answer for those.
+    pub fn swift_json_bridged_navigation(&self, field: &str) -> Option<(String, Vec<JsonNavStep>)> {
+        let resolved = self.resolve(field);
+        // ~keep A trailing `.length`/`.count`/`.size` is the synthetic virtual-count idiom
+        // `leaf_shape::non_countable_leaf_count_skip` and `accessors::swift_count_target` already
+        // own -- it names "give me the element count", not a literal JSON object key, so treating
+        // it as a `JsonNavStep::Key` here would ask `JSONSerialization` to look up a key that does
+        // not exist on the decoded value. Bailing out here leaves that existing, distinct
+        // mechanism as the only path for it.
+        if ["length", "count", "size"]
+            .iter()
+            .any(|suffix| resolved.ends_with(&format!(".{suffix}")))
+        {
+            return None;
+        }
+        let segments: Vec<&str> = resolved.split('.').collect();
+        let last = segments.len().saturating_sub(1);
+        // ~keep Earlier segments keep their own brackets verbatim (`results[0]` names a real
+        // array element `FieldResolver::accessor` must still index into); only the BOUNDARY
+        // segment's bracket is stripped from the accessor path, because that bracket is the
+        // leaf's own JSON index and belongs in `steps`, not in the method-call chain. Losing
+        // earlier brackets here — as the message-only `swift_json_bridged_prefix_direct` above
+        // does — would build `result.results().pages()`, addressing a member no accessor has.
+        let mut prefix: Vec<&str> = Vec::with_capacity(segments.len());
+        for (index, segment) in segments.iter().enumerate() {
+            let bare = segment.split('[').next().unwrap_or(segment);
+            let steps_past = index < last || segment.contains('[');
+            if steps_past && self.swift_first_class_map.is_json_bridged_field_name(bare) {
+                prefix.push(bare);
+                let mut steps = Vec::new();
+                push_numeric_bracket_step(segment, &mut steps)?;
+                for later in &segments[index + 1..] {
+                    let later_bare = later.split('[').next().unwrap_or(later);
+                    steps.push(JsonNavStep::Key(later_bare.to_string()));
+                    push_numeric_bracket_step(later, &mut steps)?;
+                }
+                return Some((prefix.join("."), steps));
+            }
+            prefix.push(segment);
         }
         None
     }

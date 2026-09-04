@@ -19,8 +19,8 @@ mod types;
 pub use leaf_anchor::LeafAnchor;
 pub(crate) use types::WasmEnumRepresentation;
 pub use types::{
-    DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, PhpGetterMap, PythonTypedDictMap,
-    StringyField, StringyFieldKind, SwiftFirstClassMap, VariantAccessorMap,
+    DartFirstClassMap, FieldResolver, IrCollectionMap, IrEnumMap, IrResultFieldMap, JsonNavStep, PhpGetterMap,
+    PythonTypedDictMap, StringyField, StringyFieldKind, SwiftFirstClassMap, VariantAccessorMap,
 };
 
 #[cfg(test)]
@@ -66,6 +66,10 @@ mod map_key_quoting_tests;
 #[cfg(test)]
 #[path = "field_access/swift_json_bridged_alias_prefix_tests.rs"]
 mod swift_json_bridged_alias_prefix_tests;
+
+#[cfg(test)]
+#[path = "field_access/swift_json_bridged_navigation_tests.rs"]
+mod swift_json_bridged_navigation_tests;
 
 #[cfg(test)]
 #[path = "field_access/envelope_nested_path_tests.rs"]

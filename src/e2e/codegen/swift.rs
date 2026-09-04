@@ -263,6 +263,7 @@ mod accessors;
 mod args;
 mod assertions;
 mod http;
+mod json_bridged_navigation;
 mod leaf_shape;
 mod not_error_assertion;
 mod project;

@@ -152,21 +152,27 @@ fn assertion(assertion_type: &str, field_path: &str, value: Option<serde_json::V
 const JSON_BRIDGE_SKIP: &str = "swift-bridge JSON-bridges it to RustString";
 
 /// The case the count-suffix guard missed: indexing into a leaf the binding collapsed to one
-/// `RustString`. There is no element to index, so the assertion must be refused, not emitted.
+/// `RustString`. There is no `[0]` subscript on a `RustString`, but `JSONSerialization` can decode
+/// the bridged JSON text and index into THAT — `json_bridged_navigation` now does exactly this,
+/// so the assertion renders a real check instead of a skip.
 #[test]
-fn should_refuse_an_indexed_step_into_a_json_bridged_leaf() {
+fn should_decode_and_index_an_indexed_step_into_a_json_bridged_leaf() {
     let out = render_assertion_on(assertion(
         "equals",
         "metadata.headings[0].level",
         Some(serde_json::json!(1)),
     ));
     assert!(
-        out.contains(JSON_BRIDGE_SKIP),
-        "indexing a JSON-bridged leaf must render the JSON-bridge skip, got:\n{out}"
+        !out.contains(JSON_BRIDGE_SKIP),
+        "an indexed step past a JSON-bridged leaf is now navigable, got:\n{out}"
+    );
+    assert!(
+        out.contains("JSONSerialization.jsonObject"),
+        "must decode the bridged leaf's JSON text rather than subscript the RustString itself, got:\n{out}"
     );
     assert!(
         !out.contains("headings()[0]") && !out.contains("headings()?[0]"),
-        "must not emit a subscript against a RustString leaf, got:\n{out}"
+        "must not emit a subscript directly against a RustString leaf, got:\n{out}"
     );
 }
 

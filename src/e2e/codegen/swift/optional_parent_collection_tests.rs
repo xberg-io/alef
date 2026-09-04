@@ -200,21 +200,29 @@ fn not_empty_on_a_genuinely_optional_scalar_still_checks_non_nil() {
 }
 
 /// The half of defect 1 that survives the classifier fix: `archive.entries` really IS
-/// JSON-bridged, so `field_is_array` is correctly false and there is no emptiness check to emit —
-/// `"[]"` and `"null"` are non-empty strings for exactly the empty collections the fixture is
-/// ruling out. The generator must refuse through the registered skip funnel instead of emitting
-/// `!= nil` against a non-optional getter, which Swift compiles with a warning and XCTest reports
-/// as a pass, forever.
+/// JSON-bridged, so `field_is_array` is correctly false and a bare `!= nil`/`.isEmpty` check is
+/// dishonest — `"[]"` and `"null"` are non-empty strings for exactly the empty collections the
+/// fixture is ruling out.
+///
+/// Was `..._is_refused_not_faked`, asserting the registered skip. Refusal is no longer the honest
+/// answer here either: `swift_json_bridged_count_expr` (`leaf_shape.rs`) decodes the bridged
+/// `RustString` back into a JSON array and counts its real elements, so `not_empty` gets a check
+/// that CAN fail — `count_on_a_genuinely_bridged_collection_decodes_elements_not_characters`
+/// above is this test's `count_min`/`count_equals` sibling.
 #[test]
-fn not_empty_on_a_genuinely_bridged_collection_is_refused_not_faked() {
+fn not_empty_on_a_genuinely_bridged_collection_decodes_and_counts() {
     let out = render(assertion("not_empty", "archive.entries"));
     assert!(
-        out.contains("// skipped: field 'archive.entries' has no countable Swift leaf"),
-        "a bridged collection's not_empty must render the registered skip, got:\n{out}"
+        out.contains("JSONSerialization.jsonObject") && out.contains("XCTAssertGreaterThan("),
+        "a bridged collection's not_empty must decode and count instead of being refused, got:\n{out}"
+    );
+    assert!(
+        !out.contains("// skipped: field 'archive.entries' has no countable Swift leaf"),
+        "the count recovery makes the old blanket skip obsolete for this shape, got:\n{out}"
     );
     assert!(
         !out.contains("!= nil") && !out.contains(".isEmpty") && !out.contains(".toString().count"),
-        "must emit no emptiness check at all rather than one that cannot fail, got:\n{out}"
+        "must never emit a check that cannot fail, got:\n{out}"
     );
 }
 

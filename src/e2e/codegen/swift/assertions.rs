@@ -147,6 +147,21 @@ pub(super) fn render_assertion(
         return;
     }
 
+    // Before refusing a path that steps past a JSON-bridged leaf outright, try to decode-and-
+    // navigate it: `JSONSerialization` (every generated file imports `Foundation`) can subscript
+    // or key into the bridged `RustString`'s JSON text exactly as
+    // `leaf_shape::swift_json_bridged_count_expr` already does for the narrower "count the leaf
+    // itself" case. Only a genuinely un-navigable shape (a wildcard/map-key bracket) or an
+    // assertion type this module has no renderer for still falls through to a skip below. ~keep
+    if super::json_bridged_navigation::render_json_bridged_navigated_assertion(
+        out,
+        assertion,
+        field_resolver,
+        result_var,
+    ) {
+        return;
+    }
+
     if let Some(line) = super::leaf_shape::json_bridged_traversal_skip(field_resolver, assertion.field.as_deref())
         .or_else(|| super::leaf_shape::non_countable_leaf_count_skip(field_resolver, assertion.field.as_deref()))
     {
@@ -582,6 +597,17 @@ pub(super) fn render_assertion(
                     out,
                     "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
                 );
+            } else if let Some(count_expr) = super::leaf_shape::swift_json_bridged_count_expr(
+                field_resolver,
+                assertion.field.as_deref(),
+                &field_expr,
+            ) {
+                // The leaf IS the JSON-bridged collection (no further steps past it) — decode and
+                // count instead of refusing, mirroring the count_min/count_equals arms below.
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertGreaterThan({count_expr}, 0, \"expected non-empty value\")"
+                );
             } else if let Some(line) = &collection_emptiness_skip {
                 out.push_str(line);
             } else if field_is_array && field_is_optional {
@@ -642,6 +668,12 @@ pub(super) fn render_assertion(
         "is_empty" => {
             if bare_result_is_option {
                 let _ = writeln!(out, "        XCTAssertNil({result_var}, \"expected nil value\")");
+            } else if let Some(count_expr) = super::leaf_shape::swift_json_bridged_count_expr(
+                field_resolver,
+                assertion.field.as_deref(),
+                &field_expr,
+            ) {
+                let _ = writeln!(out, "        XCTAssertEqual({count_expr}, 0, \"expected empty value\")");
             } else if let Some(line) = &collection_emptiness_skip {
                 out.push_str(line);
             } else if field_is_optional {

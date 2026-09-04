@@ -206,6 +206,18 @@ field_skip_variants! {
         "field ",
         " mixes a JSON-bridged map subscript with a further RustVec subscript in Swift",
     ),
+    /// ~keep `FieldResolver::swift_json_bridged_navigation` DID resolve a decode-and-navigate
+    /// expression for this field -- the field is proven reachable, unlike every other variant in
+    /// this table that fires because a path is unspellable. What is missing is a renderer turning
+    /// that reachable, already-decoded JSON value into this ONE assertion type's Swift check.
+    /// `GeneratorGap`, not `LanguageLimitation`: a future alef release can add the renderer with no
+    /// consumer-side change, which is exactly what distinguishes this from
+    /// [`Self::CountOnJsonBridgedLeafInSwift`] -- that one fires when navigation itself is
+    /// impossible (a wildcard or map-key bracket segment), this one fires when navigation
+    /// succeeded and only the assertion-type renderer is missing. `after` is empty so the call
+    /// site can append which assertion type it was, mirroring
+    /// [`Self::StreamingAssertionOnUnsupportedField`]'s rider convention.
+    NavigatedJsonBridgedAssertionTypeNotSupportedInSwift: GeneratorGap => ("navigated JSON-bridged field ", ""),
     /// ~keep Was `NestedArrayWildcardNotSupportedInZig` (" not supported in zig"), emitted by the
     /// one backend that had ever guarded the case. Every other backend now refuses it too, so the
     /// wording is language-neutral and single-sourced through `nested_wildcard_skip_line`. The
@@ -444,6 +456,13 @@ mod tests {
             SkipClass::LanguageLimitation,
             "this guard fires only on fields the resolver ACCEPTED; classifying it as an authoring \
              gap makes the backend and the strict gate contradict each other about one field"
+        );
+        assert_eq!(
+            FieldSkip::NavigatedJsonBridgedAssertionTypeNotSupportedInSwift.class(),
+            SkipClass::GeneratorGap,
+            "the field was proven reachable by swift_json_bridged_navigation -- only the \
+             assertion-type renderer is missing, which is alef's own gap, not a consumer's or a \
+             property of Swift"
         );
         assert_eq!(
             FieldSkip::EnumVariantAccessorNotAvailableInRuby.class(),

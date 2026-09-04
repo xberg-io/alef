@@ -180,16 +180,19 @@ fn count_min_on_ir_only_optional_collection_leaf_counts_the_vec_not_a_debug_stri
 /// so `.isEmpty` on it does not compile) — but the presence-only `!= nil` fallthrough this used
 /// to pin is a check that CANNOT FAIL: a JSON-bridged getter is non-optional, and the bridged
 /// text is `"[]"`/`"null"` for exactly the empty collections `not_empty` exists to rule out.
-/// There is no correct assertion to emit, so the only honest output is the registered
-/// `CountOnJsonBridgedLeafInSwift` skip.
+///
+/// `leaf_shape::swift_json_bridged_count_expr` now decodes the bridged JSON text instead of
+/// refusing, so the honest output is a real (fallible) count check, not the registered
+/// `CountOnJsonBridgedLeafInSwift` skip — this is that recovery's `not_empty` counterpart to the
+/// `count_min`/`count_equals` case `count_min_on_ir_only_optional_collection_leaf_...` covers.
 ///
 /// Revert symptom, two directions. Reverting `field_is_array`'s JSON-bridge guard in
 /// `swift/assertions.rs` puts `.chunks()?.isEmpty == false` back — the literal `value of type
 /// 'RustString' has no member 'isEmpty'` compile failure from the original CI report. Reverting
-/// `leaf_shape::unspellable_collection_emptiness_skip` puts `.chunks() != nil` back — the
-/// unfailable green assertion that replaced it.
+/// the `swift_json_bridged_count_expr` recovery in the `not_empty` arm puts `.chunks() != nil`
+/// back — the unfailable green assertion this test exists to keep out.
 #[test]
-fn not_empty_on_optional_json_bridged_collection_leaf_is_refused_not_faked() {
+fn not_empty_on_optional_json_bridged_collection_leaf_decodes_and_counts() {
     let swift_first_class_map = SwiftFirstClassMap {
         json_bridged_field_names: HashSet::from(["chunks".to_string()]),
         ..SwiftFirstClassMap::default()
@@ -205,8 +208,12 @@ fn not_empty_on_optional_json_bridged_collection_leaf_is_refused_not_faked() {
     );
 
     assert!(
-        out.contains("// skipped: field 'results[0].chunks' has no countable Swift leaf"),
-        "a JSON-bridged collection leaf must be refused with the registered skip; got:\n{out}"
+        out.contains("JSONSerialization.jsonObject") && out.contains("XCTAssertGreaterThan("),
+        "a JSON-bridged collection leaf must decode and count instead of being refused; got:\n{out}"
+    );
+    assert!(
+        !out.contains("// skipped: field 'results[0].chunks' has no countable Swift leaf"),
+        "the count recovery makes the old blanket skip obsolete for this shape; got:\n{out}"
     );
     assert!(
         !out.contains("!= nil"),

@@ -479,6 +479,21 @@ pub struct StringyField {
     pub kind: StringyFieldKind,
 }
 
+/// One step of navigating JSON already decoded from a swift-bridge JSON-bridged leaf's
+/// `RustString`, via `JSONSerialization`.
+///
+/// ~keep Produced by `FieldResolver::swift_json_bridged_navigation`, which finds the JSON-bridged
+/// leaf a fixture path steps past and records exactly how it steps past it, so the swift e2e
+/// backend can render a real decode-and-navigate expression instead of refusing the whole
+/// assertion. See that method's own doc for the walk and its deliberate limits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JsonNavStep {
+    /// A numeric array index, e.g. the `0` in `chunks[0]`.
+    Index(usize),
+    /// An object key, e.g. `output_format` in `metadata.output_format`.
+    Key(String),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SwiftFirstClassMap {
     pub first_class_types: HashSet<String>,
