@@ -300,10 +300,10 @@ pub mod maven {
     pub const MAVEN_COMPILER_PLUGIN: &str = "3.16.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.5.6";
+    pub const MAVEN_SUREFIRE_PLUGIN: &str = "3.6.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-surefire-plugin
-    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.5.6";
+    pub const MAVEN_SUREFIRE_PLUGIN_E2E: &str = "3.6.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-checkstyle-plugin
     pub const MAVEN_CHECKSTYLE_PLUGIN: &str = "3.6.0";
