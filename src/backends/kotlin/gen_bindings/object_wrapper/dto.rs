@@ -10,6 +10,34 @@ use crate::core::jni::{bridge_method_name, bridgeable_value_methods, is_function
 /// across the JNI boundary for value-type instance methods.
 const VALUE_METHOD_MAPPER: &str = "VALUE_METHOD_MAPPER";
 
+/// Whether Jackson's default bean-property name derivation would silently disagree with
+/// `PropertyNamingStrategies.SNAKE_CASE`'s intended translation of `camel_name`.
+///
+/// Kotlin data-class properties without an explicit `@JsonProperty` are named by Jackson
+/// from the auto-generated JavaBean getter (`getFoo()` for property `foo`). Deriving the
+/// property name back from that getter goes through `java.beans.Introspector.decapitalize`,
+/// which refuses to lowercase the leading character when the name's first two characters
+/// are *both* upper-case (its acronym heuristic, e.g. `URL` staying `URL` rather than
+/// becoming `uRL`). A property whose camelCase form is a single lower-case letter followed
+/// immediately by an upper-case letter (e.g. `kClusters`) capitalizes to a getter suffix
+/// (`KClusters`) that itself starts with two upper-case letters, so `decapitalize` leaves it
+/// as `KClusters` instead of `kClusters`. `SnakeCaseStrategy.translate` then never inserts an
+/// underscore between those two positions (the first can't take a leading `_`, and the second
+/// is skipped because the first already flagged "just translated"), producing `kclusters`
+/// instead of `k_clusters` on the wire.
+///
+/// This is a name-shape predicate derived from that documented Introspector/Jackson
+/// behaviour, not a lookup against any particular property or project name: it fires for
+/// every `[a-z][A-Z]...` camelCase name, matching whichever properties happen to have that
+/// shape in a given crate. ~keep
+fn kotlin_property_name_defeats_bean_introspection(camel_name: &str) -> bool {
+    let mut chars = camel_name.chars();
+    match (chars.next(), chars.next()) {
+        (Some(first), Some(second)) => first.is_ascii_lowercase() && second.is_ascii_uppercase(),
+        _ => false,
+    }
+}
+
 pub(crate) fn emit_type_with_imports(
     ty: &TypeDef,
     out: &mut String,
@@ -47,15 +75,15 @@ pub(crate) fn emit_type_with_imports(
         .collect();
 
     let has_field_docs = visible_fields.iter().any(|(_, f)| !f.doc.is_empty());
-    let has_field_annotations = visible_fields.iter().any(|(_, f)| f.serde_rename.is_some())
-        || field_sealed_annotations.iter().any(Option::is_some);
     // Detect `#[serde(flatten)]` fields. In Rust these collect all unknown
     let has_flatten_field = visible_fields.iter().any(|(_, f)| f.serde_flatten);
 
     let mut field_strings: Vec<String> = Vec::with_capacity(visible_fields.len());
+    let mut field_names: Vec<String> = Vec::with_capacity(visible_fields.len());
     for (original_idx, field) in visible_fields.iter() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, *original_idx);
+        field_names.push(name.clone());
         // collections (`#[serde(skip_serializing_if = "...")]`) or skip a
         // field entirely under a feature gate (`#[serde(skip)]`). Without a
         let (effective_ty_str, default_suffix) = if field.serde_flatten {
@@ -80,6 +108,12 @@ pub(crate) fn emit_type_with_imports(
         };
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
     }
+
+    let has_field_annotations = visible_fields.iter().any(|(_, f)| f.serde_rename.is_some())
+        || field_sealed_annotations.iter().any(Option::is_some)
+        || field_names
+            .iter()
+            .any(|name| kotlin_property_name_defeats_bean_introspection(name));
 
     // Instance methods are only emitted when a JNI bridge is available to back them.
     // Without one they are dropped rather than stubbed out, so no method that compiles
@@ -115,15 +149,28 @@ pub(crate) fn emit_type_with_imports(
                 prefix => prefix,
             },
         ));
-        for (idx, ((_, field), field_str)) in visible_fields.iter().zip(field_strings.iter()).enumerate() {
+        for (idx, (((_, field), field_str), name)) in visible_fields
+            .iter()
+            .zip(field_strings.iter())
+            .zip(field_names.iter())
+            .enumerate()
+        {
             emit_cleaned_kdoc(out, &field.doc, "    ");
-            // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")]
-            if let Some(rename) = &field.serde_rename {
+            // Emit @JsonProperty when the Rust field carries #[serde(rename = "...")], or when
+            // the plain wire name (`field.name`) would come back mangled through Jackson's
+            // default bean-property derivation (see `kotlin_property_name_defeats_bean_
+            // introspection`) — in that case the wire name is `field.name` itself, since there
+            // is no serde rename overriding it. ~keep
+            let wire_name = field
+                .serde_rename
+                .clone()
+                .or_else(|| kotlin_property_name_defeats_bean_introspection(name).then(|| field.name.clone()));
+            if let Some(wire_name) = &wire_name {
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "json_property_annotation.jinja",
                     minijinja::context! {
                         indent => "    ",
-                        value => escape_kotlin_string(rename),
+                        value => escape_kotlin_string(wire_name),
                     },
                 ));
             }
@@ -408,6 +455,74 @@ mod tests {
         assert!(
             !out.contains(".setSerializationInclusion("),
             "value-method mapper must not call the deprecated (since Jackson 2.13) setSerializationInclusion: {out}"
+        );
+    }
+
+    /// Direct unit coverage of the name-shape predicate itself, independent of any
+    /// particular crate's field names. `n_widgets` is a stand-in shaped like the pattern the
+    /// predicate targets (single lower-case letter, then an upper-case letter once
+    /// camelCased); `max_depth` and `text` are ordinary shapes the predicate must leave alone.
+    #[test]
+    fn bean_introspection_predicate_fires_only_on_the_documented_shape() {
+        assert!(kotlin_property_name_defeats_bean_introspection("nWidgets"));
+        assert!(kotlin_property_name_defeats_bean_introspection("xOffset"));
+        assert!(!kotlin_property_name_defeats_bean_introspection("maxDepth"));
+        assert!(!kotlin_property_name_defeats_bean_introspection("text"));
+        assert!(!kotlin_property_name_defeats_bean_introspection(""));
+        assert!(!kotlin_property_name_defeats_bean_introspection("a"));
+    }
+
+    /// Regression for a real deserialization break: a Kotlin data-class property with no
+    /// `#[serde(rename = "...")]` but whose camelCased name is a single lower-case letter
+    /// followed by an upper-case letter (e.g. `n_widgets` -> `nWidgets`) is silently mangled
+    /// by Jackson's default bean-property derivation into the wrong wire name (`nwidgets`
+    /// instead of `n_widgets`) once `PropertyNamingStrategies.SNAKE_CASE` is applied, because
+    /// `java.beans.Introspector.decapitalize` refuses to lowercase a leading run of two
+    /// upper-case letters (`getNWidgets` -> `NWidgets`, not `nWidgets`). The generator must
+    /// emit an explicit `@JsonProperty` naming the real wire field so serialization survives
+    /// regardless of what naming strategy a consumer's ObjectMapper is configured with.
+    ///
+    /// A neighboring ordinary field (`max_depth`) proves the fix does not vacuously annotate
+    /// every field regardless of shape.
+    #[test]
+    fn json_property_is_emitted_for_names_that_defeat_bean_introspection() {
+        let vulnerable_field = make_field(
+            "n_widgets",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U64),
+            None,
+        );
+        let ordinary_field = make_field(
+            "max_depth",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U64),
+            None,
+        );
+        let ty = TypeDef {
+            name: "WidgetConfig".to_string(),
+            rust_path: "crate::WidgetConfig".to_string(),
+            fields: vec![vulnerable_field, ordinary_field],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let mut out = String::new();
+        let mut imports = std::collections::BTreeSet::new();
+        emit_type_with_imports(
+            &ty,
+            &mut out,
+            &mut imports,
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            None,
+        );
+
+        assert!(
+            out.contains("@param:com.fasterxml.jackson.annotation.JsonProperty(\"n_widgets\")"),
+            "a name shaped like [a-z][A-Z]... must get an explicit wire-name annotation: {out}"
+        );
+        assert!(
+            !out.contains("\"max_depth\""),
+            "an ordinary field name must not be annotated: {out}"
         );
     }
 }
