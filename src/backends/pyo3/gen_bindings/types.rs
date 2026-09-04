@@ -417,11 +417,26 @@ pub(super) fn gen_options_py(
         // moved first (a stable sort: their relative order, and the relative order of the
         // defaulted fields behind them, is otherwise untouched). `has_default` types are
         // completely unaffected by this branch and keep the original declaration order and the
-        // existing fallback -- this only ever widens what closure types accept. ~keep
+        // existing fallback -- this only ever widens what closure types accept.
+        //
+        // A bare `#[serde(default)]` marker (`field.default == Some("/* serde(default) */")`,
+        // `typed_default` unset) does NOT put this field in that "genuinely has a default"
+        // category on a closure-only type: `constructors::should_option_for_nested_default`
+        // requires `typ.has_default` as its very first condition, so on a closure-only type
+        // (`!typ.has_default`) the native `#[new]` NEVER grants this field a default regardless
+        // of the marker -- only `field.optional` does. Treating the marker as "has a default"
+        // here (the old behaviour) made `OptionsFieldDefaults::literal`'s Named-type fallback
+        // fabricate `None` as this field's public default even though the native constructor
+        // still demands a real value, widening the type hint to `T | None` and reporting a
+        // `T | None` return from the paired `_to_rust_*` converter where the native parameter is
+        // `T` (e.g. `OcrPipelineConfig::quality_thresholds`, PyO3 signature `(stages,
+        // quality_thresholds)` -- no default at all). `field.default.is_some()` is dropped from
+        // both this sort key and `omit_default` below so the two conditions never disagree with
+        // `should_option_for_nested_default`'s actual answer. ~keep
         let is_closure_only_type = !typ.has_default;
         let mut ordered_fields: Vec<&crate::core::ir::FieldDef> = binding_fields(&typ.fields).collect();
         if is_closure_only_type {
-            ordered_fields.sort_by_key(|f| f.optional || f.typed_default.is_some() || f.default.is_some());
+            ordered_fields.sort_by_key(|f| f.optional || f.typed_default.is_some());
         }
 
         // Return types are defined authoritatively by the Rust native module as #[pyclass],
@@ -479,11 +494,13 @@ pub(super) fn gen_options_py(
             // enough: a bare `#[serde(default)]` field (e.g. `OcrPipelineConfig::quality_thresholds`)
             // leaves `typed_default` unset but still records the wire-level defer marker in
             // `field.default` (`"/* serde(default) */"`, per `defers_to_rust_default` in
-            // `functions::converters`) -- that field DOES have a default, just not one this
-            // renderer can spell as a Python literal, and it must keep the existing zero-value
-            // fallback (and stay omittable), not suddenly become a required constructor argument. ~keep
-            let omit_default =
-                is_closure_only_type && !field.optional && field.typed_default.is_none() && field.default.is_none();
+            // `functions::converters`). On a closure-only type that marker is NOT honest evidence
+            // of an omittable field (see the `is_closure_only_type` doc above): the native
+            // `#[new]` only grants a default when `field.optional`, never merely because of the
+            // marker, so this field must render with no default at all -- exactly like a field
+            // with no marker -- rather than fabricating a `None` fallback the constructor would
+            // reject. ~keep
+            let omit_default = is_closure_only_type && !field.optional && field.typed_default.is_none();
 
             let safe_name = crate::core::keywords::python_ident(&field.name);
             let field_declaration = if omit_default {

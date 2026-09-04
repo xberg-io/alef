@@ -16,6 +16,8 @@ pub mod errors;
 pub mod functions;
 pub mod methods;
 mod mutex;
+#[cfg(test)]
+mod nested_serde_default_tests;
 mod opaque_helpers;
 mod postprocess;
 mod public_files;

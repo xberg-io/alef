@@ -33,10 +33,24 @@ pub(super) fn emit_function_wrappers(
         }
         // The facade can construct a `Default` for a param the caller omits, so unlike the `.pyi`
         // stub it grants those params a `= None`. Both go through the shared decision so the two
-        // artifacts can never disagree about which params exist or in what order. ~keep
+        // artifacts can never disagree about which params exist or in what order.
+        //
+        // `default_types` is wider than "has a usable no-argument constructor": it is unioned
+        // with `options_dataclass_types` (see `orchestration.rs`'s doc on `default_types`) so a
+        // type reachable only as a *required* nested field -- no core `Default` impl of its own,
+        // e.g. `ChunkClassificationConfig { definitions, llm, batch_size, max_concurrency, .. }`
+        // -- is still a member. Granting such a param a facade `= None` promises a fallback the
+        // facade cannot deliver: the only synthesizable "default" is `_rust.{Type}()`, and that
+        // bare call raises `TypeError: missing N required positional arguments` the instant the
+        // caller actually omits the argument. Gating on `has_default` restricts the promise to
+        // types alef knows have a real Rust `Default` impl (a true no-argument construction),
+        // which is the only case `_rust.{Type}()` below can honour; every other default_types
+        // member still gets its `_to_rust_*` conversion (it is still in `default_types`), it just
+        // does not get a facade-invented default -- it stays required, matching the `.pyi` stub
+        // and the native constructor exactly. ~keep
         let signature = python_signature_params(&func.params, |param| {
             !bridge_param_names.contains(param.name.as_str())
-                && leaf_named_type(param).is_some_and(|name| default_types.contains_key(name))
+                && leaf_named_type(param).is_some_and(|name| default_types.get(name).is_some_and(|t| t.has_default))
         });
         let promoted_params: ahash::AHashSet<&str> = signature
             .iter()
@@ -205,6 +219,15 @@ pub(super) fn emit_function_wrappers(
                 let is_collection = matches!(wrapping, Wrapping::Vec | Wrapping::OptionalVec);
 
                 if default_types.contains_key(name) {
+                    // `_rust.{name}()` (below, and in `config_default_on_none.jinja`) is only a
+                    // safe fallback when alef knows `{name}` has a real Rust `Default` impl --
+                    // see the doc on `default_types.get(name)` above the `signature` binding.
+                    // Every other `default_types` member (e.g. `ChunkClassificationConfig`,
+                    // reachable only through the `options_dataclass_types` closure) has genuinely
+                    // required fields with no sensible zero-argument construction, so on a `None`
+                    // this branch passes `None` straight through instead of fabricating an
+                    // instance the native constructor would reject with a `TypeError`. ~keep
+                    let type_has_default = default_types.get(name).is_some_and(|t| t.has_default);
                     let snake = name.to_snake_case();
                     let scalar_expr = if options_field_bridges.contains_key(name) {
                         if let Some((_, _, kwarg_name, _)) = options_field_visitor_kwarg {
@@ -222,7 +245,7 @@ pub(super) fn emit_function_wrappers(
                     } else {
                         let bridge_optional = optional
                             && !(options_field_bridges.contains_key(name) && options_field_visitor_kwarg.is_some());
-                        if bridge_optional {
+                        if bridge_optional && type_has_default {
                             // `.expect("'config' is required")`).
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "config_conversion_ternary.jinja",
@@ -234,9 +257,9 @@ pub(super) fn emit_function_wrappers(
                                 },
                             ));
                         } else {
-                            emit_param_conversion(out, &var, pname, &scalar_expr, false);
+                            emit_param_conversion(out, &var, pname, &scalar_expr, bridge_optional);
                         }
-                        if !param.optional && !is_promoted && !is_collection {
+                        if !param.optional && !is_promoted && !is_collection && type_has_default {
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "config_default_on_none.jinja",
                                 minijinja::context! {

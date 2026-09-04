@@ -12,6 +12,8 @@ mod signature_params;
 #[cfg(test)]
 mod adapter_boundary_tests;
 #[cfg(test)]
+mod bare_fallback_tests;
+#[cfg(test)]
 mod streaming_yield_tests;
 #[cfg(test)]
 mod tests;
