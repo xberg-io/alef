@@ -48,28 +48,48 @@ pub(in crate::backends::go::gen_bindings) fn is_tuple_field(field: &FieldDef) ->
 ///   the function's *name*, never its return value, so the Go zero is a claim about a value
 ///   alef does not have
 ///
-/// A required field (fails the wire-optional check above) still needs pointer+omitempty when
-/// its type is itself a plain data struct — i.e. `field.ty` is `TypeRef::Named(name)` and
-/// `name` is in `struct_names` (every non-opaque `TypeDef` emitted as a Go struct in this
-/// binding). A struct field's Go zero value is a fully-populated substructure, never an
-/// "absent" marker, so leaving it a plain (non-pointer) field would silently `json.Marshal` an
-/// all-zero payload that Rust's `serde` happily accepts as genuinely-provided data — every leaf
-/// key is present, just wrong. Pointer+omitempty turns an unset Go value into a dropped key
-/// instead, so Rust rejects the call with `missing field` — a loud failure, and strictly better
-/// than a silent wrong value. This is deliberately narrower than gating on `TypeDef::has_default`
-/// (the mistake `serde_container_default` replaced, see above): it is keyed off `field.ty`
-/// itself, so it never touches a scalar or enum field, however many other fields on `typ` are
-/// wire-optional. Scalar zero values are the caller's own responsibility to set explicitly
-/// (no reason to force a pointer); unit-enum fields already fail loud on their own — they
-/// render as Go strings, and `""` is never a valid variant, so Rust already rejects a required
-/// enum field left at its Go zero without needing this. ~keep
+/// A field whose type is itself a plain data struct — i.e. `field.ty` is `TypeRef::Named(name)`
+/// and `name` is in `struct_names` (every non-opaque `TypeDef` emitted as a Go struct in this
+/// binding) — always needs pointer+omitempty, independent of every check below. This is checked
+/// first and unconditionally, not only when the field fails the wire-optional check, because a
+/// struct field's Go zero value is a fully-populated substructure, never an "absent" marker,
+/// whether or not the field itself carries a serde default:
+///
+/// - A required field (fails the wire-optional check below): leaving it a plain (non-pointer)
+///   field would silently `json.Marshal` an all-zero payload that Rust's `serde` happily accepts
+///   as genuinely-provided data — every leaf key is present, just wrong. Pointer+omitempty turns
+///   an unset Go value into a dropped key instead, so Rust rejects the call with `missing field`
+///   — a loud failure, and strictly better than a silent wrong value.
+/// - A wire-optional field (passes the check below) whose `typed_default` folded to `Empty`:
+///   `Empty` is only an assertion that `<FieldType>::default()` equals the *language-agnostic*
+///   zero, not that it equals *Go's* zero — true when `FieldType` derives `#[derive(Default)]`,
+///   but false whenever `FieldType` has a hand-written `impl Default` returning a non-zero value
+///   (e.g. `NgramRange::default() -> Self { min: 1, max: 3 }`). The extractor's `Empty` fold
+///   cannot distinguish the two cases (see `extract::extractor::defaults::expr_to_default_value`,
+///   the `T::default()` arm), so this predicate cannot trust `Empty` for a struct-typed field the
+///   way it does for a scalar. Pointer+omitempty is the safe answer in both branches: when the
+///   nested type's true zero does happen to match, dropping the key is a no-op because Rust's own
+///   default (or `#[serde(default)]` on the field) reconstructs the identical value; when it does
+///   not match, dropping the key is what avoids shipping the wrong value. There is no case where
+///   forcing the pointer is incorrect for a struct-typed field, so no case-split is needed here.
+///
+/// This is deliberately narrower than gating on `TypeDef::has_default` (the mistake
+/// `serde_container_default` replaced, see above): it is keyed off `field.ty` itself, so it never
+/// touches a scalar or enum field, however many other fields on `typ` are wire-optional. Scalar
+/// zero values are the caller's own responsibility to set explicitly (no reason to force a
+/// pointer); unit-enum fields already fail loud on their own — they render as Go strings, and
+/// `""` is never a valid variant, so Rust already rejects a required enum field left at its Go
+/// zero without needing this. ~keep
 pub(crate) fn needs_omitempty_pointer(
     typ: &TypeDef,
     field: &FieldDef,
     struct_names: &std::collections::HashSet<&str>,
 ) -> bool {
+    if matches!(&field.ty, TypeRef::Named(name) if struct_names.contains(name.as_str())) {
+        return true;
+    }
     if field.default.is_none() && !typ.serde_container_default {
-        return matches!(&field.ty, TypeRef::Named(name) if struct_names.contains(name.as_str()));
+        return false;
     }
     if matches!(field.ty, TypeRef::Duration) {
         return true;

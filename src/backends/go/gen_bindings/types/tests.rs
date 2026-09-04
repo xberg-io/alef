@@ -995,6 +995,43 @@ fn gen_struct_type_required_struct_field_becomes_pointer_without_disturbing_requ
     );
 }
 
+/// GH regression: a struct-typed field carrying its OWN field-level `#[serde(default)]` (not a
+/// container-level one) whose nested type has a hand-written `impl Default` returning a
+/// non-zero value — the exact shape of `xberg`'s `KeywordConfig::ngram_range: NgramRange`, where
+/// `NgramRange::default()` is `Self { min: 1, max: 3 }`, not `{0, 0}`. The extractor cannot tell
+/// this apart from a container-derived zero and folds the field's `typed_default` to `Empty`
+/// regardless (see `extract::extractor::defaults::expr_to_default_value`'s `T::default()` arm).
+/// Before the fix this field kept the plain, non-pointer, non-`omitempty` Go type: an untouched
+/// Go value serialized as `{"min":0,"max":0}`, which Rust's own field-level `#[serde(default)]`
+/// never gets a chance to run for, so the real default (`{1,3}`) was silently replaced with a
+/// wire value Rust's own validation rejects (`ngram range minimum must be at least 1, got 0`).
+/// Pointer+omitempty must apply here exactly as it does under a container-level default. ~keep
+#[test]
+fn gen_struct_type_field_level_serde_default_marks_struct_type_fields_omitempty() {
+    let mut struct_names = std::collections::HashSet::new();
+    struct_names.insert("NgramRange");
+    let mut field = simple_field("ngram_range", TypeRef::Named("NgramRange".to_string()));
+    field.default = Some("Default::default".to_string());
+    field.typed_default = Some(DefaultValue::Empty);
+    let typ = test_struct_type("KeywordConfig", vec![field], true);
+
+    let out = gen_struct_type(
+        &typ,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &struct_names,
+        &[],
+    );
+
+    assert!(
+        out.contains("NgramRange *NgramRange `json:\"ngram_range,omitempty\"`"),
+        "a field-level #[serde(default)] struct-typed field whose nested type's real default is \
+         non-zero must be pointer+omitempty so an unset Go value drops the key instead of \
+         silently marshaling an all-zero substructure; got:\n{out}"
+    );
+}
+
 /// A unit-enum field under a container-level `#[serde(default)]` whose default resolves to
 /// `DefaultValue::Empty` (the `#[derive(Default)]` shape) gets `omitempty` on the value type:
 /// the Go zero for a unit enum is `""`, which is never a valid variant, so marshaling it fails
