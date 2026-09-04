@@ -5,10 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.83.0] - 2026-09-04
 
 ### Fixed
 
+- **Every assertion that stepped past a JSON-bridged Swift leaf was refused rather than
+  rendered.** swift-bridge collapses an
+  `Option<Vec<T>>` or a map field to one `RustString`, and any step past such a leaf was treated as
+  unspellable, so the assertion was refused and a skip comment written in its place. The decode was
+  never the obstacle — `swift_json_bridged_count_expr` already decoded exactly this shape with
+  `JSONSerialization` for the narrower "count the leaf itself" case; it simply was not wired to the
+  navigating ones. A resolver now returns the leaf accessor plus its ordered index and key steps,
+  and a renderer turns those into a real decode-and-compare for `equals`, `not_empty`, `is_empty`,
+  `count_min`, `count_equals`, `greater_than`, `greater_than_or_equal`, `contains`, `contains_all`
+  and `min_length`. In one consumer's suite this recovered 15 assertions that had been silently
+  dropped. An indexed step decodes with `dropFirst(n).first`, never an unchecked subscript:
+  optional chaining guards a nil array but not a short one, so `?[0]` over a decoded `[]` would
+  trap with "Index out of range" and abort the whole XCTest process, turning one regression into
+  the loss of every later test's result. A wildcard or map-key bracket still refuses, now as a
+  generator gap naming the missing renderer rather than a blanket language limitation.
+- **Both TypeScript backends refused every assertion whose field path crossed a tagged-union
+  variant boundary**, on the premise that neither binding gives the variant segment a member to
+  spell. That held for only one of the two variant shapes, so four assertions per backend were
+  skipped over fields both bindings can express. NAPI gives a single-tuple-Named-type variant
+  (`Excel(ExcelMetadata)`) a real variant-named optional field on the flattened object, so
+  `format.excel?.sheetCount` resolves; only an inline named-field struct variant lands its own
+  field names on the parent with no variant property, which is the `TS2339` the refusal described.
+  wasm bridges the same enum through `serde_wasm_bindgen`, and an internally-tagged enum flattens
+  its payload onto the discriminant's object, so the field is reached directly with no variant
+  segment to narrow to. A resolver models those two accessor shapes and answers `None` for
+  anything else, and the refusal now consults it before firing.
+- **The generated Ruby binding did not compile under any reduced feature set.** The Magnus backend
+  gated a type's and a field's *declaration* on its `#[cfg(...)]` but emitted every *reference* to
+  them unconditionally, so the item was configured out while the references remained. Three
+  emission sites needed the gate, not one: `ruby_init`'s registrations name `{Type}::{member}`
+  paths that `method!`/`function!` resolve at compile time (a hard `E0433`/`E0425`, not a missing
+  Ruby method, and `#[magnus::init]`'s body is a flat statement list so the gate must sit on the
+  individual statement); the shared core→binding and binding→core renderers listed every field in
+  their `Self { .. }` literals, which is `E0560`/`E0609` once a field's declaration is gated away;
+  and a field whose *type* is gated carries no `cfg` of its own, so nothing connected "field
+  references type X" to X's gate. In one consumer this was 425 compile errors on the one release
+  job that builds with `--no-default-features`, which had failed four consecutive release runs.
+  `FieldDef::cfg_within` mirrors the existing `MethodDef::cfg_within` so the owner/member
+  combination rule is stated once rather than at each site.
+- **A generated e2e mock server served an empty `200` for a fixture whose `body_file` it could not
+  read**, instead of failing. A declared body file that is missing is a broken fixture, not a
+  zero-length document, so the consumer's HTTP client received a successful response with no
+  content and reported whatever its own decoder made of that — an error naming neither the fixture
+  nor the file, reproducing only where the file was absent. The generated binary now aborts with
+  both attempted paths. A route that legitimately declares no body is unaffected.
 - **A non-void call whose only declared assertion was `not_error` was refused and dropped from the
   generated Swift suite entirely**, rather than published as a passing test. `not_error` renders
   only a comment for a non-void call (an `XCTAssertNotNil` there would be tautological, since Swift
