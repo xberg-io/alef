@@ -1,5 +1,5 @@
-//! Regression coverage for the `CaptioningConfig`/`LlmConfig` public-identity defect
-//! (xberg-io/xberg): a native type with NO core `Default` impl of its own (because one of its
+//! Regression coverage for the nested-config public-identity defect: a native type with NO
+//! core `Default` impl of its own (because one of its
 //! fields is genuinely required, e.g. `CaptioningConfig { llm: LlmConfig, .. }`) but whose
 //! required field's type DOES get a public `options.py` dataclass twin (because that field's
 //! type, `LlmConfig`, has a core `Default` impl) must itself join the dataclass twin set --
@@ -109,7 +109,7 @@ fn gen_options_py_emits_captioning_config_with_a_required_llm_field() {
 
 /// `__init__.py` must route `CaptioningConfig` to `.options` (its public spelling is the
 /// dataclass), not to the native extension module -- this is the actual surface the reported
-/// `xberg.CaptioningConfig is xberg._xberg.CaptioningConfig -> True` bug lived on.
+/// `pkg.CaptioningConfig is pkg._native.CaptioningConfig -> True` bug lived on.
 #[test]
 fn gen_init_py_routes_captioning_config_to_options_not_native() {
     let api = captioning_config_api();

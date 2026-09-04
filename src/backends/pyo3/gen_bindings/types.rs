@@ -50,7 +50,7 @@ fn to_python_enum_variant(name: &str) -> String {
 /// stands on its own, so it gets a twin). Without the closure, `CaptioningConfig` stays native
 /// and its `#[new]` demands a native `LlmConfig` -- but the public name `LlmConfig` now resolves
 /// to the dataclass twin, so `CaptioningConfig(llm=LlmConfig(...))` raises `TypeError: 'LlmConfig'
-/// object is not an instance of 'LlmConfig'` (xberg-io/xberg -- CaptioningConfig/LlmConfig). A
+/// object is not an instance of 'LlmConfig'` from the package's own public namespace. A
 /// Python dataclass field may be required (unlike a Rust struct literal, it needs no
 /// container-level default), so lacking a core `Default` impl is not a reason to withhold a
 /// twin. Once `CaptioningConfig` joins the set, the generated `_to_rust_captioning_config`
