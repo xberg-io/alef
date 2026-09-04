@@ -188,7 +188,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
 
     let mut cfg = binding_config(&core_import, has_serde);
     cfg.opaque_type_names = &opaque_names_vec_php;
-    let never_skip_cfg_field_names: Vec<String> = crate::backends::php::trait_bridge::active_bridges(config)
+    let mut never_skip_cfg_field_names: Vec<String> = crate::backends::php::trait_bridge::active_bridges(config)
         .filter_map(|b| {
             if b.bind_via == crate::core::config::BridgeBinding::OptionsField {
                 b.resolved_options_field().map(|s| s.to_string())
@@ -197,6 +197,24 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             }
         })
         .collect();
+    // `php_binding_keeps_field` (types/structs/constructor_init.rs) drops every field with a
+    // `#[cfg(...)]` gate unless its name is listed here -- unlike magnus's own struct generator,
+    // which has no cfg filter at all and always keeps gated fields (correct only because Ruby's
+    // Cargo.toml happens to enable every gated feature unconditionally). PHP enables the same
+    // feature set, so a cfg-gated field whose gate this binding's `enabled_features` already
+    // satisfies must be listed here too, or it silently vanishes from the generated PHP struct
+    // even though the underlying core field exists and compiles. ~keep
+    for typ in api.types.iter().filter(|t| !t.is_trait) {
+        for field in &typ.fields {
+            if field.cfg.is_some()
+                && crate::core::ir::cfg_feature_satisfied(field.cfg.as_deref(), &configured_features_set)
+            {
+                never_skip_cfg_field_names.push(field.name.clone());
+            }
+        }
+    }
+    never_skip_cfg_field_names.sort();
+    never_skip_cfg_field_names.dedup();
     cfg.never_skip_cfg_field_names = &never_skip_cfg_field_names;
 
     let mut builder = RustFileBuilder::new().with_generated_header();

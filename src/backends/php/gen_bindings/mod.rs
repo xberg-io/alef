@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod cfg_field_e2e_tests;
+#[cfg(test)]
 mod cfg_variant_e2e_tests;
 mod functions;
 mod helpers;
