@@ -8,8 +8,18 @@ use crate::codegen::generators::trait_bridge::{
     to_camel_case, visitor_param_type,
 };
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use std::collections::HashMap;
+
+/// A JS host method returning a non-boolean primitive (e.g. `usize`, `u32`, `f64`) hands back
+/// a real JS number, not a JSON-encoded string. The generic conversion path below reads the
+/// result via `as_string()` + `serde_json::from_str`, which fails for a bare number and falls
+/// through to the type's zero default — the same "degenerate zero" trap fixed for stub emission
+/// elsewhere (`codegen::defaults`), but here it hits every host implementation, not just
+/// generated stubs. `bool` already has its own `as_bool()` branch; this covers the rest. ~keep
+fn is_numeric_primitive_return(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Primitive(p) if !matches!(p, PrimitiveType::Bool))
+}
 
 /// Find the first parameter index and bridge config where the parameter's named type
 /// matches a trait bridge's `type_alias`.
@@ -134,6 +144,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         } else {
             false
         };
+        let return_number = is_numeric_primitive_return(&method.return_type);
 
         let ctx = minijinja::context! {
             js_name => js_name,
@@ -152,6 +163,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             return_bool => return_bool,
             wrapper => spec.wrapper_name(),
             return_enum => return_enum,
+            return_number => return_number,
         };
         crate::backends::wasm::template_env::render("gen_sync_method_body", ctx)
     }
@@ -194,6 +206,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         } else {
             false
         };
+        let return_number = is_numeric_primitive_return(&method.return_type);
 
         let ctx = minijinja::context! {
             js_name => js_name,
@@ -213,6 +226,7 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
             return_string => return_string,
             return_bool => return_bool,
             return_enum => return_enum,
+            return_number => return_number,
         };
         crate::backends::wasm::template_env::render("gen_async_method_body", ctx)
     }
@@ -1064,6 +1078,128 @@ mod tests {
             "wasm presence check must use Reflect: {check}"
         );
         assert!(check.contains("supports_table_detection"));
+    }
+
+    fn numeric_return_fixture() -> (
+        WasmBridgeGenerator,
+        crate::core::ir::TypeDef,
+        TraitBridgeConfig,
+        crate::core::ir::MethodDef,
+    ) {
+        let generator = WasmBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: std::collections::HashMap::new(),
+            error_type: "SampleError".to_string(),
+            enum_names: std::collections::HashSet::new(),
+            forwardable_defaulted: std::collections::HashSet::new(),
+        };
+        let trait_def = crate::core::ir::TypeDef {
+            name: "EmbeddingBackend".to_string(),
+            rust_path: "sample_core::EmbeddingBackend".to_string(),
+            is_trait: true,
+            is_opaque: true,
+            ..Default::default()
+        };
+        let bridge = TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".to_string(),
+            ..TraitBridgeConfig::default()
+        };
+        let method = crate::core::ir::MethodDef {
+            name: "dimensions".to_string(),
+            return_type: TypeRef::Primitive(PrimitiveType::Usize),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        };
+        (generator, trait_def, bridge, method)
+    }
+
+    /// A host returning a non-boolean primitive (e.g. `usize` from `dimensions()`) hands the
+    /// bridge a real JS number, not a JSON-encoded string. Before this fix the generic
+    /// conversion path read the result via `as_string()`, which is `None` for a bare number,
+    /// so a host that correctly returned `768` still collapsed to the type's zero default —
+    /// tripping registries that reject a zero-valued count (e.g.
+    /// `EmbeddingBackend::dimensions() > 0`).
+    #[test]
+    fn sync_numeric_primitive_return_uses_as_f64() {
+        let (generator, trait_def, bridge, method) = numeric_return_fixture();
+        let spec = crate::codegen::generators::trait_bridge::TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Wasm",
+            type_paths: std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+
+        let body = generator.gen_sync_method_body(&method, &spec);
+
+        assert!(
+            body.contains("result.as_f64()"),
+            "numeric primitive return must read the JS number via as_f64: {body}"
+        );
+        assert!(
+            !body.contains("result.as_string()"),
+            "numeric primitive return must not go through the string/JSON path: {body}"
+        );
+    }
+
+    /// Same conversion bug, async trait method path.
+    #[test]
+    fn async_numeric_primitive_return_uses_as_f64() {
+        let (generator, trait_def, bridge, method) = numeric_return_fixture();
+        let spec = crate::codegen::generators::trait_bridge::TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Wasm",
+            type_paths: std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+
+        let body = generator.gen_async_method_body(&method, &spec);
+
+        assert!(
+            body.contains("result.as_f64()"),
+            "numeric primitive return must read the JS number via as_f64: {body}"
+        );
+        assert!(
+            !body.contains("result.as_string()"),
+            "numeric primitive return must not go through the string/JSON path: {body}"
+        );
+    }
+
+    /// Positive control: `bool` returns keep their existing `as_bool()` path, unaffected by
+    /// the numeric-primitive fix above.
+    #[test]
+    fn sync_bool_return_still_uses_as_bool() {
+        let (generator, trait_def, bridge, mut method) = numeric_return_fixture();
+        method.name = "supports_table_detection".to_string();
+        method.return_type = TypeRef::Primitive(PrimitiveType::Bool);
+        let spec = crate::codegen::generators::trait_bridge::TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Wasm",
+            type_paths: std::collections::HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_string(),
+        };
+
+        let body = generator.gen_sync_method_body(&method, &spec);
+
+        assert!(
+            body.contains("result.as_bool()"),
+            "bool return must use as_bool: {body}"
+        );
+        assert!(
+            !body.contains("result.as_f64()"),
+            "bool return must not use as_f64: {body}"
+        );
     }
 
     /// A `type_overrides` entry can redirect a bridge function's `Named` parameter and return

@@ -73,6 +73,15 @@ result.as_bool()
 {% else %}
 result.as_bool().unwrap_or_default()
 {% endif %}
+{% elif return_number %}
+// Convert JS number to {{ ret_ty }}
+{% if has_error %}
+result.as_f64()
+    .map(|n| n as {{ ret_ty }})
+    .ok_or_else(|| {{ error_result_conv }})
+{% else %}
+result.as_f64().map(|n| n as {{ ret_ty }}).unwrap_or_default()
+{% endif %}
 {% elif return_enum %}
 // Convert bare enum string (non-JSON) to {{ ret_ty }}
 {% if has_error %}

@@ -95,6 +95,21 @@ match result.as_bool() {
     }
 }
 {% endif %}
+{% elif return_number %}
+// Convert JS number to {{ ret_ty }}
+{% if has_error %}
+result.as_f64()
+    .map(|n| n as {{ ret_ty }})
+    .ok_or_else(|| {{ error_result_conv }})
+{% else %}
+match result.as_f64() {
+    Some(n) => n as {{ ret_ty }},
+    None => {
+        tracing::warn!(wrapper = "{{ wrapper }}", method = "{{ js_name }}", "host returned a non-numeric value; returning default");
+        Default::default()
+    }
+}
+{% endif %}
 {% elif return_enum %}
 // Convert bare enum string (non-JSON) to {{ ret_ty }}
 {% if has_error %}
