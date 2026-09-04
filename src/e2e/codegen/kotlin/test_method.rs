@@ -295,7 +295,16 @@ pub(super) fn render_test_method(
 
     let _ = writeln!(out, "    @Test");
     if client_factory.is_some() || kotlin_android_style {
-        let _ = writeln!(out, "    fun test{method_name}() = runBlocking {{");
+        // `: Unit` is load-bearing, not style. An expression-bodied `fun x() = runBlocking
+        // { ... }` takes its return type from the lambda's final expression, and JUnit 5 does
+        // not execute a `@Test` whose return type is not void -- silently, with the suite still
+        // reporting success. `kotlin.test.assertNotNull` (and every other assertion that hands
+        // back the value it checked) therefore used to make the enclosing test non-Unit and
+        // unrunnable: in one consumer's kotlin-android suite 18 of 97 generated tests never ran,
+        // one class losing all 5. Declaring the type here constrains every branch at once and lets Kotlin
+        // coerce the lambda result, where a trailing `Unit` statement only covers the one exit
+        // path it sits on. ~keep
+        let _ = writeln!(out, "    fun test{method_name}(): Unit = runBlocking {{");
     } else {
         let _ = writeln!(out, "    fun test{method_name}() {{");
     }
@@ -1131,3 +1140,6 @@ mod tests {
 
 #[cfg(test)]
 mod inert_example_refusal_tests;
+
+#[cfg(test)]
+mod junit_unit_return_tests;
