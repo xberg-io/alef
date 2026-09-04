@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PyO3 (Python) broke `xberg.CaptioningConfig(llm=xberg.LlmConfig(...))` and five other pairs
+  with `TypeError: 'LlmConfig' object is not an instance of 'LlmConfig'`, a public API break in
+  the generated Python package.** Whether a type gets a pure-Python `options.py` dataclass twin
+  (vs. staying the native `#[pyclass]`) is decided per type by whether its core Rust type derives
+  `Default`. A type that cannot derive `Default` *only* because it has a required field stayed
+  native, even when that field's own type *did* get a dataclass twin -- so the public name
+  `LlmConfig` resolved to the dataclass while the native parent's `#[new]` constructor still
+  demanded a native `LlmConfig` instance. Affected pairs: `CaptioningConfig.llm`,
+  `ChunkClassificationConfig.llm`, `PageClassificationConfig.llm`,
+  `StructuredExtractionConfig.llm`, `TranslationConfig.llm`, and
+  `OcrPipelineConfig.quality_thresholds`. `options_dataclass_type_names` is now a fixed-point
+  closure: a native type without its own `Default` joins the dataclass set once it has a required
+  field whose type is already in the set, and eight other inline `has_default` gates in
+  `gen_options_py`/`gen_init_py` now consult that same closure instead of re-deriving their own
+  (and disagreeing) answer.
+- **Go e2e tests for a call whose only return is `error` asserted the error was non-nil**,
+  inverting `not_error`'s meaning and passing only when the call *failed*. The wrapper-shape
+  selector in `test_function.rs` let `result_is_simple` take a branch meant for functions that
+  return a plain value, even when `returns_void` (the call's only return is `error`, where `nil`
+  is success) was also set. `returns_void` now wins over `result_is_simple`; 21 call blocks in
+  xberg's `alef.toml` carry the combination, 19 of which were generating an inverted assertion.
+- **Node e2e/snippet arguments containing a `$mock_url` placeholder round-tripped through
+  `JSON.stringify(...)`/`JSON.parse(...)`, which napi rejected for any non-JSON-safe value** (e.g.
+  a `bytes` field emitted as `Uint8Array.from([...])` serialized to `{"0":66,"1":97,...}` and no
+  longer typed as `Uint8Array`). The wasm path already spliced the mock URL directly into the
+  typed builder's own source text and was never affected; node used the JSON round trip on the
+  theory that napi's structural types accept a plain object, which is only true for values JSON
+  can represent. Both the array and single-object branches of the TypeScript e2e arg renderer now
+  splice unconditionally, keeping the real typed value the builder already constructed.
+- **A generated Dart e2e suite's `setUpAll` mutated the process-global `Directory.current` and
+  never restored it**, so once `dart test` ran a second generated file in the same process, its
+  relative path resolution compounded on top of the first file's chdir (observed walking
+  `xberg/e2e/dart` -> `xberg/test_documents` -> a stale sibling `xberg-io/test_documents`
+  checkout). The generator now captures the pre-chdir cwd into a file-local `_originalCwd` before
+  mutating it and restores it in `tearDownAll`, gated on `needs_chdir` so files that never chdir
+  emit neither the capture nor the restore.
+- **alef's own e2e-config verifier (`validate_field_classifications` in `src/e2e/validate.rs`)
+  raised a false-positive "unverified" warning for a real, correctly declared crossing into a
+  tuple-variant enum field** (e.g. `metadata.format.excel` for
+  `FormatMetadata::Excel(ExcelMetadata)`). `is_declared_union_crossing` only matched a crossing by
+  the payload's field name, but a tuple variant's single field has no source-level name -- it is
+  synthesized as `_0` -- so config entries and generated accessors spell it after the *variant*
+  name instead, which the check never compared against. It now also accepts
+  `variant_name.to_snake_case() == leaf`, restricted to the variant that owns the matched payload
+  entry, so a genuinely misspelled leaf still warns.
 - **PHP mirror structs defaulted an enum-typed field to the empty string, so every `from_json`
   and every absent-field deserialization failed with `invalid value "" for field 'output_format'`
   (60 of 97 errors in xberg's PHP e2e suite).** The shared struct generator mirrors a core field's
