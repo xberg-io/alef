@@ -785,6 +785,21 @@ mod tests {
         }]
     }
 
+    /// A non-empty IR that declares no field named by either test's leaf. Without it `type_defs`
+    /// is empty, `ir_field_shape` short-circuits to `IrAbsent`, and NO diagnostic is produced for
+    /// any leaf at all -- which would let both tests below pass without consulting the crossing
+    /// check even once. ~keep
+    fn ir_without_the_leaf() -> Vec<crate::core::ir::TypeDef> {
+        vec![crate::core::ir::TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![crate::core::ir::FieldDef {
+                name: "unrelated_field".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }]
+    }
+
     fn config_with_crossing(entry: &str) -> E2eConfig {
         E2eConfig {
             fields_optional: [entry.to_string()].into_iter().collect(),
@@ -801,7 +816,7 @@ mod tests {
     #[test]
     fn tuple_variant_crossing_by_snake_case_variant_name_produces_no_warning() {
         let config = config_with_crossing("metadata.format.excel");
-        let errors = validate_field_classifications(&config, &[], &format_metadata_enum());
+        let errors = validate_field_classifications(&config, &ir_without_the_leaf(), &format_metadata_enum());
         assert!(
             errors.is_empty(),
             "a declared, IR-backed tuple-variant crossing must not warn: {errors:?}"
@@ -815,7 +830,7 @@ mod tests {
     #[test]
     fn misspelled_variant_leaf_still_produces_unverified_warning() {
         let config = config_with_crossing("metadata.format.exccel");
-        let errors = validate_field_classifications(&config, &[], &format_metadata_enum());
+        let errors = validate_field_classifications(&config, &ir_without_the_leaf(), &format_metadata_enum());
         assert_eq!(errors.len(), 1, "a leaf naming no real variant must still warn: {errors:?}");
         assert!(
             errors[0].message.contains("exccel"),
