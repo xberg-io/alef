@@ -17,8 +17,8 @@ use super::MagnusBackend;
 use crate::core::backend::Backend;
 use crate::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{
-    ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind,
-    TypeDef, TypeRef,
+    ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef,
+    TypeRef,
 };
 
 fn magnus_config() -> ResolvedCrateConfig {
@@ -327,7 +327,9 @@ fn generate_bindings_gates_field_references_behind_the_field_cfg_end_to_end() {
          `#[cfg(...)]` and still call `SparseEmbedding::try_convert`, got:\n{lib_rs}"
     );
     assert!(
-        lib_rs.contains(&format!("{gate}\n    fn sparse_embedding(&self) -> Option<SparseEmbedding>")),
+        lib_rs.contains(&format!(
+            "{gate}\n    fn sparse_embedding(&self) -> Option<SparseEmbedding>"
+        )),
         "the accessor `fn` must carry the field's `#[cfg(...)]`, got:\n{lib_rs}"
     );
     assert!(
@@ -632,5 +634,96 @@ fn generate_bindings_skips_an_ambiguous_short_name_instead_of_guessing_its_gate(
             && !lib_rs.contains("#[cfg(feature = \"b\")]\n    value: Option<Ambiguous>,"),
         "an ambiguous short name (two types share it under different gates) must not have \
          either candidate gate guessed onto the field, got:\n{lib_rs}"
+    );
+}
+
+/// The enum half of the same defect. A HOST-owned enum gated behind a Cargo feature, used both
+/// as a parameter and as a return type so both conversion directions are emitted. The enum
+/// DECLARATION is deliberately not expected to carry the gate -- it names no core path -- but
+/// every `impl From<...>` that does name one must. ~keep
+fn gated_enum_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        enums: vec![EnumDef {
+            name: "GatedMode".to_string(),
+            rust_path: "test_lib::GatedMode".to_string(),
+            cfg: Some(r#"feature = "candle-ocr""#.to_string()),
+            variants: vec![
+                EnumVariant {
+                    name: "Fast".to_string(),
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Precise".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        functions: vec![
+            FunctionDef {
+                name: "make_mode".to_string(),
+                rust_path: "test_lib::make_mode".to_string(),
+                return_type: TypeRef::Named("GatedMode".to_string()),
+                ..Default::default()
+            },
+            FunctionDef {
+                name: "use_mode".to_string(),
+                rust_path: "test_lib::use_mode".to_string(),
+                params: vec![ParamDef {
+                    name: "mode".to_string(),
+                    ty: TypeRef::Named("GatedMode".to_string()),
+                    ..Default::default()
+                }],
+                return_type: TypeRef::Unit,
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn generate_bindings_gates_enum_core_to_binding_conversion_behind_the_enum_cfg() {
+    let api = gated_enum_api();
+    let config = magnus_config();
+    let files = MagnusBackend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = lib_rs_content(&files);
+
+    assert!(
+        lib_rs.contains("#[cfg(feature = \"candle-ocr\")]\nimpl From<test_lib::GatedMode> for GatedMode"),
+        "the core->binding `From` impl for a cfg-gated ENUM must carry the enum's own \
+         `#[cfg(...)]`; without it a feature-narrowed build names a core module that was never \
+         compiled in, got:\n{lib_rs}"
+    );
+}
+
+#[test]
+fn generate_bindings_gates_enum_binding_to_core_conversion_behind_the_enum_cfg() {
+    let api = gated_enum_api();
+    let config = magnus_config();
+    let files = MagnusBackend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = lib_rs_content(&files);
+
+    assert!(
+        lib_rs.contains("#[cfg(feature = \"candle-ocr\")]\nimpl From<GatedMode> for test_lib::GatedMode"),
+        "the binding->core `From` impl for a cfg-gated ENUM must carry the enum's own \
+         `#[cfg(...)]`, got:\n{lib_rs}"
+    );
+}
+
+#[test]
+fn generate_bindings_leaves_an_ungated_enum_conversion_ungated() {
+    let mut api = gated_enum_api();
+    api.enums[0].cfg = None;
+    let config = magnus_config();
+    let files = MagnusBackend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = lib_rs_content(&files);
+
+    assert!(
+        !lib_rs.contains("#[cfg("),
+        "an enum with no `cfg` of its own must not acquire one, or every consumer loses the \
+         conversion behind a feature that was never declared, got:\n{lib_rs}"
     );
 }

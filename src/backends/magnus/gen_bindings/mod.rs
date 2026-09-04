@@ -623,18 +623,31 @@ impl Backend for MagnusBackend {
             if exclude_types.contains(e.name.as_str()) {
                 continue;
             }
+            // An enum whose core definition sits behind a `#[cfg]` needs that same gate on
+            // every `impl From<...>` naming its core path, exactly as the struct loop above
+            // already does with `typ.cfg`. The enum DECLARATION stays ungated on purpose: it
+            // names no core path, and gating it would drag in every `define_class` call in
+            // the module initialiser. Without this the conversions reference a core module
+            // that a feature-narrowed build of the binding crate does not compile. ~keep
+            let enum_cfg = e.cfg.as_deref();
             if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
-                builder.add_item(&crate::codegen::conversions::gen_enum_from_binding_to_core_cfg(
-                    e,
-                    &core_import,
-                    &magnus_conv_config,
+                builder.add_item(&prepend_cfg(
+                    enum_cfg,
+                    crate::codegen::conversions::gen_enum_from_binding_to_core_cfg(
+                        e,
+                        &core_import,
+                        &magnus_conv_config,
+                    ),
                 ));
             }
             if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                builder.add_item(&crate::codegen::conversions::gen_enum_from_core_to_binding_cfg(
-                    e,
-                    &core_import,
-                    &magnus_conv_config,
+                builder.add_item(&prepend_cfg(
+                    enum_cfg,
+                    crate::codegen::conversions::gen_enum_from_core_to_binding_cfg(
+                        e,
+                        &core_import,
+                        &magnus_conv_config,
+                    ),
                 ));
             }
         }
