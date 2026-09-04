@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every generated tokio runtime used tokio's default ~2 MiB worker stack.** A deep extraction
+  future (a nested archive member, a multi-stage OCR pipeline) overflows it, and a stack overflow
+  aborts the process with SIGBUS rather than raising a catchable panic -- so one call took down the
+  whole test process. Twenty-one generated sites across the ffi, jni, magnus, rustler, extendr and
+  swift backends and the shared streaming/async adapters now build with an explicit 16 MiB worker
+  stack, matching the runtimes that had already been raised individually. A generator-wide invariant
+  test now scans both sources and committed snapshots so the class cannot regress.
+- **The internal `~keep` marker leaked into generated output.** The marker is stripped on template
+  render, but a comment emitted from a Rust string literal bypasses that pass entirely, so two
+  backends emitted the same comment differently. Removed from all emitted string literals and
+  retained only in the templates where it protects the template file itself.
+- **A generated Kotlin data class serialized a renamed property under the wrong key.** `@param:`
+  binds only the constructor parameter, which Jackson consults when deserializing; serialization
+  goes through the synthesized getter. Renamed properties are now annotated on both, which also
+  corrects two fields whose incorrect serialized keys happened to match the Rust serde aliases and
+  so had gone unnoticed.
+- **Generated trait-bridge test stubs returned the type-zero for every method**, so a host registry
+  that validates its plugins rejected the stub itself. Integer returns are now non-degenerate,
+  matching the ten backends that already did this.
+- **Generated Zig tests discarded a register call's status code and its out-error pointer**, so they
+  could not fail. The call now reports the message, frees it, and fails the test.
+- **A generated Elixir test bound a bare `:ok`/`:error` atom without asserting on it**, and the
+  `list_*` variants used a nil check that an `:error` atom also satisfies.
 - **Kotlin data-class properties whose camelCase name is a single lower-case letter followed by an
   upper-case one serialized under the wrong wire name.** Jackson derives an unannotated Kotlin
   property's name from its synthesized getter, and `java.beans.Introspector.decapitalize` refuses to
