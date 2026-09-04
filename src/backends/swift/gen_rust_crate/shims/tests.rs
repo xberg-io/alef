@@ -639,3 +639,105 @@ fn infallible_function_returning_u64_keeps_native_type() {
         "an infallible u64 return must not be JSON-bridged, got:\n{shim}"
     );
 }
+
+/// A Swift `Task.detached` closure calls this shim from a concurrency cooperative-pool thread,
+/// whose stack is small and outside our control. `Runtime::block_on(future)` polls `future` on
+/// the CALLING thread -- only a `Runtime::spawn`ed task runs on one of the runtime's own worker
+/// threads (the ones actually sized via `thread_stack_size`). A deep extraction future polled
+/// directly by `block_on` therefore still runs on the cooperative-pool thread's small stack and
+/// can overflow it regardless of how large the runtime's worker stacks are configured. The async
+/// shim must hand the real work to `.spawn(...)` and block the caller only on the resulting
+/// `JoinHandle`, which is a shallow, constant-size wait.
+#[test]
+fn async_shim_spawns_the_future_and_blocks_only_on_the_join_handle() {
+    let f = function(vec![]);
+    let type_paths = HashMap::new();
+    let empty_str = HashSet::new();
+    let handle_returned_types = HashSet::new();
+    let capsule_types = std::collections::HashMap::new();
+    let opaque_types = ahash::AHashSet::default();
+    let context = shim_context(
+        &type_paths,
+        &empty_str,
+        &empty_str,
+        &empty_str,
+        &handle_returned_types,
+        &capsule_types,
+        &opaque_types,
+    );
+
+    let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
+
+    assert!(
+        shim.contains(&format!("{ALEF_TOKIO_RUNTIME_ACCESSOR}.spawn(async move {{")),
+        "the deep work must be handed to `.spawn(async move {{ .. }})` so it runs on a \
+         large-stack worker thread, not polled directly on the caller, got:\n{shim}"
+    );
+    assert!(
+        !shim.contains(&format!("{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{")),
+        "must not `.block_on` the raw future directly -- that runs the poll chain on the \
+         calling (Swift cooperative-pool) thread's stack, got:\n{shim}"
+    );
+    assert!(
+        shim.contains(&format!("{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(__alef_task)")),
+        "the calling thread must only block on the spawned task's `JoinHandle`, got:\n{shim}"
+    );
+    // Unwinding across the FFI boundary is undefined behavior. A panicked or cancelled task's
+    // `JoinError` must become an ordinary `Err(String)`, never re-raised as a panic.
+    assert!(
+        shim.contains("unwrap_or_else(|__alef_join_error|") && shim.contains("Err(format!("),
+        "a task panic or cancellation must surface as `Err(String)`, not unwind across the FFI \
+         boundary, got:\n{shim}"
+    );
+    assert!(
+        !shim.contains("panic!") && !shim.contains("resume_unwind"),
+        "must not panic across the FFI boundary, got:\n{shim}"
+    );
+    assert!(
+        shim.contains("-> Result<"),
+        "every async shim must return a Result so a JoinError has somewhere to land, even when \
+         the wrapped core call is itself infallible, got:\n{shim}"
+    );
+}
+
+/// An async function with no `error_type` and no enum param would otherwise get a bare
+/// (non-`Result`) return type -- but its shim still spawns a task whose `JoinHandle` can fail
+/// independently of the wrapped call (panic, cancellation). Without a forced `Result` return,
+/// that `JoinError` would have nowhere to go except a `panic!`, which is exactly what the FFI
+/// boundary must never do. This is the case the previous test's default `error_type: Some(..)`
+/// does not exercise.
+#[test]
+fn infallible_async_function_still_gets_forced_result_return_for_the_join_error() {
+    let mut f = function(vec![]);
+    f.error_type = None;
+    let type_paths = HashMap::new();
+    let empty_str = HashSet::new();
+    let handle_returned_types = HashSet::new();
+    let capsule_types = std::collections::HashMap::new();
+    let opaque_types = ahash::AHashSet::default();
+    let context = shim_context(
+        &type_paths,
+        &empty_str,
+        &empty_str,
+        &empty_str,
+        &handle_returned_types,
+        &capsule_types,
+        &opaque_types,
+    );
+
+    let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
+
+    assert!(
+        shim.contains("-> Result<"),
+        "an infallible async function must still be forced into a `Result`-shaped return so \
+         the join-error path has somewhere to land, got:\n{shim}"
+    );
+    assert!(
+        shim.contains("Ok("),
+        "the success path must be wrapped in `Ok(..)`, got:\n{shim}"
+    );
+    assert!(
+        !shim.contains("panic!") && !shim.contains("resume_unwind"),
+        "must not panic across the FFI boundary, got:\n{shim}"
+    );
+}

@@ -389,8 +389,15 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     // (see `swift_call_arg`'s `?`-based pre_call_bindings). When the underlying core call is
     // already fallible (`f.error_type.is_some()`) that failure rides the existing `Result`; when
     // it is not, the shim's own return type must become `Result<_, String>` purely to carry this
-    // one failure mode, or the `?` in `pre_call_bindings` has nothing to propagate into. ~keep
-    let forced_fallible = forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
+    // one failure mode, or the `?` in `pre_call_bindings` has nothing to propagate into.
+    //
+    // An async shim carries a second, independent failure mode: the work runs as a spawned
+    // task (see the `f.is_async` branch below), and the task's `JoinHandle` can resolve to a
+    // `JoinError` if the task panicked or was cancelled. Unwinding across the FFI boundary is
+    // undefined behavior, so that `JoinError` must also become an `Err(String)`, not a `panic!`
+    // -- which means every async shim needs a `Result`-shaped return type even when the wrapped
+    // core call itself is infallible and has no enum param to force one. ~keep
+    let forced_fallible = f.is_async || forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
 
     let (return_ty, has_explicit_return) = if is_capsule_return {
         if forced_fallible {
@@ -579,9 +586,11 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
                 call => &source_call,
                 is_async => f.is_async,
                 has_error => f.error_type.is_some(),
-                // The writeback path's own success value never needed `Ok(...)` before -- only
-                // a fallible enum param (see `forced_fallible` above) makes the *shim*, not the
-                // core call, fallible, so only that value needs the wrap. ~keep
+                // The writeback path's own success value never needed `Ok(...)` before -- it is
+                // needed only when something else forces the *shim's* return type to `Result`
+                // while the core call itself stays infallible: a fallible enum param, or (see
+                // `forced_fallible` above) every async shim now that a spawned task's `JoinError`
+                // must surface as `Err(..)` rather than unwind across the FFI boundary. ~keep
                 force_ok => forced_fallible,
                 return_expr => return_expr,
             },
@@ -640,9 +649,27 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     };
 
     if f.is_async {
+        // `Runtime::block_on(future)` drives `future` on the CALLING thread -- only tasks
+        // handed to `Runtime::spawn` run on one of the runtime's own worker threads (the ones
+        // sized by `RUNTIME_STACK_SIZE_BYTES` below). The Swift-side caller reaches this
+        // function from a `Task.detached` closure, i.e. a Swift concurrency cooperative-pool
+        // thread whose stack we do not control and cannot resize. So the deep async work is
+        // spawned onto a worker (large stack) and the calling thread only blocks on the
+        // resulting `JoinHandle`, which is a cheap, shallow wait -- not the deep poll chain.
+        //
+        // A spawned task's `JoinHandle` resolves to `Err(JoinError)` if the task panicked or
+        // was cancelled; unwinding that across the FFI boundary is undefined behavior, so it
+        // is converted to an ordinary `Err(String)` instead of a `panic!`/`resume_unwind`. This
+        // is why `forced_fallible` above is `true` for every async shim: the body this closure
+        // wraps always evaluates to `Result<_, String>`, giving the join failure somewhere to
+        // land. A task panicking does not poison the shared runtime or affect other in-flight
+        // or future calls -- tokio's own task harness polls every spawned task inside
+        // `catch_unwind` and reports the panic through that one task's `JoinHandle` only.
         Ok(format!(
             "{cfg_prefix}pub fn {fn_name}({params_str}){return_annotation} {{\n    \
-            {bindings_str}{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
+            {bindings_str}let __alef_task = {ALEF_TOKIO_RUNTIME_ACCESSOR}.spawn(async move {{ {body} }});\n    \
+            {ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(__alef_task).unwrap_or_else(|__alef_join_error| {{\n        \
+            Err(format!(\"alef: spawned async task failed: {{__alef_join_error}}\"))\n    }})\n}}\n"
         ))
     } else {
         Ok(format!(
@@ -651,9 +678,10 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     }
 }
 
-/// Snippet that resolves the process-wide tokio runtime. Emitted alongside the
-/// shim functions so async wrappers can `.block_on(...)` without rebuilding
-/// the runtime per call.
+/// Snippet that resolves the process-wide tokio runtime. Emitted alongside the shim
+/// functions so async wrappers can `.spawn(...)` the real work onto a large-stack worker
+/// thread and `.block_on(...)` only the resulting `JoinHandle`, without rebuilding the
+/// runtime per call.
 pub(crate) const ALEF_TOKIO_RUNTIME_ACCESSOR: &str = "crate::__alef_tokio_runtime()";
 
 /// Top-of-crate snippet that defines `__alef_tokio_runtime()`, a lazily-
