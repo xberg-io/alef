@@ -1,18 +1,36 @@
         let __fut = {{ call_expr }};
+        // ~keep 32 MiB: the runtime below is a *current-thread* runtime, so it spawns no
+        // workers and `thread_stack_size` would govern nothing that matters here —
+        // `block_on` drives the host callback future on this very thread. A thread from
+        // the bare `std::thread::spawn` this replaces gets Rust's 2 MiB default, which a
+        // deep callback future overflows, and a stack overflow aborts the process with
+        // SIGBUS instead of raising a catchable panic. Matches the Rustler bridge, which
+        // widens its own calling thread to the same 32 MiB for the same reason.
+        const VISITOR_BLOCK_ON_STACK_SIZE_BYTES: usize = 32 * 1024 * 1024;
 {% if has_error %}
-        let {{ result_var }} = std::thread::spawn(move || {
-            ::tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("build alef visitor tokio runtime")
-                .block_on(__fut)
-        }).join().expect("thread panicked");
+        let {{ result_var }} = std::thread::Builder::new()
+            .stack_size(VISITOR_BLOCK_ON_STACK_SIZE_BYTES)
+            .spawn(move || {
+                ::tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("build alef visitor tokio runtime")
+                    .block_on(__fut)
+            })
+            .expect("spawn alef visitor block_on thread")
+            .join()
+            .expect("thread panicked");
 {% else %}
-        let {{ result_var }} = match std::thread::spawn(move || {
-            ::tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("build alef visitor tokio runtime")
-                .block_on(__fut)
-        }).join() {
+        let {{ result_var }} = match std::thread::Builder::new()
+            .stack_size(VISITOR_BLOCK_ON_STACK_SIZE_BYTES)
+            .spawn(move || {
+                ::tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .expect("build alef visitor tokio runtime")
+                    .block_on(__fut)
+            })
+            .expect("spawn alef visitor block_on thread")
+            .join()
+        {
             Ok(v) => v,
             Err(e) => {
                 let msg = e

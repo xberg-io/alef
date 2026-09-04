@@ -148,6 +148,64 @@ fn swift_process_wide_runtime_is_built_with_an_explicit_worker_stack() {
     );
 }
 
+/// Size of the thread a `block_on` call is given, where the generator owns that thread. It is a
+/// different quantity from `EXPECTED_STACK_SIZE_LITERAL`: that one sizes tokio *workers*, this one
+/// sizes the single thread the future is driven on. The Rustler bridge set the precedent at 32 MiB.
+const EXPECTED_CALLING_THREAD_STACK_LITERAL: &str = "32 * 1024 * 1024";
+
+const THREAD_BUILDER: &str = "std::thread::Builder::new()";
+const THREAD_STACK_SIZE_SETTER: &str = ".stack_size(";
+const CURRENT_THREAD_BUILDER: &str = "tokio::runtime::Builder::new_current_thread()";
+const BARE_THREAD_SPAWN: &str = "std::thread::spawn(";
+
+/// The Dart trait bridge drives host callbacks with `block_on` on a thread it spawns itself, under
+/// a *current-thread* runtime. `.thread_stack_size(...)` is inert there — a current-thread runtime
+/// has no workers, and that setter reaches only the blocking pool — so the widening has to happen
+/// on the spawn. It previously used a bare `std::thread::spawn`, i.e. Rust's 2 MiB default, which a
+/// deep callback future overflows into a process-killing SIGBUS rather than a catchable panic.
+#[test]
+fn dart_trait_bridge_template_widens_the_thread_its_block_on_runs_on() {
+    let name = "dart/rust_trait_method_block_on";
+    let source = include_str!("../src/backends/dart/templates/rust_trait_method_block_on.jinja");
+
+    assert!(
+        source.contains(CURRENT_THREAD_BUILDER),
+        "{name}: expected the current-thread runtime this test is about, got:\n{source}"
+    );
+    assert!(
+        !source.contains(BARE_THREAD_SPAWN),
+        "{name}: `{BARE_THREAD_SPAWN}` gives the `block_on` thread Rust's 2 MiB default stack, \
+         which a deep host-callback future overflows — and a stack overflow aborts the process \
+         with SIGBUS instead of raising a catchable panic. Use \
+         `{THREAD_BUILDER}{THREAD_STACK_SIZE_SETTER}<named const>).spawn(...)`. Got:\n{source}"
+    );
+    assert!(
+        source.contains(THREAD_BUILDER) && source.contains(THREAD_STACK_SIZE_SETTER),
+        "{name}: the spawn must widen the thread it creates, got:\n{source}"
+    );
+    assert!(
+        source.contains(EXPECTED_CALLING_THREAD_STACK_LITERAL),
+        "{name}: the calling thread must get the {EXPECTED_CALLING_THREAD_STACK_LITERAL} byte \
+         stack the Rustler bridge established for the same job, got:\n{source}"
+    );
+    assert!(
+        !source.contains(STACK_SIZE_SETTER),
+        "{name}: `{STACK_SIZE_SETTER}` on a current-thread runtime sizes only the blocking pool \
+         and not the stack `block_on` runs on — it reads as protection while providing none, so \
+         it must not appear here. Got:\n{source}"
+    );
+    assert_stack_size_is_a_named_constant(name, source);
+
+    // Both arms of the template build a runtime; a fix applied to only one is the shape this
+    // guards against, since the infallible arm is the one most methods take. ~keep
+    assert_eq!(
+        source.matches(CURRENT_THREAD_BUILDER).count(),
+        source.matches(THREAD_BUILDER).count(),
+        "{name}: every current-thread runtime in this template must have its own widened spawn, \
+         got:\n{source}"
+    );
+}
+
 /// The PHP extension's shared `WORKER_RUNTIME` is where every PHP async body ultimately runs,
 /// so it carries the stack guarantee for the whole PHP surface.
 #[test]
