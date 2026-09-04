@@ -14,8 +14,8 @@
 //!
 //! Scoped assertion types are those actually exercised by resolvable fixture paths at the time of
 //! writing: `equals`, `not_empty`, `is_empty`, `count_min`, `count_equals`, `greater_than`,
-//! `greater_than_or_equal`, `contains`, `contains_all`. An assertion type outside that list still
-//! renders a skip —
+//! `greater_than_or_equal`, `contains`, `contains_all`, `min_length`. An assertion type outside
+//! that list still renders a skip —
 //! [`crate::e2e::codegen::field_skip::FieldSkip::NavigatedJsonBridgedAssertionTypeNotSupportedInSwift`],
 //! a `GeneratorGap` rather than the `LanguageLimitation` the caller used to render, because
 //! navigation itself succeeded here and only the assertion-type renderer is missing.
@@ -119,6 +119,7 @@ fn build_assertion_lines(assertion: &Assertion, local: &str) -> Option<String> {
         "greater_than" | "greater_than_or_equal" => build_numeric_compare(assertion, local),
         "contains" => build_contains(assertion, local),
         "contains_all" => build_contains_all(assertion, local),
+        "min_length" => build_min_length(assertion, local),
         _ => None,
     }
 }
@@ -180,6 +181,17 @@ fn build_contains(assertion: &Assertion, local: &str) -> Option<String> {
     Some(format!(
         "        XCTAssertTrue((({local} as? String) ?? \"\").contains(\"{escaped}\"), \"expected to contain: \
          {escaped}\")\n"
+    ))
+}
+
+/// Mirrors the non-bridged `min_length` renderer in `assertions.rs`: character-count comparison
+/// against a `String`, not the decoded value's own `count` (which would be array-length for a
+/// `[Any]`). Coalescing a non-`String` decode to `""` before `.count` keeps a decode failure or a
+/// `nil` reading as length 0 rather than crashing the cast.
+fn build_min_length(assertion: &Assertion, local: &str) -> Option<String> {
+    let n = assertion.value.as_ref()?.as_u64()?;
+    Some(format!(
+        "        XCTAssertGreaterThanOrEqual((({local} as? String) ?? \"\").count, {n})\n"
     ))
 }
 
@@ -328,6 +340,28 @@ mod tests {
         assert!(
             out.contains("XCTAssertGreaterThanOrEqual(") && out.contains(".count ?? 0), 2)"),
             "got:\n{out}"
+        );
+    }
+
+    /// The `chunking_config_and_output` shape: `min_length` on a string reached through an index
+    /// and a further key — `chunks[0].content`. This was the last assertion type in the whole
+    /// generated consumer suite that still fell through to the "no Swift renderer" skip.
+    #[test]
+    fn min_length_on_a_nested_string_renders_a_character_count_comparison() {
+        let resolver = resolver_with_json_bridged_field("chunks");
+        let mut out = String::new();
+
+        let rendered = render_json_bridged_navigated_assertion(
+            &mut out,
+            &assertion("min_length", "results[0].chunks[0].content", Some(serde_json::json!(9))),
+            &resolver,
+            "result",
+        );
+
+        assert!(rendered, "min_length over a navigated field must be handled");
+        assert!(
+            out.contains("XCTAssertGreaterThanOrEqual(((") && out.contains("as? String) ?? \"\").count, 9)"),
+            "must compare the decoded value's character count against the fixture's expected minimum, got:\n{out}"
         );
     }
 
