@@ -236,7 +236,11 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         // field that only exists under the same feature, and the assignment target on the core
         // side may be gated too (an `E0609`/`E0425` pair otherwise, symmetric with the
         // core-to-binding direction). ~keep
-        let gate = field.cfg.as_deref().filter(|gate| !gate.is_empty());
+        let gate = field
+            .cfg
+            .as_deref()
+            .filter(|gate| !gate.is_empty())
+            .map(|gate| config.restrict_field_gate(gate));
         if optionalized {
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
                 let statement = if field_was_optionalized {

@@ -5,6 +5,7 @@ use tracing_test::traced_test;
 mod drift;
 mod enabled_features;
 mod feature_forwarding;
+mod restrict_declared;
 
 #[test]
 fn combine_gates_drops_an_owner_the_member_already_requires() {

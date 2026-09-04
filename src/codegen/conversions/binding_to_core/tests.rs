@@ -820,3 +820,75 @@ fn an_ungated_optionalized_field_keeps_a_bare_assignment() {
         "an ungated assignment must not be wrapped in a block, got:\n{out}"
     );
 }
+
+/// Regression: `declared_features` must narrow a struct-literal field's copied `#[cfg(...)]`
+/// gate to only the feature names this binding crate declares -- a real PHP consumer's crate
+/// declared "url-config-types" but not "url-ingestion", and the verbatim `any(...)` gate
+/// this direction copies onto `val.crawl.into()` triggered `unexpected_cfg_condition_value`
+/// under `-D warnings`.
+#[test]
+fn gate_with_one_undeclared_feature_narrows_to_the_declared_term_alone_binding_to_core() {
+    let field = FieldDef {
+        name: "crawl".to_string(),
+        ty: TypeRef::String,
+        cfg: Some(r#"any(feature = "url-ingestion", feature = "url-config-types")"#.to_string()),
+        ..FieldDef::default()
+    };
+    let never_skip = vec!["crawl".to_string()];
+    let declared: std::collections::HashSet<&str> = ["url-config-types"].into_iter().collect();
+    let config = ConversionConfig {
+        never_skip_cfg_field_names: &never_skip,
+        strip_cfg_fields_from_binding_struct: true,
+        declared_features: Some(&declared),
+        ..ConversionConfig::default()
+    };
+
+    let out = gen_from_binding_to_core_cfg(&type_with_field(field), "test_lib", &config);
+
+    let crawl_line = out
+        .lines()
+        .find(|line| line.contains("crawl:"))
+        .expect("crawl field initialiser present");
+    let cfg_line = out
+        .lines()
+        .take_while(|line| !line.contains("crawl:"))
+        .last()
+        .expect("a preceding cfg attribute line exists");
+
+    assert!(
+        cfg_line.contains(r#"#[cfg(feature = "url-config-types")]"#),
+        "gate must narrow to the single declared term, got cfg line:\n{cfg_line}\nfull output:\n{out}"
+    );
+    assert!(
+        !cfg_line.contains("url-ingestion"),
+        "the undeclared feature must not appear in the emitted cfg attribute, got:\n{cfg_line}"
+    );
+    assert!(crawl_line.contains("val.crawl"), "field initialiser missing, got:\n{out}");
+}
+
+/// CONTROL for the regression above: when every named feature is declared, the gate must be
+/// copied verbatim, byte for byte.
+#[test]
+fn gate_with_every_feature_declared_is_emitted_unchanged_binding_to_core() {
+    let field = FieldDef {
+        name: "crawl".to_string(),
+        ty: TypeRef::String,
+        cfg: Some(r#"any(feature = "url-ingestion", feature = "url-config-types")"#.to_string()),
+        ..FieldDef::default()
+    };
+    let never_skip = vec!["crawl".to_string()];
+    let declared: std::collections::HashSet<&str> = ["url-ingestion", "url-config-types"].into_iter().collect();
+    let config = ConversionConfig {
+        never_skip_cfg_field_names: &never_skip,
+        strip_cfg_fields_from_binding_struct: true,
+        declared_features: Some(&declared),
+        ..ConversionConfig::default()
+    };
+
+    let out = gen_from_binding_to_core_cfg(&type_with_field(field), "test_lib", &config);
+
+    assert!(
+        out.contains(r#"#[cfg(any(feature = "url-ingestion", feature = "url-config-types"))]"#),
+        "a gate whose every feature is declared must be copied verbatim, got:\n{out}"
+    );
+}

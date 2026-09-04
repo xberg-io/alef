@@ -208,7 +208,10 @@ pub fn gen_from_core_to_binding_cfg(
         // impl still tries to initialize it -- a `E0560`/`E0609` mismatch between the struct
         // declaration and its own conversion. ~keep
         let conversion = match field.cfg.as_deref() {
-            Some(gate) if !gate.is_empty() => format!("#[cfg({gate})]\n            {conversion}"),
+            Some(gate) if !gate.is_empty() => {
+                let gate = config.restrict_field_gate(gate);
+                format!("#[cfg({gate})]\n            {conversion}")
+            }
             _ => conversion,
         };
         fields.push(conversion);

@@ -205,6 +205,19 @@ pub struct ConversionConfig<'a> {
     /// when the paired declaration this `ConversionConfig` feeds has actually been taught to
     /// drop, as pyo3's and magnus's own construction sites now do. ~keep
     pub declaration_drops_unreachable_foreign_variants: bool,
+    /// This binding's own declared Cargo feature names, used to narrow a cfg-gated field's
+    /// `#[cfg(...)]` gate (see `restrict_field_gate`) before it is copied onto a conversion's
+    /// field reference -- see `codegen::cfg::restrict_cfg_gate_to_declared` for why a verbatim
+    /// copy can name a feature this binding crate's own `[features]` table never declares.
+    ///
+    /// `None` for every backend that has not wired this up, which preserves the exact prior
+    /// behavior of copying `field.cfg` verbatim -- only a backend that explicitly passes `Some`
+    /// (currently PHP) gets the narrowed/dropped treatment. Deliberately a *separate* field from
+    /// `configured_features` above: that one drives foreign-variant reachability inside
+    /// `codegen::conversions::enums`, and reusing it here would also switch on that unrelated
+    /// behavior for any backend wired for this fix, which is a bigger change than the cfg-gate
+    /// fix calls for. ~keep
+    pub declared_features: Option<&'a std::collections::HashSet<&'a str>>,
 }
 
 impl<'a> ConversionConfig<'a> {
@@ -239,5 +252,31 @@ impl<'a> ConversionConfig<'a> {
             }
         }
         field_name.to_string()
+    }
+
+    /// Narrow a cfg-gated field's `#[cfg(...)]` gate to only the feature names this binding
+    /// crate declares (`declared_features`), before it is copied onto a conversion's field
+    /// reference. See `codegen::cfg::restrict_cfg_gate_to_declared` for the term-by-term
+    /// semantics.
+    ///
+    /// A gate reaching this call site was already proven satisfiable by this same feature set
+    /// upstream -- the caller that decided to keep this field at all
+    /// (`never_skip_cfg_field_names`) used `cfg_feature_satisfied` against the identical set a
+    /// consistent caller passes here. So `restrict_cfg_gate_to_declared` returning
+    /// `Unreachable` at this call site means the caller populated
+    /// `never_skip_cfg_field_names` and `declared_features` from two different feature sets --
+    /// a logic error, not a real reachable state for a consistent caller. Neither generated
+    /// `From` impl has a template-safe way to drop the field reference this guards in every
+    /// code path (`core_to_binding_impl` has no `..Default::default()` fallback at all), so the
+    /// conservative choice on that unreachable branch is to fall back to the gate unrestricted
+    /// rather than emit a struct literal missing a field. ~keep
+    pub(crate) fn restrict_field_gate<'g>(&self, gate: &'g str) -> std::borrow::Cow<'g, str> {
+        match self.declared_features {
+            Some(declared) => match crate::codegen::cfg::restrict_cfg_gate_to_declared(gate, declared) {
+                crate::codegen::cfg::DeclaredCfgGate::Gate(narrowed) => std::borrow::Cow::Owned(narrowed),
+                crate::codegen::cfg::DeclaredCfgGate::Unreachable => std::borrow::Cow::Borrowed(gate),
+            },
+            None => std::borrow::Cow::Borrowed(gate),
+        }
     }
 }

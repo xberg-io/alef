@@ -50,6 +50,99 @@ pub fn collect_cfg_feature_names(cfg_str: &str, out: &mut BTreeSet<String>) {
     }
 }
 
+/// Outcome of restricting a `#[cfg(...)]` predicate string to a crate's own declared Cargo
+/// feature names -- see [`restrict_cfg_gate_to_declared`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeclaredCfgGate {
+    /// Emit `#[cfg(<0>)]`. Identical to the input gate, byte for byte, when every feature name
+    /// it references is declared; narrowed to only the declared alternatives otherwise.
+    Gate(String),
+    /// No feature name this predicate could ever be satisfied through is declared in this
+    /// crate -- the predicate can never hold here, so the item it guards is unreachable and
+    /// must be dropped rather than gated (naming any of the missing features inside
+    /// `#[cfg(...)]` is itself the `unexpected_cfg_condition_value` error this function exists
+    /// to avoid).
+    Unreachable,
+}
+
+/// Restrict a `#[cfg(...)]` condition string to the feature names `declared` contains.
+///
+/// A Rust-emitting backend copies a core field's `#[cfg(...)]` gate verbatim onto every
+/// binding-side reference to that field (see `codegen::conversions::core_to_binding::render`
+/// and its `binding_to_core` counterpart). A binding crate's own `[features]` table is a
+/// curated SUBSET of the core crate's -- built from that language's own configured feature list
+/// (`ResolvedCrateConfig::features_for_language`), not from every feature the core crate
+/// happens to declare -- so copying the gate verbatim can name a feature the binding crate's
+/// manifest never declares. `rustc` reports that as `unexpected_cfg_condition_value`, a hard
+/// error under `-D warnings`, regardless of which branch of the predicate is actually taken:
+/// the lint fires on the NAME appearing in the source, not on the value it evaluates to.
+///
+/// Term-by-term, matching how Cargo would actually evaluate the narrowed predicate in a crate
+/// that never declares (and therefore never turns on) the missing name:
+/// - `feature = "a"`, `a` undeclared: `a` is never on in this crate -- [`DeclaredCfgGate::Unreachable`].
+/// - `any(a, b)`, only `b` undeclared: `b` can never contribute a `true` here, so `any(a, b)`
+///   reduces to `a` alone -- returned as the single-term form `feature = "a"`, not `any(a)`, to
+///   match the shape every other gate this emitter produces.
+/// - `any(a, b)`, both undeclared: neither disjunct can ever hold -- Unreachable.
+/// - `all(a, b)`, only `b` undeclared: `b` is never on, so the conjunction can never hold in
+///   this crate regardless of `a` -- Unreachable (fail-closed: dropping just `b` and keeping
+///   `all(a)` would satisfy a predicate the original `all(a, b)` never would have here).
+/// - a gate naming only declared features: returned unchanged, byte-for-byte -- the common
+///   case, and a regression here would be far worse than the bug this exists to fix.
+///
+/// `not(...)` and any predicate this module's parser does not recognise (`target_os = "..."`,
+/// `windows`, ...) name no Cargo feature this crate could fail to declare, so they pass through
+/// unchanged rather than being restricted. ~keep
+#[must_use]
+pub fn restrict_cfg_gate_to_declared(gate: &str, declared: &HashSet<&str>) -> DeclaredCfgGate {
+    let mut names = BTreeSet::new();
+    collect_cfg_feature_names(gate, &mut names);
+    if names.iter().all(|name| declared.contains(name.as_str())) {
+        // Fast path: nothing to narrow. Returns the ORIGINAL string, not a reconstruction, so
+        // the common all-declared case is guaranteed byte-for-byte unchanged. ~keep
+        return DeclaredCfgGate::Gate(gate.to_string());
+    }
+    match restrict_cfg_term(gate, declared) {
+        Some(restricted) => DeclaredCfgGate::Gate(restricted),
+        None => DeclaredCfgGate::Unreachable,
+    }
+}
+
+/// Recursive worker for [`restrict_cfg_gate_to_declared`]'s slow path (at least one referenced
+/// feature is undeclared). Mirrors [`collect_cfg_feature_names`]'s own string-level recursion
+/// rather than round-tripping through [`CfgPredicate`], because [`CfgPredicate::Other`] does not
+/// retain the source text it matched -- reconstructing from it would lose an unrecognised
+/// predicate's content, not merely its formatting.
+fn restrict_cfg_term(cfg_str: &str, declared: &HashSet<&str>) -> Option<String> {
+    let normalized = cfg_str.trim().replace(" (", "(");
+    let normalized = normalized.as_str();
+
+    if let Some(feature) = normalized.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
+        return declared.contains(feature).then(|| format!(r#"feature = "{feature}""#));
+    }
+    if let Some(inner) = normalized.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {
+        let kept: Vec<String> = parse_cfg_list(inner)
+            .iter()
+            .filter_map(|cond| restrict_cfg_term(cond, declared))
+            .collect();
+        return match kept.len() {
+            0 => None,
+            1 => kept.into_iter().next(),
+            _ => Some(format!("any({})", kept.join(", "))),
+        };
+    }
+    if let Some(inner) = normalized.strip_prefix("all(").and_then(|s| s.strip_suffix(')')) {
+        let mut kept = Vec::with_capacity(4);
+        for cond in parse_cfg_list(inner) {
+            kept.push(restrict_cfg_term(&cond, declared)?);
+        }
+        return Some(format!("all({})", kept.join(", ")));
+    }
+    // `not(...)` and anything unrecognised: no Cargo feature name here for this crate to fail to
+    // declare, so pass the ORIGINAL (unnormalized) text through unchanged. ~keep
+    Some(cfg_str.to_string())
+}
+
 /// Walk the full [`ApiSurface`] and return the set of feature names referenced
 /// by any cfg attribute on a type, field, method, enum variant, service, or
 /// top-level function.

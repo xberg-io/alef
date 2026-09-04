@@ -651,6 +651,13 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         strip_cfg_fields_from_binding_struct: true,
         opaque_types: Some(&conv_opaque_types),
         trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
+        // Narrows a kept cfg-gated field's `#[cfg(...)]` gate (see `never_skip_cfg_field_names`
+        // above) to only the feature names this crate's own `Cargo.toml` declares, so an
+        // `any(...)` gate naming a feature php.toml never configures for this binding does not
+        // trigger `unexpected_cfg_condition_value` under `-D warnings`. Same set that decided
+        // `never_skip_cfg_field_names` via `cfg_feature_satisfied`, so the gate this narrows was
+        // already proven satisfiable through it. ~keep
+        declared_features: Some(&configured_features_set),
         ..Default::default()
     };
     let mut enum_tainted: AHashSet<String> = AHashSet::new();
