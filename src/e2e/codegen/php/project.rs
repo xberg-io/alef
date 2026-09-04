@@ -443,6 +443,42 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
     )
 }
 
+/// Render `run_tests.php`, the generated PHP e2e entrypoint.
+///
+/// The extension load order is the crux of this file: an ambient, previously
+/// installed copy of the extension (e.g. published via PIE by an earlier
+/// release) registers itself during ordinary php.ini processing, which
+/// happens *before* any `-d extension=` override on the command line takes
+/// effect. When both declare the same extension name, PHP keeps whichever
+/// loaded first -- the ambient one -- and only emits a "Module ... is already
+/// loaded" warning for the one this harness asked for, so the freshly built
+/// extension at `$extPath` is silently discarded in favor of stale code with
+/// no non-zero exit anywhere. `-n` (drop every ini file) is not a fix on its
+/// own: PHPUnit needs several extensions (dom, json, libxml, mbstring,
+/// tokenizer, xml, xmlwriter, ...) that are shared modules on some platforms
+/// and statically compiled on others, so hardcoding which ones to
+/// re-declare under `-n` breaks whichever platform guessed wrong.
+///
+/// The fix built into this template is to construct an "isolated" php.ini at
+/// run time: read the ambient php.ini plus every ini file PHP would itself
+/// scan from its conf.d directory, drop only the `extension=`/`zend_extension=`
+/// line(s) that name *this* extension, and load PHP with `-n -c <that file>
+/// -d extension=<built path>`. Every other ambient setting PHPUnit or the
+/// extension needs survives untouched; only the one directive that would
+/// collide with the fresh build is removed. On a machine with no ambient
+/// install at all, no line matches the filter, the isolated ini is a faithful
+/// copy of the ambient one, and behavior is unchanged. ~keep
+///
+/// A preflight check then runs an isolated, one-shot PHP invocation that
+/// loads only $extPath and asserts both its identity (`extension_loaded`)
+/// and its exact reported version, capturing stdout and stderr separately so
+/// an "already loaded" startup warning is caught even though it does not by
+/// itself produce a non-zero exit code. This check is unconditional -- it is
+/// not gated behind a re-exec environment variable -- specifically because a
+/// prior version of this template put an equivalent check after a branch
+/// that always `passthru`'d straight into PHPUnit and `exit`'d, so the check
+/// could never be reached at all. A guard that cannot run is worse than
+/// having none, because it creates false confidence. ~keep
 pub(super) fn render_run_tests_php(
     extension_name: &str,
     cargo_crate_name: Option<&str>,
@@ -457,90 +493,198 @@ pub(super) fn render_run_tests_php(
     } else {
         format!("lib{extension_name}_php")
     };
-    format!(
-        r#"#!/usr/bin/env php
+    const TEMPLATE: &str = r#"#!/usr/bin/env php
 <?php
-{header}
+__HEADER__
 declare(strict_types=1);
 
 // Determine platform-specific extension suffix.
-$extSuffix = match (PHP_OS_FAMILY) {{
+$extSuffix = match (PHP_OS_FAMILY) {
     'Darwin' => '.dylib',
     default => '.so',
-}};
-$localExtPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
+};
+$localExtPath = __DIR__ . '/../../target/release/__EXT_LIB_NAME__' . $extSuffix;
 $extPath = $localExtPath;
 
 // Check for PIE-installed extension path (set by install.sh in registry mode).
 // In registry mode, the extension is installed system-wide via PIE and passed
 // via the PIE_INSTALLED_EXTENSION_PATH environment variable.
 $pieInstalledExtPath = getenv('PIE_INSTALLED_EXTENSION_PATH');
-if ($pieInstalledExtPath && file_exists($pieInstalledExtPath)) {{
+if ($pieInstalledExtPath && file_exists($pieInstalledExtPath)) {
     $extPath = $pieInstalledExtPath;
-}}
+}
 
 // Neither a local release build nor a PIE-installed extension was found. Fail
 // loudly instead of falling through to PHPUnit: the ambient php.ini may still
 // register a system-installed copy of this extension (e.g. from a previous
 // release), and silently testing against it exercises stale, uncontrolled
 // code instead of this checkout. ~keep
-if (!file_exists($extPath)) {{
-    fwrite(STDERR, "error: no {extension_name} PHP extension build found.\n");
+if (!file_exists($extPath)) {
+    fwrite(STDERR, "error: no __EXTENSION_NAME__ PHP extension build found.\n");
     fwrite(STDERR, "  looked for a local build at: $localExtPath\n");
     $pieDisplay = $pieInstalledExtPath !== false ? $pieInstalledExtPath : '(unset)';
     fwrite(STDERR, "  looked for PIE_INSTALLED_EXTENSION_PATH at: $pieDisplay\n");
     fwrite(STDERR, "Build it locally with:\n");
-    fwrite(STDERR, "  cargo build --release -p {cargo_package_name}\n");
+    fwrite(STDERR, "  cargo build --release -p __CARGO_PACKAGE_NAME__\n");
     exit(1);
-}}
+}
 
-// If we have not already restarted with the extension loaded, re-exec PHP with
-// it loaded explicitly via `-d extension=`. The system php.ini is kept (no
-// `-n`) so PHPUnit's required extensions — dom, json, libxml, mbstring,
-// tokenizer, xml, xmlwriter — remain available. `-n` drops every shared
-// module, which breaks PHPUnit on distributions that ship those as shared
-// extensions (e.g. Debian/Ubuntu); they only survive `-n` where compiled
-// statically.
-if (!getenv('ALEF_PHP_EXT_LOADED')) {{
-    putenv('ALEF_PHP_EXT_LOADED=1');
-    $php = PHP_BINARY;
-    $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
+// Build an isolated php.ini carrying every ambient ini directive EXCEPT any
+// `extension=`/`zend_extension=` line naming this extension. This runs the
+// preflight check and PHPUnit under a config where only this build's own
+// `-d extension=` can register the extension, instead of racing an ambient
+// php.ini entry that would otherwise register it first. ~keep
+function alef_build_isolated_ini(string $php, string $extensionName): string {
+    $iniInfo = [];
+    exec(escapeshellarg($php) . ' --ini 2>&1', $iniInfo);
 
-    $cmd = array_merge(
-        [$php, '-d', 'extension=' . $extPath],
-        [$phpunitPath],
-        array_slice($GLOBALS['argv'], 1)
-    );
+    $mainIni = null;
+    $scanDir = null;
+    foreach ($iniInfo as $line) {
+        if (preg_match('/^Loaded Configuration File:\s*(.+)$/', $line, $m)) {
+            $value = trim($m[1]);
+            $mainIni = ($value !== '' && $value !== '(none)') ? $value : null;
+        }
+        if (preg_match('/^Scan for additional \.ini files in:\s*(.+)$/', $line, $m)) {
+            $value = trim($m[1]);
+            $scanDir = ($value !== '' && $value !== '(none)') ? $value : null;
+        }
+    }
 
-    passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);
-    exit($exitCode);
-}}
+    $sourceFiles = [];
+    if ($mainIni !== null && is_file($mainIni)) {
+        $sourceFiles[] = $mainIni;
+    }
+    if ($scanDir !== null && is_dir($scanDir)) {
+        $confFiles = glob($scanDir . '/*.ini') ?: [];
+        sort($confFiles);
+        $sourceFiles = array_merge($sourceFiles, $confFiles);
+    }
 
-// Extension is now loaded (via the restart above). Verify its reported version
-// matches the version baked in when this harness was generated, so a stale
-// build left over at $extPath from a previous checkout is caught instead of
-// silently accepted. ~keep
-$loadedVersion = phpversion('{extension_name}');
-if ($loadedVersion !== '{pkg_version}') {{
-    $shown = $loadedVersion !== false ? $loadedVersion : '(not reported)';
-    fwrite(STDERR, "error: loaded {extension_name} extension version mismatch.\n");
-    fwrite(STDERR, "  extension at $extPath reports version: $shown\n");
-    fwrite(STDERR, "  expected version: {pkg_version}\n");
+    $extensionPattern = '/^\s*(?:zend_)?extension\s*=\s*(.+?)\s*$/i';
+    $lines = [];
+    foreach ($sourceFiles as $sourceFile) {
+        $content = file_get_contents($sourceFile);
+        if ($content === false) {
+            continue;
+        }
+        foreach (preg_split('/\R/', $content) as $line) {
+            if (preg_match($extensionPattern, $line, $m)) {
+                $value = trim($m[1], " \t\"'");
+                $base = basename($value);
+                $base = preg_replace('/\.(so|dylib|dll)$/i', '', $base);
+                if (strcasecmp($base, $extensionName) === 0) {
+                    continue;
+                }
+            }
+            $lines[] = $line;
+        }
+    }
+
+    $isolatedIni = tempnam(sys_get_temp_dir(), 'alef-php-ini-');
+    file_put_contents($isolatedIni, implode("\n", $lines) . "\n");
+    return $isolatedIni;
+}
+
+// Indent every line of $text by four spaces, for nesting a captured
+// subprocess stream inside a `fwrite(STDERR, ...)` diagnostic block.
+function alef_indent_lines(string $text): string {
+    return implode("\n    ", explode("\n", trim($text)));
+}
+
+$php = PHP_BINARY;
+$isolatedIni = alef_build_isolated_ini($php, '__EXTENSION_NAME__');
+register_shutdown_function(static function () use ($isolatedIni): void {
+    if (is_file($isolatedIni)) {
+        unlink($isolatedIni);
+    }
+});
+
+$phpConfigArgs = ['-n', '-c', $isolatedIni, '-d', 'extension=' . $extPath];
+
+// Preflight: prove the isolated invocation actually loads THIS build before
+// trusting it for the real test run. Stdout and stderr are captured
+// separately so an "already loaded" startup warning is caught even though it
+// does not by itself affect the exit code. ~keep
+$preflightScript =
+    '$name = getenv("ALEF_PREFLIGHT_EXT_NAME"); ' .
+    'if (!extension_loaded($name)) { fwrite(STDERR, "not-loaded"); exit(2); } ' .
+    'echo phpversion($name);';
+$preflightCmd = array_merge(
+    [$php],
+    $phpConfigArgs,
+    ['-r', $preflightScript]
+);
+$descriptorSpec = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+$process = proc_open(
+    $preflightCmd,
+    $descriptorSpec,
+    $pipes,
+    null,
+    ['ALEF_PREFLIGHT_EXT_NAME' => '__EXTENSION_NAME__'] + $_ENV,
+    ['bypass_shell' => true]
+);
+if ($process === false) {
+    fwrite(STDERR, "error: failed to spawn PHP preflight check for the __EXTENSION_NAME__ extension.\n");
+    exit(1);
+}
+$preflightStdout = stream_get_contents($pipes[1]);
+$preflightStderr = stream_get_contents($pipes[2]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+$preflightExit = proc_close($process);
+
+if (stripos($preflightStderr, 'already loaded') !== false) {
+    fwrite(STDERR, "error: the __EXTENSION_NAME__ extension is already loaded from an ambient php.ini\n");
+    fwrite(STDERR, "  entry before the isolated harness could load $extPath.\n");
+    fwrite(STDERR, "  preflight stderr:\n");
+    fwrite(STDERR, "    " . alef_indent_lines($preflightStderr) . "\n");
+    fwrite(STDERR, "This means an unrelated, previously installed copy of the extension is\n");
+    fwrite(STDERR, "winning over this checkout's build. Remove or disable it from php.ini /\n");
+    fwrite(STDERR, "conf.d before running the suite.\n");
+    exit(1);
+}
+if ($preflightExit !== 0 || $preflightStdout === '') {
+    fwrite(STDERR, "error: the __EXTENSION_NAME__ extension did not load from $extPath.\n");
+    fwrite(STDERR, "  preflight exit code: $preflightExit\n");
+    if ($preflightStderr !== '') {
+        fwrite(STDERR, "  preflight stderr:\n");
+        fwrite(STDERR, "    " . alef_indent_lines($preflightStderr) . "\n");
+    }
+    exit(1);
+}
+$loadedVersion = $preflightStdout;
+if ($loadedVersion !== '__PKG_VERSION__') {
+    fwrite(STDERR, "error: loaded __EXTENSION_NAME__ extension version mismatch.\n");
+    fwrite(STDERR, "  extension at $extPath reports version: $loadedVersion\n");
+    fwrite(STDERR, "  expected version: __PKG_VERSION__\n");
     fwrite(STDERR, "Rebuild it with:\n");
-    fwrite(STDERR, "  cargo build --release -p {cargo_package_name}\n");
+    fwrite(STDERR, "  cargo build --release -p __CARGO_PACKAGE_NAME__\n");
     exit(1);
-}}
+}
 
-// Invoke PHPUnit normally.
+// Invoke PHPUnit through the same isolated, verified configuration.
 $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
-if (!file_exists($phpunitPath)) {{
-    echo "PHPUnit not found at $phpunitPath. Run 'composer install' first.\\n";
+if (!file_exists($phpunitPath)) {
+    echo "PHPUnit not found at $phpunitPath. Run 'composer install' first.\n";
     exit(1);
-}}
+}
 
-require $phpunitPath;
-"#
-    )
+$cmd = array_merge(
+    [$php],
+    $phpConfigArgs,
+    [$phpunitPath],
+    array_slice($GLOBALS['argv'], 1)
+);
+passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);
+exit($exitCode);
+"#;
+    TEMPLATE
+        .replace("__HEADER__", &header)
+        .replace("__EXT_LIB_NAME__", &ext_lib_name)
+        .replace("__EXTENSION_NAME__", extension_name)
+        .replace("__PKG_VERSION__", pkg_version)
+        .replace("__CARGO_PACKAGE_NAME__", cargo_package_name)
 }
 
 #[cfg(test)]
@@ -656,15 +800,14 @@ if (!file_exists($extPath)) {
     }
 
     #[test]
-    fn test_render_run_tests_php_asserts_loaded_extension_version() {
+    fn test_render_run_tests_php_asserts_preflight_extension_version() {
         let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
 
         let expected_version_branch = "\
-$loadedVersion = phpversion('sample_ext');
+$loadedVersion = $preflightStdout;
 if ($loadedVersion !== '1.2.3') {
-    $shown = $loadedVersion !== false ? $loadedVersion : '(not reported)';
     fwrite(STDERR, \"error: loaded sample_ext extension version mismatch.\\n\");
-    fwrite(STDERR, \"  extension at $extPath reports version: $shown\\n\");
+    fwrite(STDERR, \"  extension at $extPath reports version: $loadedVersion\\n\");
     fwrite(STDERR, \"  expected version: 1.2.3\\n\");
     fwrite(STDERR, \"Rebuild it with:\\n\");
     fwrite(STDERR, \"  cargo build --release -p sample-ext-php\\n\");
@@ -672,8 +815,83 @@ if ($loadedVersion !== '1.2.3') {
 }";
         assert!(
             result.contains(expected_version_branch),
-            "generated run_tests.php should assert the loaded extension version against the \
-             workspace version baked in at generation time, got:\n{result}"
+            "generated run_tests.php should assert the preflight-reported extension version \
+             against the workspace version baked in at generation time, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_render_run_tests_php_detects_already_loaded_warning() {
+        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+
+        assert!(
+            result.contains("stripos($preflightStderr, 'already loaded') !== false"),
+            "generated run_tests.php should scan preflight stderr for an \"already loaded\" \
+             startup warning instead of trusting the exit code alone, got:\n{result}"
+        );
+        assert!(
+            result.contains("error: the sample_ext extension is already loaded from an ambient php.ini"),
+            "the already-loaded failure message should name the extension and explain the \
+             collision, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_render_run_tests_php_builds_isolated_ini_before_loading_extension() {
+        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+
+        assert!(
+            result.contains("function alef_build_isolated_ini(string $php, string $extensionName): string {"),
+            "generated run_tests.php should define a helper that filters the ambient php.ini \
+             instead of trusting `-d extension=` alone to win, got:\n{result}"
+        );
+        assert!(
+            result.contains("$isolatedIni = alef_build_isolated_ini($php, 'sample_ext');"),
+            "the isolated ini must be built for this generated extension's own name, got:\n{result}"
+        );
+        assert!(
+            result.contains("$phpConfigArgs = ['-n', '-c', $isolatedIni, '-d', 'extension=' . $extPath];"),
+            "both PHPUnit invocation and the preflight check must run under `-n -c <isolated ini>` \
+             plus an explicit `-d extension=` for the built extension, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_render_run_tests_php_preflight_runs_unconditionally_before_phpunit() {
+        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+
+        // Regression guard: a previous revision put the version/identity check after a
+        // branch that unconditionally `passthru`'d into PHPUnit and then `exit`'d, so the
+        // check could never execute. The preflight `proc_open` call (and the version check
+        // that follows it) must appear strictly BEFORE the PHPUnit `passthru` invocation, and
+        // no unconditional `exit($exitCode)` may sit between the start of the file and the
+        // preflight version check.
+        let preflight_pos = result
+            .find("$process = proc_open(")
+            .expect("preflight proc_open call must be present");
+        let version_check_pos = result
+            .find("if ($loadedVersion !== '1.2.3') {")
+            .expect("preflight version check must be present");
+        let passthru_pos = result
+            .find("passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);")
+            .expect("PHPUnit passthru invocation must be present");
+
+        assert!(
+            preflight_pos < version_check_pos,
+            "preflight identity check must run before the version comparison, got:\n{result}"
+        );
+        assert!(
+            version_check_pos < passthru_pos,
+            "the version check must run before PHPUnit is ever invoked, so it cannot be \
+             stranded after an unconditional exit like the previous defect, got:\n{result}"
+        );
+
+        // The old re-exec gate (`ALEF_PHP_EXT_LOADED`) that caused the guard to be
+        // unreachable must not reappear.
+        assert!(
+            !result.contains("ALEF_PHP_EXT_LOADED"),
+            "the dead re-exec gate must not reappear -- the preflight check must be reached by \
+             plain sequential execution of this single script, got:\n{result}"
         );
     }
 }
