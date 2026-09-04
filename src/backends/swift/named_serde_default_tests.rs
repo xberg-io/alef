@@ -15,8 +15,10 @@
 //! `gen_bindings/mod.rs` at the 1,000-line cap. ~keep
 
 use crate::backends::swift::gen_bindings::dto::emit_decoder_init;
+use crate::backends::swift::gen_bindings::zero_arg_default::compute_zero_arg_constructible_names;
 use crate::backends::swift::type_map::SwiftMapper;
-use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeRef};
+use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use std::collections::HashSet;
 
 fn decode_body(name: &str, ty: TypeRef, typed_default: DefaultValue) -> String {
     let field = FieldDef {
@@ -26,7 +28,7 @@ fn decode_body(name: &str, ty: TypeRef, typed_default: DefaultValue) -> String {
         ..Default::default()
     };
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
     out
 }
 
@@ -98,5 +100,121 @@ fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
     assert!(
         scalar_out.contains("?? 0"),
         "`Empty` keeps the scalar zero fallback:\n{scalar_out}"
+    );
+}
+
+/// Reproduces a config struct whose `ngram_range: NgramRange` field carries `#[serde(default)]`
+/// with a default of `NgramRange::default()`, which folds to
+/// `typed_default = Empty` because the extractor cannot spell a Swift literal for a `Named`
+/// struct. `NgramRange` itself is fully default-constructible (`min`/`max` both have literal
+/// defaults), so it belongs in `zero_arg_constructible_names` and the field must decode as
+/// optional-with-fallback rather than a required key.
+#[test]
+fn a_named_field_defaulting_to_type_default_uses_the_zero_arg_initializer() {
+    let field = FieldDef {
+        name: "ngram_range".to_string(),
+        ty: TypeRef::Named("NgramRange".to_string()),
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+    let zero_arg_constructible_names: HashSet<String> = ["NgramRange".to_string()].into_iter().collect();
+
+    let mut out = String::new();
+    emit_decoder_init(&SwiftMapper, &[&field], &zero_arg_constructible_names, &mut out);
+
+    assert_eq!(
+        out,
+        "    public init(from decoder: any Decoder) throws {\n        \
+         let container = try decoder.container(keyedBy: CodingKeys.self)\n        \
+         self.ngramRange = try container.decodeIfPresent(NgramRange.self, forKey: .ngramRange) ?? NgramRange()\n    }\n",
+        "an absent key must fall back to the type's own zero-arg initializer:\n{out}"
+    );
+}
+
+/// The companion case in the same `KeywordConfig`: `algorithm: KeywordAlgorithm` also carries a
+/// bare `#[serde(default)]` (`typed_default = Empty`), but `KeywordAlgorithm` is a Swift
+/// `enum ... : String, Codable` with no zero-argument initializer — and its Rust `impl Default`
+/// is gated on which of the `keywords-yake`/`keywords-rake` Cargo features is enabled, so alef
+/// has no way to know which case a bare `KeywordAlgorithm()` should even mean. With
+/// `zero_arg_constructible_names` empty (as it is for every enum, by construction of
+/// `compute_zero_arg_constructible_names`), the field must keep the required `decode` so an
+/// absent key throws a visible `DecodingError` instead of silently picking a case.
+#[test]
+fn an_enum_field_defaulting_to_type_default_stays_required() {
+    let field = FieldDef {
+        name: "algorithm".to_string(),
+        ty: TypeRef::Named("KeywordAlgorithm".to_string()),
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+
+    let mut out = String::new();
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+
+    assert!(
+        out.contains("self.algorithm = try container.decode(KeywordAlgorithm.self, forKey: .algorithm)"),
+        "an enum with no zero-arg initializer must stay a required decode:\n{out}"
+    );
+    assert!(
+        !out.contains("decodeIfPresent"),
+        "there is no safe fallback value to guess for a feature-gated enum default:\n{out}"
+    );
+}
+
+/// `compute_zero_arg_constructible_names` must admit a struct whose every field already defaults
+/// (the `NgramRange` shape: two `usize` fields with literal defaults) and reject one with a
+/// required field (nothing to put after `??` in the memberwise init, so the type has no bare
+/// `TypeName()` constructor).
+#[test]
+fn zero_arg_constructible_names_admits_fully_defaulted_structs_only() {
+    let api = ApiSurface {
+        types: vec![
+            TypeDef {
+                name: "NgramRange".to_string(),
+                rust_path: "demo::NgramRange".to_string(),
+                has_serde: true,
+                fields: vec![
+                    FieldDef {
+                        name: "min".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::Usize),
+                        typed_default: Some(DefaultValue::IntLiteral(1)),
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "max".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::Usize),
+                        typed_default: Some(DefaultValue::IntLiteral(3)),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+            TypeDef {
+                name: "YakeParams".to_string(),
+                rust_path: "demo::YakeParams".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "window_size".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Usize),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let known_dto_names: HashSet<String> = ["NgramRange".to_string(), "YakeParams".to_string()]
+        .into_iter()
+        .collect();
+
+    let admitted = compute_zero_arg_constructible_names(&api, &known_dto_names);
+
+    assert!(
+        admitted.contains("NgramRange"),
+        "every field defaults, so the memberwise init takes zero arguments: {admitted:?}"
+    );
+    assert!(
+        !admitted.contains("YakeParams"),
+        "`window_size` has no default, so `YakeParams()` would not compile: {admitted:?}"
     );
 }

@@ -26,6 +26,7 @@ pub mod plugin_marshal;
 pub mod service_api;
 mod streaming;
 pub mod trait_bridge;
+pub(crate) mod zero_arg_default;
 
 pub struct SwiftBackend;
 
@@ -299,6 +300,8 @@ impl Backend for SwiftBackend {
             .collect();
 
         let known_dto_names = dto::compute_first_class_dto_names(api, &exclude_types);
+        let zero_arg_constructible_names =
+            zero_arg_default::compute_zero_arg_constructible_names(api, &known_dto_names);
 
         let mut first_class_struct_names: Vec<String> = Vec::new();
         for ty in api
@@ -333,6 +336,7 @@ impl Backend for SwiftBackend {
                     &mapper,
                     &exclude_fields,
                     &known_dto_names,
+                    &zero_arg_constructible_names,
                     &unit_serde_enum_names,
                     &untagged_enum_names,
                     &serde_struct_names,

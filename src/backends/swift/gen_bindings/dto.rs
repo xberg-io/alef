@@ -1,3 +1,4 @@
+use crate::backends::swift::gen_bindings::zero_arg_default::zero_arg_named_default;
 use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::shared::binding_fields;
@@ -113,6 +114,7 @@ pub(super) fn emit_first_class_struct(
     mapper: &SwiftMapper,
     exclude_fields: &HashSet<String>,
     known_dto_names: &HashSet<String>,
+    zero_arg_constructible_names: &HashSet<String>,
     unit_enum_names: &HashSet<String>,
     untagged_enum_names: &HashSet<String>,
     serde_struct_names: &HashSet<String>,
@@ -209,7 +211,7 @@ pub(super) fn emit_first_class_struct(
     // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
     let mut decoder_init = String::new();
     if ty.has_default {
-        emit_decoder_init(mapper, &visible_fields, &mut decoder_init);
+        emit_decoder_init(mapper, &visible_fields, zero_arg_constructible_names, &mut decoder_init);
     }
 
     let mut ffi_init_assignments = String::new();
@@ -466,12 +468,17 @@ pub(crate) fn swift_type_based_default(ty: &TypeRef) -> Option<String> {
 }
 
 /// Emits a custom `public init(from decoder: any Decoder) throws` body that uses
-/// `decodeIfPresent + ?? <fallback>` for every field whose Rust default has a Swift literal
-/// (Optional fields included — `Some(x)` reaches the IR as the literal for `x`),
-/// `decodeIfPresent ?? nil` for Optional fields with no such literal, and plain
-/// `decode(T.self, ...)` for non-Optional fields with no safe Swift fallback
-/// (e.g. nested `Named` structs, and the defaults whose value alef cannot see).
-pub(crate) fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&FieldDef], out: &mut String) {
+/// `decodeIfPresent + ?? <fallback>` for every field whose Rust default has a Swift literal or
+/// (via `zero_arg_named_default`) a zero-arg `Named` initializer (Optional fields included —
+/// `Some(x)` reaches the IR as the literal for `x`), `decodeIfPresent ?? nil` for Optional fields
+/// with no such fallback, and plain `decode(T.self, ...)` for non-Optional fields with none
+/// (e.g. an enum, or the defaults whose value alef cannot see at all).
+pub(crate) fn emit_decoder_init(
+    mapper: &SwiftMapper,
+    visible_fields: &[&FieldDef],
+    zero_arg_constructible_names: &HashSet<String>,
+    out: &mut String,
+) {
     out.push_str("    public init(from decoder: any Decoder) throws {\n");
     out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
     for field in visible_fields {
@@ -530,7 +537,8 @@ pub(crate) fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&FieldDe
             ) {
                 return None;
             }
-            swift_type_based_default(&field.ty)
+            zero_arg_named_default(&field.typed_default, &field.ty, &swift_ty, zero_arg_constructible_names)
+                .or_else(|| swift_type_based_default(&field.ty))
         });
 
         match fallback {
@@ -1009,6 +1017,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
             "DemoError",
             &std::collections::HashSet::new(),
             &mut out,
@@ -1063,6 +1072,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
             "DemoError",
             &std::collections::HashSet::new(),
             &mut out,
@@ -1088,7 +1098,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
 
         assert!(
             out.contains("try container.decode(UInt32.self, forKey: .maxArchiveDepth)"),
@@ -1113,7 +1123,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
 
         assert!(
             out.contains("?? 0"),
@@ -1136,7 +1146,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
 
         assert!(
             out.contains("?? 30000"),
@@ -1181,6 +1191,7 @@ mod tests {
         emit_first_class_struct(
             &ty,
             &SwiftMapper,
+            &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
