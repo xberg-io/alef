@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The generated Swift bridge polled a deep async future on a Swift concurrency cooperative thread**,
+  whose stack is small, and aborted the process with SIGBUS on a nested archive extraction. Tokio's
+  `block_on` runs a future on the calling thread, so raising the runtime's worker stack could not help
+  here. The shim now spawns the future onto a worker and blocks only on the join handle, and every
+  async shim is forced fallible so a join error surfaces as an error instead of unwinding across the
+  FFI boundary.
+- **The WASM trait bridge read every non-boolean primitive return through `as_string()`**, so a
+  JavaScript host returning a bare number produced `None` and the bridge silently substituted the
+  type's default. This affected every numeric trait-bridge method, not only the ones a registry
+  happens to validate.
+- **A generated Swift test asserted `XCTAssertNotNil` on a non-optional value** at 40 sites, which can
+  never fail. Removing it also lets the existing inert-example detection reach fixtures it had been
+  masking, and a JSON-bridged collection is now counted by decoding it rather than refused.
+- **A generated Go assertion whose field had an optional ancestor was wrapped in a nil guard with no
+  else**, so it was skipped silently rather than failing.
+- **A generated Dart trait method ran `block_on` on a thread with the default stack.**
+  `thread_stack_size` is inert for a current-thread runtime, so the calling thread is now widened
+  instead.
 - **Every generated tokio runtime used tokio's default ~2 MiB worker stack.** A deep extraction
   future (a nested archive member, a multi-stage OCR pipeline) overflows it, and a stack overflow
   aborts the process with SIGBUS rather than raising a catchable panic -- so one call took down the
