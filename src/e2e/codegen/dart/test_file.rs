@@ -346,6 +346,20 @@ pub(super) fn render_test_file(
     // assertion on the lazily-initialised `api` field and fails with
     // "Null check operator used on a null value", masking the original load error.
     let _ = writeln!(out, "  var _rustLibInitialized = false;");
+    // `dart test` runs every generated test file's setUpAll/tearDownAll sequentially inside
+    // the *same OS process* (dart_test.yaml pins `concurrency: 1`; the isolates it spawns
+    // per file still share process-global state such as the working directory). A file whose
+    // `setUpAll` chdirs into `test_documents` below therefore leaves that mutation live for
+    // every file that runs after it, unless it is restored. A later file's own
+    // `'../../test_documents'` (relative, not absolute) is then resolved against that
+    // already-shifted cwd -- one directory too high -- and a standalone-mock-server file's
+    // `startMockServer()` walks `_findRepoRoot()` up from the same polluted cwd and can miss
+    // the repo root entirely (`Bad state: could not locate repository root from
+    // <sibling>/test_documents`). Capturing and restoring the pre-chdir cwd here keeps each
+    // file's `Directory.current` mutation local to itself. ~keep
+    if needs_chdir {
+        let _ = writeln!(out, "  String? _originalCwd;");
+    }
     let _ = writeln!(out);
 
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
@@ -382,6 +396,7 @@ pub(super) fn render_test_file(
     }
     if needs_chdir {
         let test_docs_path = e2e_config.test_documents_relative_from(0);
+        let _ = writeln!(out, "    _originalCwd = Directory.current.path;");
         let _ = writeln!(
             out,
             "    final _testDocs = Platform.environment['FIXTURES_DIR'] ?? '{test_docs_path}';"
@@ -424,6 +439,13 @@ pub(super) fn render_test_file(
     }
     let _ = writeln!(out, "      RustLib.dispose();");
     let _ = writeln!(out, "    }}");
+    // Restore the cwd this file's setUpAll mutated (see the `_originalCwd` declaration
+    // above) so it does not leak into whichever test file `dart test` runs next in this
+    // process. ~keep
+    if needs_chdir {
+        let _ = writeln!(out, "    final _cwd = _originalCwd;");
+        let _ = writeln!(out, "    if (_cwd != null) Directory.current = _cwd;");
+    }
     if has_http_fixtures {
         let _ = writeln!(out, "    _httpClient.close(force: true);");
     }

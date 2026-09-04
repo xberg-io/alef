@@ -850,3 +850,81 @@ fn crate_with_no_standalone_mock_server_fixture_does_not_gain_an_unreferenced_he
         files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
     );
 }
+
+/// `dart test` runs every generated file's `setUpAll`/`tearDownAll` sequentially inside one
+/// OS process, and `Directory.current` is process-global, not per-isolate. A file whose
+/// `setUpAll` chdirs into `test_documents` must restore the original cwd in `tearDownAll`,
+/// or the mutation leaks into whichever file `dart test` runs next -- that file's own
+/// relative `'../../test_documents'` (or a standalone-mock-server file's `_findRepoRoot()`
+/// walk) then resolves against an already-shifted cwd instead of the real starting
+/// directory. Regression for `Bad state: could not locate repository root from
+/// <sibling-of-repo>/test_documents`. ~keep
+#[test]
+fn dart_chdir_setup_all_restores_original_cwd_in_teardown() {
+    use crate::e2e::config::{ArgMapping, E2eConfig};
+
+    let mut fixture = make_fixture("extract_from_path");
+    fixture.input = serde_json::json!({ "path": "docx/fake.docx" });
+
+    let mut e2e_config = E2eConfig::default();
+    e2e_config.call.function = "extractFile".into();
+    e2e_config.call.args = vec![ArgMapping {
+        name: "path".to_string(),
+        field: "input.path".to_string(),
+        arg_type: "file_path".to_string(),
+        optional: false,
+        owned: false,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+
+    let config = crate::core::config::ResolvedCrateConfig::default();
+    let dart_first_class_map = crate::e2e::field_access::DartFirstClassMap::default();
+
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[&fixture],
+        &e2e_config,
+        "dart",
+        "samplecli",
+        "RustLib",
+        "RustLibBridge",
+        &dart_first_class_map,
+        &[],
+        &config,
+        &[],
+        &[],
+        &[],
+        &[],
+    );
+
+    assert!(
+        output.contains("Directory.current = _dir;"),
+        "expected the fixture to trigger the test_documents chdir, got:\n{output}"
+    );
+    assert!(
+        output.contains("String? _originalCwd;"),
+        "the pre-chdir cwd must be captured in a variable visible to tearDownAll, got:\n{output}"
+    );
+    assert!(
+        output.contains("_originalCwd = Directory.current.path;"),
+        "setUpAll must capture the cwd before mutating it, got:\n{output}"
+    );
+    let setup_all_end = output
+        .find("_originalCwd = Directory.current.path;")
+        .expect("capture line must be present");
+    let chdir_pos = output
+        .find("Directory.current = _dir;")
+        .expect("chdir line must be present");
+    assert!(
+        setup_all_end < chdir_pos,
+        "the cwd must be captured before it is mutated, got:\n{output}"
+    );
+    assert!(
+        output.contains("if (_cwd != null) Directory.current = _cwd;"),
+        "tearDownAll must restore the captured cwd so it does not leak into the next \
+         `dart test`-run file, got:\n{output}"
+    );
+}
