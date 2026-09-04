@@ -106,7 +106,41 @@ impl Backend for MagnusBackend {
         crate::codegen::config_gen::validate_rust_default_functions(api)?;
         // `#[cfg(feature = "X")]`, its `#[cfg(not(...))]` stub, AND an unconditional stub from a
         // separate `#[cfg(not(...))]` parent module whose gate did not propagate into the IR),
-        let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        let mut deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
+        // A field can be entirely UNGATED (`field.cfg == None`, correctly mirroring that the core
+        // field itself always compiles -- e.g. `Chunk.sparse_embedding: Option<crate::SparseEmbedding>`,
+        // where the core crate always defines `SparseEmbedding` as either the real type or a
+        // same-named stub) while the type it names is only conditionally GENERATED as a Magnus
+        // binding (`SparseEmbedding`'s own `typ.cfg`). Every reference-emission site below reads
+        // `field.cfg` as the single source of truth for that field's gate, so folding the
+        // referenced type's own gate into it here -- once, before any of those sites run -- is
+        // the one place this has to happen instead of three more special cases. Skips a name that
+        // resolves to more than one distinct gate (an ambiguous short-name collision) rather than
+        // guessing which definition a field actually names. ~keep
+        let mut type_cfg_by_name: AHashMap<String, Option<String>> = AHashMap::default();
+        for typ in &deduped_api.types {
+            if let Some(cfg) = typ.cfg.as_deref() {
+                type_cfg_by_name
+                    .entry(typ.name.clone())
+                    .and_modify(|existing| {
+                        if existing.as_deref() != Some(cfg) {
+                            *existing = None;
+                        }
+                    })
+                    .or_insert_with(|| Some(cfg.to_string()));
+            }
+        }
+        for typ in &mut deduped_api.types {
+            for field in &mut typ.fields {
+                for (referenced_name, referenced_cfg) in &type_cfg_by_name {
+                    let Some(referenced_cfg) = referenced_cfg else { continue };
+                    if field.ty.references_named(referenced_name) {
+                        field.cfg = field.cfg_within(Some(referenced_cfg.as_str()));
+                        break;
+                    }
+                }
+            }
+        }
         let api = &deduped_api;
 
         let mapper = MagnusMapper;

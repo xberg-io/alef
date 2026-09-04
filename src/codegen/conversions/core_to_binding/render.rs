@@ -201,6 +201,16 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             conversion
         };
+        // A cfg-gated field (`field.cfg`) was stripped from the binding struct's own
+        // declaration above only when `strip_cfg_fields_from_binding_struct` is set; backends
+        // that keep the field (Magnus) must repeat its gate on this struct-literal entry too,
+        // or the field no longer exists on `Self` under a reduced feature set while this `From`
+        // impl still tries to initialize it -- a `E0560`/`E0609` mismatch between the struct
+        // declaration and its own conversion. ~keep
+        let conversion = match field.cfg.as_deref() {
+            Some(gate) if !gate.is_empty() => format!("#[cfg({gate})]\n            {conversion}"),
+            _ => conversion,
+        };
         fields.push(conversion);
     }
 

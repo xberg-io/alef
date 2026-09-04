@@ -9,6 +9,22 @@ fn is_thread_unsafe_field(field: &FieldDef, trait_bridges: &[TraitBridgeConfig])
     crate::codegen::generators::trait_bridge::is_bridge_handle_type_ref(&field.ty, trait_bridges)
 }
 
+/// Prefix a `ruby_init` statement with `#[cfg(<gate>)]` when `gate` is non-empty.
+///
+/// The single mechanism every reference-emission site in this function shares: a class's own
+/// singleton constructor registration, its field-accessor and `to_s` registrations, and its
+/// per-method registrations all name a `{Type}::{function}` path that may not exist once the
+/// type (or the member itself) is compiled out by its own `#[cfg(...)]` -- `method!`/`function!`
+/// resolve that path at compile time, so an ungated registration is a hard `E0433`/`E0425`, not a
+/// missing Ruby method. `#[magnus::init]`'s body is a flat statement list (not a set of items),
+/// so `#[cfg]` on the individual statement is the only place the gate can go. ~keep
+fn gate_statement(cfg: Option<&str>, statement: String) -> String {
+    match cfg {
+        Some(gate) if !gate.is_empty() => format!("    #[cfg({gate})]\n{statement}"),
+        _ => statement,
+    }
+}
+
 /// Generate the module initialization function.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
@@ -83,8 +99,14 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             },
         ));
 
+        // Every registration below names `{Type}::{member}` as a path (`function!`/`method!`
+        // resolve it at compile time), so each one needs the SAME gate `typ.cfg` already applies
+        // to the type's own declaration (`classes::gen_struct`/`gen_opaque_struct`) -- an
+        // ungated registration for a type `#[cfg]` compiled out is a hard `E0433`/`E0425` here,
+        // not a missing Ruby method. ~keep
+        let typ_cfg = typ.cfg.as_deref();
         if !typ.is_opaque && !typ.fields.is_empty() {
-            lines.push(crate::backends::magnus::template_env::render(
+            let registration = crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
                 minijinja::context! {
                     ruby_name => "new",
@@ -92,12 +114,13 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                     function_name => "new",
                     arity => -1,
                 },
-            ));
+            );
+            lines.push(gate_statement(typ_cfg, registration));
         } else if has_variant_wrapper_ctor
             && let Some(ctor_method) = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())
         {
             let arity = ctor_method.params.len() as i32;
-            lines.push(crate::backends::magnus::template_env::render(
+            let registration = crate::backends::magnus::template_env::render(
                 "module_class_singleton_method_register.rs.jinja",
                 minijinja::context! {
                     ruby_name => "new",
@@ -105,7 +128,8 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                     function_name => "new",
                     arity => arity,
                 },
-            ));
+            );
+            lines.push(gate_statement(ctor_method.cfg_within(typ_cfg).as_deref(), registration));
         }
 
         let mut registered_field_names: ahash::AHashSet<&str> = ahash::AHashSet::default();
@@ -115,7 +139,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                     continue;
                 }
                 registered_field_names.insert(field.name.as_str());
-                lines.push(crate::backends::magnus::template_env::render(
+                let registration = crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
                     minijinja::context! {
                         ruby_name => &field.name,
@@ -123,10 +147,15 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                         function_name => &field.name,
                         arity => 0,
                     },
-                ));
+                );
+                // Combines the type's own gate with the field's own gate (e.g. an `Option<T>`
+                // field whose `T` is independently cfg-gated) -- the same combination
+                // `classes::gen_struct_methods` now applies to this accessor's `fn` definition.
+                // ~keep
+                lines.push(gate_statement(field.cfg_within(typ_cfg).as_deref(), registration));
             }
             if classes::has_content_string_field(typ) {
-                lines.push(crate::backends::magnus::template_env::render(
+                let registration = crate::backends::magnus::template_env::render(
                     "module_class_method_register.rs.jinja",
                     minijinja::context! {
                         ruby_name => "to_s",
@@ -134,7 +163,8 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                         function_name => "to_s",
                         arity => 0,
                     },
-                ));
+                );
+                lines.push(gate_statement(typ_cfg, registration));
             }
         }
 
@@ -182,13 +212,12 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
                 // The registration must carry the same gate the wrapper `fn` got in
                 // `classes::gen_opaque_instance_method`/`gen_instance_method`: `method!` resolves
                 // `{type}::{method}` as a path, so registering a method the gate compiled out is a
-                // hard E0599, not a missing Ruby method. `#[cfg]` on a statement inside `ruby_init`
-                // is the one place the gate can go — the body is a flat statement list, not a set
-                // of items. ~keep
-                lines.push(match method.cfg.as_deref() {
-                    Some(gate) if !gate.is_empty() => format!("    #[cfg({gate})]\n{registration}"),
-                    _ => registration,
-                });
+                // hard E0599, not a missing Ruby method. Combined with `typ_cfg` via `cfg_within`
+                // -- a method's own `cfg` only ever carries its `impl` block's gate, never the
+                // owning type's, so a type-level-only gate (no additional method-level `#[cfg]`)
+                // left this registration ungated even though `{type_name}::{method_name}` no
+                // longer exists once `typ_cfg` compiles the type out. ~keep
+                lines.push(gate_statement(method.cfg_within(typ_cfg).as_deref(), registration));
             }
         }
 

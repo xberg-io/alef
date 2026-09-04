@@ -216,6 +216,25 @@ pub struct FieldDef {
     pub version: VersionAnnotation,
 }
 
+impl FieldDef {
+    /// The `#[cfg(...)]` condition for a reference to this field (an accessor method, its
+    /// registration, or a constructor's per-field conversion) that also sits behind `owner_cfg`
+    /// (the owning type's own gate): the AND of the two.
+    ///
+    /// Mirrors [`MethodDef::cfg_within`] exactly -- a field's own `cfg` is the same kind of
+    /// "this reference needs a feature the owner's gate does not already imply" fact a method's
+    /// is, so the two share one combination rule rather than each emission site re-deriving it.
+    #[must_use]
+    pub fn cfg_within(&self, owner_cfg: Option<&str>) -> Option<String> {
+        match (owner_cfg, self.cfg.as_deref()) {
+            (Some(owner), Some(own)) if owner.trim() == own.trim() => Some(owner.to_string()),
+            (Some(owner), Some(own)) => Some(crate::codegen::cfg::combine_gates(owner, own)),
+            (Some(owner), None) => Some(owner.to_string()),
+            (None, own) => own.map(str::to_string),
+        }
+    }
+}
+
 /// Stable prefix `pipeline::extract`'s adapter-marking pass writes into a method's
 /// [`MethodDef::binding_exclusion_reason`] when an `[[crates.adapters]]` entry's
 /// `(owner_type, core_path)` names it.
@@ -999,5 +1018,42 @@ mod tests {
         assert!(gated(Some("feature = \"streaming\"")).cfg_satisfied(&enabled));
         assert!(!gated(Some("feature = \"tokenizer\"")).cfg_satisfied(&enabled));
         assert!(gated(None).cfg_satisfied(&enabled));
+    }
+
+    fn gated_field(cfg: Option<&str>) -> FieldDef {
+        FieldDef {
+            name: "sparse_embedding".to_string(),
+            cfg: cfg.map(str::to_string),
+            ..FieldDef::default()
+        }
+    }
+
+    #[test]
+    fn field_cfg_within_combines_owner_and_field_gates() {
+        assert_eq!(
+            gated_field(Some("feature = \"embeddings\"")).cfg_within(Some("feature = \"quality\"")),
+            Some("all(feature = \"quality\", feature = \"embeddings\")".to_string())
+        );
+    }
+
+    #[test]
+    fn field_cfg_within_collapses_an_owner_gate_the_field_already_inherited() {
+        assert_eq!(
+            gated_field(Some("feature = \"quality\"")).cfg_within(Some("feature = \"quality\"")),
+            Some("feature = \"quality\"".to_string())
+        );
+    }
+
+    #[test]
+    fn field_cfg_within_falls_back_to_whichever_gate_is_present() {
+        assert_eq!(
+            gated_field(None).cfg_within(Some("feature = \"quality\"")),
+            Some("feature = \"quality\"".to_string())
+        );
+        assert_eq!(
+            gated_field(Some("feature = \"embeddings\"")).cfg_within(None),
+            Some("feature = \"embeddings\"".to_string())
+        );
+        assert_eq!(gated_field(None).cfg_within(None), None);
     }
 }

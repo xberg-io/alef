@@ -213,7 +213,6 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             }
             continue;
         }
-        // Cfg-gated fields: emit the assignment with `#[cfg(...)]` so it only applies when
         let references_excluded =
             !config.exclude_types.is_empty() && field_references_excluded_type(&field.ty, config.exclude_types);
         if references_excluded && typ.has_stripped_cfg_fields {
@@ -231,19 +230,34 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
         let field_was_optionalized = optionalized && !field.optional;
         let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
         let conversion = field_core_conversion(field, typ, config, field_was_optionalized, references_excluded);
+        // A cfg-gated field (`field.cfg`) that was NOT stripped from the binding struct (the
+        // `strip_cfg_fields_from_binding_struct` branch above) still needs its own gate repeated
+        // on every reference to it here -- `val.{binding_name_field}` reads a binding-struct
+        // field that only exists under the same feature, and the assignment target on the core
+        // side may be gated too (an `E0609`/`E0425` pair otherwise, symmetric with the
+        // core-to-binding direction). ~keep
+        let gate = field.cfg.as_deref().filter(|gate| !gate.is_empty());
         if optionalized {
             if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
-                if field_was_optionalized {
-                    statements.push(format!(
+                let statement = if field_was_optionalized {
+                    format!(
                         "if let Some(__v) = val.{binding_name_field} {{ __result.{} = {}; }}",
                         field.name,
                         expr.replace(&format!("val.{binding_name_field}"), "__v")
-                    ));
+                    )
                 } else {
-                    statements.push(format!("__result.{} = {};", field.name, expr));
-                }
+                    format!("__result.{} = {};", field.name, expr)
+                };
+                statements.push(match gate {
+                    Some(g) => format!("#[cfg({g})]\n        {statement}"),
+                    None => statement,
+                });
             }
         } else {
+            let conversion = match gate {
+                Some(g) => format!("#[cfg({g})]\n            {conversion}"),
+                None => conversion,
+            };
             fields.push(conversion);
         }
     }

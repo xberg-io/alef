@@ -471,6 +471,12 @@ pub(super) fn gen_struct(
                 name => &field.name,
                 field_type => &field_type,
                 wants_default_timeout => wants_default_timeout,
+                // A field whose own type is conditionally compiled (e.g. an `Option<T>` field
+                // where `T` itself carries `#[cfg(feature = "...")]`) must repeat that same
+                // gate here, or the struct declaration references a type the core crate may
+                // not have compiled in -- the same "definition vs. reference" gap `typ.cfg`
+                // closes for the struct as a whole, just at field granularity. ~keep
+                cfg => field.cfg.as_deref(),
             }
         })
         .collect();
@@ -531,7 +537,11 @@ pub(super) fn gen_struct_methods(
             continue;
         }
         emitted_field_names.insert(field.name.as_str());
-        impl_builder.add_method(&gen_field_accessor(field, mapper));
+        // A field's own `#[cfg(...)]` (e.g. an `Option<T>` field whose `T` is itself
+        // conditionally compiled) must gate its accessor the same way the struct declaration
+        // now gates the field itself, or the accessor's body (`self.{field}`) references a
+        // struct member that may not exist under this build's feature set. ~keep
+        impl_builder.add_method(&super::prepend_cfg(field.cfg.as_deref(), gen_field_accessor(field, mapper)));
     }
 
     for method in &typ.methods {

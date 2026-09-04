@@ -5,6 +5,7 @@
 pub struct {{ struct_name }} {
 {% for field in fields %}
 {% if field.wants_default_timeout %}    #[serde(default = "default_timeout")]
+{% endif %}{% if field.cfg %}    #[cfg({{ field.cfg }})]
 {% endif %}    {{ field.name }}: {{ field.field_type }},
 {% endfor %}
 }

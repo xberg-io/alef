@@ -108,6 +108,13 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
             minijinja::context! {
                 name => field.name.clone(),
                 assignment => assignment,
+                // The field's own gate: a field whose type is itself conditionally compiled
+                // (e.g. `Option<SparseEmbedding>` where `SparseEmbedding` carries its own
+                // `#[cfg(feature = "...")]`) must repeat that gate on this constructor's
+                // per-field initializer, mirroring the same gate now attached to the field's
+                // own declaration in `struct_def.rs.jinja` -- the two must agree, or one of
+                // them references a type/field the other has already compiled out. ~keep
+                cfg => field.cfg.as_deref(),
             }
         })
         .collect();
