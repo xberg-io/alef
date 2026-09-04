@@ -33,6 +33,16 @@ impl DylibBlock {
 
 /// Read `[[extensions.dylib]]` blocks from an `alef.toml` file.
 pub fn read_dylib_blocks(config_path: &Path) -> Result<Vec<DylibBlock>> {
+    // An absent config file declares no dylib extensions, exactly as an `alef.toml` carrying no
+    // `[extensions.dylib]` section does -- the two are the same "nothing declared" answer and
+    // must not diverge. This runs from `run_with_extensions` BEFORE command dispatch, so
+    // propagating a missing file here aborts every command with `ExitCode::FAILURE` whenever the
+    // working directory has no `alef.toml` -- including commands that neither need one nor ever
+    // read it. Only a file that exists but cannot be read or parsed is a real error. ~keep
+    if !config_path.exists() {
+        return Ok(Vec::new());
+    }
+
     let Some(raw) = crate::core::extension::read_extension_config(config_path, "dylib")? else {
         return Ok(Vec::new());
     };
@@ -120,6 +130,37 @@ path = "target/debug/libsample_extension.dylib"
         assert_eq!(
             blocks[0].path,
             dir.path().join("target/debug/libsample_extension.dylib")
+        );
+    }
+
+    /// `run_with_extensions` loads dylib blocks before dispatching any command, and returns
+    /// `ExitCode::FAILURE` on error. Propagating a missing `alef.toml` from here therefore aborted
+    /// EVERY command under `--features dylib-loader` whenever the working directory had no config
+    /// -- observed as four `cli_snippets_missing_directories` tests failing under `--all-features`
+    /// while passing under the default feature set, with the real cause hidden behind
+    /// `failed to read alef.toml for extension config`. An absent file declares no extensions.
+    #[test]
+    fn read_dylib_blocks_treats_an_absent_config_file_as_no_extensions() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let config_path = dir.path().join("alef.toml");
+        assert!(!config_path.exists(), "the fixture must not create the config file");
+
+        let blocks = read_dylib_blocks(&config_path).expect("an absent alef.toml must not be an error");
+
+        assert!(blocks.is_empty(), "an absent config file declares no dylib extensions");
+    }
+
+    #[test]
+    fn read_dylib_blocks_still_errors_on_a_config_file_that_exists_but_is_unparseable() {
+        let dir = tempfile::tempdir().expect("create tempdir");
+        let config_path = dir.path().join("alef.toml");
+        std::fs::write(&config_path, "this is not = = valid toml").expect("write config");
+
+        let error = read_dylib_blocks(&config_path).expect_err("a malformed config must still fail");
+
+        assert!(
+            format!("{error:#}").contains("failed to parse alef.toml for extension config"),
+            "a present-but-broken file stays a hard error, unlike an absent one: {error:#}"
         );
     }
 }
