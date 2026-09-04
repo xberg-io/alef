@@ -28,6 +28,17 @@ fn as_type_path_prefix(type_str: &str) -> String {
     }
 }
 
+/// Build the `Some(v) => ...` arm shared by every field kind: convert the present Ruby value
+/// and, on failure, raise a `TypeError` naming the field instead of silently discarding the
+/// error. `kwargs.get` already tells the two cases apart (`None` = "not provided", `Some(v)` =
+/// "provided, must convert") — this expression is only ever reached for the latter, so a
+/// conversion failure here is always a genuine bad value, never an absent one. ~keep
+fn try_convert_or_raise(field_name: &str, type_prefix: &str) -> String {
+    format!(
+        "{type_prefix}::try_convert(v).map_err(|e| magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(), format!(\"invalid value for `{field_name}`: {{}}\", e)))?"
+    )
+}
+
 /// Generate a hash-based Magnus constructor for types with many fields.
 /// Accepts `(kwargs: RHash)` and extracts each field by symbol name, applying defaults.
 fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
@@ -46,15 +57,17 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
                 Some(DefaultValue::FunctionCall(_) | DefaultValue::PublicFunctionCall(_))
             );
 
+            let try_convert = try_convert_or_raise(&field.name, &type_prefix);
+
             let assignment = if is_optional {
                 format!(
-                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()),",
-                    field.name, type_prefix
+                    "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => Some({}), None => None }},",
+                    field.name, try_convert
                 )
             } else if use_unwrap_or_default(field) {
                 format!(
-                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).unwrap_or_default(),",
-                    field.name, type_prefix
+                    "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => {}, None => Default::default() }},",
+                    field.name, try_convert
                 )
             } else if matches!(effective_inner_ty, TypeRef::Named(_))
                 && !matches!(&field.typed_default, Some(DefaultValue::EnumVariant(_)))
@@ -62,8 +75,8 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
             {
                 // Magnus-wrapped structs (`#[magnus::wrap]`) never implement
                 format!(
-                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).ok_or_else(|| magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_arg_error(), \"missing required field: {}\"))?,",
-                    field.name, type_prefix, field.name
+                    "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => {}, None => return Err(magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_arg_error(), \"missing required field: {}\")) }},",
+                    field.name, try_convert, field.name
                 )
             } else {
                 let default_str = if inner_type == "String" {
@@ -87,8 +100,8 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
                     default_str
                 };
                 format!(
-                    "kwargs.get(ruby.to_symbol(\"{}\")).and_then(|v| {}::try_convert(v).ok()).unwrap_or({}),",
-                    field.name, type_prefix, default_expr
+                    "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => {}, None => {} }},",
+                    field.name, try_convert, default_expr
                 )
             };
 

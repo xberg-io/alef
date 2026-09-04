@@ -165,8 +165,11 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
     );
     assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
     assert!(
-        output.contains("field_0: kwargs.get(ruby.to_symbol(\"field_0\")).and_then(|v|"),
-        "optional field should use and_then"
+        output.contains(
+            "field_0: match kwargs.get(ruby.to_symbol(\"field_0\")) { Some(v) => Some(u32::try_convert(v).map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_type_error(), format!(\"invalid value for `field_0`: {}\", e)))?), None => None },"
+        ),
+        "optional field must default to None when the key is absent, and raise a TypeError \
+         (never silently default) when the key is present but fails to convert; got:\n{output}"
     );
     assert!(
         output.contains("field_0:").then_some(()).is_some(),

@@ -160,8 +160,11 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
     );
     assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
     assert!(
-        output.contains("field_0: kwargs.get(ruby.to_symbol(\"field_0\")).and_then(|v|"),
-        "optional field should use and_then"
+        output.contains(
+            "field_0: match kwargs.get(ruby.to_symbol(\"field_0\")) { Some(v) => Some(u32::try_convert(v).map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_type_error(), format!(\"invalid value for `field_0`: {}\", e)))?), None => None },"
+        ),
+        "optional field must default to None when the key is absent, and raise a TypeError \
+         (never silently default) when the key is present but fails to convert; got:\n{output}"
     );
     assert!(
         output.contains("field_0:").then_some(()).is_some(),
@@ -193,7 +196,7 @@ fn test_gen_magnus_kwargs_constructor_named_function_call_default_is_not_require
         "a field with a real serde default must not become a required argument; got:\n{output}"
     );
     assert!(
-        output.contains("unwrap_or(crawlberg::SsrfPolicy::from_env()"),
+        output.contains("None => crawlberg::SsrfPolicy::from_env()"),
         "expected the constructor to call the real default fn; got:\n{output}"
     );
 }
@@ -218,8 +221,61 @@ fn test_gen_magnus_kwargs_constructor_named_function_call_default_converts_into_
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
 
     assert!(
-        output.contains("ssrf: kwargs.get(ruby.to_symbol(\"ssrf\")).and_then(|v| SsrfPolicy::try_convert(v).ok()).unwrap_or(crawlberg::SsrfPolicy::from_env().into()),"),
+        output.contains("ssrf: match kwargs.get(ruby.to_symbol(\"ssrf\")) { Some(v) => SsrfPolicy::try_convert(v)")
+            && output.contains("None => crawlberg::SsrfPolicy::from_env().into() },"),
         "expected the default to be converted into the wrapper type via .into(); got:\n{output}"
+    );
+}
+
+/// A field that is legitimately absent from `kwargs` (the Ruby caller never passed the key)
+/// must still fall back to its default — this is the "absent" half of the fix, and must keep
+/// working exactly as before the fix. `ngram_range`-shaped: a `Named` type whose
+/// `#[serde(default)]` resolves to `DefaultValue::Empty`, which routes through the
+/// `use_unwrap_or_default` branch. ~keep
+#[test]
+fn test_gen_magnus_kwargs_constructor_absent_field_still_defaults() {
+    let mut typ = make_test_type();
+    typ.fields.push(FieldDef {
+        typed_default: Some(DefaultValue::Empty),
+        ..make_field("ngram_range", TypeRef::Named("NgramRange".to_string()))
+    });
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+
+    assert!(
+        output.contains(
+            "ngram_range: match kwargs.get(ruby.to_symbol(\"ngram_range\")) { Some(v) => NgramRange::try_convert(v)"
+        ),
+        "expected the present-value arm to convert via try_convert; got:\n{output}"
+    );
+    assert!(
+        output.contains("None => Default::default() },"),
+        "a key absent from kwargs must still default, not raise; got:\n{output}"
+    );
+}
+
+/// A field that IS present in `kwargs` but fails to convert (wrong Ruby type, e.g. a String
+/// where a Hash was expected) must raise a Ruby `TypeError` naming the field, never silently
+/// fall back to the default. This is the regression covered by the reported defect: the old
+/// `.and_then(|v| T::try_convert(v).ok()).unwrap_or_default()` shape could not distinguish
+/// "absent" from "present but invalid" and defaulted in both cases. ~keep
+#[test]
+fn test_gen_magnus_kwargs_constructor_present_invalid_field_raises() {
+    let mut typ = make_test_type();
+    typ.fields.push(FieldDef {
+        typed_default: Some(DefaultValue::Empty),
+        ..make_field("ngram_range", TypeRef::Named("NgramRange".to_string()))
+    });
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+
+    assert!(
+        !output.contains("try_convert(v).ok()"),
+        "a conversion failure must not be silently discarded via .ok(); got:\n{output}"
+    );
+    assert!(
+        output.contains(
+            "map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_type_error(), format!(\"invalid value for `ngram_range`: {}\", e)))?"
+        ),
+        "a present-but-invalid value must raise a TypeError naming the field; got:\n{output}"
     );
 }
 
