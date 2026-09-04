@@ -208,12 +208,15 @@ pub(super) fn gen_init_py(
     // predicate), so it always belongs in `config_types`, never `native_return_types` --
     // `is_dataclass_backed_config`'s own is-this-a-native-return nuance only matters for the
     // `typ.has_default` half. ~keep
-    let dataclass_names = crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, reexported_types);
+    let dataclass_names =
+        crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, reexported_types);
     for typ in api.types.iter().filter(|typ| !typ.is_trait && !typ.binding_excluded) {
         if typ.name.ends_with("Builder") {
             continue;
         }
-        if (typ.has_default || dataclass_names.contains(&typ.name)) && !typ.name.ends_with("Update") && !typ.fields.is_empty()
+        if (typ.has_default || dataclass_names.contains(&typ.name))
+            && !typ.name.ends_with("Update")
+            && !typ.fields.is_empty()
         {
             let is_config = if typ.has_default {
                 is_dataclass_backed_config(typ, output_style, &reexported_names)

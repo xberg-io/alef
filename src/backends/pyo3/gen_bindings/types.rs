@@ -96,7 +96,8 @@ pub(crate) fn options_dataclass_type_names(
             .iter()
             .filter(|t| eligible(t) && !names.contains(&t.name))
             .filter(|t| {
-                binding_fields(&t.fields).any(|f| !f.optional && matches!(&f.ty, TypeRef::Named(inner) if names.contains(inner)))
+                binding_fields(&t.fields)
+                    .any(|f| !f.optional && matches!(&f.ty, TypeRef::Named(inner) if names.contains(inner)))
             })
             .map(|t| t.name.clone())
             .collect();

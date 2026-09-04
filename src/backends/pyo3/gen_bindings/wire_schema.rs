@@ -41,7 +41,8 @@ pub(in crate::backends::pyo3) fn coercible_dto_names<'a>(
     // doc and `gen_init_py`'s matching widen -- so a data-enum variant's payload field typed as a
     // closure-added type (no core `Default` of its own) gets the same DTO coercion as one typed
     // as a `has_default` config. ~keep
-    let dataclass_names = crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, &reexported_vec);
+    let dataclass_names =
+        crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, &reexported_vec);
     api.types
         .iter()
         .filter(|t| is_dataclass_backed_config(t, output_style, &reexported) || dataclass_names.contains(&t.name))
