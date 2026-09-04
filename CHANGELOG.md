@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Kotlin data-class properties whose camelCase name is a single lower-case letter followed by an
+  upper-case one serialized under the wrong wire name.** Jackson derives an unannotated Kotlin
+  property's name from its synthesized getter, and `java.beans.Introspector.decapitalize` refuses to
+  lowercase a name whose first two characters are both upper-case (its acronym rule). A property such
+  as `kClusters` capitalizes to a getter suffix `KClusters` that survives undecapitalized, and
+  `SnakeCaseStrategy` then emits `kclusters` rather than `k_clusters` -- which a Rust config carrying
+  `deny_unknown_fields` rejects outright. Such properties now carry an explicit `@JsonProperty`.
+- **Swift decoded a struct-typed field carrying `#[serde(default)]` as a required key.** When the
+  field's default folds to `DefaultValue::Empty` there is no literal to render after `??`, so the
+  emitter fell back to a required `decode` and threw `keyNotFound` on partial config JSON that Rust
+  accepts. A field whose type is fully default-constructible in the generated Swift now decodes via
+  `decodeIfPresent(...) ?? T()`. Enum-typed fields deliberately stay required rather than guess a
+  variant alef cannot see.
+- **The Ruby (magnus) constructor silently discarded a value it could not convert.** Every generated
+  field assignment used `and_then(|v| T::try_convert(v).ok())`, collapsing "key absent" and "key
+  present but unconvertible" into the same `None`, so a mistyped keyword argument was replaced by a
+  default with no error raised. `RHash::get` already distinguishes the two cases; a present value that
+  fails to convert now raises a `TypeError` naming the field, while an absent key still defaults.
+- **An Elixir NIF taking a non-opaque config receiver decoded it straight from the term**, bypassing
+  the `#[serde(default)]` handling that only runs on the JSON path, so a struct holding a nested
+  default alef cannot spell failed to decode on `validate`.
+- **A generated Go count assertion on a nullable field could not fail.** It rendered as
+  `if field != nil { assert... }` with no `else`, so a nil field skipped the assertion entirely and
+  the test passed on exactly the regression it exists to catch. Such an assertion now fails on nil
+  unless a sibling presence assertion already covers it. A `.length`/`.count` pseudo-measurement taken
+  through an optional value stays guard-only, since nil there carries no presence claim.
+- **The generated PHP test harness silently ran against whatever extension the ambient `php.ini`
+  registered.** With neither a local build nor `PIE_INSTALLED_EXTENSION_PATH` present, the
+  `file_exists` guard simply fell through to PHPUnit, so the suite could report results for an
+  unrelated, previously published build rather than the tree under test. The harness now reports both
+  paths it checked and exits non-zero, and asserts the loaded extension's version matches the package.
+- **Under the `dylib-loader` feature every command failed in a directory without an `alef.toml`.**
+  The loader runs before command dispatch and aborts the process on error, but a missing config file
+  was propagated as an error rather than treated as "no extensions declared" -- the same answer an
+  `alef.toml` with no `[extensions.dylib]` section already gave. A file that exists but cannot be
+  parsed remains an error.
 - **The PHP backend silently dropped every `#[cfg(feature = "...")]`-gated field from its
   generated mirror structs, even when the PHP binding's own Cargo features enabled that gate.**
   `php_binding_keeps_field` drops any field with a `cfg` unless its name appears in
