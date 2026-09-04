@@ -160,7 +160,13 @@ pub(crate) fn emit_type_with_imports(
             // the plain wire name (`field.name`) would come back mangled through Jackson's
             // default bean-property derivation (see `kotlin_property_name_defeats_bean_
             // introspection`) — in that case the wire name is `field.name` itself, since there
-            // is no serde rename overriding it. ~keep
+            // is no serde rename overriding it. The template emits BOTH `@get:` and `@param:`
+            // use-site targets: Kotlin data-class serialization goes through the synthesized
+            // getter (ungoverned by a bare `@param:`), while creator-based deserialization
+            // consults the constructor parameter — a name needing an explicit wire name needs
+            // it on both directions, confirmed empirically against jackson-module-kotlin
+            // (write path emits the mangled name with `@param:` alone; read path is unaffected
+            // either way). ~keep
             let wire_name = field
                 .serde_rename
                 .clone()
@@ -396,14 +402,24 @@ mod tests {
         }
     }
 
-    /// Regression: Kotlin now warns that an annotation on a primary-constructor `val` with no
-    /// explicit use-site target "currently applies to a value parameter only [and] in a future
-    /// release it will apply to the property/field" and suggests `@param:` or `@field:`. Jackson
-    /// creator-based deserialization (via jackson-module-kotlin) needs `@JsonProperty` on the
-    /// constructor parameter, which is exactly today's implicit behavior — so the fix locks that
-    /// in with an explicit `@param:` rather than silently also targeting the backing field.
+    /// Regression, two-fold:
+    ///
+    /// 1. Kotlin warns that an annotation on a primary-constructor `val` with no explicit
+    ///    use-site target "currently applies to a value parameter only [and] in a future
+    ///    release it will apply to the property/field" and suggests `@param:` or `@field:`.
+    /// 2. A bare `@param:` alone governs only creator-based deserialization. Kotlin data-class
+    ///    *serialization* goes through the synthesized getter, which a `@param:`-only
+    ///    annotation leaves untouched, so the wrong (getter-derived) name still goes out on
+    ///    the wire — confirmed empirically against jackson-module-kotlin 2.22.2: a
+    ///    `@param:`-only property serializes under its unrenamed getter name while still
+    ///    deserializing correctly from the intended name, so a `@param:`-only regression
+    ///    passes any test that only exercises reads.
+    ///
+    /// The fix emits both `@get:` (governs serialization) and `@param:` (governs creator-based
+    /// deserialization) explicitly, and this test locks in both exact lines rather than just
+    /// checking that "some" annotation exists.
     #[test]
-    fn json_property_annotation_targets_the_constructor_parameter_explicitly() {
+    fn json_property_annotation_targets_both_getter_and_constructor_parameter() {
         let timeout_field = make_field(
             "timeout_ms",
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U64),
@@ -430,8 +446,12 @@ mod tests {
         );
 
         assert!(
-            out.contains("@param:com.fasterxml.jackson.annotation.JsonProperty(\"timeoutMs\")"),
-            "renamed field must carry an explicit @param: use-site target: {out}"
+            out.contains(
+                "    @get:com.fasterxml.jackson.annotation.JsonProperty(\"timeoutMs\")\n\
+                 \x20\x20\x20\x20@param:com.fasterxml.jackson.annotation.JsonProperty(\"timeoutMs\")\n"
+            ),
+            "renamed field must carry both an explicit @get: and @param: use-site target, \
+             adjacent and in that order: {out}"
         );
         assert!(
             !out.contains("\n    @com.fasterxml.jackson.annotation.JsonProperty("),
@@ -517,8 +537,14 @@ mod tests {
         );
 
         assert!(
-            out.contains("@param:com.fasterxml.jackson.annotation.JsonProperty(\"n_widgets\")"),
-            "a name shaped like [a-z][A-Z]... must get an explicit wire-name annotation: {out}"
+            out.contains(
+                "    @get:com.fasterxml.jackson.annotation.JsonProperty(\"n_widgets\")\n\
+                 \x20\x20\x20\x20@param:com.fasterxml.jackson.annotation.JsonProperty(\"n_widgets\")\n"
+            ),
+            "a name shaped like [a-z][A-Z]... must get an explicit @get: (serialization) AND \
+             @param: (deserialization) wire-name annotation, adjacent and in that order — a \
+             @param:-only emission passes this field's *read* path while still breaking its \
+             *write* path, which is exactly the regression this test guards against: {out}"
         );
         assert!(
             !out.contains("\"max_depth\""),
