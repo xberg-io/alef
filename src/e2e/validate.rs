@@ -621,17 +621,31 @@ fn declared_method_call_crossings(e2e_config: &E2eConfig) -> std::collections::H
 /// literal `field.optional` check is the wrong question for a crossing field, which is why this
 /// clears the entry before that check runs rather than teaching it a second notion of
 /// optionality.
+///
+/// A tuple variant's single field has no source-level name -- `extract_enum_variant`
+/// (`extract/extractor/helpers/enum_variants.rs`) synthesizes the placeholder `_0` for it, since
+/// Rust never gives it one. Config entries and generated accessors instead spell the crossing
+/// after the VARIANT (`metadata.format.excel` for `Excel(ExcelMetadata)`), matching the same
+/// `snake_case(variant name)` the generators themselves emit. So `leaf` is checked against BOTH
+/// the payload's field name (a real name, for a named-field variant) and the snake-cased variant
+/// name it belongs to (the only name a tuple variant's payload has from the outside) -- neither
+/// check alone covers both variant shapes, and accepting an unrelated leaf that merely happens to
+/// equal some other variant's name would defeat the point, so the variant name checked is always
+/// the one that OWNS the matched payload entry, never a same-enum sibling. ~keep
 fn is_declared_union_crossing(
     entry: &str,
     leaf: &str,
     enum_map: &crate::e2e::field_access::IrEnumMap,
     method_calls: &std::collections::HashSet<&str>,
 ) -> bool {
+    use heck::ToSnakeCase;
+
     method_calls.contains(entry)
-        && enum_map
-            .variant_payload_types
-            .values()
-            .any(|variants| variants.values().any(|(field_name, _)| field_name == leaf))
+        && enum_map.variant_payload_types.values().any(|variants| {
+            variants
+                .iter()
+                .any(|(variant_name, (field_name, _))| field_name == leaf || variant_name.to_snake_case() == leaf)
+        })
 }
 
 fn check_classification_table(
@@ -737,6 +751,78 @@ fn validate_fixture_value(
 mod tests {
     use super::*;
     use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+
+    /// `FormatMetadata::Excel(ExcelMetadata)` reproduced with the exact shape
+    /// `extract_enum_variant` (`extract/extractor/helpers/enum_variants.rs`) actually emits for a
+    /// tuple variant: the payload field's name is the synthetic `_0`, never `excel`. Any fixture
+    /// that instead names the field `excel` directly would falsify the regression this guards --
+    /// the whole defect was that the IR never spells a tuple payload after its variant. ~keep
+    fn format_metadata_enum() -> Vec<EnumDef> {
+        vec![EnumDef {
+            name: "FormatMetadata".to_string(),
+            variants: vec![
+                EnumVariant {
+                    name: "Excel".to_string(),
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("ExcelMetadata".to_string()),
+                        ..FieldDef::default()
+                    }],
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Html".to_string(),
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::Named("HtmlMetadata".to_string()),
+                        ..FieldDef::default()
+                    }],
+                    ..EnumVariant::default()
+                },
+            ],
+            ..EnumDef::default()
+        }]
+    }
+
+    fn config_with_crossing(entry: &str) -> E2eConfig {
+        E2eConfig {
+            fields_optional: [entry.to_string()].into_iter().collect(),
+            fields_method_calls: [entry.to_string()].into_iter().collect(),
+            ..Default::default()
+        }
+    }
+
+    /// The false positive this change fixes: `metadata.format.excel` is a real, generated tuple
+    /// -variant crossing (`FormatMetadata::Excel(ExcelMetadata)`), declared correctly in BOTH
+    /// `fields_optional` and `fields_method_calls`. Before this fix `is_declared_union_crossing`
+    /// compared the synthetic field name `_0` against the leaf `excel` and never matched, so this
+    /// produced a spurious "unverified" warning despite the entry being exactly right.
+    #[test]
+    fn tuple_variant_crossing_by_snake_case_variant_name_produces_no_warning() {
+        let config = config_with_crossing("metadata.format.excel");
+        let errors = validate_field_classifications(&config, &[], &format_metadata_enum());
+        assert!(
+            errors.is_empty(),
+            "a declared, IR-backed tuple-variant crossing must not warn: {errors:?}"
+        );
+    }
+
+    /// The negative control that proves the fix above did not just blanket-suppress the check: a
+    /// leaf that names no variant of `FormatMetadata` at all (a plausible typo for `excel`) must
+    /// still warn, even though it is declared in `fields_method_calls` exactly like the real
+    /// entry -- the config declaration alone was never sufficient, the IR still has to back it.
+    #[test]
+    fn misspelled_variant_leaf_still_produces_unverified_warning() {
+        let config = config_with_crossing("metadata.format.exccel");
+        let errors = validate_field_classifications(&config, &[], &format_metadata_enum());
+        assert_eq!(errors.len(), 1, "a leaf naming no real variant must still warn: {errors:?}");
+        assert!(
+            errors[0].message.contains("exccel"),
+            "warning must name the unresolved leaf: {}",
+            errors[0].message
+        );
+    }
 
     #[test]
     fn validates_each_fixture_in_top_level_array() {
