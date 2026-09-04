@@ -168,6 +168,20 @@ fn merge_function() -> FunctionDef {
     }
 }
 
+/// A fallible, parameterless method on `Config` itself (`Config::validate(&self)`), matching
+/// the real-world shape of `ExtractionConfig::validate`. `Config` is a non-opaque type with
+/// `has_default: true`, so its receiver — not just its params — must go through the same
+/// JSON marshalling boundary as every other default-typed value at the NIF edge.
+fn config_validate_method() -> MethodDef {
+    MethodDef {
+        name: "validate".to_string(),
+        return_type: TypeRef::Unit,
+        error_type: Some("ValidationError".to_string()),
+        receiver: Some(ReceiverKind::Ref),
+        ..Default::default()
+    }
+}
+
 pub(super) fn config_marshalling_api_surface() -> ApiSurface {
     let config_type = TypeDef {
         name: "Config".to_string(),
@@ -175,6 +189,7 @@ pub(super) fn config_marshalling_api_surface() -> ApiSurface {
         original_rust_path: "my_lib::Config".to_string(),
         has_default: true,
         has_serde: true,
+        methods: vec![config_validate_method()],
         ..Default::default()
     };
     let mut mutable_configs = configs_param();

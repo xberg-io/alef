@@ -90,6 +90,31 @@ fn assert_default_conversion(content: &str) {
     );
 }
 
+/// `Config::validate(&self)` is a fallible method on the non-opaque, `has_default` `Config`
+/// type itself — the receiver, not just a param, carries fields alef cannot render a real
+/// default for (e.g. a nested struct's `Default::default()`), so the receiver must be
+/// JSON-decoded into the *core* type exactly like `build(config: Option<String>)` already is,
+/// rather than decoded directly from the Elixir term via `NifMap`/`NifStruct`.
+#[test]
+fn native_default_typed_receiver_methods_should_json_decode_into_core_type() {
+    let content = generated_native(&config_marshalling_api_surface());
+    assert!(
+        content.contains("pub fn config_validate(obj: String) -> Result<(), String> {"),
+        "receiver must become a JSON string parameter, not the struct itself:\n{content}"
+    );
+    let expected_preamble = "let obj: my_lib::Config = serde_json::from_str::<my_lib::Config>(&obj)\n    \
+        .map_err(|error| format!(\"failed to deserialize parameter `obj` for `config_validate`: {error}\"))?;";
+    assert!(
+        content.contains(expected_preamble),
+        "receiver must be JSON-decoded into the core type with contextual error:\n{content}"
+    );
+    assert!(
+        content.contains("let result = my_lib::Config::from(obj).validate().map_err(|e| e.to_string())?;"),
+        "decoded core value must be passed straight into the delegated call:\n{content}"
+    );
+    syn::parse_file(&content).expect("generated Rustler source with a default-typed receiver must parse as Rust");
+}
+
 #[test]
 fn free_functions_should_pass_mutable_named_vectors_by_mutable_reference() {
     let content = generated_native(&config_marshalling_api_surface());

@@ -1,7 +1,9 @@
 use super::args::gen_rustler_method_call_args;
-use super::default_deserialization::{build_default_deser_preamble, render_json_string_param, render_ok_expression};
+use super::default_deserialization::{
+    build_default_deser_preamble, render_fallible_deser_line, render_json_string_param, render_ok_expression,
+};
 use super::shared::{
-    render_method_call, render_method_call_with_preamble, render_result_body, render_wrapped_body,
+    render_method_call, render_method_call_with_preamble, render_preamble, render_result_body, render_wrapped_body,
     resolve_core_type_path,
 };
 use crate::backends::rustler::gen_bindings::types::gen_rustler_wrap_return;
@@ -29,9 +31,21 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
 ) -> String {
     let method_fn_name = format!("{}_{}", struct_name.to_lowercase(), method.name);
 
+    // A non-opaque receiver whose type carries un-representable `Default` values (see
+    // `default_types`) cannot be decoded directly from the Elixir term: fields such as
+    // `NgramRange` render to `nil` in the generated struct because alef cannot spell their
+    // real Rust default, and the direct `NifMap`/`NifStruct` decode has no `#[serde(default)]`
+    // fallback to absorb that `nil`. Scoped to `error_type.is_some()` methods only (`validate`
+    // and its siblings) so the return type is already `Result<_, _>` and this never turns an
+    // infallible NIF (e.g. `needs_image_data() -> bool`) into a fallible one. ~keep
+    let receiver_is_default_type =
+        !is_opaque && method.receiver.is_some() && default_types.contains(struct_name) && method.error_type.is_some();
+
     let mut params = if method.receiver.is_some() {
         if is_opaque {
             vec![format!("resource: rustler::ResourceArc<{}>", struct_name)]
+        } else if receiver_is_default_type {
+            vec!["obj: String".to_string()]
         } else {
             vec![format!("obj: {}", struct_name)]
         }
@@ -98,7 +112,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
         method.error_type.is_some() || deserialization_introduces_result,
     );
 
-    let deser_preamble = build_default_deser_preamble(
+    let param_deser_preamble = build_default_deser_preamble(
         &method.params,
         opaque_types,
         default_types,
@@ -106,6 +120,12 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
         &method_fn_name,
         types_by_name,
     );
+    let deser_preamble = if receiver_is_default_type {
+        let receiver_line = render_fallible_deser_line("obj", "obj", core_path, false, &method_fn_name);
+        format!("{}{}", render_preamble(&[receiver_line]), param_deser_preamble)
+    } else {
+        param_deser_preamble
+    };
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
