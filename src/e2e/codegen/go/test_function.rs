@@ -666,6 +666,11 @@ pub(super) fn render_test_function_with_facts(
         {
             let parts: Vec<&str> = f.split('.').collect();
             let mut guard_expr: Option<String> = None;
+            // The dotted ancestor path (raw fixture spelling, e.g. `results[0].metadata.format`)
+            // that produced `guard_expr` -- kept alongside it so the wrap below can check
+            // `presence_checked_fields` (built from the SAME raw spelling) for a sibling
+            // `not_empty` on this exact ancestor. ~keep
+            let mut guard_ancestor_prefix: Option<String> = None;
             for i in 1..parts.len() {
                 let prefix = parts[..i].join(".");
                 let resolved_prefix = field_resolver.resolve(&prefix);
@@ -683,6 +688,7 @@ pub(super) fn render_test_function_with_facts(
                     };
                     let accessor = field_resolver.accessor(guard_prefix, "go", &effective_result_var);
                     guard_expr = Some(accessor);
+                    guard_ancestor_prefix = Some(prefix);
                     break;
                 }
             }
@@ -693,13 +699,31 @@ pub(super) fn render_test_function_with_facts(
                         render_assertion(out, &assertion_context, assertion);
                         continue;
                     }
-                    let _ = writeln!(out, "\tif {guard} != nil {{");
                     let mut nil_buf = String::new();
                     render_assertion(&mut nil_buf, &assertion_context, assertion);
+                    // A sibling `not_empty` on this EXACT ancestor path already fails the test
+                    // when the ancestor is nil, so an `else` here would only duplicate that
+                    // failure -- stay guard-only, matching `render_count_assertion`'s and
+                    // `render_length_assertion`'s identical sibling-presence exemption. An empty
+                    // `nil_buf` means the wrapped assertion type renders nothing on its own
+                    // (e.g. `not_error`/`error`, which never carry a `field` in practice, or a
+                    // dispatcher that already emitted its own failure elsewhere) -- adding a
+                    // failing `else` around nothing would fail the test on a no-op, so that case
+                    // also stays guard-only. ~keep
+                    let sibling_covers_ancestor = guard_ancestor_prefix
+                        .as_deref()
+                        .is_some_and(|p| presence_checked_fields.contains(p));
+                    let _ = writeln!(out, "\tif {guard} != nil {{");
                     for line in nil_buf.lines() {
                         let _ = writeln!(out, "\t{line}");
                     }
-                    let _ = writeln!(out, "\t}}");
+                    if sibling_covers_ancestor || nil_buf.trim().is_empty() {
+                        let _ = writeln!(out, "\t}}");
+                    } else {
+                        let _ = writeln!(out, "\t}} else {{");
+                        let _ = writeln!(out, "\t\tt.Errorf(\"expected %s to be present, got nil\", `{guard}`)");
+                        let _ = writeln!(out, "\t}}");
+                    }
                 } else {
                     render_assertion(out, &assertion_context, assertion);
                 }

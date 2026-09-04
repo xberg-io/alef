@@ -961,6 +961,9 @@ mod super_trait_synthesis_tests;
 mod tests;
 
 #[cfg(test)]
+#[path = "go/tests/ancestor_guard_presence_tests.rs"]
+mod ancestor_guard_presence_tests;
+#[cfg(test)]
 #[path = "go/tests/error_type_prefix_tests.rs"]
 mod error_type_prefix_tests;
 #[cfg(test)]
