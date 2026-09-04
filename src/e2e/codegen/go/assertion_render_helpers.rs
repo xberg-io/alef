@@ -120,37 +120,74 @@ pub(super) fn render_count_assertion(
     }
 }
 
+/// Grouping for `render_length_assertion`'s boolean options -- mirrors `CountAssertionShape`,
+/// kept out of the parameter list itself so the function stays under the 6-parameter lint
+/// ceiling.
+pub(super) struct LengthAssertionShape {
+    pub(super) is_pointer: bool,
+    pub(super) minimum: bool,
+    /// Whether a sibling `not_empty` assertion on the same field already fails the test
+    /// when the field is nil -- see `AssertionRenderContext::presence_checked_fields`.
+    pub(super) has_sibling_presence_check: bool,
+}
+
 pub(super) fn render_length_assertion(
     out: &mut String,
     field: &str,
     length: u64,
     nullable_guard: Option<&str>,
-    is_pointer: bool,
-    minimum: bool,
+    shape: LengthAssertionShape,
 ) {
+    let LengthAssertionShape {
+        is_pointer,
+        minimum,
+        has_sibling_presence_check,
+    } = shape;
     let (method, relation) = if minimum {
         ("GreaterOrEqual", ">=")
     } else {
         ("LessOrEqual", "<=")
     };
-    let expression = if field.starts_with("len(") {
+    let is_length = field.starts_with("len(");
+    let expression = if is_length {
         field.to_string()
     } else if is_pointer {
         format!("len(*{field})")
     } else {
         format!("len({field})")
     };
-    if let Some(guard) = nullable_guard {
-        let _ = writeln!(out, "\tif {guard} != nil {{");
-        let _ = writeln!(
-            out,
-            "\t\tassert.{method}(t, {expression}, {length}, \"expected length {relation} {length}\")"
-        );
-        let _ = writeln!(out, "\t}}");
-    } else {
-        let _ = writeln!(
-            out,
-            "\tassert.{method}(t, {expression}, {length}, \"expected length {relation} {length}\")"
-        );
+    let message = format!("expected length {relation} {length}");
+    match nullable_guard {
+        // See `render_count_assertion`'s identical arm: `is_length` means `field` is already
+        // a `len(...)`/pseudo `.length`/`.count`/`.size` expression measuring a derived
+        // scalar off `guard`, not a named collection field in its own right -- nil there is a
+        // legitimate "not populated" state with no presence claim, so it stays guard-only. ~keep
+        Some(guard) if is_length => {
+            let _ = writeln!(out, "\tif {guard} != nil {{");
+            let _ = writeln!(out, "\t\tassert.{method}(t, {expression}, {length}, \"{message}\")");
+            let _ = writeln!(out, "\t}}");
+        }
+        // A sibling `not_empty` assertion on the same field already fails the test when
+        // `guard` is nil (`render_not_empty`), so an `else` here would only duplicate that
+        // failure -- stay guard-only. ~keep
+        Some(guard) if has_sibling_presence_check => {
+            let _ = writeln!(out, "\tif {guard} != nil {{");
+            let _ = writeln!(out, "\t\tassert.{method}(t, {expression}, {length}, \"{message}\")");
+            let _ = writeln!(out, "\t}}");
+        }
+        // No sibling presence assertion covers this field, and it is a real named field (not
+        // a pseudo-length measurement): without an `else`, a nil guard would make the length
+        // assertion silently not run and the test would pass on exactly the regression it
+        // exists to catch. Fail instead. ~keep
+        Some(guard) => {
+            let _ = writeln!(out, "\tif {guard} != nil {{");
+            let _ = writeln!(out, "\t\tassert.{method}(t, {expression}, {length}, \"{message}\")");
+            let _ = writeln!(out, "\t}} else {{");
+            let _ = writeln!(out, "\t\tt.Errorf(\"{message}, got nil\")");
+            let _ = writeln!(out, "\t}}");
+        }
+        None => {
+            let _ = writeln!(out, "\tassert.{method}(t, {expression}, {length}, \"{message}\")");
+        }
     }
 }

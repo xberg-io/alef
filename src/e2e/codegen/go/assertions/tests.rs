@@ -353,3 +353,94 @@ fn count_equals_on_nullable_slice_without_sibling_presence_check_fails_on_nil() 
         \t}\n";
     assert_eq!(out, expected, "got: {out}");
 }
+
+fn min_length_assertion(field: &str, value: u64) -> Assertion {
+    Assertion {
+        assertion_type: "min_length".to_string(),
+        field: Some(field.to_string()),
+        value: Some(serde_json::Value::from(value)),
+        ..Default::default()
+    }
+}
+
+/// Render `assertion` against a resolver where `field` is declared optional (a nilable,
+/// non-pointer field -- the `Notes` shape used elsewhere in this file) and
+/// `presence_checked_fields` is populated iff `has_sibling_presence_check` -- the two
+/// states `render_length_assertion` branches on.
+fn render_length_on_optional_field(assertion: &Assertion, field: &str, has_sibling_presence_check: bool) -> String {
+    let optional: HashSet<String> = [field.to_string()].into_iter().collect();
+    let resolver = FieldResolver::new(
+        &HashMap::new(),
+        &optional,
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+    );
+    let presence_checked_fields: HashSet<&str> = if has_sibling_presence_check {
+        [field].into_iter().collect()
+    } else {
+        HashSet::new()
+    };
+    let mut out = String::new();
+    let context = AssertionRenderContext {
+        effective_result_var: "result",
+        import_alias: "pkg",
+        field_resolver: &resolver,
+        optional_locals: &HashMap::new(),
+        numeric_scalar_fields: &HashSet::new(),
+        presence_checked_fields: &presence_checked_fields,
+        result_is_simple: false,
+        result_is_array: false,
+        is_streaming: false,
+        streaming_item_type: None,
+    };
+    render_assertion(&mut out, &context, assertion);
+    out
+}
+
+/// CONFIRMED DEFECT regression (the `render_length_assertion` sibling of
+/// `count_min_on_nullable_slice_without_sibling_presence_check_fails_on_nil`): a
+/// `min_length`/`max_length` assertion on an optional field with no sibling `not_empty`
+/// assertion must FAIL when the guard is nil, not silently skip the check. ~keep
+#[test]
+fn min_length_on_optional_field_without_sibling_presence_check_fails_on_nil() {
+    let assertion = min_length_assertion("notes", 5);
+    let out = render_length_on_optional_field(&assertion, "notes", false);
+    let expected = "\tif result.Notes != nil {\n\
+        \t\tassert.GreaterOrEqual(t, len(result.Notes), 5, \"expected length >= 5\")\n\
+        \t} else {\n\
+        \t\tt.Errorf(\"expected length >= 5, got nil\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
+}
+
+/// Positive control: a sibling `not_empty` assertion on the same field already fails the
+/// test on nil, so `min_length` stays guard-only.
+#[test]
+fn min_length_on_optional_field_with_sibling_presence_check_stays_guard_only() {
+    let assertion = min_length_assertion("notes", 5);
+    let out = render_length_on_optional_field(&assertion, "notes", true);
+    let expected = "\tif result.Notes != nil {\n\
+        \t\tassert.GreaterOrEqual(t, len(result.Notes), 5, \"expected length >= 5\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
+}
+
+/// `max_length` shares `render_length_assertion` with `min_length` -- confirm the
+/// `LessOrEqual` method path also gets the failing `else` when uncovered.
+#[test]
+fn max_length_on_optional_field_without_sibling_presence_check_fails_on_nil() {
+    let assertion = Assertion {
+        assertion_type: "max_length".to_string(),
+        field: Some("notes".to_string()),
+        value: Some(serde_json::Value::from(50u64)),
+        ..Default::default()
+    };
+    let out = render_length_on_optional_field(&assertion, "notes", false);
+    let expected = "\tif result.Notes != nil {\n\
+        \t\tassert.LessOrEqual(t, len(result.Notes), 50, \"expected length <= 50\")\n\
+        \t} else {\n\
+        \t\tt.Errorf(\"expected length <= 50, got nil\")\n\
+        \t}\n";
+    assert_eq!(out, expected, "got: {out}");
+}

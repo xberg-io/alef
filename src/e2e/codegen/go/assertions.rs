@@ -94,8 +94,8 @@ fn dispatch_assertion_type(
         "is_true" => presence::render_is_true(out_ref, target),
         "is_false" => presence::render_is_false(out_ref, target),
         "method_result" => method_result::render_method_result(out_ref, context, assertion),
-        "min_length" => size_ops::render_min_length(out_ref, assertion, target),
-        "max_length" => size_ops::render_max_length(out_ref, assertion, target),
+        "min_length" => size_ops::render_min_length(out_ref, context, assertion, target),
+        "max_length" => size_ops::render_max_length(out_ref, context, assertion, target),
         "ends_with" => string_matches::render_ends_with(out_ref, assertion, target),
         "matches_regex" => string_matches::render_matches_regex(out_ref, assertion, target),
         "not_error" | "error" => {}

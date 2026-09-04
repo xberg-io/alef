@@ -5,7 +5,9 @@
 
 use crate::e2e::fixture::Assertion;
 
-use super::super::assertion_render_helpers::{CountAssertionShape, render_count_assertion, render_length_assertion};
+use super::super::assertion_render_helpers::{
+    CountAssertionShape, LengthAssertionShape, render_count_assertion, render_length_assertion,
+};
 use super::AssertionRenderContext;
 use super::target::ResolvedAssertionTarget;
 
@@ -75,26 +77,58 @@ pub(super) fn render_count_equals(
     }
 }
 
-pub(super) fn render_min_length(out_ref: &mut String, assertion: &Assertion, target: &ResolvedAssertionTarget) {
+pub(super) fn render_min_length(
+    out_ref: &mut String,
+    context: &AssertionRenderContext<'_>,
+    assertion: &Assertion,
+    target: &ResolvedAssertionTarget,
+) {
     let field_expr = target.field_expr.clone();
     let field_is_pointer = target.field_is_pointer;
     let nullable_guard_expr = target.nullable_guard_expr.as_deref();
+    let has_sibling = has_sibling_presence_check(context, assertion);
 
     if let Some(val) = &assertion.value
         && let Some(n) = val.as_u64()
     {
-        render_length_assertion(out_ref, &field_expr, n, nullable_guard_expr, field_is_pointer, true);
+        render_length_assertion(
+            out_ref,
+            &field_expr,
+            n,
+            nullable_guard_expr,
+            LengthAssertionShape {
+                is_pointer: field_is_pointer,
+                minimum: true,
+                has_sibling_presence_check: has_sibling,
+            },
+        );
     }
 }
 
-pub(super) fn render_max_length(out_ref: &mut String, assertion: &Assertion, target: &ResolvedAssertionTarget) {
+pub(super) fn render_max_length(
+    out_ref: &mut String,
+    context: &AssertionRenderContext<'_>,
+    assertion: &Assertion,
+    target: &ResolvedAssertionTarget,
+) {
     let field_expr = target.field_expr.clone();
     let field_is_pointer = target.field_is_pointer;
     let nullable_guard_expr = target.nullable_guard_expr.as_deref();
+    let has_sibling = has_sibling_presence_check(context, assertion);
 
     if let Some(val) = &assertion.value
         && let Some(n) = val.as_u64()
     {
-        render_length_assertion(out_ref, &field_expr, n, nullable_guard_expr, field_is_pointer, false);
+        render_length_assertion(
+            out_ref,
+            &field_expr,
+            n,
+            nullable_guard_expr,
+            LengthAssertionShape {
+                is_pointer: field_is_pointer,
+                minimum: false,
+                has_sibling_presence_check: has_sibling,
+            },
+        );
     }
 }
