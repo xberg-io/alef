@@ -31,14 +31,20 @@ pub(in crate::backends::pyo3) fn coercible_dto_names<'a>(
     config: &ResolvedCrateConfig,
 ) -> AHashSet<&'a str> {
     let output_style = config.dto.python_output_style();
-    let reexported: AHashSet<&str> = config
+    let reexported_vec: Vec<String> = config
         .python
         .as_ref()
-        .map(|p| p.reexported_types.iter().map(String::as_str).collect())
+        .map(|p| p.reexported_types.clone())
         .unwrap_or_default();
+    let reexported: AHashSet<&str> = reexported_vec.iter().map(String::as_str).collect();
+    // Widened (OR) with the `has_default` closure -- see `types::options_dataclass_type_names`'s
+    // doc and `gen_init_py`'s matching widen -- so a data-enum variant's payload field typed as a
+    // closure-added type (no core `Default` of its own) gets the same DTO coercion as one typed
+    // as a `has_default` config. ~keep
+    let dataclass_names = crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, &reexported_vec);
     api.types
         .iter()
-        .filter(|t| is_dataclass_backed_config(t, output_style, &reexported))
+        .filter(|t| is_dataclass_backed_config(t, output_style, &reexported) || dataclass_names.contains(&t.name))
         .map(|t| t.name.as_str())
         .collect()
 }

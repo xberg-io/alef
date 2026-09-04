@@ -9,6 +9,8 @@ mod cfg_variant_e2e_tests;
 mod config;
 mod config_opaque;
 pub(in crate::backends::pyo3) mod constructors;
+#[cfg(test)]
+mod dataclass_closure_tests;
 pub mod enums;
 pub mod errors;
 pub mod functions;

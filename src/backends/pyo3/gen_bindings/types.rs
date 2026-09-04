@@ -36,9 +36,28 @@ fn to_python_enum_variant(name: &str) -> String {
 /// ~keep
 /// Names of the types `options.py` emits as `@dataclass` config DTOs: non-trait,
 /// `has_default`, not a return type, not an internal `*Update` type, and not
-/// re-exported as a native pyclass. This is the public *input* type family — the
-/// trait-callback marshalling and the Protocol stubs use the same set so the type
-/// a host is handed is the type the package exports under that name.
+/// re-exported as a native pyclass -- PLUS the fixed-point closure of that seed set: any other
+/// eligible type that has a *required* (non-`Optional`) field whose named type is itself in the
+/// set. This is the public *input* type family — the trait-callback marshalling and the Protocol
+/// stubs use the same set so the type a host is handed is the type the package exports under
+/// that name.
+///
+/// The closure step exists because `has_default` is a fact about the CORE Rust type (does it
+/// derive/impl `Default`), not about whether its public Python spelling is native or a
+/// dataclass. A type can be `has_default == false` purely because one of its fields is required
+/// (e.g. `CaptioningConfig { llm: LlmConfig, .. }` has no sensible default `LlmConfig`), while
+/// that required field's type IS in the dataclass set (`LlmConfig` has a `Default` impl and
+/// stands on its own, so it gets a twin). Without the closure, `CaptioningConfig` stays native
+/// and its `#[new]` demands a native `LlmConfig` -- but the public name `LlmConfig` now resolves
+/// to the dataclass twin, so `CaptioningConfig(llm=LlmConfig(...))` raises `TypeError: 'LlmConfig'
+/// object is not an instance of 'LlmConfig'` (xberg-io/xberg -- CaptioningConfig/LlmConfig). A
+/// Python dataclass field may be required (unlike a Rust struct literal, it needs no
+/// container-level default), so lacking a core `Default` impl is not a reason to withhold a
+/// twin. Once `CaptioningConfig` joins the set, the generated `_to_rust_captioning_config`
+/// converter (see `functions::orchestration`, which must consult this same set, not a raw
+/// `has_default` filter) builds the native object by recursively converting `llm` through
+/// `_to_rust_llm_config` first, so the native `#[new]` still only ever receives native
+/// instances. ~keep
 ///
 /// `pub(crate)`: `e2e::codegen::python` calls this (alongside [`options_return_dataclass_names`])
 /// to know when a type's public spelling is this method-less dataclass rather than the native
@@ -49,18 +68,48 @@ pub(crate) fn options_dataclass_type_names(
     api: &ApiSurface,
     reexported_types: &[String],
 ) -> std::collections::HashSet<String> {
+    use crate::core::ir::TypeRef;
+
     let reexported: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
-    api.types
+    let eligible = |t: &&TypeDef| -> bool {
+        !t.is_trait && !t.is_return_type && !t.name.ends_with("Update") && !reexported.contains(t.name.as_str())
+    };
+    let mut names: std::collections::HashSet<String> = api
+        .types
         .iter()
-        .filter(|t| {
-            !t.is_trait
-                && t.has_default
-                && !t.is_return_type
-                && !t.name.ends_with("Update")
-                && !reexported.contains(t.name.as_str())
-        })
+        .filter(|t| eligible(t) && t.has_default)
         .map(|t| t.name.clone())
-        .collect()
+        .collect();
+
+    // Fixed-point closure: a type not yet in the set joins it once it has a required field
+    // whose named type already is in the set -- see the doc comment above for why `has_default`
+    // alone under-counts this family. A multi-level chain (Z requires Y requires X, where only X
+    // seeded the set) needs more than one pass: pass 1 can only see X and adds Y, pass 2 sees the
+    // now-updated set and adds Z. Each pass snapshots candidates against the set as it stood
+    // *before* that pass (collected into an owned `Vec` first, so the borrow of `names` used to
+    // find candidates ends before the loop that mutates `names`) -- the repeated outer `loop`,
+    // not same-pass visibility, is what makes the closure converge over the whole chain.
+    loop {
+        let mut grew = false;
+        let candidates: Vec<String> = api
+            .types
+            .iter()
+            .filter(|t| eligible(t) && !names.contains(&t.name))
+            .filter(|t| {
+                binding_fields(&t.fields).any(|f| !f.optional && matches!(&f.ty, TypeRef::Named(inner) if names.contains(inner)))
+            })
+            .map(|t| t.name.clone())
+            .collect();
+        for name in candidates {
+            if names.insert(name) {
+                grew = true;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    names
 }
 
 /// Names of the return types `options.py` defines itself, as public `@dataclass`es, instead of
@@ -125,13 +174,21 @@ pub(super) fn gen_options_py(
 
     let output_style = dto.python_output_style();
     let published_return_type_names = options_return_dataclass_names(api, dto, reexported_types);
+    // Every `options.py`-published input type -- both the `has_default` seed and the closure
+    // extension (a native type with no `Default` of its own, pulled in only because a required
+    // field of it is itself in this set; see `options_dataclass_type_names`'s doc). The several
+    // inline `typ.has_default` checks below each independently decided "is this type's body
+    // rendered/imported/local here", so each is widened to also accept closure membership --
+    // never narrowed, so every case that already worked when `has_default` alone was checked
+    // keeps working identically. ~keep
+    let dataclass_names = options_dataclass_type_names(api, reexported_types);
 
     // Must track `gen_from_native_converters`' own set exactly: a converter emitted for a
     // published return-type `@dataclass` annotates its parameter `Any` just like an input
     // dataclass one does, and an `Any` used without its import is a NameError in the file a
     // consumer installs. ~keep
     let emits_from_native_converters = {
-        let mut options_types = options_dataclass_type_names(api, reexported_types);
+        let mut options_types = dataclass_names.clone();
         options_types.extend(published_return_type_names.iter().cloned());
         api.types.iter().any(|t| options_types.contains(&t.name))
     };
@@ -143,7 +200,7 @@ pub(super) fn gen_options_py(
 
     let mut referenced_types: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.has_default && !typ.name.ends_with("Update") {
+        if (typ.has_default || dataclass_names.contains(&typ.name)) && !typ.name.ends_with("Update") {
             let is_emitted = !typ.is_return_type || output_style == PythonDtoStyle::TypedDict;
             if !is_emitted {
                 continue;
@@ -156,7 +213,7 @@ pub(super) fn gen_options_py(
 
     let mut needed_enums: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if typ.has_default || typ.is_return_type {
+        if typ.has_default || typ.is_return_type || dataclass_names.contains(&typ.name) {
             for field in binding_fields(&typ.fields) {
                 collect_named_types_filtered(&field.ty, &enum_names, &mut needed_enums);
             }
@@ -195,7 +252,7 @@ pub(super) fn gen_options_py(
             if typ.name.ends_with("Update") || typ.fields.is_empty() {
                 continue;
             }
-            if typ.has_default && !typ.is_return_type {
+            if (typ.has_default || dataclass_names.contains(&typ.name)) && !typ.is_return_type {
                 local.insert(typ.name.as_str());
             }
             if published_return_type_names.contains(&typ.name) {
@@ -340,11 +397,30 @@ pub(super) fn gen_options_py(
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
-        if !typ.has_default {
+        if !typ.has_default && !dataclass_names.contains(&typ.name) {
             continue;
         }
         if typ.name.ends_with("Update") {
             continue;
+        }
+
+        // A closure-only type (no core `Default` impl of its own -- it is here purely because a
+        // required field of it points at a type already in `dataclass_names`, e.g.
+        // `CaptioningConfig { llm: LlmConfig, .. }`) cannot honestly give every field a literal
+        // default the way a `has_default` type can (its own fields' defaults come from field-level
+        // `typed_default`/`#[serde(default)]` only, never from a whole-struct `Default::default()`
+        // fallback). Its genuinely required fields -- no `typed_default`, not `optional` -- render
+        // with NO default at all rather than `OptionsFieldDefaults::literal`'s zero-value/`None`
+        // fallback, which would silently let a caller omit them. Python requires every
+        // no-default field to precede every defaulted field in a dataclass, so those fields are
+        // moved first (a stable sort: their relative order, and the relative order of the
+        // defaulted fields behind them, is otherwise untouched). `has_default` types are
+        // completely unaffected by this branch and keep the original declaration order and the
+        // existing fallback -- this only ever widens what closure types accept. ~keep
+        let is_closure_only_type = !typ.has_default;
+        let mut ordered_fields: Vec<&crate::core::ir::FieldDef> = binding_fields(&typ.fields).collect();
+        if is_closure_only_type {
+            ordered_fields.sort_by_key(|f| f.optional || f.typed_default.is_some() || f.default.is_some());
         }
 
         // Return types are defined authoritatively by the Rust native module as #[pyclass],
@@ -382,12 +458,12 @@ pub(super) fn gen_options_py(
         ));
         out.push('\n');
 
-        if binding_fields(&typ.fields).next().is_none() {
+        if ordered_fields.is_empty() {
             out.push('\n');
             continue;
         }
 
-        for field in binding_fields(&typ.fields) {
+        for field in ordered_fields.iter().copied() {
             let type_hint = python_field_type(
                 &field.ty,
                 field.optional,
@@ -397,25 +473,44 @@ pub(super) fn gen_options_py(
                 EmitContext::OptionsModule,
             );
 
-            let default = field_defaults.literal(field);
-            let type_hint_with_none = if field.typed_default.is_none() && field.optional {
-                if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
+            // Only a closure-only type's genuinely required fields skip the default entirely --
+            // see the comment above `ordered_fields`. Checking `typed_default` alone is not
+            // enough: a bare `#[serde(default)]` field (e.g. `OcrPipelineConfig::quality_thresholds`)
+            // leaves `typed_default` unset but still records the wire-level defer marker in
+            // `field.default` (`"/* serde(default) */"`, per `defers_to_rust_default` in
+            // `functions::converters`) -- that field DOES have a default, just not one this
+            // renderer can spell as a Python literal, and it must keep the existing zero-value
+            // fallback (and stay omittable), not suddenly become a required constructor argument. ~keep
+            let omit_default =
+                is_closure_only_type && !field.optional && field.typed_default.is_none() && field.default.is_none();
+
+            let safe_name = crate::core::keywords::python_ident(&field.name);
+            let field_declaration = if omit_default {
+                crate::backends::pyo3::template_env::render(
+                    "trait_bridge/dataclass_field_no_default.jinja",
+                    minijinja::context! { name => &safe_name, type_hint => &type_hint },
+                )
+            } else {
+                let default = field_defaults.literal(field);
+                let type_hint_with_none = if field.typed_default.is_none() && field.optional {
+                    if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
+                        format!("{} | None", type_hint)
+                    } else {
+                        type_hint.clone()
+                    }
+                } else if default == "None" && !type_hint.contains("None") {
                     format!("{} | None", type_hint)
                 } else {
                     type_hint.clone()
-                }
-            } else if default == "None" && !type_hint.contains("None") {
-                format!("{} | None", type_hint)
-            } else {
-                type_hint.clone()
-            };
-
-            let safe_name = crate::core::keywords::python_ident(&field.name);
-            if !field.doc.is_empty() {
-                out.push_str(&crate::backends::pyo3::template_env::render(
+                };
+                crate::backends::pyo3::template_env::render(
                     "trait_bridge/dataclass_field_with_default.jinja",
                     minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
-                ));
+                )
+            };
+
+            if !field.doc.is_empty() {
+                out.push_str(&field_declaration);
                 out.push('\n');
                 let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
                 let safe_doc = if doc_line.ends_with('"') {
@@ -429,10 +524,7 @@ pub(super) fn gen_options_py(
                 ));
                 out.push('\n');
             } else {
-                out.push_str(&crate::backends::pyo3::template_env::render(
-                    "trait_bridge/dataclass_field_with_default.jinja",
-                    minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
-                ));
+                out.push_str(&field_declaration);
                 out.push('\n');
             }
         }

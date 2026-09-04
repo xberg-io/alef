@@ -53,13 +53,6 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
         })
         .collect();
 
-    let default_types: AHashMap<String, &crate::core::ir::TypeDef> = api
-        .types
-        .iter()
-        .filter(|t| t.has_default && !t.name.ends_with("Update"))
-        .map(|t| (t.name.clone(), t))
-        .collect();
-
     // Types `options.py` emits as public `@dataclass` DTOs. An adapter param typed as one of
     // these crosses the Python/native boundary at a different shape than the engine call
     // actually accepts, so it needs the `_to_rust_*` converter — the same requirement plain
@@ -68,6 +61,21 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     // and `options_publishable_return_types` below for those). ~keep
     let options_dataclass_types =
         crate::backends::pyo3::gen_bindings::types::options_dataclass_type_names(api, reexported_types);
+
+    // `has_default` alone under-counts the types api.py must be able to convert: a type can lack
+    // a core `Default` impl purely because one of its fields is required with no sensible default
+    // (e.g. `CaptioningConfig { llm: LlmConfig, .. }`), while still being reachable as a field of
+    // some function/adapter parameter (directly, or nested inside another dataclass such as
+    // `ExtractionConfig.captioning: Option<CaptioningConfig>`). `options_dataclass_types` is the
+    // exact closure that already accounts for this (see its doc); widening `default_types` with
+    // it (rather than replacing the `has_default` half) means every type this map covered before
+    // is still covered identically, and the closure types join without disturbing them. ~keep
+    let default_types: AHashMap<String, &crate::core::ir::TypeDef> = api
+        .types
+        .iter()
+        .filter(|t| (t.has_default || options_dataclass_types.contains(&t.name)) && !t.name.ends_with("Update"))
+        .map(|t| (t.name.clone(), t))
+        .collect();
 
     // Return types `options.py` publishes itself (as `@dataclass`, never `TypedDict` -- see
     // `types::gen_options_py`'s doc). A function returning one of these must name the public type
@@ -236,10 +244,18 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
     let reexported_names: AHashSet<&str> = reexported_types.iter().map(|s| s.as_str()).collect();
     let options_type_names: AHashSet<String> = {
+        // Widened (OR), not replaced, with `options_dataclass_types` -- see `default_types`'
+        // comment above for why a raw `has_default` filter under-counts, and why widening rather
+        // than substituting preserves every case (including a reexported `has_default` type,
+        // which `options_dataclass_types` deliberately excludes) that already worked here. ~keep
         let mut names: AHashSet<String> = api
             .types
             .iter()
-            .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
+            .filter(|t| {
+                (t.has_default || options_dataclass_types.contains(&t.name))
+                    && !t.name.ends_with("Update")
+                    && !t.is_return_type
+            })
             .map(|t| t.name.clone())
             .collect();
         names.extend(options_return_types.iter().cloned());
@@ -254,10 +270,13 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     let all_ir_type_names: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     let options_enum_names: AHashSet<String> = {
         let mut set = AHashSet::new();
+        // Widened (OR) with `options_dataclass_types`, same rationale as `options_type_names`
+        // above: an enum field on a closure-added type (has_default == false) needs the same
+        // "defined/imported as an options enum" treatment as one on a has_default type. ~keep
         for typ in api
             .types
             .iter()
-            .filter(|t| t.has_default && !t.name.ends_with("Update"))
+            .filter(|t| (t.has_default || options_dataclass_types.contains(&t.name)) && !t.name.ends_with("Update"))
         {
             for field in binding_fields(&typ.fields) {
                 let inner_name = match &field.ty {
