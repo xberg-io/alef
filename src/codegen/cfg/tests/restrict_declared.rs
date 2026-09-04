@@ -54,7 +54,10 @@ fn any_with_one_undeclared_feature_narrows_to_the_declared_term_alone() {
 fn any_with_every_feature_undeclared_is_unreachable() {
     let gate = r#"any(feature = "url-ingestion", feature = "crawl-enterprise")"#;
     let declared = declared(&["url-config-types"]);
-    assert_eq!(restrict_cfg_gate_to_declared(gate, &declared), DeclaredCfgGate::Unreachable);
+    assert_eq!(
+        restrict_cfg_gate_to_declared(gate, &declared),
+        DeclaredCfgGate::Unreachable
+    );
 }
 
 /// A bare single-term gate naming an undeclared feature is unreachable the same way a
@@ -63,7 +66,10 @@ fn any_with_every_feature_undeclared_is_unreachable() {
 fn single_undeclared_feature_is_unreachable() {
     let gate = r#"feature = "url-ingestion""#;
     let declared = declared(&["url-config-types"]);
-    assert_eq!(restrict_cfg_gate_to_declared(gate, &declared), DeclaredCfgGate::Unreachable);
+    assert_eq!(
+        restrict_cfg_gate_to_declared(gate, &declared),
+        DeclaredCfgGate::Unreachable
+    );
 }
 
 /// `all(a, b)` with `b` undeclared: `b` is never on in this crate, so the conjunction can never
@@ -72,7 +78,10 @@ fn single_undeclared_feature_is_unreachable() {
 fn all_with_one_undeclared_feature_is_unreachable_even_though_the_other_is_declared() {
     let gate = r#"all(feature = "url-config-types", feature = "url-ingestion")"#;
     let declared = declared(&["url-config-types"]);
-    assert_eq!(restrict_cfg_gate_to_declared(gate, &declared), DeclaredCfgGate::Unreachable);
+    assert_eq!(
+        restrict_cfg_gate_to_declared(gate, &declared),
+        DeclaredCfgGate::Unreachable
+    );
 }
 
 /// `all(a, b)` with every term declared passes through unchanged, same as any other

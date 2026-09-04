@@ -121,12 +121,18 @@ fn non_void_not_error_only_async_wraps_the_call_in_a_do_catch_that_fails_on_erro
 
     let out = render_call(true, vec![not_error_assertion()]);
 
-    assert!(out.contains("do {"), "expected a do/catch wrapping the async call, got:\n{out}");
+    assert!(
+        out.contains("do {"),
+        "expected a do/catch wrapping the async call, got:\n{out}"
+    );
     assert!(
         out.contains("try await Sample.listValidators()"),
         "expected the async call inside the do block, got:\n{out}"
     );
-    assert!(out.contains("XCTFail("), "expected the catch block to fail the test, got:\n{out}");
+    assert!(
+        out.contains("XCTFail("),
+        "expected the catch block to fail the test, got:\n{out}"
+    );
     assert!(
         !out.contains("XCTSkipIf"),
         "must not fall back to an unconditional skip, got:\n{out}"

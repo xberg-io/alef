@@ -541,7 +541,10 @@ pub(super) fn gen_struct_methods(
         // conditionally compiled) must gate its accessor the same way the struct declaration
         // now gates the field itself, or the accessor's body (`self.{field}`) references a
         // struct member that may not exist under this build's feature set. ~keep
-        impl_builder.add_method(&super::prepend_cfg(field.cfg.as_deref(), gen_field_accessor(field, mapper)));
+        impl_builder.add_method(&super::prepend_cfg(
+            field.cfg.as_deref(),
+            gen_field_accessor(field, mapper),
+        ));
     }
 
     for method in &typ.methods {

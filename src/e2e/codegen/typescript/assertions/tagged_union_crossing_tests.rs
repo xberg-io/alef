@@ -48,7 +48,10 @@ fn resolver_over_format_metadata() -> FieldResolver {
         &HashSet::new(),
         &method_calls,
     )
-    .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()))
+    .with_ir_enum_map(
+        FieldResolver::ir_enum_fields(&types, &enums),
+        Some("Metadata".to_string()),
+    )
 }
 
 fn make_assertion(assertion_type: &str, field: &str, value: serde_json::Value) -> Assertion {
@@ -139,10 +142,7 @@ fn a_multi_field_variant_crossing_still_renders_a_skip() {
         serde_tag: Some("type".to_string()),
         variants: vec![EnumVariant {
             name: "Basic".to_string(),
-            fields: vec![
-                field("username", TypeRef::String),
-                field("password", TypeRef::String),
-            ],
+            fields: vec![field("username", TypeRef::String), field("password", TypeRef::String)],
             ..EnumVariant::default()
         }],
         ..EnumDef::default()
@@ -155,7 +155,10 @@ fn a_multi_field_variant_crossing_still_renders_a_skip() {
         &HashSet::new(),
         &method_calls,
     )
-    .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()));
+    .with_ir_enum_map(
+        FieldResolver::ir_enum_fields(&types, &enums),
+        Some("Metadata".to_string()),
+    );
     let assertion = make_assertion(
         "equals",
         "auth.basic.username",

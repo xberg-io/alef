@@ -814,7 +814,10 @@ fn an_ungated_optionalized_field_keeps_a_bare_assignment() {
 
     let out = gen_from_binding_to_core_cfg(&typ, "test_lib", &config);
 
-    assert!(!out.contains("#[cfg("), "an ungated field must emit no gate, got:\n{out}");
+    assert!(
+        !out.contains("#[cfg("),
+        "an ungated field must emit no gate, got:\n{out}"
+    );
     assert!(
         !out.contains("        {\n"),
         "an ungated assignment must not be wrapped in a block, got:\n{out}"
@@ -863,7 +866,10 @@ fn gate_with_one_undeclared_feature_narrows_to_the_declared_term_alone_binding_t
         !cfg_line.contains("url-ingestion"),
         "the undeclared feature must not appear in the emitted cfg attribute, got:\n{cfg_line}"
     );
-    assert!(crawl_line.contains("val.crawl"), "field initialiser missing, got:\n{out}");
+    assert!(
+        crawl_line.contains("val.crawl"),
+        "field initialiser missing, got:\n{out}"
+    );
 }
 
 /// CONTROL for the regression above: when every named feature is declared, the gate must be

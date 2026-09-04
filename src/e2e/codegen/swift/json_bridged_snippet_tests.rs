@@ -278,9 +278,7 @@ fn should_agree_with_the_e2e_generator_about_every_step_past_a_leaf() {
         let fixture = fixture_showing(path);
         let e2e = render_e2e(&fixture);
         let snippet = render_snippet(&fixture);
-        let subscripted = |out: &str| {
-            out.contains(&format!("{accessor}[")) || out.contains(&format!("{accessor}?["))
-        };
+        let subscripted = |out: &str| out.contains(&format!("{accessor}[")) || out.contains(&format!("{accessor}?["));
         assert_eq!(
             subscripted(&snippet),
             countable,

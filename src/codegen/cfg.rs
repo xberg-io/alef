@@ -117,7 +117,10 @@ fn restrict_cfg_term(cfg_str: &str, declared: &HashSet<&str>) -> Option<String> 
     let normalized = cfg_str.trim().replace(" (", "(");
     let normalized = normalized.as_str();
 
-    if let Some(feature) = normalized.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
+    if let Some(feature) = normalized
+        .strip_prefix("feature = \"")
+        .and_then(|s| s.strip_suffix('"'))
+    {
         return declared.contains(feature).then(|| format!(r#"feature = "{feature}""#));
     }
     if let Some(inner) = normalized.strip_prefix("any(").and_then(|s| s.strip_suffix(')')) {

@@ -732,7 +732,11 @@ fn apply_vacuous_assertion_fallback(
     if !has_declared_assertions || has_real_assertion {
         return;
     }
-    let fallback_var = if call.is_streaming { call.chunks_binding } else { call.result_binding };
+    let fallback_var = if call.is_streaming {
+        call.chunks_binding
+    } else {
+        call.result_binding
+    };
     // ~keep A void call's binding is `nil` on success (rustler encodes Rust `()` that way), so
     // `refute is_nil(...)` would fail every successful call, not just an unsuccessful one. When
     // `call.returns_result` is also true, the `{:ok, result} = call(...)` match this fallback's

@@ -191,8 +191,7 @@ impl FieldResolver {
                 if suffix.is_empty() {
                     return Some(format!("{container}.{js_field}"));
                 }
-                let suffix_chain: Vec<String> =
-                    suffix.split('.').map(crate::codegen::naming::to_node_name).collect();
+                let suffix_chain: Vec<String> = suffix.split('.').map(crate::codegen::naming::to_node_name).collect();
                 Some(format!("{container}.{js_field}?.{}", suffix_chain.join("?.")))
             }
             "wasm" if self.tagged_enum_content_key(&union_type).is_none() => {
@@ -558,7 +557,10 @@ mod typescript_tagged_union_accessor_tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
         )
-        .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()))
+        .with_ir_enum_map(
+            FieldResolver::ir_enum_fields(&types, &enums),
+            Some("Metadata".to_string()),
+        )
     }
 
     /// The defect: napi flattens `FormatMetadata` into a REAL optional `html` field
@@ -601,10 +603,7 @@ mod typescript_tagged_union_accessor_tests {
             serde_tag: Some("format_type".to_string()),
             variants: vec![EnumVariant {
                 name: "Basic".to_string(),
-                fields: vec![
-                    field("username", TypeRef::String),
-                    field("password", TypeRef::String),
-                ],
+                fields: vec![field("username", TypeRef::String), field("password", TypeRef::String)],
                 ..EnumVariant::default()
             }],
             ..EnumDef::default()
@@ -616,7 +615,10 @@ mod typescript_tagged_union_accessor_tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
         )
-        .with_ir_enum_map(FieldResolver::ir_enum_fields(&types, &enums), Some("Metadata".to_string()));
+        .with_ir_enum_map(
+            FieldResolver::ir_enum_fields(&types, &enums),
+            Some("Metadata".to_string()),
+        );
 
         assert_eq!(
             resolver.typescript_tagged_union_accessor("format.basic.username", "node", "result"),

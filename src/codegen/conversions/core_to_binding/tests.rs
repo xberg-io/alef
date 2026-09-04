@@ -90,5 +90,8 @@ fn gate_with_one_undeclared_feature_narrows_to_the_declared_term_alone() {
         !cfg_line.contains("url-ingestion"),
         "the undeclared feature must not appear in the emitted cfg attribute, got:\n{cfg_line}"
     );
-    assert!(crawl_line.contains("val.crawl"), "field initialiser missing, got:\n{out}");
+    assert!(
+        crawl_line.contains("val.crawl"),
+        "field initialiser missing, got:\n{out}"
+    );
 }

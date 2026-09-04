@@ -75,7 +75,10 @@ fn api_surface() -> ApiSurface {
         name: DEFAULTED_PIPELINE.to_owned(),
         rust_path: format!("sample_core::{DEFAULTED_PIPELINE}"),
         has_default: true,
-        fields: vec![bare_serde_default_field("thresholds", TypeRef::Named(THRESHOLDS.to_owned()))],
+        fields: vec![bare_serde_default_field(
+            "thresholds",
+            TypeRef::Named(THRESHOLDS.to_owned()),
+        )],
         ..TypeDef::default()
     };
 
@@ -104,7 +107,9 @@ fn bare_serde_default_field_on_closure_only_type_is_required() {
     // file-wide negative assertion matches that instead and fails on the very case it exists to
     // leave alone.
     let pipeline_block = {
-        let start = options_py.find("class Pipeline:").expect("Pipeline dataclass must be rendered");
+        let start = options_py
+            .find("class Pipeline:")
+            .expect("Pipeline dataclass must be rendered");
         let rest = &options_py[start..];
         let end = rest[1..].find("@dataclass").map_or(rest.len(), |offset| offset + 1);
         &rest[..end]

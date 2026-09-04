@@ -91,7 +91,7 @@ fn navigated_value_expr(leaf_expr: &str, steps: &[JsonNavStep]) -> String {
             // assertion failure.
             JsonNavStep::Index(index) => {
                 format!("(({expr}) as? [Any]).flatMap {{ $0.dropFirst({index}).first }}")
-            },
+            }
             JsonNavStep::Key(key) => format!("(({expr}) as? [String: Any])?[\"{}\"]", escape_swift(key)),
         };
     }
@@ -384,7 +384,10 @@ mod tests {
             "result",
         );
 
-        assert!(rendered, "a navigated-but-unrenderable assertion type must still write something");
+        assert!(
+            rendered,
+            "a navigated-but-unrenderable assertion type must still write something"
+        );
         assert!(
             out.contains("skipped:") && out.contains("navigated JSON-bridged field"),
             "must use the GeneratorGap wording, not silence, got:\n{out}"
@@ -404,7 +407,11 @@ mod tests {
 
         let rendered = render_json_bridged_navigated_assertion(
             &mut out,
-            &assertion("equals", "results[0].mime_type", Some(serde_json::json!("application/pdf"))),
+            &assertion(
+                "equals",
+                "results[0].mime_type",
+                Some(serde_json::json!("application/pdf")),
+            ),
             &resolver,
             "result",
         );

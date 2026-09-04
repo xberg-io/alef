@@ -1239,14 +1239,14 @@ mod tests {
 }
 
 #[cfg(test)]
-#[path = "assertions/tagged_union_crossing_tests.rs"]
-mod tagged_union_crossing_tests;
-#[cfg(test)]
 #[path = "assertions/multiword_wire_tag_tsc_tests.rs"]
 mod multiword_wire_tag_tsc_tests;
 #[cfg(test)]
 #[path = "assertions/skip_marker_tests.rs"]
 mod skip_marker_tests;
+#[cfg(test)]
+#[path = "assertions/tagged_union_crossing_tests.rs"]
+mod tagged_union_crossing_tests;
 #[cfg(test)]
 #[path = "assertions/text_surface_tests.rs"]
 mod text_surface_tests;

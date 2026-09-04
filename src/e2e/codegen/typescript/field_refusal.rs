@@ -36,7 +36,9 @@ pub(super) fn refusal_line(field: &str, field_resolver: &FieldResolver, lang: &s
     // those (no IR at all, or a variant shape neither binding names) does this fall back to the
     // blanket refusal. ~keep
     if field_resolver.tagged_union_split(field).is_some()
-        && field_resolver.typescript_tagged_union_accessor(field, lang, "result").is_none()
+        && field_resolver
+            .typescript_tagged_union_accessor(field, lang, "result")
+            .is_none()
     {
         return Some(skip_line(FieldSkip::CrossesTaggedUnionBoundaryInTypescript, field));
     }
@@ -171,10 +173,7 @@ mod tests {
             serde_tag: Some("type".to_string()),
             variants: vec![EnumVariant {
                 name: "Basic".to_string(),
-                fields: vec![
-                    field("username", TypeRef::String),
-                    field("password", TypeRef::String),
-                ],
+                fields: vec![field("username", TypeRef::String), field("password", TypeRef::String)],
                 ..EnumVariant::default()
             }],
             ..EnumDef::default()
