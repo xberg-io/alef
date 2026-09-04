@@ -203,9 +203,21 @@ impl E2eCodegen for PhpCodegen {
         });
 
         // Generate run_tests.php that loads the extension and invokes phpunit.
+        // The Cargo package name shown in the build hint mirrors the same default the
+        // scaffold uses for the crate itself (`{core_crate_dir}-php`) when no explicit
+        // `cargo_crate_name` override is configured. ~keep
+        let cargo_package_name = config
+            .php_cargo_crate_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("{}-php", config.core_crate_dir()));
         files.push(GeneratedFile {
             path: output_base.join("run_tests.php"),
-            content: project::render_run_tests_php(&extension_name, config.php_cargo_crate_name()),
+            content: project::render_run_tests_php(
+                &extension_name,
+                config.php_cargo_crate_name(),
+                &cargo_package_name,
+                &pkg_version,
+            ),
             generated_header: true,
         });
 

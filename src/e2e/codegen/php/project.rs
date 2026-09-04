@@ -443,7 +443,12 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
     )
 }
 
-pub(super) fn render_run_tests_php(extension_name: &str, cargo_crate_name: Option<&str>) -> String {
+pub(super) fn render_run_tests_php(
+    extension_name: &str,
+    cargo_crate_name: Option<&str>,
+    cargo_package_name: &str,
+    pkg_version: &str,
+) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let ext_lib_name = if let Some(crate_name) = cargo_crate_name {
         // Cargo replaces hyphens with underscores for lib names, and the crate name
@@ -463,7 +468,8 @@ $extSuffix = match (PHP_OS_FAMILY) {{
     'Darwin' => '.dylib',
     default => '.so',
 }};
-$extPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
+$localExtPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
+$extPath = $localExtPath;
 
 // Check for PIE-installed extension path (set by install.sh in registry mode).
 // In registry mode, the extension is installed system-wide via PIE and passed
@@ -473,14 +479,29 @@ if ($pieInstalledExtPath && file_exists($pieInstalledExtPath)) {{
     $extPath = $pieInstalledExtPath;
 }}
 
-// If the extension exists (locally-built or PIE-installed) and we have not already
-// restarted with it, re-exec PHP with the extension loaded explicitly via `-d extension=`.
-// The system php.ini is kept (no `-n`) so PHPUnit's required extensions — dom,
-// json, libxml, mbstring, tokenizer, xml, xmlwriter — remain available. `-n`
-// drops every shared module, which breaks PHPUnit on distributions that ship those
-// as shared extensions (e.g. Debian/Ubuntu); they only survive `-n` where
-// compiled statically.
-if (file_exists($extPath) && !getenv('ALEF_PHP_EXT_LOADED')) {{
+// Neither a local release build nor a PIE-installed extension was found. Fail
+// loudly instead of falling through to PHPUnit: the ambient php.ini may still
+// register a system-installed copy of this extension (e.g. from a previous
+// release), and silently testing against it exercises stale, uncontrolled
+// code instead of this checkout. ~keep
+if (!file_exists($extPath)) {{
+    fwrite(STDERR, "error: no {extension_name} PHP extension build found.\n");
+    fwrite(STDERR, "  looked for a local build at: $localExtPath\n");
+    $pieDisplay = $pieInstalledExtPath !== false ? $pieInstalledExtPath : '(unset)';
+    fwrite(STDERR, "  looked for PIE_INSTALLED_EXTENSION_PATH at: $pieDisplay\n");
+    fwrite(STDERR, "Build it locally with:\n");
+    fwrite(STDERR, "  cargo build --release -p {cargo_package_name}\n");
+    exit(1);
+}}
+
+// If we have not already restarted with the extension loaded, re-exec PHP with
+// it loaded explicitly via `-d extension=`. The system php.ini is kept (no
+// `-n`) so PHPUnit's required extensions — dom, json, libxml, mbstring,
+// tokenizer, xml, xmlwriter — remain available. `-n` drops every shared
+// module, which breaks PHPUnit on distributions that ship those as shared
+// extensions (e.g. Debian/Ubuntu); they only survive `-n` where compiled
+// statically.
+if (!getenv('ALEF_PHP_EXT_LOADED')) {{
     putenv('ALEF_PHP_EXT_LOADED=1');
     $php = PHP_BINARY;
     $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
@@ -495,7 +516,21 @@ if (file_exists($extPath) && !getenv('ALEF_PHP_EXT_LOADED')) {{
     exit($exitCode);
 }}
 
-// Extension is now loaded (via the restart above).
+// Extension is now loaded (via the restart above). Verify its reported version
+// matches the version baked in when this harness was generated, so a stale
+// build left over at $extPath from a previous checkout is caught instead of
+// silently accepted. ~keep
+$loadedVersion = phpversion('{extension_name}');
+if ($loadedVersion !== '{pkg_version}') {{
+    $shown = $loadedVersion !== false ? $loadedVersion : '(not reported)';
+    fwrite(STDERR, "error: loaded {extension_name} extension version mismatch.\n");
+    fwrite(STDERR, "  extension at $extPath reports version: $shown\n");
+    fwrite(STDERR, "  expected version: {pkg_version}\n");
+    fwrite(STDERR, "Rebuild it with:\n");
+    fwrite(STDERR, "  cargo build --release -p {cargo_package_name}\n");
+    exit(1);
+}}
+
 // Invoke PHPUnit normally.
 $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 if (!file_exists($phpunitPath)) {{
@@ -588,6 +623,57 @@ mod tests {
         assert!(
             result.contains("putenv('PATH_VAR=/some/path/value')"),
             "should preserve path"
+        );
+    }
+
+    #[test]
+    fn test_render_run_tests_php_fails_loudly_when_extension_missing() {
+        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+
+        let expected_failure_branch = "\
+if (!file_exists($extPath)) {
+    fwrite(STDERR, \"error: no sample_ext PHP extension build found.\\n\");
+    fwrite(STDERR, \"  looked for a local build at: $localExtPath\\n\");
+    $pieDisplay = $pieInstalledExtPath !== false ? $pieInstalledExtPath : '(unset)';
+    fwrite(STDERR, \"  looked for PIE_INSTALLED_EXTENSION_PATH at: $pieDisplay\\n\");
+    fwrite(STDERR, \"Build it locally with:\\n\");
+    fwrite(STDERR, \"  cargo build --release -p sample-ext-php\\n\");
+    exit(1);
+}";
+        assert!(
+            result.contains(expected_failure_branch),
+            "generated run_tests.php should fail loudly with both looked-up paths and a \
+             build hint when no extension is found, got:\n{result}"
+        );
+
+        // The old silent-fallthrough guard (only re-exec when the extension exists) must be
+        // gone -- the script now always exits above when $extPath is missing, so re-exec is
+        // unconditional on ALEF_PHP_EXT_LOADED alone.
+        assert!(
+            !result.contains("if (file_exists($extPath) && !getenv('ALEF_PHP_EXT_LOADED')) {"),
+            "should no longer silently defer to an ambient extension"
+        );
+    }
+
+    #[test]
+    fn test_render_run_tests_php_asserts_loaded_extension_version() {
+        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+
+        let expected_version_branch = "\
+$loadedVersion = phpversion('sample_ext');
+if ($loadedVersion !== '1.2.3') {
+    $shown = $loadedVersion !== false ? $loadedVersion : '(not reported)';
+    fwrite(STDERR, \"error: loaded sample_ext extension version mismatch.\\n\");
+    fwrite(STDERR, \"  extension at $extPath reports version: $shown\\n\");
+    fwrite(STDERR, \"  expected version: 1.2.3\\n\");
+    fwrite(STDERR, \"Rebuild it with:\\n\");
+    fwrite(STDERR, \"  cargo build --release -p sample-ext-php\\n\");
+    exit(1);
+}";
+        assert!(
+            result.contains(expected_version_branch),
+            "generated run_tests.php should assert the loaded extension version against the \
+             workspace version baked in at generation time, got:\n{result}"
         );
     }
 }
