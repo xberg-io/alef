@@ -10,7 +10,7 @@ mod kotlin;
 #[cfg(test)]
 mod migration_containment_tests;
 mod node;
-mod php;
+pub(crate) mod php;
 mod poly;
 mod poly_migrations;
 mod python;

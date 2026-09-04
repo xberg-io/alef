@@ -9,7 +9,7 @@ mod cargo_deps;
 mod cargo_lints;
 mod core_features;
 mod generated_files;
-mod languages;
+pub(crate) mod languages;
 mod manifest_header;
 pub(crate) mod naming;
 mod repair;

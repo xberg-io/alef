@@ -112,7 +112,7 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 /// `[features]`: PHP never gates a function by cfg (see `rust_bindings.rs::generate_bindings`),
 /// so none of these names should appear there regardless of whether anything needed adding for
 /// them. ~keep
-fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
+pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for func in &api.functions {
         if let Some(cfg) = &func.cfg {
@@ -120,6 +120,24 @@ fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
         }
     }
     out
+}
+
+/// The exact feature-name set this backend writes into the php crate's `[features]` table.
+///
+/// ~keep One source of truth for two consumers that MUST agree: `scaffold_php_cargo` renders the
+/// table from it, and `rust_bindings` narrows every emitted `#[cfg(...)]` against it. When they
+/// disagreed, codegen emitted a gate naming `url-ingestion` -- a name stripped from the table by
+/// `php_function_referenced_feature_names` -- and rustc rejected it as
+/// `unexpected_cfg_condition_value` under `-D warnings`. The comment on that stripping still says
+/// PHP "never gates a function by cfg", which stayed true, but it is a FIELD gate that reaches the
+/// table's namespace, so the two sets have to be derived together rather than each rebuilt.
+pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features: &[&str]) -> BTreeSet<String> {
+    let mut features = crate::codegen::cfg::collect_cfg_features(api);
+    for name in &php_function_referenced_feature_names(api) {
+        features.remove(name);
+    }
+    features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
+    features
 }
 
 /// Render the core dependency's `, features = [...]` clause, unioning the user-configured
@@ -279,14 +297,13 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // codegen change that starts emitting such a `#[cfg]`.
     let core_dep_name = &config.name;
     let cfg_forwarding: String = {
-        let mut features = crate::codegen::cfg::collect_cfg_features(api);
-        for name in &php_function_referenced_feature_names(api) {
-            features.remove(name);
-        }
         // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
         // still get a forwarding entry below -- alef-task #374, regression in the `mod tests`
-        // block above. ~keep
-        features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
+        // block above. Folded into `php_declared_features` so the narrowing in `rust_bindings`
+        // sees the same set this table declares. ~keep
+        let mut excluded_sorted: Vec<&str> = excluded_default_features.iter().copied().collect();
+        excluded_sorted.sort_unstable();
+        let features = php_declared_features(api, &excluded_sorted);
         if features.is_empty() {
             String::new()
         } else {

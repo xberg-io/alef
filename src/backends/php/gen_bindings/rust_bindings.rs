@@ -158,6 +158,20 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let configured_features_set: std::collections::HashSet<&str> =
         enabled_features.iter().map(String::as_str).collect();
 
+    // ~keep NOT `configured_features_set`: that is the EXPANDED enabled closure, which contains
+    // names this crate's `Cargo.toml` never declares as toggleable features. Narrowing against it
+    // is a no-op for exactly the gates that break the build. `php_declared_features` is the same
+    // set `scaffold_php_cargo` writes into `[features]`, which is the namespace rustc checks a
+    // `#[cfg(feature = "...")]` against.
+    let php_excluded_default: Vec<&str> = config
+        .php
+        .as_ref()
+        .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    let php_declared_features = crate::scaffold::languages::php::php_declared_features(api, &php_excluded_default);
+    let php_declared_features_set: std::collections::HashSet<&str> =
+        php_declared_features.iter().map(String::as_str).collect();
+
     let php_config = config.php.as_ref();
     let exclude_functions = php_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
     let exclude_types = php_config.map(|c| c.exclude_types.clone()).unwrap_or_default();
@@ -657,7 +671,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         // trigger `unexpected_cfg_condition_value` under `-D warnings`. Same set that decided
         // `never_skip_cfg_field_names` via `cfg_feature_satisfied`, so the gate this narrows was
         // already proven satisfiable through it. ~keep
-        declared_features: Some(&configured_features_set),
+        declared_features: Some(&php_declared_features_set),
         ..Default::default()
     };
     let mut enum_tainted: AHashSet<String> = AHashSet::new();
