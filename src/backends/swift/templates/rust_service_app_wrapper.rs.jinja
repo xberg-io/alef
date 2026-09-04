@@ -22,7 +22,15 @@ impl {{ service_name }} {
     ///
     /// Returns an empty string on success or the error message.
     pub fn run(&mut self) -> String {
-        let rt = match tokio::runtime::Runtime::new() {
+        // ~keep 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+        // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+        // aborts the process with SIGBUS instead of raising a catchable panic.
+        const SERVICE_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(SERVICE_RUNTIME_STACK_SIZE_BYTES)
+            .build()
+        {
             Ok(rt) => rt,
             Err(e) => return format!("runtime error: {:?}", e),
         };

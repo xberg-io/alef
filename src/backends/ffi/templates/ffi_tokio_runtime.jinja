@@ -1,7 +1,16 @@
+// ~keep 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+// future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+// aborts the process with SIGBUS instead of raising a catchable panic.
+const FFI_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+
 fn get_ffi_runtime() -> &'static tokio::runtime::Runtime {
     use std::sync::OnceLock;
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().expect("Failed to create tokio runtime")
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(FFI_RUNTIME_STACK_SIZE_BYTES)
+            .build()
+            .expect("Failed to create tokio runtime")
     })
 }

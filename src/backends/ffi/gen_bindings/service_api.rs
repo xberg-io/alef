@@ -838,7 +838,15 @@ fn gen_entrypoint_function(
         .collect::<Vec<_>>()
         .join(", ");
     let runtime_block = if ep.is_async {
-        "    let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n"
+        "    // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
+             .expect(\"failed to create tokio runtime\");\n"
     } else {
         ""
     };

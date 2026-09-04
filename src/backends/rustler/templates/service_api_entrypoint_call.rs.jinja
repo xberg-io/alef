@@ -1,7 +1,15 @@
 {% if is_run %}
-    let rt = tokio::runtime::Runtime::new().map_err(|_e| {
-        NifError::Atom("runtime_error")
-    })?;
+    // ~keep 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+    // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+    // aborts the process with SIGBUS instead of raising a catchable panic.
+    const ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES)
+        .build()
+        .map_err(|_e| {
+            NifError::Atom("runtime_error")
+        })?;
 
     let result = rt.block_on(owner.{{ ep_method }}({{ ep_params }}));
     match result {

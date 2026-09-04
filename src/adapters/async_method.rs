@@ -235,7 +235,14 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
 
     if args.is_empty() {
         format!(
-            "let rt = tokio::runtime::Runtime::new()\n        \
+            "// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+             // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+             // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+             const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+             let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+                 .enable_all()\n        \
+                 .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
+                 .build()\n        \
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
              rt.block_on(async {{ self.inner.{core_path}().await }})\n        \
              {map_expr}\n        \
@@ -244,7 +251,14 @@ fn gen_ruby_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Stri
     } else {
         let call_str = args.join(", ");
         format!(
-            "let rt = tokio::runtime::Runtime::new()\n        \
+            "// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+             // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+             // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+             const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+             let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+                 .enable_all()\n        \
+                 .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
+                 .build()\n        \
                  .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
              let core_req = {call_str};\n    \
              rt.block_on(async {{ self.inner.{core_path}(core_req).await }})\n        \
@@ -296,7 +310,15 @@ fn gen_elixir_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> St
     let call_str = args.join(", ");
 
     format!(
-        "let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;\n    \
+        "// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
+             .map_err(|e| e.to_string())?;\n    \
          rt.block_on(async {{ resource.inner.{core_path}({call_str}).await }})\n        \
          {map_expr}\n        \
          .map_err(|e| e.to_string())"
@@ -373,7 +395,15 @@ fn gen_ffi_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> String
     format!(
         "let client = unsafe {{ &*client }};\n    \
          {conversion_block}\
-         let rt = match tokio::runtime::Runtime::new() {{\n        \
+         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = match tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n    \
+         {{\n        \
              Ok(rt) => rt,\n        \
              Err(e) => {{\n            \
                  update_last_error(e);\n            \
@@ -523,7 +553,14 @@ fn gen_r_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> String 
     let call_str = args.join(", ");
 
     format!(
-        "let rt = tokio::runtime::Runtime::new()\n        \
+        "// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
              .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n    \
          rt.block_on(async {{ self.inner.{core_path}({call_str}).await }})\n        \
          {map_expr}\n        \

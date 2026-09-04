@@ -55,7 +55,20 @@ pub fn gen_extendr_json_bridged_function(
     use crate::codegen::generators::binding_helpers::gen_call_args_cfg;
 
     let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
-    let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
+    // The runtime is built inside a block expression so the named stack-size constant is scoped
+    // to it — the same bridge can be emitted many times into one generated file. ~keep
+    let rt_new = format!(
+        "{{\n        \
+         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction\n        \
+         // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow\n        \
+         // aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+         const JSON_BRIDGE_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+         tokio::runtime::Builder::new_multi_thread()\n            \
+             .enable_all()\n            \
+             .thread_stack_size(JSON_BRIDGE_RUNTIME_STACK_SIZE_BYTES)\n            \
+             .build()\n    \
+         }}{err_map}?"
+    );
 
     let return_type_requires_json = matches!(&func.return_type, TypeRef::Named(n)
         if extendr_incompatible_types.contains(n.as_str()))

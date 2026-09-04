@@ -115,8 +115,18 @@ pub fn gen_async_body(
             )
         }
         AsyncPattern::TokioBlockOn => {
-            let rt_new = "tokio::runtime::Runtime::new()\
-                          .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
+            // The runtime is built inside a block expression so the named stack-size constant is
+            // scoped to it — this body is emitted once per async item into a shared file. ~keep
+            let rt_new = "{\n        \
+                          // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction\n        \
+                          // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow\n        \
+                          // aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+                          const BLOCK_ON_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+                          tokio::runtime::Builder::new_multi_thread()\n            \
+                              .enable_all()\n            \
+                              .thread_stack_size(BLOCK_ON_RUNTIME_STACK_SIZE_BYTES)\n            \
+                              .build()\n    \
+                          }.map_err(|e| extendr_api::Error::Other(e.to_string()))?";
             let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_tokio.jinja",

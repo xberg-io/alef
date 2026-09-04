@@ -151,8 +151,16 @@ fn test_gen_async_body_tokio_block_on_with_error_opaque() {
     let result = binding_helpers::gen_async_body("inner.process()", &cfg, true, "result", true, "", false, None);
 
     assert!(
-        result.contains("tokio::runtime::Runtime::new()"),
+        result.contains("tokio::runtime::Builder::new_multi_thread()"),
         "should create tokio runtime"
+    );
+    assert!(
+        result.contains(".thread_stack_size(BLOCK_ON_RUNTIME_STACK_SIZE_BYTES)"),
+        "runtime must set an explicit worker stack size"
+    );
+    assert!(
+        !result.contains("tokio::runtime::Runtime::new()"),
+        "must not use tokio's default (undersized) worker stack"
     );
     assert!(result.contains("block_on"), "should call block_on");
     assert!(result.contains("map_err"), "should convert error");
@@ -167,8 +175,16 @@ fn test_gen_async_body_tokio_block_on_no_error_opaque() {
     let result = binding_helpers::gen_async_body("inner.process()", &cfg, false, "result", true, "", false, None);
 
     assert!(
-        result.contains("tokio::runtime::Runtime::new()"),
+        result.contains("tokio::runtime::Builder::new_multi_thread()"),
         "should create runtime"
+    );
+    assert!(
+        result.contains(".thread_stack_size(BLOCK_ON_RUNTIME_STACK_SIZE_BYTES)"),
+        "runtime must set an explicit worker stack size"
+    );
+    assert!(
+        !result.contains("tokio::runtime::Runtime::new()"),
+        "must not use tokio's default (undersized) worker stack"
     );
     assert!(result.contains("block_on"), "should call block_on");
     assert!(result.contains("result"), "should include return wrap");
@@ -182,8 +198,16 @@ fn test_gen_async_body_tokio_block_on_no_error_non_opaque() {
     let result = binding_helpers::gen_async_body("CoreType::process()", &cfg, false, "result", false, "", false, None);
 
     assert!(
-        result.contains("tokio::runtime::Runtime::new()"),
+        result.contains("tokio::runtime::Builder::new_multi_thread()"),
         "should create runtime"
+    );
+    assert!(
+        result.contains(".thread_stack_size(BLOCK_ON_RUNTIME_STACK_SIZE_BYTES)"),
+        "runtime must set an explicit worker stack size"
+    );
+    assert!(
+        !result.contains("tokio::runtime::Runtime::new()"),
+        "must not use tokio's default (undersized) worker stack"
     );
     assert!(result.contains("block_on"), "should call block_on");
 }
@@ -196,8 +220,16 @@ fn test_gen_async_body_tokio_block_on_unit_return_opaque() {
     let result = binding_helpers::gen_async_body("inner.process()", &cfg, false, "()", true, "", true, None);
 
     assert!(
-        result.contains("tokio::runtime::Runtime::new()"),
+        result.contains("tokio::runtime::Builder::new_multi_thread()"),
         "should create runtime"
+    );
+    assert!(
+        result.contains(".thread_stack_size(BLOCK_ON_RUNTIME_STACK_SIZE_BYTES)"),
+        "runtime must set an explicit worker stack size"
+    );
+    assert!(
+        !result.contains("tokio::runtime::Runtime::new()"),
+        "must not use tokio's default (undersized) worker stack"
     );
     assert!(result.contains("block_on"), "should call block_on");
 }

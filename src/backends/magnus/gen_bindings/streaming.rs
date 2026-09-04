@@ -172,9 +172,17 @@ pub(super) fn gen_streaming_method_body(adapter: &StreamingAdapter<'_>) -> Strin
         use magnus::value::ReprValue;
         let inner = self.inner.clone();
         let core_req: {request_core} = req.into();
-        let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new().map_err(|e| {{
-            magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string())
-        }})?);
+        // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+        // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+        // aborts the process with SIGBUS instead of raising a catchable panic.
+        const STREAM_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+        let runtime = std::sync::Arc::new(tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_stack_size(STREAM_RUNTIME_STACK_SIZE_BYTES)
+            .build()
+            .map_err(|e| {{
+                magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string())
+            }})?);
         let stream = runtime.block_on(async {{ inner.{core_method}(core_req).await }})
             .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;
         let iterator = {iter_name} {{

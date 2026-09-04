@@ -560,7 +560,15 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     if ep.is_async {
         format!(
             "    // Run async entrypoint in blocking context\n    \
-             let rt = tokio::runtime::Runtime::new().map_err(|e| Error::other(e.to_string()))?;\n    \
+             // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction\n    \
+             // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow\n    \
+             // aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+             const ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+             let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+                 .enable_all()\n        \
+                 .thread_stack_size(ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES)\n        \
+                 .build()\n        \
+                 .map_err(|e| Error::other(e.to_string()))?;\n    \
              rt.block_on(async {{\n        \
                  owner.{ep_method}({args_str})\n            \
                      .map_err(|e| Error::other(e.to_string()))?;\n    \

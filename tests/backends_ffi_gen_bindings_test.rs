@@ -1273,3 +1273,86 @@ ffi = "crates/mylib-ffi/src/"
         "opaque type Handler must NOT emit ml_handler_free() for generic-path opaque (contains '<')"
     );
 }
+
+/// A stack overflow inside a Tokio worker thread aborts the process with SIGBUS instead of
+/// raising a catchable panic. `get_ffi_runtime()` must build its worker threads with an
+/// explicit, generous stack size rather than tokio's ~2 MB default — regression coverage for
+/// a defect where the shared FFI runtime helper used `Runtime::new()` (default stack) and a
+/// deep extraction future overflowed it.
+#[test]
+fn ffi_shared_runtime_builds_with_explicit_worker_stack_size() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract_bytes".to_string(),
+            rust_path: "mylib::extract_bytes".to_string(),
+            original_rust_path: String::new(),
+            params: vec![make_param("data", TypeRef::String, true)],
+            return_type: TypeRef::String,
+            is_async: true,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    assert!(
+        code.contains("fn get_ffi_runtime() -> &'static tokio::runtime::Runtime"),
+        "an async free function must trigger emission of the shared FFI runtime helper"
+    );
+    assert!(
+        code.contains("const FFI_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;"),
+        "the worker stack size must be a named constant, not a bare magic number"
+    );
+    assert!(
+        code.contains("tokio::runtime::Builder::new_multi_thread()"),
+        "the shared runtime must be built via the multi-thread builder, not Runtime::new()"
+    );
+    assert!(
+        code.contains(".thread_stack_size(FFI_RUNTIME_STACK_SIZE_BYTES)"),
+        "the builder must set an explicit worker thread stack size"
+    );
+    assert!(
+        !code.contains("tokio::runtime::Runtime::new()"),
+        "the generated crate must not construct a runtime with tokio's default (undersized) stack"
+    );
+}

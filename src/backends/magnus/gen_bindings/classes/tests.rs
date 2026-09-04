@@ -739,8 +739,9 @@ fn adjacently_tagged_tuple_variant_uses_tuple_form_in_both_definition_and_conver
 }
 
 /// alef #102: an async method with no declared `error_type` still opens its delegable body with
-/// `let rt = tokio::runtime::Runtime::new().map_err(...)?;` (building the tokio runtime is itself
-/// fallible, independent of whether the core method's own return type is `Result`). If the
+/// `let rt = tokio::runtime::Builder::new_multi_thread()...build().map_err(...)?;` (building the
+/// tokio runtime is itself fallible, independent of whether the core method's own return type
+/// is `Result`). If the
 /// annotation is keyed on `method.error_type.is_some()` instead of that fact, a no-error async
 /// method gets a bare-`T` signature around a body that still has a `?` in it — rustc rejects the
 /// generated Ruby extension with E0277. ~keep
@@ -776,8 +777,16 @@ fn opaque_async_method_without_error_type_still_returns_result() {
         "async opaque method must stay Result-shaped even without a declared error type, got: {code}"
     );
     assert!(
-        code.contains("tokio::runtime::Runtime::new()"),
+        code.contains("tokio::runtime::Builder::new_multi_thread()"),
         "delegable async body must build a runtime, got: {code}"
+    );
+    assert!(
+        code.contains(".thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)"),
+        "delegable async body's runtime must set an explicit worker stack size, got: {code}"
+    );
+    assert!(
+        !code.contains("tokio::runtime::Runtime::new()"),
+        "delegable async body must not use tokio's default (undersized) worker stack, got: {code}"
     );
 }
 
@@ -792,7 +801,15 @@ fn non_opaque_async_method_without_error_type_still_returns_result() {
         "async instance method must stay Result-shaped even without a declared error type, got: {code}"
     );
     assert!(
-        code.contains("tokio::runtime::Runtime::new()"),
+        code.contains("tokio::runtime::Builder::new_multi_thread()"),
         "delegable async body must build a runtime, got: {code}"
+    );
+    assert!(
+        code.contains(".thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)"),
+        "delegable async body's runtime must set an explicit worker stack size, got: {code}"
+    );
+    assert!(
+        !code.contains("tokio::runtime::Runtime::new()"),
+        "delegable async body must not use tokio's default (undersized) worker stack, got: {code}"
     );
 }

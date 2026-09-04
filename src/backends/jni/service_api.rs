@@ -762,8 +762,16 @@ mod tests {
             "expected run entrypoint function:\n{output}"
         );
         assert!(
-            output.contains("tokio::runtime::Runtime::new"),
+            output.contains("tokio::runtime::Builder::new_multi_thread"),
             "run function must create tokio runtime:\n{output}"
+        );
+        assert!(
+            output.contains(".thread_stack_size(ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES)"),
+            "run function's runtime must set an explicit worker stack size:\n{output}"
+        );
+        assert!(
+            !output.contains("tokio::runtime::Runtime::new()"),
+            "run function must not build a runtime with tokio's default (undersized) stack:\n{output}"
         );
         assert!(
             output.contains("owner_ref.run("),

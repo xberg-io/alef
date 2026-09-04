@@ -21,7 +21,15 @@ let method = "{{ method_name }}";
 
 // Check if we're already in a tokio runtime context. If not, use block_on.
 let result = if tokio::runtime::Handle::try_current().is_err() {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    // ~keep 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+    // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+    // aborts the process with SIGBUS instead of raising a catchable panic.
+    const TRAIT_BRIDGE_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(TRAIT_BRIDGE_RUNTIME_STACK_SIZE_BYTES)
+        .build()
+        .unwrap();
     rt.block_on(async {
         tokio::task::spawn_blocking(move || {
             let mut env = rustler::OwnedEnv::new();

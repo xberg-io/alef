@@ -280,7 +280,14 @@ fn gen_ruby_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
 
     let body = format!(
         "use futures_util::StreamExt;\n    \
-         let rt = tokio::runtime::Runtime::new()\n        \
+         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const STREAMING_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
              .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n    \
          {bindings_block}\
          rt.block_on(async {{\n        \
@@ -325,7 +332,14 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
 
     let body = format!(
         "use futures_util::StreamExt;\n    \
-         let rt = tokio::runtime::Runtime::new()\n        \
+         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const STREAMING_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
              .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    \
          {bindings_block}\
          rt.block_on(async {{\n        \
@@ -409,9 +423,14 @@ fn gen_elixir_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
              {req_param_name}: {req_param_type},\n\
          ) -> std::result::Result<rustler::ResourceArc<{handle_struct}>, String> {{\n    \
              {bindings_block}\
+             // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+             // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+             // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+             const STREAM_HANDLE_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
              let runtime = std::sync::Arc::new(\n        \
                  tokio::runtime::Builder::new_multi_thread()\n            \
                      .enable_all()\n            \
+                     .thread_stack_size(STREAM_HANDLE_RUNTIME_STACK_SIZE_BYTES)\n            \
                      .build()\n            \
                      .map_err(|e| e.to_string())?,\n    \
              );\n    \
@@ -656,7 +675,14 @@ fn gen_r_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (String,
 
     let body = format!(
         "use futures_util::StreamExt;\n    \
-         let rt = tokio::runtime::Runtime::new()\n        \
+         // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n    \
+         // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n    \
+         // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n    \
+         const STREAMING_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n    \
+         let rt = tokio::runtime::Builder::new_multi_thread()\n        \
+             .enable_all()\n        \
+             .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
+             .build()\n        \
              .map_err(|e| extendr_api::Error::Other(e.to_string()))?;\n    \
          {bindings_block}\
          rt.block_on(async {{\n        \
@@ -692,9 +718,15 @@ fn gen_dart_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         "use futures_util::StreamExt;\n        \
          use std::sync::OnceLock;\n        \
          static FRB_STREAM_TOKIO_RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();\n        \
+         // 16 MiB: the whole stream is driven by `_rt.spawn`, i.e. on a worker thread.\n        \
+         // tokio's ~2 MB default worker stack can overflow on a deep extraction future (a\n        \
+         // nested archive member, a multi-stage OCR pipeline), and a stack overflow aborts\n        \
+         // the process with SIGBUS instead of raising a catchable panic.\n        \
+         const FRB_STREAM_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
          let _rt = FRB_STREAM_TOKIO_RT.get_or_init(|| {{\n            \
              tokio::runtime::Builder::new_multi_thread()\n                \
                  .enable_all()\n                \
+                 .thread_stack_size(FRB_STREAM_RUNTIME_STACK_SIZE_BYTES)\n                \
                  .build()\n                \
                  .expect(\"failed to build tokio runtime for FRB streaming\")\n        \
          }});\n        \

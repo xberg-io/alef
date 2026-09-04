@@ -817,7 +817,15 @@ pub unsafe extern "C" fn {fn_start}(
     // SAFETY: both registry entry guards remain held for the duration of this call.
     let req_owned = unsafe {{ &*request_ptr }}.clone();
 
-    let rt = match tokio::runtime::Runtime::new() {{
+    // 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep extraction
+    // future (a nested archive member, a multi-stage OCR pipeline), and a stack overflow
+    // aborts the process with SIGBUS instead of raising a catchable panic.
+    const STREAM_HANDLE_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(STREAM_HANDLE_RUNTIME_STACK_SIZE_BYTES)
+        .build()
+    {{
         Ok(r) => r,
         Err(e) => {{
             set_last_error(99, &format!("{fn_start}: failed to create tokio runtime: {{e}}"));

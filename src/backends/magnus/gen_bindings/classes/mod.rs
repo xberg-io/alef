@@ -374,13 +374,29 @@ fn gen_opaque_async_instance_method(
         );
         if method.error_type.is_some() {
             format!(
-                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{refs_preamble}{inner_setup}// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n        \
+                 // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n        \
+                 // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+                 const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+                 let rt = tokio::runtime::Builder::new_multi_thread()\n            \
+                     .enable_all()\n            \
+                     .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
+                     .build()\n            \
+                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok({result_wrap})"
             )
         } else {
             format!(
-                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{refs_preamble}{inner_setup}// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n        \
+                 // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n        \
+                 // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+                 const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+                 let rt = tokio::runtime::Builder::new_multi_thread()\n            \
+                     .enable_all()\n            \
+                     .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
+                     .build()\n            \
+                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }});\n        \
                  {result_wrap}"
             )
@@ -683,14 +699,30 @@ fn gen_async_instance_method(
         let result_wrap = non_opaque_method_result_wrap(method);
         if method.error_type.is_some() {
             format!(
-                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{field_conversions}// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n        \
+                 // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n        \
+                 // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+                 const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+                 let rt = tokio::runtime::Builder::new_multi_thread()\n            \
+                     .enable_all()\n            \
+                     .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
+                     .build()\n            \
+                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ core_self.{name}({call_args}).await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok(result{result_wrap})",
                 name = method.name
             )
         } else {
             format!(
-                "{field_conversions}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{field_conversions}// 16 MiB: tokio's ~2 MB default worker stack can overflow on a deep\n        \
+                 // extraction future (a nested archive member, a multi-stage OCR pipeline), and a\n        \
+                 // stack overflow aborts the process with SIGBUS instead of raising a catchable panic.\n        \
+                 const ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;\n        \
+                 let rt = tokio::runtime::Builder::new_multi_thread()\n            \
+                     .enable_all()\n            \
+                     .thread_stack_size(ASYNC_METHOD_RUNTIME_STACK_SIZE_BYTES)\n            \
+                     .build()\n            \
+                     .map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ core_self.{name}({call_args}).await }});\n        \
                  result{result_wrap}",
                 name = method.name

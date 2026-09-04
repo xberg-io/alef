@@ -440,7 +440,16 @@ fn test_entrypoint_function_exists() {
     let rs = gen_service_rs(&api, &config);
 
     assert!(rs.contains("test_crate_test_service_ep_run"));
-    assert!(rs.contains("tokio::runtime::Runtime"));
+    assert!(rs.contains("tokio::runtime::Builder::new_multi_thread()"));
+    assert!(
+        rs.contains(".thread_stack_size(ENTRYPOINT_RUNTIME_STACK_SIZE_BYTES)"),
+        "the entrypoint runtime must widen the worker stack past tokio's ~2 MB default, or a \
+         deep consumer future overflows it and aborts the process with SIGBUS:\n{rs}"
+    );
+    assert!(
+        !rs.contains("tokio::runtime::Runtime::new()"),
+        "the entrypoint must not build a runtime with tokio's default (undersized) stack:\n{rs}"
+    );
     assert_eq!(
         rs.matches("#[unsafe(no_mangle)]").count(),
         rs.matches("catch_ffi_panic(").count(),

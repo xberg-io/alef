@@ -2,7 +2,16 @@
         std::thread::Builder::new()
             .stack_size(32 * 1024 * 1024)
             .spawn(move || {
-                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+                // ~keep 16 MiB: the spawning thread's 32 MiB only covers `block_on`; tasks the
+                // future spawns run on tokio workers, whose ~2 MB default stack can overflow on
+                // a deep extraction future (a nested archive member, a multi-stage OCR
+                // pipeline), aborting the process with SIGBUS rather than raising a panic.
+                const NIF_RUNTIME_STACK_SIZE_BYTES: usize = 16 * 1024 * 1024;
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_stack_size(NIF_RUNTIME_STACK_SIZE_BYTES)
+                    .build()
+                    .map_err(|e| e.to_string())?;
                 let result = rt.block_on(async { {{ core_call }}.await }).map_err(|e| e.to_string())?;
                 Ok({{ result_wrap }})
             })
