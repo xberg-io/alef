@@ -133,7 +133,12 @@ pub fn emit_test_backend(
                         kotlin_android_enum_default(name, enums)
                             .unwrap_or_else(|| defaults.emit_default(&method.return_type))
                     } else {
-                        defaults.emit_default(&method.return_type)
+                        // A stub that reports "zero of everything" is indistinguishable
+                        // from a broken backend, so callers that validate their inputs
+                        // reject it. Use a non-degenerate default for non-boolean
+                        // primitive returns instead of the type's literal zero.
+                        let def = defaults.emit_default(&method.return_type);
+                        if def == "0" { "1".to_string() } else { def }
                     }
                 });
 
@@ -552,6 +557,53 @@ mod test_backend_tests {
         assert!(
             emission.setup_block.contains("getConfig"),
             "method must still be emitted, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    fn make_method_with_return(name: &str, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            return_type,
+            ..make_method(name, true)
+        }
+    }
+
+    /// A stub method returning a non-boolean integer primitive must return a
+    /// non-degenerate literal (`1`), not the type's zero — a caller that
+    /// validates its inputs (e.g. rejecting a zero-valued count) would
+    /// otherwise reject the stub itself.
+    #[test]
+    fn integer_return_is_nonzero() {
+        let bridge = make_trait_bridge("TestTrait");
+        let method = make_method_with_return("count", TypeRef::Primitive(PrimitiveType::Usize));
+        let methods = [&method];
+        let fixture = make_fixture("integer_return_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
+
+        assert!(
+            emission.setup_block.contains("count(): Long = 1"),
+            "integer-returning stub method must return 1, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// A stub method returning a collection keeps today's empty-collection
+    /// default — only the integer-primitive case is degenerate enough to
+    /// reject a validating caller. Pins the collection behavior against a
+    /// future change accidentally widening the non-degenerate-default fix.
+    #[test]
+    fn collection_return_stays_empty() {
+        let bridge = make_trait_bridge("TestTrait");
+        let method = make_method_with_return("items", TypeRef::Vec(Box::new(TypeRef::String)));
+        let methods = [&method];
+        let fixture = make_fixture("collection_return_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture, &[]);
+
+        assert!(
+            emission.setup_block.contains("items(): List<String> = emptyList()"),
+            "collection-returning stub method must stay empty, got:\n{}",
             emission.setup_block
         );
     }

@@ -821,8 +821,26 @@ fn emit_rust_stub_method(
             ),
         }
     } else {
+        use crate::core::ir::{PrimitiveType, TypeRef};
         let raw = match &method.return_type {
             TypeRef::Unit => "()".to_string(),
+            // A stub that reports "zero of everything" is indistinguishable from a
+            // backend that is broken, so callers that validate their inputs (e.g.
+            // rejecting a non-empty declared count) reject it. Non-boolean integer
+            // returns use a non-degenerate default instead of the type's literal
+            // zero; booleans and floats keep their type-based default.
+            TypeRef::Primitive(
+                PrimitiveType::I8
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::Isize
+                | PrimitiveType::Usize,
+            ) => "1".to_string(),
             _ => defaults.emit_default(&method.return_type),
         };
         if method.error_type.is_some() {

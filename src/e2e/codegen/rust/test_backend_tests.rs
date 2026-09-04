@@ -213,3 +213,59 @@ fn emit_test_backend_rust_renders_alias_result_through_the_crate_module() {
         emission.type_imports
     );
 }
+
+/// A stub method returning a non-boolean integer primitive must return a
+/// non-degenerate literal (`1`), not the type's zero — a caller that
+/// validates its inputs (e.g. rejecting a zero-valued count) would otherwise
+/// reject the stub itself, never exercising the real registration path.
+#[test]
+fn emit_test_backend_rust_integer_return_is_nonzero() {
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::{PrimitiveType, TypeRef};
+
+    let bridge = TraitBridgeConfig {
+        trait_name: "TestTrait".to_string(),
+        ..Default::default()
+    };
+
+    let method = test_method("count", TypeRef::Primitive(PrimitiveType::Usize), false, None);
+    let methods = [&method];
+
+    let fixture = make_fixture("integer_return_fixture", serde_json::json!({ "name": "backend" }));
+    let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+    assert!(
+        emission.setup_block.contains("fn count(&self) -> usize { 1 }"),
+        "integer-returning stub method must return 1, got: {}",
+        emission.setup_block
+    );
+}
+
+/// A stub method returning a collection keeps today's empty-collection
+/// default — only the integer-primitive case is degenerate enough to reject
+/// a validating caller, so this pins the collection behavior against a
+/// future change accidentally widening the non-degenerate-default fix.
+#[test]
+fn emit_test_backend_rust_collection_return_stays_empty() {
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::TypeRef;
+
+    let bridge = TraitBridgeConfig {
+        trait_name: "TestTrait".to_string(),
+        ..Default::default()
+    };
+
+    let method = test_method("items", TypeRef::Vec(Box::new(TypeRef::String)), false, None);
+    let methods = [&method];
+
+    let fixture = make_fixture("collection_return_fixture", serde_json::json!({ "name": "backend" }));
+    let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+    assert!(
+        emission
+            .setup_block
+            .contains("fn items(&self) -> Vec<String> { Vec::new() }"),
+        "collection-returning stub method must stay empty, got: {}",
+        emission.setup_block
+    );
+}
