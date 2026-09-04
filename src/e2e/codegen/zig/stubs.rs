@@ -295,6 +295,7 @@ fn emit_test_backend_inner(
     }
 }
 
+#[cfg(test)]
 mod tests_trait_bridge {
     /// Verify `emit_test_backend` is generic: output must not contain any
     /// hardcoded domain trait or method names — only names derived from the
