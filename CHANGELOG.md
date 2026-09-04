@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.83.3] - 2026-09-05
+
+### Fixed
+
+- **0.83.2's narrowing never fired, so the release fixed nothing.** It compared each gate
+  against the *enabled* feature closure rather than against the `[features]` table the PHP
+  crate actually declares, and the closure contains precisely the names that table omits — so
+  every gate looked declared and passed through untouched. The narrowing now runs against
+  exactly the set the PHP backend writes into that table, computed once by a helper the
+  manifest scaffold and the binding renderer both consume, so the two cannot disagree about
+  what is declared.
+- **A cfg-gated enum's `From` impls were emitted with no gate at all.** Both conversions a
+  gated `TypeDef` produces are wrapped in the type's own `#[cfg(...)]`; the loop over enums
+  was never given the same treatment, so an enum carrying a gate emitted `impl
+  From<core::gated_module::Mode>` unconditionally. A binding crate that narrows its feature
+  set then references a module the core crate did not compile in — one consumer's Ruby gem
+  builds its Windows artifact from a reduced feature list and collected 29 `E0433` errors
+  across five enums, the only failing job in that project's release dry run. Both directions
+  now carry the enum's own gate. The enum *declaration* stays ungated deliberately: it names
+  no core path, and gating it would require gating every class registration in the module
+  initialiser as well.
+
 ## [0.83.2] - 2026-09-04
 
 ### Fixed
