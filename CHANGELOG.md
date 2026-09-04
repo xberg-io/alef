@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.83.2] - 2026-09-04
+
+### Fixed
+
+- **A propagated `#[cfg(...)]` could name a feature the binding crate does not declare.** 0.83.0
+  copies a core field's gate verbatim onto every reference a binding emits, but a binding crate's
+  `[features]` table is a curated subset of core's, so the copy can reference a feature that crate
+  never declares — `unexpected_cfg_condition_value`, and a hard error under `-D warnings`. One
+  consumer's PHP crate hit it on `any(feature = "url-ingestion", feature = "url-config-types")`,
+  where core has both and the crate declares only the second. The gate is now narrowed against the
+  declared set before emission: an `any` drops undeclared disjuncts, since they can never turn on
+  in that crate; an `all` with any undeclared conjunct is treated as unreachable rather than
+  narrowed, because dropping the term would satisfy a condition the original never could; and a
+  gate naming only declared features is returned unchanged, so the common case stays
+  byte-identical. Wired for the PHP backend alone — it is the only one whose emitted gates
+  currently name an undeclared feature.
+- **0.83.1's version stamp was inconsistent.** That release bumped `Cargo.toml` without the
+  companion `alef_version`, `ALEF_REV` and committed JSON schema, which are normally updated
+  together; the schema-freshness test fails against it. All four agree again here.
+
 ## [0.83.1] - 2026-09-04
 
 ### Fixed
