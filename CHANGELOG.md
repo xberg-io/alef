@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.0] - 2026-09-05
+
+### Changed
+
+- **Every generated Rust e2e test now runs on one shared Tokio runtime instead of its own.**
+  Tests are emitted as `#[test]` blocking `common::runtime().block_on(async { .. })` rather
+  than as `#[tokio::test] async fn`. This is a visible change to the shape of every generated
+  Rust test file, hence the minor bump rather than a patch.
+
+  `#[tokio::test]` builds and drops a fresh current-thread runtime per test. When the code
+  under test reaches an HTTP client whose connection pool is a process-global cache keyed on
+  configuration alone — with no runtime identity — the pool outlives the runtime its
+  connections were created on. Hyper spawns each connection's driver task, and the pool's idle
+  reaper, on whichever runtime is current at creation; dropping that runtime at the end of a
+  test kills those tasks but leaves the now-dead connection in the pool for a later test on a
+  different runtime to check out. One consumer saw 26 of 28 tests pass with the two failures
+  varying from run to run, in two shapes from that single cause: `error sending request for
+  url` when the pool returns a connection whose driver is gone, and `error decoding response
+  body` when the driver dies mid-body, which preferentially hits larger fixtures.
+  `flavor = "multi_thread"` does not help — that is still one runtime per test.
+
+  The shared runtime sets a 16 MiB worker stack, matching every other runtime this generator
+  emits and the generator-wide invariant that forbids tokio's ~2 MB default.
+
+  Two consequences for the generated tree: `tests/common.rs` and its `mod common;` declaration
+  are now emitted whenever *any* test in the crate is async, rather than only when one needs a
+  mock server, because every async test calls into it; and the documentation-snippet extractor
+  strips the `block_on` wrapper rather than keying on an `async fn` signature that no longer
+  exists, so README examples stay free of a `common` module they cannot reach.
+
 ## [0.83.3] - 2026-09-05
 
 ### Fixed
