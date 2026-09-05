@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A generated TypeScript snippet whose field path crossed a tagged-union variant boundary did
+  not type-check.** The snippet renderer emitted a flat optional chain — `metadata?.format?.html
+  ?.title` — but optional chaining does not narrow a discriminated union in TypeScript, so the
+  access is a `TS2339` on every variant that does not carry that payload
+  (`Property 'html' does not exist on type '{ format_type: "pdf"; pdf: PdfMetadata; }'`).
+
+  The crossing-aware accessor already existed and was wired into the e2e *assertion* generator and
+  the refusal check, but `e2e/codegen/presentation.rs` never consulted it — the snippet and
+  assertion renderers are independent paths over one `FieldResolver`. Snippets now emit a
+  discriminant guard, binding the union once and testing its tag before touching the payload.
+
 ## [0.84.1] - 2026-09-05
 
 ### Fixed

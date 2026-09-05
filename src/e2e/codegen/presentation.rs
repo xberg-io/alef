@@ -32,6 +32,24 @@ pub(crate) struct PresentationOperation {
     /// because only the Rust snippet fails to compile against a `Display`-unsafe type. Parallel
     /// rather than a struct per field for the same reason [`Self::field_optionals`] is. ~keep
     pub(crate) field_displays: Vec<bool>,
+    /// The `const` name a `show` operation's TypeScript/node narrowing guard binds the crossed
+    /// tagged-union value to, or empty when this operation needs no guard.
+    ///
+    /// See [`FieldResolver::typescript_snippet_variant_guard`] for why a `show` through a
+    /// discriminated-union field cannot render as the flat `expression` every other language
+    /// uses: `FormatMetadata`'s `.d.ts` is a real discriminated union
+    /// (`internal_tagged_union_dts_lines`), and optional chaining does not narrow one, so
+    /// `metadata.format.html.title` rendered as `metadata?.format?.html?.title` is a `TS2339` on
+    /// every variant but `html`. Non-empty only for node/typescript; every other language leaves
+    /// all three of these fields empty and renders `expression` exactly as before. ~keep
+    pub(crate) guard_binding: String,
+    /// The expression assigned to [`Self::guard_binding`] -- the ordinary accessor for the path
+    /// up to (not through) the union field. Empty exactly when `guard_binding` is.
+    pub(crate) guard_source: String,
+    /// The discriminant check gating [`Self::expression`], e.g. `format?.format_type ===
+    /// "html"`. Empty exactly when `guard_binding` is; a template treats a non-empty condition
+    /// as the signal to wrap the operation's `console.log` in an `if` block.
+    pub(crate) guard_condition: String,
 }
 
 /// Clamp every operation to a path the target binding can actually spell, dropping the ones with
@@ -357,19 +375,32 @@ pub(crate) fn resolve_with(
     operations
         .iter()
         .map(|operation| match operation {
-            FixtureDocsOperation::Show { path, display } => PresentationOperation {
-                kind: "show",
-                expression: resolver.accessor(path, language, &result_root),
-                item: String::new(),
-                fields: Vec::new(),
-                optional: false,
-                display: *display,
-                destructure_source: String::new(),
-                destructure_item: String::new(),
-                shown_optional: path_yields_optional(resolver, path),
-                field_optionals: Vec::new(),
-                field_displays: Vec::new(),
-            },
+            FixtureDocsOperation::Show { path, display } => {
+                let guard = resolver.typescript_snippet_variant_guard(path, language, &result_root);
+                let expression = guard
+                    .as_ref()
+                    .map(|(_, _, _, expression)| expression.clone())
+                    .unwrap_or_else(|| resolver.accessor(path, language, &result_root));
+                let (guard_binding, guard_source, guard_condition) = guard
+                    .map(|(binding, source, condition, _)| (binding, source, condition))
+                    .unwrap_or_default();
+                PresentationOperation {
+                    kind: "show",
+                    expression,
+                    item: String::new(),
+                    fields: Vec::new(),
+                    optional: false,
+                    display: *display,
+                    destructure_source: String::new(),
+                    destructure_item: String::new(),
+                    shown_optional: path_yields_optional(resolver, path),
+                    field_optionals: Vec::new(),
+                    field_displays: Vec::new(),
+                    guard_binding,
+                    guard_source,
+                    guard_condition,
+                }
+            }
             FixtureDocsOperation::Iterate {
                 path,
                 item,
@@ -416,6 +447,9 @@ pub(crate) fn resolve_with(
                         .map(|field| path_yields_optional(&item_resolver, field))
                         .collect(),
                     field_displays,
+                    guard_binding: String::new(),
+                    guard_source: String::new(),
+                    guard_condition: String::new(),
                 }
             }
         })

@@ -205,6 +205,72 @@ impl FieldResolver {
         }
     }
 
+    /// Render `path` for a TypeScript/node docs snippet as a variant-narrowing guard, when it
+    /// crosses an internally-tagged union boundary whose `.d.ts` shape is a real discriminated
+    /// union (`backends::napi::gen_bindings::errors::internal_tagged_union_dts_lines`).
+    ///
+    /// [`Self::typescript_tagged_union_accessor`] spells the SAME crossing as a flat
+    /// `container.html?.title` chain -- correct for `assertions.rs`, whose emitted vitest file
+    /// is never `tsc`-checked, but wrong for a docs snippet: `cli_snippets_check.rs` DOES run
+    /// `tsc` over it, and optional chaining does not narrow a discriminated union, so `.html` on
+    /// the still-unnarrowed `FormatMetadata` union is a `TS2339` regardless of the `?.` in front
+    /// of it. This returns the guard `presentation::resolve_with` wraps a `show` operation's
+    /// `console.log` in instead of a flat expression: `const <binding> = <source>; if
+    /// (<condition>) { console.log(<expression>); }`. `None` for the same reasons
+    /// `typescript_tagged_union_accessor` declines -- no crossing, or a variant shape neither
+    /// binding gives a real member for -- plus one more: an enum with no `#[serde(tag = ..)]`
+    /// has no discriminant to check, so `ir_enum_map`'s `tagged_enum_wire` carries no entry for
+    /// it and this abstains rather than guess a condition.
+    ///
+    /// Returns `(binding, source, condition, expression)`, a plain tuple rather than a named
+    /// struct so the single caller (`presentation::resolve_with`, two modules up through two
+    /// private submodules) does not need a re-export wired through both to name the type. ~keep
+    pub(crate) fn typescript_snippet_variant_guard(
+        &self,
+        path: &str,
+        language: &str,
+        result_var: &str,
+    ) -> Option<(String, String, String, String)> {
+        if language != "node" && language != "typescript" {
+            return None;
+        }
+        let (prefix, union_type, variant, suffix) = self.ir_tagged_union_split(path)?;
+        self.union_variant_payload(&union_type, &variant)?;
+        let wire = self.ir_enum_map.tagged_enum_wire.get(&union_type)?;
+        let wire_value = wire.variants.get(&variant)?;
+        let tag = &wire.tag;
+        let source = if prefix.is_empty() {
+            result_var.to_string()
+        } else {
+            self.accessor(&prefix, language, result_var)
+        };
+        // An empty prefix means the union sits at the call's own result type, so `source` is
+        // `result_var` itself -- binding a `const` of the SAME name would shadow it under a TDZ
+        // (`const result = result;` throws), so that case gets a name of its own rather than
+        // deriving one from a path that has no segment to take it from. ~keep
+        let binding = if prefix.is_empty() {
+            "value".to_string()
+        } else {
+            let last_segment = prefix.rsplit('.').next().unwrap_or(&prefix);
+            let last_segment = last_segment.split('[').next().unwrap_or(last_segment);
+            crate::codegen::naming::to_node_name(last_segment)
+        };
+        let js_field = crate::codegen::naming::to_node_name(&variant);
+        let expression = if suffix.is_empty() {
+            format!("{binding}.{js_field}")
+        } else {
+            let suffix_chain: Vec<String> = suffix.split('.').map(crate::codegen::naming::to_node_name).collect();
+            // `?.` from here on, not a plain `.`, matching `typescript_tagged_union_accessor`'s
+            // own suffix rendering: `js_field` is a guaranteed-present key once the guard has
+            // narrowed the union, but a field further into the payload can still be its own
+            // `Option<T>` (`HtmlMetadata.title`), and a plain `.` chain into a SECOND such field
+            // would be the identical `TS2532`/`TS18048` this whole guard exists to avoid. ~keep
+            format!("{binding}.{js_field}?.{}", suffix_chain.join("?."))
+        };
+        let condition = format!("{binding}?.{tag} === \"{wire_value}\"");
+        Some((binding, source, condition, expression))
+    }
+
     /// Render `path` for Dart when it steps into a tagged-union variant, or `None` when it does
     /// not and the ordinary chain renderer applies.
     ///
@@ -542,6 +608,11 @@ mod typescript_tagged_union_accessor_tests {
         let enums = vec![EnumDef {
             name: "FormatMetadata".to_string(),
             serde_tag: Some("format_type".to_string()),
+            // Matches a consumer enum declared `#[serde(tag = "format_type", rename_all =
+            // "snake_case")]` -- without it the wire value `typescript_snippet_variant_guard`
+            // reads from `tagged_enum_wire` stays the unrenamed `"Html"`, silently masking a
+            // guard condition built against the wrong string. ~keep
+            serde_rename_all: Some("snake_case".to_string()),
             variants: vec![EnumVariant {
                 name: "Html".to_string(),
                 is_tuple: true,
@@ -572,6 +643,36 @@ mod typescript_tagged_union_accessor_tests {
         assert_eq!(
             resolver.typescript_tagged_union_accessor("format.html.title", "node", "result"),
             Some("result.format.html?.title".to_string())
+        );
+    }
+
+    /// The defect this whole method exists to fix: [`FieldResolver::typescript_tagged_union_accessor`]'s
+    /// `result.format.html?.title` is a `TS2339` against the REAL `.d.ts` -- `FormatMetadata` is
+    /// a discriminated union there, and optional chaining does not narrow one. A docs snippet
+    /// needs the guarded form instead: a `const` binding, a `format_type` discriminant check,
+    /// and the narrowed access only inside it.
+    #[test]
+    fn node_snippet_guard_narrows_before_reaching_the_variant_field() {
+        let resolver = resolver_over_format_metadata();
+        assert_eq!(
+            resolver.typescript_snippet_variant_guard("format.html.title", "node", "result"),
+            Some((
+                "format".to_string(),
+                "result.format".to_string(),
+                "format?.format_type === \"html\"".to_string(),
+                "format.html?.title".to_string(),
+            ))
+        );
+    }
+
+    /// The control that stops the guard from firing on every field: a plain, non-crossing path
+    /// must still render through the ordinary accessor, not through this method at all.
+    #[test]
+    fn node_snippet_guard_declines_a_path_with_no_crossing() {
+        let resolver = resolver_over_format_metadata();
+        assert_eq!(
+            resolver.typescript_snippet_variant_guard("label", "node", "result"),
+            None
         );
     }
 

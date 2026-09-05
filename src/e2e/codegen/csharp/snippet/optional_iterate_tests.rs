@@ -26,6 +26,9 @@ fn iterate_op(expression: &str, optional: bool) -> PresentationOperation {
         shown_optional: false,
         field_optionals: Vec::new(),
         field_displays: Vec::new(),
+        guard_binding: String::new(),
+        guard_source: String::new(),
+        guard_condition: String::new(),
     }
 }
 
@@ -42,6 +45,9 @@ fn show_op(expression: &str, optional: bool) -> PresentationOperation {
         shown_optional: false,
         field_optionals: Vec::new(),
         field_displays: Vec::new(),
+        guard_binding: String::new(),
+        guard_source: String::new(),
+        guard_condition: String::new(),
     }
 }
 

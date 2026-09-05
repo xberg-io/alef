@@ -24,7 +24,12 @@ async function main() {
 {% endif %}
 {{ body_indent }}const {{ result_var }} = await {{ call_expr }};
 {% for operation in presentation %}
-{% if operation.kind == "show" %}{{ body_indent }}console.log({{ operation.expression }});
+{% if operation.kind == "show" %}{% if operation.guard_condition %}{{ body_indent }}const {{ operation.guard_binding }} = {{ operation.guard_source }};
+{{ body_indent }}if ({{ operation.guard_condition }}) {
+{{ body_indent }}  console.log({{ operation.expression }});
+{{ body_indent }}}
+{% else %}{{ body_indent }}console.log({{ operation.expression }});
+{% endif %}
 {% else %}{% if operation.destructure_source %}{{ body_indent }}const [{{ operation.destructure_item }}] = {{ operation.destructure_source }};
 {% endif %}{{ body_indent }}for (const {{ operation.item }} of {{ operation.expression }}{% if operation.optional %} ?? []{% endif %}) {
 {% for field in operation.fields %}{{ body_indent }}  console.log({{ field }});
@@ -65,7 +70,12 @@ function main() {
 {% endif %}
 {{ body_indent }}const {{ result_var }} = {{ call_expr }};
 {% for operation in presentation %}
-{% if operation.kind == "show" %}{{ body_indent }}console.log({{ operation.expression }});
+{% if operation.kind == "show" %}{% if operation.guard_condition %}{{ body_indent }}const {{ operation.guard_binding }} = {{ operation.guard_source }};
+{{ body_indent }}if ({{ operation.guard_condition }}) {
+{{ body_indent }}  console.log({{ operation.expression }});
+{{ body_indent }}}
+{% else %}{{ body_indent }}console.log({{ operation.expression }});
+{% endif %}
 {% else %}{% if operation.destructure_source %}{{ body_indent }}const [{{ operation.destructure_item }}] = {{ operation.destructure_source }};
 {% endif %}{{ body_indent }}for (const {{ operation.item }} of {{ operation.expression }}{% if operation.optional %} ?? []{% endif %}) {
 {% for field in operation.fields %}{{ body_indent }}  console.log({{ field }});

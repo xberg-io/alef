@@ -72,6 +72,9 @@ fn disambiguation_skips_show_operations_and_leaves_non_colliding_siblings_alone(
             shown_optional: false,
             field_optionals: vec![false],
             field_displays: vec![false],
+            guard_binding: String::new(),
+            guard_source: String::new(),
+            guard_condition: String::new(),
         }
     }
     let show = crate::e2e::codegen::presentation::PresentationOperation {
@@ -86,6 +89,9 @@ fn disambiguation_skips_show_operations_and_leaves_non_colliding_siblings_alone(
         shown_optional: false,
         field_optionals: Vec::new(),
         field_displays: Vec::new(),
+        guard_binding: String::new(),
+        guard_source: String::new(),
+        guard_condition: String::new(),
     };
     let operations = vec![show, iterate_op("result"), iterate_op("resultItem")];
 

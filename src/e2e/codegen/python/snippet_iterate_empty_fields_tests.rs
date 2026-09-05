@@ -27,6 +27,9 @@ fn iterate_operation(fields: Vec<&str>) -> PresentationOperation {
         destructure_item: String::new(),
         shown_optional: false,
         field_optionals: Vec::new(),
+        guard_binding: String::new(),
+        guard_source: String::new(),
+        guard_condition: String::new(),
     }
 }
 
