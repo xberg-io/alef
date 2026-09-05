@@ -273,7 +273,7 @@ pub fn sync_versions(
             // never reaches it: its own `[package].version` needs the same direct write the
             // dep-pin patch below gets, or the crate's declared version drifts from the
             // workspace version on every bump. ~keep
-            if write_version_to_cargo_toml(&path_str, &version).is_ok() && !updated.contains(&path_str) {
+            if write_version_to_cargo_toml(&path_str, &version).unwrap_or(false) && !updated.contains(&path_str) {
                 updated.push(path_str.clone());
             }
             match patch_workspace_dep_versions(&path_str, &version, &core_member) {
@@ -621,7 +621,7 @@ pub fn sync_versions(
                                         }
                                     } else if file_name == "Cargo.toml" {
                                         let path_str = path.to_string_lossy().to_string();
-                                        if write_version_to_cargo_toml(&path_str, &version).is_ok() {
+                                        if let Ok(true) = write_version_to_cargo_toml(&path_str, &version) {
                                             updated.push(path_str);
                                         }
                                     } else if file_name == "pyproject.toml" {

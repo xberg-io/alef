@@ -903,3 +903,7 @@ mod iterate_element_anchor_tests;
 #[cfg(test)]
 #[path = "presentation/tagged_union_crossing_tests.rs"]
 mod tagged_union_crossing_tests;
+
+#[cfg(test)]
+#[path = "presentation/namespace_prefixed_optional_tests.rs"]
+mod namespace_prefixed_optional_tests;

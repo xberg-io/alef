@@ -63,7 +63,22 @@ pub(super) fn bump_version(version: &str, component: &str) -> anyhow::Result<Str
 }
 
 /// Write a bumped version back into a Cargo.toml (workspace or regular package).
-pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyhow::Result<()> {
+///
+/// Returns `Ok(true)` when a version field existed and its value actually changed
+/// (the file was rewritten), `Ok(false)` when a version field existed but already
+/// held `new_version` (a genuine no-op — nothing written), and `Err` only when
+/// neither `[package].version` nor `[workspace.package].version` could be found at
+/// all.
+///
+/// The three states matter because `--set <current-version>` re-running a bump
+/// after a partial failure is a normal, idempotent operation, not a malformed
+/// manifest: before this split, "found the field but it already matches" and
+/// "never found the field" both collapsed into the same bail, so a release
+/// engineer re-running `sync-versions --set X` when Cargo.toml was already at X
+/// was told their `[package]`/`[workspace.package]` version field could not be
+/// found, even though it was sitting right there. See `set_version` below for the
+/// caller this fixes. ~keep
+pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &str) -> anyhow::Result<bool> {
     use toml_edit::DocumentMut;
 
     let content =
@@ -72,7 +87,11 @@ pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &s
         .parse()
         .with_context(|| format!("Failed to parse TOML in {cargo_toml_path}"))?;
 
-    // dependency (e.g. `[target.'cfg(...)'.dependencies.hf-hub]`), and the regex
+    // `found` tracks whether a real `[package]`/`[workspace.package]` version literal
+    // exists at all, independent of whether it already matches `new_version`. This is
+    // what actually distinguishes "malformed manifest" from "already at this version" —
+    // `changed` alone can't, because both leave it `false`.
+    let mut found = false;
     let mut changed = false;
 
     if let Some(ws_version) = doc
@@ -82,10 +101,12 @@ pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &s
         .and_then(|p| p.as_table_like_mut())
         .and_then(|t| t.get_mut("version"))
         && ws_version.is_str()
-        && ws_version.as_str() != Some(new_version)
     {
-        *ws_version = toml_edit::value(new_version);
-        changed = true;
+        found = true;
+        if ws_version.as_str() != Some(new_version) {
+            *ws_version = toml_edit::value(new_version);
+            changed = true;
+        }
     }
 
     if let Some(pkg_version) = doc
@@ -93,22 +114,28 @@ pub(super) fn write_version_to_cargo_toml(cargo_toml_path: &str, new_version: &s
         .and_then(|p| p.as_table_like_mut())
         .and_then(|t| t.get_mut("version"))
         && pkg_version.is_str()
-        && pkg_version.as_str() != Some(new_version)
     {
-        *pkg_version = toml_edit::value(new_version);
-        changed = true;
+        found = true;
+        if pkg_version.as_str() != Some(new_version) {
+            *pkg_version = toml_edit::value(new_version);
+            changed = true;
+        }
     }
 
-    if !changed {
+    if !found {
         anyhow::bail!(
             "Could not find a `[package]`/`[workspace.package]` version field to update in {cargo_toml_path}"
         );
     }
 
+    if !changed {
+        return Ok(false);
+    }
+
     std::fs::write(cargo_toml_path, doc.to_string())
         .with_context(|| format!("Failed to write updated version to {cargo_toml_path}"))?;
 
-    Ok(())
+    Ok(true)
 }
 
 /// Determine whether a `package.json`'s `"private": true` field marks it as
@@ -345,9 +372,16 @@ pub fn verify_versions(
 
 /// Set an explicit version in the Cargo.toml (supports pre-release versions like 0.1.0-rc.1).
 pub fn set_version(config: &ResolvedCrateConfig, version: &str) -> anyhow::Result<()> {
-    write_version_to_cargo_toml(&config.version_from, version)
+    let changed = write_version_to_cargo_toml(&config.version_from, version)
         .with_context(|| format!("failed to set version to {version}"))?;
-    info!("Set version to {version} in {}", config.version_from);
+    if changed {
+        info!("Set version to {version} in {}", config.version_from);
+    } else {
+        info!(
+            "Version already set to {version} in {}; nothing to do",
+            config.version_from
+        );
+    }
     Ok(())
 }
 

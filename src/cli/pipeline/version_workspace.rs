@@ -63,7 +63,7 @@ fn sync_rust_harness_cargo_toml(
         return;
     }
     let path_string = path.to_string_lossy().to_string();
-    let mut changed = write_version_to_cargo_toml(&path_string, version).is_ok();
+    let mut changed = write_version_to_cargo_toml(&path_string, version).unwrap_or(false);
     match patch_workspace_dep_versions(&path_string, version, core_member) {
         Ok(true) => changed = true,
         Ok(false) => {}
@@ -88,7 +88,7 @@ pub(super) fn sync_workspace_cargo_toml_versions(
 
     for path_str in &cargo_toml_paths {
         if crate::publish::workspace::manifest_is_publishable(Path::new(path_str)) {
-            if write_version_to_cargo_toml(path_str, version).is_ok() && !updated.contains(path_str) {
+            if write_version_to_cargo_toml(path_str, version).unwrap_or(false) && !updated.contains(path_str) {
                 updated.push(path_str.clone());
                 *any_cargo_toml_modified = true;
             }

@@ -608,6 +608,22 @@ impl FieldResolver {
     /// enumerating the whole reachable type graph — keeps recursive types finite and adds nothing
     /// for fields nobody accesses.
     ///
+    /// ~keep Normalises through [`Self::result_relative_path`], not the bare [`Self::resolve`].
+    /// `resolve` only substitutes an alias; it leaves a virtual grouping label in place (a docs
+    /// fixture path like `interaction.action_results`, which the emitted result has no member
+    /// named `interaction` for — see `result_relative_path`'s own doc comment). Every accessor
+    /// renderer strips that label before walking segments (`accessor()` goes through
+    /// `result_relative_path` for exactly this reason), so the tracked key it checks
+    /// `optional_fields` against is the STRIPPED spelling (`action_results`). Keying this
+    /// insertion off the bare `resolve`d (unstripped) path computed a key
+    /// (`interaction.action_results`) the IR map can never walk to either — the call's result
+    /// type has no `interaction` field — and one the renderer never looks up either way, so the
+    /// anchored answer for a namespace-labelled `Option<Vec<T>>` field was silently never
+    /// materialised. A docs snippet iterating or indexing into such a field through its label
+    /// then emitted an unguarded `result.actionResults`/`result.actionResults[0]` — `TS18048`
+    /// under `strict`, and the analogous unguarded access in every other renderer that shares
+    /// this same `optional_fields` set.
+    ///
     /// Purely additive: an entry is only ever inserted, so no path that already guarded can stop
     /// guarding.
     pub(crate) fn with_anchored_optional_paths<'a>(mut self, paths: impl IntoIterator<Item = &'a str>) -> Self {
@@ -615,7 +631,8 @@ impl FieldResolver {
             return self;
         }
         for path in paths {
-            for key in optional_lookup_keys(self.resolve(path)) {
+            let relative = self.result_relative_path(path).into_owned();
+            for key in optional_lookup_keys(&relative) {
                 if is_optional_path(&self.ir_result_field_map, &key) {
                     self.optional_fields.insert(key);
                 }

@@ -38,3 +38,5 @@ mod swift_checksum;
 mod swift_placeholder;
 #[path = "version_tests/sync_versions.rs"]
 mod sync_versions;
+#[path = "version_tests/write_version_idempotent.rs"]
+mod write_version_idempotent;

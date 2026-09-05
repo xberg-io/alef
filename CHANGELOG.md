@@ -7,7 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.84.2] - 2026-09-05
+
 ### Fixed
+
+- **A docs snippet whose field path grouped assertions under a virtual namespace label
+  (`interaction.action_results`, a label the emitted result has no member for) dereferenced an
+  `Option<Vec<T>>` result field without narrowing it, failing `tsc --strict` with `TS18048`.**
+  `FieldResolver::with_anchored_optional_paths` materializes, for the exact paths a snippet is
+  about to render, which of them the call's anchored IR proves optional — the accessor renderers
+  consult that set directly rather than asking a question, because that is the only form in which
+  "the value before this segment may be absent" is expressible while walking a chain. It keyed
+  that materialization off the bare alias-resolved path, not the same namespace-stripped path
+  `accessor()` renders against, so a path carrying a virtual grouping label computed a lookup key
+  (`interaction.action_results`) neither the IR map nor the renderer's own tracked key ever
+  matches — the call's result type has no `interaction` field, and the renderer already strips
+  the label before walking segments. The anchored answer for a namespace-labelled optional field
+  was therefore silently never recorded, and the emitted snippet indexed or iterated the field
+  directly: `result.actionResults[0]` and `for (const x of result.actionResults)` with no `?.`/`??
+  []` guard. Fixed by normalizing through the same namespace-stripping `result_relative_path` uses
+  instead of the bare alias substitution. The existing per-language accessor renderers (`?.` for
+  an index/field access, `?? []` for an iterated collection) were already correct and are
+  unchanged — this fixes what gets fed into them, not how they render.
+
+  `with_anchored_optional_paths` is shared by every backend's docs-snippet presentation layer and
+  by several backends' own e2e-test assertion-accessor generation, so the fix applies uniformly
+  wherever a fixture path crosses a virtual namespace label into a field whose optionality only
+  the anchored, per-root IR walk (not a config declaration, not a bare-name vote across the whole
+  IR) can prove. The full existing test suite passed unchanged across every backend, so no
+  currently-covered generated output moved; the confirmed, previously-failing case was TypeScript
+  (node/wasm) docs snippets.
+
+- **`alef sync-versions --set X` (and a version bump) failed with a misleading "could not find a
+  version field" error when Cargo.toml was already at `X`.** `write_version_to_cargo_toml` decided
+  both "should I write?" and "did I fail?" off the same `changed` flag: a version field that was
+  found but already matched the requested value left `changed` at `false`, which was
+  indistinguishable from never finding `[package]`/`[workspace.package].version` at all, so both
+  cases bailed with the same error. A release engineer re-running `--set` after a partial failure
+  — exactly what happened during a crawlberg release — was told their manifest was malformed when
+  it was perfectly fine.
+
+  The function now returns `anyhow::Result<bool>`, tracking "field found" separately from "value
+  changed": `Ok(true)` when it rewrote the file, `Ok(false)` when the field existed and already
+  held the requested version (a genuine no-op, nothing written, no error), and `Err` only when
+  neither version field could be found at all. All call sites — `set_version`, the workspace and
+  Rust-e2e-harness manifest sync paths, and the ruby-native and `sync.extra_paths` Cargo.toml
+  rewrites — were updated to consume the bool instead of using `.is_ok()` as a changed proxy.
 
 - **A generated TypeScript snippet whose field path crossed a tagged-union variant boundary did
   not type-check.** The snippet renderer emitted a flat optional chain — `metadata?.format?.html
