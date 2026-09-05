@@ -18,7 +18,7 @@ exclude = [
 ]
 
 [lint.typos]
-extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate", CPY = "CPY", mis = "mis", alls = "alls", substantiable = "substantiable", clude = "clude", Confg = "Confg", Respnse = "Respnse", dcoker = "dcoker", pyhton = "pyhton", addresss = "addresss" }
+extend_words = { Prelease = "Prelease", wrkspace = "wrkspace", abl = "abl", unparseable = "unparseable", tring = "tring", ser = "ser", arange = "arange", delocate = "delocate", flate = "flate", CPY = "CPY", mis = "mis", alls = "alls", substantiable = "substantiable", clude = "clude", Confg = "Confg", Respnse = "Respnse", dcoker = "dcoker", pyhton = "pyhton", addresss = "addresss" , caf = "caf", compilability = "compilability" }
 
 [lint.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076"]
@@ -252,3 +252,4 @@ id = "ai-rulez"
 git = "https://github.com/Goldziher/ai-rulez.git"
 revision = "v4.9.3"
 hooks = ["ai-rulez-validate"]
+

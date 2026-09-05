@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Swift trait-box adapter emitted a `try!` that could crash the whole process.** A required
+  `Named`-type parameter decoded as `(try? fromJson(caller)) ?? (try! fromJson("{}"))`, so the day
+  the type gained a required field the `"{}"` fallback would fail to decode and abort the process
+  from inside a Rust-called `@_cdecl` shim, where no error can propagate. Both attempts now use
+  `try?` and a failed pair returns the generator's existing empty-result sentinel instead. Measured
+  at 40 occurrences in one generated binding.
+- **A node e2e assertion crossing a tagged-union boundary emitted a field access that does not
+  type-check.** `container.html?.title` reads a variant payload off a union the `.d.ts` declares as
+  a real discriminated union; optional chaining does not narrow a discriminated union, so this is a
+  `TS2339` on every other variant's shape. The accessor now narrows on the discriminant first,
+  reusing the same `wire_variant_value` lookup that `internal_tagged_union_dts_lines` uses to emit
+  the `.d.ts` literal, so the two agree by construction rather than by coincidence. Latent until
+  now because generated `.test.ts` files run through vitest/esbuild and are never `tsc`-checked.
+
 ## [0.84.2] - 2026-09-05
 
 ### Fixed
