@@ -102,17 +102,17 @@ fn generate_docs_stage_renders_reference_llms_and_skills_from_templates() {
     .unwrap();
     fs::write(
         root.join("templates/skills/api/SKILL.md.jinja"),
-        "# API Skill\n{% for ref in api_references %}- {{ ref.path }}\n{% endfor %}",
+        "# API Skill\n\n{% for ref in api_references %}- {{ ref.path }}\n{% endfor %}",
     )
     .unwrap();
     fs::write(
         root.join("templates/skills/cli/SKILL.md.jinja"),
-        "# CLI Skill\n{% for command in cli.commands %}- {{ command.path }}\n{% endfor %}",
+        "# CLI Skill\n\n{% for command in cli.commands %}- {{ command.path }}\n{% endfor %}",
     )
     .unwrap();
     fs::write(
         root.join("templates/skills/mcp/SKILL.md.jinja"),
-        "# MCP Skill\n{% for tool in mcp.tools %}- {{ tool.name }}\n{% endfor %}",
+        "# MCP Skill\n\n{% for tool in mcp.tools %}- {{ tool.name }}\n{% endfor %}",
     )
     .unwrap();
     fs::write(
@@ -548,6 +548,117 @@ sources = ["src/lib.rs"]
             .iter()
             .map(|file| file.path.display().to_string())
             .collect::<Vec<_>>()
+    );
+}
+
+/// A `SKILL.md.jinja` whose author forgot the blank line after `# Title` folds the description
+/// paragraph onto the same heading line -- exactly the shape `poly lint` flags as `MD022`
+/// (heading needs a blank line after it) and `MD026` (trailing punctuation in a heading), because
+/// the fused line ends mid-sentence. Before `validate_leading_heading` existed this rendered
+/// successfully and shipped the fused heading verbatim; it must now fail loudly instead. ~keep
+#[test]
+fn should_error_with_actionable_message_when_skill_heading_fuses_title_and_description() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("templates/skills/api")).unwrap();
+    fs::write(
+        root.join("templates/skills/api/SKILL.md.jinja"),
+        "# {{ krate.name }} API Reference Use this skill when working with {{ krate.name }} \
+         generated language APIs, data types, configuration, or error surfaces. Generated \
+         reference pages:\n{% for ref in api_references %}- {{ ref.path }}\n{% endfor %}",
+    )
+    .unwrap();
+
+    let config = config_from_toml(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.docs.skills]
+outputs = [".codex/skills"]
+
+[workspace.docs.skills.templates.api]
+template = "templates/skills/api/SKILL.md.jinja"
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+"#,
+    );
+    let api = make_minimal_api("1.0.0");
+
+    let (_files, result) = generate_docs_stage(&api, &config, &[Language::Python], None, root);
+    let err = result.expect_err(
+        "a heading that fuses the title and description onto one line must fail, not silently \
+         ship malformed markdown",
+    );
+    let message = err.to_string();
+    assert!(
+        message.contains("trailing punctuation"),
+        "error must explain the MD026 violation, got: {message}"
+    );
+    assert!(
+        message.contains("templates/skills/api/SKILL.md.jinja"),
+        "error must name the offending template, got: {message}"
+    );
+}
+
+/// The corrected shape of the fixture above: the title is its own heading line, a blank line
+/// separates it from the description paragraph, and the heading itself carries no trailing
+/// punctuation. This must render cleanly, and the emitted heading line must not have absorbed
+/// any of the description text. ~keep
+#[test]
+fn skill_heading_with_title_on_its_own_line_renders_with_blank_line_before_description() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("templates/skills/api")).unwrap();
+    fs::write(
+        root.join("templates/skills/api/SKILL.md.jinja"),
+        "# {{ krate.name }} API Reference\n\nUse this skill when working with {{ krate.name }} \
+         generated language APIs, data types, configuration, or error surfaces.\n",
+    )
+    .unwrap();
+
+    let config = config_from_toml(
+        r#"
+[workspace]
+languages = ["python"]
+
+[workspace.docs.skills]
+outputs = [".codex/skills"]
+
+[workspace.docs.skills.templates.api]
+template = "templates/skills/api/SKILL.md.jinja"
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+"#,
+    );
+    let api = make_minimal_api("1.0.0");
+
+    let (files, result) = generate_docs_stage(&api, &config, &[Language::Python], None, root);
+    result.unwrap();
+    let skill = files
+        .iter()
+        .find(|file| file.path == Path::new(".codex/skills/api/SKILL.md"))
+        .expect("rendered skill file must be emitted");
+    let content_lines: Vec<&str> = skill.content.lines().collect();
+    let heading_index = content_lines
+        .iter()
+        .position(|line| line.starts_with("# "))
+        .expect("rendered skill must contain a top-level heading");
+    let heading_line = content_lines[heading_index];
+    assert!(
+        !heading_line.contains("Use this skill"),
+        "the heading line must not absorb the description paragraph, got: {heading_line}"
+    );
+    let next_line = content_lines.get(heading_index + 1).copied().unwrap_or("");
+    assert!(
+        next_line.trim().is_empty(),
+        "a blank line must separate the heading from the description paragraph, got: {next_line:?}"
     );
 }
 

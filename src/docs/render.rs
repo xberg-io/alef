@@ -48,11 +48,61 @@ pub fn render_llms(
     let output = cfg.output.clone().unwrap_or_else(|| PathBuf::from("docs/llms.txt"));
     ensure_managed_or_adopted(workspace_root, &output, cfg.adopt_existing)?;
     let content = render_template_file(workspace_root, template, context, snippet_dirs)?;
+    validate_leading_heading(template, &content)?;
     Ok(GeneratedFile {
         path: output,
         content: with_html_header(content, "alef docs"),
         generated_header: true,
     })
+}
+
+/// Rejects a leading `#` heading that has swallowed more than the title.
+///
+/// ATX headings are a single physical line, so a template that forgets the blank line after
+/// `# Title` folds the next paragraph onto the same visual heading, and a heading that ends
+/// mid-sentence (trailing `.`, `,`, `;`, `:`, or `!`) is the same mistake showing up as MD026.
+/// Both symptoms trace back to one root cause: the title and the description got fused onto one
+/// line. `render_skills`/`render_llms` render arbitrary user templates verbatim -- Alef does not
+/// invent prose for `llms.txt` or skills -- so there is no principled way to guess where the
+/// fused line should split back into title and description. The only sound move is to refuse to
+/// emit it and name the exact template the author needs to fix. ~keep
+fn validate_leading_heading(template_path: &Path, content: &str) -> anyhow::Result<()> {
+    const TRAILING_PUNCTUATION: [char; 5] = ['.', ',', ';', ':', '!'];
+
+    let trimmed = content.trim_start();
+    let body = match yaml_frontmatter_end(trimmed) {
+        Some(end) => &trimmed[end..],
+        None => trimmed,
+    };
+    let mut lines = body.lines();
+    let Some(heading_line) = lines.find(|line| !line.trim().is_empty()) else {
+        return Ok(());
+    };
+    let Some(heading_text) = heading_line.strip_prefix("# ") else {
+        return Ok(());
+    };
+
+    if let Some(last) = heading_text.trim_end().chars().last()
+        && TRAILING_PUNCTUATION.contains(&last)
+    {
+        anyhow::bail!(
+            "{} renders a top-level heading with trailing punctuation: {heading_line:?}. A \
+             heading that ends mid-sentence usually means the title and the description were \
+             fused onto one line -- keep the title on its own heading line with no trailing \
+             punctuation (MD026), and move the description to a paragraph below a blank line.",
+            template_path.display()
+        );
+    }
+    if let Some(next_line) = lines.next()
+        && !next_line.trim().is_empty()
+    {
+        anyhow::bail!(
+            "{} renders a top-level heading with no blank line after it: {heading_line:?}. \
+             Separate the heading from the following paragraph with a blank line (MD022).",
+            template_path.display()
+        );
+    }
+    Ok(())
 }
 
 pub fn render_skills(
@@ -91,6 +141,7 @@ pub fn render_skills(
             template
         };
         let content = render_template_file(workspace_root, &template_path, context, snippet_dirs)?;
+        validate_leading_heading(&template_path, &content)?;
         let content = ensure_skill_frontmatter(&group, &context.krate.name, content);
         for root in &cfg.outputs {
             let output = root.join(&relative_output);
