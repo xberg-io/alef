@@ -1,3 +1,7 @@
+// TODO(quality-debt): 4 cyclomatic-complexity and 9 size/complexity findings
+// in this file, currently excluded via the quality-debt baseline in poly.toml. Splitting
+// these needs compiler-in-the-loop verification, not a mechanical pass. Delete this
+// note and the file's baseline entry together once it goes green. Help wanted.
 use crate::backends::ffi::type_map::{c_return_type_with_paths, is_passthrough_return, is_void_return};
 use crate::codegen::c_consumer;
 use crate::codegen::conversions::core_type_path;
