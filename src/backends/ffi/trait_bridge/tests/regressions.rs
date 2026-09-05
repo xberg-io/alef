@@ -60,7 +60,7 @@ fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: {
-            let mut m = ::std::collections::HashMap::new();
+            let mut m = ::std::collections::BTreeMap::new();
             m.insert("HiddenDoc".to_string(), "my_lib::internal::HiddenDoc".to_string());
             m
         },
@@ -398,7 +398,7 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
         enums: vec![],
         errors: vec![],
         excluded_type_paths: {
-            let mut m = ::std::collections::HashMap::new();
+            let mut m = ::std::collections::BTreeMap::new();
             m.insert("HiddenDoc".to_string(), "my_lib::internal::HiddenDoc".to_string());
             m
         },
@@ -632,7 +632,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
@@ -683,7 +683,7 @@ fn vtable_registration_signature_takes_const_pointer() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

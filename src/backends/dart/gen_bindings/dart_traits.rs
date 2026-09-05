@@ -52,7 +52,7 @@ pub(super) fn emit_dart_traits(api: &ApiSurface, trait_names: &[&str]) -> (Strin
 /// pattern using `create_{snake}_dart_impl(...)`.
 fn emit_trait_abstract_class(
     trait_def: &TypeDef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
     out: &mut String,
     imports: &mut BTreeSet<String>,
 ) {
@@ -129,7 +129,7 @@ fn emit_trait_abstract_class(
 /// Emit one abstract method declaration inside an abstract class.
 fn emit_abstract_method(
     method: &MethodDef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
     out: &mut String,
     imports: &mut BTreeSet<String>,
 ) {
@@ -197,7 +197,7 @@ fn dart_return_type_str(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String 
 /// The generated bridge serializes/deserializes these opaque carriers at the Rust edge.
 fn substitute_excluded_named_types(
     rendered: &str,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let mut mapped = rendered.to_string();
     for name in excluded_type_paths.keys() {
@@ -233,7 +233,7 @@ fn replace_token(input: &str, needle: &str, replacement: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::ir::{ParamDef, PrimitiveType, ReceiverKind};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     fn trait_with_method(method: MethodDef) -> TypeDef {
         TypeDef {
@@ -266,7 +266,7 @@ mod tests {
     fn emit(trait_def: &TypeDef) -> String {
         let mut out = String::new();
         let mut imports = BTreeSet::new();
-        emit_trait_abstract_class(trait_def, &HashMap::new(), &mut out, &mut imports);
+        emit_trait_abstract_class(trait_def, &BTreeMap::new(), &mut out, &mut imports);
         out
     }
 

@@ -9,17 +9,17 @@
 //! `[e2e.env]` contract.
 
 use crate::core::hash::{self, CommentStyle};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 
 /// Render `.cargo/config.toml` with an `[env]` block populated from
 /// `[e2e.env]`. Returns `None` when the env map is empty so the emitter can
 /// skip writing the file entirely.
 ///
-/// Keys are sorted alphabetically for deterministic output. Each entry uses
-/// `{ value = "...", force = false }` so values from the parent shell win
-/// (setdefault semantics).
-pub fn render_cargo_config(env: &HashMap<String, String>) -> Option<String> {
+/// Each entry uses `{ value = "...", force = false }` so values from the parent shell win
+/// (setdefault semantics). `env` is a `BTreeMap`, so iteration is already in key order for
+/// deterministic output. ~keep
+pub fn render_cargo_config(env: &BTreeMap<String, String>) -> Option<String> {
     if env.is_empty() {
         return None;
     }
@@ -36,10 +36,7 @@ pub fn render_cargo_config(env: &HashMap<String, String>) -> Option<String> {
         "# matching the setdefault semantics required by the [e2e.env] contract."
     );
     let _ = writeln!(out, "[env]");
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
-    for key in keys {
-        let value = &env[key];
+    for (key, value) in env {
         // Escape backslashes and double quotes for TOML basic strings.
         let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
         let _ = writeln!(out, "{key} = {{ value = \"{escaped}\", force = false }}");
@@ -53,13 +50,13 @@ mod tests {
 
     #[test]
     fn render_cargo_config_returns_none_when_env_empty() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         assert!(render_cargo_config(&env).is_none());
     }
 
     #[test]
     fn render_cargo_config_emits_env_table_with_sorted_keys() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let out = render_cargo_config(&env).expect("non-empty env yields config");
@@ -79,7 +76,7 @@ mod tests {
 
     #[test]
     fn render_cargo_config_escapes_quotes_and_backslashes() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("HAS_QUOTES".to_string(), "a\"b\\c".to_string());
         let out = render_cargo_config(&env).expect("non-empty env yields config");
         assert!(

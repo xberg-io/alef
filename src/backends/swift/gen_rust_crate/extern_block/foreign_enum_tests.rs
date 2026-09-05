@@ -14,7 +14,7 @@
 
 use super::emit_extern_block_for_functions;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Fieldless enum name standing in for a `[[crates.source_crates]]`-merged foreign type
 /// (`toolkit`'s `Swatch`/`foreign_core::Swatch` in the real fixture). Ownership (host vs.
@@ -46,7 +46,7 @@ fn enum_sets() -> (HashSet<String>, HashSet<&'static str>) {
 
 fn render(functions: &[FunctionDef], enum_names: &HashSet<String>, unit_enum_names: &HashSet<&str>) -> String {
     let handle_returned = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let opaque_types = ahash::AHashSet::default();
 

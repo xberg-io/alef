@@ -25,7 +25,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     dto: &crate::core::config::DtoConfig,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
-    opaque_types: &std::collections::HashMap<String, String>,
+    opaque_types: &std::collections::BTreeMap<String, String>,
     adapters: &[crate::core::config::AdapterConfig],
     reexported_types: &[String],
     exclude_functions: &AHashSet<String>,

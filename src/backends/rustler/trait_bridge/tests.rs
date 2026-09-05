@@ -69,7 +69,7 @@ fn options_field_bridge_renders_visitor_setup_template() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_type_paths: std::collections::BTreeMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

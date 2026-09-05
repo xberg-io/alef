@@ -40,7 +40,7 @@ fn api_with_capsule(fn_name: &str) -> ApiSurface {
         enums: vec![],
         errors: vec![],
         services: vec![],
-        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_type_paths: std::collections::BTreeMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
         handler_contracts: vec![],
         unsupported_public_items: vec![],

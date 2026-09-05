@@ -72,12 +72,10 @@ pub(super) fn render_test_file(
     let _ = writeln!(out, "    override class func setUp() {{");
     let _ = writeln!(out, "        super.setUp()");
 
-    // Inject environment variables from e2e.env, sorted alphabetically.
+    // Inject environment variables from e2e.env. `env` is a `BTreeMap`, so this already
+    // iterates in key order -- no separate sort needed to keep generation reproducible. ~keep
     if !e2e_config.env.is_empty() {
-        let mut keys: Vec<_> = e2e_config.env.keys().collect();
-        keys.sort();
-        for key in keys {
-            let value = &e2e_config.env[key];
+        for (key, value) in &e2e_config.env {
             let _ = writeln!(
                 out,
                 "        _ = \"{}\".withCString {{ val in",

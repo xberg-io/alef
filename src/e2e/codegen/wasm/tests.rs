@@ -4,7 +4,12 @@ use super::*;
 fn test_setup_ts_no_duplicate_imports() {
     // Test that setup.ts with file_setup does not emit duplicate imports.
     // Both createRequire and fileURLToPath should appear exactly once.
-    let setup = render_setup("fixtures", true, "@sample_core/wasm", &std::collections::HashMap::new());
+    let setup = render_setup(
+        "fixtures",
+        true,
+        "@sample_core/wasm",
+        &std::collections::BTreeMap::new(),
+    );
 
     let create_require_count = setup.matches("import { createRequire }").count();
     let file_url_to_path_count = setup.matches("import { fileURLToPath }").count();
@@ -140,7 +145,7 @@ fn render_setup_emits_e2e_env_assignments_alphabetically() {
     // assignments, sorted alphabetically by key.
 
     // Test with non-empty env map
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("ZEBRA".to_string(), "last_alphabetically".to_string());
     env.insert("APPLE".to_string(), "first_alphabetically".to_string());
     env.insert("SAMPLE_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
@@ -187,7 +192,12 @@ fn render_setup_emits_e2e_env_assignments_alphabetically() {
     );
 
     // Test with empty env map — should emit no env block
-    let empty_setup = render_setup("fixtures", true, "@sample_core/wasm", &std::collections::HashMap::new());
+    let empty_setup = render_setup(
+        "fixtures",
+        true,
+        "@sample_core/wasm",
+        &std::collections::BTreeMap::new(),
+    );
     assert!(
         !empty_setup.contains("process.env."),
         "empty env map should not emit any env assignments, got:\n{empty_setup}"

@@ -172,7 +172,7 @@ pub(super) fn gen_init_py(
     extra_init_imports: &std::collections::BTreeMap<String, Vec<String>>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
     adapters: &[crate::core::config::AdapterConfig],
-    opaque_types: &std::collections::HashMap<String, String>,
+    opaque_types: &std::collections::BTreeMap<String, String>,
     exclude_functions: &AHashSet<String>,
 ) -> String {
     use crate::core::ir::TypeRef;
@@ -536,7 +536,7 @@ mod tests {
             functions: vec![],
             enums: vec![],
             errors: vec![],
-            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_type_paths: ::std::collections::BTreeMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
             services: vec![],
             handler_contracts: vec![],
@@ -615,7 +615,7 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let result = gen_init_py(
             &api,
             "_mod",
@@ -678,7 +678,7 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let result = gen_init_py(
             &api,
             "_mod",
@@ -723,7 +723,7 @@ mod tests {
         );
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let result = gen_init_py(
             &api,
             "_mod",
@@ -768,7 +768,7 @@ mod tests {
         ];
         let dto = DtoConfig::default();
         let caps = std::collections::HashMap::new();
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let adapters = vec![];
         let mut exclude = ahash::AHashSet::new();
         exclude.insert("drop_async".to_string());
@@ -833,7 +833,7 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let result = gen_init_py(
             &api,
             "_internal_bindings",
@@ -894,7 +894,7 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let opaque = std::collections::HashMap::new();
+        let opaque = std::collections::BTreeMap::new();
         let result = gen_init_py(
             &api,
             "_internal_bindings",

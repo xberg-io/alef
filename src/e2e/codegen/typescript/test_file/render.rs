@@ -2,16 +2,15 @@ use super::*;
 
 /// Emit environment variable setup code for test file.
 /// Returns a TypeScript code snippet with `process.env.VAR ??= "value"` assignments,
-/// or an empty string if no env vars are configured. Keys are sorted alphabetically.
-pub(crate) fn render_env_setup(env: &std::collections::HashMap<String, String>) -> String {
+/// or an empty string if no env vars are configured.
+///
+/// `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort needed. ~keep
+pub(crate) fn render_env_setup(env: &std::collections::BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
-    for k in keys {
-        let v = &env[k];
+    for (k, v) in env {
         out.push_str(&format!("process.env.{} ??= \"{}\";\n", k, v));
     }
     out

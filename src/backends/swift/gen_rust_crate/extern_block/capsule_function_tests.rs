@@ -6,7 +6,7 @@
 use super::emit_extern_block_for_functions;
 use crate::core::config::HostCapsuleTypeConfig;
 use crate::core::ir::{FunctionDef, TypeRef};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 fn language_capsule() -> HostCapsuleTypeConfig {
     HostCapsuleTypeConfig {
@@ -34,7 +34,7 @@ fn capsule_function_returns_usize() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
 
     let opaque_types = ahash::AHashSet::default();
     let block = emit_extern_block_for_functions(
@@ -78,7 +78,7 @@ fn fallible_capsule_function_returns_usize() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
 
     let opaque_types = ahash::AHashSet::default();
     let block = emit_extern_block_for_functions(
@@ -114,7 +114,7 @@ fn non_capsule_function_unaffected() {
     handle_returned.insert("Metadata".to_string());
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
 
     let opaque_types = ahash::AHashSet::default();
     let block = emit_extern_block_for_functions(

@@ -111,7 +111,7 @@ pub(super) fn trait_impl_param_type(
 /// Returns an empty string if no conversion is needed.
 pub(super) fn trait_impl_param_conversion(
     p: &ParamDef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let name = &p.name;
     if p.is_ref {

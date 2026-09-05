@@ -96,13 +96,13 @@ impl E2eCodegen for JavaCodegen {
         let binding_pkg = config.java_package();
         let pkg_version = config.resolved_version().unwrap_or_else(|| "0.1.0".to_string());
 
-        // Prepare environment variables for Surefire configuration.
-        let mut env_entries: Vec<(String, String)> = e2e_config
+        // Prepare environment variables for Surefire configuration. `env` is a `BTreeMap`, so
+        // this already iterates in key order -- no separate sort needed. ~keep
+        let env_entries: Vec<(String, String)> = e2e_config
             .env
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect::<Vec<_>>();
-        env_entries.sort_by(|a, b| a.0.cmp(&b.0));
 
         // Generate pom.xml.
         // `harness_extras` deps support the alef-generated e2e harness code under

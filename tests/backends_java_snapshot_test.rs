@@ -382,7 +382,7 @@ fn print_generated_java_code() {
             binding_exclusion_reason: None,
             version: Default::default(),
         }],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

@@ -164,7 +164,7 @@ fn extendr_output_only_enum_gets_both_conversions() {
         functions: vec![make_function("process", TypeRef::Named("Result".to_string()))],
         enums: vec![format_enum],
         errors: vec![],
-        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_type_paths: std::collections::BTreeMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

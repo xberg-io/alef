@@ -123,7 +123,7 @@ fn gen_init_py_routes_captioning_config_to_options_not_native() {
         &std::collections::BTreeMap::new(),
         &std::collections::HashMap::new(),
         &[],
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &ahash::AHashSet::new(),
     );
 

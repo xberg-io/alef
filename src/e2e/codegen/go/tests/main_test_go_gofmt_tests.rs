@@ -98,7 +98,7 @@ fn drain_goroutine_is_never_single_line() {
 /// spaces around `+`) when the left operand is a short literal beside a single identifier.
 #[test]
 fn env_concat_has_no_spaces_around_plus() {
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("SOME_VAR".to_string(), "1".to_string());
     let out = render_main_test_go("testing_data", true, false, &env);
     assert!(
@@ -117,7 +117,7 @@ fn env_concat_has_no_spaces_around_plus() {
 /// every machine and this test only exercises the real formatter where it can.
 #[test]
 fn rendered_main_test_go_matches_gofmt_when_available() {
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("SOME_VAR".to_string(), "1".to_string());
 
     for out in [

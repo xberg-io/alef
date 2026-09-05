@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.1] - 2026-09-05
+
+### Fixed
+
+- **Generation is now reproducible: the same inputs emit the same bytes.** `alef generate` and
+  `alef e2e generate` read several `HashMap`/`HashSet` fields straight into emitted output, and
+  Rust seeds those maps' iteration order randomly per process. Two consecutive runs over an
+  unchanged tree could therefore produce different bytes, which flaps any freshness gate that
+  diffs generated output — the file's content hash moves with no source change behind it.
+  `alef verify` cannot detect this: it rehashes each committed file from that file's own content
+  and never regenerates, so a flapping emitter reads as clean there and only surfaces later as
+  an unexplained diff.
+
+  The confirmed live defect was in the Go e2e generator, whose environment-forwarding loop
+  emitted one `if os.Getenv("KEY") != ""` block per entry in map order, so `e2e/main_test.go`
+  reordered between runs. The following config and IR fields that reach emitted output are now
+  ordered by construction rather than by convention: `E2eConfig::calls`, `E2eConfig::env`,
+  `WorkspaceConfig::opaque_types`, and `ApiSurface::excluded_type_paths` are `BTreeMap`s; the
+  Swift backend's deferred-noop set is a `BTreeSet`; and the FFI scaffold's declare-only feature
+  rows iterate the config's authored `Vec` instead of a lookup `HashSet`.
+
+- **`collect_trait_imports` picked between same-named trait paths by map iteration order.** Two
+  distinct trait paths sharing a final segment and of equal length resolved to whichever the
+  hash set yielded first. The trailing sort orders the output list but cannot repair a choice
+  already made during collection, so equal-length ties now resolve to the lexicographically
+  smaller path.
+
+- **Excluded-carrier substitution could corrupt a longer type path.** The Dart trait bridge
+  substitutes excluded type paths with plain, non-token-boundary substring replacement, so when
+  one excluded path was a prefix of another (`mycrate::Config` / `mycrate::ConfigBuilder`) the
+  substitution order decided whether the longer identifier survived. Entries are now processed
+  longest-path-first.
+
+- **The generation cache key was itself nondeterministic, silently defeating the cache.**
+  `ResolvedCrateConfig` carries `HashMap` fields and was serialized with a plain
+  `toml::to_string`, so the key differed on every run. Both the `generate` and `extract` cache
+  keys now route through a new `canonical_toml_string` that sorts every table's keys.
+
 ## [0.84.0] - 2026-09-05
 
 ### Changed

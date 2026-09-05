@@ -2,7 +2,7 @@
 
 use crate::core::hash::{self, CommentStyle};
 use crate::core::version::to_r_version;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 
 /// Emit an R snippet that calls `Sys.setenv(KEY = VALUE)` for every
@@ -10,17 +10,16 @@ use std::fmt::Write as FmtWrite;
 /// preserves any value supplied by the parent shell (setdefault semantics).
 /// Returns an empty string when the env map is empty. Keys are sorted
 /// alphabetically for deterministic output.
-pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+pub(super) fn render_env_block(env: &BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
     let _ = writeln!(out, "# Suite-level environment defaults from [e2e.env]. Each entry");
     let _ = writeln!(out, "# uses setdefault semantics: only applied when not already set.");
-    for key in keys {
-        let value = &env[key];
+    // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+    // needed to keep generation reproducible. ~keep
+    for (key, value) in env {
         // R double-quoted strings: escape `\` and `"`.
         let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
         let _ = writeln!(out, "if (Sys.getenv(\"{key}\", unset = \"\") == \"\") {{");
@@ -56,7 +55,7 @@ Config/testthat/edition: 3
     )
 }
 
-pub(super) fn render_setup_fixtures(test_documents_path: &str, env: &HashMap<String, String>) -> String {
+pub(super) fn render_setup_fixtures(test_documents_path: &str, env: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out);
@@ -355,11 +354,11 @@ mod install_r_tests {
 #[cfg(test)]
 mod env_tests {
     use super::{render_env_block, render_setup_fixtures};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn render_env_block_emits_setdefault_with_sorted_keys() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_env_block(&env);
@@ -379,13 +378,13 @@ mod env_tests {
 
     #[test]
     fn render_env_block_empty_when_no_env_configured() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         assert_eq!(render_env_block(&env), "");
     }
 
     #[test]
     fn render_setup_fixtures_includes_env_block_when_env_configured() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let out = render_setup_fixtures("../../../test_documents", &env);
         assert!(
@@ -396,7 +395,7 @@ mod env_tests {
 
     #[test]
     fn render_setup_fixtures_omits_env_block_when_env_empty() {
-        let out = render_setup_fixtures("../../../test_documents", &HashMap::new());
+        let out = render_setup_fixtures("../../../test_documents", &BTreeMap::new());
         assert!(
             !out.contains("Suite-level environment defaults"),
             "no env block when env empty; got: {out}"

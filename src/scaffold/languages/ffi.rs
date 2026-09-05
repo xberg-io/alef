@@ -134,6 +134,15 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .as_ref()
         .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
         .unwrap_or_default();
+    // Source-ordered view of the same names, for the declare-only feature rows below: the
+    // config's `Vec<String>` is already in authored order, so iterating it directly (instead of
+    // the `HashSet` above, whose iteration order is randomly seeded per process) keeps the
+    // emitted `[features]` table deterministic across regenerations. ~keep
+    let excluded_default_features_ordered: &[String] = config
+        .ffi
+        .as_ref()
+        .map(|c| c.excluded_default_features.as_slice())
+        .unwrap_or(&[]);
     let core_dep_path = config.core_crate_dep_path(std::path::Path::new(&crate_dir));
     let (core_dep_line, target_blocks) = render_core_dep(
         &config.name,
@@ -205,13 +214,13 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // `default_feature_names`, so `cargo build --features <name>` would fail to declare the
     // feature at all without this: a name listed there stays a *declared* opt-in flag, just
     // never defaulted, the same tradeoff `extra_features` makes above. ~keep
-    for feat in &excluded_default_features {
+    for feat in excluded_default_features_ordered {
         // Deliberately checked against `default_feature_names` alone, not
         // `passthrough_feature_names`: a name in `excluded_default_features` is stripped out of
         // `default_feature_names` by `effective_ffi_default_features` even when it IS present in
         // `passthrough_feature_names` (i.e. explicitly configured), so that unfiltered list can
         // no longer prove a declare-only row already exists for it. ~keep
-        if default_feature_names.contains(feat) {
+        if default_feature_names.contains(&feat.as_str()) {
             continue;
         }
         let line = format!("{feat} = [\"{}/{feat}\"]", config.name);

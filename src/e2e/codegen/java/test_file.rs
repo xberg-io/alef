@@ -293,16 +293,9 @@ pub(super) fn render_test_file(
         }
     }
 
-    // Render template
-    let env_entries: Vec<(String, String)> = e2e_config
-        .env
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let mut sorted_env: Vec<(String, String)> = env_entries;
-    sorted_env.sort_by(|a, b| a.0.cmp(&b.0));
+    // Render template. `env` is a `BTreeMap`, so this already iterates in key order -- no
+    // separate sort needed. ~keep
+    let sorted_env: Vec<(String, String)> = e2e_config.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
     crate::e2e::template_env::render(
         "java/test_file.jinja",

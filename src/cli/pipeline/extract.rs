@@ -123,7 +123,13 @@ fn ir_cache_key(
 }
 
 fn extraction_config_hash(config: &ResolvedCrateConfig, config_path: &Path) -> anyhow::Result<String> {
-    let config_toml = toml::to_string(config).context("failed to serialize resolved config for IR cache key")?;
+    // Route through `canonical_toml_string`, not a plain `toml::to_string`: `ResolvedCrateConfig`
+    // carries several `HashMap` fields, and serde serializes a `HashMap` in that map's own
+    // randomly-seeded-per-process order, so an unsorted serialization makes this cache key
+    // differ on every run even when nothing changed -- silently defeating the cache. ~keep
+    let config_value = toml::Value::try_from(config).context("failed to serialize resolved config for IR cache key")?;
+    let config_toml = crate::core::hash::canonical_toml_string(config_value)
+        .context("failed to serialize resolved config for IR cache key")?;
     let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
     let mut hasher = blake3::Hasher::new();
     hasher.update(config_toml.as_bytes());

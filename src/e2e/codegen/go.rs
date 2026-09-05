@@ -472,15 +472,14 @@ const TESTIFY_INDIRECT_DEPS: &[(&str, &str)] = &[
 /// Returns a Go code snippet that calls os.Setenv for each env var in the config,
 /// or an empty string if no env vars are configured. Uses setdefault semantics
 /// (checks if already set to allow parent runners to override).
-fn render_env_setup(env: &std::collections::HashMap<String, String>) -> String {
+///
+/// `env` is a `BTreeMap`, so iteration is already in key order -- no separate sort needed. ~keep
+fn render_env_setup(env: &std::collections::BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
-    for k in keys {
-        let v = &env[k];
+    for (k, v) in env {
         let _ = writeln!(out, "\tif _, ok := os.LookupEnv(\"{k}\"); !ok {{");
         let _ = writeln!(out, "\t\t_ = os.Setenv(\"{k}\", \"{v}\")");
         let _ = writeln!(out, "\t}}");
@@ -497,7 +496,7 @@ fn render_main_test_go(
     test_documents_dir: &str,
     needs_mock_server_bootstrap: bool,
     has_http_fixtures: bool,
-    env: &std::collections::HashMap<String, String>,
+    env: &std::collections::BTreeMap<String, String>,
 ) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
@@ -611,6 +610,8 @@ fn render_main_test_go(
         // Append configured environment variables (set via os.Setenv in TestMain earlier).
         // This is necessary because os.Setenv only affects Go's runtime env, not libc's,
         // and the mock-server (a C FFI process) reads the libc environment directly.
+        // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+        // needed to keep generation reproducible. ~keep
         for k in env.keys() {
             let _ = writeln!(out, "\tif v := os.Getenv(\"{k}\"); v != \"\" {{");
             let _ = writeln!(out, "\t\tcmdEnv = append(cmdEnv, \"{k}=\"+v)");

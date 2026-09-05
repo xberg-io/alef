@@ -37,7 +37,7 @@ fn api_with_cfg_paired_function() -> ApiSurface {
         functions: vec![make("target_family = \"unix\""), make("target_os = \"windows\"")],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

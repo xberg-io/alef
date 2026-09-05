@@ -9,7 +9,7 @@ pub(super) fn excluded_carrier_name(type_name: &str) -> String {
     )
 }
 
-fn needs_excluded_carrier(ty: &TypeRef, excluded_type_paths: &std::collections::HashMap<String, String>) -> bool {
+fn needs_excluded_carrier(ty: &TypeRef, excluded_type_paths: &std::collections::BTreeMap<String, String>) -> bool {
     match ty {
         TypeRef::Named(name) => excluded_type_paths.contains_key(name),
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => needs_excluded_carrier(inner, excluded_type_paths),
@@ -46,10 +46,20 @@ fn replace_token(input: &str, needle: &str, replacement: &str) -> String {
 pub(super) fn substitute_excluded_carriers_in_rust_type(
     rust_type: &str,
     source_crate_name: &str,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let mut rendered = rust_type.to_string();
-    for (type_name, path) in excluded_type_paths {
+    // Longest-path-first: the `.replace()` calls below are plain substring replacement, not
+    // token-boundary aware, so when one excluded type's path is a prefix of another's (e.g.
+    // `mycrate::Config` / `mycrate::ConfigBuilder`) the *order* they're substituted in decides
+    // whether the longer identifier gets corrupted by a partial match on the shorter one first.
+    // Processing the longest path first guarantees the longer identifier is substituted whole
+    // before any shorter prefix of it can match inside it. Ties broken by name for a stable
+    // order between equal-length paths. ~keep
+    let mut entries: Vec<(&String, &String)> = excluded_type_paths.iter().collect();
+    entries
+        .sort_by(|(name_a, path_a), (name_b, path_b)| path_b.len().cmp(&path_a.len()).then_with(|| name_a.cmp(name_b)));
+    for (type_name, path) in entries {
         let carrier = excluded_carrier_name(type_name);
         if !path.is_empty() {
             let normalized_path = path.replace('-', "_");
@@ -64,7 +74,7 @@ pub(super) fn substitute_excluded_carriers_in_rust_type(
 
 pub(crate) fn needs_excluded_bridge_type(
     ty: &TypeRef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> bool {
     needs_excluded_carrier(ty, excluded_type_paths)
 }
@@ -92,7 +102,7 @@ pub(crate) fn emit_excluded_bridge_types(out: &mut String, api: &ApiSurface) {
 
 fn collect_excluded_carriers(
     ty: &TypeRef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
     carriers: &mut std::collections::BTreeSet<(String, String)>,
 ) {
     match ty {
@@ -113,7 +123,7 @@ fn collect_excluded_carriers(
 pub(super) fn excluded_type_core_path(
     name: &str,
     source_crate_name: &str,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     excluded_type_paths
         .get(name)

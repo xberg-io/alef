@@ -141,7 +141,7 @@ mod trait_bridge_tests {
     use crate::core::config::TraitBridgeConfig;
     use crate::core::ir::{MethodDef, ParamDef, TypeRef};
     use crate::e2e::fixture::Fixture;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     fn make_fixture(id: &str) -> Fixture {
         Fixture {
@@ -223,7 +223,7 @@ mod trait_bridge_tests {
             "custom_module",
             "127.0.0.1",
             8000,
-            &HashMap::new(),
+            &BTreeMap::new(),
         );
 
         assert!(
@@ -514,18 +514,18 @@ mod app_harness_tests {
 #[cfg(test)]
 mod env_setup_tests {
     use super::super::project::render_env_setup;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn empty_env_produces_no_setup_block() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         let output = render_env_setup(&env);
         assert_eq!(output, "", "empty env must produce empty string");
     }
 
     #[test]
     fn non_empty_env_produces_sorted_lines() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("FOO".to_string(), "bar".to_string());
         env.insert("BAZ".to_string(), "qux".to_string());

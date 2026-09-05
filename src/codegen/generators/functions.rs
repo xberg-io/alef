@@ -800,7 +800,13 @@ pub fn collect_trait_imports(api: &ApiSurface) -> Vec<String> {
     for path in traits {
         let name = path.split("::").last().unwrap_or(&path).to_string();
         let entry = by_name.entry(name).or_insert_with(|| path.clone());
-        if path.len() < entry.len() {
+        // Two distinct trait paths sharing a final segment and of equal length would otherwise
+        // resolve to whichever came first out of `traits` -- an `AHashSet` whose iteration order
+        // is randomly seeded per process. The trailing `sorted.sort()` below orders the *output
+        // list* but cannot repair a choice already made here, so break the tie explicitly
+        // (shortest path wins as before; equal-length ties resolve to the lexicographically
+        // smaller path) rather than leaving it to iteration order. ~keep
+        if path.len() < entry.len() || (path.len() == entry.len() && path < *entry) {
             *entry = path;
         }
     }
@@ -854,3 +860,6 @@ pub fn collect_explicit_core_imports(api: &ApiSurface) -> Vec<String> {
     }
     names.into_iter().collect()
 }
+
+#[cfg(test)]
+mod tests;

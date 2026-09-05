@@ -8,15 +8,14 @@ use std::fmt::Write as FmtWrite;
 /// Emit an Elixir snippet that sets every `[e2e.env]` entry into the environment
 /// using `System.get_env` to check first so a parent runner can override at spawn time.
 /// Returns empty when no env vars are configured.
+///
+/// `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort needed. ~keep
 fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     if e2e_config.env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
-    keys.sort();
     let mut out = String::new();
-    for k in keys {
-        let v = &e2e_config.env[k];
+    for (k, v) in &e2e_config.env {
         out.push_str(&format!(
             "unless System.get_env(\"{}\") do\n  System.put_env(\"{}\", \"{}\")\nend\n",
             k, k, v

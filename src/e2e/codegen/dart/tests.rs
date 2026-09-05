@@ -210,10 +210,10 @@ fn dart_stub_uses_fixture_input_name_for_plugin_name() {
 #[test]
 fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
     use crate::e2e::config::E2eConfig;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     // Create a minimal E2eConfig with an env var to trigger _setEnv emission.
-    let mut env = HashMap::new();
+    let mut env = BTreeMap::new();
     env.insert("SAMPLE_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
 
     let e2e_config = E2eConfig {

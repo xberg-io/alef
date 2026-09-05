@@ -18,7 +18,7 @@ pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
 pub(crate) fn frb_rust_type_excluded_aware(
     ty: &TypeRef,
     optional: bool,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let effective_ty = unwrap_nested_optional(ty, optional);
     let inner = frb_rust_type_inner_excluded_aware(effective_ty, excluded_type_paths);
@@ -37,7 +37,7 @@ fn unwrap_nested_optional(ty: &TypeRef, optional: bool) -> &TypeRef {
 }
 
 pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
-    frb_rust_type_inner_excluded_aware(ty, &std::collections::HashMap::new())
+    frb_rust_type_inner_excluded_aware(ty, &std::collections::BTreeMap::new())
 }
 
 /// Like `frb_rust_type_inner`, but emits the fully-qualified source-crate path for
@@ -48,7 +48,7 @@ pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
 /// that have no mirror struct.
 pub(crate) fn frb_rust_type_inner_excluded_aware(
     ty: &TypeRef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {

@@ -3,7 +3,7 @@ use super::{CallConfig, DependencyMode, HarnessConfig, PackageRef, RegistryConfi
 use crate::core::config::manifest_extras::ManifestExtras;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -34,8 +34,12 @@ pub struct E2eConfig {
     pub call: CallConfig,
     /// Named additional call configurations for multi-function testing.
     /// Fixtures reference these via the `call` field, e.g. `"call": "embed"`.
+    ///
+    /// `BTreeMap` so call selection (`select_best_matching_call`, which returns the first
+    /// satisfying entry) and any other iteration over this map is deterministic across process
+    /// runs without every consumer having to sort a copy first. ~keep
     #[serde(default)]
-    pub calls: HashMap<String, CallConfig>,
+    pub calls: BTreeMap<String, CallConfig>,
     /// Per-language package reference overrides.
     #[serde(default)]
     pub packages: HashMap<String, PackageRef>,
@@ -227,8 +231,12 @@ pub struct E2eConfig {
     /// [crates.e2e.env]
     /// ALLOW_PRIVATE_NETWORK = "true"
     /// ```
+    ///
+    /// `BTreeMap` so every emitter that forwards these into generated setup code (Go's
+    /// `TestMain`, Python's `conftest.py`, `.cargo/config.toml`, etc.) iterates in key order
+    /// without each one having to sort a copy first. ~keep
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub env: BTreeMap<String, String>,
     /// Server-shaped e2e harness configuration for HTTP fixtures.
     /// Knobs for code generation that spawn the SUT app and register handlers.
     #[serde(default)]
@@ -277,11 +285,9 @@ impl E2eConfig {
         if let Some(name) = call_name {
             return self.calls.get(name).unwrap_or(&self.call);
         }
-        // Auto-route by select_when condition. Deterministic order: sort by call name.
-        let mut names: Vec<&String> = self.calls.keys().collect();
-        names.sort();
-        for name in names {
-            let call_config = &self.calls[name];
+        // Auto-route by select_when condition. `calls` is a `BTreeMap`, so this already
+        // iterates in call-name order -- no separate sort needed. ~keep
+        for call_config in self.calls.values() {
             if let Some(sel) = &call_config.select_when
                 && sel.matches(fixture_id, fixture_category, fixture_tags, fixture_input)
             {
@@ -463,7 +469,7 @@ impl Default for E2eConfig {
             test_documents_dir: default_test_documents_dir(),
             languages: Vec::new(),
             call: CallConfig::default(),
-            calls: HashMap::new(),
+            calls: BTreeMap::new(),
             packages: HashMap::new(),
             harness_extras: HashMap::new(),
             extra_system_libs: HashMap::new(),
@@ -479,7 +485,7 @@ impl Default for E2eConfig {
             fields_enum: HashSet::new(),
             fields_display_as_text: HashSet::new(),
             fields_json_scalar: HashSet::new(),
-            env: HashMap::new(),
+            env: BTreeMap::new(),
             harness: HarnessConfig::default(),
             dep_mode: DependencyMode::default(),
             registry: RegistryConfig::default(),

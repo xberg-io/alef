@@ -145,7 +145,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         functions: vec![foo_function],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

@@ -21,7 +21,7 @@ pub(super) fn emit_trait_bridge_method(
     bridge_name: &str,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
     lifetime_type_names: &std::collections::HashSet<String>,
 ) {
     let method_name = &method.name;

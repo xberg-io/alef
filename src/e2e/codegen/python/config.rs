@@ -305,15 +305,16 @@ pub(super) fn render_app_harness(
 /// Emit a Python snippet that copies every `[e2e.env]` entry into `os.environ`
 /// using `setdefault` so a parent runner can still override at spawn time.
 /// Returns empty when no env vars are configured.
+///
+/// `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort needed. ~keep
 fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     if e2e_config.env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
-    keys.sort();
-    let entries = keys
+    let entries = e2e_config
+        .env
         .iter()
-        .map(|k| format!("    {:?}: {:?},", k, e2e_config.env[*k]))
+        .map(|(k, v)| format!("    {k:?}: {v:?},"))
         .collect::<Vec<_>>()
         .join("\n");
     format!(

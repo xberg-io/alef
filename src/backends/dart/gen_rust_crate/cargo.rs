@@ -22,7 +22,7 @@ fn type_has_json(t: &TypeRef) -> bool {
 
 fn type_references_excluded_named(
     t: &TypeRef,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> bool {
     match t {
         TypeRef::Named(name) => excluded_type_paths.contains_key(name),

@@ -74,13 +74,14 @@ pub fn test(config: &ResolvedCrateConfig, languages: &[Language], e2e: bool, cov
     // the guard then reads that same `V` back and appends it to itself (`V:V`), never matching
     // a strict comparison an SSRF-policy check performs. Passing exact values only through
     // `Command::env` also keeps their contents out of the `sh -c` argument. ~keep
+    // `e2e.env` is a `BTreeMap`, so `iter()` already yields key order -- no separate sort
+    // needed to keep this deterministic. ~keep
     let e2e_env: Vec<(&str, String)> = config
         .e2e
         .as_ref()
         .map(|e2e| {
-            let mut vars: Vec<(&String, &String)> = e2e.env.iter().collect();
-            vars.sort();
-            vars.into_iter()
+            e2e.env
+                .iter()
                 .map(|(key, value)| (key.as_str(), value.clone()))
                 .collect()
         })

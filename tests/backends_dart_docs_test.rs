@@ -45,7 +45,7 @@ fn test_dartdoc_emitted_for_bridge_function() {
         }],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

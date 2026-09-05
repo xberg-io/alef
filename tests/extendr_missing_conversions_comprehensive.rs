@@ -184,7 +184,7 @@ fn extendr_all_surface_types_get_conversions_comprehensive() {
         functions: vec![make_function("generate_report", TypeRef::Named("Report".to_string()))],
         enums: vec![result_enum],
         errors: vec![],
-        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_type_paths: std::collections::BTreeMap::new(),
         excluded_trait_names: std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

@@ -22,7 +22,7 @@ fn registry_mode_build_zig_links_ffi_from_bundled_paths() {
         "test_documents",
         DependencyMode::Registry,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &[],
     );
@@ -63,7 +63,7 @@ fn local_mode_build_zig_uses_workspace_paths() {
         "test_documents",
         DependencyMode::Local,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &[],
     );
@@ -83,7 +83,7 @@ fn local_mode_build_zig_uses_workspace_paths() {
 #[test]
 fn env_vars_injected_alphabetically_after_run_artifact() {
     let test_filenames = vec!["basic_test.zig".to_string()];
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
     env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
     env.insert("BETA_VAR".to_string(), "b_value".to_string());
@@ -135,7 +135,7 @@ fn env_vars_injected_alphabetically_after_run_artifact() {
 #[test]
 fn empty_env_produces_no_env_block() {
     let test_filenames = vec!["basic_test.zig".to_string()];
-    let env = std::collections::HashMap::new();
+    let env = std::collections::BTreeMap::new();
 
     let content = render_build_zig(
         &test_filenames,
@@ -192,7 +192,7 @@ fn test_step_dependencies_do_not_duplicate_run_suffix() {
         "test_documents",
         DependencyMode::Local,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &[],
     );
@@ -262,7 +262,7 @@ fn local_mode_build_zig_with_harness_extras_add_import_wiring() {
         "test_documents",
         DependencyMode::Local,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &capsule_deps,
         &[],
     );
@@ -343,7 +343,7 @@ fn extra_system_libs_are_linked_in_both_modes() {
             "test_documents",
             dep_mode,
             false,
-            &std::collections::HashMap::new(),
+            &std::collections::BTreeMap::new(),
             &[],
             &extra,
         );
@@ -378,7 +378,7 @@ fn multiple_extra_system_libs_each_linked() {
         "test_documents",
         DependencyMode::Local,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &extra,
     );
@@ -412,7 +412,7 @@ fn empty_extra_system_libs_emit_no_extra_links() {
         "test_documents",
         DependencyMode::Local,
         false,
-        &std::collections::HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &[],
     );

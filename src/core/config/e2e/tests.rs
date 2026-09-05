@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 fn empty_e2e_with_test_documents(dir: &str) -> E2eConfig {
     E2eConfig {
@@ -174,7 +174,7 @@ fn select_when_deserializes_compound_discriminators() {
 
 #[test]
 fn resolve_call_for_fixture_routes_by_category_then_falls_back() {
-    let mut calls = HashMap::new();
+    let mut calls = BTreeMap::new();
     calls.insert(
         "crawl".to_string(),
         CallConfig {

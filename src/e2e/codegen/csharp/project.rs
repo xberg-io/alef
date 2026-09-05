@@ -3,7 +3,7 @@
 use crate::core::config::manifest_extras::ManifestExtras;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 
 /// ~keep Detect whether any fixture that will actually run in this assembly invokes a
@@ -98,7 +98,7 @@ pub(super) fn render_test_setup(
     disable_test_parallelization: bool,
     test_documents_dir: &str,
     namespace: &str,
-    env: &HashMap<String, String>,
+    env: &BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -147,12 +147,10 @@ pub(super) fn render_test_setup(
     out.push_str("    internal static void Init()\n");
     out.push_str("    {\n");
 
-    // Emit env vars if present
+    // Emit env vars if present. `env` is a `BTreeMap`, so this already iterates in key
+    // order -- no separate sort needed to keep generation reproducible. ~keep
     if !env.is_empty() {
-        let mut sorted_keys: Vec<_> = env.keys().collect();
-        sorted_keys.sort();
-        for key in sorted_keys {
-            let value = &env[key];
+        for (key, value) in env {
             let _ = writeln!(
                 out,
                 "        if (Environment.GetEnvironmentVariable(\"{key}\") == null) {{"
@@ -213,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_render_test_setup_with_env_vars() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
         env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
         env.insert("BETA_VAR".to_string(), "b_value".to_string());
@@ -239,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_render_test_setup_empty_env() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
 
         // Should not contain SetEnvironmentVariable calls for empty env
@@ -251,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_render_test_setup_env_null_check() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
         let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);

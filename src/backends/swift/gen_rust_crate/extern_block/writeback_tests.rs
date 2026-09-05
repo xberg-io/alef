@@ -6,7 +6,7 @@
 
 use super::emit_extern_block_for_functions;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 fn mut_dto_param(name: &str, type_name: &str) -> ParamDef {
     ParamDef {
@@ -41,7 +41,7 @@ fn mut_dto_param_on_a_unit_returning_fn_declares_the_dto_return() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let opaque_types = ahash::AHashSet::default();
 
@@ -79,7 +79,7 @@ fn immutable_borrow_dto_param_keeps_the_unit_return() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let opaque_types = ahash::AHashSet::default();
 
@@ -113,7 +113,7 @@ fn mut_opaque_param_keeps_the_unit_return() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let mut opaque_types = ahash::AHashSet::default();
     opaque_types.insert("Engine".to_string());
@@ -148,7 +148,7 @@ fn two_mut_dto_params_are_rejected_naming_the_function() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let opaque_types = ahash::AHashSet::default();
 
@@ -183,7 +183,7 @@ fn mut_dto_param_plus_a_return_value_is_rejected_naming_the_function() {
     let handle_returned = HashSet::new();
     let enum_names = HashSet::new();
     let unit_enum_names: HashSet<&str> = HashSet::new();
-    let deferred_empty = HashSet::new();
+    let deferred_empty = BTreeSet::new();
     let capsule_types = HashMap::new();
     let opaque_types = ahash::AHashSet::default();
 

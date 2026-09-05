@@ -81,7 +81,7 @@ fn enum_variant_name_matching_payload_type_emits_fully_qualified_component() {
         functions: vec![],
         enums: vec![content_part_enum()],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

@@ -12,7 +12,7 @@ use alef::backends::rustler::RustlerBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef::core::ir::{ApiSurface, CoreWrapper, FunctionDef, TypeDef, TypeRef};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 fn make_config(app_name: &str) -> ResolvedCrateConfig {
     let crate_name = app_name.replace('_', "-");
@@ -107,7 +107,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         functions: vec![func],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

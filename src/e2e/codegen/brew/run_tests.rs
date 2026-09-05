@@ -1,22 +1,21 @@
 use crate::core::hash::{self, CommentStyle};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 
 /// Emit a bash snippet that exports every `[e2e.env]` entry using `setdefault`
 /// semantics: each var is only set when not already present in the parent
 /// environment. Returns an empty string when the map is empty. Keys are sorted
 /// alphabetically for deterministic output.
-pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+pub(super) fn render_env_block(env: &BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
     let _ = writeln!(out, "# Suite-level environment defaults from [e2e.env]. Each entry");
     let _ = writeln!(out, "# uses setdefault semantics: only applied when not already set.");
-    for key in keys {
-        let value = &env[key];
+    // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+    // needed to keep generation reproducible. ~keep
+    for (key, value) in env {
         let _ = writeln!(out, "if [[ -z \"${{{key}+x}}\" ]]; then");
         let _ = writeln!(out, "  export {key}={}", crate::core::config::shell::quote_word(value));
         let _ = writeln!(out, "fi");
@@ -26,7 +25,7 @@ pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
 }
 
 /// Render the main `run_tests.sh` runner script.
-pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, String>, binary_name: &str) -> String {
+pub(super) fn render_run_tests(categories: &[String], env: &BTreeMap<String, String>, binary_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -217,7 +216,7 @@ mod tests {
     #[test]
     fn render_run_tests_uses_two_space_indent() {
         let categories = vec!["auth".to_string(), "crawl".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
         assert_shfmt_canonical_indent(&script, "render_run_tests");
         assert!(
             script.lines().any(|l| l.starts_with("  ") && !l.starts_with("   ")),
@@ -231,7 +230,7 @@ mod tests {
     /// `false` also renders as text and must keep passing.
     #[test]
     fn not_empty_for_brew_rejects_the_json_renderings_of_empty_values() {
-        let script = render_run_tests(&["auth".to_string()], &HashMap::new(), "sample-cli");
+        let script = render_run_tests(&["auth".to_string()], &BTreeMap::new(), "sample-cli");
         assert!(
             script.contains(
                 "  if [ -z \"$actual\" ] || [ \"$actual\" = \"null\" ] || [ \"$actual\" = \"[]\" ] \
@@ -243,7 +242,7 @@ mod tests {
 
     #[test]
     fn render_env_block_emits_setdefault_with_sorted_keys() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_env_block(&env);
@@ -261,14 +260,14 @@ mod tests {
 
     #[test]
     fn render_env_block_empty_when_no_env_configured() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         assert_eq!(render_env_block(&env), "");
     }
 
     #[test]
     fn render_run_tests_omits_env_block_when_env_empty() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
         assert!(
             !script.contains("Suite-level environment defaults"),
             "no env block when env empty; got: {script}"
@@ -282,7 +281,7 @@ mod tests {
     #[test]
     fn render_run_tests_emits_brew_cli_preflight_check() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
         assert!(
             script.contains("Verify the brew-installed CLI is on PATH"),
             "expected brew CLI preflight check; got:\n{script}"
@@ -306,7 +305,7 @@ mod tests {
     #[test]
     fn render_run_tests_preflight_uses_parameterized_binary_name() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new(), "mytool");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "mytool");
         assert!(
             script.contains("BINARY_NAME='mytool'") && script.contains("command -v \"$BINARY_NAME\""),
             "expected preflight to use parameterized binary; got:\n{script}"
@@ -323,7 +322,7 @@ mod tests {
 
     #[test]
     fn render_run_tests_includes_env_block_when_env_configured() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let categories = vec!["smoke".to_string()];
         let script = render_run_tests(&categories, &env, "sample-cli");
@@ -341,7 +340,7 @@ mod tests {
 
     #[test]
     fn render_env_block_keeps_hostile_values_in_single_quoted_data() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert(
             "ALEF_EXACT".to_string(),
             "literal'; touch /tmp/alef-brew-env; #".to_string(),
@@ -374,7 +373,7 @@ mod tests {
             std::fs::write(&path, "#!/usr/bin/env bash\nexit 0\n").expect("write stub");
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod stub");
         }
-        let script = render_run_tests(&["smoke".to_string()], &HashMap::new(), "sample-cli");
+        let script = render_run_tests(&["smoke".to_string()], &BTreeMap::new(), "sample-cli");
         std::fs::write(root.join("run_tests.sh"), &script).expect("write runner");
         std::fs::write(root.join("test_smoke.sh"), category_body).expect("write category file");
 

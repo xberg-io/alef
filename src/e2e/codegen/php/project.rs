@@ -383,16 +383,16 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
 /// Emit PHP code that sets every `[e2e.env]` entry into the environment
 /// using the setdefault pattern (check getenv, then update putenv + $_ENV + $_SERVER).
 /// Returns empty when no env vars are configured.
+///
+/// `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort needed. ~keep
 fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     if e2e_config.env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
-    keys.sort();
-    let lines = keys
+    let lines = e2e_config
+        .env
         .iter()
-        .map(|k| {
-            let v = &e2e_config.env[*k];
+        .map(|(k, v)| {
             format!(
                 "if (getenv('{}') === false) {{\n    putenv('{}={}');\n    $_ENV['{}'] = '{}';\n    $_SERVER['{}'] = '{}';\n}}",
                 k, k, v, k, v, k, v
@@ -690,9 +690,9 @@ exit($exitCode);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    fn make_e2e_config_with_env(env: HashMap<String, String>) -> E2eConfig {
+    fn make_e2e_config_with_env(env: BTreeMap<String, String>) -> E2eConfig {
         E2eConfig {
             env,
             ..E2eConfig::default()
@@ -701,14 +701,14 @@ mod tests {
 
     #[test]
     fn test_render_env_setup_block_empty_env() {
-        let config = make_e2e_config_with_env(HashMap::new());
+        let config = make_e2e_config_with_env(BTreeMap::new());
         let result = render_env_setup_block(&config);
         assert!(result.is_empty(), "empty env should produce empty setup block");
     }
 
     #[test]
     fn test_render_env_setup_block_single_env_var() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
 
         let config = make_e2e_config_with_env(env);
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_render_env_setup_block_multiple_env_vars_sorted() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
         env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
         env.insert("BETA_VAR".to_string(), "b_value".to_string());
@@ -758,7 +758,7 @@ mod tests {
 
     #[test]
     fn test_render_env_setup_block_special_characters_escaped() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("PATH_VAR".to_string(), "/some/path/value".to_string());
 
         let config = make_e2e_config_with_env(env);

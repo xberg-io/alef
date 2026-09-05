@@ -23,7 +23,7 @@ mod package_dir_trailing_slash_tests;
 mod removed_command_config_tests;
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use crate::core::config::GenerateConfig;
@@ -140,7 +140,7 @@ pub struct ResolvedCrateConfig {
     pub dto: DtoConfig,
 
     pub tools: ToolsConfig,
-    pub opaque_types: HashMap<String, String>,
+    pub opaque_types: BTreeMap<String, String>,
     pub client_constructors: HashMap<String, ClientConstructorConfig>,
     pub sync: Option<SyncConfig>,
     pub citation: Option<CitationConfig>,

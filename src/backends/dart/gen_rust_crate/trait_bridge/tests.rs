@@ -109,7 +109,8 @@ fn excluded_named_result_return_deserializes_with_error_mapping() {
         "HiddenDocument".to_string(),
         "demo::types::hidden::HiddenDocument".to_string(),
     )]);
-    let excluded_type_paths = type_paths.clone();
+    let excluded_type_paths: std::collections::BTreeMap<String, String> =
+        type_paths.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
     emit_trait_bridge_method(
         &mut out,
@@ -164,7 +165,8 @@ fn excluded_named_result_param_serializes_with_error_mapping() {
         "HiddenDocument".to_string(),
         "demo::types::hidden::HiddenDocument".to_string(),
     )]);
-    let excluded_type_paths = type_paths.clone();
+    let excluded_type_paths: std::collections::BTreeMap<String, String> =
+        type_paths.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
 
     emit_trait_bridge_method(
         &mut out,

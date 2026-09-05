@@ -413,13 +413,16 @@ pub(crate) fn emit_extern_block_for_functions(
     handle_returned_types: &HashSet<String>,
     enum_names: &HashSet<String>,
     unit_enum_names: &HashSet<&str>,
-    deferred_empty_handle_types: &HashSet<String>,
+    deferred_empty_handle_types: &BTreeSet<String>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     opaque_types: &ahash::AHashSet<String>,
 ) -> anyhow::Result<String> {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
+    // `deferred_empty_handle_types` is a `BTreeSet`, so this already iterates in a stable
+    // order -- pairing each `extern_type_decl` with its `extern_fn_noop` deterministically
+    // instead of following a `HashSet`'s randomly-seeded order. ~keep
     for ty_name in deferred_empty_handle_types {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",

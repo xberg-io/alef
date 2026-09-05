@@ -9,7 +9,7 @@ pub(super) struct KotlinAndroidBuildGradleInputs<'a> {
     pub(super) dep_mode: crate::e2e::config::DependencyMode,
     pub(super) jni_lib_name: &'a str,
     pub(super) jni_crate_path: &'a str,
-    pub(super) e2e_env: &'a std::collections::HashMap<String, String>,
+    pub(super) e2e_env: &'a std::collections::BTreeMap<String, String>,
     pub(super) capsule_types: &'a std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     pub(super) test_documents_path: &'a str,
 }
@@ -41,13 +41,11 @@ pub(super) fn render_build_gradle_kotlin_android(inputs: &KotlinAndroidBuildGrad
     // service allowlist env var that lets URL fixtures reach the loopback mock
     // server. Java has no portable way to mutate `environ` in-process (unlike
     // C#'s `Environment.SetEnvironmentVariable` or Elixir's `set_env` NIF), so
-    // it must be set at worker-fork time. Sorted for deterministic output.
+    // it must be set at worker-fork time. `e2e_env` is a `BTreeMap`, so this already
+    // iterates in key order for deterministic output. ~keep
     let test_env_block = {
-        let mut keys: Vec<&String> = e2e_env.keys().collect();
-        keys.sort();
         let mut block = String::new();
-        for key in keys {
-            let value = &e2e_env[key];
+        for (key, value) in e2e_env {
             let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
             block.push_str(&format!("\n    environment(\"{}\", \"{}\")", esc(key), esc(value)));
         }

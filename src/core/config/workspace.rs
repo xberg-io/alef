@@ -12,7 +12,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::GenerateConfig;
 use super::dto::DtoConfig;
@@ -221,8 +221,12 @@ pub struct WorkspaceConfig {
     /// extract. Map of type name → fully-qualified Rust path. These get opaque
     /// wrapper structs across all language backends, in every crate that
     /// references them.
+    ///
+    /// `BTreeMap` so every emit site that iterates it (module registration, opaque
+    /// wrapper generation) produces the same generated-crate ordering across runs
+    /// without each consumer having to sort it independently. ~keep
     #[serde(default)]
-    pub opaque_types: HashMap<String, String>,
+    pub opaque_types: BTreeMap<String, String>,
 
     /// Per-type custom constructors emitted by every backend that supports
     /// opaque handles.  Key: type name (e.g. `"DefaultClient"`).

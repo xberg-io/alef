@@ -4,7 +4,7 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::Fixture;
 use heck::ToUpperCamelCase;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
 /// Emit a Kotlin snippet that calls `System.setProperty(KEY, VALUE)` for every
@@ -13,13 +13,12 @@ use std::fmt::Write as FmtWrite;
 /// `getProperty(...) == null` guard preserves any value supplied externally via
 /// `-D` flags (setdefault semantics). Emitted inside the companion `init {}`
 /// block before `System.loadLibrary`. Returns an empty string when the env
-/// map is empty. Keys are sorted alphabetically for deterministic output.
-pub(super) fn render_kotlin_env_init(env: &HashMap<String, String>) -> String {
+/// map is empty. `env` is a `BTreeMap`, so this already iterates in key order -- no
+/// separate sort needed. ~keep
+pub(super) fn render_kotlin_env_init(env: &BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -33,8 +32,7 @@ pub(super) fn render_kotlin_env_init(env: &HashMap<String, String>) -> String {
         out,
         "            // entry uses setdefault semantics: only applied when not already set."
     );
-    for key in keys {
-        let value = &env[key];
+    for (key, value) in env {
         // Kotlin double-quoted strings: escape `\`, `"`, and `$` (string template).
         let escaped = value.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$");
         let _ = writeln!(out, "            if (System.getProperty(\"{key}\") == null) {{");
@@ -762,11 +760,11 @@ pub(super) fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSe
 #[cfg(test)]
 mod env_init_tests {
     use super::render_kotlin_env_init;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     #[test]
     fn render_kotlin_env_init_emits_setdefault_with_sorted_keys() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_kotlin_env_init(&env);
@@ -793,13 +791,13 @@ mod env_init_tests {
 
     #[test]
     fn render_kotlin_env_init_empty_when_no_env_configured() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         assert_eq!(render_kotlin_env_init(&env), "");
     }
 
     #[test]
     fn render_kotlin_env_init_escapes_quotes_and_dollar() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("Q".to_string(), "a\"b$c\\d".to_string());
         let block = render_kotlin_env_init(&env);
         assert!(

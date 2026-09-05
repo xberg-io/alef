@@ -574,7 +574,7 @@ fn render_setup(
     test_documents_dir: &str,
     include_file_setup: bool,
     pkg_name: &str,
-    env: &std::collections::HashMap<String, String>,
+    env: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
@@ -588,11 +588,10 @@ fn render_setup(
     }
     out.push('\n');
 
-    // Emit e2e env var assignments, alphabetically sorted by key.
+    // Emit e2e env var assignments. `env` is a `BTreeMap`, so this already iterates in key
+    // order -- no separate sort needed to keep generation reproducible. ~keep
     if !env.is_empty() {
-        let mut entries: Vec<_> = env.iter().collect();
-        entries.sort_by_key(|(k, _)| *k);
-        for (key, value) in entries {
+        for (key, value) in env {
             let _ = writeln!(out, "process.env.{key} ??= {value:?};");
         }
         out.push('\n');

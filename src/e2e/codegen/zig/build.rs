@@ -151,7 +151,7 @@ pub(super) fn render_build_zig(
     test_documents_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     use_platform_registry_deps: bool,
-    env: &std::collections::HashMap<String, String>,
+    env: &std::collections::BTreeMap<String, String>,
     capsule_deps: &[(String, String, String)],
     extra_system_libs: &[String],
 ) -> String {
@@ -525,13 +525,11 @@ pub fn build(b: *std.Build) void {
     content
 }
 
-/// Environment variables in a stable alphabetical order so the emitted
-/// `build.zig` is deterministic across runs (a `HashMap`'s own iteration order
-/// is not).
-fn sorted_env(env: &std::collections::HashMap<String, String>) -> Vec<(&String, &String)> {
-    let mut pairs: Vec<_> = env.iter().collect();
-    pairs.sort_by_key(|(k, _)| k.as_str());
-    pairs
+/// Environment variables as key/value pairs. `env` is a `BTreeMap`, so `iter()` already
+/// yields a stable alphabetical order -- the emitted `build.zig` is deterministic across
+/// runs without a separate sort. ~keep
+fn sorted_env(env: &std::collections::BTreeMap<String, String>) -> Vec<(&String, &String)> {
+    env.iter().collect()
 }
 
 /// Emit the working-directory, env-var, and mock-server wiring shared by every

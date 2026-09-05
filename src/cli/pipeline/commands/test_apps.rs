@@ -338,14 +338,12 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
 /// agrees with it -- until this change it did not. ~keep
 fn test_app_env_vars(config: &ResolvedCrateConfig, server: &Option<MockServerHandle>) -> Vec<(String, String)> {
     let server_env: Vec<(String, String)> = server.as_ref().map(|h| h.env_vars.clone()).unwrap_or_default();
+    // `e2e.env` is a `BTreeMap`, so `iter()` already yields key order -- no separate sort
+    // needed to keep this deterministic. ~keep
     let e2e_env: Vec<(String, String)> = config
         .e2e
         .as_ref()
-        .map(|e2e| {
-            let mut vars: Vec<(String, String)> = e2e.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            vars.sort();
-            vars
-        })
+        .map(|e2e| e2e.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
     e2e_env.into_iter().chain(server_env).collect()
 }

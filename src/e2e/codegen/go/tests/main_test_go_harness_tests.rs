@@ -118,14 +118,14 @@ fn main_test_go_avoids_exitafterdefer_linter_error() {
 
 #[test]
 fn render_env_setup_empty_returns_empty_string() {
-    let env = std::collections::HashMap::new();
+    let env = std::collections::BTreeMap::new();
     let out = render_env_setup(&env);
     assert_eq!(out, "", "empty env should produce empty output");
 }
 
 #[test]
 fn render_env_setup_single_var_contains_key_and_value() {
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
     let out = render_env_setup(&env);
     assert!(
@@ -142,7 +142,7 @@ fn render_env_setup_single_var_contains_key_and_value() {
 
 #[test]
 fn render_env_setup_multiple_vars_are_sorted() {
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("ZEBRA".to_string(), "value1".to_string());
     env.insert("APPLE".to_string(), "value2".to_string());
     env.insert("BANANA".to_string(), "value3".to_string());
@@ -158,7 +158,7 @@ fn render_env_setup_multiple_vars_are_sorted() {
 
 #[test]
 fn render_main_test_go_includes_env_setup_at_start() {
-    let mut env = std::collections::HashMap::new();
+    let mut env = std::collections::BTreeMap::new();
     env.insert("TEST_VAR".to_string(), "test_value".to_string());
     let out = render_main_test_go("test_documents", false, false, &env);
 
@@ -187,5 +187,41 @@ fn render_harness_uses_escaped_alias_for_reserved_keyword_module_segment() {
     assert!(
         out.contains("go_.NewApp()"),
         "escaped alias `go_` should be used as the package qualifier, got:\n{out}"
+    );
+}
+
+/// `env` is a `BTreeMap`, so iteration is always in key order regardless of insertion order or
+/// process-seeded hashing. Regression coverage for a real bug: before `E2eConfig::env` was typed
+/// as a `BTreeMap`, this loop ran over a `HashMap` whose randomly-seeded iteration order emitted
+/// the forwarding blocks differently on every run -- irreproducible generation that flapped the
+/// freshness gate (the file's `alef:hash:` changed with no source change behind it). Two
+/// consecutive generations of one consumer's `main_test.go` swapped two blocks. Asserted as a
+/// full sorted sequence rather than a single pair so a regression cannot satisfy it by luck. ~keep
+#[test]
+fn main_test_go_forwards_env_vars_in_sorted_order() {
+    let env: std::collections::BTreeMap<String, String> = [
+        ("ZULU_LAST", "1"),
+        ("ALPHA_FIRST", "2"),
+        ("MIKE_MIDDLE", "3"),
+        ("BRAVO_SECOND", "4"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
+    let out = render_main_test_go("testing_data", true, false, &env);
+
+    let positions: Vec<usize> = ["ALPHA_FIRST", "BRAVO_SECOND", "MIKE_MIDDLE", "ZULU_LAST"]
+        .iter()
+        .map(|key| {
+            out.find(&format!("cmdEnv = append(cmdEnv, \"{key}=\"+v)"))
+                .unwrap_or_else(|| panic!("main_test.go must forward {key}; got:\n{out}"))
+        })
+        .collect();
+
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "main_test.go must forward env vars in sorted key order so generation is reproducible, \
+         got offsets {positions:?} in:\n{out}"
     );
 }

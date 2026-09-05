@@ -140,10 +140,9 @@ pub(super) fn render_test_file(
             "extern \"c\" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;"
         );
         let _ = writeln!(out, "fn allow_private_network() void {{");
-        let mut keys: Vec<&String> = e2e_config.env.keys().collect();
-        keys.sort();
-        for k in keys {
-            let v = &e2e_config.env[k];
+        // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+        // needed to keep generation reproducible. ~keep
+        for (k, v) in &e2e_config.env {
             let _ = writeln!(out, "    _ = setenv(\"{k}\", \"{v}\", 1);");
         }
         let _ = writeln!(out, "}}");

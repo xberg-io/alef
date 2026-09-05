@@ -8,7 +8,6 @@ use alef::backends::napi::NapiBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::*;
-use std::collections::HashMap;
 
 fn make_config() -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(
@@ -106,7 +105,7 @@ fn api(types: Vec<TypeDef>, functions: Vec<FunctionDef>) -> ApiSurface {
         functions,
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: HashMap::new(),
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],

@@ -554,7 +554,7 @@ fn two_distinct_java_module_warnings() -> E2eConfig {
 
     E2eConfig {
         call: java_class_module("io.sample.Alpha"),
-        calls: std::collections::HashMap::from([("beta".to_string(), java_class_module("io.sample.Beta"))]),
+        calls: std::collections::BTreeMap::from([("beta".to_string(), java_class_module("io.sample.Beta"))]),
         ..E2eConfig::default()
     }
 }

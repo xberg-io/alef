@@ -97,7 +97,7 @@ fn render(api: &ApiSurface) -> String {
         &[],
         &DtoConfig::default(),
         &HashMap::new(),
-        &HashMap::new(),
+        &std::collections::BTreeMap::new(),
         &[],
         &[],
         &ahash::AHashSet::new(),

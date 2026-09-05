@@ -163,7 +163,7 @@ fn apply_renames(surface: &mut ApiSurface, renames: &AHashMap<String, String>) {
         }
     }
 
-    let excluded: Vec<(String, String)> = surface.excluded_type_paths.drain().collect();
+    let excluded: Vec<(String, String)> = std::mem::take(&mut surface.excluded_type_paths).into_iter().collect();
     for (name, path) in excluded {
         if let Some(new_name) = renames.get(&path) {
             surface.excluded_type_paths.insert(new_name.clone(), path);

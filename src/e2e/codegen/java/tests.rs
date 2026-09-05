@@ -3,7 +3,7 @@ use super::visitor::{apply_java_visitor_arg, java_visitor_binding};
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
 use crate::e2e::fixture::Fixture;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
     Fixture {
@@ -35,7 +35,7 @@ fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
 /// when input has batch_urls and select_when condition matches.
 #[test]
 fn test_java_select_when_routes_to_batch_scrape() {
-    let mut calls = HashMap::new();
+    let mut calls = BTreeMap::new();
     calls.insert(
         "batch_scrape".to_string(),
         CallConfig {
@@ -335,7 +335,7 @@ fn test_java_env_entries_empty_produces_no_init_env() {
     let fixtures = vec![&fixture];
 
     let e2e_config = E2eConfig {
-        env: HashMap::new(),
+        env: BTreeMap::new(),
         call: CallConfig::default(),
         ..E2eConfig::default()
     };
@@ -377,7 +377,7 @@ fn test_java_env_entries_renders_sorted_system_properties() {
     let fixture = make_fixture_with_input("basic", serde_json::json!({}));
     let fixtures = vec![&fixture];
 
-    let mut env = HashMap::new();
+    let mut env = BTreeMap::new();
     env.insert("ZEBRA_FLAG".to_string(), "zebra_value".to_string());
     env.insert("ALPHA_FLAG".to_string(), "alpha_value".to_string());
     env.insert("BETA_FLAG".to_string(), "beta_value".to_string());

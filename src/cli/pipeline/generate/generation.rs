@@ -46,8 +46,14 @@ pub fn generate(
     }
 
     let ir_json = serde_json::to_string(api)?;
-    let mut config_toml =
-        toml::to_string(config).with_context(|| "failed to serialize resolved crate config for cache key")?;
+    // Route through `canonical_toml_string`, not a plain `toml::to_string`: `ResolvedCrateConfig`
+    // carries several `HashMap` fields, and serde serializes a `HashMap` in that map's own
+    // randomly-seeded-per-process order, so an unsorted serialization makes this cache key
+    // differ on every run even when nothing changed -- silently defeating the cache. ~keep
+    let config_value =
+        toml::Value::try_from(config).with_context(|| "failed to serialize resolved crate config for cache key")?;
+    let mut config_toml = crate::core::hash::canonical_toml_string(config_value)
+        .with_context(|| "failed to serialize resolved crate config for cache key")?;
     let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
     config_toml.push_str("\n# raw alef.toml\n");
     config_toml.push_str(&String::from_utf8_lossy(&alef_toml_bytes));

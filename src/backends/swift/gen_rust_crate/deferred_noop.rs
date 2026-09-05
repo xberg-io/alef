@@ -1,6 +1,6 @@
 use crate::core::ir::TypeDef;
 use heck::ToSnakeCase;
-use std::collections::HashSet;
+use std::collections::BTreeSet;
 
 /// Emit no-op method shims for deferred-empty-handle types that have no methods.
 ///
@@ -8,7 +8,11 @@ use std::collections::HashSet;
 /// by value and have empty type blocks. The no-op method in the extern block
 /// signals to swift-bridge to generate $_free, and this provides the matching Rust
 /// implementation so the declaration compiles.
-pub(super) fn emit_shims(deferred_empty_handle_types: &HashSet<String>, visible_types: &[&TypeDef]) -> String {
+///
+/// `deferred_empty_handle_types` is a `BTreeSet`, so the emitted shims pair with the
+/// `extern "Rust"` declarations in `extern_block::emit_extern_block_for_functions` in the same
+/// deterministic order. ~keep
+pub(super) fn emit_shims(deferred_empty_handle_types: &BTreeSet<String>, visible_types: &[&TypeDef]) -> String {
     let mut out = String::new();
     for ty_name in deferred_empty_handle_types {
         let type_snake = ty_name.to_snake_case();

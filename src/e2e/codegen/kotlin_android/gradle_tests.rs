@@ -23,7 +23,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Local,
             jni_lib_name: "demo_client_jni",
             jni_crate_path: "../../crates/demo-client-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -49,7 +49,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Local,
             jni_lib_name: "demo_client_jni",
             jni_crate_path: "../../crates/demo-client-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -76,7 +76,7 @@ mod tests {
     /// in-process, so it must be set at worker-fork time.
     #[test]
     fn build_gradle_kotlin_android_forwards_e2e_env_to_test_worker() {
-        let mut env = std::collections::HashMap::new();
+        let mut env = std::collections::BTreeMap::new();
         env.insert("MY_SERVICE_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         for dep_mode in [
             crate::e2e::config::DependencyMode::Registry,
@@ -118,7 +118,7 @@ mod tests {
                 dep_mode,
                 jni_lib_name: "sample_crate_jni",
                 jni_crate_path: "../../crates/sample_crate-jni",
-                e2e_env: &std::collections::HashMap::new(),
+                e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
             });
@@ -160,7 +160,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Local,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &capsule_types,
             test_documents_path: "../../test_documents",
         });
@@ -195,7 +195,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Registry,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &capsule_types,
             test_documents_path: "../../test_documents",
         });
@@ -219,7 +219,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Registry,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -290,7 +290,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Registry,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -329,7 +329,7 @@ mod tests {
                 dep_mode,
                 jni_lib_name: "sample_crate_jni",
                 jni_crate_path: "../../crates/sample_crate-jni",
-                e2e_env: &std::collections::HashMap::new(),
+                e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
             });
@@ -350,7 +350,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Local,
             jni_lib_name: "demo_client_jni",
             jni_crate_path: "../../crates/demo-client-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -375,7 +375,7 @@ mod tests {
                 dep_mode,
                 jni_lib_name: "sample_crate_jni",
                 jni_crate_path: "../../crates/sample_crate-jni",
-                e2e_env: &std::collections::HashMap::new(),
+                e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
             });
@@ -409,7 +409,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Local,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });
@@ -434,7 +434,7 @@ mod tests {
             dep_mode: crate::e2e::config::DependencyMode::Registry,
             jni_lib_name: "sample_crate_jni",
             jni_crate_path: "../../crates/sample_crate-jni",
-            e2e_env: &std::collections::HashMap::new(),
+            e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
         });

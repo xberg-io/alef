@@ -355,7 +355,10 @@ fn emit_lib_rs(
 
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
-    let mut deferred_empty_handle_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // `BTreeSet` so the paired `extern "Rust"` declaration (`extern_block::
+    // emit_extern_block_for_functions`) and no-op shim (`deferred_noop::emit_shims`) are
+    // emitted in the same deterministic order across runs. ~keep
+    let mut deferred_empty_handle_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for ty in &visible_types {
         let is_handle_returned = handle_returned_types.contains(&ty.name);
         let would_be_empty_type_block = ty.fields.is_empty()
@@ -453,7 +456,7 @@ fn emit_lib_rs(
             cfg_groups.entry(f.cfg.clone().unwrap()).or_default().push((*f).clone());
         }
         for (cfg_cond, fns) in &cfg_groups {
-            let empty_set = std::collections::HashSet::new();
+            let empty_set = std::collections::BTreeSet::new();
             let block = extern_block::emit_extern_block_for_functions(
                 fns,
                 &handle_returned_types,

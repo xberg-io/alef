@@ -18,7 +18,7 @@ pub(super) fn dart_fn_future_callback_type(
     method: &MethodDef,
     source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let (params_str, dart_fn_ret) = dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
     format!("Box<dyn Fn({params_str}) -> {dart_fn_ret} + Send + Sync>")
@@ -38,7 +38,7 @@ pub(super) fn dart_fn_future_factory_param_type(
     method: &MethodDef,
     source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> String {
     let (params_str, dart_fn_ret) = dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
     format!("impl Fn({params_str}) -> {dart_fn_ret} + Send + Sync + 'static")
@@ -47,7 +47,7 @@ pub(super) fn dart_fn_future_factory_param_type(
 fn dart_fn_future_params_and_ret(
     method: &MethodDef,
     source_crate_name: &str,
-    excluded_type_paths: &std::collections::HashMap<String, String>,
+    excluded_type_paths: &std::collections::BTreeMap<String, String>,
 ) -> (String, String) {
     let params: Vec<String> = method
         .params

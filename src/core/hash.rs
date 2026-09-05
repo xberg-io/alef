@@ -627,6 +627,19 @@ fn sort_toml_value(value: toml::Value) -> toml::Value {
     }
 }
 
+/// Serialize `value` to TOML with every table's keys in a stable, sorted order.
+///
+/// `value` typically comes from `toml::Value::try_from(&some_serde_struct)`. Use this instead
+/// of `toml::to_string` directly whenever the struct being serialized carries a `HashMap` field:
+/// serde serializes a `HashMap` in that map's own randomly-seeded-per-process iteration order,
+/// so two structurally identical structs can serialize to different byte strings across runs.
+/// Round-tripping through `toml::Value` and sorting recursively removes that source of
+/// nondeterminism from the resulting string -- a `BTreeMap` field is unaffected by this either
+/// way, since it was already stable. ~keep
+pub(crate) fn canonical_toml_string(value: toml::Value) -> Result<String, toml::ser::Error> {
+    toml::to_string(&sort_toml_value(value))
+}
+
 /// Normalize a source-file path for stable hashing across machines and
 /// operating systems.
 ///

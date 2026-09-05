@@ -3,7 +3,7 @@
 use crate::core::hash::{self, CommentStyle};
 use crate::e2e::escape::{escape_c, sanitize_ident};
 use crate::e2e::fixture::{Fixture, FixtureGroup};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt::Write as FmtWrite;
 
 /// Emit a C snippet that calls `setenv(KEY, VALUE, 0)` for every `[e2e.env]`
@@ -11,12 +11,10 @@ use std::fmt::Write as FmtWrite;
 /// flag preserves any parent-set values (setdefault semantics). Returns an
 /// empty string when the env map is empty. Keys are sorted alphabetically for
 /// deterministic output.
-pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+pub(super) fn render_env_block(env: &BTreeMap<String, String>) -> String {
     if env.is_empty() {
         return String::new();
     }
-    let mut keys: Vec<&String> = env.keys().collect();
-    keys.sort();
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -26,8 +24,9 @@ pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
         out,
         "    /* only applied when not already set in the process environment.   */"
     );
-    for key in keys {
-        let value = &env[key];
+    // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+    // needed to keep generation reproducible. ~keep
+    for (key, value) in env {
         let key_lit = escape_c(key);
         let val_lit = escape_c(value);
         let _ = writeln!(out, "    if (getenv(\"{key_lit}\") == NULL) {{");
@@ -379,7 +378,7 @@ pub(super) fn render_test_runner_header(
 pub(super) fn render_main_c(
     active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
     visitor_fixtures: &[&Fixture],
-    env: &HashMap<String, String>,
+    env: &BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
@@ -458,7 +457,7 @@ mod tests {
 
     #[test]
     fn render_env_block_emits_setdefault_with_sorted_keys() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_env_block(&env);
@@ -479,13 +478,13 @@ mod tests {
 
     #[test]
     fn render_env_block_empty_when_no_env_configured() {
-        let env = HashMap::new();
+        let env = BTreeMap::new();
         assert_eq!(render_env_block(&env), "");
     }
 
     #[test]
     fn render_main_c_includes_env_block_at_start_of_main() {
-        let mut env = HashMap::new();
+        let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let main_c = render_main_c(&[], &[], &env);
         assert!(main_c.contains("setenv(\"E2E_ALLOW_PRIVATE_NETWORK\""), "got: {main_c}");
@@ -508,7 +507,7 @@ mod tests {
             id: "reports_failure".to_string(),
             ..Fixture::default()
         };
-        let main_c = render_main_c(&[], &[&fixture], &HashMap::new());
+        let main_c = render_main_c(&[], &[&fixture], &BTreeMap::new());
         assert!(main_c.contains("int failed = 0;"));
         assert!(main_c.contains("if (alef_current_test_status == ALEF_TEST_FAILED)"));
         assert!(main_c.contains("printf(\" FAILED\\n\");"));
@@ -519,7 +518,7 @@ mod tests {
 
     #[test]
     fn render_main_c_omits_env_block_when_env_empty() {
-        let main_c = render_main_c(&[], &[], &HashMap::new());
+        let main_c = render_main_c(&[], &[], &BTreeMap::new());
         assert!(
             !main_c.contains("Suite-level env defaults"),
             "no env block when env empty; got: {main_c}"

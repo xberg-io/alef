@@ -93,7 +93,7 @@ fn render(api: &ApiSurface, adapter: &AdapterConfig) -> (String, String) {
         &[],
         &DtoConfig::default(),
         &HashMap::new(),
-        &HashMap::new(),
+        &std::collections::BTreeMap::new(),
         std::slice::from_ref(adapter),
         &[],
         &ahash::AHashSet::new(),

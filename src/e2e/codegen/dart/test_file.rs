@@ -370,11 +370,10 @@ pub(super) fn render_test_file(
     // The FIXTURES_DIR environment variable can override this for CI environments.
     let _ = writeln!(out, "  setUpAll(() async {{");
     // Inject e2e env vars before initializing the binding engine.
+    // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
+    // needed to keep generation reproducible. ~keep
     if !e2e_config.env.is_empty() {
-        let mut keys: Vec<_> = e2e_config.env.keys().collect();
-        keys.sort();
-        for key in keys {
-            let value = &e2e_config.env[key];
+        for (key, value) in &e2e_config.env {
             // Escape backslashes and quotes in value for Dart string literal.
             let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
             let _ = writeln!(out, "    _setEnv('{key}', '{escaped_value}');");

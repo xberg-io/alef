@@ -3,7 +3,7 @@ use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig, SelectWhen};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, Fixture};
 use heck::ToPascalCase;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::stubs::emit_test_backend_with_class_name;
 
@@ -37,7 +37,7 @@ fn make_fixture_with_input(id: &str, input: serde_json::Value) -> Fixture {
 /// when input has batch_urls and select_when condition matches.
 #[test]
 fn test_csharp_select_when_routes_to_batch_scrape() {
-    let mut calls = HashMap::new();
+    let mut calls = BTreeMap::new();
     calls.insert(
         "batch_scrape".to_string(),
         CallConfig {
