@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef docs` could silently emit a skill or `llms.txt` heading that fused the title and the
+  description onto one line**, tripping `MD022`/`MD026` in every downstream repo's markdown lint.
+  A user-authored `SKILL.md.jinja`/`llms.txt.jinja` template that forgot the blank line after
+  `# Title` folded the following paragraph into the same visual heading. `render_skills` and
+  `render_llms` now validate the leading `#` heading of the rendered content — a blank line must
+  follow it, and it must not end in trailing punctuation — and fail generation with a message
+  naming the offending template instead of shipping the malformed heading.
 - **The Swift trait-box adapter emitted a `try!` that could crash the whole process.** A required
   `Named`-type parameter decoded as `(try? fromJson(caller)) ?? (try! fromJson("{}"))`, so the day
   the type gained a required field the `"{}"` fallback would fail to decode and abort the process
