@@ -333,8 +333,9 @@ pub fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: 
     let (expected_body, expected_headers) =
         plan_response_assertions(&http.expected_response, &http.request.method, cors_cfg.is_some());
 
-    let _ = writeln!(out, "#[tokio::test]");
-    let _ = writeln!(out, "async fn test_{fn_name}() {{");
+    let _ = writeln!(out, "#[test]");
+    let _ = writeln!(out, "fn test_{fn_name}() {{");
+    let _ = writeln!(out, "    common::runtime().block_on(async {{");
     let _ = writeln!(out, "    // {description}");
 
     // When static-files middleware is configured, serve from a temp dir via ServeDir.
@@ -426,6 +427,7 @@ pub fn render_http_test_function(out: &mut String, fixture: &Fixture, dep_name: 
     }
     render_header_assertions(out, &expected_headers);
 
+    let _ = writeln!(out, "    }});");
     let _ = writeln!(out, "}}");
 }
 
@@ -603,6 +605,7 @@ fn render_static_files_test(
         render_body_assertion(out, &expected);
     }
 
+    let _ = writeln!(out, "    }});");
     let _ = writeln!(out, "}}");
 }
 
@@ -1061,5 +1064,48 @@ mod tests {
         render_cors_layer(&mut out, &cors);
         assert!(out.contains("HeaderName"));
         assert!(out.contains("use axum::http::HeaderName;"));
+    }
+
+    /// `#[tokio::test]` builds and drops its own `current_thread` runtime per test; a
+    /// pooled HTTP connection created on one such runtime outlives it and is later handed
+    /// to a different test's runtime, causing intermittent "error sending request" and
+    /// "error decoding response body" failures. Every generated HTTP test must instead run
+    /// synchronously and block the shared process-wide runtime from `common::runtime()`.
+    #[test]
+    fn render_http_test_function_uses_shared_runtime_not_tokio_test() {
+        let fixture = http_fixture(expected_response(None, &[]), None, "GET");
+        let mut out = String::new();
+        render_http_test_function(&mut out, &fixture, "demo");
+
+        assert!(!out.contains("#[tokio::test]"), "{out}");
+        assert!(!out.contains("async fn test_"), "{out}");
+        assert!(out.contains("#[test]\nfn test_sample() {\n"), "{out}");
+        assert!(out.contains("common::runtime().block_on(async {"), "{out}");
+        // The block_on wrapper closes with `});` immediately before the fn's own closing `}`.
+        assert!(out.trim_end().ends_with("});\n}"), "{out}");
+    }
+
+    /// The static-files middleware path renders through a separate helper
+    /// (`render_static_files_test`) with its own closing brace — it must get the same
+    /// shared-runtime wrapper as the main HTTP test path.
+    #[test]
+    fn render_http_test_function_static_files_path_uses_shared_runtime() {
+        let middleware = HttpMiddleware {
+            static_files: Some(vec![StaticFilesConfig {
+                route_prefix: "/public".to_string(),
+                files: Vec::new(),
+                index_file: false,
+                cache_control: None,
+            }]),
+            ..HttpMiddleware::default()
+        };
+        let fixture = http_fixture(expected_response(None, &[]), Some(middleware), "GET");
+        let mut out = String::new();
+        render_http_test_function(&mut out, &fixture, "demo");
+
+        assert!(!out.contains("#[tokio::test]"), "{out}");
+        assert!(out.contains("#[test]\nfn test_sample() {\n"), "{out}");
+        assert!(out.contains("common::runtime().block_on(async {"), "{out}");
+        assert!(out.contains("    });\n}"), "{out}");
     }
 }

@@ -72,8 +72,8 @@ pub fn render_test_function(
         if resolved_fn_name.is_empty() {
             let fn_name = crate::e2e::escape::sanitize_ident(&fixture.id);
             let description = &fixture.description;
-            let _ = writeln!(out, "#[tokio::test]");
-            let _ = writeln!(out, "async fn test_{fn_name}() {{");
+            let _ = writeln!(out, "#[test]");
+            let _ = writeln!(out, "fn test_{fn_name}() {{");
             let _ = writeln!(out, "    // {description}");
             let _ = writeln!(
                 out,
@@ -154,12 +154,10 @@ pub fn render_test_function(
 
     // Tests with a mock server are always async (Axum requires a Tokio runtime).
     let is_async = call_config.r#async || has_mock;
+    let _ = writeln!(out, "#[test]");
+    let _ = writeln!(out, "fn test_{fn_name}() {{");
     if is_async {
-        let _ = writeln!(out, "#[tokio::test]");
-        let _ = writeln!(out, "async fn test_{fn_name}() {{");
-    } else {
-        let _ = writeln!(out, "#[test]");
-        let _ = writeln!(out, "fn test_{fn_name}() {{");
+        let _ = writeln!(out, "    common::runtime().block_on(async {{");
     }
     let _ = writeln!(out, "    // {description}");
 
@@ -469,6 +467,9 @@ pub fn render_test_function(
                 None,
             );
         }
+        if is_async {
+            let _ = writeln!(out, "    }});");
+        }
         let _ = writeln!(out, "}}");
         finalize_test_body(final_out, fixture, e2e_config, has_mock, &body_buf);
         return;
@@ -713,6 +714,9 @@ pub fn render_test_function(
         );
     }
 
+    if is_async {
+        let _ = writeln!(out, "    }});");
+    }
     let _ = writeln!(out, "}}");
     finalize_test_body(final_out, fixture, e2e_config, has_mock, &body_buf);
 }
@@ -745,3 +749,7 @@ mod optional_segment_len_tests;
 #[cfg(test)]
 #[path = "test_function/ir_only_array_classification_tests.rs"]
 mod ir_only_array_classification_tests;
+
+#[cfg(test)]
+#[path = "test_function/shared_runtime_tests.rs"]
+mod shared_runtime_tests;

@@ -243,13 +243,26 @@ pub fn render_test_file(
         let _ = writeln!(out, "use {module}::{symbol};");
     }
 
-    // Import mock_server and common modules when any fixture in this file uses mock_response.
+    // `common::runtime()` backs every async test in this file (mock-server, HTTP, or a
+    // plain fixture whose resolved call config sets `async = true`) — not only the ones
+    // that also spawn a mock server — so `mod common;` is declared whenever any of those
+    // are present, independent of `mod mock_server;` below. ~keep
+    let file_needs_common = fixtures.iter().any(|f| {
+        f.needs_mock_server()
+            || e2e_config
+                .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
+                .r#async
+    });
+    if file_needs_common {
+        let _ = writeln!(out, "mod common;");
+    }
+
+    // Import the mock_server module when any fixture in this file uses mock_response.
     let file_needs_mock = needs_mock_server
         && fixtures
             .iter()
             .any(|f| f.mock_response.is_some() || f.needs_mock_server());
     if file_needs_mock {
-        let _ = writeln!(out, "mod common;");
         let _ = writeln!(out, "mod mock_server;");
         let _ = writeln!(out, "#[allow(unused_imports)]");
         let _ = writeln!(out, "use mock_server::{{MockRoute, MockServer}};");

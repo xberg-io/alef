@@ -24,6 +24,8 @@ mod assertion_wire;
 #[cfg(test)]
 mod collection_field_classification_tests;
 #[cfg(test)]
+mod common_module_generation_tests;
+#[cfg(test)]
 mod containment_enum_wire_tests;
 mod fieldless_result;
 #[cfg(test)]
@@ -218,7 +220,11 @@ impl E2eCodegen for RustE2eCodegen {
                 content: render_mock_server_module(),
                 generated_header: true,
             });
-            // Generate common.rs module for spawning the standalone mock-server binary.
+        }
+        // common.rs backs `common::runtime()`, the shared multi-thread Tokio runtime every
+        // async test blocks on — not only tests that also spawn a mock server — so it must
+        // exist whenever any test in the crate is async. ~keep
+        if needs_tokio {
             files.push(GeneratedFile {
                 path: output_base.join("tests").join("common.rs"),
                 content: render_common_module(),
@@ -383,11 +389,15 @@ fn render_docs_snippet(
     ))
 }
 
+/// The line every generated async test emits right after its signature to block the shared
+/// process-wide runtime, instead of being declared `async fn` itself.
+const BLOCK_ON_OPEN_LINE: &str = "common::runtime().block_on(async {";
+
 fn extract_rust_snippet(rendered: &str) -> Result<(Vec<&str>, Vec<&str>, bool)> {
     let lines = rendered.lines().collect::<Vec<_>>();
     let signature = lines
         .iter()
-        .position(|line| line.starts_with("async fn test_") || line.starts_with("fn test_"))
+        .position(|line| line.starts_with("fn test_"))
         .ok_or_else(|| anyhow::anyhow!("generated Rust test did not contain a fixture function"))?;
     let imports = lines[..signature]
         .iter()
@@ -396,12 +406,24 @@ fn extract_rust_snippet(rendered: &str) -> Result<(Vec<&str>, Vec<&str>, bool)> 
         .collect();
     let function_end = find_function_end(&lines, signature + 1)
         .ok_or_else(|| anyhow::anyhow!("generated Rust fixture function was not closed"))?;
-    let body = lines[signature + 1..function_end]
+    // Every generated test now blocks the shared runtime via `common::runtime().block_on(async
+    // { ... });` rather than being declared `async fn` itself — a wrapper meaningless in a
+    // standalone doc snippet, which has no `common` module to call into. Strip it here and
+    // recover the `is_async` signal it replaced on the function signature. ~keep
+    let is_async = lines
+        .get(signature + 1)
+        .is_some_and(|line| line.trim_start() == BLOCK_ON_OPEN_LINE);
+    let (body_start, body_end) = if is_async {
+        (signature + 2, function_end - 1)
+    } else {
+        (signature + 1, function_end)
+    };
+    let body = lines[body_start..body_end]
         .iter()
         .copied()
         .filter(|line| !line.trim_start().starts_with("//"))
         .collect();
-    Ok((imports, body, lines[signature].starts_with("async fn ")))
+    Ok((imports, body, is_async))
 }
 
 /// Locate the line index of the `}` that closes the function whose body begins at `start`

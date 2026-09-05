@@ -94,6 +94,29 @@ fn render_common_module_has_expected_symbols() {
     assert!(src.contains("serde_json"), "missing serde_json parsing");
 }
 
+/// Every generated test now blocks this shared, process-wide, multi-thread runtime instead of
+/// building (and dropping) its own via `#[tokio::test]` — a `current_thread` runtime dropped at
+/// the end of one test otherwise orphans a pooled connection that a later test's runtime can
+/// check out already dead, producing intermittent "error sending request" / "error decoding
+/// response body" failures.
+#[test]
+fn render_common_module_exposes_a_shared_multi_thread_runtime() {
+    let src = render_common_module();
+    assert!(
+        src.contains("pub fn runtime() -> &'static tokio::runtime::Runtime"),
+        "missing runtime() fn:\n{src}"
+    );
+    assert!(
+        src.contains("Builder::new_multi_thread()"),
+        "runtime() must build a multi-thread runtime, got:\n{src}"
+    );
+    assert!(
+        src.contains(".enable_all()"),
+        "runtime() must enable all tokio drivers:\n{src}"
+    );
+    syn::parse_file(&src).expect("generated common.rs must parse as Rust");
+}
+
 /// A fixture that declares a `body_file` the mock server cannot read is a broken fixture, not a
 /// zero-length document. Serving an empty 200 for it made a provisioning gap reach the consumer
 /// as whatever error its HTTP client invented for an empty body -- in one investigation, an
