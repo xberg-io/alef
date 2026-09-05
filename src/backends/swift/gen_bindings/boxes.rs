@@ -432,9 +432,15 @@ pub(super) fn swift_adapter_conversions(
                             "let {local}: {name}? = {snake}.flatMap {{ try? {from_json}($0.toString()) }}"
                         ));
                     } else {
+                        // The primary decode uses the caller's JSON; "{}" is only a fallback for
+                        // types whose fields are all optional/defaulted. A bare `try!` on that
+                        // fallback would crash the whole process the day the type gains a
+                        // required field, so both attempts are `try?` and a failed pair returns
+                        // an empty result instead of aborting. ~keep
                         setup_lines.push(format!(
-                            "let {local}: {name} = (try? {from_json}({snake}.toString())) ?? (try! {from_json}(\"{{}}\"))"
+                            "let {local}: {name}? = (try? {from_json}({snake}.toString())) ?? (try? {from_json}(\"{{}}\"))"
                         ));
+                        setup_lines.push(format!("guard let {local} = {local} else {{ return \"{{}}\" }}"));
                     }
                     local
                 }
@@ -474,4 +480,45 @@ pub(super) fn swift_box_delegate_call_args(method: &crate::core::ir::MethodDef) 
         .map(|p| swift_ident(&p.name.to_lower_camel_case()))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{MethodDef, ParamDef};
+
+    /// Regression test: a required `Named`-type param used to fall back to `try!` when both
+    /// the caller's JSON and the "{}" placeholder failed to decode, crashing the whole process
+    /// the moment the type gained a required field. The fallback must degrade to an empty
+    /// result instead of aborting, and `try!` must never appear in the generated conversion. ~keep
+    #[test]
+    fn required_named_param_decode_failure_returns_early_instead_of_crashing() {
+        let method = MethodDef {
+            name: "visit_text".to_string(),
+            params: vec![ParamDef {
+                name: "ctx".to_string(),
+                ty: TypeRef::Named("NodeContext".to_string()),
+                ..ParamDef::default()
+            }],
+            ..MethodDef::default()
+        };
+
+        let (setup_lines, call_args) = swift_adapter_conversions(&method, &HashSet::new());
+        let rendered = setup_lines.join("\n");
+
+        assert!(
+            !rendered.contains("try!"),
+            "a force-try can crash the process on a benign decode failure: {rendered}"
+        );
+        assert!(
+            rendered.contains("guard let ctxDecoded = ctxDecoded else { return \"{}\" }"),
+            "expected a guarded early return on total decode failure, got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("let ctxDecoded: NodeContext? = (try? nodeContextFromJson(ctx.toString())) ?? \
+                                (try? nodeContextFromJson(\"{}\"))"),
+            "expected both decode attempts to use `try?`, got:\n{rendered}"
+        );
+        assert_eq!(call_args, "ctxDecoded");
+    }
 }
