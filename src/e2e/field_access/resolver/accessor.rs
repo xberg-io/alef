@@ -162,9 +162,14 @@ impl FieldResolver {
     /// node (NAPI): `backends::napi::gen_bindings::enums::gen_tagged_enum_as_object` gives this
     /// shape a REAL optional field on the flattened binding struct, named after the variant
     /// itself (`html`, `excel`, ...) via `tagged_enum_binding_field_js_name` -- the crossing has
-    /// a member to spell, it was simply never asked for one. `field_skip.rs`'s "no `excel`
-    /// property at all" note describes the OTHER shape napi also flattens (inline named fields,
-    /// exposed under their OWN names with no variant-named member at all), not this one.
+    /// a member to spell, it was simply never asked for one. But the `.d.ts`
+    /// (`internal_tagged_union_dts_lines`) types that SAME flattened object as a real
+    /// discriminated union, one variant shape per member, so a bare `container.html` is a
+    /// `TS2339` on every other variant's declared shape -- the member must be reached behind a
+    /// discriminant-narrowed ternary, not a plain or optionally-chained field access.
+    /// `field_skip.rs`'s "no `excel` property at all" note describes the OTHER shape napi also
+    /// flattens (inline named fields, exposed under their OWN names with no variant-named member
+    /// at all), not this one.
     ///
     /// wasm: an internally-tagged enum (no `#[serde(tag = .., content = ..)]`) is bridged as
     /// `JsValue` at the FIELD site regardless of shape (`mod.rs`'s `jsvalue_bridged_enum_names`
@@ -187,12 +192,25 @@ impl FieldResolver {
         };
         match language {
             "node" => {
+                // The `.d.ts` types this crossing as a real discriminated union
+                // (`internal_tagged_union_dts_lines`), so `container.{js_field}` alone is a
+                // `TS2339` on every OTHER variant's declared shape -- optional chaining does not
+                // narrow a discriminated union. A ternary on the discriminant is the narrowing
+                // form that still fits in a single expression, matching
+                // `typescript_snippet_variant_guard`'s condition/wire lookup rather than
+                // re-deriving it. `None` when the enum carries no tag to test (declining, like
+                // the guard, rather than guessing a condition) -- unreachable in practice since
+                // this arm only runs for internally-tagged enums (see the doc comment above). ~keep
                 let js_field = crate::codegen::naming::to_node_name(&variant);
+                let wire = self.ir_enum_map.tagged_enum_wire.get(&union_type)?;
+                let wire_value = wire.variants.get(&variant)?;
+                let tag = &wire.tag;
+                let narrowed = format!("({container}.{tag} === \"{wire_value}\" ? {container}.{js_field} : undefined)");
                 if suffix.is_empty() {
-                    return Some(format!("{container}.{js_field}"));
+                    return Some(narrowed);
                 }
                 let suffix_chain: Vec<String> = suffix.split('.').map(crate::codegen::naming::to_node_name).collect();
-                Some(format!("{container}.{js_field}?.{}", suffix_chain.join("?.")))
+                Some(format!("{narrowed}?.{}", suffix_chain.join("?.")))
             }
             "wasm" if self.tagged_enum_content_key(&union_type).is_none() => {
                 if suffix.is_empty() {
@@ -209,18 +227,18 @@ impl FieldResolver {
     /// crosses an internally-tagged union boundary whose `.d.ts` shape is a real discriminated
     /// union (`backends::napi::gen_bindings::errors::internal_tagged_union_dts_lines`).
     ///
-    /// [`Self::typescript_tagged_union_accessor`] spells the SAME crossing as a flat
-    /// `container.html?.title` chain -- correct for `assertions.rs`, whose emitted vitest file
-    /// is never `tsc`-checked, but wrong for a docs snippet: `cli_snippets_check.rs` DOES run
-    /// `tsc` over it, and optional chaining does not narrow a discriminated union, so `.html` on
-    /// the still-unnarrowed `FormatMetadata` union is a `TS2339` regardless of the `?.` in front
-    /// of it. This returns the guard `presentation::resolve_with` wraps a `show` operation's
-    /// `console.log` in instead of a flat expression: `const <binding> = <source>; if
-    /// (<condition>) { console.log(<expression>); }`. `None` for the same reasons
-    /// `typescript_tagged_union_accessor` declines -- no crossing, or a variant shape neither
-    /// binding gives a real member for -- plus one more: an enum with no `#[serde(tag = ..)]`
-    /// has no discriminant to check, so `ir_enum_map`'s `tagged_enum_wire` carries no entry for
-    /// it and this abstains rather than guess a condition.
+    /// [`Self::typescript_tagged_union_accessor`] narrows the SAME crossing too, but as a single
+    /// ternary expression (`(container.tag === "html" ? container.html : undefined)?.title`) --
+    /// the right shape for `assertions.rs`, which splices the result into one inline assertion
+    /// expression, but not what a *docs* snippet should read like: `cli_snippets_check.rs` DOES
+    /// run `tsc` over it, and a docs reader benefits from the narrowing spelled out as a bound
+    /// name and an `if`, not folded into a ternary buried in one line. This returns the guard
+    /// `presentation::resolve_with` wraps a `show` operation's `console.log` in instead: `const
+    /// <binding> = <source>; if (<condition>) { console.log(<expression>); }`. `None` for the
+    /// same reasons `typescript_tagged_union_accessor` declines -- no crossing, or a variant
+    /// shape neither binding gives a real member for -- plus one more: an enum with no
+    /// `#[serde(tag = ..)]` has no discriminant to check, so `ir_enum_map`'s `tagged_enum_wire`
+    /// carries no entry for it and this abstains rather than guess a condition.
     ///
     /// Returns `(binding, source, condition, expression)`, a plain tuple rather than a named
     /// struct so the single caller (`presentation::resolve_with`, two modules up through two
@@ -636,13 +654,18 @@ mod typescript_tagged_union_accessor_tests {
 
     /// The defect: napi flattens `FormatMetadata` into a REAL optional `html` field
     /// (`backends::napi::gen_bindings::enums::gen_tagged_enum_as_object`), so the crossing has a
-    /// member to spell. Node must reach it with optional chaining, not refuse it.
+    /// member to spell. Node must reach it with a discriminant-narrowed ternary, not bare
+    /// optional chaining -- `?.` alone does not narrow the discriminated union the real `.d.ts`
+    /// declares (`internal_tagged_union_dts_lines`), so `result.format.html` is a `TS2339` on
+    /// every other variant's declared shape without the `format_type` check first. ~keep
     #[test]
     fn node_reaches_the_napi_flattened_variant_field() {
         let resolver = resolver_over_format_metadata();
         assert_eq!(
             resolver.typescript_tagged_union_accessor("format.html.title", "node", "result"),
-            Some("result.format.html?.title".to_string())
+            Some(
+                "(result.format.format_type === \"html\" ? result.format.html : undefined)?.title".to_string()
+            )
         );
     }
 

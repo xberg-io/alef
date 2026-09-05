@@ -63,8 +63,10 @@ fn make_assertion(assertion_type: &str, field: &str, value: serde_json::Value) -
     }
 }
 
-/// The defect itself, for node: the crossing must render napi's real flattened field with
-/// optional chaining, never a "skipped" comment.
+/// The defect itself, for node: the crossing must render napi's real flattened field
+/// narrowed by a discriminant check, never a "skipped" comment and never bare optional
+/// chaining -- `?.` alone does not narrow the discriminated union the real `.d.ts` declares,
+/// so `result.format.html` would be a `TS2339` without the `format_type` guard first.
 #[test]
 fn node_renders_the_flattened_napi_field_instead_of_skipping() {
     let resolver = resolver_over_format_metadata();
@@ -88,8 +90,8 @@ fn node_renders_the_flattened_napi_field_instead_of_skipping() {
     );
     assert!(!out.contains("skipped"), "got: {out}");
     assert!(
-        out.contains("result.format.html?.title"),
-        "expected the real flattened field with optional chaining, got: {out}"
+        out.contains("(result.format.format_type === \"Html\" ? result.format.html : undefined)?.title"),
+        "expected the discriminant-narrowed field access, got: {out}"
     );
 }
 
