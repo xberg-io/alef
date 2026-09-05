@@ -19,7 +19,7 @@ fn write_version_to_cargo_toml_reports_changed_on_new_version() {
     );
 }
 
-/// Regression test for the defect hit during a crawlberg release: re-running
+/// Regression test for a defect hit during a downstream release: re-running
 /// `alef sync-versions --set X` when Cargo.toml is already at X must succeed
 /// idempotently, not bail with "could not find a version field". Before this fix,
 /// `changed` alone gated both the write AND the error path, so "found the field,
