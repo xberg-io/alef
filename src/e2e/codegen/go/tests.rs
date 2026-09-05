@@ -3,7 +3,7 @@
 use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig};
 use crate::e2e::fixture::{Assertion, Fixture};
 
-use super::setup::build_args_and_setup;
+use super::setup::{GoArgsContext, build_args_and_setup};
 use super::test_file::{GoTestFileContext, render_test_file};
 use super::test_function::{GoTestFunctionContext, render_test_function};
 
@@ -393,17 +393,19 @@ fn handle_config_deserialization_uses_resolved_options_type() {
     let (package_decls, setup, args_str) = build_args_and_setup(
         &fixture.input,
         &args,
-        "pkg",
-        Some("SessionConfig"),
         &fixture,
-        false,
-        false,
-        &data_enum_names,
-        &crate::core::config::ResolvedCrateConfig::default(),
-        &[],
-        &[],
-        false,
-        crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        GoArgsContext {
+            import_alias: "pkg",
+            options_type: Some("SessionConfig"),
+            options_ptr: false,
+            expects_error: false,
+            data_enum_names: &data_enum_names,
+            config: &crate::core::config::ResolvedCrateConfig::default(),
+            type_defs: &[],
+            enums: &[],
+            native_dtos: false,
+            target: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        },
     )
     .expect("args render");
 

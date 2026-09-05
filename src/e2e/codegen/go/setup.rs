@@ -2,7 +2,9 @@
 
 use crate::e2e::escape::go_string_literal;
 
-use super::json_values::{convert_json_for_go, element_type_to_go_slice, json_to_go, json_to_go_yields_string_literal};
+use super::json_values::{json_to_go, json_to_go_yields_string_literal};
+
+mod args;
 
 fn json_object_go_type<'a>(arg: &'a crate::e2e::config::ArgMapping, options_type: Option<&'a str>) -> Option<&'a str> {
     arg.go_type.as_deref().or(arg.element_type.as_deref()).or(options_type)
@@ -218,6 +220,28 @@ pub(super) fn go_named_field_expression(
     })
 }
 
+/// `ptr[T any](value T) *T` infers `T` from the argument expression. A bare numeric literal
+/// (e.g. `30`) defaults to Go's untyped-constant rule (`int` for integers, `float64` for
+/// floats), which only matches the field's actual pointer type by coincidence —
+/// `*uint`/`*uint64`/`*int32`/etc. fields need an explicit conversion so `ptr(...)` infers the
+/// field's real width instead. `bool` has exactly one Go type, so it never needs this. ~keep
+fn go_primitive_field_expression(
+    primitive: &crate::core::ir::PrimitiveType,
+    inner: &crate::core::ir::TypeRef,
+    literal: String,
+    uses_pointer: bool,
+) -> String {
+    if !uses_pointer {
+        return literal;
+    }
+    if matches!(primitive, crate::core::ir::PrimitiveType::Bool) {
+        format!("ptr({literal})")
+    } else {
+        let go_primitive_type = crate::backends::go::type_map::go_struct_field_type(inner);
+        format!("ptr({go_primitive_type}({literal}))")
+    }
+}
+
 /// Lower one IR field's fixture value into the expression its emitted Go field takes.
 ///
 /// `Ok(None)` means the value's JSON shape has no expression at this field's type and the
@@ -265,23 +289,7 @@ pub(super) fn go_struct_field_expression(
         }
         crate::core::ir::TypeRef::Named(name) => go_named_field_expression(value, name, context, site, uses_pointer)?,
         crate::core::ir::TypeRef::Primitive(primitive) => {
-            let literal = json_to_go(value);
-            if uses_pointer {
-                // `ptr[T any](value T) *T` infers `T` from the argument expression. A bare
-                // numeric literal (e.g. `30`) defaults to Go's untyped-constant rule (`int`
-                // for integers, `float64` for floats), which only matches the field's actual
-                // pointer type by coincidence — `*uint`/`*uint64`/`*int32`/etc. fields need an
-                // explicit conversion so `ptr(...)` infers the field's real width instead.
-                // `bool` has exactly one Go type, so it never needs this. ~keep
-                if matches!(primitive, crate::core::ir::PrimitiveType::Bool) {
-                    format!("ptr({literal})")
-                } else {
-                    let go_primitive_type = crate::backends::go::type_map::go_struct_field_type(inner);
-                    format!("ptr({go_primitive_type}({literal}))")
-                }
-            } else {
-                literal
-            }
+            go_primitive_field_expression(primitive, inner, json_to_go(value), uses_pointer)
         }
         crate::core::ir::TypeRef::Json => {
             // The Go binding backend declares this field `json.RawMessage` (`*json.RawMessage`
@@ -350,6 +358,49 @@ pub(super) fn native_go_dto_literal(
     native_go_dto_literal_at(value, type_name, context, "")
 }
 
+/// One [`native_go_dto_literal_at`] struct field lowered to `(Go field name, expression)`, or
+/// `Ok(None)` when the fixture supplies no value for it -- the field is then omitted from the
+/// literal and Go's zero value stands in. ~keep
+fn lower_dto_field(
+    field: &crate::core::ir::FieldDef,
+    object: &serde_json::Map<String, serde_json::Value>,
+    definition: &crate::core::ir::TypeDef,
+    pointer: &str,
+    context: GoValueContext<'_>,
+    struct_names: &std::collections::HashSet<&str>,
+) -> anyhow::Result<Option<(String, String)>> {
+    // Fixture JSON is authored in wire format (the same JSON the binding's
+    // `json.Unmarshal` accepts), so it must be looked up by the field's
+    // resolved wire name — not the Rust field identifier — exactly like the
+    // Go binding backend resolves the `json:"..."` tag in
+    // `backends::go::gen_bindings::types::structs::gen_struct_type`.
+    let wire_name = crate::codegen::naming::wire_field_name(
+        &field.name,
+        field.serde_rename.as_deref(),
+        definition.serde_rename_all.as_deref(),
+    );
+    let Some(value) = object.get(&wire_name).or_else(|| object.get(&field.name)) else {
+        return Ok(None);
+    };
+    let field_pointer = format!("{pointer}/{}", field.name);
+    // Mirrors `gen_struct_type`'s `use_default_pointer` exactly. It must stay exact:
+    // the fixture literal is assigned to the emitted struct field, so any disagreement
+    // about pointer-ness is a Go compile error in the generated e2e suite. The former
+    // extra `definition.has_default &&` conjunct was such a disagreement — the emitter
+    // never consulted it. ~keep
+    let uses_pointer = field.optional
+        || (!field.optional && crate::backends::go::needs_omitempty_pointer(definition, field, struct_names));
+    let site = GoFieldSite {
+        owner_type: &definition.name,
+        field_name: &field.name,
+        pointer: &field_pointer,
+    };
+    let Some(expression) = go_struct_field_expression(field, value, context, site, uses_pointer)? else {
+        return Ok(None);
+    };
+    Ok(Some((crate::codegen::naming::to_go_name(&field.name), expression)))
+}
+
 /// `Ok(None)` means "this is not a struct literal, render it some other way"; `Err` means the
 /// value has no valid expression at this field's declared type and no snippet may be published
 /// for it. Collapsing the two would turn a refusal back into the blind conversion. ~keep
@@ -376,38 +427,7 @@ fn native_go_dto_literal_at(
     let field_values = definition
         .fields
         .iter()
-        .map(|field| -> anyhow::Result<Option<(String, String)>> {
-            // Fixture JSON is authored in wire format (the same JSON the binding's
-            // `json.Unmarshal` accepts), so it must be looked up by the field's
-            // resolved wire name — not the Rust field identifier — exactly like the
-            // Go binding backend resolves the `json:"..."` tag in
-            // `backends::go::gen_bindings::types::structs::gen_struct_type`.
-            let wire_name = crate::codegen::naming::wire_field_name(
-                &field.name,
-                field.serde_rename.as_deref(),
-                definition.serde_rename_all.as_deref(),
-            );
-            let Some(value) = object.get(&wire_name).or_else(|| object.get(&field.name)) else {
-                return Ok(None);
-            };
-            let field_pointer = format!("{pointer}/{}", field.name);
-            // Mirrors `gen_struct_type`'s `use_default_pointer` exactly. It must stay exact:
-            // the fixture literal is assigned to the emitted struct field, so any disagreement
-            // about pointer-ness is a Go compile error in the generated e2e suite. The former
-            // extra `definition.has_default &&` conjunct was such a disagreement — the emitter
-            // never consulted it. ~keep
-            let uses_pointer = field.optional
-                || (!field.optional && crate::backends::go::needs_omitempty_pointer(definition, field, &struct_names));
-            let site = GoFieldSite {
-                owner_type: &definition.name,
-                field_name: &field.name,
-                pointer: &field_pointer,
-            };
-            let Some(expression) = go_struct_field_expression(field, value, context, site, uses_pointer)? else {
-                return Ok(None);
-            };
-            Ok(Some((crate::codegen::naming::to_go_name(&field.name), expression)))
-        })
+        .map(|field| lower_dto_field(field, object, definition, pointer, context, &struct_names))
         .collect::<anyhow::Result<Vec<_>>>()?
         .into_iter()
         .flatten()
@@ -446,32 +466,22 @@ fn native_go_dto_literal_at(
     ))
 }
 
-pub(super) fn resolve_handle_config_type(
-    arg: &crate::e2e::config::ArgMapping,
-    options_type: Option<&str>,
-    type_defs: &[crate::core::ir::TypeDef],
-) -> Option<String> {
-    if arg.arg_type != "handle" {
-        return None;
-    }
-    options_type.map(str::to_string).or_else(|| {
-        let candidate = format!("{}Config", arg.name.to_uppercase_first());
-        type_defs.iter().any(|ty| ty.name == candidate).then_some(candidate)
-    })
-}
-
-trait UppercaseFirst {
-    fn to_uppercase_first(&self) -> String;
-}
-
-impl UppercaseFirst for str {
-    fn to_uppercase_first(&self) -> String {
-        let mut chars = self.chars();
-        match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        }
-    }
+/// Read-only inputs to [`build_args_and_setup`], bundled because every field is invariant
+/// state the whole per-argument loop reads -- the loop's own accumulators (`package_decls`,
+/// `setup_lines`, `parts`) are mutated every iteration, so they stay ordinary locals rather
+/// than fields here. ~keep
+#[derive(Clone, Copy)]
+pub(super) struct GoArgsContext<'a> {
+    pub import_alias: &'a str,
+    pub options_type: Option<&'a str>,
+    pub options_ptr: bool,
+    pub expects_error: bool,
+    pub data_enum_names: &'a std::collections::HashSet<&'a str>,
+    pub config: &'a crate::core::config::ResolvedCrateConfig,
+    pub type_defs: &'a [crate::core::ir::TypeDef],
+    pub enums: &'a [crate::core::ir::EnumDef],
+    pub native_dtos: bool,
+    pub target: crate::e2e::codegen::call_ir::TargetParams<'a>,
 }
 
 /// Returns `Err` when a configured value has no expression of its target's declared Go type.
@@ -485,24 +495,13 @@ impl UppercaseFirst for str {
 /// documentation-snippet caller supplies a real one; the e2e test-file callers pass
 /// [`crate::e2e::codegen::call_ir::TargetParams::IrAbsent`], which licenses no type claim, so
 /// every rendering below falls back to exactly what it emitted before the seam existed. ~keep
-#[allow(clippy::too_many_arguments)]
 pub(super) fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
-    import_alias: &str,
-    options_type: Option<&str>,
     fixture: &crate::e2e::fixture::Fixture,
-    options_ptr: bool,
-    expects_error: bool,
-    data_enum_names: &std::collections::HashSet<&str>,
-    config: &crate::core::config::ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    native_dtos: bool,
-    target: crate::e2e::codegen::call_ir::TargetParams<'_>,
+    context: GoArgsContext<'_>,
 ) -> anyhow::Result<(Vec<String>, Vec<String>, String)> {
     let fixture_id = &fixture.id;
-    use heck::ToUpperCamelCase;
 
     if args.is_empty() {
         return Ok((Vec::new(), Vec::new(), String::new()));
@@ -514,433 +513,167 @@ pub(super) fn build_args_and_setup(
 
     for (arg_index, arg) in args.iter().enumerate() {
         if arg.arg_type == "mock_url" {
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let value = input.get(field).unwrap_or(&serde_json::Value::Null);
-            if let Some(url) = crate::e2e::codegen::preserved_url_literal(fixture.preserve_input_urls, value) {
-                setup_lines.push(format!("{} := {}", arg.name, go_string_literal(url)));
-            } else if fixture.has_host_root_route() {
-                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-                setup_lines.push(format!("{} := os.Getenv(\"{env_key}\")", arg.name));
-                setup_lines.push(format!(
-                    "if {} == \"\" {{ {} = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\" }}",
-                    arg.name, arg.name
-                ));
-            } else {
-                setup_lines.push(format!(
-                    "{} := os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"",
-                    arg.name,
-                ));
-            }
-            parts.push(arg.name.clone());
+            args::render_mock_url_arg(arg, input, fixture, fixture_id, &mut setup_lines, &mut parts);
             continue;
         }
 
         if arg.arg_type == "mock_url_list" {
-            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
-            let var_name = &arg.name;
-
-            if let Some(urls) = crate::e2e::codegen::preserved_url_list(fixture.preserve_input_urls, val) {
-                let literals: Vec<String> = urls.iter().map(|url| go_string_literal(url)).collect();
-                setup_lines.push(format!("{var_name} := []string{{{}}}", literals.join(", ")));
-                parts.push(var_name.to_string());
-                continue;
-            }
-
-            let paths: Vec<String> = if let Some(arr) = val.as_array() {
-                arr.iter().filter_map(|v| v.as_str().map(go_string_literal)).collect()
-            } else {
-                Vec::new()
-            };
-
-            let paths_literal = paths.join(", ");
-
-            setup_lines.push(format!(
-                "{var_name}Base := os.Getenv(\"{env_key}\")\n\tif {var_name}Base == \"\" {{\n\t\t{var_name}Base = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
-            ));
-            setup_lines.push(format!(
-                "var {var_name} []string\n\tfor _, p := range []string{{{paths_literal}}} {{\n\t\tif strings.HasPrefix(p, \"http\") {{\n\t\t\t{var_name} = append({var_name}, p)\n\t\t}} else {{\n\t\t\t{var_name} = append({var_name}, {var_name}Base + p)\n\t\t}}\n\t}}"
-            ));
-            parts.push(var_name.to_string());
+            args::render_mock_url_list_arg(arg, input, fixture, fixture_id, &mut setup_lines, &mut parts);
             continue;
         }
 
         if arg.arg_type == "test_backend" {
-            if let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
-            {
-                let emission = super::test_backend::resolve_test_backend_emission(
-                    fixture,
-                    trait_name,
-                    trait_bridge,
-                    config,
-                    type_defs,
-                    enums,
-                    import_alias,
-                );
-                package_decls.push(emission.setup_block);
-                parts.push(emission.arg_expr);
-                continue;
-            }
-            // A `test_backend` arg fills a required Go stub parameter — there is no
-            // compilable value to fall back to when the trait isn't configured. Fail
-            // generation loudly instead of silently splicing a `nil` argument with a
-            // comment where the real stub belongs. ~keep
-            panic!(
-                "Go e2e generator: fixture `{}` declares a `test_backend` arg `{}` with trait `{:?}`, but either it has no `trait_name` configured or no `[[crates.trait_bridges]]` entry matches it; cannot generate a Go stub without a resolvable trait bridge",
-                fixture.id, arg.name, arg.trait_name
-            );
+            args::render_test_backend_arg(arg, fixture, context, &mut package_decls, &mut parts);
+            continue;
         }
 
         if arg.arg_type == "handle" {
-            let constructor_name = format!("Create{}", arg.name.to_upper_camel_case());
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
-            let create_err_handler = if expects_error {
-                "assert.Error(t, createErr)\n\t\treturn".to_string()
-            } else {
-                "t.Fatalf(\"create handle failed: %v\", createErr)".to_string()
-            };
-            if config_value.is_null()
-                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
-            {
-                setup_lines.push(format!(
-                    "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}",
-                    name = arg.name,
-                ));
-            } else {
-                let json_str = serde_json::to_string(config_value).unwrap_or_default();
-                let go_literal = go_string_literal(&json_str);
-                let name = &arg.name;
-                if let Some(config_type) = resolve_handle_config_type(arg, options_type, type_defs) {
-                    setup_lines.push(format!(
-                        "var {name}Config {import_alias}.{config_type}\n\tif err := json.Unmarshal([]byte({go_literal}), &{name}Config); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                    ));
-                    setup_lines.push(format!(
-                        "{name}, createErr := {import_alias}.{constructor_name}(&{name}Config)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
-                    ));
-                } else {
-                    setup_lines.push(format!(
-                        "{name}, createErr := {import_alias}.{constructor_name}(nil)\n\tif createErr != nil {{\n\t\t{create_err_handler}\n\t}}"
-                    ));
-                }
-            }
-            parts.push(arg.name.clone());
+            args::render_handle_arg(arg, input, context, &mut setup_lines, &mut parts);
             continue;
         }
 
-        let val: Option<&serde_json::Value> = if arg.field == "input" {
-            Some(input.get("extract_input").unwrap_or(input))
-        } else {
-            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-            input.get(field)
+        let mut sink = GoArgSink {
+            package_decls: &mut package_decls,
+            setup_lines: &mut setup_lines,
+            parts: &mut parts,
         };
-        let docs_files = fixture.docs_files_for_arg(&arg.field);
-        let value_context = GoValueContext {
-            import_alias,
-            type_defs,
-            enums,
-            files: &docs_files,
-        };
-        // The type the core IR declares for the parameter this `args` entry fills. `None` on
-        // every IR-less path (`TargetParams::IrAbsent`), which is what keeps the test-file
-        // emitters rendering exactly what they rendered before this seam was threaded in. ~keep
-        let declared_type_name = target.declared_type_name(&arg.name, arg_index);
-        // `json_object_go_type` reads only hand-authored config (`go_type`, `element_type`,
-        // `options_type`). When none of the three is set the old code fell through to a bare
-        // JSON string literal spliced against whatever the parameter really is; the IR knows
-        // that name, so it is the last resort rather than nothing. ~keep
-        let json_object_type = json_object_go_type(arg, options_type).or(declared_type_name);
-        // Spelling a typed Go literal is the native-DTO mode's business. The test-file
-        // emitters unmarshal their argument values from JSON instead, so a declared type
-        // gives them nothing to render and must not change what they emit. ~keep
-        let native_declared_type = if native_dtos { declared_type_name } else { None };
-
-        if native_dtos
-            && arg.arg_type == "json_object"
-            && val.is_none_or(serde_json::Value::is_null)
-            && let Some(type_name) = json_object_type
-            && let Some(literal) = native_go_dto_literal(
-                &serde_json::Value::Object(serde_json::Map::new()),
-                type_name,
-                value_context,
-            )?
-        {
-            setup_lines.push(format!("{} := {literal}", arg.name));
-            // Every other `json_object` branch below consults `options_ptr` before deciding how to
-            // pass the value; this one did not, so a fixture that supplies no options at all bound a
-            // typed empty DTO and then handed the binding a value where its signature declares `*T`.
-            // That is the whole of the "cannot use options (variable of struct type X) as *X" wall
-            // -- it hit every fixture without an options object, which is most of them. ~keep
-            parts.push(if Some(type_name) == options_type && options_ptr {
-                format!("&{}", arg.name)
-            } else {
-                arg.name.clone()
-            });
-            continue;
-        }
-
-        if arg.arg_type == "bytes" {
-            let var_name = format!("{}Bytes", arg.name);
-            match val {
-                None | Some(serde_json::Value::Null) => {
-                    if arg.optional {
-                        parts.push("nil".to_string());
-                    } else {
-                        parts.push("[]byte{}".to_string());
-                    }
-                }
-                Some(serde_json::Value::String(s)) => {
-                    let go_path = go_string_literal(s);
-                    setup_lines.push(format!(
-                        "{var_name}, {var_name}Err := os.ReadFile({go_path})\n\tif {var_name}Err != nil {{\n\t\tt.Fatalf(\"read fixture {s}: %v\", {var_name}Err)\n\t}}"
-                    ));
-                    parts.push(var_name);
-                }
-                Some(other) => {
-                    parts.push(format!("[]byte({})", json_to_go(other)));
-                }
-            }
-            continue;
-        }
-
-        match val {
-            None | Some(serde_json::Value::Null) if arg.optional => match arg.arg_type.as_str() {
-                "string" => {
-                    parts.push("nil".to_string());
-                }
-                "json_object" => {
-                    if options_ptr {
-                        parts.push("nil".to_string());
-                    } else if let Some(opts_type) = json_object_type {
-                        parts.push(go_empty_value_expression(import_alias, opts_type, enums));
-                    } else {
-                        parts.push("nil".to_string());
-                    }
-                }
-                _ => {
-                    parts.push("nil".to_string());
-                }
-            },
-            None | Some(serde_json::Value::Null) => {
-                let default_val = match arg.arg_type.as_str() {
-                    "string" => "\"\"".to_string(),
-                    "int" | "integer" | "i64" => "0".to_string(),
-                    "float" | "number" => "0.0".to_string(),
-                    "bool" | "boolean" => "false".to_string(),
-                    "json_object" => {
-                        if options_ptr {
-                            "nil".to_string()
-                        } else if let Some(opts_type) = json_object_type {
-                            go_empty_value_expression(import_alias, opts_type, enums)
-                        } else {
-                            "nil".to_string()
-                        }
-                    }
-                    _ => "nil".to_string(),
-                };
-                parts.push(default_val);
-            }
-            Some(v) => match arg.arg_type.as_str() {
-                "json_object" => {
-                    let is_array = v.is_array();
-                    let is_empty_obj = !is_array && v.is_object() && v.as_object().is_some_and(|o| o.is_empty());
-                    if native_dtos
-                        && !is_array
-                        && let Some(opts_type) = json_object_type
-                        && let Some(literal) = native_go_dto_literal(v, opts_type, value_context)?
-                    {
-                        ensure_value_helpers(&mut package_decls, &literal);
-                        setup_lines.push(format!("{} := {}", arg.name, literal.replace('\n', "\n\t")));
-                        let arg_expr = if Some(opts_type) == options_type && options_ptr {
-                            format!("&{}", arg.name)
-                        } else {
-                            arg.name.clone()
-                        };
-                        parts.push(arg_expr);
-                        continue;
-                    }
-                    if is_empty_obj {
-                        if options_ptr {
-                            parts.push("nil".to_string());
-                        } else if let Some(opts_type) = json_object_type {
-                            parts.push(go_empty_value_expression(import_alias, opts_type, enums));
-                        } else {
-                            parts.push("nil".to_string());
-                        }
-                    } else if is_array {
-                        let go_slice_type = if let Some(go_t) = arg.go_type.as_deref() {
-                            if go_t.starts_with('[') {
-                                go_t.to_string()
-                            } else {
-                                let qualified = if go_t.contains('.') {
-                                    go_t.to_string()
-                                } else {
-                                    format!("{import_alias}.{go_t}")
-                                };
-                                format!("[]{qualified}")
-                            }
-                        } else {
-                            element_type_to_go_slice(arg.element_type.as_deref(), import_alias)
-                        };
-
-                        let element_type_name = if let Some(go_t) = arg.go_type.as_deref() {
-                            if go_t.starts_with('[') {
-                                None
-                            } else if let Some(idx) = go_t.rfind('.') {
-                                Some(&go_t[idx + 1..])
-                            } else {
-                                Some(go_t)
-                            }
-                        } else {
-                            arg.element_type.as_deref()
-                        };
-
-                        let is_sum_type = element_type_name.is_some_and(|et| data_enum_names.contains(et));
-                        let converted_v = convert_json_for_go(v.clone());
-                        let var_name = &arg.name;
-                        let json_str = serde_json::to_string(&converted_v).unwrap_or_default();
-                        let go_literal = go_string_literal(&json_str);
-                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&converted_v) {
-                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
-                            setup_lines.push(format!(
-                                "{var_name}MockBaseURL := os.Getenv(\"{env_key}\")\n\tif {var_name}MockBaseURL == \"\" {{\n\t\t{var_name}MockBaseURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
-                            ));
-                            setup_lines.push(format!(
-                                "{var_name}JSON := strings.ReplaceAll({go_literal}, \"{}\", {var_name}MockBaseURL)",
-                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                            ));
-                        }
-                        let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(&converted_v) {
-                            format!("{var_name}JSON")
-                        } else {
-                            go_literal
-                        };
-
-                        if is_sum_type {
-                            let element_type = element_type_name.unwrap();
-                            setup_lines.push(format!(
-                                "var {var_name}Raw []json.RawMessage\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}Raw); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                            ));
-                            setup_lines.push(format!(
-                                "var {var_name} {go_slice_type}\n\tfor _, raw := range {var_name}Raw {{\n\t\telem, err := {import_alias}.Unmarshal{element_type}(raw)\n\t\tif err != nil {{\n\t\t\tt.Fatalf(\"unmarshal {element_type} failed: %v\", err)\n\t\t}}\n\t\t{var_name} = append({var_name}, elem)\n\t}}"
-                            ));
-                        } else {
-                            setup_lines.push(format!(
-                                "var {var_name} {go_slice_type}\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                            ));
-                        }
-                        parts.push(var_name.to_string());
-                    } else if let Some(opts_type) = json_object_type {
-                        let remapped_v = if Some(opts_type) == options_type && options_ptr {
-                            convert_json_for_go(v.clone())
-                        } else {
-                            v.clone()
-                        };
-                        let json_str = serde_json::to_string(&remapped_v).unwrap_or_default();
-                        let go_literal = go_string_literal(&json_str);
-                        let var_name = &arg.name;
-                        if crate::e2e::codegen::value_contains_mock_url_placeholder(&remapped_v) {
-                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
-                            setup_lines.push(format!(
-                                "{var_name}MockBaseURL := os.Getenv(\"{env_key}\")\n\tif {var_name}MockBaseURL == \"\" {{\n\t\t{var_name}MockBaseURL = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
-                            ));
-                            setup_lines.push(format!(
-                                "{var_name}JSON := strings.ReplaceAll({go_literal}, \"{}\", {var_name}MockBaseURL)",
-                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
-                            ));
-                        }
-                        let json_expr = if crate::e2e::codegen::value_contains_mock_url_placeholder(&remapped_v) {
-                            format!("{var_name}JSON")
-                        } else {
-                            go_literal
-                        };
-                        // `encoding/json` cannot unmarshal into an interface value: `var x
-                        // pkg.T; json.Unmarshal(data, &x)` compiles for a sealed-interface `T`
-                        // and then fails at run time with `cannot unmarshal object into Go
-                        // value of type pkg.T`. The Go binding backend emits a
-                        // `Unmarshal<T>(data []byte) (T, error)` dispatcher for exactly this,
-                        // which the sibling array arm above already uses for its elements. ~keep
-                        if matches!(
-                            go_enum_shape(enums, opts_type),
-                            Some(crate::backends::go::GoEnumRepresentation::DataInterface)
-                        ) {
-                            let go_enum_name = crate::codegen::naming::go_type_name(opts_type);
-                            setup_lines.push(format!(
-                                "{var_name}, {var_name}Err := {import_alias}.Unmarshal{go_enum_name}([]byte({json_expr}))\n\tif {var_name}Err != nil {{\n\t\tt.Fatalf(\"unmarshal {go_enum_name} failed: %v\", {var_name}Err)\n\t}}"
-                            ));
-                            parts.push(var_name.to_string());
-                            continue;
-                        }
-                        let type_name = qualified_go_type(import_alias, opts_type);
-                        setup_lines.push(format!(
-                            "var {var_name} {type_name}\n\tif err := json.Unmarshal([]byte({json_expr}), &{var_name}); err != nil {{\n\t\tt.Fatalf(\"config parse failed: %v\", err)\n\t}}"
-                        ));
-                        let arg_expr = if Some(opts_type) == options_type && options_ptr {
-                            format!("&{var_name}")
-                        } else {
-                            var_name.to_string()
-                        };
-                        parts.push(arg_expr);
-                    } else {
-                        parts.push(json_to_go(v));
-                    }
-                }
-                "string" if arg.optional => {
-                    let var_name = format!("{}Val", arg.name);
-                    // An optional parameter is emitted as `*T`, and `&{name}Val` where
-                    // `{name}Val` is bound to a bare string literal is a `*string` — correct
-                    // only when `T` really is `string`. A declared enum needs the typed
-                    // expression bound instead, so the address taken is of a value of the
-                    // parameter's own type. ~keep
-                    let typed = if let Some(type_name) = native_declared_type {
-                        typed_named_argument_expression(v, type_name, value_context, &arg.name, false)?
-                    } else {
-                        None
-                    };
-                    let go_val = typed.unwrap_or_else(|| json_to_go(v));
-                    ensure_value_helpers(&mut package_decls, &go_val);
-                    setup_lines.push(format!("{var_name} := {}", go_val.replace('\n', "\n\t")));
-                    parts.push(format!("&{var_name}"));
-                }
-                _ => {
-                    // The catch-all every non-`json_object`, non-`bytes` argument falls into.
-                    // Without a declared type it can only stringify the fixture value, which
-                    // lands a bare literal against whatever the parameter really is; with one
-                    // it renders the expression that type actually takes. ~keep
-                    let typed = if let Some(type_name) = native_declared_type {
-                        let uses_pointer = target
-                            .param_for(&arg.name, arg_index)
-                            .is_some_and(|param| param.optional);
-                        typed_named_argument_expression(v, type_name, value_context, &arg.name, uses_pointer)?
-                    } else {
-                        None
-                    };
-                    if let Some(expression) = typed {
-                        ensure_value_helpers(&mut package_decls, &expression);
-                        // A DTO literal spans lines; an argument list cannot, so it is bound to
-                        // the argument's own variable and passed by name. ~keep
-                        if expression.contains('\n') {
-                            setup_lines.push(format!("{} := {}", arg.name, expression.replace('\n', "\n\t")));
-                            parts.push(arg.name.clone());
-                        } else {
-                            parts.push(expression);
-                        }
-                    } else {
-                        parts.push(json_to_go(v));
-                    }
-                }
-            },
-        }
+        render_data_argument(arg, arg_index, input, fixture, context, &mut sink)?;
     }
 
     Ok((package_decls, setup_lines, parts.join(", ")))
 }
 
+/// Mutable accumulators the per-argument renderers push into. Bundled because every renderer
+/// past a plain expression builder takes at least two of them. ~keep
+struct GoArgSink<'a> {
+    package_decls: &'a mut Vec<String>,
+    setup_lines: &'a mut Vec<String>,
+    parts: &'a mut Vec<String>,
+}
+
+/// Renders one `args` entry that isn't a `mock_url`, `mock_url_list`, `test_backend` or
+/// `handle` special case -- the four early `continue`s in [`build_args_and_setup`]'s loop. ~keep
+fn render_data_argument(
+    arg: &crate::e2e::config::ArgMapping,
+    arg_index: usize,
+    input: &serde_json::Value,
+    fixture: &crate::e2e::fixture::Fixture,
+    context: GoArgsContext<'_>,
+    sink: &mut GoArgSink<'_>,
+) -> anyhow::Result<()> {
+    let GoArgsContext {
+        import_alias,
+        options_type,
+        type_defs,
+        enums,
+        native_dtos,
+        ..
+    } = context;
+    let fixture_id = &fixture.id;
+    let val: Option<&serde_json::Value> = if arg.field == "input" {
+        Some(input.get("extract_input").unwrap_or(input))
+    } else {
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        input.get(field)
+    };
+    let docs_files = fixture.docs_files_for_arg(&arg.field);
+    let value_context = GoValueContext {
+        import_alias,
+        type_defs,
+        enums,
+        files: &docs_files,
+    };
+    // The type the core IR declares for the parameter this `args` entry fills. `None` on
+    // every IR-less path (`TargetParams::IrAbsent`), which is what keeps the test-file
+    // emitters rendering exactly what they rendered before this seam was threaded in. ~keep
+    let declared_type_name = context.target.declared_type_name(&arg.name, arg_index);
+    // `json_object_go_type` reads only hand-authored config (`go_type`, `element_type`,
+    // `options_type`). When none of the three is set the old code fell through to a bare
+    // JSON string literal spliced against whatever the parameter really is; the IR knows
+    // that name, so it is the last resort rather than nothing. ~keep
+    let json_object_type = json_object_go_type(arg, options_type).or(declared_type_name);
+    // Spelling a typed Go literal is the native-DTO mode's business. The test-file
+    // emitters unmarshal their argument values from JSON instead, so a declared type
+    // gives them nothing to render and must not change what they emit. ~keep
+    let native_declared_type = if native_dtos { declared_type_name } else { None };
+    let render_context = args::GoArgRenderContext {
+        arg_index,
+        fixture_id,
+        json_object_type,
+        native_declared_type,
+        value_context,
+    };
+
+    dispatch_data_argument(arg, val, render_context, context, sink)
+}
+
+/// The rendering arms every `args` entry reaching [`render_data_argument`] falls into, once its
+/// `render_context` is known -- split out purely to keep `render_data_argument` under this
+/// crate's function-length limit; the arms and their order are unchanged. ~keep
+fn dispatch_data_argument(
+    arg: &crate::e2e::config::ArgMapping,
+    val: Option<&serde_json::Value>,
+    render_context: args::GoArgRenderContext<'_>,
+    context: GoArgsContext<'_>,
+    sink: &mut GoArgSink<'_>,
+) -> anyhow::Result<()> {
+    if args::try_render_empty_native_json_object(arg, val, render_context, context, sink.setup_lines, sink.parts)? {
+        return Ok(());
+    }
+
+    if arg.arg_type == "bytes" {
+        args::render_bytes_arg(arg, val, sink.setup_lines, sink.parts);
+        return Ok(());
+    }
+
+    match val {
+        None | Some(serde_json::Value::Null) if arg.optional => {
+            sink.parts.push(args::optional_null_argument_expression(arg, render_context, context));
+        }
+        None | Some(serde_json::Value::Null) => {
+            sink.parts.push(args::required_null_argument_expression(arg, render_context, context));
+        }
+        Some(v) => match arg.arg_type.as_str() {
+            "json_object" => {
+                let expression = args::render_json_object_argument(
+                    v,
+                    arg,
+                    render_context,
+                    context,
+                    sink.package_decls,
+                    sink.setup_lines,
+                )?;
+                sink.parts.push(expression);
+            }
+            "string" if arg.optional => {
+                let expression = args::render_optional_string_argument(
+                    v,
+                    arg,
+                    render_context,
+                    sink.package_decls,
+                    sink.setup_lines,
+                )?;
+                sink.parts.push(expression);
+            }
+            _ => {
+                let expression = args::render_typed_default_argument(
+                    v,
+                    arg,
+                    render_context,
+                    context,
+                    sink.package_decls,
+                    sink.setup_lines,
+                )?;
+                sink.parts.push(expression);
+            }
+        },
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod sealed_interface_argument_tests {
-    use super::build_args_and_setup;
+    use super::{GoArgsContext, build_args_and_setup};
     use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
     use crate::e2e::codegen::call_ir::TargetParams;
     use crate::e2e::config::ArgMapping;
@@ -992,17 +725,19 @@ mod sealed_interface_argument_tests {
         let (_declarations, setup, args) = build_args_and_setup(
             &fixture.input,
             &[document_arg()],
-            "pkg",
-            None,
             &fixture,
-            false,
-            false,
-            &std::collections::HashSet::new(),
-            &crate::core::config::ResolvedCrateConfig::default(),
-            &[],
-            enums,
-            false,
-            TargetParams::IrAbsent,
+            GoArgsContext {
+                import_alias: "pkg",
+                options_type: None,
+                options_ptr: false,
+                expects_error: false,
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &crate::core::config::ResolvedCrateConfig::default(),
+                type_defs: &[],
+                enums,
+                native_dtos: false,
+                target: TargetParams::IrAbsent,
+            },
         )
         .expect("args render");
         (setup.join("\n"), args)
@@ -1091,7 +826,7 @@ mod sealed_interface_argument_tests {
 
 #[cfg(test)]
 mod test_backend_fallback_tests {
-    use super::build_args_and_setup;
+    use super::{GoArgsContext, build_args_and_setup};
     use crate::core::config::ResolvedCrateConfig;
     use crate::e2e::config::ArgMapping;
     use crate::e2e::fixture::Fixture;
@@ -1129,17 +864,19 @@ mod test_backend_fallback_tests {
             build_args_and_setup(
                 &fixture.input,
                 &args,
-                "sample",
-                None,
                 &fixture,
-                false,
-                false,
-                &std::collections::HashSet::new(),
-                &config,
-                &[],
-                &[],
-                false,
-                crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+                GoArgsContext {
+                    import_alias: "sample",
+                    options_type: None,
+                    options_ptr: false,
+                    expects_error: false,
+                    data_enum_names: &std::collections::HashSet::new(),
+                    config: &config,
+                    type_defs: &[],
+                    enums: &[],
+                    native_dtos: false,
+                    target: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+                },
             )
         }));
 
@@ -1171,17 +908,19 @@ mod test_backend_fallback_tests {
             build_args_and_setup(
                 &fixture.input,
                 &args,
-                "sample",
-                None,
                 &fixture,
-                false,
-                false,
-                &std::collections::HashSet::new(),
-                &config,
-                &[],
-                &[],
-                false,
-                crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+                GoArgsContext {
+                    import_alias: "sample",
+                    options_type: None,
+                    options_ptr: false,
+                    expects_error: false,
+                    data_enum_names: &std::collections::HashSet::new(),
+                    config: &config,
+                    type_defs: &[],
+                    enums: &[],
+                    native_dtos: false,
+                    target: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+                },
             )
         }));
 

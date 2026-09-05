@@ -1,4 +1,4 @@
-use crate::core::ir::{CoreWrapper, EnumDef, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use minijinja::context;
 
@@ -127,147 +127,15 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
                 },
             ));
         } else {
-            let expr = if let Some(shape) = untagged_data_enum_shape(&field.ty, untagged_data_enum_names) {
-                untagged_data_enum_expr(name, shape, field.optional)
-            } else if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
-                gen_string_to_enum_expr(
-                    &format!("self.{name}"),
-                    &enum_name,
-                    field.optional,
-                    enums,
-                    core_import,
-                    name,
-                )
-            } else if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
-                let elem_conv = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import, name);
-                if field.optional {
-                    format!("self.{name}.clone().map(|v| v.into_iter().map(|s| {elem_conv}).collect())")
-                } else {
-                    format!("self.{name}.clone().into_iter().map(|s| {elem_conv}).collect()")
-                }
-            } else {
-                match &field.ty {
-                    TypeRef::Primitive(p) if needs_i64_cast(p) => {
-                        let core_ty = core_prim_str(p);
-                        if field.optional {
-                            format!("self.{name}.map(|v| v as {core_ty})")
-                        } else {
-                            format!("self.{name} as {core_ty}")
-                        }
-                    }
-                    TypeRef::Primitive(_) => format!("self.{name}"),
-                    TypeRef::Duration => {
-                        if field.optional {
-                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
-                        } else if typ.has_default {
-                            crate::backends::php::template_env::render(
-                                "php_duration_default_expr.jinja",
-                                context! {
-                                    value_expr => &format!("self.{name}"),
-                                    cast => " as u64",
-                                    core_type => &core_path,
-                                    field_name => name.as_str(),
-                                },
-                            )
-                        } else {
-                            format!("std::time::Duration::from_millis(self.{name} as u64)")
-                        }
-                    }
-                    TypeRef::String | TypeRef::Char => {
-                        if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
-                            if field.optional {
-                                format!("self.{name}.clone().map(Into::into)")
-                            } else {
-                                format!("self.{name}.clone().into()")
-                            }
-                        } else {
-                            format!("self.{name}.clone()")
-                        }
-                    }
-                    TypeRef::Bytes => format!("self.{name}.clone().into()"),
-                    TypeRef::Path => {
-                        if field.optional {
-                            format!("self.{name}.clone().map(Into::into)")
-                        } else {
-                            format!("self.{name}.clone().into()")
-                        }
-                    }
-                    TypeRef::Named(_) => {
-                        if field.optional {
-                            if field.is_boxed {
-                                format!("self.{name}.clone().map(|v| Box::new(v.into()))")
-                            } else {
-                                format!("self.{name}.clone().map(Into::into)")
-                            }
-                        } else {
-                            format!("self.{name}.clone().into()")
-                        }
-                    }
-                    TypeRef::Vec(inner) => match inner.as_ref() {
-                        TypeRef::Named(_) => {
-                            if field.optional {
-                                format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                            } else {
-                                format!("self.{name}.clone().into_iter().map(Into::into).collect()")
-                            }
-                        }
-                        TypeRef::Primitive(p) if needs_i64_cast(p) => {
-                            let core_ty = core_prim_str(p);
-                            if field.optional {
-                                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
-                            } else {
-                                format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
-                            }
-                        }
-                        _ => format!("self.{name}.clone()"),
-                    },
-                    TypeRef::Optional(inner) => match inner.as_ref() {
-                        TypeRef::Primitive(p) if needs_i64_cast(p) => {
-                            let core_ty = core_prim_str(p);
-                            format!("self.{name}.map(|v| v as {core_ty})")
-                        }
-                        TypeRef::Duration => {
-                            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
-                        }
-                        TypeRef::Named(_) => {
-                            if field.is_boxed {
-                                format!("self.{name}.clone().map(|v| Box::new(v.into()))")
-                            } else {
-                                format!("self.{name}.clone().map(Into::into)")
-                            }
-                        }
-                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
-                            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
-                        }
-                        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) => {
-                            if let TypeRef::Primitive(p) = vi.as_ref() {
-                                let core_ty = core_prim_str(p);
-                                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
-                            } else {
-                                format!("self.{name}.clone()")
-                            }
-                        }
-                        _ => format!("self.{name}.clone()"),
-                    },
-                    TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Json) => "Default::default()".to_string(),
-                    TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
-                        if field.optional {
-                            format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
-                        } else {
-                            format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
-                        }
-                    }
-                    TypeRef::Map(_, _) => {
-                        if field.optional {
-                            format!("self.{name}.clone().map(|m| m.into_iter().collect())")
-                        } else {
-                            format!("self.{name}.clone().into_iter().collect()")
-                        }
-                    }
-                    TypeRef::Unit => format!("self.{name}.clone()"),
-                    TypeRef::Json => "Default::default()".to_string(),
-                }
-            };
+            let expr = gen_php_field_expr(
+                field,
+                typ.has_default,
+                &core_path,
+                enum_names,
+                untagged_data_enum_names,
+                enums,
+                core_import,
+            );
             out.push_str(&crate::backends::php::template_env::render(
                 "php_struct_field_assignment.jinja",
                 context! {
@@ -288,6 +156,198 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         minijinja::Value::default(),
     ));
     out
+}
+
+/// Compute the binding->core conversion expression for a single non-sanitized field.
+/// Extracted from `gen_php_lossy_binding_to_core_fields` to keep that function's
+/// complexity and nesting within limits; the resulting expression is unchanged.
+fn gen_php_field_expr(
+    field: &FieldDef,
+    typ_has_default: bool,
+    core_path: &str,
+    enum_names: &AHashSet<String>,
+    untagged_data_enum_names: &AHashSet<String>,
+    enums: &[EnumDef],
+    core_import: &str,
+) -> String {
+    let name = &field.name;
+    if let Some(shape) = untagged_data_enum_shape(&field.ty, untagged_data_enum_names) {
+        return untagged_data_enum_expr(name, shape, field.optional);
+    }
+    if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
+        return gen_string_to_enum_expr(&format!("self.{name}"), &enum_name, field.optional, enums, core_import, name);
+    }
+    if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
+        let elem_conv = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import, name);
+        return if field.optional {
+            format!("self.{name}.clone().map(|v| v.into_iter().map(|s| {elem_conv}).collect())")
+        } else {
+            format!("self.{name}.clone().into_iter().map(|s| {elem_conv}).collect()")
+        };
+    }
+    gen_php_field_expr_by_type(
+        &field.ty,
+        name,
+        field.optional,
+        field.is_boxed,
+        &field.core_wrapper,
+        typ_has_default,
+        core_path,
+    )
+}
+
+/// Render the binding->core expression for a field's `TypeRef` shape, once the
+/// untagged-enum/direct-enum/vec-enum special cases have been ruled out.
+/// Extracted from `gen_php_field_expr`; each arm's emitted text is unchanged.
+fn gen_php_field_expr_by_type(
+    ty: &TypeRef,
+    name: &str,
+    optional: bool,
+    is_boxed: bool,
+    core_wrapper: &CoreWrapper,
+    has_default: bool,
+    core_path: &str,
+) -> String {
+    match ty {
+        TypeRef::Primitive(p) if needs_i64_cast(p) => gen_php_primitive_cast_expr(name, optional, core_prim_str(p)),
+        TypeRef::Primitive(_) => format!("self.{name}"),
+        TypeRef::Duration => gen_php_duration_expr(name, optional, has_default, core_path),
+        TypeRef::String | TypeRef::Char => gen_php_string_like_expr(name, optional, core_wrapper),
+        TypeRef::Bytes => format!("self.{name}.clone().into()"),
+        TypeRef::Path => {
+            if optional {
+                format!("self.{name}.clone().map(Into::into)")
+            } else {
+                format!("self.{name}.clone().into()")
+            }
+        }
+        TypeRef::Named(_) => gen_php_named_expr(name, optional, is_boxed),
+        TypeRef::Vec(inner) => gen_php_vec_field_expr(inner.as_ref(), name, optional),
+        TypeRef::Optional(inner) => gen_php_optional_field_expr(inner.as_ref(), name, is_boxed),
+        TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Json) => "Default::default()".to_string(),
+        TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => gen_php_map_named_expr(name, optional),
+        TypeRef::Map(_, _) => gen_php_map_plain_expr(name, optional),
+        TypeRef::Unit => format!("self.{name}.clone()"),
+        TypeRef::Json => "Default::default()".to_string(),
+    }
+}
+
+fn gen_php_primitive_cast_expr(name: &str, optional: bool, core_ty: &str) -> String {
+    if optional {
+        format!("self.{name}.map(|v| v as {core_ty})")
+    } else {
+        format!("self.{name} as {core_ty}")
+    }
+}
+
+fn gen_php_duration_expr(name: &str, optional: bool, has_default: bool, core_path: &str) -> String {
+    if optional {
+        format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+    } else if has_default {
+        crate::backends::php::template_env::render(
+            "php_duration_default_expr.jinja",
+            context! {
+                value_expr => &format!("self.{name}"),
+                cast => " as u64",
+                core_type => core_path,
+                field_name => name,
+            },
+        )
+    } else {
+        format!("std::time::Duration::from_millis(self.{name} as u64)")
+    }
+}
+
+fn gen_php_string_like_expr(name: &str, optional: bool, core_wrapper: &CoreWrapper) -> String {
+    if matches!(core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) {
+        if optional {
+            format!("self.{name}.clone().map(Into::into)")
+        } else {
+            format!("self.{name}.clone().into()")
+        }
+    } else {
+        format!("self.{name}.clone()")
+    }
+}
+
+fn gen_php_named_expr(name: &str, optional: bool, is_boxed: bool) -> String {
+    if optional {
+        if is_boxed {
+            format!("self.{name}.clone().map(|v| Box::new(v.into()))")
+        } else {
+            format!("self.{name}.clone().map(Into::into)")
+        }
+    } else {
+        format!("self.{name}.clone().into()")
+    }
+}
+
+fn gen_php_vec_field_expr(inner: &TypeRef, name: &str, optional: bool) -> String {
+    match inner {
+        TypeRef::Named(_) => {
+            if optional {
+                format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+            } else {
+                format!("self.{name}.clone().into_iter().map(Into::into).collect()")
+            }
+        }
+        TypeRef::Primitive(p) if needs_i64_cast(p) => {
+            let core_ty = core_prim_str(p);
+            if optional {
+                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+            } else {
+                format!("self.{name}.clone().into_iter().map(|v| v as {core_ty}).collect()")
+            }
+        }
+        _ => format!("self.{name}.clone()"),
+    }
+}
+
+fn gen_php_optional_field_expr(inner: &TypeRef, name: &str, is_boxed: bool) -> String {
+    match inner {
+        TypeRef::Primitive(p) if needs_i64_cast(p) => {
+            let core_ty = core_prim_str(p);
+            format!("self.{name}.map(|v| v as {core_ty})")
+        }
+        TypeRef::Duration => {
+            format!("self.{name}.map(|v| std::time::Duration::from_millis(v as u64))")
+        }
+        TypeRef::Named(_) => {
+            if is_boxed {
+                format!("self.{name}.clone().map(|v| Box::new(v.into()))")
+            } else {
+                format!("self.{name}.clone().map(Into::into)")
+            }
+        }
+        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Named(_)) => {
+            format!("self.{name}.clone().map(|v| v.into_iter().map(Into::into).collect())")
+        }
+        TypeRef::Vec(vi) if matches!(vi.as_ref(), TypeRef::Primitive(p) if needs_i64_cast(p)) => {
+            if let TypeRef::Primitive(p) = vi.as_ref() {
+                let core_ty = core_prim_str(p);
+                format!("self.{name}.clone().map(|v| v.into_iter().map(|x| x as {core_ty}).collect())")
+            } else {
+                format!("self.{name}.clone()")
+            }
+        }
+        _ => format!("self.{name}.clone()"),
+    }
+}
+
+fn gen_php_map_named_expr(name: &str, optional: bool) -> String {
+    if optional {
+        format!("self.{name}.clone().map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+    } else {
+        format!("self.{name}.clone().into_iter().map(|(k, v)| (k, v.into())).collect()")
+    }
+}
+
+fn gen_php_map_plain_expr(name: &str, optional: bool) -> String {
+    if optional {
+        format!("self.{name}.clone().map(|m| m.into_iter().collect())")
+    } else {
+        format!("self.{name}.clone().into_iter().collect()")
+    }
 }
 
 #[cfg(test)]

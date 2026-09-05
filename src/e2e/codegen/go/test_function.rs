@@ -8,7 +8,7 @@ use std::fmt::Write as FmtWrite;
 
 use super::assertions::render_assertion;
 use super::client;
-use super::setup::build_args_and_setup;
+use super::setup::{GoArgsContext, build_args_and_setup};
 use super::visitors::visitor_struct_name;
 use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
 
@@ -207,19 +207,21 @@ pub(super) fn render_test_function_with_facts(
     let (package_decls, mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
-        import_alias,
-        call_options_type,
         fixture,
-        call_options_ptr,
-        validation_creation_failure,
-        data_enum_names,
-        config,
-        type_defs,
-        enums,
-        false,
-        // The test-file emitter threads no `CallIr`, so every argument keeps exactly the
-        // rendering it had before the `TargetParams` seam existed. ~keep
-        crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        GoArgsContext {
+            import_alias,
+            options_type: call_options_type,
+            options_ptr: call_options_ptr,
+            expects_error: validation_creation_failure,
+            data_enum_names,
+            config,
+            type_defs,
+            enums,
+            native_dtos: false,
+            // The test-file emitter threads no `CallIr`, so every argument keeps exactly the
+            // rendering it had before the `TargetParams` seam existed. ~keep
+            target: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        },
     )
     // The only refusal `build_args_and_setup` can raise comes from the native-DTO literal
     // builder, which the `native_dtos = false` argument above disables — the generated test

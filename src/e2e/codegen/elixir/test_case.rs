@@ -21,7 +21,7 @@ use crate::e2e::fixture::Fixture;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use super::args::build_args_and_setup;
+use super::args::{ElixirArgsContext, build_args_and_setup};
 use super::assertions::render_assertion;
 use super::visitor::build_elixir_visitor;
 
@@ -234,19 +234,21 @@ pub(super) fn render_test_case(
     let (mut setup_lines, args_str, teardown_block) = build_args_and_setup(
         &fixture.input,
         resolved_args,
-        &module_path,
-        resolved_options_type.as_deref(),
-        resolved_options_default_fn.as_deref(),
-        resolved_enum_fields_ref,
-        fixture,
-        resolved_handle_struct_type.as_deref(),
-        resolved_handle_atom_list_fields_ref,
-        &test_documents_path,
-        adapter_request_type.as_deref(),
-        enums,
-        config,
-        type_defs,
-        force_keyword_args,
+        ElixirArgsContext {
+            module_path: &module_path,
+            options_type: resolved_options_type.as_deref(),
+            options_default_fn: resolved_options_default_fn.as_deref(),
+            enum_fields: resolved_enum_fields_ref,
+            fixture,
+            _handle_struct_type: resolved_handle_struct_type.as_deref(),
+            _handle_atom_list_fields: resolved_handle_atom_list_fields_ref,
+            test_documents_path: &test_documents_path,
+            adapter_request_type: adapter_request_type.as_deref(),
+            enums,
+            config,
+            type_defs,
+            force_keyword_args,
+        },
     );
 
     // Build visitor if present - it will be injected into the options map.

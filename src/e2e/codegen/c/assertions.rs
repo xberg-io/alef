@@ -55,329 +55,620 @@ pub(super) fn emit_nested_accessor(
     let prefix_upper = crate::codegen::c_consumer::export_type_prefix(prefix);
 
     // Walk the path, starting from the root result type.
-    let mut current_snake_type = result_type_name.to_snake_case();
-    let mut current_handle = result_var.to_string();
-    // True only while `current_snake_type` names a type the IR actually declares, which
-    // is the precondition for using the IR as an oracle for the next segment. The `char*`
-    // hop below sets `current_snake_type` from a *field* name rather than a type name, and
-    // a `fields_c_types` value may name a C type with no IR counterpart at all; in either
-    // case an IR type that happens to share the name is a coincidence, not the parent. ~keep
-    let mut current_type_from_ir = type_defs.iter().any(|type_def| type_def.name == result_type_name);
-    // Set to true when we've traversed a `[]` array element accessor and subsequent
-    // fields must be extracted via alef_json_get_string rather than FFI function calls.
-    let mut json_extract_mode = false;
-    // Set to true only when that `[]` had an EMPTY key — a true wildcard ("every element"),
-    // as opposed to an explicit numeric index (`[N]`) that also enables `json_extract_mode`
-    // but names one concrete element. Distinguishes the two at the leaf below: an indexed
-    // leaf still resolves to one scalar value, a wildcard leaf does not.
-    //
-    // `assertions.rs` and `test_function.rs` are both already over the repo's 1,000-line cap
-    // (`file-modularization`), and this fix necessarily touches both: the mis-selection lives
-    // in THIS function, and each of its three call sites (`call_patterns.rs`,
-    // `test_function.rs` x2) has to learn about the new `wildcard_locals` bucket to stop
-    // freeing a C local that was never declared. The new logic itself — the quantifier
-    // renderer and the primitive/opaque/wildcard classification — lives in
-    // `collection_wildcard.rs` instead of growing either capped file further; what remains
-    // here and in `test_function.rs` is the minimum wiring needed to reach it. ~keep
-    let mut is_wildcard = false;
+    let mut walk = SegmentWalk {
+        current_snake_type: result_type_name.to_snake_case(),
+        current_handle: result_var.to_string(),
+        current_type_from_ir: type_defs.iter().any(|type_def| type_def.name == result_type_name),
+        json_extract_mode: false,
+        is_wildcard: false,
+    };
 
     for (i, segment) in segments.iter().enumerate() {
         let is_leaf = i + 1 == segments.len();
 
-        // In JSON extraction mode, the current_handle is a JSON string and all
-        // segments name keys to extract via alef_json_get_string (for primitive
-        // leaves) or alef_json_get_object (for intermediate object hops).
-        if json_extract_mode {
-            // Decompose `field` or `field[N]`/`field[]`. Numeric indexing must
-            // extract the Nth element so later key lookups don't ambiguously
-            // pick the first occurrence (matters for fixtures with multiple
-            // array elements like `data[0]`/`data[1]`).
-            let (bare_segment, bracket_key): (&str, Option<&str>) = match segment.find('[') {
-                Some(pos) => (&segment[..pos], Some(segment[pos + 1..].trim_end_matches(']'))),
-                None => (segment, None),
-            };
-            let seg_snake = bare_segment.to_snake_case();
-            if is_leaf {
-                // `field[].key`: `current_handle` names the ARRAY's own JSON text (the `[]`
-                // branch below set it and never drilled into one element), so a scalar
-                // `alef_json_get_string(current_handle, ...)` here would look up "key" as a
-                // property of the array itself — never present, making every "contains"-shaped
-                // assertion built from the (buggy) scalar local unsatisfiable by construction.
-                // Defer to a per-element quantifier at assertion-render time instead. ~keep
-                if is_wildcard && bracket_key.is_none() {
-                    return Ok(Some(NestedLeafOutcome::Wildcard {
-                        array_var: current_handle.clone(),
-                        key_snake: seg_snake,
-                    }));
-                }
-                let _ = writeln!(
-                    out,
-                    "    char* {local_var} = alef_json_get_string({current_handle}, \"{seg_snake}\");"
-                );
-                return Ok(None); // JSON key leaf — char*.
-            }
-            // Intermediate JSON key — must be an object/array value. Use the
-            // object extractor so the substring includes braces/brackets and
-            // later primitive lookups against it find their keys
-            // (alef_json_get_string would return NULL on non-string values).
-            let json_var = format!("{seg_snake}_json");
-            if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
-                let _ = writeln!(
-                    out,
-                    "    char* {json_var} = alef_json_get_object({current_handle}, \"{seg_snake}\");"
-                );
-                intermediate_handles.push((json_var.clone(), "free".to_string()));
-            }
-            // If the segment also includes a numeric index `[N]`, drill into
-            // the Nth element of the extracted array; otherwise stay on the
-            // object/array substring.
-            if let Some(key) = bracket_key
-                && let Ok(idx) = key.parse::<usize>()
-            {
-                let elem_var = format!("{seg_snake}_{idx}_json");
-                if !intermediate_handles.iter().any(|(h, _)| h == &elem_var) {
-                    let _ = writeln!(
-                        out,
-                        "    char* {elem_var} = alef_json_array_get_index({json_var}, {idx});"
-                    );
-                    intermediate_handles.push((elem_var.clone(), "free".to_string()));
-                }
-                current_handle = elem_var;
-                continue;
-            }
-            current_handle = json_var;
-            continue;
-        }
-
-        // Check for map access: "field[key]" or array element access: "field[]"
-        if let Some(bracket_pos) = segment.find('[') {
-            let field_name = &segment[..bracket_pos];
-            let key = segment[bracket_pos + 1..].trim_end_matches(']');
-            let field_snake = field_name.to_snake_case();
-            let accessor_fn = format!("{prefix}_{current_snake_type}_{field_snake}");
-
-            // The accessor returns a char* (JSON object/array string).
-            let json_var = format!("{field_snake}_json");
-            if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
-                let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
-                let _ = writeln!(out, "    assert({json_var} != NULL);");
-                // Track for freeing — use prefix_free_string since it's a char*.
-                intermediate_handles.push((json_var.clone(), "free_string".to_string()));
-            }
-
-            // Empty key `[]`: array-element substring access (any element matches).
-            // Numeric key `[N]` (e.g. `choices[0]`, `data[1]`): extract the exact
-            // Nth top-level element so subsequent key lookups don't ambiguously
-            // pick the first occurrence — required for fixtures whose results
-            // contain multiple array elements (e.g. `data[0].index`/`data[1].index`).
-            if key.is_empty() {
-                if !is_leaf {
-                    current_handle = json_var;
-                    json_extract_mode = true;
-                    is_wildcard = true;
-                    continue;
-                }
-                return Ok(None);
-            }
-            if let Ok(idx) = key.parse::<usize>() {
-                let elem_var = format!("{field_snake}_{idx}_json");
-                if !intermediate_handles.iter().any(|(h, _)| h == &elem_var) {
-                    let _ = writeln!(
-                        out,
-                        "    char* {elem_var} = alef_json_array_get_index({json_var}, {idx});"
-                    );
-                    intermediate_handles.push((elem_var.clone(), "free".to_string()));
-                }
-                if !is_leaf {
-                    current_handle = elem_var;
-                    json_extract_mode = true;
-                    continue;
-                }
-                // Trailing `[N]` — caller asserts on the element JSON.
-                return Ok(None);
-            }
-
-            // Named map key access: extract the key value from the JSON object.
-            let _ = writeln!(
-                out,
-                "    char* {local_var} = alef_json_get_string({json_var}, \"{key}\");"
-            );
-            return Ok(None); // Map access leaf — char*.
-        }
-
-        let seg_snake = segment.to_snake_case();
-        let accessor_fn = format!("{prefix}_{current_snake_type}_{seg_snake}");
-
-        // Skip any assertion that touches a field marked "skip" in fields_c_types.
-        if is_skipped_c_field(fields_c_types, &current_snake_type, &seg_snake) {
-            // Sentinel: no accessor emitted, assertion skipped later.
-            return Ok(Some(NestedLeafOutcome::Typed("__skip__".to_string())));
-        }
-
-        if is_leaf {
-            // Leaf may be a primitive scalar (uint64_t, double, ...) when
-            // configured in `fields_c_types`. Otherwise default to char*.
-            let lookup_key = format!("{current_snake_type}.{seg_snake}");
-            if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
-                let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({current_handle});");
-                return Ok(Some(NestedLeafOutcome::Typed(t.clone())));
-            }
-            // Enum leaf: opaque enum pointer that needs `_to_string` conversion. Must run
-            // BEFORE the opaque-struct-leaf check below: `try_emit_enum_accessor` gates
-            // itself on `fields_enum` membership, but its `fields_c_types` value (the
-            // enum's PascalCase type name, e.g. `DataNodeKind`) is indistinguishable in
-            // shape from a struct's opaque type name -- both are non-primitive PascalCase
-            // strings. Checking the opaque-struct filter first would swallow every
-            // dotted-path enum leaf (it never inspects `fields_enum`) and hand back a bare
-            // handle for the caller to `strcmp` against, which aborts at runtime. The flat
-            // (single-segment) leaf path a few lines below in `test_function.rs` already
-            // orders enum-before-opaque; this nested-path leaf must match it. ~keep
-            if try_emit_enum_accessor(
-                out,
+        // JSON-extract mode and bracket ("field[key]"/"field[]") segments are both handled
+        // entirely by `step_prefixed_segment`; only a plain field segment falls through to
+        // `step_plain_segment` below.
+        let step = match step_prefixed_segment(
+            &mut *out,
+            prefix,
+            &mut *intermediate_handles,
+            &mut walk,
+            segment,
+            is_leaf,
+            local_var,
+        ) {
+            Some(step) => step,
+            None => step_plain_segment(PlainSegmentArgs {
+                out: &mut *out,
                 prefix,
-                &prefix_upper,
+                prefix_upper: &prefix_upper,
                 raw_field,
-                &seg_snake,
-                &current_snake_type,
-                &accessor_fn,
-                &current_handle,
+                resolved,
+                segment,
+                is_leaf,
+                segments: &segments,
+                i,
+                walk: &mut walk,
                 local_var,
                 fields_c_types,
                 fields_enum,
-                intermediate_handles,
-            ) {
-                return Ok(None);
-            }
-            // Opaque struct leaf: when fields_c_types maps "{parent}.{field}" to a
-            // PascalCase type name (not a primitive, not "char*", not "skip"), the
-            // accessor returns a struct pointer rather than a string. Emit the typed
-            // handle declaration and register it for freeing.
-            if let Some(opaque_type) = fields_c_types.get(&lookup_key).filter(|t| {
-                *t != "char*"
-                    && *t != "skip"
-                    && !is_primitive_c_type(t)
-                    && t.chars().next().is_some_and(|c| c.is_uppercase())
-            }) {
-                let handle_var = format!("{seg_snake}_handle");
-                let opaque_snake = opaque_type.to_snake_case();
-                if !intermediate_handles.iter().any(|(h, _)| h == &handle_var) {
-                    let _ = writeln!(
-                        out,
-                        "    {prefix_upper}AlefHandle {handle_var} = {accessor_fn}({current_handle});"
-                    );
-                    intermediate_handles.push((handle_var.clone(), opaque_snake.clone()));
-                }
-                // Treat the handle itself as the local_var for later assertions.
-                // Map local_var → handle_var so render_assertion uses the handle name.
-                if local_var != handle_var {
-                    let _ = writeln!(out, "    {prefix_upper}AlefHandle {local_var} = {handle_var};");
-                }
-                // return type name so caller can register opaque handle cleanup
-                return Ok(Some(NestedLeafOutcome::Typed(opaque_snake)));
-            }
-            // Every branch above proved the leaf exists — an explicit `fields_c_types`
-            // declaration, or an enum registration. This default proves nothing: it emits
-            // `{accessor_fn}()` on faith. When the IR knows the type the walk is standing
-            // on and that type has no such field, cbindgen never generated that symbol, so
-            // the assertion is rendered against a function that does not exist and the
-            // failure surfaces at `cc` time inside a consumer — or, if the generated suite
-            // is never compiled, not at all. Nothing upstream catches it either:
-            // `FieldResolver::is_valid_for_result` only inspects a path's FIRST segment, so
-            // `metadata.<anything>` passes as long as `metadata` is a real field, and the
-            // `fail_on_unavailable_field_markers` scan only sees skip comments that this
-            // path never writes. Fail here, matching the intermediate arm below. ~keep
-            ensure_leaf_field_exists(LeafFieldCheck {
-                prefix,
-                accessor_fn: &accessor_fn,
-                resolved,
-                raw_field,
-                segment,
-                parent_snake_type: &current_snake_type,
-                parent_is_ir_type: current_type_from_ir,
-                declared_in_fields_c_types: fields_c_types.contains_key(&lookup_key),
+                intermediate_handles: &mut *intermediate_handles,
                 result_type_name,
                 type_defs,
-                result_fields_source: &config_sources.result_fields,
-                fields_source: &config_sources.fields,
-            })?;
-            let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({current_handle});");
-        } else {
-            // Intermediate field — check if it's a char* (JSON string/array) or an opaque handle.
-            let lookup_key = format!("{current_snake_type}.{seg_snake}");
-            let return_type_pascal = match fields_c_types
-                .get(&lookup_key)
-                .cloned()
-                .or_else(|| resolve_intermediate_type(&current_snake_type, &seg_snake, type_defs))
-            {
-                Some(return_type) => return_type,
-                None => {
-                    // No silent fallback: deriving the C type from the field name only
-                    // works when the Rust return type is the literal PascalCase of the
-                    // field identifier. For accessors whose return type carries a
-                    // suffix (e.g. `data` -> `DataNode`, `metadata` -> `MetadataConfig`)
-                    // the guessed name does not match what cbindgen emits and the
-                    // generated C fails to compile with `unknown type name`. Fail loud
-                    // here so the operator declares the correct C type explicitly. ~keep
-                    anyhow::bail!(
-                        "{}",
-                        missing_intermediate_type_diagnostic(MissingIntermediateType {
-                            prefix,
-                            lookup_key: &lookup_key,
-                            accessor_fn: &accessor_fn,
-                            resolved,
-                            raw_field,
-                            segment,
-                            seg_snake: &seg_snake,
-                            segments_walked: &segments[..=i],
-                            current_snake_type: &current_snake_type,
-                            result_type_name,
-                            type_defs,
-                            fields_source: &config_sources.fields,
-                        })
-                    );
-                }
-            };
-
-            // Special case: intermediate char* fields (e.g. links, assets) are JSON
-            // strings/arrays, not opaque handles. For a `.length` suffix, emit alef_json_array_count.
-            if return_type_pascal == "char*" {
-                let json_var = format!("{seg_snake}_json");
-                if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
-                    let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
-                    intermediate_handles.push((json_var.clone(), "free_string".to_string()));
-                }
-                // If the next (and final) segment is "length", emit the count accessor.
-                if i + 2 == segments.len() && segments[i + 1] == "length" {
-                    let _ = writeln!(out, "    int {local_var} = alef_json_array_count({json_var});");
-                    return Ok(Some(NestedLeafOutcome::Typed("int".to_string())));
-                }
-                current_snake_type = seg_snake.clone();
-                current_type_from_ir = false;
-                current_handle = json_var;
-                continue;
-            }
-
-            let return_snake = return_type_pascal.to_snake_case();
-            let handle_var = format!("{seg_snake}_handle");
-
-            // Only emit the handle if we haven't already (multiple fields may
-            // share the same intermediate path prefix).
-            if !intermediate_handles.iter().any(|(h, _)| h == &handle_var) {
-                let _ = writeln!(
-                    out,
-                    "    {prefix_upper}AlefHandle {handle_var} = \
-                     {accessor_fn}({current_handle});"
-                );
-                let _ = writeln!(out, "    assert({handle_var} != 0);");
-                intermediate_handles.push((handle_var.clone(), return_snake.clone()));
-            }
-
-            current_type_from_ir = type_defs.iter().any(|type_def| type_def.name == return_type_pascal);
-            current_snake_type = return_snake;
-            current_handle = handle_var;
+                config_sources,
+            })?,
+        };
+        match step {
+            SegmentStep::Continue => continue,
+            SegmentStep::Done(outcome) => return Ok(outcome),
         }
     }
     Ok(None)
+}
+
+/// One step of [`emit_nested_accessor`]'s walk for a segment handled without reaching the
+/// plain-field branch: while `walk.json_extract_mode` is set, every segment is a JSON-extract
+/// step; otherwise a segment shaped `field[key]`/`field[]` is a bracket-access step. Returns
+/// `None` when neither applies, so the caller falls through to [`step_plain_segment`] exactly
+/// as the original `if walk.json_extract_mode {..} if let Some(bracket_pos) = ... {..}` did.
+fn step_prefixed_segment(
+    out: &mut String,
+    prefix: &str,
+    intermediate_handles: &mut Vec<(String, String)>,
+    walk: &mut SegmentWalk,
+    segment: &str,
+    is_leaf: bool,
+    local_var: &str,
+) -> Option<SegmentStep> {
+    // In JSON extraction mode, the current_handle is a JSON string and all
+    // segments name keys to extract via alef_json_get_string (for primitive
+    // leaves) or alef_json_get_object (for intermediate object hops).
+    if walk.json_extract_mode {
+        return Some(step_json_extract_segment(out, intermediate_handles, walk, segment, is_leaf, local_var));
+    }
+    // Check for map access: "field[key]" or array element access: "field[]"
+    step_bracket_segment(out, prefix, intermediate_handles, walk, segment, is_leaf, local_var)
+}
+
+/// Inputs for [`step_plain_segment`]. A struct, not a dozen positional arguments, for the
+/// same reason as [`StepLeafSegmentArgs`].
+struct PlainSegmentArgs<'a> {
+    out: &'a mut String,
+    prefix: &'a str,
+    prefix_upper: &'a str,
+    raw_field: &'a str,
+    resolved: &'a str,
+    segment: &'a str,
+    is_leaf: bool,
+    segments: &'a [&'a str],
+    i: usize,
+    walk: &'a mut SegmentWalk,
+    local_var: &'a str,
+    fields_c_types: &'a HashMap<String, String>,
+    fields_enum: &'a HashSet<String>,
+    intermediate_handles: &'a mut Vec<(String, String)>,
+    result_type_name: &'a str,
+    type_defs: &'a [crate::core::ir::TypeDef],
+    config_sources: &'a FieldConfigSources,
+}
+
+/// One step of [`emit_nested_accessor`]'s walk for a plain field segment (`segment` carries no
+/// `[` and we are not already in JSON-extract mode) -- computes the accessor name, applies the
+/// `fields_c_types` skip sentinel, then dispatches to the leaf or intermediate branch.
+/// Extracted verbatim from the walk loop's tail -- same emitted lines, same conditions, same
+/// ordering.
+fn step_plain_segment(args: PlainSegmentArgs<'_>) -> anyhow::Result<SegmentStep> {
+    let PlainSegmentArgs {
+        out,
+        prefix,
+        prefix_upper,
+        raw_field,
+        resolved,
+        segment,
+        is_leaf,
+        segments,
+        i,
+        walk,
+        local_var,
+        fields_c_types,
+        fields_enum,
+        intermediate_handles,
+        result_type_name,
+        type_defs,
+        config_sources,
+    } = args;
+
+    let seg_snake = segment.to_snake_case();
+    let accessor_fn = format!("{prefix}_{}_{seg_snake}", walk.current_snake_type);
+
+    // Skip any assertion that touches a field marked "skip" in fields_c_types.
+    if is_skipped_c_field(fields_c_types, &walk.current_snake_type, &seg_snake) {
+        // Sentinel: no accessor emitted, assertion skipped later.
+        return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed("__skip__".to_string()))));
+    }
+
+    if is_leaf {
+        step_leaf_segment(StepLeafSegmentArgs {
+            out,
+            prefix,
+            prefix_upper,
+            raw_field,
+            resolved,
+            segment,
+            seg_snake: &seg_snake,
+            walk: &*walk,
+            local_var,
+            accessor_fn: &accessor_fn,
+            fields_c_types,
+            fields_enum,
+            intermediate_handles,
+            result_type_name,
+            type_defs,
+            config_sources,
+        })
+    } else {
+        step_intermediate_segment(StepIntermediateSegmentArgs {
+            out,
+            prefix,
+            prefix_upper,
+            raw_field,
+            resolved,
+            segment,
+            seg_snake: &seg_snake,
+            segments,
+            i,
+            walk,
+            local_var,
+            accessor_fn: &accessor_fn,
+            fields_c_types,
+            intermediate_handles,
+            result_type_name,
+            type_defs,
+            config_sources,
+        })
+    }
+}
+
+/// Where [`emit_nested_accessor`]'s per-segment walk goes next: keep consuming the path, or
+/// stop and hand this value back to the caller. Every branch of the original loop body either
+/// mutated the walk state and looped, or returned -- this names the two shapes so the
+/// extracted per-branch helpers below can hand control back to the loop instead of inlining a
+/// `continue`/`return` themselves. ~keep
+enum SegmentStep {
+    /// Keep walking; `SegmentWalk` has already been updated in place.
+    Continue,
+    /// Stop the walk and return this value from `emit_nested_accessor`.
+    Done(Option<NestedLeafOutcome>),
+}
+
+/// Mutable state threaded through [`emit_nested_accessor`]'s per-segment walk loop.
+struct SegmentWalk {
+    current_snake_type: String,
+    current_handle: String,
+    /// True only while `current_snake_type` names a type the IR actually declares, which
+    /// is the precondition for using the IR as an oracle for the next segment. The `char*`
+    /// hop below sets `current_snake_type` from a *field* name rather than a type name, and
+    /// a `fields_c_types` value may name a C type with no IR counterpart at all; in either
+    /// case an IR type that happens to share the name is a coincidence, not the parent. ~keep
+    current_type_from_ir: bool,
+    /// Set to true when we've traversed a `[]` array element accessor and subsequent
+    /// fields must be extracted via alef_json_get_string rather than FFI function calls.
+    json_extract_mode: bool,
+    /// Set to true only when that `[]` had an EMPTY key — a true wildcard ("every element"),
+    /// as opposed to an explicit numeric index (`[N]`) that also enables `json_extract_mode`
+    /// but names one concrete element. Distinguishes the two at the leaf below: an indexed
+    /// leaf still resolves to one scalar value, a wildcard leaf does not.
+    ///
+    /// `assertions.rs` and `test_function.rs` are both already over the repo's 1,000-line cap
+    /// (`file-modularization`), and this fix necessarily touches both: the mis-selection lives
+    /// in THIS function, and each of its three call sites (`call_patterns.rs`,
+    /// `test_function.rs` x2) has to learn about the new `wildcard_locals` bucket to stop
+    /// freeing a C local that was never declared. The new logic itself — the quantifier
+    /// renderer and the primitive/opaque/wildcard classification — lives in
+    /// `collection_wildcard.rs` instead of growing either capped file further; what remains
+    /// here and in `test_function.rs` is the minimum wiring needed to reach it. ~keep
+    is_wildcard: bool,
+}
+
+/// One step of [`emit_nested_accessor`]'s walk while `walk.json_extract_mode` is set: the
+/// current handle is a JSON string and all segments name keys to extract via
+/// `alef_json_get_string` (for primitive leaves) or `alef_json_get_object` (for intermediate
+/// object hops). Extracted verbatim from the walk loop's `json_extract_mode` branch -- same
+/// emitted lines, same conditions, same ordering.
+fn step_json_extract_segment(
+    out: &mut String,
+    intermediate_handles: &mut Vec<(String, String)>,
+    walk: &mut SegmentWalk,
+    segment: &str,
+    is_leaf: bool,
+    local_var: &str,
+) -> SegmentStep {
+    let current_handle = walk.current_handle.clone();
+    // Decompose `field` or `field[N]`/`field[]`. Numeric indexing must
+    // extract the Nth element so later key lookups don't ambiguously
+    // pick the first occurrence (matters for fixtures with multiple
+    // array elements like `data[0]`/`data[1]`).
+    let (bare_segment, bracket_key): (&str, Option<&str>) = match segment.find('[') {
+        Some(pos) => (&segment[..pos], Some(segment[pos + 1..].trim_end_matches(']'))),
+        None => (segment, None),
+    };
+    let seg_snake = bare_segment.to_snake_case();
+    if is_leaf {
+        // `field[].key`: `current_handle` names the ARRAY's own JSON text (the `[]`
+        // branch below set it and never drilled into one element), so a scalar
+        // `alef_json_get_string(current_handle, ...)` here would look up "key" as a
+        // property of the array itself — never present, making every "contains"-shaped
+        // assertion built from the (buggy) scalar local unsatisfiable by construction.
+        // Defer to a per-element quantifier at assertion-render time instead. ~keep
+        if walk.is_wildcard && bracket_key.is_none() {
+            return SegmentStep::Done(Some(NestedLeafOutcome::Wildcard {
+                array_var: current_handle.clone(),
+                key_snake: seg_snake,
+            }));
+        }
+        let _ = writeln!(
+            out,
+            "    char* {local_var} = alef_json_get_string({current_handle}, \"{seg_snake}\");"
+        );
+        return SegmentStep::Done(None); // JSON key leaf — char*.
+    }
+    // Intermediate JSON key — must be an object/array value. Use the
+    // object extractor so the substring includes braces/brackets and
+    // later primitive lookups against it find their keys
+    // (alef_json_get_string would return NULL on non-string values).
+    let json_var = format!("{seg_snake}_json");
+    if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
+        let _ = writeln!(
+            out,
+            "    char* {json_var} = alef_json_get_object({current_handle}, \"{seg_snake}\");"
+        );
+        intermediate_handles.push((json_var.clone(), "free".to_string()));
+    }
+    // If the segment also includes a numeric index `[N]`, drill into
+    // the Nth element of the extracted array; otherwise stay on the
+    // object/array substring.
+    if let Some(key) = bracket_key
+        && let Ok(idx) = key.parse::<usize>()
+    {
+        let elem_var = format!("{seg_snake}_{idx}_json");
+        if !intermediate_handles.iter().any(|(h, _)| h == &elem_var) {
+            let _ = writeln!(
+                out,
+                "    char* {elem_var} = alef_json_array_get_index({json_var}, {idx});"
+            );
+            intermediate_handles.push((elem_var.clone(), "free".to_string()));
+        }
+        walk.current_handle = elem_var;
+        return SegmentStep::Continue;
+    }
+    walk.current_handle = json_var;
+    SegmentStep::Continue
+}
+
+/// One step of [`emit_nested_accessor`]'s walk for a segment shaped `field[key]` or `field[]`
+/// (map access or array-element access), while not already in JSON-extract mode. Extracted
+/// verbatim from the walk loop's bracket-segment branch -- same emitted lines, same
+/// conditions, same ordering. Returns `None` when `segment` carries no `[`, so the caller
+/// falls through to the plain-field branch exactly as the original `if let Some(...)` did.
+fn step_bracket_segment(
+    out: &mut String,
+    prefix: &str,
+    intermediate_handles: &mut Vec<(String, String)>,
+    walk: &mut SegmentWalk,
+    segment: &str,
+    is_leaf: bool,
+    local_var: &str,
+) -> Option<SegmentStep> {
+    let bracket_pos = segment.find('[')?;
+    let current_handle = walk.current_handle.clone();
+    let current_snake_type = walk.current_snake_type.clone();
+    let field_name = &segment[..bracket_pos];
+    let key = segment[bracket_pos + 1..].trim_end_matches(']');
+    let field_snake = field_name.to_snake_case();
+    let accessor_fn = format!("{prefix}_{current_snake_type}_{field_snake}");
+
+    // The accessor returns a char* (JSON object/array string).
+    let json_var = format!("{field_snake}_json");
+    if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
+        let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
+        let _ = writeln!(out, "    assert({json_var} != NULL);");
+        // Track for freeing — use prefix_free_string since it's a char*.
+        intermediate_handles.push((json_var.clone(), "free_string".to_string()));
+    }
+
+    // Empty key `[]`: array-element substring access (any element matches).
+    // Numeric key `[N]` (e.g. `choices[0]`, `data[1]`): extract the exact
+    // Nth top-level element so subsequent key lookups don't ambiguously
+    // pick the first occurrence — required for fixtures whose results
+    // contain multiple array elements (e.g. `data[0].index`/`data[1].index`).
+    if key.is_empty() {
+        if !is_leaf {
+            walk.current_handle = json_var;
+            walk.json_extract_mode = true;
+            walk.is_wildcard = true;
+            return Some(SegmentStep::Continue);
+        }
+        return Some(SegmentStep::Done(None));
+    }
+    if let Ok(idx) = key.parse::<usize>() {
+        let elem_var = format!("{field_snake}_{idx}_json");
+        if !intermediate_handles.iter().any(|(h, _)| h == &elem_var) {
+            let _ = writeln!(
+                out,
+                "    char* {elem_var} = alef_json_array_get_index({json_var}, {idx});"
+            );
+            intermediate_handles.push((elem_var.clone(), "free".to_string()));
+        }
+        if !is_leaf {
+            walk.current_handle = elem_var;
+            walk.json_extract_mode = true;
+            return Some(SegmentStep::Continue);
+        }
+        // Trailing `[N]` — caller asserts on the element JSON.
+        return Some(SegmentStep::Done(None));
+    }
+
+    // Named map key access: extract the key value from the JSON object.
+    let _ = writeln!(
+        out,
+        "    char* {local_var} = alef_json_get_string({json_var}, \"{key}\");"
+    );
+    Some(SegmentStep::Done(None)) // Map access leaf — char*.
+}
+
+/// Inputs for [`step_leaf_segment`]. A struct, not a dozen positional arguments, following
+/// this file's existing convention (see [`MissingIntermediateType`], [`LeafFieldCheck`]) for
+/// a helper with this many related-but-distinct parameters.
+struct StepLeafSegmentArgs<'a> {
+    out: &'a mut String,
+    prefix: &'a str,
+    prefix_upper: &'a str,
+    raw_field: &'a str,
+    resolved: &'a str,
+    segment: &'a str,
+    seg_snake: &'a str,
+    walk: &'a SegmentWalk,
+    local_var: &'a str,
+    accessor_fn: &'a str,
+    fields_c_types: &'a HashMap<String, String>,
+    fields_enum: &'a HashSet<String>,
+    intermediate_handles: &'a mut Vec<(String, String)>,
+    result_type_name: &'a str,
+    type_defs: &'a [crate::core::ir::TypeDef],
+    config_sources: &'a FieldConfigSources,
+}
+
+/// One step of [`emit_nested_accessor`]'s walk for a leaf plain-field segment (`is_leaf` is
+/// true, and `segment` carries no `[` and we are not already in JSON-extract mode). Extracted
+/// verbatim from the walk loop's leaf branch -- same emitted lines, same conditions, same
+/// ordering.
+fn step_leaf_segment(args: StepLeafSegmentArgs<'_>) -> anyhow::Result<SegmentStep> {
+    let StepLeafSegmentArgs {
+        out,
+        prefix,
+        prefix_upper,
+        raw_field,
+        resolved,
+        segment,
+        seg_snake,
+        walk,
+        local_var,
+        accessor_fn,
+        fields_c_types,
+        fields_enum,
+        intermediate_handles,
+        result_type_name,
+        type_defs,
+        config_sources,
+    } = args;
+    let current_handle = walk.current_handle.as_str();
+    // Leaf may be a primitive scalar (uint64_t, double, ...) when
+    // configured in `fields_c_types`. Otherwise default to char*.
+    let lookup_key = format!("{}.{seg_snake}", walk.current_snake_type);
+    if let Some(t) = fields_c_types.get(&lookup_key).filter(|t| is_primitive_c_type(t)) {
+        let _ = writeln!(out, "    {t} {local_var} = {accessor_fn}({current_handle});");
+        return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed(t.clone()))));
+    }
+    // Enum leaf: opaque enum pointer that needs `_to_string` conversion. Must run
+    // BEFORE the opaque-struct-leaf check below: `try_emit_enum_accessor` gates
+    // itself on `fields_enum` membership, but its `fields_c_types` value (the
+    // enum's PascalCase type name, e.g. `DataNodeKind`) is indistinguishable in
+    // shape from a struct's opaque type name -- both are non-primitive PascalCase
+    // strings. Checking the opaque-struct filter first would swallow every
+    // dotted-path enum leaf (it never inspects `fields_enum`) and hand back a bare
+    // handle for the caller to `strcmp` against, which aborts at runtime. The flat
+    // (single-segment) leaf path a few lines below in `test_function.rs` already
+    // orders enum-before-opaque; this nested-path leaf must match it. ~keep
+    if try_emit_enum_accessor(
+        out,
+        prefix,
+        prefix_upper,
+        raw_field,
+        seg_snake,
+        &walk.current_snake_type,
+        accessor_fn,
+        current_handle,
+        local_var,
+        fields_c_types,
+        fields_enum,
+        intermediate_handles,
+    ) {
+        return Ok(SegmentStep::Done(None));
+    }
+    // Opaque struct leaf: when fields_c_types maps "{parent}.{field}" to a
+    // PascalCase type name (not a primitive, not "char*", not "skip"), the
+    // accessor returns a struct pointer rather than a string. Emit the typed
+    // handle declaration and register it for freeing.
+    if let Some(opaque_type) = fields_c_types.get(&lookup_key).filter(|t| {
+        *t != "char*" && *t != "skip" && !is_primitive_c_type(t) && t.chars().next().is_some_and(|c| c.is_uppercase())
+    }) {
+        let handle_var = format!("{seg_snake}_handle");
+        let opaque_snake = opaque_type.to_snake_case();
+        if !intermediate_handles.iter().any(|(h, _)| h == &handle_var) {
+            let _ = writeln!(
+                out,
+                "    {prefix_upper}AlefHandle {handle_var} = {accessor_fn}({current_handle});"
+            );
+            intermediate_handles.push((handle_var.clone(), opaque_snake.clone()));
+        }
+        // Treat the handle itself as the local_var for later assertions.
+        // Map local_var → handle_var so render_assertion uses the handle name.
+        if local_var != handle_var {
+            let _ = writeln!(out, "    {prefix_upper}AlefHandle {local_var} = {handle_var};");
+        }
+        // return type name so caller can register opaque handle cleanup
+        return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed(opaque_snake))));
+    }
+    // Every branch above proved the leaf exists — an explicit `fields_c_types`
+    // declaration, or an enum registration. This default proves nothing: it emits
+    // `{accessor_fn}()` on faith. When the IR knows the type the walk is standing
+    // on and that type has no such field, cbindgen never generated that symbol, so
+    // the assertion is rendered against a function that does not exist and the
+    // failure surfaces at `cc` time inside a consumer — or, if the generated suite
+    // is never compiled, not at all. Nothing upstream catches it either:
+    // `FieldResolver::is_valid_for_result` only inspects a path's FIRST segment, so
+    // `metadata.<anything>` passes as long as `metadata` is a real field, and the
+    // `fail_on_unavailable_field_markers` scan only sees skip comments that this
+    // path never writes. Fail here, matching the intermediate arm below. ~keep
+    ensure_leaf_field_exists(LeafFieldCheck {
+        prefix,
+        accessor_fn,
+        resolved,
+        raw_field,
+        segment,
+        parent_snake_type: &walk.current_snake_type,
+        parent_is_ir_type: walk.current_type_from_ir,
+        declared_in_fields_c_types: fields_c_types.contains_key(&lookup_key),
+        result_type_name,
+        type_defs,
+        result_fields_source: &config_sources.result_fields,
+        fields_source: &config_sources.fields,
+    })?;
+    let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({current_handle});");
+    Ok(SegmentStep::Continue)
+}
+
+/// Inputs for [`step_intermediate_segment`]. A struct, not a dozen positional arguments, for
+/// the same reason as [`StepLeafSegmentArgs`].
+struct StepIntermediateSegmentArgs<'a> {
+    out: &'a mut String,
+    prefix: &'a str,
+    prefix_upper: &'a str,
+    raw_field: &'a str,
+    resolved: &'a str,
+    segment: &'a str,
+    seg_snake: &'a str,
+    segments: &'a [&'a str],
+    i: usize,
+    walk: &'a mut SegmentWalk,
+    local_var: &'a str,
+    accessor_fn: &'a str,
+    fields_c_types: &'a HashMap<String, String>,
+    intermediate_handles: &'a mut Vec<(String, String)>,
+    result_type_name: &'a str,
+    type_defs: &'a [crate::core::ir::TypeDef],
+    config_sources: &'a FieldConfigSources,
+}
+
+/// One step of [`emit_nested_accessor`]'s walk for a non-leaf plain-field segment (`segment`
+/// carries no `[` and we are not already in JSON-extract mode). Extracted verbatim from the
+/// walk loop's intermediate branch -- same emitted lines, same conditions, same ordering.
+fn step_intermediate_segment(args: StepIntermediateSegmentArgs<'_>) -> anyhow::Result<SegmentStep> {
+    let StepIntermediateSegmentArgs {
+        out,
+        prefix,
+        prefix_upper,
+        raw_field,
+        resolved,
+        segment,
+        seg_snake,
+        segments,
+        i,
+        walk,
+        local_var,
+        accessor_fn,
+        fields_c_types,
+        intermediate_handles,
+        result_type_name,
+        type_defs,
+        config_sources,
+    } = args;
+    let current_handle = walk.current_handle.clone();
+    // Intermediate field — check if it's a char* (JSON string/array) or an opaque handle.
+    let lookup_key = format!("{}.{seg_snake}", walk.current_snake_type);
+    let return_type_pascal = match fields_c_types
+        .get(&lookup_key)
+        .cloned()
+        .or_else(|| resolve_intermediate_type(&walk.current_snake_type, seg_snake, type_defs))
+    {
+        Some(return_type) => return_type,
+        None => {
+            // No silent fallback: deriving the C type from the field name only
+            // works when the Rust return type is the literal PascalCase of the
+            // field identifier. For accessors whose return type carries a
+            // suffix (e.g. `data` -> `DataNode`, `metadata` -> `MetadataConfig`)
+            // the guessed name does not match what cbindgen emits and the
+            // generated C fails to compile with `unknown type name`. Fail loud
+            // here so the operator declares the correct C type explicitly. ~keep
+            anyhow::bail!(
+                "{}",
+                missing_intermediate_type_diagnostic(MissingIntermediateType {
+                    prefix,
+                    lookup_key: &lookup_key,
+                    accessor_fn,
+                    resolved,
+                    raw_field,
+                    segment,
+                    seg_snake,
+                    segments_walked: &segments[..=i],
+                    current_snake_type: &walk.current_snake_type,
+                    result_type_name,
+                    type_defs,
+                    fields_source: &config_sources.fields,
+                })
+            );
+        }
+    };
+
+    // Special case: intermediate char* fields (e.g. links, assets) are JSON
+    // strings/arrays, not opaque handles. For a `.length` suffix, emit alef_json_array_count.
+    if return_type_pascal == "char*" {
+        let json_var = format!("{seg_snake}_json");
+        if !intermediate_handles.iter().any(|(h, _)| h == &json_var) {
+            let _ = writeln!(out, "    char* {json_var} = {accessor_fn}({current_handle});");
+            intermediate_handles.push((json_var.clone(), "free_string".to_string()));
+        }
+        // If the next (and final) segment is "length", emit the count accessor.
+        if i + 2 == segments.len() && segments[i + 1] == "length" {
+            let _ = writeln!(out, "    int {local_var} = alef_json_array_count({json_var});");
+            return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed("int".to_string()))));
+        }
+        walk.current_snake_type = seg_snake.to_string();
+        walk.current_type_from_ir = false;
+        walk.current_handle = json_var;
+        return Ok(SegmentStep::Continue);
+    }
+
+    let return_snake = return_type_pascal.to_snake_case();
+    let handle_var = format!("{seg_snake}_handle");
+
+    // Only emit the handle if we haven't already (multiple fields may
+    // share the same intermediate path prefix).
+    if !intermediate_handles.iter().any(|(h, _)| h == &handle_var) {
+        let _ = writeln!(
+            out,
+            "    {prefix_upper}AlefHandle {handle_var} = \
+             {accessor_fn}({current_handle});"
+        );
+        let _ = writeln!(out, "    assert({handle_var} != 0);");
+        intermediate_handles.push((handle_var.clone(), return_snake.clone()));
+    }
+
+    walk.current_type_from_ir = type_defs.iter().any(|type_def| type_def.name == return_type_pascal);
+    walk.current_snake_type = return_snake;
+    walk.current_handle = handle_var;
+    Ok(SegmentStep::Continue)
 }
 
 fn resolve_intermediate_type(
@@ -629,30 +920,19 @@ fn missing_intermediate_type_diagnostic(context: MissingIntermediateType<'_>) ->
 
     match find_all_field_paths(result_type_name, seg_snake, type_defs).as_slice() {
         [chain] => {
-            let alias_key = match stripped_namespace_prefix(raw_field, resolved) {
-                Some(namespace) => format!("{namespace}.{}", segments_walked.join(".")),
-                None => segments_walked.join("."),
-            };
-            let real_path = &chain.path;
-            let real_symbol = format!("{prefix}_{}_{seg_snake}", chain.owner_type.to_snake_case());
-            // Same shadowing rule as the leaf diagnostic's alias-fix branch, `fields`
-            // instead of `result_fields`: a non-empty per-call `fields` override
-            // replaces the global alias table outright (`E2eConfig::effective_fields`),
-            // so the alias must be spelled under whichever one actually governs this
-            // call. ~keep
-            let fields_key = match fields_source {
-                EffectiveConfigSource::Global => "`[crates.e2e.fields]`".to_string(),
-                EffectiveConfigSource::PerCall(label) => format!("`{label}.fields`"),
-            };
-            let _ = write!(
-                message,
-                " Field `{seg_snake}` does exist below `{result_type_name}`, at \"{real_path}\" -- it is declared on \
-                 `{owner}`, so the accessor that really exists is `{real_symbol}()`. Fix: add \
-                 \"{alias_key}\" = \"{real_path}\" under {fields_key} so the fixture path resolves to the \
-                 real chain. Only add \"{lookup_key}\" to `[crates.e2e.fields_c_types]` if `{accessor_fn}()` really \
-                 is in the generated header.",
-                owner = chain.owner_type,
-            );
+            append_single_field_chain_fix(SingleFieldChainFixArgs {
+                message: &mut message,
+                prefix,
+                lookup_key,
+                accessor_fn,
+                raw_field,
+                resolved,
+                seg_snake,
+                segments_walked,
+                result_type_name,
+                fields_source,
+                chain,
+            });
         }
         [] => {
             let _ = write!(
@@ -672,6 +952,66 @@ fn missing_intermediate_type_diagnostic(context: MissingIntermediateType<'_>) ->
     }
 
     message
+}
+
+/// Inputs for [`append_single_field_chain_fix`]. A struct, not eleven positional arguments,
+/// following this file's existing convention (see [`MissingIntermediateType`]) for a helper
+/// with this many related-but-distinct parameters.
+struct SingleFieldChainFixArgs<'a> {
+    message: &'a mut String,
+    prefix: &'a str,
+    lookup_key: &'a str,
+    accessor_fn: &'a str,
+    raw_field: &'a str,
+    resolved: &'a str,
+    seg_snake: &'a str,
+    segments_walked: &'a [&'a str],
+    result_type_name: &'a str,
+    fields_source: &'a EffectiveConfigSource,
+    chain: &'a ResolvedFieldChain,
+}
+
+/// Append the "field does exist at exactly one location, add this alias" suffix to `message`
+/// for [`missing_intermediate_type_diagnostic`]. Extracted verbatim -- same emitted text, same
+/// conditions, same ordering.
+fn append_single_field_chain_fix(args: SingleFieldChainFixArgs<'_>) {
+    let SingleFieldChainFixArgs {
+        message,
+        prefix,
+        lookup_key,
+        accessor_fn,
+        raw_field,
+        resolved,
+        seg_snake,
+        segments_walked,
+        result_type_name,
+        fields_source,
+        chain,
+    } = args;
+    let alias_key = match stripped_namespace_prefix(raw_field, resolved) {
+        Some(namespace) => format!("{namespace}.{}", segments_walked.join(".")),
+        None => segments_walked.join("."),
+    };
+    let real_path = &chain.path;
+    let real_symbol = format!("{prefix}_{}_{seg_snake}", chain.owner_type.to_snake_case());
+    // Same shadowing rule as the leaf diagnostic's alias-fix branch, `fields`
+    // instead of `result_fields`: a non-empty per-call `fields` override
+    // replaces the global alias table outright (`E2eConfig::effective_fields`),
+    // so the alias must be spelled under whichever one actually governs this
+    // call. ~keep
+    let fields_key = match fields_source {
+        EffectiveConfigSource::Global => "`[crates.e2e.fields]`".to_string(),
+        EffectiveConfigSource::PerCall(label) => format!("`{label}.fields`"),
+    };
+    let _ = write!(
+        message,
+        " Field `{seg_snake}` does exist below `{result_type_name}`, at \"{real_path}\" -- it is declared on \
+         `{owner}`, so the accessor that really exists is `{real_symbol}()`. Fix: add \
+         \"{alias_key}\" = \"{real_path}\" under {fields_key} so the fixture path resolves to the \
+         real chain. Only add \"{lookup_key}\" to `[crates.e2e.fields_c_types]` if `{accessor_fn}()` really \
+         is in the generated header.",
+        owner = chain.owner_type,
+    );
 }
 
 /// Describe an ambiguous field name (declared by more than one distinct type reachable from
@@ -951,6 +1291,22 @@ fn unknown_leaf_field_diagnostic(context: UnknownLeafField<'_>) -> String {
         owner = chain.owner_type,
     );
 
+    append_unknown_leaf_field_fix(&mut message, namespace, raw_field, real_path, result_fields_source, fields_source);
+
+    message
+}
+
+/// Append the "here's how to fix it" suffix to `message` for
+/// [`unknown_leaf_field_diagnostic`], once exactly one real chain for the field has been
+/// found. Extracted verbatim -- same emitted text, same conditions, same ordering.
+fn append_unknown_leaf_field_fix(
+    message: &mut String,
+    namespace: Option<&str>,
+    raw_field: &str,
+    real_path: &str,
+    result_fields_source: &EffectiveConfigSource,
+    fields_source: &EffectiveConfigSource,
+) {
     // Two different config bugs produce this, and they take opposite fixes. When the real
     // chain starts with the prefix that was stripped, the fixture path was right all along
     // and the stripping was the mistake -- an alias would be an identity mapping and change
@@ -991,8 +1347,6 @@ fn unknown_leaf_field_diagnostic(context: UnknownLeafField<'_>) -> String {
             );
         }
     }
-
-    message
 }
 
 /// The three-state view of the target's declared parameters this file renders against.
@@ -1128,15 +1482,29 @@ fn handle_param_type_mismatch_diagnostic(
 /// a handle and is left alone. Parameter matching follows `resolve_call_info`'s `element_type`
 /// backfill in `c.rs` exactly (by name, else positionally); the two must agree about which
 /// parameter an `args` entry fills or they would be reasoning about different parameters. ~keep
-fn ensure_arg_matches_param_type(
-    fixture: &Fixture,
-    function_name: &str,
-    arg: &crate::e2e::config::ArgMapping,
+/// Inputs for [`ensure_arg_matches_param_type`]. A struct, not seven positional arguments,
+/// following this file's existing convention (see [`MissingIntermediateType`],
+/// [`LeafFieldCheck`]) for a helper with this many related-but-distinct parameters.
+struct EnsureArgMatchesParamTypeArgs<'a> {
+    fixture: &'a Fixture,
+    function_name: &'a str,
+    arg: &'a crate::e2e::config::ArgMapping,
     index: usize,
-    params: &[crate::core::ir::ParamDef],
-    type_defs: &[crate::core::ir::TypeDef],
-    rendered: &str,
-) -> anyhow::Result<()> {
+    params: &'a [crate::core::ir::ParamDef],
+    type_defs: &'a [crate::core::ir::TypeDef],
+    rendered: &'a str,
+}
+
+fn ensure_arg_matches_param_type(args: EnsureArgMatchesParamTypeArgs<'_>) -> anyhow::Result<()> {
+    let EnsureArgMatchesParamTypeArgs {
+        fixture,
+        function_name,
+        arg,
+        index,
+        params,
+        type_defs,
+        rendered,
+    } = args;
     let Some(param) = TargetParams::Known(params).param_for(&arg.name, index) else {
         return Ok(());
     };
@@ -1204,89 +1572,146 @@ pub(super) fn build_args_string_c(
     for (index, arg) in args.iter().enumerate() {
         // Handle test_backend args: emit the stub and use it.
         if arg.arg_type == "test_backend" {
-            // A `test_backend` arg fills a C trait-bridge vtable-pointer parameter.
-            // There is no fixture-supplied value to fall back to: an unregistered
-            // trait has no vtable to point at, and `emit_test_backend` panics rather
-            // than hand back a placeholder for `parts` to splice in as an
-            // expression — splicing either would emit C that cannot compile. Unlike a non-null-typed
-            // target language, C's type system would happily accept a `NULL` fallback
-            // here too (any pointer type admits it), so the compiler can't be relied on
-            // to catch a bad default the way it can elsewhere — fail loud here instead,
-            // matching every other "cannot render this" case in this file (see
-            // `resolve_intermediate_type`'s `None` arm above, and the assertion-type
-            // panics below). ~keep
-            let Some(trait_name) = &arg.trait_name else {
-                panic!(
-                    "C e2e generator: fixture `{}` declares a `test_backend` arg `{}` with no `trait_name` configured; cannot generate a C stub without knowing which trait to implement",
-                    fixture.id, arg.name
-                );
-            };
-            let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) else {
-                panic!(
-                    "C e2e generator: fixture `{}` requires trait `{trait_name}` for its `test_backend` arg `{}`, but no `[[crates.trait_bridges]]` entry named `{trait_name}` is configured",
-                    fixture.id, arg.name
-                );
-            };
-            let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
-                .iter()
-                .find(|t| t.name == *trait_name)
-                .map(|t| t.methods.iter().collect())
-                .unwrap_or_default();
-            if let Some(super_trait) = &trait_bridge.super_trait
-                && let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait)
-            {
-                for method in &super_type.methods {
-                    if !methods.iter().any(|m| m.name == method.name) {
-                        methods.push(method);
-                    }
-                }
-            }
-            // `emit_test_backend` panics rather than return a placeholder when the C
-            // test-backend emitter is unimplemented — see `TestBackendEmission`'s and
-            // `trait_bridge_snippet::emit_test_backend`'s doc comments. ~keep
-            let emission = crate::e2e::codegen::emit_test_backend("c", trait_bridge, &methods, fixture, &[], "");
-            parts.push(emission.arg_expr);
+            parts.push(build_test_backend_arg_expr(config, type_defs, fixture, arg));
             continue;
         }
 
-        let val = crate::e2e::codegen::resolve_field(input, &arg.field);
-        match val {
-            // ~keep Explicit null on optional arg → pass the type-appropriate "none"
-            // sentinel: `0` for a scalar `AlefHandle` arg, `NULL` for a real pointer.
-            v if v.is_null() && arg.optional => {
-                parts.push(resolve_optional_sentinel(target_params, &arg.name, index, &arg.arg_type).to_string())
-            }
-            // Missing required fields resolve to null; skip them so malformed
-            // fixture configuration does not crash generation.
-            v if v.is_null() => {}
-            v => {
-                // For json_object args, use the options_handle pointer
-                // instead of the raw JSON string.
-                if let Some(handle) = typed_arg_handles.get(&arg.name) {
-                    parts.push(handle.clone())
-                } else {
-                    let rendered = json_to_c(v);
-                    // `json_to_c` answers only to the shape of the JSON value; nothing above
-                    // has consulted the parameter this expression lands in. This is the one
-                    // point where both facts are in hand. ~keep
-                    if let Some(params) = known_params {
-                        ensure_arg_matches_param_type(
-                            fixture,
-                            function_name,
-                            arg,
-                            index,
-                            params,
-                            type_defs,
-                            &rendered,
-                        )?;
-                    }
-                    parts.push(rendered)
-                }
-            }
-        }
+        push_regular_arg_expr(&mut parts, RegularArgArgs {
+            input,
+            arg,
+            index,
+            typed_arg_handles,
+            known_params,
+            type_defs,
+            fixture,
+            function_name,
+            target_params,
+        })?;
     }
 
     Ok(parts.join(", "))
+}
+
+/// Build the C argument expression for a `test_backend` arg, which fills a C trait-bridge
+/// vtable-pointer parameter. Extracted verbatim from [`build_args_string_c`]'s per-arg loop --
+/// same panics, same trait/method resolution, same emitted stub.
+fn build_test_backend_arg_expr(
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    fixture: &Fixture,
+    arg: &crate::e2e::config::ArgMapping,
+) -> String {
+    // A `test_backend` arg fills a C trait-bridge vtable-pointer parameter.
+    // There is no fixture-supplied value to fall back to: an unregistered
+    // trait has no vtable to point at, and `emit_test_backend` panics rather
+    // than hand back a placeholder for `parts` to splice in as an
+    // expression — splicing either would emit C that cannot compile. Unlike a non-null-typed
+    // target language, C's type system would happily accept a `NULL` fallback
+    // here too (any pointer type admits it), so the compiler can't be relied on
+    // to catch a bad default the way it can elsewhere — fail loud here instead,
+    // matching every other "cannot render this" case in this file (see
+    // `resolve_intermediate_type`'s `None` arm above, and the assertion-type
+    // panics below). ~keep
+    let Some(trait_name) = &arg.trait_name else {
+        panic!(
+            "C e2e generator: fixture `{}` declares a `test_backend` arg `{}` with no `trait_name` configured; cannot generate a C stub without knowing which trait to implement",
+            fixture.id, arg.name
+        );
+    };
+    let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) else {
+        panic!(
+            "C e2e generator: fixture `{}` requires trait `{trait_name}` for its `test_backend` arg `{}`, but no `[[crates.trait_bridges]]` entry named `{trait_name}` is configured",
+            fixture.id, arg.name
+        );
+    };
+    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
+        .iter()
+        .find(|t| t.name == *trait_name)
+        .map(|t| t.methods.iter().collect())
+        .unwrap_or_default();
+    if let Some(super_trait) = &trait_bridge.super_trait
+        && let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait)
+    {
+        for method in &super_type.methods {
+            if !methods.iter().any(|m| m.name == method.name) {
+                methods.push(method);
+            }
+        }
+    }
+    // `emit_test_backend` panics rather than return a placeholder when the C
+    // test-backend emitter is unimplemented — see `TestBackendEmission`'s and
+    // `trait_bridge_snippet::emit_test_backend`'s doc comments. ~keep
+    let emission = crate::e2e::codegen::emit_test_backend("c", trait_bridge, &methods, fixture, &[], "");
+    emission.arg_expr
+}
+
+/// Inputs for [`push_regular_arg_expr`]. A struct, not nine positional arguments, for the same
+/// reason as [`EnsureArgMatchesParamTypeArgs`].
+struct RegularArgArgs<'a> {
+    input: &'a serde_json::Value,
+    arg: &'a crate::e2e::config::ArgMapping,
+    index: usize,
+    typed_arg_handles: &'a HashMap<String, String>,
+    known_params: Option<&'a [crate::core::ir::ParamDef]>,
+    type_defs: &'a [crate::core::ir::TypeDef],
+    fixture: &'a Fixture,
+    function_name: &'a str,
+    target_params: TargetParams<'a>,
+}
+
+/// Build (and, via [`ensure_arg_matches_param_type`], validate) the C argument expression for
+/// a non-`test_backend` arg, pushing it into `parts` -- or pushing nothing when the fixture
+/// value resolves to a missing required field. Extracted verbatim from
+/// [`build_args_string_c`]'s per-arg loop -- same emitted expression, same conditions, same
+/// ordering.
+fn push_regular_arg_expr(parts: &mut Vec<String>, args: RegularArgArgs<'_>) -> anyhow::Result<()> {
+    let RegularArgArgs {
+        input,
+        arg,
+        index,
+        typed_arg_handles,
+        known_params,
+        type_defs,
+        fixture,
+        function_name,
+        target_params,
+    } = args;
+    let val = crate::e2e::codegen::resolve_field(input, &arg.field);
+    match val {
+        // ~keep Explicit null on optional arg → pass the type-appropriate "none"
+        // sentinel: `0` for a scalar `AlefHandle` arg, `NULL` for a real pointer.
+        v if v.is_null() && arg.optional => {
+            parts.push(resolve_optional_sentinel(target_params, &arg.name, index, &arg.arg_type).to_string())
+        }
+        // Missing required fields resolve to null; skip them so malformed
+        // fixture configuration does not crash generation.
+        v if v.is_null() => {}
+        v => {
+            // For json_object args, use the options_handle pointer
+            // instead of the raw JSON string.
+            if let Some(handle) = typed_arg_handles.get(&arg.name) {
+                parts.push(handle.clone())
+            } else {
+                let rendered = json_to_c(v);
+                // `json_to_c` answers only to the shape of the JSON value; nothing above
+                // has consulted the parameter this expression lands in. This is the one
+                // point where both facts are in hand. ~keep
+                if let Some(params) = known_params {
+                    ensure_arg_matches_param_type(EnsureArgMatchesParamTypeArgs {
+                        fixture,
+                        function_name,
+                        arg,
+                        index,
+                        params,
+                        type_defs,
+                        rendered: &rendered,
+                    })?;
+                }
+                parts.push(rendered)
+            }
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1345,15 +1770,47 @@ pub(super) fn render_assertion(
         return;
     }
 
+    let ctx = build_assertion_field_context(
+        assertion,
+        field_expr,
+        _field_resolver,
+        accessed_fields,
+        primitive_locals,
+        opaque_handle_locals,
+    );
+    dispatch_assertion(out, assertion, result_var, ffi_prefix, &ctx);
+}
+
+/// Precomputed facts about the field an assertion targets, shared by every per-assertion-type
+/// renderer below so each one does not recompute them from `accessed_fields`/`primitive_locals`.
+struct AssertionFieldContext {
+    field_expr: String,
+    field_is_primitive: bool,
+    field_primitive_type: Option<String>,
+    /// Opaque-handle fields (e.g. `usage` → SAMPLELLMUsage*, or an enum field a missing
+    /// `fields_enum`/IR-enum declaration failed to route through `try_emit_enum_accessor`)
+    /// cannot be treated as C strings — `strlen`/`strcmp`/`strstr`/`regexec` on a scalar
+    /// `AlefHandle` (`uint64_t`) is undefined behavior at best and a type error at worst.
+    /// Every string-shaped assertion renderer below guards on this flag and falls back to a
+    /// non-zero existence check (matching the sentinel the handle actually uses) rather
+    /// than emitting a comparison against a value the ABI carries as an integer. ~keep
+    field_is_opaque_handle: bool,
+    field_is_map_access: bool,
+    assertion_field_is_optional: bool,
+}
+
+/// Compute [`AssertionFieldContext`] for one assertion. Extracted verbatim from
+/// `render_assertion`'s setup -- same conditions, same ordering.
+fn build_assertion_field_context(
+    assertion: &Assertion,
+    field_expr: String,
+    field_resolver: &FieldResolver,
+    accessed_fields: &[(String, String, bool)],
+    primitive_locals: &HashMap<String, String>,
+    opaque_handle_locals: &HashMap<String, String>,
+) -> AssertionFieldContext {
     let field_is_primitive = primitive_locals.contains_key(&field_expr);
     let field_primitive_type = primitive_locals.get(&field_expr).cloned();
-    // Opaque-handle fields (e.g. `usage` → SAMPLELLMUsage*, or an enum field a missing
-    // `fields_enum`/IR-enum declaration failed to route through `try_emit_enum_accessor`)
-    // cannot be treated as C strings — `strlen`/`strcmp`/`strstr`/`regexec` on a scalar
-    // `AlefHandle` (`uint64_t`) is undefined behavior at best and a type error at worst.
-    // Every string-shaped assertion arm below guards on this flag and falls back to a
-    // non-zero existence check (matching the sentinel the handle actually uses) rather
-    // than emitting a comparison against a value the ABI carries as an integer. ~keep
     let field_is_opaque_handle = opaque_handle_locals.contains_key(&field_expr);
     // Map-access fields are extracted via `alef_json_get_string` and end up
     // as char*. When the assertion expects a numeric or boolean value, we
@@ -1374,375 +1831,91 @@ pub(super) fn render_assertion(
             if f.is_empty() {
                 return false;
             }
-            if _field_resolver.is_optional(f) {
+            if field_resolver.is_optional(f) {
                 return true;
             }
             // Also check the resolved alias (e.g. "robots.crawl_delay" → "crawl_delay").
-            let resolved = _field_resolver.resolve(f);
-            _field_resolver.is_optional(resolved)
+            let resolved = field_resolver.resolve(f);
+            field_resolver.is_optional(resolved)
         })
         .unwrap_or(false);
 
+    AssertionFieldContext {
+        field_expr,
+        field_is_primitive,
+        field_primitive_type,
+        field_is_opaque_handle,
+        field_is_map_access,
+        assertion_field_is_optional,
+    }
+}
+
+/// Render the first half of `assertion.assertion_type`'s cases; anything else is handled by
+/// [`dispatch_assertion_tail`]. Split in two purely to keep each dispatcher's cyclomatic
+/// complexity down -- together they are exactly the original single `match`, same arms, same
+/// order, same catch-all panic.
+fn dispatch_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    ffi_prefix: &str,
+    ctx: &AssertionFieldContext,
+) {
     match assertion.assertion_type.as_str() {
-        "equals" => {
-            if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                if field_is_primitive {
-                    let cmp_val = if field_primitive_type.as_deref() == Some("bool") {
-                        match expected.as_bool() {
-                            Some(true) => "1".to_string(),
-                            Some(false) => "0".to_string(),
-                            None => c_val,
-                        }
-                    } else {
-                        c_val
-                    };
-                    // For optional numeric fields, treat 0 as "not set" and allow it.
-                    // This mirrors Go's nil-pointer check for optional fields. Excludes a
-                    // boolean equals-assertion even when `field_primitive_type` spells the
-                    // field's real C type as `int32_t` rather than the literal string `bool`
-                    // (bool crosses the FFI ABI as `int32_t`, and `primitive_field_inference`'s
-                    // IR-derived entries record that exact spelling): `false` (`0`) is a real,
-                    // legitimate value for a boolean field, not an "unset" sentinel, so a
-                    // `equals: false` assertion against an optional bool field must never pass
-                    // merely because 0 also means "not set" for an unrelated numeric optional. ~keep
-                    let is_numeric =
-                        field_primitive_type.as_deref().map(|t| t != "bool").unwrap_or(false) && !expected.is_boolean();
-                    if assertion_field_is_optional && is_numeric {
-                        let _ = writeln!(
-                            out,
-                            "    assert(({field_expr} == 0 || {field_expr} == {cmp_val}) && \"equals assertion failed\");"
-                        );
-                    } else {
-                        let _ = writeln!(
-                            out,
-                            "    assert({field_expr} == {cmp_val} && \"equals assertion failed\");"
-                        );
-                    }
-                } else if field_is_opaque_handle {
-                    if expected.is_number() {
-                        // A numeric expected value compares exactly against the handle.
-                        let _ = writeln!(
-                            out,
-                            "    assert({field_expr} == {c_val} && \"equals assertion failed\");"
-                        );
-                    } else {
-                        // A string expected value against a handle means the field should
-                        // have been routed through `try_emit_enum_accessor` and wasn't;
-                        // `field_expr == "..."` would compile as a pointer comparison that
-                        // always lies, so weaken to existence instead of emitting that.
-                        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-                    }
-                } else if expected.is_string() {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
-                    );
-                } else if field_is_map_access && expected.is_boolean() {
-                    let lit = match expected.as_bool() {
-                        Some(true) => "\"true\"",
-                        _ => "\"false\"",
-                    };
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && strcmp({field_expr}, {lit}) == 0 && \"equals assertion failed\");"
-                    );
-                } else if field_is_map_access && expected.is_number() {
-                    if expected.is_f64() {
-                        let _ = writeln!(
-                            out,
-                            "    assert({field_expr} != NULL && atof({field_expr}) == {c_val} && \"equals assertion failed\");"
-                        );
-                    } else {
-                        let _ = writeln!(
-                            out,
-                            "    assert({field_expr} != NULL && atoll({field_expr}) == {c_val} && \"equals assertion failed\");"
-                        );
-                    }
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "    assert(strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
-                    );
-                }
-            }
-        }
-        "contains" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
-                );
-            }
-        }
-        "contains_all" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(values) = &assertion.values {
-                for val in values {
-                    let c_val = json_to_c(val);
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
-                    );
-                }
-            }
-        }
-        "not_contains" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                let _ = writeln!(
-                    out,
-                    "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) == NULL && \"expected non-null value without substring\");"
-                );
-            }
-        }
-        "not_empty" => {
-            if field_is_opaque_handle {
-                // ~keep Opaque handle: `strlen` on a scalar `AlefHandle` (uint64_t) is a
-                // type error, not just UB on a struct pointer. Weaken to a
-                // non-zero check — strictly weaker than the original intent but
-                // matches the handle's actual "none" sentinel (`0`, not `NULL`).
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else {
-                // A `char*` leaf can hold plain text OR the serialized JSON text of a
-                // collection field (e.g. `alef_json_array_count`'s own input) — an empty
-                // collection serializes as the two-byte string "[]"/"{}", not "", so `strlen`
-                // alone reads it as non-empty. `c/scalar_or_collection_empty.jinja` accepts
-                // either empty form. ~keep
-                let condition = crate::e2e::template_env::render(
-                    "c/scalar_or_collection_empty.jinja",
-                    minijinja::context! { field_expr => field_expr, negate => true, allow_null => false },
-                );
-                let _ = writeln!(
-                    out,
-                    "    assert({} && \"expected non-empty value\");",
-                    condition.trim_end()
-                );
-            }
-        }
-        "is_empty" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} == 0 && \"expected null handle\");");
-            } else if assertion_field_is_optional || !field_is_primitive {
-                // Optional string fields may return NULL — treat NULL as empty.
-                let condition = crate::e2e::template_env::render(
-                    "c/scalar_or_collection_empty.jinja",
-                    minijinja::context! { field_expr => field_expr, negate => false, allow_null => true },
-                );
-                let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
-            } else {
-                let condition = crate::e2e::template_env::render(
-                    "c/scalar_or_collection_empty.jinja",
-                    minijinja::context! { field_expr => field_expr, negate => false, allow_null => false },
-                );
-                let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
-            }
-        }
-        "contains_any" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(values) = &assertion.values {
-                let _ = writeln!(out, "    {{");
-                let _ = writeln!(out, "        int found = 0;");
-                for val in values {
-                    let c_val = json_to_c(val);
-                    let _ = writeln!(
-                        out,
-                        "        if (strstr({field_expr}, {c_val}) != NULL) {{ found = 1; }}"
-                    );
-                }
-                let _ = writeln!(
-                    out,
-                    "        assert(found && \"expected to contain at least one of the specified values\");"
-                );
-                let _ = writeln!(out, "    }}");
-            }
-        }
-        "greater_than" => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                if field_is_map_access && val.is_number() && !field_is_primitive {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && atof({field_expr}) > {c_val} && \"expected greater than\");"
-                    );
-                } else {
-                    let _ = writeln!(out, "    assert({field_expr} > {c_val} && \"expected greater than\");");
-                }
-            }
-        }
-        "less_than" => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                if field_is_map_access && val.is_number() && !field_is_primitive {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && atof({field_expr}) < {c_val} && \"expected less than\");"
-                    );
-                } else {
-                    let _ = writeln!(out, "    assert({field_expr} < {c_val} && \"expected less than\");");
-                }
-            }
-        }
-        "greater_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                if field_is_map_access && val.is_number() && !field_is_primitive {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && atof({field_expr}) >= {c_val} && \"expected greater than or equal\");"
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} >= {c_val} && \"expected greater than or equal\");"
-                    );
-                }
-            }
-        }
-        "less_than_or_equal" => {
-            if let Some(val) = &assertion.value {
-                let c_val = json_to_c(val);
-                if field_is_map_access && val.is_number() && !field_is_primitive {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} != NULL && atof({field_expr}) <= {c_val} && \"expected less than or equal\");"
-                    );
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "    assert({field_expr} <= {c_val} && \"expected less than or equal\");"
-                    );
-                }
-            }
-        }
-        "starts_with" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                let _ = writeln!(
-                    out,
-                    "    assert(strncmp({field_expr}, {c_val}, strlen({c_val})) == 0 && \"expected to start with\");"
-                );
-            }
-        }
-        "ends_with" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                let _ = writeln!(out, "    assert(strlen({field_expr}) >= strlen({c_val}) && ");
-                let _ = writeln!(
-                    out,
-                    "           strcmp({field_expr} + strlen({field_expr}) - strlen({c_val}), {c_val}) == 0 && \"expected to end with\");"
-                );
-            }
-        }
-        "min_length" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(val) = &assertion.value
-                && let Some(n) = val.as_u64()
-            {
-                let _ = writeln!(
-                    out,
-                    "    assert(strlen({field_expr}) >= {n} && \"expected minimum length\");"
-                );
-            }
-        }
-        "max_length" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(val) = &assertion.value
-                && let Some(n) = val.as_u64()
-            {
-                let _ = writeln!(
-                    out,
-                    "    assert(strlen({field_expr}) <= {n} && \"expected maximum length\");"
-                );
-            }
-        }
-        "count_min" => {
-            if let Some(val) = &assertion.value
-                && let Some(n) = val.as_u64()
-            {
-                let _ = writeln!(out, "    {{");
-                let _ = writeln!(out, "        /* count_min: count top-level JSON array elements */");
-                let _ = writeln!(
-                    out,
-                    "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
-                );
-                let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
-                let _ = writeln!(
-                    out,
-                    "        assert(elem_count >= {n} && \"expected at least {n} elements\");"
-                );
-                let _ = writeln!(out, "    }}");
-            }
-        }
-        "count_equals" => {
-            if let Some(val) = &assertion.value
-                && let Some(n) = val.as_u64()
-            {
-                let _ = writeln!(out, "    {{");
-                let _ = writeln!(out, "        /* count_equals: count elements in array */");
-                let _ = writeln!(
-                    out,
-                    "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
-                );
-                let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
-                let _ = writeln!(out, "        assert(elem_count == {n} && \"expected {n} elements\");");
-                let _ = writeln!(out, "    }}");
-            }
-        }
+        "equals" => render_equals_assertion(out, assertion, ctx),
+        "contains" => render_contains_assertion(out, assertion, ctx),
+        "contains_all" => render_contains_all_assertion(out, assertion, ctx),
+        "not_contains" => render_not_contains_assertion(out, assertion, ctx),
+        "not_empty" => render_not_empty_assertion(out, ctx),
+        "is_empty" => render_is_empty_assertion(out, ctx),
+        "contains_any" => render_contains_any_assertion(out, assertion, ctx),
+        "greater_than" => render_greater_than_assertion(out, assertion, ctx),
+        "less_than" => render_less_than_assertion(out, assertion, ctx),
+        "greater_than_or_equal" => render_greater_than_or_equal_assertion(out, assertion, ctx),
+        "less_than_or_equal" => render_less_than_or_equal_assertion(out, assertion, ctx),
+        _ => dispatch_assertion_tail(out, assertion, result_var, ffi_prefix, ctx),
+    }
+}
+
+/// The second half of `assertion.assertion_type`'s cases -- see [`dispatch_assertion`].
+fn dispatch_assertion_tail(
+    out: &mut String,
+    assertion: &Assertion,
+    result_var: &str,
+    ffi_prefix: &str,
+    ctx: &AssertionFieldContext,
+) {
+    match assertion.assertion_type.as_str() {
+        "starts_with" => render_starts_with_assertion(out, assertion, ctx),
+        "ends_with" => render_ends_with_assertion(out, assertion, ctx),
+        "min_length" => render_min_length_assertion(out, assertion, ctx),
+        "max_length" => render_max_length_assertion(out, assertion, ctx),
+        "count_min" => render_count_min_assertion(out, assertion, ctx),
+        "count_equals" => render_count_equals_assertion(out, assertion, ctx),
         "is_true" => {
+            let field_expr = ctx.field_expr.clone();
             let _ = writeln!(out, "    assert({field_expr});");
         }
         "is_false" => {
+            let field_expr = ctx.field_expr.clone();
             let _ = writeln!(out, "    assert(!{field_expr});");
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
-                render_method_result_assertion(
-                    out,
+                render_method_result_assertion(out, MethodResultAssertionArgs {
                     result_var,
                     ffi_prefix,
                     method_name,
-                    assertion.args.as_ref(),
-                    assertion.return_type.as_deref(),
-                    assertion.check.as_deref().unwrap_or("is_true"),
-                    assertion.value.as_ref(),
-                );
+                    args: assertion.args.as_ref(),
+                    return_type: assertion.return_type.as_deref(),
+                    check: assertion.check.as_deref().unwrap_or("is_true"),
+                    value: assertion.value.as_ref(),
+                });
             } else {
                 panic!("C e2e generator: method_result assertion missing 'method' field");
             }
         }
-        "matches_regex" => {
-            if field_is_opaque_handle {
-                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
-            } else if let Some(expected) = &assertion.value {
-                let c_val = json_to_c(expected);
-                let _ = writeln!(out, "    {{");
-                let _ = writeln!(out, "        regex_t _re;");
-                let _ = writeln!(
-                    out,
-                    "        assert(regcomp(&_re, {c_val}, REG_EXTENDED) == 0 && \"regex compile failed\");"
-                );
-                let _ = writeln!(
-                    out,
-                    "        assert(regexec(&_re, {field_expr}, 0, NULL, 0) == 0 && \"expected value to match regex\");"
-                );
-                let _ = writeln!(out, "        regfree(&_re);");
-                let _ = writeln!(out, "    }}");
-            }
-        }
+        "matches_regex" => render_matches_regex_assertion(out, assertion, ctx),
         "not_error" => {
             // Already handled — the NULL check above covers this.
         }
@@ -1755,6 +1928,472 @@ pub(super) fn render_assertion(
     }
 }
 
+/// Render the `field_is_primitive` branch of an `equals` assertion. Extracted verbatim from
+/// `render_equals_assertion` -- same emitted lines, same conditions, same ordering.
+fn render_equals_primitive_assertion(
+    out: &mut String,
+    field_expr: &str,
+    expected: &serde_json::Value,
+    c_val: String,
+    field_primitive_type: Option<&str>,
+    assertion_field_is_optional: bool,
+) {
+    let cmp_val = if field_primitive_type == Some("bool") {
+        match expected.as_bool() {
+            Some(true) => "1".to_string(),
+            Some(false) => "0".to_string(),
+            None => c_val,
+        }
+    } else {
+        c_val
+    };
+    // For optional numeric fields, treat 0 as "not set" and allow it.
+    // This mirrors Go's nil-pointer check for optional fields. Excludes a
+    // boolean equals-assertion even when `field_primitive_type` spells the
+    // field's real C type as `int32_t` rather than the literal string `bool`
+    // (bool crosses the FFI ABI as `int32_t`, and `primitive_field_inference`'s
+    // IR-derived entries record that exact spelling): `false` (`0`) is a real,
+    // legitimate value for a boolean field, not an "unset" sentinel, so a
+    // `equals: false` assertion against an optional bool field must never pass
+    // merely because 0 also means "not set" for an unrelated numeric optional. ~keep
+    let is_numeric = field_primitive_type.map(|t| t != "bool").unwrap_or(false) && !expected.is_boolean();
+    if assertion_field_is_optional && is_numeric {
+        let _ = writeln!(
+            out,
+            "    assert(({field_expr} == 0 || {field_expr} == {cmp_val}) && \"equals assertion failed\");"
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "    assert({field_expr} == {cmp_val} && \"equals assertion failed\");"
+        );
+    }
+}
+
+/// Render an `equals` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_equals_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_primitive = ctx.field_is_primitive;
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    let field_is_map_access = ctx.field_is_map_access;
+
+    if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        if field_is_primitive {
+            render_equals_primitive_assertion(
+                out,
+                &field_expr,
+                expected,
+                c_val,
+                ctx.field_primitive_type.as_deref(),
+                ctx.assertion_field_is_optional,
+            );
+        } else if field_is_opaque_handle {
+            if expected.is_number() {
+                // A numeric expected value compares exactly against the handle.
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} == {c_val} && \"equals assertion failed\");"
+                );
+            } else {
+                // A string expected value against a handle means the field should
+                // have been routed through `try_emit_enum_accessor` and wasn't;
+                // `field_expr == "..."` would compile as a pointer comparison that
+                // always lies, so weaken to existence instead of emitting that.
+                let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+            }
+        } else if expected.is_string() {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
+            );
+        } else if field_is_map_access && expected.is_boolean() {
+            let lit = match expected.as_bool() {
+                Some(true) => "\"true\"",
+                _ => "\"false\"",
+            };
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && strcmp({field_expr}, {lit}) == 0 && \"equals assertion failed\");"
+            );
+        } else if field_is_map_access && expected.is_number() {
+            if expected.is_f64() {
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} != NULL && atof({field_expr}) == {c_val} && \"equals assertion failed\");"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} != NULL && atoll({field_expr}) == {c_val} && \"equals assertion failed\");"
+                );
+            }
+        } else {
+            let _ = writeln!(
+                out,
+                "    assert(strcmp({field_expr}, {c_val}) == 0 && \"equals assertion failed\");"
+            );
+        }
+    }
+}
+
+/// Render a `contains` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_contains_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        let _ = writeln!(
+            out,
+            "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
+        );
+    }
+}
+
+/// Render a `contains_all` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_contains_all_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(values) = &assertion.values {
+        for val in values {
+            let c_val = json_to_c(val);
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) != NULL && \"expected to contain substring\");"
+            );
+        }
+    }
+}
+
+/// Render a `not_contains` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_not_contains_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        let _ = writeln!(
+            out,
+            "    assert({field_expr} != NULL && strstr({field_expr}, {c_val}) == NULL && \"expected non-null value without substring\");"
+        );
+    }
+}
+
+/// Render a `not_empty` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_not_empty_assertion(out: &mut String, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        // ~keep Opaque handle: `strlen` on a scalar `AlefHandle` (uint64_t) is a
+        // type error, not just UB on a struct pointer. Weaken to a
+        // non-zero check — strictly weaker than the original intent but
+        // matches the handle's actual "none" sentinel (`0`, not `NULL`).
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else {
+        // A `char*` leaf can hold plain text OR the serialized JSON text of a
+        // collection field (e.g. `alef_json_array_count`'s own input) — an empty
+        // collection serializes as the two-byte string "[]"/"{}", not "", so `strlen`
+        // alone reads it as non-empty. `c/scalar_or_collection_empty.jinja` accepts
+        // either empty form. ~keep
+        let condition = crate::e2e::template_env::render(
+            "c/scalar_or_collection_empty.jinja",
+            minijinja::context! { field_expr => field_expr, negate => true, allow_null => false },
+        );
+        let _ = writeln!(
+            out,
+            "    assert({} && \"expected non-empty value\");",
+            condition.trim_end()
+        );
+    }
+}
+
+/// Render an `is_empty` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_is_empty_assertion(out: &mut String, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    let assertion_field_is_optional = ctx.assertion_field_is_optional;
+    let field_is_primitive = ctx.field_is_primitive;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} == 0 && \"expected null handle\");");
+    } else if assertion_field_is_optional || !field_is_primitive {
+        // Optional string fields may return NULL — treat NULL as empty.
+        let condition = crate::e2e::template_env::render(
+            "c/scalar_or_collection_empty.jinja",
+            minijinja::context! { field_expr => field_expr, negate => false, allow_null => true },
+        );
+        let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
+    } else {
+        let condition = crate::e2e::template_env::render(
+            "c/scalar_or_collection_empty.jinja",
+            minijinja::context! { field_expr => field_expr, negate => false, allow_null => false },
+        );
+        let _ = writeln!(out, "    assert({} && \"expected empty value\");", condition.trim_end());
+    }
+}
+
+/// Render a `contains_any` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_contains_any_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(values) = &assertion.values {
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        int found = 0;");
+        for val in values {
+            let c_val = json_to_c(val);
+            let _ = writeln!(
+                out,
+                "        if (strstr({field_expr}, {c_val}) != NULL) {{ found = 1; }}"
+            );
+        }
+        let _ = writeln!(
+            out,
+            "        assert(found && \"expected to contain at least one of the specified values\");"
+        );
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+/// Render a `greater_than` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_greater_than_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_map_access = ctx.field_is_map_access;
+    let field_is_primitive = ctx.field_is_primitive;
+    if let Some(val) = &assertion.value {
+        let c_val = json_to_c(val);
+        if field_is_map_access && val.is_number() && !field_is_primitive {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && atof({field_expr}) > {c_val} && \"expected greater than\");"
+            );
+        } else {
+            let _ = writeln!(out, "    assert({field_expr} > {c_val} && \"expected greater than\");");
+        }
+    }
+}
+
+/// Render a `less_than` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_less_than_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_map_access = ctx.field_is_map_access;
+    let field_is_primitive = ctx.field_is_primitive;
+    if let Some(val) = &assertion.value {
+        let c_val = json_to_c(val);
+        if field_is_map_access && val.is_number() && !field_is_primitive {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && atof({field_expr}) < {c_val} && \"expected less than\");"
+            );
+        } else {
+            let _ = writeln!(out, "    assert({field_expr} < {c_val} && \"expected less than\");");
+        }
+    }
+}
+
+/// Render a `greater_than_or_equal` assertion. Extracted verbatim from `render_assertion`'s
+/// match -- same emitted lines, same conditions, same ordering.
+fn render_greater_than_or_equal_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_map_access = ctx.field_is_map_access;
+    let field_is_primitive = ctx.field_is_primitive;
+    if let Some(val) = &assertion.value {
+        let c_val = json_to_c(val);
+        if field_is_map_access && val.is_number() && !field_is_primitive {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && atof({field_expr}) >= {c_val} && \"expected greater than or equal\");"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} >= {c_val} && \"expected greater than or equal\");"
+            );
+        }
+    }
+}
+
+/// Render a `less_than_or_equal` assertion. Extracted verbatim from `render_assertion`'s match
+/// -- same emitted lines, same conditions, same ordering.
+fn render_less_than_or_equal_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_map_access = ctx.field_is_map_access;
+    let field_is_primitive = ctx.field_is_primitive;
+    if let Some(val) = &assertion.value {
+        let c_val = json_to_c(val);
+        if field_is_map_access && val.is_number() && !field_is_primitive {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} != NULL && atof({field_expr}) <= {c_val} && \"expected less than or equal\");"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "    assert({field_expr} <= {c_val} && \"expected less than or equal\");"
+            );
+        }
+    }
+}
+
+/// Render a `starts_with` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_starts_with_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        let _ = writeln!(
+            out,
+            "    assert(strncmp({field_expr}, {c_val}, strlen({c_val})) == 0 && \"expected to start with\");"
+        );
+    }
+}
+
+/// Render an `ends_with` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_ends_with_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        let _ = writeln!(out, "    assert(strlen({field_expr}) >= strlen({c_val}) && ");
+        let _ = writeln!(
+            out,
+            "           strcmp({field_expr} + strlen({field_expr}) - strlen({c_val}), {c_val}) == 0 && \"expected to end with\");"
+        );
+    }
+}
+
+/// Render a `min_length` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_min_length_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(val) = &assertion.value
+        && let Some(n) = val.as_u64()
+    {
+        let _ = writeln!(
+            out,
+            "    assert(strlen({field_expr}) >= {n} && \"expected minimum length\");"
+        );
+    }
+}
+
+/// Render a `max_length` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_max_length_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(val) = &assertion.value
+        && let Some(n) = val.as_u64()
+    {
+        let _ = writeln!(
+            out,
+            "    assert(strlen({field_expr}) <= {n} && \"expected maximum length\");"
+        );
+    }
+}
+
+/// Render a `count_min` assertion. Extracted verbatim from `render_assertion`'s match -- same
+/// emitted lines, same conditions, same ordering.
+fn render_count_min_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    if let Some(val) = &assertion.value
+        && let Some(n) = val.as_u64()
+    {
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        /* count_min: count top-level JSON array elements */");
+        let _ = writeln!(
+            out,
+            "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
+        );
+        let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
+        let _ = writeln!(
+            out,
+            "        assert(elem_count >= {n} && \"expected at least {n} elements\");"
+        );
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+/// Render a `count_equals` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_count_equals_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    if let Some(val) = &assertion.value
+        && let Some(n) = val.as_u64()
+    {
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        /* count_equals: count elements in array */");
+        let _ = writeln!(
+            out,
+            "        assert({field_expr} != NULL && \"expected non-null collection JSON\");"
+        );
+        let _ = writeln!(out, "        int elem_count = alef_json_array_count({field_expr});");
+        let _ = writeln!(out, "        assert(elem_count == {n} && \"expected {n} elements\");");
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+/// Render a `matches_regex` assertion. Extracted verbatim from `render_assertion`'s match --
+/// same emitted lines, same conditions, same ordering.
+fn render_matches_regex_assertion(out: &mut String, assertion: &Assertion, ctx: &AssertionFieldContext) {
+    let field_expr = ctx.field_expr.clone();
+    let field_is_opaque_handle = ctx.field_is_opaque_handle;
+    if field_is_opaque_handle {
+        let _ = writeln!(out, "    assert({field_expr} != 0 && \"expected non-null handle\");");
+    } else if let Some(expected) = &assertion.value {
+        let c_val = json_to_c(expected);
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        regex_t _re;");
+        let _ = writeln!(
+            out,
+            "        assert(regcomp(&_re, {c_val}, REG_EXTENDED) == 0 && \"regex compile failed\");"
+        );
+        let _ = writeln!(
+            out,
+            "        assert(regexec(&_re, {field_expr}, 0, NULL, 0) == 0 && \"expected value to match regex\");"
+        );
+        let _ = writeln!(out, "        regfree(&_re);");
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+/// Inputs for [`render_method_result_assertion`]. A struct, not eight positional arguments,
+/// following this file's existing convention (see [`MissingIntermediateType`],
+/// [`LeafFieldCheck`]) for a helper with this many related-but-distinct parameters.
+struct MethodResultAssertionArgs<'a> {
+    result_var: &'a str,
+    ffi_prefix: &'a str,
+    method_name: &'a str,
+    args: Option<&'a serde_json::Value>,
+    return_type: Option<&'a str>,
+    check: &'a str,
+    value: Option<&'a serde_json::Value>,
+}
+
 /// Render a `method_result` assertion in C.
 ///
 /// Dispatches generically using `{ffi_prefix}_{method_name}` for the FFI call.
@@ -1763,80 +2402,102 @@ pub(super) fn render_assertion(
 ///   emits a scoped block that asserts, then calls `free()`.
 /// - absent/other — treated as a primitive integer (or pointer-as-bool); the
 ///   assertion is emitted inline without any heap management.
-#[allow(clippy::too_many_arguments)]
-fn render_method_result_assertion(
-    out: &mut String,
-    result_var: &str,
-    ffi_prefix: &str,
-    method_name: &str,
-    args: Option<&serde_json::Value>,
-    return_type: Option<&str>,
-    check: &str,
-    value: Option<&serde_json::Value>,
-) {
-    let call_expr = build_c_method_call(result_var, ffi_prefix, method_name, args);
+fn render_method_result_assertion(out: &mut String, args: MethodResultAssertionArgs<'_>) {
+    let MethodResultAssertionArgs {
+        result_var,
+        ffi_prefix,
+        method_name,
+        args: call_args,
+        return_type,
+        check,
+        value,
+    } = args;
+    let call_expr = build_c_method_call(result_var, ffi_prefix, method_name, call_args);
 
     if return_type == Some("string") {
-        // Heap-allocated char* return: emit a scoped block, assert, then free.
-        let _ = writeln!(out, "    {{");
-        let _ = writeln!(out, "        char* _method_result = {call_expr};");
-        if check == "is_error" {
-            let _ = writeln!(
-                out,
-                "        assert(_method_result == NULL && \"expected method to return error\");"
-            );
-            let _ = writeln!(out, "    }}");
-            return;
-        }
-        let _ = writeln!(
-            out,
-            "        assert(_method_result != NULL && \"method_result returned NULL\");"
-        );
-        match check {
-            "contains" => {
-                if let Some(val) = value {
-                    let c_val = json_to_c(val);
-                    let _ = writeln!(
-                        out,
-                        "        assert(strstr(_method_result, {c_val}) != NULL && \"method_result contains assertion failed\");"
-                    );
-                }
-            }
-            "equals" => {
-                if let Some(val) = value {
-                    let c_val = json_to_c(val);
-                    let _ = writeln!(
-                        out,
-                        "        assert(strcmp(_method_result, {c_val}) == 0 && \"method_result equals assertion failed\");"
-                    );
-                }
-            }
-            "is_true" => {
-                let _ = writeln!(
-                    out,
-                    "        assert(_method_result != NULL && strlen(_method_result) > 0 && \"method_result is_true assertion failed\");"
-                );
-            }
-            "count_min" => {
-                if let Some(val) = value {
-                    let n = val.as_u64().unwrap_or(0);
-                    let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
-                    let _ = writeln!(
-                        out,
-                        "        assert(_elem_count >= {n} && \"method_result count_min assertion failed\");"
-                    );
-                }
-            }
-            other_check => {
-                panic!("C e2e generator: unsupported method_result check type for string return: {other_check}");
-            }
-        }
-        let _ = writeln!(out, "        free(_method_result);");
-        let _ = writeln!(out, "    }}");
+        render_method_result_string_assertion(out, &call_expr, check, value);
         return;
     }
 
-    // Primitive (integer / pointer-as-bool) return: inline assert, no heap management.
+    render_method_result_primitive_assertion(out, &call_expr, check, value);
+}
+
+/// Render the string-return branch of a `method_result` assertion: a heap-allocated `char*`
+/// return, emitted as a scoped block that asserts, then calls `free()`. Extracted verbatim
+/// from `render_method_result_assertion` -- same emitted lines, same conditions, same
+/// ordering.
+fn render_method_result_string_assertion(
+    out: &mut String,
+    call_expr: &str,
+    check: &str,
+    value: Option<&serde_json::Value>,
+) {
+    let _ = writeln!(out, "    {{");
+    let _ = writeln!(out, "        char* _method_result = {call_expr};");
+    if check == "is_error" {
+        let _ = writeln!(
+            out,
+            "        assert(_method_result == NULL && \"expected method to return error\");"
+        );
+        let _ = writeln!(out, "    }}");
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "        assert(_method_result != NULL && \"method_result returned NULL\");"
+    );
+    match check {
+        "contains" => {
+            if let Some(val) = value {
+                let c_val = json_to_c(val);
+                let _ = writeln!(
+                    out,
+                    "        assert(strstr(_method_result, {c_val}) != NULL && \"method_result contains assertion failed\");"
+                );
+            }
+        }
+        "equals" => {
+            if let Some(val) = value {
+                let c_val = json_to_c(val);
+                let _ = writeln!(
+                    out,
+                    "        assert(strcmp(_method_result, {c_val}) == 0 && \"method_result equals assertion failed\");"
+                );
+            }
+        }
+        "is_true" => {
+            let _ = writeln!(
+                out,
+                "        assert(_method_result != NULL && strlen(_method_result) > 0 && \"method_result is_true assertion failed\");"
+            );
+        }
+        "count_min" => {
+            if let Some(val) = value {
+                let n = val.as_u64().unwrap_or(0);
+                let _ = writeln!(out, "        int _elem_count = alef_json_array_count(_method_result);");
+                let _ = writeln!(
+                    out,
+                    "        assert(_elem_count >= {n} && \"method_result count_min assertion failed\");"
+                );
+            }
+        }
+        other_check => {
+            panic!("C e2e generator: unsupported method_result check type for string return: {other_check}");
+        }
+    }
+    let _ = writeln!(out, "        free(_method_result);");
+    let _ = writeln!(out, "    }}");
+}
+
+/// Render the primitive (integer / pointer-as-bool) return branch of a `method_result`
+/// assertion: inline assert, no heap management. Extracted verbatim from
+/// `render_method_result_assertion` -- same emitted lines, same conditions, same ordering.
+fn render_method_result_primitive_assertion(
+    out: &mut String,
+    call_expr: &str,
+    check: &str,
+    value: Option<&serde_json::Value>,
+) {
     match check {
         "equals" => {
             if let Some(val) = value {

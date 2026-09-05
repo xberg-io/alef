@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 
 use super::adapter_target_params::{flattened_stream_params, target_params_or};
 use super::ir_signature::{go_ir_named_type, go_is_bridge_param, go_options_param_is_pointer};
-use super::setup::build_args_and_setup;
+use super::setup::{GoArgsContext, build_args_and_setup};
 
 pub(super) fn render_snippet_body(
     fixture: &Fixture,
@@ -117,17 +117,19 @@ pub(super) fn render_snippet_body(
     let (mut package_decls, mut setup_lines, mut args) = build_args_and_setup(
         &fixture.input,
         recipe.args,
-        import_alias,
-        options_type,
         fixture,
-        options_ptr,
-        false,
-        &data_enum_names,
-        config,
-        type_defs,
-        enums,
-        true,
-        target_params,
+        GoArgsContext {
+            import_alias,
+            options_type,
+            options_ptr,
+            expects_error: false,
+            data_enum_names: &data_enum_names,
+            config,
+            type_defs,
+            enums,
+            native_dtos: true,
+            target: target_params,
+        },
     )?;
     let mut configured_arg_count = recipe.args.len();
     if let Some(visitor_spec) = &fixture.visitor {
