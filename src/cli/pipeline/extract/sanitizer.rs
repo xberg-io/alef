@@ -246,10 +246,14 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
                 .binding_exclusion_reason
                 .as_deref()
                 .unwrap_or("source binding exclusion");
-            info!("Stripping excluded function: {} ({})", func.name, reason);
+            info!("Keeping Rust-only function signature: {} ({})", func.name, reason);
         }
     }
-    api.functions.retain(|f| !f.binding_excluded);
+    // Keep source-declared signatures even when the function is hidden from generated
+    // bindings. Rust e2e tests call the source crate directly, and their argument and result
+    // decisions therefore still need the real signature. Binding generators already enforce
+    // binding_excluded at their visibility boundary; deleting the record here made that
+    // language-aware policy impossible to apply downstream. ~keep
 
     for typ in &mut api.types {
         let excluded_methods: Vec<String> = typ

@@ -3,11 +3,48 @@ use super::filtering::{
     apply_exclude_fields, apply_filters, expand_include_list, is_type_excluded, redundant_generic_exclude_entries,
     unmatched_exclude_entries,
 };
-use super::sanitizer::{TypeSanitization, sanitize_type_ref, sanitize_unknown_types};
+use super::sanitizer::{TypeSanitization, sanitize_type_ref, sanitize_unknown_types, strip_binding_excluded};
 use super::validation::validate_extracted_api;
 use crate::core::config::{ResolvedCrateConfig, SourceCrate};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
+
+/// A source function hidden from generated bindings still exists in the Rust crate. Its
+/// signature must survive the production sanitizer so Rust e2e codegen can resolve argument and
+/// result types instead of treating the call as absent.
+#[test]
+fn binding_excluded_parameterized_function_keeps_its_rust_signature() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        pub type Result<T> = std::result::Result<T, Error>;
+        pub struct Error;
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn unregister_backend(name: &str) -> Result<()> {
+            let _ = name;
+            Ok(())
+        }
+        "#,
+    )
+    .expect("write fixture");
+
+    let mut api =
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample", "0.0.0", None).expect("extract fixture");
+    strip_binding_excluded(&mut api).expect("sanitize exclusions");
+
+    let function = api
+        .functions
+        .iter()
+        .find(|function| function.name == "unregister_backend")
+        .expect("Rust-only function signature must survive");
+    assert!(function.binding_excluded);
+    assert_eq!(function.params.len(), 1);
+    assert_eq!(function.params[0].name, "name");
+    assert_eq!(function.return_type, TypeRef::Unit);
+}
 
 /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
 /// without marking the Map as lossy. Lossy map inner changes are still reported
