@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The sibling traversal-prefix walk kept the same flat lookup, so reachable fields were
+  reported as unreachable and silently dropped.** `swift_json_bridged_prefix_direct` still asked
+  the bare-name index, and several types emit a JSON-bridged `metadata()` returning `String`, so
+  the name read as bridged even on a type whose `metadata()` returns an opaque first-class class.
+  Every path stepping through it truncated to `results.metadata`, which the e2e generator then
+  emitted as an unreachable-leaf skip comment and the docs generator used to clamp snippets --
+  both pointing at a bridge that does not exist. It now walks the same owner-type cursor, so
+  those paths render as ordinary getter chains (`.metadata().outputFormat()`) again.
+
 - **Generated Swift e2e tests called `.toString()` on a first-class class, so the whole suite
   failed to compile.** Field-path resolution asked "is this field JSON-bridged?" against a flat
   index keyed by bare field name across every type in the crate, so a name that is bridged on any

@@ -123,14 +123,36 @@ impl FieldResolver {
     fn swift_json_bridged_prefix_direct(&self, field: &str, steps_past_leaf: bool) -> Option<String> {
         let segments: Vec<&str> = field.split('.').collect();
         let last = segments.len().saturating_sub(1);
+        // ~keep Anchors the bridge question on the segment's OWNER type, exactly as the sibling
+        // `swift_json_bridged_navigation` does. Sharing the flat `is_json_bridged_field_name`
+        // index here made this walk claim a bridge that does not exist: several types emit
+        // `fn metadata(&self) -> String` (a JSON-bridged map), so the bare name `metadata` read
+        // as bridged on a type whose `metadata()` actually returns an opaque first-class class.
+        // That truncated every path stepping through it to `results.metadata`, which the e2e
+        // generator then reported as an unreachable-leaf SKIP -- silently dropping assertions on
+        // fields that are perfectly reachable by direct getters -- and which the docs generator
+        // clamped snippets to. The flat set stays as the fallback for resolvers with no IR to
+        // anchor against, where it remains the only answer available.
+        let map = &self.swift_first_class_map;
+        let mut cursor = self
+            .ir_collection_map
+            .root_type
+            .clone()
+            .or_else(|| self.ir_enum_map.root_type.clone())
+            .or_else(|| map.root_type.clone());
         let mut prefix: Vec<&str> = Vec::with_capacity(segments.len());
         for (index, segment) in segments.iter().enumerate() {
             let bare = segment.split('[').next().unwrap_or(segment);
             prefix.push(bare);
             let steps_past = index < last || segment.contains('[') || steps_past_leaf;
-            if steps_past && self.swift_first_class_map.is_json_bridged_field_name(bare) {
+            let bridged = cursor
+                .as_deref()
+                .and_then(|owner| map.json_bridged_getter(owner, bare))
+                .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
+            if steps_past && bridged {
                 return Some(prefix.join("."));
             }
+            cursor = map.advance(cursor.as_deref(), bare);
         }
         None
     }
