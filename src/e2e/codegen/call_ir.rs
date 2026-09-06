@@ -252,6 +252,22 @@ pub(crate) fn resolve_declared_result_type(call: &CallConfig, lang: &str, ir: Ca
     named_type(signature.return_type).map(str::to_string)
 }
 
+/// Whether the core IR declares this call's success value to be the unit type `()`.
+///
+/// ~keep Deliberately NOT answerable from [`resolve_declared_result_type`]: that returns `None`
+/// for a unit return and for every other unnamed shape alike (primitives, tuples, maps) as well
+/// as for a call the IR has no signature for at all, so a caller reading `None` as "returns
+/// nothing" would treat `-> Result<u64, E>` and an unresolvable call name as void. Only an
+/// explicit [`crate::core::ir::TypeRef::Unit`] answers `true` here; anything else, including an
+/// absent signature, answers `false` and leaves the caller on its pre-existing path.
+pub(crate) fn declared_result_is_unit(call: &CallConfig, lang: &str, ir: CallIr<'_>) -> bool {
+    let Some(lookup_name) = call.core_lookup_name(lang) else {
+        return false;
+    };
+    ir.signature(&lookup_name)
+        .is_some_and(|signature| matches!(signature.return_type, crate::core::ir::TypeRef::Unit))
+}
+
 /// Which "this argument may be omitted" rule the target language's binding applies to a declared
 /// parameter.
 ///

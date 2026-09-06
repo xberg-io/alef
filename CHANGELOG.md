@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Generated Rust e2e tests bound the result of a `()`-returning call, so the suite failed to
+  compile.** Every non-streaming call site wrote `let <binding> = <call>;` unconditionally, and for
+  a `Result<(), E>` call whose value nothing reads that renders `let _ = clear_backends().expect(..)`
+  -- `clippy::let_unit_value`, which the generated suite denies. The renderer now drops the binding
+  when the core IR declares the success value `()` *and* the binding is already the discard `_`, so
+  the `.expect` still panics on error while nothing binds unit. A call returning a real value keeps
+  its binding even when unread, and a call the IR has no signature for is left on its previous path.
+
 - **The sibling traversal-prefix walk kept the same flat lookup, so reachable fields were
   reported as unreachable and silently dropped.** `swift_json_bridged_prefix_direct` still asked
   the bare-name index, and several types emit a JSON-bridged `metadata()` returning `String`, so

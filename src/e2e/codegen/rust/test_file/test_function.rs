@@ -596,6 +596,21 @@ pub fn render_test_function(
     } else {
         ""
     };
+
+    // ~keep `let _ = <expr>;` where `<expr>` is `()` is `clippy::let_unit_value`, which the
+    // generated suite denies. The two conditions must BOTH hold: the IR has to declare the
+    // success value `()` (a `Result<(), E>` still needs its `.expect`, just not a binding), and
+    // the binding has to already be the discard `_` -- `result_binding` is the one place that
+    // knows whether anything downstream reads the value, so re-deriving that answer here is how
+    // a dropped binding turns into an `E0425` in a body that does read it.
+    let binding_prefix = if result_binding == "_"
+        && crate::e2e::codegen::call_ir::declared_result_is_unit(call_config, "rust", call_ir)
+    {
+        String::new()
+    } else {
+        format!("let {result_binding} = ")
+    };
+
     if is_streaming {
         // Streaming: bind the raw stream, then drain it into a Vec.
         let _ = writeln!(out, "    let {stream_var} = {call_expr}{await_suffix}{unwrap_suffix};");
@@ -607,14 +622,11 @@ pub fn render_test_function(
     } else if !returns_result || (only_emptiness_checks && !has_not_error && !fixture.has_docs_presentation()) {
         // Option-returning or non-Result-returning (and not a not_error check): bind raw value, no unwrap.
         // When returns_result=true and has_not_error, fall through to emit .expect() so errors panic.
-        let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
+        let _ = writeln!(out, "    {binding_prefix}{call_expr}{await_suffix};");
     } else if has_not_error || !fixture.assertions.is_empty() || fixture.has_docs_presentation() {
-        let _ = writeln!(
-            out,
-            "    let {result_binding} = {call_expr}{await_suffix}{unwrap_suffix};"
-        );
+        let _ = writeln!(out, "    {binding_prefix}{call_expr}{await_suffix}{unwrap_suffix};");
     } else {
-        let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
+        let _ = writeln!(out, "    {binding_prefix}{call_expr}{await_suffix};");
     }
 
     // Emit local bindings for fields_array fields that are referenced in assertions
@@ -753,3 +765,7 @@ mod ir_only_array_classification_tests;
 #[cfg(test)]
 #[path = "test_function/shared_runtime_tests.rs"]
 mod shared_runtime_tests;
+
+#[cfg(test)]
+#[path = "test_function/unit_result_binding_tests.rs"]
+mod unit_result_binding_tests;
