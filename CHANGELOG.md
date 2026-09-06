@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.84.3] - 2026-09-06
+
 ### Fixed
 
 - **The sibling traversal-prefix walk kept the same flat lookup, so reachable fields were
