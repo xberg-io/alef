@@ -290,6 +290,20 @@ pub(super) fn build_swift_first_class_map(
     // emits `fn kind(&self) -> String` for `kind: SomeEnum`), so they must
     // also count as text-bearing accessors when aggregating contains-matchers.
     let enum_names: HashSet<&str> = enum_defs.iter().map(|e| e.name.as_str()).collect();
+    // ~keep Mirrors `gen_rust_crate::mod`'s own `tagged_enum_names` filter exactly (no `has_serde`
+    // gate -- a data-carrying enum only ever reaches codegen once it can serialize, so gating here
+    // too would just duplicate a fact codegen already enforces). A data-carrying (tagged-union)
+    // enum field's getter is NOT reached by `field_needs_json_bridge`: `emit_getters` routes it
+    // through `is_enum_named` + `emit_enum_string_getter` instead, which for a non-unit variant
+    // emits `serde_json::to_string(&self.0.field)` -- the same whole-value JSON serialization as
+    // the generic bridge path, just via a second mechanism `field_needs_json_bridge` cannot see.
+    // A struct-typed field must not be swept in here: only a `Named` type this set names is a
+    // tagged union, so `pages: Option<PageStructure>` and friends stay correctly non-bridged.
+    let tagged_enum_names: HashSet<&str> = enum_defs
+        .iter()
+        .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+        .map(|e| e.name.as_str())
+        .collect();
     let classify_stringy = |ty: &TypeRef, field_optional: bool| -> Option<StringyFieldKind> {
         match ty {
             TypeRef::String => Some(if field_optional {
@@ -336,7 +350,16 @@ pub(super) fn build_swift_first_class_map(
             // `fn og_locale_alternates(&self) -> String` and made the e2e emit `?.count` on a
             // `RustString`. Two generators reading one IR and disagreeing about one field is the
             // shape this whole map exists to avoid, so there is now one predicate, not two.
-            let getter_is_json_bridged_string = field_needs_json_bridge(&f.ty, f.optional);
+            let plain_json_bridge = field_needs_json_bridge(&f.ty, f.optional);
+            // ~keep `emit_getters` reaches a whole-value JSON string by a SECOND route
+            // `field_needs_json_bridge` does not cover: a `Named` field whose type is a
+            // data-carrying (tagged-union) enum is routed through `is_enum_named` instead, and for
+            // a non-unit variant that path also emits `serde_json::to_string(&self.0.field)` (see
+            // `emit_enum_string_getter`). A fieldless (unit) enum getter is a bare variant-name
+            // `to_string()` -- readable text, not a JSON blob -- so only `tagged_enum_names` (never
+            // the broader `enum_names`) may fold in here.
+            let tagged_enum_json_bridge = matches!(&f.ty, TypeRef::Named(n) if tagged_enum_names.contains(n.as_str()));
+            let getter_is_json_bridged_string = plain_json_bridge || tagged_enum_json_bridge;
             if getter_is_json_bridged_string {
                 json_bridged_field_names.insert(f.name.clone());
             }
@@ -349,8 +372,14 @@ pub(super) fn build_swift_first_class_map(
             }
             // ~keep Mirrors `emit_getters`' own `bridge_ty_owned` choice: a JSON-bridged field
             // collapses to a bare `String`, so only a non-bridged optional field gets the
-            // `Option<..>` return type that forces `?.` on whatever the caller chains next.
-            td_getter_optionality.insert(f.name.clone(), f.optional && !getter_is_json_bridged_string);
+            // `Option<..>` return type that forces `?.` on whatever the caller chains next. Gated
+            // on `plain_json_bridge` alone, NOT `getter_is_json_bridged_string`: unlike the generic
+            // bridge path, a tagged-union enum's `bridge_ty_owned` stays `Option<String>` when the
+            // field is optional (`bridge_type_enum_aware_ref` collapses the NAMED type to `String`,
+            // but the surrounding `field.optional` branch in `emit_getters` still wraps it in
+            // `Option<..>`) -- folding the enum case in here would wrongly report a getter that
+            // Swift declares `Optional<RustString>` as non-optional.
+            td_getter_optionality.insert(f.name.clone(), f.optional && !plain_json_bridge);
             if f.binding_excluded {
                 continue;
             }
@@ -568,6 +597,213 @@ mod tests {
         assert!(
             map.is_vec_field_name("headings"),
             "non-optional Vec<Named(struct)> on a first-class parent returns a countable Vec<String>"
+        );
+    }
+
+    fn named_enum_variant(name: &str, fields: Vec<FieldDef>) -> crate::core::ir::EnumVariant {
+        crate::core::ir::EnumVariant {
+            name: name.to_string(),
+            fields,
+            ..Default::default()
+        }
+    }
+
+    /// A data-carrying (tagged-union) enum field is JSON-bridged, and its getter STAYS
+    /// `Option<..>`-shaped when the field is optional.
+    ///
+    /// ~keep Pins the second route `emit_getters` uses to reach a whole-value JSON `String`:
+    /// `field_needs_json_bridge` never sees this field (its `TypeRef` is a bare `Named`, not a
+    /// `Vec`/`Map`/`Optional`), so a `Named` field whose type is a tagged-union enum was
+    /// classified `json_bridged_by_type == false` even though `emit_enum_string_getter`'s
+    /// non-unit-variant branch emits `self.0.format.clone().map(|w| serde_json::to_string(&w)…)` —
+    /// the same whole-field JSON serialization, reached through `is_enum_named` instead. That
+    /// silent disagreement made a fixture path stepping past the leaf (`format.excel.sheet_count`)
+    /// resolve to `None` and get dropped as `FieldSkip::CountOnJsonBridgedLeafInSwift`, even though
+    /// `swift_json_bridged_navigation` can walk right through it once the map says `true`.
+    #[test]
+    fn tagged_union_enum_field_is_json_bridged_and_stays_optional() {
+        let format_metadata_enum = crate::core::ir::EnumDef {
+            name: "FormatMetadata".to_string(),
+            has_serde: true,
+            variants: vec![named_enum_variant(
+                "Excel",
+                vec![named_field("excel", TypeRef::Named("ExcelMetadata".to_string()), false)],
+            )],
+            ..Default::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![named_field(
+                "format",
+                TypeRef::Named("FormatMetadata".to_string()),
+                true,
+            )],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let map = build_swift_first_class_map(
+            &[metadata],
+            &[format_metadata_enum],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+
+        assert_eq!(
+            map.json_bridged_getter("Metadata", "format"),
+            Some(true),
+            "a tagged-union enum field's getter serializes the whole value to JSON, same as a \
+             generic json-bridged container"
+        );
+        assert_eq!(
+            map.getter_is_optional("Metadata", "format"),
+            Some(true),
+            "the real getter stays `Optional<RustString>` for an optional tagged-union enum field \
+             -- only the generic json-bridge path collapses `Option` away"
+        );
+    }
+
+    /// A plain `Option<Named(struct))` field (no enum involved at all) is NOT JSON-bridged: it
+    /// stays an opaque, per-type-wrapped optional -- exactly the `pages`/`imagePreprocessing`/
+    /// `error` shapes this fix must not regress.
+    #[test]
+    fn plain_named_struct_field_is_not_json_bridged() {
+        let page_structure = TypeDef {
+            name: "PageStructure".to_string(),
+            fields: vec![named_field(
+                "page_count",
+                TypeRef::Primitive(crate::core::ir::PrimitiveType::U32),
+                false,
+            )],
+            has_serde: true,
+            ..Default::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![named_field("pages", TypeRef::Named("PageStructure".to_string()), true)],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let map = build_swift_first_class_map(
+            &[page_structure, metadata],
+            &[],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+
+        assert_eq!(
+            map.json_bridged_getter("Metadata", "pages"),
+            Some(false),
+            "a plain struct field must stay non-bridged -- folding every Option<Named> into the \
+             bridge set would wrongly flip opaque-handle fields like pages/imagePreprocessing/error"
+        );
+        assert_eq!(
+            map.getter_is_optional("Metadata", "pages"),
+            Some(true),
+            "the opaque getter is genuinely Optional<PageStructure>"
+        );
+    }
+
+    /// A unit (fieldless) enum field is readable text (`to_string()` yields the variant name),
+    /// not a JSON blob -- it must not be swept into the json-bridge set alongside tagged unions.
+    #[test]
+    fn unit_enum_field_is_not_json_bridged() {
+        let status_enum = crate::core::ir::EnumDef {
+            name: "Status".to_string(),
+            has_serde: true,
+            variants: vec![
+                named_enum_variant("Ready", vec![]),
+                named_enum_variant("Pending", vec![]),
+            ],
+            ..Default::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![named_field("status", TypeRef::Named("Status".to_string()), false)],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let map = build_swift_first_class_map(
+            &[metadata],
+            &[status_enum],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+
+        assert_eq!(
+            map.json_bridged_getter("Metadata", "status"),
+            Some(false),
+            "a unit enum's getter is a bare variant-name String, not a JSON-serialized blob"
+        );
+        assert_eq!(map.getter_is_optional("Metadata", "status"), Some(false));
+    }
+
+    /// End-to-end: the exact fixture shape from the bug report,
+    /// `results[0].metadata.format.excel.sheet_count`, resolved through the REAL IR-derived map
+    /// (not a hand-built stub) into a real `FieldResolver`. Before this fix, `format`'s absence
+    /// from `json_bridged_by_type` made `swift_json_bridged_navigation` return `None`, which the
+    /// e2e generator turned into a silently dropped `FieldSkip::CountOnJsonBridgedLeafInSwift`.
+    #[test]
+    fn tagged_union_field_is_navigable_end_to_end_from_real_ir() {
+        use crate::e2e::field_access::{FieldResolver, JsonNavStep};
+
+        let format_metadata_enum = crate::core::ir::EnumDef {
+            name: "FormatMetadata".to_string(),
+            has_serde: true,
+            variants: vec![named_enum_variant(
+                "Excel",
+                vec![named_field("excel", TypeRef::Named("ExcelMetadata".to_string()), false)],
+            )],
+            ..Default::default()
+        };
+        let extracted_document = TypeDef {
+            name: "ExtractedDocument".to_string(),
+            fields: vec![named_field("metadata", TypeRef::Named("Metadata".to_string()), false)],
+            has_serde: true,
+            ..Default::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![named_field(
+                "format",
+                TypeRef::Named("FormatMetadata".to_string()),
+                true,
+            )],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let mut map = build_swift_first_class_map(
+            &[extracted_document, metadata],
+            &[format_metadata_enum],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+        map.root_type = Some("ExtractedDocument".to_string());
+
+        let resolver = FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        );
+
+        let (leaf_field, steps) = resolver
+            .swift_json_bridged_navigation("metadata.format.excel.sheet_count")
+            .expect("format must resolve as a navigable JSON-bridged leaf on the real IR map");
+
+        assert_eq!(leaf_field, "metadata.format");
+        assert_eq!(
+            steps,
+            vec![
+                JsonNavStep::Key("excel".to_string()),
+                JsonNavStep::Key("sheet_count".to_string()),
+            ]
         );
     }
 }

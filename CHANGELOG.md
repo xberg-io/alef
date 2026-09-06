@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Generated Swift e2e tests called `.toString()` on a first-class class, so the whole suite
+  failed to compile.** Field-path resolution asked "is this field JSON-bridged?" against a flat
+  index keyed by bare field name across every type in the crate, so a name that is bridged on any
+  one type read as bridged on all of them. `swift_json_bridged_navigation` now walks an owner-type
+  cursor and queries the per-type map, exactly as the sibling `swift_leaf_fact` already did,
+  falling back to the flat set only where the cursor cannot be anchored.
+- **A data-carrying enum field was misclassified as not JSON-bridged, silently dropping
+  assertions.** `emit_getters` reaches a whole-value JSON string by two independent routes, but
+  only one of them ran through `field_needs_json_bridge`: a `Named` field whose type is a tagged
+  union is routed via `is_enum_named`/`emit_enum_string_getter`, whose non-unit branch also emits
+  `serde_json::to_string`. The e2e side therefore disagreed with the generator about such a field
+  and skipped every assertion that stepped through it. The shared predicate now folds in
+  tagged-union enums. Getter optionality deliberately still keys off the original predicate,
+  because the enum route keeps `Option<String>` where the generic bridge collapses it away.
+
 - **`alef docs` could silently emit a skill or `llms.txt` heading that fused the title and the
   description onto one line**, tripping `MD022`/`MD026` in every downstream repo's markdown lint.
   A user-authored `SKILL.md.jinja`/`llms.txt.jinja` template that forgot the blank line after

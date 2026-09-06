@@ -176,11 +176,30 @@ impl FieldResolver {
         // leaf's own JSON index and belongs in `steps`, not in the method-call chain. Losing
         // earlier brackets here — as the message-only `swift_json_bridged_prefix_direct` above
         // does — would build `result.results().pages()`, addressing a member no accessor has.
+        // ~keep The bridge question is asked against the segment's OWNER type, not its bare name.
+        // `json_bridged_field_names` is a flat index over every `TypeDef` in the crate, so a name
+        // that is JSON-bridged on ANY type reads as bridged on all of them -- the exact confusion
+        // `SwiftFirstClassMap::json_bridged_by_type`'s own doc rules out. That made this walk stop
+        // at `metadata` (bridged on an unrelated type) instead of `Metadata::format`, emitting
+        // `.metadata().toString()` against a Swift class that has no `toString`. The cursor is
+        // seeded and advanced exactly as `swift_leaf_fact` does; the flat set stays as the
+        // fallback for paths the IR cannot anchor, where it remains the only answer available.
+        let map = &self.swift_first_class_map;
+        let mut cursor = self
+            .ir_collection_map
+            .root_type
+            .clone()
+            .or_else(|| self.ir_enum_map.root_type.clone())
+            .or_else(|| map.root_type.clone());
         let mut prefix: Vec<&str> = Vec::with_capacity(segments.len());
         for (index, segment) in segments.iter().enumerate() {
             let bare = segment.split('[').next().unwrap_or(segment);
             let steps_past = index < last || segment.contains('[');
-            if steps_past && self.swift_first_class_map.is_json_bridged_field_name(bare) {
+            let bridged = cursor
+                .as_deref()
+                .and_then(|owner| map.json_bridged_getter(owner, bare))
+                .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
+            if steps_past && bridged {
                 prefix.push(bare);
                 let mut steps = Vec::new();
                 push_numeric_bracket_step(segment, &mut steps)?;
@@ -191,6 +210,7 @@ impl FieldResolver {
                 }
                 return Some((prefix.join("."), steps));
             }
+            cursor = map.advance(cursor.as_deref(), bare);
             prefix.push(segment);
         }
         None
