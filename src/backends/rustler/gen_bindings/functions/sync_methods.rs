@@ -151,12 +151,16 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_method(
         } else if is_opaque {
             render_method_call("rust_method_static_call.rs.jinja", core_path, &method.name, &call_args)
         } else if method.receiver.is_some() {
-            render_method_call(
-                "rust_method_instance_call.rs.jinja",
-                core_path,
-                &method.name,
-                &call_args,
-            )
+            // `receiver_is_default_type` already decoded `obj` into the core type via serde_json,
+            // so the usual `Core::from(obj)` bridge would be a same-type conversion that
+            // `clippy::useless_conversion` rejects in the generated crate. Every other receiver
+            // arrives as the binding struct and still needs the conversion. ~keep
+            let instance_call_template = if receiver_is_default_type {
+                "rust_method_decoded_receiver_call.rs.jinja"
+            } else {
+                "rust_method_instance_call.rs.jinja"
+            };
+            render_method_call(instance_call_template, core_path, &method.name, &call_args)
         } else {
             let named_params: Vec<&ParamDef> = method
                 .params

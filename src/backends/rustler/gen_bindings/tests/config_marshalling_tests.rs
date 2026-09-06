@@ -109,10 +109,27 @@ fn native_default_typed_receiver_methods_should_json_decode_into_core_type() {
         "receiver must be JSON-decoded into the core type with contextual error:\n{content}"
     );
     assert!(
-        content.contains("let result = my_lib::Config::from(obj).validate().map_err(|e| e.to_string())?;"),
+        content.contains("let result = obj.validate().map_err(|e| e.to_string())?;"),
         "decoded core value must be passed straight into the delegated call:\n{content}"
     );
     syn::parse_file(&content).expect("generated Rustler source with a default-typed receiver must parse as Rust");
+}
+
+/// The receiver-to-core conversion exists to turn a decoded *binding* struct into the core type.
+/// A `has_default` receiver arrives as a JSON string and is decoded straight into the core type,
+/// so wrapping it again is a same-type conversion that `clippy::useless_conversion` rejects in the
+/// generated crate. Both shapes must therefore be pinned together. ~keep
+#[test]
+fn native_receiver_conversion_should_be_emitted_only_when_the_receiver_type_differs() {
+    let content = generated_native(&config_marshalling_api_surface());
+    assert!(
+        !content.contains("my_lib::Config::from(obj)"),
+        "a receiver already decoded into the core type must not be converted again:\n{content}"
+    );
+    assert!(
+        content.contains("my_lib::Registry::from(obj).configure_many("),
+        "a receiver decoded as the binding struct must still be converted into the core type:\n{content}"
+    );
 }
 
 #[test]

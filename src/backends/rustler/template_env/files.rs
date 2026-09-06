@@ -184,6 +184,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/rust_method_instance_call.rs.jinja"),
     ),
     (
+        "rust_method_decoded_receiver_call.rs.jinja",
+        include_str!("../templates/rust_method_decoded_receiver_call.rs.jinja"),
+    ),
+    (
         "rust_method_static_call.rs.jinja",
         include_str!("../templates/rust_method_static_call.rs.jinja"),
     ),

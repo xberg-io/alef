@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `.expect` still panics on error while nothing binds unit. A call returning a real value keeps
   its binding even when unread, and a call the IR has no signature for is left on its previous path.
 
+- **The Rustler backend converted a receiver that was already the core type, so the generated NIF
+  crate failed to compile.** A `has_default` receiver is decoded straight out of JSON into the core
+  type, but the instance-call template still wrapped it in `Core::from(obj)` -- a same-type
+  conversion `clippy::useless_conversion` rejects. Such receivers now render a direct
+  `obj.method(..)` call; every other receiver arrives as the binding struct and still converts.
+
 - **The sibling traversal-prefix walk kept the same flat lookup, so reachable fields were
   reported as unreachable and silently dropped.** `swift_json_bridged_prefix_direct` still asked
   the bare-name index, and several types emit a JSON-bridged `metadata()` returning `String`, so
