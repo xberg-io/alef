@@ -239,7 +239,10 @@ fn push_mock_url_arg(
     }
     if let Some(req_type) = ctx.adapter_request_type {
         let req_var = format!("{}_req", arg.name);
-        setup_lines.push(format!("{req_var} = %{}.{req_type}{{url: {}}}", ctx.module_path, arg.name));
+        setup_lines.push(format!(
+            "{req_var} = %{}.{req_type}{{url: {}}}",
+            ctx.module_path, arg.name
+        ));
         parts.push(req_var);
     } else {
         parts.push(arg.name.clone());
@@ -311,7 +314,10 @@ fn push_handle_arg(
         let json_str = serde_json::to_string(config_value).unwrap_or_else(|_| "{}".to_string());
         let escaped = escape_elixir(&json_str);
         setup_lines.push(format!("{name}_config = \"{escaped}\""));
-        setup_lines.push(format!("{{:ok, {name}}} = {}.{constructor_name}({name}_config)", ctx.module_path));
+        setup_lines.push(format!(
+            "{{:ok, {name}}} = {}.{constructor_name}({name}_config)",
+            ctx.module_path
+        ));
     }
     parts.push(arg.name.clone());
 }
@@ -551,7 +557,12 @@ fn try_push_json_object_value(
         let json_str = serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string());
         let escaped = escape_elixir(&json_str);
         let formatted = format!("\"{escaped}\"");
-        push_arg_value(&arg.name, formatted, ctx.use_keyword_form_for_optional_args && arg.optional, parts);
+        push_arg_value(
+            &arg.name,
+            formatted,
+            ctx.use_keyword_form_for_optional_args && arg.optional,
+            parts,
+        );
         return true;
     }
     false
@@ -583,7 +594,9 @@ fn push_options_via_default_fn(
         } else {
             json_to_elixir(vv)
         };
-        setup_lines.push(format!("{options_var} = %{{{options_var} | {snake_key}: {elixir_val}}}"));
+        setup_lines.push(format!(
+            "{options_var} = %{{{options_var} | {snake_key}: {elixir_val}}}"
+        ));
     }
 
     // Push the variable name as the argument.

@@ -362,12 +362,25 @@ pub(super) fn render_json_object_argument(
         });
     }
     if is_array {
-        return Ok(render_json_object_array_argument(v, arg, render_ctx, context, setup_lines));
+        return Ok(render_json_object_array_argument(
+            v,
+            arg,
+            render_ctx,
+            context,
+            setup_lines,
+        ));
     }
     let Some(opts_type) = json_object_type else {
         return Ok(json_to_go(v));
     };
-    Ok(render_json_object_typed_argument(v, arg, opts_type, render_ctx, context, setup_lines))
+    Ok(render_json_object_typed_argument(
+        v,
+        arg,
+        opts_type,
+        render_ctx,
+        context,
+        setup_lines,
+    ))
 }
 
 fn render_json_object_array_argument(
@@ -565,7 +578,9 @@ pub(super) fn render_typed_default_argument(
         ..
     } = render_ctx;
     let typed = if let Some(type_name) = native_declared_type {
-        let uses_pointer = target.param_for(&arg.name, arg_index).is_some_and(|param| param.optional);
+        let uses_pointer = target
+            .param_for(&arg.name, arg_index)
+            .is_some_and(|param| param.optional);
         typed_named_argument_expression(v, type_name, value_context, &arg.name, uses_pointer)?
     } else {
         None

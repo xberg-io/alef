@@ -175,7 +175,14 @@ fn gen_php_field_expr(
         return untagged_data_enum_expr(name, shape, field.optional);
     }
     if let Some(enum_name) = get_direct_enum_named(&field.ty, enum_names) {
-        return gen_string_to_enum_expr(&format!("self.{name}"), &enum_name, field.optional, enums, core_import, name);
+        return gen_string_to_enum_expr(
+            &format!("self.{name}"),
+            &enum_name,
+            field.optional,
+            enums,
+            core_import,
+            name,
+        );
     }
     if let Some(enum_name) = get_vec_enum_named(&field.ty, enum_names) {
         let elem_conv = gen_string_to_enum_expr("s", &enum_name, false, enums, core_import, name);

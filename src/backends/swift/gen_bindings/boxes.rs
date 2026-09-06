@@ -515,8 +515,10 @@ mod tests {
             "expected a guarded early return on total decode failure, got:\n{rendered}"
         );
         assert!(
-            rendered.contains("let ctxDecoded: NodeContext? = (try? nodeContextFromJson(ctx.toString())) ?? \
-                                (try? nodeContextFromJson(\"{}\"))"),
+            rendered.contains(
+                "let ctxDecoded: NodeContext? = (try? nodeContextFromJson(ctx.toString())) ?? \
+                                (try? nodeContextFromJson(\"{}\"))"
+            ),
             "expected both decode attempts to use `try?`, got:\n{rendered}"
         );
         assert_eq!(call_args, "ctxDecoded");

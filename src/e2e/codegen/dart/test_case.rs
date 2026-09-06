@@ -428,7 +428,12 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     // Fixture-driven visitor handle -- extracted to `apply_fixture_visitor` below (its own
     // self-contained responsibility: build the `visitor` var, then thread it into the
     // `options` blob emitted by the arg loop above, or synthesize one if none was emitted).
-    let visitor_ctx = VisitorArgContext { config, call_overrides, type_defs, options_type };
+    let visitor_ctx = VisitorArgContext {
+        config,
+        call_overrides,
+        type_defs,
+        options_type,
+    };
     apply_fixture_visitor(&mut setup_lines, &mut args, fixture, &visitor_ctx);
 
     // Resolve client_factory: when set, tests create a client instance and call

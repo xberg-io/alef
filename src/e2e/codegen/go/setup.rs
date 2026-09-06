@@ -628,10 +628,12 @@ fn dispatch_data_argument(
 
     match val {
         None | Some(serde_json::Value::Null) if arg.optional => {
-            sink.parts.push(args::optional_null_argument_expression(arg, render_context, context));
+            sink.parts
+                .push(args::optional_null_argument_expression(arg, render_context, context));
         }
         None | Some(serde_json::Value::Null) => {
-            sink.parts.push(args::required_null_argument_expression(arg, render_context, context));
+            sink.parts
+                .push(args::required_null_argument_expression(arg, render_context, context));
         }
         Some(v) => match arg.arg_type.as_str() {
             "json_object" => {

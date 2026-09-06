@@ -125,7 +125,14 @@ fn step_prefixed_segment(
     // segments name keys to extract via alef_json_get_string (for primitive
     // leaves) or alef_json_get_object (for intermediate object hops).
     if walk.json_extract_mode {
-        return Some(step_json_extract_segment(out, intermediate_handles, walk, segment, is_leaf, local_var));
+        return Some(step_json_extract_segment(
+            out,
+            intermediate_handles,
+            walk,
+            segment,
+            is_leaf,
+            local_var,
+        ));
     }
     // Check for map access: "field[key]" or array element access: "field[]"
     step_bracket_segment(out, prefix, intermediate_handles, walk, segment, is_leaf, local_var)
@@ -185,7 +192,9 @@ fn step_plain_segment(args: PlainSegmentArgs<'_>) -> anyhow::Result<SegmentStep>
     // Skip any assertion that touches a field marked "skip" in fields_c_types.
     if is_skipped_c_field(fields_c_types, &walk.current_snake_type, &seg_snake) {
         // Sentinel: no accessor emitted, assertion skipped later.
-        return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed("__skip__".to_string()))));
+        return Ok(SegmentStep::Done(Some(NestedLeafOutcome::Typed(
+            "__skip__".to_string(),
+        ))));
     }
 
     if is_leaf {
@@ -1291,7 +1300,14 @@ fn unknown_leaf_field_diagnostic(context: UnknownLeafField<'_>) -> String {
         owner = chain.owner_type,
     );
 
-    append_unknown_leaf_field_fix(&mut message, namespace, raw_field, real_path, result_fields_source, fields_source);
+    append_unknown_leaf_field_fix(
+        &mut message,
+        namespace,
+        raw_field,
+        real_path,
+        result_fields_source,
+        fields_source,
+    );
 
     message
 }
@@ -1576,17 +1592,20 @@ pub(super) fn build_args_string_c(
             continue;
         }
 
-        push_regular_arg_expr(&mut parts, RegularArgArgs {
-            input,
-            arg,
-            index,
-            typed_arg_handles,
-            known_params,
-            type_defs,
-            fixture,
-            function_name,
-            target_params,
-        })?;
+        push_regular_arg_expr(
+            &mut parts,
+            RegularArgArgs {
+                input,
+                arg,
+                index,
+                typed_arg_handles,
+                known_params,
+                type_defs,
+                fixture,
+                function_name,
+                target_params,
+            },
+        )?;
     }
 
     Ok(parts.join(", "))
@@ -1902,15 +1921,18 @@ fn dispatch_assertion_tail(
         }
         "method_result" => {
             if let Some(method_name) = &assertion.method {
-                render_method_result_assertion(out, MethodResultAssertionArgs {
-                    result_var,
-                    ffi_prefix,
-                    method_name,
-                    args: assertion.args.as_ref(),
-                    return_type: assertion.return_type.as_deref(),
-                    check: assertion.check.as_deref().unwrap_or("is_true"),
-                    value: assertion.value.as_ref(),
-                });
+                render_method_result_assertion(
+                    out,
+                    MethodResultAssertionArgs {
+                        result_var,
+                        ffi_prefix,
+                        method_name,
+                        args: assertion.args.as_ref(),
+                        return_type: assertion.return_type.as_deref(),
+                        check: assertion.check.as_deref().unwrap_or("is_true"),
+                        value: assertion.value.as_ref(),
+                    },
+                );
             } else {
                 panic!("C e2e generator: method_result assertion missing 'method' field");
             }

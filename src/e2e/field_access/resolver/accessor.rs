@@ -663,9 +663,7 @@ mod typescript_tagged_union_accessor_tests {
         let resolver = resolver_over_format_metadata();
         assert_eq!(
             resolver.typescript_tagged_union_accessor("format.html.title", "node", "result"),
-            Some(
-                "(result.format.format_type === \"html\" ? result.format.html : undefined)?.title".to_string()
-            )
+            Some("(result.format.format_type === \"html\" ? result.format.html : undefined)?.title".to_string())
         );
     }
 

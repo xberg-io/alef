@@ -465,7 +465,10 @@ fn render_json_object_element_object(
     let var_name = underscore_camel_case(&arg_def.name);
     let dart_fn = type_name_to_create_from_json_dart(elem_type);
     let json_source = if crate::e2e::codegen::value_contains_mock_url_placeholder(arg_value) {
-        setup_lines.push(format!("final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");", fixture.id));
+        setup_lines.push(format!(
+            "final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");",
+            fixture.id
+        ));
         setup_lines.push(format!(
             "final {var_name}Json = '{escaped_json}'.replaceAll(r'{}', {var_name}MockBaseUrl);",
             crate::e2e::codegen::MOCK_URL_PLACEHOLDER
@@ -542,7 +545,10 @@ fn render_json_object_typed_array(
     let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
     let var_name = arg_def.name.clone();
     let json_source = if crate::e2e::codegen::value_contains_mock_url_placeholder(arg_value) {
-        setup_lines.push(format!("final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");", fixture.id));
+        setup_lines.push(format!(
+            "final {var_name}MockBaseUrl = _fixtureUrl(\"{}\");",
+            fixture.id
+        ));
         setup_lines.push(format!(
             "final {var_name}Json = r'{json_str}'.replaceAll(r'{}', {var_name}MockBaseUrl);",
             crate::e2e::codegen::MOCK_URL_PLACEHOLDER
