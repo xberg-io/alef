@@ -180,7 +180,7 @@ pub mod cargo {
     pub const ALLOC_NO_STDLIB: &str = "3.0.0";
 
     // renovate: datasource=crate depName=alloc-stdlib
-    pub const ALLOC_STDLIB: &str = "0.2.2";
+    pub const ALLOC_STDLIB: &str = "0.3.0";
 
     // renovate: datasource=crate depName=brotli-decompressor
     pub const BROTLI_DECOMPRESSOR: &str = "6.0.0";
