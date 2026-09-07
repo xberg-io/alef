@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift e2e: a JSON-navigated assertion did not unwrap a leaf getter that is itself
+  optional.** `accessor()` marks an optional *ancestor* with `?.` in the emitted chain but
+  never signals that the leaf's own getter returns `Optional<RustString>`, so
+  `Metadata::format` was emitted as `.format().toString()` and the generated test failed to
+  compile: "value of optional type 'Optional<RustString>' must be unwrapped to refer to
+  member 'toString'". The emitter now asks the resolver
+  (`swift_leaf_getter_is_optional`, which already existed) and applies the same
+  `?.toString() ?? "null"` treatment an optional ancestor already got. This had broken the
+  swift leg of consumers' e2e suites outright (xberg-io/xberg CI E2E).
 - **A version bump could not satisfy its own uv.lock gate.** The pending-publish exemption that
   downgrades "this crate's own unpublished version" from a hard error to a warning read the
   version only from an explicit `[crates.e2e.packages.<lang>].version`, while the generator that
