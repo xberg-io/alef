@@ -177,13 +177,13 @@ pub mod cargo {
     // The *operator* is the mechanism; the version beside it is still a version, which is why it
     // belongs here under Renovate rather than inline in the scaffolder.
     // renovate: datasource=crate depName=alloc-no-stdlib
-    pub const ALLOC_NO_STDLIB: &str = "2.0.4";
+    pub const ALLOC_NO_STDLIB: &str = "3.0.0";
 
     // renovate: datasource=crate depName=alloc-stdlib
     pub const ALLOC_STDLIB: &str = "0.2.2";
 
     // renovate: datasource=crate depName=brotli-decompressor
-    pub const BROTLI_DECOMPRESSOR: &str = "5.0.1";
+    pub const BROTLI_DECOMPRESSOR: &str = "6.0.0";
 
     // renovate: datasource=crate depName=tokio-stream
     pub const TOKIO_STREAM: &str = "0.1";
