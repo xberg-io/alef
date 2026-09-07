@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.3] - 2026-09-07
+
 ### Fixed
 
 - **The C FFI infallible bytes return did not compile for a borrowing accessor.** The `0.85.2`
