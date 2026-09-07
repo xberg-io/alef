@@ -13,7 +13,7 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
 
     let mut groups: std::collections::BTreeMap<String, Vec<&Path>> = std::collections::BTreeMap::new();
     let primary_source_crates: Vec<_> = config
-        .source_crates
+        .resolved_source_crates()?
         .iter()
         .filter(|source_crate| source_crate.roots.is_empty())
         .collect();

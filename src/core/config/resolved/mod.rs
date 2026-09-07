@@ -25,6 +25,7 @@ mod removed_command_config_tests;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use crate::core::config::GenerateConfig;
 use crate::core::config::SourceCrate;
@@ -65,7 +66,21 @@ use crate::core::config::workspace::ClientConstructorConfig;
 pub struct ResolvedCrateConfig {
     pub name: String,
     pub sources: Vec<PathBuf>,
+    /// Unresolved `[[crates.source_crates]]` entries, exactly as declared in config. A
+    /// `from_registry = true` entry's `sources` are still relative to the registry crate's own
+    /// source directory, NOT yet rebased against it -- rebasing shells out to `cargo metadata`
+    /// (see `crate::core::config::registry::resolve_crate_source_dir`), which is a cost (and a
+    /// failure mode) every subcommand should not pay just to build this config. Use
+    /// [`Self::resolved_source_crates`] to get the rebased view; it resolves lazily on first
+    /// access and caches the result. ~keep
     pub source_crates: Vec<SourceCrate>,
+    /// Cache for [`Self::resolved_source_crates`]. Not serialized: a config loaded from a
+    /// snapshot re-resolves on first access rather than trusting a stale rebased path. `pub`
+    /// (like every other field here) only so `ResolvedCrateConfig { .., ..Default::default() }`
+    /// struct-update syntax keeps compiling from outside this crate (e.g. `tests/*.rs`) --
+    /// prefer [`Self::resolved_source_crates`] over touching this directly. ~keep
+    #[serde(skip)]
+    pub resolved_source_crates: OnceLock<Vec<SourceCrate>>,
     pub version_from: String,
     pub core_import: Option<String>,
     pub workspace_root: Option<PathBuf>,
@@ -205,16 +220,51 @@ pub struct ResolvedCrateConfig {
 }
 
 impl ResolvedCrateConfig {
+    /// The rebased view of [`Self::source_crates`]: for each entry with `from_registry = true`,
+    /// `sources` rebased against that crate's actual location in the cargo registry (everything
+    /// else is returned unchanged). Resolved on first call and cached for the lifetime of this
+    /// config -- only codegen backends and the sources hash need this, so a command that never
+    /// calls it (e.g. `alef publish package`, a pure archive-the-artifact operation) never pays
+    /// for the underlying `cargo metadata` shell-out, and never fails because of it either.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::core::config::ResolveError::RegistryResolution`] when a
+    /// `from_registry = true` entry's crate cannot be located (e.g. `cargo metadata` fails, or
+    /// the crate is not in the resolved dependency graph). The failure is not cached, so a
+    /// caller may retry after fixing the underlying cause (e.g. `workspace_root`). ~keep
+    pub fn resolved_source_crates(&self) -> Result<&[SourceCrate], crate::core::config::ResolveError> {
+        if let Some(resolved) = self.resolved_source_crates.get() {
+            return Ok(resolved);
+        }
+        let resolved = crate::core::config::new_config::resolve_source_crates(
+            &self.source_crates,
+            self.workspace_root.as_deref(),
+        )?;
+        // Another caller may have raced this one to `set` -- either value is a valid resolution
+        // of the same immutable `self.source_crates`/`workspace_root`, so losing the race and
+        // reading back whichever one won is correct, not a bug. ~keep
+        let _ = self.resolved_source_crates.set(resolved);
+        Ok(self
+            .resolved_source_crates
+            .get()
+            .expect("just set or set by a racing caller"))
+    }
+
     /// Rust source paths that affect extraction and generated output hashes.
-    #[must_use]
-    pub fn source_hash_paths(&self) -> Vec<PathBuf> {
+    ///
+    /// # Errors
+    ///
+    /// Propagates [`Self::resolved_source_crates`]'s error when a `from_registry = true` source
+    /// crate cannot be resolved.
+    pub fn source_hash_paths(&self) -> Result<Vec<PathBuf>, crate::core::config::ResolveError> {
         let mut sources = self.sources.clone();
-        for source_crate in &self.source_crates {
+        for source_crate in self.resolved_source_crates()? {
             sources.extend(source_crate.sources.iter().cloned());
         }
         sources.sort();
         sources.dedup();
-        sources
+        Ok(sources)
     }
 
     /// Convenience accessor: the resolved output directory for a language.

@@ -6,7 +6,7 @@ use std::path::Path;
 
 pub(super) fn merge_external_type_roots(api: &mut ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
     let external_type_crates: Vec<_> = config
-        .source_crates
+        .resolved_source_crates()?
         .iter()
         .filter(|source_crate| !source_crate.roots.is_empty())
         .collect();

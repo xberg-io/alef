@@ -110,7 +110,7 @@ fn ir_cache_key(
     config_path: &Path,
     alef_version: &str,
 ) -> anyhow::Result<crate::cli::cache::CacheKey> {
-    let source_hash = cache::sources_hash(&config.source_hash_paths()).context("failed to compute sources hash")?;
+    let source_hash = cache::sources_hash(&config.source_hash_paths()?).context("failed to compute sources hash")?;
     let version_for_hash = config.resolved_version().unwrap_or_default();
     let config_hash = extraction_config_hash(config, config_path)?;
     Ok(crate::cli::cache_identity::compute_ir_key_for_version(

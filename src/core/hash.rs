@@ -507,7 +507,8 @@ pub fn compute_crate_sources_hash(
     for src in &crate_cfg.sources {
         all_sources.push(src);
     }
-    for sc in &crate_cfg.source_crates {
+    let resolved_source_crates = crate_cfg.resolved_source_crates().map_err(std::io::Error::other)?;
+    for sc in resolved_source_crates {
         for src in &sc.sources {
             all_sources.push(src);
         }
