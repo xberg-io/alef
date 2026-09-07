@@ -287,6 +287,18 @@ pub(crate) fn is_variant_untagged_string_enum(enum_def: &EnumDef) -> bool {
         && data_variants.clone().all(|v| v.serde_untagged)
 }
 
+/// Either flavor of "no nominal `Js{Enum}` type; route through a `serde_json::Value` wrapper" data
+/// enum -- [`is_untagged_data_enum`] (container-level) or [`is_variant_untagged_string_enum`]
+/// (variant-level). `gen_enum` sends both to the same
+/// [`gen_untagged_data_enum_as_value_wrapper`], and the conversion arms are generic over whatever
+/// payload shape either one produces, so every call site that exists to answer "does this enum
+/// need value passthrough rather than a real `#[napi]` type" asks this instead of re-deriving the
+/// disjunction. Mirrors the wasm backend's predicate of the same name. Only the `.d.ts`
+/// declaration differs between the two, which is why they stay separate predicates. ~keep
+pub(crate) fn is_json_passthrough_data_enum(enum_def: &EnumDef) -> bool {
+    is_untagged_data_enum(enum_def) || is_variant_untagged_string_enum(enum_def)
+}
+
 /// The literal `.d.ts` union members (already quoted, e.g. `"plain"`) for the unit variants of an
 /// [`is_variant_untagged_string_enum`] enum, in declaration order. Mirrors
 /// [`declared_string_enum_variants`]'s casing and membership rules exactly (same
@@ -324,7 +336,7 @@ pub(super) fn gen_enum(
         return gen_tagged_enum_as_object(enum_def, prefix, has_serde);
     }
 
-    if is_untagged_data_enum(enum_def) || is_variant_untagged_string_enum(enum_def) {
+    if is_json_passthrough_data_enum(enum_def) {
         return gen_untagged_data_enum_as_value_wrapper(enum_def, prefix);
     }
 

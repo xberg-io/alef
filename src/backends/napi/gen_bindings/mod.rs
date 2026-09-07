@@ -568,8 +568,7 @@ impl Backend for NapiBackend {
             // `serde_json::Value` wrapper struct, and the `serde_json::to_value`/`from_value`
             // conversion below is generic over the payload shape either one produces. ~keep
             let is_tagged_data_enum = enums::is_tagged_data_enum(e);
-            let is_json_passthrough_data_enum =
-                enums::is_untagged_data_enum(e) || enums::is_variant_untagged_string_enum(e);
+            let is_json_passthrough_data_enum = enums::is_json_passthrough_data_enum(e);
             if is_tagged_data_enum {
                 builder.add_item(&methods::gen_tagged_enum_binding_to_core(
                     e,

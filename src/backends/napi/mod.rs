@@ -6,8 +6,8 @@ pub mod trait_bridge;
 mod type_map;
 
 pub use gen_bindings::NapiBackend;
+pub(crate) use gen_bindings::enums::is_json_passthrough_data_enum;
 pub(crate) use gen_bindings::enums::is_tagged_data_enum;
-pub(crate) use gen_bindings::enums::is_untagged_data_enum;
 pub(crate) use gen_bindings::enums::string_enum_variant_js_value;
 pub(crate) use gen_bindings::enums::tagged_enum_binding_field_js_name;
 pub(crate) use gen_bindings::enums::tagged_enum_discriminant_js_name;

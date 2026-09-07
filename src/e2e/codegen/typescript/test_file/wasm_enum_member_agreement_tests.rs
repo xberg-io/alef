@@ -47,6 +47,15 @@ fn payload_variant(name: &str) -> EnumVariant {
     }
 }
 
+/// A payload variant carrying its own `#[serde(untagged)]`, which makes the whole enum a
+/// string-literal union rather than a nominal type -- so the binding declares no member at all.
+fn untagged_payload_variant(name: &str) -> EnumVariant {
+    EnumVariant {
+        serde_untagged: true,
+        ..payload_variant(name)
+    }
+}
+
 fn enum_def(name: &str, variants: Vec<EnumVariant>, rename_all: Option<&str>) -> EnumDef {
     EnumDef {
         name: name.to_string(),
@@ -73,7 +82,18 @@ fn owner_type_def(enum_name: &str) -> TypeDef {
 ///
 /// Empty when `gen_enum` did not emit a C-style enum at all — a data-carrying enum is emitted as
 /// a discriminator `pub struct` instead, which declares no members for a snippet to reference.
+///
+/// The `is_json_passthrough_data_enum` guard asks the same authority `mod.rs`'s enum loop asks
+/// before it calls `gen_enum` at all. Without it this helper called `gen_enum` directly and
+/// reported the C-style members that function still returns in isolation -- members the pipeline
+/// suppresses and the package therefore never ships. That made this whole test blind to exactly
+/// the drift it exists to catch: a variant-level untagged enum passed while the real generated
+/// snippet referenced `WasmOutputFormat.Markdown` against a binding that declares no such
+/// member. ~keep
 fn declared_members(enum_def: &EnumDef) -> Vec<String> {
+    if crate::backends::wasm::gen_bindings::enums::is_json_passthrough_data_enum(enum_def) {
+        return Vec::new();
+    }
     let source = crate::backends::wasm::gen_bindings::enums::gen_enum(
         enum_def,
         WASM_TYPE_PREFIX,
@@ -170,6 +190,15 @@ fn wasm_snippet_enum_members_are_declared_by_the_wasm_binding() {
             enum_def(
                 "OutputFormat",
                 vec![unit_variant("Markdown"), payload_variant("Custom")],
+                None,
+            ),
+            "markdown",
+        ),
+        (
+            "variant-level untagged payload variant",
+            enum_def(
+                "OutputFormat",
+                vec![unit_variant("Markdown"), untagged_payload_variant("Custom")],
                 None,
             ),
             "markdown",
