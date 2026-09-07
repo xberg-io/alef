@@ -614,15 +614,10 @@ fn elixir_nif_targets(config: &ResolvedCrateConfig) -> Vec<String> {
         .filter(|elixir| !elixir.nif_targets.is_empty())
         .map(|elixir| elixir.nif_targets.clone())
         .unwrap_or_else(|| {
-            [
-                "aarch64-apple-darwin",
-                "aarch64-unknown-linux-gnu",
-                "x86_64-unknown-linux-gnu",
-                "x86_64-pc-windows-gnu",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect()
+            crate::core::config::languages::DEFAULT_NIF_TARGETS
+                .into_iter()
+                .map(str::to_string)
+                .collect()
         })
 }
 

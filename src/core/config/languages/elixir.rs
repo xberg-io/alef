@@ -5,6 +5,25 @@ use std::path::PathBuf;
 
 use super::FfiTargetDepOverride;
 
+/// Target triples assumed when a consumer sets no explicit `nif_targets`.
+///
+/// Windows is **msvc, not gnu**. `RustlerPrecompiled.target/3` defaults the ABI to `"msvc"` on
+/// `{:win32, _}` and then rejects any triple absent from the declared list, so a `-gnu` default
+/// makes every Windows install fail with "precompiled NIF is not available for this target" --
+/// while CI happily builds, checksums and uploads the msvc artifact nobody can reach. alef's own
+/// `scaffold::cargo_config` emits `[target.x86_64-pc-windows-msvc]`, so the `-gnu` default also
+/// contradicted the toolchain alef scaffolds.
+///
+/// Upstream `RustlerPrecompiled`'s own default lists both Windows ABIs, but a consumer must
+/// declare exactly what its CI builds: checksum generation walks this list and fails on a triple
+/// with no artifact. One entry per built target, no aspirational ones. ~keep
+pub(crate) const DEFAULT_NIF_TARGETS: [&str; 4] = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+];
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ElixirConfig {
@@ -55,8 +74,7 @@ pub struct ElixirConfig {
     /// GitHub release. `RustlerPrecompiled` reads this list to know which
     /// archives to download at install time. Must agree with the consumer's
     /// CI build matrix and the `generate-elixir-checksums` action's targets
-    /// input. When empty, falls back to the historical default of
-    /// `aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu`.
+    /// input. When empty, falls back to [`DEFAULT_NIF_TARGETS`].
     #[serde(default)]
     pub nif_targets: Vec<String>,
     /// Per-target overrides for the core-crate dependency emitted into the

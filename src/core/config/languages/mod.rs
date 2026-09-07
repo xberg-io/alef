@@ -28,6 +28,7 @@ pub use common::StubsConfig;
 pub use csharp::CSharpConfig;
 pub use custom::{CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig};
 pub use dart::{DartConfig, DartStyle, DartTargetDepOverride};
+pub(crate) use elixir::DEFAULT_NIF_TARGETS;
 pub use elixir::ElixirConfig;
 pub use ffi::{FfiCapsuleTypeConfig, FfiConfig, FfiTargetDepOverride};
 pub use gleam::{GleamConfig, GleamElementConstructor, GleamElementField};
