@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.0] - 2026-09-07
+
+### Fixed
+
+- **A variant-level `#[serde(untagged)]` was invisible, so napi and wasm emitted an object union
+  for an enum that serializes as a bare string.** `has_serde_untagged` was only ever asked about
+  the *container*'s attributes, so an enum whose unit variants are ordinary externally-tagged
+  names but whose single data variant carries its own `#[serde(untagged)]` — e.g.
+  `Custom(String)` — matched `is_tagged_data_enum` and routed to the tagged-object emitter. The
+  generated TypeScript declared `{ type: "markdown" }` while the runtime, the CLI, the REST and
+  MCP surfaces, config files, and the Go backend all exchanged the plain string `"markdown"`. Any
+  consumer indexing a lookup table by the value failed to compile against its own binding
+  (`TS2538: cannot be used as an index type`).
+
+  `EnumVariant` now carries `serde_untagged`, set from the variant's own attributes by the same
+  needle logic the container check uses. A new `is_variant_untagged_string_enum` claims the mixed
+  case — container externally tagged, every data-carrying variant individually untagged — which
+  neither `is_tagged_data_enum` (needs an object on the wire) nor `is_untagged_data_enum`
+  (container-level, where a unit variant serializes as `null`, not its name) can express. Both
+  backends route it through the existing `serde_json::Value` passthrough, and declare a flat
+  string-literal union over the unit variants plus one widening member per untagged data variant
+  (`(string & {})` for a single `String` payload, so the known literals keep autocomplete while
+  any string is still accepted). napi cases those literals through its own runtime case table and
+  wasm through the serde wire value, because the two bridges genuinely disagree about casing.
+
+  Absence of the attribute does **not** imply the enum is uniformly tagged — check each variant,
+  not just `EnumDef::serde_untagged`.
+
+### Changed
+
+- **`alef publish package` no longer requires the workspace to resolve.** `NewAlefConfig::resolve`
+  eagerly resolved `source_crates`, and a `from_registry = true` entry shells out to
+  `cargo metadata`. Packaging an already-built artifact therefore failed whenever the root
+  manifest was mid-rewrite — as it is during an out-of-workspace binding build, which strips
+  `path =` from `[workspace.dependencies]` and can leave two copies of a `links = "..."` crate in
+  the graph. Nothing under `src/publish/` reads `source_crates`; only codegen backends and the
+  sources hash do. Resolution moved behind `ResolvedCrateConfig::resolved_source_crates()`, cached
+  in a `OnceLock` on first call, so a command that never needs it neither pays for the shell-out
+  nor fails because of it. Failures are deliberately not cached, so a caller may retry after
+  fixing the cause.
+
+  **Breaking (library API):** `ResolvedCrateConfig::source_hash_paths()` now returns
+  `Result<Vec<PathBuf>, ResolveError>`, and `source_crates` holds the *unresolved* entries —
+  callers wanting the registry-rebased view must use `resolved_source_crates()`.
+
 ## [0.84.3] - 2026-09-06
 
 ### Fixed
