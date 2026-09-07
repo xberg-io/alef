@@ -525,6 +525,27 @@ pub(super) fn gen_untagged_data_enum_as_value_wrapper(enum_def: &EnumDef, prefix
 /// For tagged enums where every non-empty variant is a single-tuple field with a Named type
 /// (e.g. `FormatMetadata`), a `#[napi]` impl block is additionally emitted with per-variant
 /// getter methods, enabling `result.metadata.format.excel.sheetCount`-style access.
+/// Does the object form of this tagged enum carry at least one field that maps to napi's
+/// `Buffer`? Mirrors the field-type derivation in [`gen_tagged_enum_as_object`] so the derive
+/// decision and the emitted fields cannot disagree.
+fn tagged_enum_object_carries_buffer_field(enum_def: &EnumDef, prefix: &str) -> bool {
+    use crate::codegen::type_mapper::TypeMapper;
+    let mapper = NapiMapper::new(prefix.to_string());
+    let mixed_named_fields = tagged_enum_mixed_named_fields(enum_def);
+    enum_def.variants.iter().any(|variant| {
+        variant.fields.iter().any(|field| {
+            if tagged_enum_field_is_tuple(field) && matches!(&field.ty, TypeRef::Named(_)) {
+                return false;
+            }
+            let field_name = tagged_enum_binding_field_name(enum_def, variant, field);
+            if (field.sanitized || mixed_named_fields.contains(&field_name)) && matches!(&field.ty, TypeRef::Named(_)) {
+                return false;
+            }
+            mapper.map_type(&field.ty).contains("Buffer")
+        })
+    })
+}
+
 pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_serde: bool) -> String {
     use crate::codegen::type_mapper::TypeMapper;
     let mapper = NapiMapper::new(prefix.to_string());
@@ -532,11 +553,21 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     let tag_field = tagged_enum_discriminant_js_name(enum_def);
     let ts_discriminant = tag_field;
 
-    let derive = if has_serde {
-        "#[derive(Clone, serde::Serialize, serde::Deserialize)]"
+    // ~keep A byte payload maps to `napi::bindgen_prelude::Buffer` (see `NapiMapper::bytes` for
+    // why `Vec<u8>` is not usable here: napi would treat the field as a JS Array and fail on a
+    // Buffer/Uint8Array at runtime). `Buffer` implements neither `Clone` nor `Serialize`/
+    // `Deserialize`, so emitting those derives on a struct that carries one produces a struct
+    // that cannot compile at all -- which is what a data-carrying enum with a `Vec<u8>` variant
+    // used to generate. Derive only what every field can actually satisfy.
+    let carries_buffer_field = tagged_enum_object_carries_buffer_field(enum_def, prefix);
+    let derive = if carries_buffer_field {
+        None
+    } else if has_serde {
+        Some("#[derive(Clone, serde::Serialize, serde::Deserialize)]")
     } else {
-        "#[derive(Clone)]"
+        Some("#[derive(Clone)]")
     };
+    let has_serde = has_serde && !carries_buffer_field;
     let js_name = &enum_def.name;
     let mut lines: Vec<String> = Vec::new();
     let mut enum_doc = String::new();
@@ -548,7 +579,9 @@ pub(super) fn gen_tagged_enum_as_object(enum_def: &EnumDef, prefix: &str, has_se
     if !enum_doc.is_empty() {
         lines.push(enum_doc.trim_end_matches('\n').to_string());
     }
-    lines.push(derive.to_string());
+    if let Some(derive) = derive {
+        lines.push(derive.to_string());
+    }
     lines.push(format!("#[napi(object, js_name = \"{js_name}\")]"));
     lines.push(format!("pub struct {prefix}{} {{", enum_def.name));
     lines.push(format!("    #[napi(js_name = \"{ts_discriminant}\")]"));

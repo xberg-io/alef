@@ -1833,7 +1833,7 @@ fn optional_bytes_present_arm_never_writes_null_so_empty_is_not_absent() {
     let some_arm = &lib.content[some_arm_start..some_arm_start + none_arm_offset];
 
     assert!(
-        some_arm.contains("let buffer = Vec::<u8>::from(val).into_boxed_slice();"),
+        some_arm.contains("let buffer = Vec::<u8>::from(&val[..]).into_boxed_slice();"),
         "present arm must box the bytes so even an empty value yields a non-null pointer;\n{some_arm}"
     );
     assert!(

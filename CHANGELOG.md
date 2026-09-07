@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.2] - 2026-09-07
+
+### Fixed
+
+- **The Python e2e backend emitted `conftest.py` unconditionally, so a consumer whose fixtures
+  are HTTP *and* who configures `[crates.e2e.harness] imports` had two generators writing the
+  same path.** `PythonE2eCodegen::generate` carried a NOTE stating that the server-pattern
+  `conftest.py` belongs to a consumer extension (the `Extension::emit_e2e` `"python"` arm) and
+  that alef emits "only the non-server-pattern conftest here" — but no gate implemented it.
+  Every other backend already derives the same predicate (`ruby.rs`, `java.rs`, `php.rs`,
+  `elixir.rs`, `wasm.rs`, `typescript/mod.rs`); python was the only one that documented the
+  hand-off without performing it. The result was a hard stage failure, `multiple generators
+  emitted different content for e2e/python/conftest.py`, which also took `test_apps/` codegen
+  down with it. The push is now gated on `!uses_harness`, matching the documented contract.
+
+  Consumers that do not set `[crates.e2e.harness] imports`, or whose fixtures carry no `http`
+  block, are unaffected — alef keeps emitting the client/mock-server conftest for them.
+
+- **A data-carrying enum with a `Vec<u8>` variant generated a napi binding that could not
+  compile.** The payload maps to `napi::bindgen_prelude::Buffer` (`NapiMapper::bytes` explains
+  why `Vec<u8>` is unusable: napi treats it as a JS `Array` and fails on a `Buffer`/`Uint8Array`
+  at runtime), but `Buffer` is neither `Clone` nor serde-serializable, and is not `Vec<u8>`.
+  Three emissions were wrong at once — the object struct derived
+  `Clone, serde::Serialize, serde::Deserialize`; the binding→core arm passed a `Buffer` to a
+  variant wanting `Vec<u8>`; and the core→binding arm passed a `Vec<u8>` to a `Buffer` field.
+  The struct now derives only what its fields can satisfy, and both conversion directions copy
+  through explicitly. This surfaced when enums like `WebSocketMessage` began emitting as tagged
+  objects instead of a payload-dropping `string_enum`.
+
+- **`fn as_bytes(&self) -> &Bytes` broke the C FFI bytes path.** The generated body used
+  `Vec::<u8>::from(val)`, which covers an owned `Vec<u8>` or `bytes::Bytes` but not a *borrowed*
+  `&Bytes` — there is no `impl From<&Bytes> for Vec<u8>`, so any borrowing byte accessor failed
+  with `E0277`. All three branches now copy through `&val[..]`, which derefs uniformly for owned
+  and borrowed byte shapes alike. The narrow `clippy::useless_conversion` allow the old form
+  needed is gone with it.
+
+- **`service.rs` called `set_last_error` without importing it.** The C FFI service file is
+  assembled from several templates: the header owns the `use super::{..}` list, while
+  `service_api_registration_dispatch_result.rs.jinja` emits the call. Nothing tied the two
+  together, so every consumer with a registration variant got
+  `E0425: cannot find function set_last_error in this scope`. The header now imports it, and a
+  test asserts that every helper the assembled file calls unqualified appears in the import list
+  it ships.
+
 ## [0.85.1] - 2026-09-07
 
 ### Fixed

@@ -215,6 +215,15 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                                         "val.{binding_field_name}.map(|v| v.into_iter().map(Into::into).collect()).unwrap_or_default()"
                                     )
                                 }
+                                // ~keep A byte payload is `napi::bindgen_prelude::Buffer` on the
+                                // binding side (see `NapiMapper::bytes`), never `Vec<u8>`, so it
+                                // needs an explicit copy back out. The catch-all below produced
+                                // `val.f.unwrap_or_default()`, which is a `Buffer` where the core
+                                // variant wants a `Vec<u8>` -- E0308 on every data-carrying enum
+                                // with a bytes variant.
+                                TypeRef::Bytes => {
+                                    format!("val.{binding_field_name}.map(|b| b.to_vec()).unwrap_or_default()")
+                                }
                                 _ => {
                                     format!("val.{binding_field_name}.unwrap_or_default()")
                                 }
@@ -415,6 +424,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                                         format!("{f}: {f}.map(|v| v.into_iter().map(Into::into).collect())")
                                     }
+                                    // ~keep See the required-field arm: the binding side is a
+                                    // `Buffer`, so a byte payload needs a conversion here too.
+                                    TypeRef::Bytes => format!("{f}: {f}.map(Into::into)"),
                                     // No cast or wrap needed: the destructured binding is
                                     // already named `f`, identical to the field it fills, so
                                     // this is true field-init shorthand, not `f: f`.
@@ -440,6 +452,11 @@ pub(super) fn gen_tagged_enum_core_to_binding(
                                     TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
                                         format!("{f}: Some({f}.into_iter().map(Into::into).collect())")
                                     }
+                                    // ~keep The binding field is `Option<Buffer>`, not
+                                    // `Option<Vec<u8>>` (see `NapiMapper::bytes`), so the core
+                                    // `Vec<u8>` has to be converted. `Some({f})` typechecked only
+                                    // while byte payloads were being dropped entirely.
+                                    TypeRef::Bytes => format!("{f}: Some({f}.into())"),
                                     _ => format!("{f}: Some({f})"),
                                 }
                             }

@@ -127,11 +127,19 @@ prefix = "sample"
     let files = FfiBackend.generate_bindings(&api, &config).unwrap();
     let lib = files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap();
 
+    // The bytes conversion copies through `&val[..]` so it also accepts a borrowing accessor
+    // (`fn as_bytes(&self) -> &Bytes`). That is a real conversion for every input shape, so the
+    // narrow `useless_conversion` allow it used to need is gone -- assert it is not reintroduced
+    // alongside the crate-level one this test exists to keep deleted. ~keep
     assert!(
         lib.content
-            .contains("#[allow(clippy::useless_conversion)]\n            let buffer = Vec::<u8>::from(val)"),
-        "the bytes-conversion call site must keep its own narrow allow now that the \
-         crate-level one is gone:\n{}",
+            .contains("let buffer = Vec::<u8>::from(&val[..]).into_boxed_slice();"),
+        "the bytes-conversion call site must copy through a slice:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("clippy::useless_conversion"),
+        "the slice copy is never a useless conversion; the allow must not come back:\n{}",
         lib.content
     );
 }

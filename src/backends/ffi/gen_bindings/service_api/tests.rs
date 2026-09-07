@@ -117,6 +117,45 @@ fn make_fixture_surface() -> ApiSurface {
     }
 }
 
+/// `service.rs` is assembled from several templates: the header owns the `use super::{..}`
+/// list, while the method bodies come from other templates entirely. Nothing tied the two
+/// together, so `service_api_registration_dispatch_result.rs.jinja` emitted a bare
+/// `set_last_error(2, ..)` call that the header never imported, and every consumer with a
+/// registration variant got `E0425: cannot find function set_last_error in this scope`.
+/// Assert the invariant that actually matters -- every helper the assembled file *calls*
+/// unqualified must appear in the import list it *ships* -- rather than pinning one symbol,
+/// so the next template to reach for a new helper fails here instead of in a consumer. ~keep
+#[test]
+fn every_helper_the_service_body_calls_is_imported_by_its_header() {
+    let api = make_fixture_surface();
+    let config = ResolvedCrateConfig {
+        name: "test_crate".to_owned(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let rs = gen_service_rs(&api, &config);
+
+    let imports = rs
+        .lines()
+        .find(|l| l.starts_with("use super::{"))
+        .expect("service.rs must carry a `use super::{..}` import list");
+
+    for helper in [
+        "set_last_error",
+        "set_handle_error",
+        "with_handle_mut",
+        "insert_handle",
+        "take_handle",
+    ] {
+        if rs.contains(&format!("{helper}(")) {
+            assert!(
+                imports.contains(helper),
+                "service.rs calls `{helper}(` but its header does not import it; imports were:\n{imports}"
+            );
+        }
+    }
+}
+
 #[test]
 fn test_gen_service_rs_produces_valid_rust() {
     let api = make_fixture_surface();
