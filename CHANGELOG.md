@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.85.3] - 2026-09-07
+## [0.85.4] - 2026-09-07
 
 ### Fixed
 
@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#[allow(clippy::redundant_slicing)]` rather than narrowing an expression that is correct
   for both. Without it a consumer linting its generated crate with `-D warnings` fails to
   build.
+
+## [0.85.3] - 2026-09-07
+
+### Fixed
+
 - **The C FFI infallible bytes return did not compile for a borrowing accessor.** The `0.85.2`
   fix covered the three `match` arms in `bytes_result_match.jinja` (which bind `val`) but not the
   infallible, non-optional branch, which binds `result`. `Vec::<u8>::from(result)` has no impl for
