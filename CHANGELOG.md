@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The C FFI bytes copy tripped `clippy::redundant_slicing` in the generated crate.** The
+  borrowed-accessor fix above made all four sites copy through `&…[..]`, which is
+  load-bearing for a `&Bytes`/`&[u8]` return and redundant for an owned `Vec<u8>`/`Bytes`
+  one. The template cannot tell the two apart from the IR, so the emitted `let` now carries
+  `#[allow(clippy::redundant_slicing)]` rather than narrowing an expression that is correct
+  for both. Without it a consumer linting its generated crate with `-D warnings` fails to
+  build.
 - **The C FFI infallible bytes return did not compile for a borrowing accessor.** The `0.85.2`
   fix covered the three `match` arms in `bytes_result_match.jinja` (which bind `val`) but not the
   infallible, non-optional branch, which binds `result`. `Vec::<u8>::from(result)` has no impl for
