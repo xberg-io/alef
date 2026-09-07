@@ -27,14 +27,24 @@ use std::path::{Path, PathBuf};
 /// explicit range operator" comment) so the returned `requirement` is byte-identical to what the
 /// generator itself would have written, not a semver-equivalent reconstruction.
 ///
-/// Deliberately conservative, returning `None` (never an exemption) unless BOTH an identity (per
-/// `identity`, typically `name`, but `module` for Go -- see below) and `version` are explicitly
-/// set on `[crates.e2e.registry.packages.<lang>]` (falling back to the base
-/// `[crates.e2e.packages.<lang>]` only as `resolve_package` itself already does): the real
-/// generators have a further fallback of their own for an unset name (derived from the e2e call's
-/// `module`) and version (`resolved_version()`, then `"0.1.0"`), but registry-mode test apps are
-/// only ever meaningful with an explicit, publishable package identity in practice, and guessing
-/// at that derived fallback here risks matching a name this check has no real authority over.
+/// Deliberately conservative about *identity*, returning `None` (never an exemption) unless an
+/// identity (per `identity`, typically `name`, but `module` for Go -- see below) is explicitly set
+/// on `[crates.e2e.registry.packages.<lang>]` (falling back to the base
+/// `[crates.e2e.packages.<lang>]` only as `resolve_package` itself already does). The real
+/// generators have a further fallback for an unset name, derived from the e2e call's `module`, and
+/// guessing at it here risks matching a name this check has no real authority over.
+///
+/// `version` is different, and deliberately does follow the generator's `resolved_version()`
+/// fallback. ~keep The requirement text this compares against was *written by that generator*,
+/// from exactly that chain (`package.version` -> `resolved_version()` -> `"0.1.0"`); reading only
+/// the explicit config field made the gate and the emitter disagree about the same fact, which is
+/// the bug class this module's own docs keep warning about. The consequence was not a missed
+/// warning but an unfixable hard error: a consumer that declares `name`/`path` for its e2e package
+/// and lets the version resolve (the documented way to avoid a hardpin that must be bumped every
+/// release) got no exemption at all, so `sync-versions` failed the run at bump time telling the
+/// operator to run `uv lock` against a version that, by construction, is not published yet.
+/// Identity stays strict, so this only ever relaxes the *version* half of a match whose name
+/// already had to be configured explicitly.
 ///
 /// `identity` extracts the field `lang`'s ecosystem actually keys a dependency requirement on --
 /// `name` for every ecosystem except Go, which has no `name` concept at all and instead pins by
@@ -58,8 +68,8 @@ pub(super) fn registry_self_dependency(
     let mut e2e_config = resolved_cfg.e2e.clone()?;
     e2e_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
     let package = e2e_config.resolve_package(lang)?;
-    let version = package.version.clone()?;
     let name = identity(&package)?;
+    let version = package.version.clone().or_else(|| resolved_cfg.resolved_version())?;
     Some(RegistrySelfDependency {
         name,
         requirement: normalize(&version),

@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A version bump could not satisfy its own uv.lock gate.** The pending-publish exemption that
+  downgrades "this crate's own unpublished version" from a hard error to a warning read the
+  version only from an explicit `[crates.e2e.packages.<lang>].version`, while the generator that
+  wrote the requirement being checked resolves it as `package.version` → `resolved_version()` →
+  `"0.1.0"`. A consumer that configures `name`/`path` and lets the version resolve — the way to
+  avoid a hardpin needing a manual bump every release — therefore got no exemption, and
+  `sync-versions` failed the run telling the operator to `uv lock` against a version that is not
+  published yet. The shared helper now follows the generator's own fallback for `version`;
+  identity stays strict, so this relaxes only the version half of a match whose name still has to
+  be configured. Fixes the same gap in all six lock gates that share the helper (uv, node, php,
+  ruby, go, dart).
+
 - **A file that denies alef authorship was read as claiming it, when the denial negated a word
   the marker phrase starts inside.** `line_has_marker` is the single definition of "alef owns
   this file", and it gates whether the write guard may overwrite one. Its negation guard
