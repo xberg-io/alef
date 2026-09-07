@@ -293,6 +293,7 @@ fn print_generated_java_code() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PlainText".to_string(),
                     fields: vec![],
                     doc: "Plain text parser".to_string(),
@@ -306,6 +307,7 @@ fn print_generated_java_code() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "RichText".to_string(),
                     fields: vec![],
                     doc: "Rich text parser".to_string(),
@@ -319,6 +321,7 @@ fn print_generated_java_code() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "StructuredText".to_string(),
                     fields: vec![],
                     doc: "Structured text parser".to_string(),

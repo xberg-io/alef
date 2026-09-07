@@ -819,3 +819,110 @@ fn untagged_payload_struct_quotes_a_wire_name_that_is_not_an_identifier() {
         "an unquoted kebab-case key is a TypeScript syntax error;\nactual:\n{lib_rs}"
     );
 }
+
+/// A variant-level `#[serde(untagged)]` mixed with default-tagged unit variants (e.g.
+/// `enum OutputFormat { Plain, Markdown, ..., #[serde(untagged)] Custom(String) }`), routed
+/// end-to-end through the real `WasmBackend` pipeline. Before this fix `is_tagged_data_enum`
+/// only looked at the container, so a data-carrying variant forced the discriminator-struct
+/// emitter (`gen_tagged_enum_as_struct`) even though serde serializes `Custom` as a bare string
+/// with no `{ type: ..., custom: ... }` wrapper -- wrong on the wire, and mismatched with the
+/// `.d.ts`. It must instead get the same "no nominal Wasm{Enum} type, bridge as JsValue" handling
+/// as a container-level untagged enum, but with a flat string-literal-union `.d.ts` (unit
+/// variants keep their own name, unlike the `null` a container-level untagged unit variant would
+/// get). ~keep
+fn output_format_enum() -> EnumDef {
+    EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "test_lib::OutputFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Custom".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                is_tuple: true,
+                serde_untagged: true,
+                ..Default::default()
+            },
+        ],
+        has_serde: true,
+        has_default: true,
+        serde_rename_all: Some("lowercase".to_string()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn variant_untagged_output_format_predicates() {
+    let e = output_format_enum();
+    assert!(
+        !super::enums::is_tagged_data_enum(&e),
+        "a data variant that opts out via its own #[serde(untagged)] must not force the tagged-object shape"
+    );
+    assert!(
+        super::enums::is_variant_untagged_string_enum(&e),
+        "every data-carrying variant here is serde_untagged"
+    );
+    assert!(super::enums::is_json_passthrough_data_enum(&e));
+}
+
+#[test]
+fn variant_untagged_output_format_field_becomes_js_value_with_literal_union_dts() {
+    let mut api = empty_api();
+    api.enums = vec![output_format_enum()];
+    api.types = vec![TypeDef {
+        name: "ExtractRequest".to_string(),
+        rust_path: "test_lib::ExtractRequest".to_string(),
+        fields: vec![FieldDef {
+            name: "format".to_string(),
+            ty: TypeRef::Named("OutputFormat".to_string()),
+            optional: false,
+            ..Default::default()
+        }],
+        has_serde: true,
+        ..Default::default()
+    }];
+    api.functions = vec![function_taking("ExtractRequest")];
+
+    let config = make_config();
+    let files = WasmBackend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be generated")
+        .content;
+
+    assert!(
+        !lib_rs.contains("pub enum WasmOutputFormat"),
+        "no fieldless discriminant enum must be emitted for a variant-untagged data enum -- it \
+         can never carry the Custom variant's payload;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        !lib_rs.contains("pub struct WasmOutputFormat {"),
+        "must not be emitted as a tagged-object discriminator struct either -- serde has no \
+         discriminant on the wire for the untagged Custom variant;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains("format: JsValue,"),
+        "the struct field must be stored as JsValue so the payload round-trips;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains(r#"typescript_type = "WasmOutputFormat""#),
+        "must declare a typescript_type extern wrapper describing its real shape;\nactual:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains(r#"export type WasmOutputFormat = "plain" | "markdown" | (string & {});"#),
+        "the declared TS union must be a flat literal union with a string-widening tail, not \
+         `any` and not the container-level-untagged null-for-unit-variants shape;\nactual:\n{lib_rs}"
+    );
+}

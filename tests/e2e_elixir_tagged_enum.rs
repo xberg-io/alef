@@ -88,6 +88,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Up".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -101,6 +102,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Down".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -137,6 +139,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Click".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -173,6 +176,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Scroll".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -209,6 +213,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Scrape".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),

@@ -64,6 +64,7 @@ fn enum_return_api() -> ApiSurface {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Red".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -77,6 +78,7 @@ fn enum_return_api() -> ApiSurface {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Green".to_string(),
                     fields: vec![],
                     doc: String::new(),

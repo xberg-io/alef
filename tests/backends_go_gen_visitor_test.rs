@@ -539,6 +539,7 @@ fn result_enum(name: &str, variants: Vec<EnumVariant>, serde_rename_all: Option<
 
 fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields: payload_field
             .map(|field_name| vec![field(field_name, TypeRef::String, false)])

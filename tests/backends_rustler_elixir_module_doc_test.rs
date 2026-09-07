@@ -206,6 +206,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Error".into(),
                 fields: vec![],
                 doc: "A blocking issue.".into(),
@@ -219,6 +220,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Warning".into(),
                 fields: vec![],
                 doc: "A non-blocking caveat.".into(),
@@ -303,6 +305,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Error".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -339,6 +342,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Warning".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),

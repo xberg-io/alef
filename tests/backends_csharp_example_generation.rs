@@ -165,6 +165,7 @@ fn test_generated_code_example() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR engine".to_string(),
@@ -178,6 +179,7 @@ fn test_generated_code_example() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR engine".to_string(),
@@ -292,6 +294,7 @@ fn make_untagged_enum(name: &str) -> EnumDef {
         rename_all_fields: None,
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 doc: String::new(),
                 fields: vec![FieldDef {
@@ -328,6 +331,7 @@ fn make_untagged_enum(name: &str) -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Parts".to_string(),
                 doc: String::new(),
                 fields: vec![FieldDef {

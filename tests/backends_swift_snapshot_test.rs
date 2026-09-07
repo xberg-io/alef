@@ -139,6 +139,7 @@ fn make_basic_api() -> ApiSurface {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Active state.".to_string(),
@@ -152,6 +153,7 @@ fn make_basic_api() -> ApiSurface {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: "Inactive state.".to_string(),
@@ -377,6 +379,7 @@ fn snapshot_conversion_enum_with_data() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Success".to_string(),
                     fields: vec![make_field("data", TypeRef::Named("Data".to_string()), false)],
                     doc: "Success variant.".to_string(),
@@ -390,6 +393,7 @@ fn snapshot_conversion_enum_with_data() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Error".to_string(),
                     fields: vec![make_field("message", TypeRef::String, false)],
                     doc: "Error variant.".to_string(),
@@ -1137,6 +1141,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accept".to_string(),
                     fields: vec![],
                     doc: "Accept the event.".to_string(),
@@ -1150,6 +1155,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Stop".to_string(),
                     fields: vec![],
                     doc: "Stop processing.".to_string(),
@@ -1724,6 +1730,7 @@ fn snapshot_enum_variant_optional_field() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Data".to_string(),
                     fields: vec![make_field("chunk", TypeRef::Named("Chunk".to_string()), true)],
                     doc: "A data event carrying an optional chunk.".to_string(),
@@ -1737,6 +1744,7 @@ fn snapshot_enum_variant_optional_field() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Error".to_string(),
                     fields: vec![make_field("message", TypeRef::String, true)],
                     doc: "An error event with an optional message.".to_string(),
@@ -1750,6 +1758,7 @@ fn snapshot_enum_variant_optional_field() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Done".to_string(),
                     fields: vec![make_field("count", TypeRef::Primitive(PrimitiveType::U32), false)],
                     doc: "Stream completed with item count.".to_string(),
@@ -1857,6 +1866,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![make_field("field0", TypeRef::String, false)],
                     is_tuple: true,
@@ -1870,6 +1880,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Parts".to_string(),
                     fields: vec![make_field("field0", TypeRef::Vec(Box::new(TypeRef::String)), false)],
                     is_tuple: true,

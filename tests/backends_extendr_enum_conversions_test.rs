@@ -51,6 +51,7 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
 
 fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

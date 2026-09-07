@@ -231,6 +231,7 @@ fn test_generate_public_api_creates_all_files() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Setext".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -244,6 +245,7 @@ fn test_generate_public_api_creates_all_files() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Atx".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -507,6 +509,7 @@ fn test_struct_module_has_defstruct() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Setext".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -520,6 +523,7 @@ fn test_struct_module_has_defstruct() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Atx".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -751,6 +755,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Setext".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -764,6 +769,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Atx".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -925,6 +931,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Function".to_string(),
                     fields: vec![make_field("name", TypeRef::String, false)],
                     doc: String::new(),
@@ -938,6 +945,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![make_field("content", TypeRef::String, false)],
                     doc: String::new(),
@@ -1059,6 +1067,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Doc".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -1072,6 +1081,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Line".to_string(),
                     fields: vec![],
                     doc: String::new(),

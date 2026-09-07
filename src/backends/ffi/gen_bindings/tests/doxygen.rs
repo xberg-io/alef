@@ -83,6 +83,7 @@ fn doxygen_sample_api() -> ApiSurface {
             rust_path: "my_lib::Severity".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Warn".to_string(),
                 fields: vec![],
                 doc: String::new(),

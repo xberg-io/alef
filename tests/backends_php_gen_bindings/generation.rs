@@ -365,6 +365,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR".to_string(),
@@ -378,6 +379,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR backend".to_string(),
@@ -506,6 +508,7 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
             rust_path: "test_lib::OutputFormat".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "PlainText".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -651,6 +654,7 @@ fn test_enum_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Pending".to_string(),
                     fields: vec![],
                     doc: "Pending status".to_string(),
@@ -664,6 +668,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Active status".to_string(),
@@ -677,6 +682,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: "Inactive status".to_string(),

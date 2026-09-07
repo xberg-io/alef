@@ -454,6 +454,7 @@ fn mpp_sealed_enum_in_common_main() {
             doc: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Markdown".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -467,6 +468,7 @@ fn mpp_sealed_enum_in_common_main() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PlainText".to_string(),
                     fields: vec![],
                     doc: String::new(),

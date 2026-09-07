@@ -159,6 +159,7 @@ fn regression_namespace_exports_functions_types_enums() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Ok".to_string(),
                 fields: vec![make_field("content", TypeRef::String, false)],
                 is_default: false,
@@ -172,6 +173,7 @@ fn regression_namespace_exports_functions_types_enums() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Err".to_string(),
                 fields: vec![make_field("msg", TypeRef::String, false)],
                 is_default: false,

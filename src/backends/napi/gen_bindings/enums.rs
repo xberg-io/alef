@@ -132,9 +132,14 @@ pub(super) fn declared_string_enum_variants<'a>(
     is_host_enum: bool,
     configured_features: Option<&std::collections::HashSet<&str>>,
 ) -> Option<Vec<(&'a EnumVariant, String)>> {
-    // Asks the same `is_tagged_data_enum`/`is_untagged_data_enum` authority `gen_enum` routes
-    // through, so a string enum is only claimed here when `gen_enum` actually emits one. (~keep)
-    if is_tagged_data_enum(enum_def) || is_untagged_data_enum(enum_def) || enum_def.variants.is_empty() {
+    // Asks the same `is_tagged_data_enum`/`is_untagged_data_enum`/`is_variant_untagged_string_enum`
+    // authority `gen_enum` routes through, so a string enum is only claimed here when `gen_enum`
+    // actually emits one. (~keep)
+    if is_tagged_data_enum(enum_def)
+        || is_untagged_data_enum(enum_def)
+        || is_variant_untagged_string_enum(enum_def)
+        || enum_def.variants.is_empty()
+    {
         return None;
     }
     let case = napi_string_enum_case(enum_def);
@@ -148,15 +153,23 @@ pub(super) fn declared_string_enum_variants<'a>(
                     crate::codegen::conversions::VariantDeclaration::Drop
                 )
             })
-            .map(|variant| {
-                let value = match variant.serde_rename.as_deref() {
-                    Some(rename) => rename.to_string(),
-                    None => apply_napi_case(&variant.name, case),
-                };
-                (variant, value)
-            })
+            .map(|variant| (variant, napi_string_enum_variant_value(variant, case)))
             .collect(),
     )
+}
+
+/// The runtime string value a single `#[napi(string_enum)]` variant serializes to: an explicit
+/// `#[napi(value = "...")]` from `#[serde(rename)]` wins, otherwise the enum-wide case applies to
+/// the variant name. Factored out of [`declared_string_enum_variants`] so
+/// [`variant_untagged_string_enum_literal_values`] computes the identical value for the unit
+/// variants of a [`is_variant_untagged_string_enum`] enum -- the two must never drift, since a
+/// mixed enum's literal members are exactly what `declared_string_enum_variants` would compute if
+/// its data variant weren't there. ~keep
+fn napi_string_enum_variant_value(variant: &EnumVariant, case: Option<&str>) -> String {
+    match variant.serde_rename.as_deref() {
+        Some(rename) => rename.to_string(),
+        None => apply_napi_case(&variant.name, case),
+    }
 }
 
 /// Runtime string values a `#[napi(string_enum)]` accepts, in declaration order.
@@ -215,14 +228,17 @@ fn napi_convert_case(case: &str) -> Option<convert_case::Case<'static>> {
 
 /// Whether this enum's napi/wire shape is an internally-tagged object (`{ type: "...", ... }`)
 /// rather than a plain `#[napi(string_enum)]`: either it is explicitly `#[serde(tag = "...")]`,
-/// or a variant carries data and the enum is not `#[serde(untagged)]`. Internal tagging always
-/// produces an object on the wire (`{"kind":"A"}` for a unit variant), so it must route to the
-/// object emitter even when no variant carries fields. A default (externally tagged, no
-/// `#[serde(tag/content/untagged)]`) enum that *does* carry a payload variant (e.g.
-/// `Custom(String)`) has no `serde_tag` either, but a `#[napi(string_enum)]` can only hold unit
-/// variants -- routing it there would silently drop the payload. Route any data-carrying enum
-/// through the same tagged-object emitter, defaulting the discriminant field to "type" like the
-/// explicitly tagged case already does.
+/// or a variant carries data, the enum is not `#[serde(untagged)]`, and the data variant(s) are
+/// not themselves `#[serde(untagged)]` either. Internal tagging always produces an object on the
+/// wire (`{"kind":"A"}` for a unit variant), so it must route to the object emitter even when no
+/// variant carries fields. A default (externally tagged, no `#[serde(tag/content/untagged)]`)
+/// enum that *does* carry a payload variant (e.g. `Custom(String)`) has no `serde_tag` either,
+/// but a `#[napi(string_enum)]` can only hold unit variants -- routing it there would silently
+/// drop the payload. Route any such data-carrying enum through the same tagged-object emitter,
+/// defaulting the discriminant field to "type" like the explicitly tagged case already does --
+/// UNLESS every data-carrying variant opts out of that object shape with its own
+/// `#[serde(untagged)]`, in which case [`is_variant_untagged_string_enum`] claims it instead (see
+/// that function for why the object shape would be wrong there).
 ///
 /// This is the single authority for that verdict: [`gen_enum`] (the compiled `#[napi]` struct
 /// that actually executes at runtime), the binding<->core conversion emitters in `mod.rs`, and
@@ -231,7 +247,8 @@ fn napi_convert_case(case: &str) -> Option<convert_case::Case<'static>> {
 /// disagree about which shape it takes. ~keep
 pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    enum_def.serde_tag.is_some() || (has_data_variants && !enum_def.serde_untagged)
+    enum_def.serde_tag.is_some()
+        || (has_data_variants && !enum_def.serde_untagged && !is_variant_untagged_string_enum(enum_def))
 }
 
 /// Whether this enum's wire shape is `#[serde(untagged)]` with at least one data-carrying
@@ -241,6 +258,59 @@ pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
 pub(crate) fn is_untagged_data_enum(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
     enum_def.serde_untagged && has_data_variants
+}
+
+/// Whether every data-carrying variant of this enum has its OWN `#[serde(untagged)]`, while the
+/// container itself uses serde's default external tagging (no container-level
+/// `#[serde(tag = "...")]` or `#[serde(untagged)]`).
+///
+/// Distinct from [`is_untagged_data_enum`], which covers the container-level `#[serde(untagged)]`
+/// case. Here the unit variants keep their ordinary external-tagging wire shape -- a bare string
+/// of the variant's own (possibly `rename_all`-cased) name -- while each untagged data variant
+/// serializes as its own bare payload with no discriminant at all. Neither
+/// [`is_tagged_data_enum`] (which needs an object on the wire) nor [`is_untagged_data_enum`]
+/// (container-level only, where even a unit variant serializes as `null`, not its name) can
+/// express this mix.
+///
+/// Runtime and conversion codegen route this through the same `serde_json::Value` passthrough as
+/// [`is_untagged_data_enum`] (`gen_untagged_data_enum_as_value_wrapper`'s wrapper struct and
+/// `mod.rs`'s `serde_json::to_value`/`from_value` conversion arms are generic over whatever the
+/// real core type's own serde impl produces, so they need no changes for this case). Only the
+/// `.d.ts` declaration differs: a flat string-literal union over the unit variants, cased via
+/// [`napi_string_enum_case`]/[`apply_napi_case`] exactly like an ordinary string enum, plus a
+/// widening tail per untagged data variant (see `errors::gen_dts`). ~keep
+pub(crate) fn is_variant_untagged_string_enum(enum_def: &EnumDef) -> bool {
+    let mut data_variants = enum_def.variants.iter().filter(|v| !v.fields.is_empty()).peekable();
+    data_variants.peek().is_some()
+        && enum_def.serde_tag.is_none()
+        && !enum_def.serde_untagged
+        && data_variants.clone().all(|v| v.serde_untagged)
+}
+
+/// The literal `.d.ts` union members (already quoted, e.g. `"plain"`) for the unit variants of an
+/// [`is_variant_untagged_string_enum`] enum, in declaration order. Mirrors
+/// [`declared_string_enum_variants`]'s casing and membership rules exactly (same
+/// `napi_string_enum_variant_value` helper, same `enum_variant_declaration` filter), skipping only
+/// the data-carrying variant(s) -- `errors::gen_dts` appends those separately as a widening tail,
+/// since they are not literal-string members. ~keep
+pub(crate) fn variant_untagged_string_enum_literal_values(
+    enum_def: &EnumDef,
+    is_host_enum: bool,
+    configured_features: Option<&std::collections::HashSet<&str>>,
+) -> Vec<String> {
+    let case = napi_string_enum_case(enum_def);
+    enum_def
+        .variants
+        .iter()
+        .filter(|variant| variant.fields.is_empty())
+        .filter(|variant| {
+            !matches!(
+                crate::codegen::conversions::enum_variant_declaration(variant, is_host_enum, configured_features),
+                crate::codegen::conversions::VariantDeclaration::Drop
+            )
+        })
+        .map(|variant| format!("\"{}\"", napi_string_enum_variant_value(variant, case)))
+        .collect()
 }
 
 pub(super) fn gen_enum(
@@ -254,7 +324,7 @@ pub(super) fn gen_enum(
         return gen_tagged_enum_as_object(enum_def, prefix, has_serde);
     }
 
-    if is_untagged_data_enum(enum_def) {
+    if is_untagged_data_enum(enum_def) || is_variant_untagged_string_enum(enum_def) {
         return gen_untagged_data_enum_as_value_wrapper(enum_def, prefix);
     }
 

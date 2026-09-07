@@ -125,6 +125,7 @@ fn test_gen_unit_enum_type_produces_type_string_and_const_block() {
         serde_rename_all: None,
         rename_all_fields: None,
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Active".to_string(),
             doc: String::new(),
             fields: vec![],
@@ -208,6 +209,7 @@ fn test_gen_data_enum_sealed_interface() {
         rename_all_fields: None,
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Basic".to_string(),
                 doc: "Basic auth variant.".to_string(),
                 fields: vec![
@@ -224,6 +226,7 @@ fn test_gen_data_enum_sealed_interface() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Bearer".to_string(),
                 doc: "Bearer token variant.".to_string(),
                 fields: vec![simple_field("token", TypeRef::String)],
@@ -497,6 +500,7 @@ fn make_passthrough_enum() -> EnumDef {
         rename_all_fields: None,
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 doc: String::new(),
                 fields: vec![simple_field("_0", TypeRef::String)],
@@ -510,6 +514,7 @@ fn make_passthrough_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Parts".to_string(),
                 doc: String::new(),
                 fields: vec![simple_field(
@@ -576,6 +581,7 @@ fn gen_enum_type_passthrough_with_text_types_emits_text_accessor() {
 
 fn make_unit_variant(name: &str, serde_rename: Option<&str>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         doc: String::new(),
         fields: vec![],
@@ -658,6 +664,7 @@ fn gen_unit_enum_type_no_serde_keeps_rust_variant_name() {
 
 fn make_tuple_variant(name: &str, serde_rename: Option<&str>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         doc: String::new(),
         fields: vec![FieldDef {
@@ -1172,6 +1179,7 @@ fn gen_config_options_unresolved_default_field_new_constructor_seeds_nil_not_zer
 #[test]
 fn gen_data_enum_sealed_interface_doc_lists_all_variants_with_go_casing() {
     let make_variant = |name: &str| EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         doc: String::new(),
         fields: vec![simple_field("value", TypeRef::String)],
@@ -1640,6 +1648,7 @@ fn gen_data_enum_type_externally_tagged_round_trip_matches_serde_wire_shape() {
         rename_all_fields: None,
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Basic".to_string(),
                 doc: String::new(),
                 fields: vec![
@@ -1656,6 +1665,7 @@ fn gen_data_enum_type_externally_tagged_round_trip_matches_serde_wire_shape() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Bearer".to_string(),
                 doc: String::new(),
                 fields: vec![simple_field("token", TypeRef::String)],

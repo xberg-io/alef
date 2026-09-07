@@ -513,6 +513,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -526,6 +527,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -2013,6 +2015,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Document".into(),
                     fields: vec![],
                     doc: "PDF, Word, and similar document files.".to_string(),
@@ -2026,6 +2029,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Image".into(),
                     fields: vec![],
                     doc: "Raster or vector image files.".to_string(),
@@ -2092,6 +2096,7 @@ fn mirror_enum_data_variant_field_emits_rustdoc() {
             rust_path: "demo::AuthConfig".into(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Bearer".into(),
                 fields: vec![make_field_with_doc(
                     "token",
@@ -2615,6 +2620,7 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
         rust_path: "demo_crate::NodeContent".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "MetadataBlock".into(),
             fields: vec![entries_field],
             doc: String::new(),

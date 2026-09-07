@@ -20,10 +20,15 @@ use super::functions::emit_rustdoc;
 /// a plain `#[wasm_bindgen]` C-style enum can only hold unit variants, so without this the
 /// payload was silently dropped (`Custom = 1` with no field). Route it through the same
 /// discriminator-struct emitter as an explicitly tagged enum, defaulting the discriminant field
-/// name to "type" like `gen_tagged_enum_as_struct` already does. ~keep
+/// name to "type" like `gen_tagged_enum_as_struct` already does -- UNLESS every data-carrying
+/// variant opts out of that struct shape with its own `#[serde(untagged)]`, in which case
+/// [`is_variant_untagged_string_enum`] claims it instead (see that function for why the
+/// discriminator-struct shape would be wrong there). ~keep
 pub(crate) fn is_tagged_data_enum(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    has_data_variants && (enum_def.serde_tag.is_some() || !enum_def.serde_untagged)
+    has_data_variants
+        && (enum_def.serde_tag.is_some() || !enum_def.serde_untagged)
+        && !is_variant_untagged_string_enum(enum_def)
 }
 
 /// True if this enum is a serde-untagged data enum (`#[serde(untagged)]` with at least one
@@ -39,11 +44,49 @@ pub(crate) fn is_untagged_data_enum(enum_def: &EnumDef) -> bool {
     enum_def.serde_untagged && enum_def.variants.iter().any(|v| !v.fields.is_empty())
 }
 
-/// Detect every [`is_untagged_data_enum`] in `api` and default its `type_overrides` entry to
-/// `JsValue`, mirroring how `mod.rs` already redirects `untagged_union_text_types` to `String`.
-/// `or_insert_with` leaves an explicit consumer `type_overrides` entry untouched. The returned
-/// names also drive the field-level `JsValue`/`serde_wasm_bindgen` bridging in `types.rs` and
-/// `crate::codegen::conversions`, via `mod.rs`'s `jsvalue_bridged_enum_names`. ~keep
+/// Whether every data-carrying variant of this enum has its OWN `#[serde(untagged)]`, while the
+/// container itself uses serde's default external tagging (no container-level
+/// `#[serde(tag = "...")]` or `#[serde(untagged)]`).
+///
+/// Distinct from [`is_untagged_data_enum`], which covers the container-level `#[serde(untagged)]`
+/// case. Here the unit variants keep their ordinary external-tagging wire shape -- a bare string
+/// of the variant's own (possibly `rename_all`-cased) name -- while each untagged data variant
+/// serializes as its own bare payload with no discriminant at all. Neither [`is_tagged_data_enum`]
+/// (which needs an object on the wire) nor [`is_untagged_data_enum`] (container-level only, where
+/// even a unit variant serializes as `null`, not its name) can express this mix.
+///
+/// Runtime handling is identical to [`is_untagged_data_enum`] -- both need no nominal
+/// `Wasm{Enum}` type at all; every field/param/return of this type is bridged as `JsValue`
+/// through `serde_wasm_bindgen`, which is generic over whatever the real core type's own serde
+/// impl produces. Only the declared `.d.ts` differs: `ts_union::build_variant_untagged_string_enum_ts_plan_for_api`
+/// emits a flat string-literal union over the unit variants plus a widening tail per untagged
+/// data variant, rather than `build_untagged_enum_ts_plans`' per-variant structural union (which
+/// would wrongly render a unit variant here as `null`). ~keep
+pub(crate) fn is_variant_untagged_string_enum(enum_def: &EnumDef) -> bool {
+    let mut data_variants = enum_def.variants.iter().filter(|v| !v.fields.is_empty()).peekable();
+    data_variants.peek().is_some()
+        && enum_def.serde_tag.is_none()
+        && !enum_def.serde_untagged
+        && data_variants.clone().all(|v| v.serde_untagged)
+}
+
+/// Either flavor of "no nominal `Wasm{Enum}` type; bridge as `JsValue` via `serde_wasm_bindgen`"
+/// data enum -- [`is_untagged_data_enum`] (container-level) or [`is_variant_untagged_string_enum`]
+/// (variant-level). The runtime/field-bridging codegen is generic over the payload shape either
+/// one produces, so every call site that exists to answer "does this enum need JsValue bridging
+/// rather than a real wasm-bindgen type" asks this instead of re-deriving the disjunction. Only
+/// the `.d.ts` declaration differs between the two, which is why they stay separate predicates.
+/// ~keep
+pub(crate) fn is_json_passthrough_data_enum(enum_def: &EnumDef) -> bool {
+    is_untagged_data_enum(enum_def) || is_variant_untagged_string_enum(enum_def)
+}
+
+/// Detect every [`is_json_passthrough_data_enum`] in `api` and default its `type_overrides`
+/// entry to `JsValue`, mirroring how `mod.rs` already redirects `untagged_union_text_types` to
+/// `String`. `or_insert_with` leaves an explicit consumer `type_overrides` entry untouched. The
+/// returned names also drive the field-level `JsValue`/`serde_wasm_bindgen` bridging in
+/// `types.rs` and `crate::codegen::conversions`, via `mod.rs`'s `jsvalue_bridged_enum_names`.
+/// ~keep
 pub(super) fn register_untagged_data_enum_overrides(
     api: &ApiSurface,
     type_overrides: &mut std::collections::HashMap<String, String>,
@@ -51,7 +94,7 @@ pub(super) fn register_untagged_data_enum_overrides(
     let names: AHashSet<String> = api
         .enums
         .iter()
-        .filter(|e| is_untagged_data_enum(e))
+        .filter(|e| is_json_passthrough_data_enum(e))
         .map(|e| e.name.clone())
         .collect();
     for name in &names {

@@ -112,6 +112,7 @@ pub(super) fn simple_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Cpu".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -125,6 +126,7 @@ pub(super) fn simple_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Gpu".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -254,6 +256,7 @@ fn test_enum_from_binding_to_core_no_excluded_variants_no_catchall() {
 fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
     let mut enum_def = simple_enum();
     enum_def.excluded_variants.push(EnumVariant {
+        serde_untagged: false,
         name: "Tpu".into(),
         fields: vec![],
         doc: String::new(),
@@ -277,6 +280,7 @@ fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
 fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
     let mut enum_def = simple_enum();
     enum_def.excluded_variants.push(EnumVariant {
+        serde_untagged: false,
         name: "Tpu".into(),
         fields: vec![],
         doc: String::new(),
@@ -300,6 +304,7 @@ fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
 fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
     let mut enum_def = simple_enum();
     enum_def.variants.push(EnumVariant {
+        serde_untagged: false,
         name: "Disconnect".into(),
         fields: vec![FieldDef {
             version: Default::default(),
@@ -353,6 +358,7 @@ fn untagged_tuple_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -389,6 +395,7 @@ fn untagged_tuple_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Parts".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -1001,6 +1008,7 @@ fn cache_backend_like_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Memory".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -1014,6 +1022,7 @@ fn cache_backend_like_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "OpenDal".into(),
                 fields: vec![
                     FieldDef {

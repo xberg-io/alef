@@ -105,6 +105,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
 
 fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

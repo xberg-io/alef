@@ -184,6 +184,7 @@ fn enum_emits_custom_type() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -197,6 +198,7 @@ fn enum_emits_custom_type() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -342,6 +344,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
             rust_path: "demo::Wrapper".into(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Inner".into(),
                 fields: vec![make_field("_0", TypeRef::String, false)],
                 doc: String::new(),

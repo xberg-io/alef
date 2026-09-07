@@ -162,6 +162,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PlainText".to_string(),
                     fields: vec![],
                     doc: "Plain text parser".to_string(),
@@ -175,6 +176,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "RichText".to_string(),
                     fields: vec![],
                     doc: "Rich text parser".to_string(),
@@ -324,6 +326,7 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "NetworkIdle".to_string(),
                     fields: vec![],
                     doc: "Wait until network activity is idle.".to_string(),
@@ -337,6 +340,7 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Selector".to_string(),
                     fields: vec![],
                     doc: "Wait for a specific CSS selector to appear in the DOM.\nSecond line of variant doc."
@@ -2150,6 +2154,7 @@ fn test_plain_enum_without_field_default_stays_required() {
             rust_path: "test::Mode".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Fast".to_string(),
                 fields: vec![],
                 doc: String::new(),

@@ -192,6 +192,7 @@ fn make_demo_api() -> ApiSurface {
             rust_path: "demo::DemoModel".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Standard".to_string(),
                 fields: vec![],
                 doc: String::new(),

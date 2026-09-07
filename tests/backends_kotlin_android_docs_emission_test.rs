@@ -148,6 +148,7 @@ fn enum_variants_carry_kdoc() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".into(),
                     fields: vec![],
                     doc: "Optimise for low latency.".into(),
@@ -161,6 +162,7 @@ fn enum_variants_carry_kdoc() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".into(),
                     fields: vec![],
                     doc: "Optimise for output quality.".into(),

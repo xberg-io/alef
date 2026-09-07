@@ -4,6 +4,7 @@ use crate::core::ir::{CoreWrapper, EnumVariant, FieldDef, MethodDef, PrimitiveTy
 
 fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

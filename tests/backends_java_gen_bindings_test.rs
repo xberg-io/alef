@@ -669,6 +669,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
@@ -682,6 +683,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
@@ -1578,6 +1580,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             cfg: None,
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "System".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("SystemMessage".to_string()))],
                     doc: String::new(),
@@ -1591,6 +1594,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "User".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("UserMessage".to_string()))],
                     doc: String::new(),
@@ -1604,6 +1608,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Assistant".to_string(),
                     fields: vec![make_newtype_field(TypeRef::Named("AssistantMessage".to_string()))],
                     doc: String::new(),
@@ -2321,6 +2326,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Basic".to_string(),
                     fields: vec![
                         FieldDef {
@@ -2383,6 +2389,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Bearer".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -2677,6 +2684,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
             cfg: None,
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Circle".to_string(),
                     fields: vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
                     doc: "A circle".to_string(),
@@ -2690,6 +2698,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Rectangle".to_string(),
                     fields: vec![
                         make_field("width", TypeRef::Primitive(PrimitiveType::F64)),
@@ -4876,6 +4885,7 @@ fn make_assistant_content_enum() -> alef::core::ir::EnumDef {
         rename_all_fields: None,
         variants: vec![
             alef::core::ir::EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 doc: String::new(),
                 fields: vec![make_newtype_field(TypeRef::String)],
@@ -4889,6 +4899,7 @@ fn make_assistant_content_enum() -> alef::core::ir::EnumDef {
                 version: Default::default(),
             },
             alef::core::ir::EnumVariant {
+                serde_untagged: false,
                 name: "Parts".to_string(),
                 doc: String::new(),
                 fields: vec![make_newtype_field(TypeRef::Vec(Box::new(TypeRef::Named(
@@ -5161,6 +5172,7 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
 
 fn make_plain_enum_variant(name: &str, serde_rename: Option<&str>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields: vec![],
         doc: String::new(),

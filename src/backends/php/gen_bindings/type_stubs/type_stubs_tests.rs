@@ -40,6 +40,7 @@ fn field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
 
 fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

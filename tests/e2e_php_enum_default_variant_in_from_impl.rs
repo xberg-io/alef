@@ -13,6 +13,7 @@ fn php_enum_default_variant_uses_marked_variant() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "First".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -26,6 +27,7 @@ fn php_enum_default_variant_uses_marked_variant() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Second".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -74,6 +76,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "First".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -87,6 +90,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Second".to_string(),
                 fields: vec![],
                 doc: String::new(),

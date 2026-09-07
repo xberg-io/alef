@@ -19,6 +19,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         rust_path: "my_crate::DataEnum".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Variant".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -83,6 +84,7 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         rust_path: "my_crate::Single".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Only".to_string(),
             fields: vec![],
             doc: String::new(),
@@ -164,6 +166,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Active".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -177,6 +180,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Inactive".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -190,6 +194,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Pending".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -203,6 +208,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Deleted".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -253,6 +259,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants(
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "None".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -266,6 +273,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants(
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Validating".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -279,6 +287,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants(
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "InProgress".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -336,6 +345,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         rust_path: "my_crate::Formats".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "None".to_string(),
             fields: vec![],
             doc: String::new(),

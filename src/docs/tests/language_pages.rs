@@ -258,6 +258,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Markdown".to_string(),
                     fields: vec![],
                     doc: "Markdown output.".to_string(),
@@ -271,6 +272,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Plain".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -590,6 +592,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Currently active.".to_string(),
@@ -606,6 +609,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
                     },
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Legacy".to_string(),
                     fields: vec![],
                     doc: "Old name.".to_string(),

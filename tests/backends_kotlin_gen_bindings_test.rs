@@ -227,6 +227,7 @@ fn unit_enum_emits_enum_class() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -240,6 +241,7 @@ fn unit_enum_emits_enum_class() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -1332,6 +1334,7 @@ fn long_data_class_emits_multi_line() {
 
 fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

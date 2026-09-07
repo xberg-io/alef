@@ -519,6 +519,7 @@ fn test_unit_enums_emit_constants_class_with_wire_values() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -532,6 +533,7 @@ fn test_unit_enums_emit_constants_class_with_wire_values() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Markdown".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -545,6 +547,7 @@ fn test_unit_enums_emit_constants_class_with_wire_values() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Html".to_string(),
                     fields: vec![],
                     doc: String::new(),

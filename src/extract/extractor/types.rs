@@ -10,32 +10,9 @@ use super::helpers::{
     extract_error_message_template, extract_field, extract_field_binding_exclusion_reason,
     extract_field_type_rust_path, extract_serde_container_conversion, extract_serde_rename_all,
     extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if, extract_version_annotation,
-    has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr, is_pub, syn_type_is_boxed,
+    has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr, has_serde_untagged, is_pub,
+    syn_type_is_boxed,
 };
-
-/// Return true when the enum has `#[serde(untagged)]`.
-fn has_serde_untagged(attrs: &[syn::Attribute]) -> bool {
-    for attr in attrs {
-        let tokens = if let Ok(list) = attr.meta.require_list() {
-            format!("{}", list.tokens)
-        } else {
-            continue;
-        };
-        let mut rest = tokens.as_str();
-        while let Some(pos) = rest.find("untagged") {
-            let before = &rest[..pos];
-            let after = &rest[pos + "untagged".len()..];
-            let valid_before = before.is_empty() || before.ends_with(|c: char| !c.is_alphanumeric() && c != '_');
-            let valid_after = after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_');
-            let not_kv = !after.trim_start().starts_with('=');
-            if valid_before && valid_after && not_kv {
-                return true;
-            }
-            rest = &rest[pos + 1..];
-        }
-    }
-    false
-}
 
 /// Extract `tag` value from `#[serde(tag = "...")]` or
 /// `#[cfg_attr(..., serde(tag = "..."))]` attributes on enums.

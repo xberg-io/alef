@@ -1,4 +1,4 @@
-use super::{apply_napi_case, gen_enum, string_enum_js_values};
+use super::{apply_napi_case, gen_enum, is_tagged_data_enum, is_variant_untagged_string_enum, string_enum_js_values};
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
 fn make_simple_enum(name: &str, variants: &[&str]) -> EnumDef {
@@ -9,6 +9,7 @@ fn make_simple_enum(name: &str, variants: &[&str]) -> EnumDef {
         variants: variants
             .iter()
             .map(|v| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -68,6 +69,7 @@ fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Bold".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -81,6 +83,7 @@ fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "FontSize".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -153,6 +156,7 @@ fn gen_tagged_enum_tuple_variant_uses_camel_case_value() {
         rust_path: "test::AnnotationKind".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "FontSize".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -224,6 +228,7 @@ fn gen_tagged_enum_struct_variant_emits_field_names() {
         rust_path: "test::AnnotationKind".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Custom".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -300,6 +305,7 @@ fn gen_enum_escapes_jsdoc_block_close_in_variant_docs() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Block".to_string(),
                 fields: vec![],
                 doc: "A block or multi-line comment (e.g., `/* ... */`).".to_string(),
@@ -313,6 +319,7 @@ fn gen_enum_escapes_jsdoc_block_close_in_variant_docs() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Doc".to_string(),
                 fields: vec![],
                 doc: "A documentation comment (e.g., `/// ...` or `/** ... */`).".to_string(),
@@ -470,6 +477,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -483,6 +491,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Custom".to_string(),
                 fields: vec![FieldDef {
                     name: "_0".to_string(),
@@ -556,6 +565,84 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         ),
         "core-to-binding conversion must forward the Custom payload, not discard it; got:\n{core_to_binding}"
     );
+}
+
+/// Regression: a *variant-level* `#[serde(untagged)]` (e.g. `OutputFormat::Custom(String)`
+/// alongside plain unit variants `Plain`, `Markdown`, ...) must NOT route through the
+/// tagged-object emitter the way `default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip`
+/// above proves for an ordinary (non-untagged) data variant. Serde serializes an untagged
+/// variant as its own bare payload with no discriminant at all -- for `Custom(String)` that is
+/// just the raw string -- so `{ "type": "custom", "custom": "..." }` would be wrong on the wire.
+/// `is_tagged_data_enum` must say false and `is_variant_untagged_string_enum` must say true,
+/// routing `gen_enum` to the same `serde_json::Value` passthrough wrapper a container-level
+/// `#[serde(untagged)]` enum uses. ~keep
+#[test]
+fn variant_level_untagged_data_variant_is_not_tagged_object() {
+    let e = EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "demo::OutputFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Custom".to_string(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                serde_untagged: true,
+                ..Default::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".to_string()),
+        has_serde: true,
+        ..Default::default()
+    };
+
+    assert!(
+        !is_tagged_data_enum(&e),
+        "a data variant that opts out via its own #[serde(untagged)] must not force the tagged-object shape"
+    );
+    assert!(
+        is_variant_untagged_string_enum(&e),
+        "every data-carrying variant here is serde_untagged, so this must be claimed as a variant-untagged string enum"
+    );
+
+    let output = gen_enum(&e, "Js", true, "", None);
+    assert!(
+        output.contains("pub struct JsOutputFormat(pub serde_json::Value)"),
+        "must route through the JSON passthrough wrapper, not #[napi(string_enum)] or a tagged object; got:\n{output}"
+    );
+    assert!(
+        !output.contains("#[napi(string_enum"),
+        "a data-carrying enum must never be emitted as #[napi(string_enum)] (it can only hold unit variants); got:\n{output}"
+    );
+    assert!(
+        !output.contains("pub struct JsOutputFormat {"),
+        "must not be emitted as a tagged-object struct; got:\n{output}"
+    );
+}
+
+/// A default-tagged enum with no data-carrying variants at all (every variant unit) is
+/// unaffected by variant-level untagged handling: `is_variant_untagged_string_enum` requires at
+/// least one data-carrying variant, so a plain enum keeps going through the ordinary
+/// `#[napi(string_enum)]` path. ~keep
+#[test]
+fn unit_only_enum_is_not_variant_untagged_string_enum() {
+    let e = make_simple_enum("Status", &["Active", "Inactive"]);
+    assert!(!is_variant_untagged_string_enum(&e));
+    assert!(!is_tagged_data_enum(&e));
+
+    let output = gen_enum(&e, "Js", false, "", None);
+    assert!(output.contains("#[napi(string_enum"));
 }
 
 /// `apply_napi_case` must derive its output from `convert_case` — the exact crate and

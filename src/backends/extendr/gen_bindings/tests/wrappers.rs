@@ -793,6 +793,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![make_field("inner", TypeRef::String, false)],
                     doc: "UTF-8 encoded text payload.".to_string(),
@@ -806,6 +807,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Binary".to_string(),
                     fields: vec![make_field("inner", TypeRef::String, false)],
                     doc: "Base64-encoded binary payload.".to_string(),
@@ -1104,6 +1106,7 @@ fn r_public_api_omits_from_json_for_unregistered_dto_roots() {
             rust_path: "test_lib::SearchMode".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Fast".to_string(),
                 fields: vec![],
                 doc: String::new(),

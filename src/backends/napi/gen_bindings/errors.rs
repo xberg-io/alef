@@ -386,6 +386,37 @@ pub(super) fn gen_dts(
                     for variant in &e.variants {
                         lines.push(format!("  | {}", untagged_variant_dts_type(e, variant)));
                     }
+                } else if enums::is_variant_untagged_string_enum(e) {
+                    // Every data-carrying variant is individually `#[serde(untagged)]` while the
+                    // container keeps default external tagging: unit variants still serialize as
+                    // their own bare (cased) name, so they stay literal union members exactly like
+                    // an ordinary string enum -- unlike the container-level-untagged branch above,
+                    // they are NOT `null`. Each untagged data variant serializes as its own bare
+                    // payload with no discriminant; when that payload is a single `String` it
+                    // widens the union with `(string & {})`, the standard TypeScript idiom that
+                    // accepts any string while keeping autocomplete for the known literals. A
+                    // non-`String` payload falls back to its own `dts_type`, unwrapped, since the
+                    // widening idiom only helps when the wider type and the literals share a
+                    // primitive. (~keep)
+                    let mut members =
+                        enums::variant_untagged_string_enum_literal_values(e, is_host_enum, configured_features);
+                    for variant in e.variants.iter().filter(|v| !v.fields.is_empty()) {
+                        // Only a SINGLE-field variant serializes as that field's bare value. An
+                        // untagged multi-field tuple variant is a JSON array and a struct-shaped
+                        // one a JSON object, so naming the first field's type there would declare
+                        // a type the runtime never produces -- emit `unknown` rather than a
+                        // confident lie. (~keep)
+                        let field_ty = match variant.fields.as_slice() {
+                            [only] => Some(dts_type(&only.ty)),
+                            _ => None,
+                        };
+                        members.push(match field_ty.as_deref() {
+                            Some("string") => "(string & {})".to_string(),
+                            Some(other) => other.to_string(),
+                            None => "unknown".to_string(),
+                        });
+                    }
+                    lines.push(format!("export type {ts_name} = {};", members.join(" | ")));
                 } else {
                     lines.push(format!("export declare enum {ts_name} {{"));
                     // `wire_variant_value` computes the *serde* JSON wire name, but a plain enum

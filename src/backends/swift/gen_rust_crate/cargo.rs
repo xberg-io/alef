@@ -331,6 +331,7 @@ mod tests {
 
     fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
         EnumVariant {
+            serde_untagged: false,
             name: name.to_string(),
             fields: vec![],
             doc: String::new(),

@@ -247,6 +247,7 @@ fn native_unit_enum_emits_enum_class() {
             doc: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Markdown".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -260,6 +261,7 @@ fn native_unit_enum_emits_enum_class() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PlainText".to_string(),
                     fields: vec![],
                     doc: String::new(),

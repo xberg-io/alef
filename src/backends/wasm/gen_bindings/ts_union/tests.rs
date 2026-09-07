@@ -928,3 +928,92 @@ fn mutually_recursive_top_level_unions_both_get_declared() {
         all_plans.custom_section
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Variant-level `#[serde(untagged)]` (mixed with default-tagged unit variants)
+// ---------------------------------------------------------------------------------------------
+
+/// `enum OutputFormat { Plain, Markdown, ..., #[serde(untagged)] Custom(String) }` -- a
+/// default-tagged enum whose only data-carrying variant opts out via its own
+/// `#[serde(untagged)]` -- gets the flat literal-union-plus-widening-tail shape from
+/// [`build_variant_untagged_string_enum_ts_plans`], NOT the "unit variant renders as `null`"
+/// shape [`build_untagged_enum_ts_plans`] produces for a container-level `#[serde(untagged)]`
+/// enum (see `embedding_input_maps_to_string_or_string_array` above for that shape). ~keep
+#[test]
+fn variant_untagged_output_format_maps_to_literal_union_with_string_tail() {
+    let enum_def = EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "test_lib::OutputFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                serde_untagged: true,
+                ..tuple_variant("Custom", TypeRef::String)
+            },
+        ],
+        serde_rename_all: Some("lowercase".to_string()),
+        ..Default::default()
+    };
+    let api = empty_api();
+    let all_plans = build_variant_untagged_string_enum_ts_plans(
+        &[&enum_def],
+        &api,
+        &AHashSet::default(),
+        &AHashSet::default(),
+        "Alef",
+    );
+
+    assert!(
+        all_plans
+            .custom_section
+            .contains(r#"export type AlefOutputFormat = "plain" | "markdown" | (string & {});"#),
+        "actual:\n{}",
+        all_plans.custom_section
+    );
+    let plan = all_plans.plans.get("OutputFormat").expect("plan for OutputFormat");
+    assert!(
+        plan.extern_type_declaration
+            .contains(r#"typescript_type = "AlefOutputFormat""#)
+    );
+}
+
+/// A unit-only enum has no data-carrying variant at all, so `gets_a_variant_untagged_string_enum_ts_union`
+/// must not claim it via the `_for_api` entry point that the real pipeline calls — it stays a
+/// plain `#[wasm_bindgen]` C-style enum via `gen_enum`.
+#[test]
+fn unit_only_enum_gets_no_variant_untagged_plan() {
+    let enum_def = EnumDef {
+        name: "Status".to_string(),
+        rust_path: "test_lib::Status".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Active".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Inactive".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    assert!(!super::super::enums::is_variant_untagged_string_enum(&enum_def));
+    let mut api = empty_api();
+    api.enums = vec![enum_def];
+    let all_plans = build_variant_untagged_string_enum_ts_plan_for_api(
+        &api,
+        &[],
+        &AHashSet::default(),
+        &AHashSet::default(),
+        "Alef",
+    );
+    assert!(all_plans.plans.is_empty());
+    assert!(all_plans.custom_section.is_empty());
+}

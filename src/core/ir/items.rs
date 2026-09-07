@@ -621,6 +621,14 @@ pub struct EnumVariant {
     /// `[target_dep_overrides]` disable the feature that gates this variant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cfg: Option<String>,
+    /// True when this variant has `#[serde(untagged)]`.
+    /// Serde also honours `untagged` on a single variant rather than the whole enum — a
+    /// variant so marked serializes as its own bare payload with no discriminant, alongside
+    /// sibling variants that stay tagged. Absence does NOT imply tagged behaviour is uniform
+    /// across the enum; check each variant, not just `EnumDef::serde_untagged`. Only set this
+    /// when the attribute is explicitly present on the variant itself.
+    #[serde(default)]
+    pub serde_untagged: bool,
     /// Version annotation (since, deprecated).
     #[serde(default)]
     pub version: VersionAnnotation,
@@ -924,6 +932,7 @@ mod tests {
             binding_exclusion_reason: _,   // diagnostics only; deliberately not codegen input
             originally_had_data_fields: _, // selects wildcard vs. bare-unit pattern emission
             cfg: _,                        // matching `#[cfg]` attribute emission requirement
+            serde_untagged: _,             // routes a data-carrying variant to string-union codegen
             version: _,                    // since/deprecated annotation emission
         } = value;
     }

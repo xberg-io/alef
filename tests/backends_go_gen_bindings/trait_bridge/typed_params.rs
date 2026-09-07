@@ -185,6 +185,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
         rust_path: "my_lib::OcrBackendType".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Tesseract".to_string(),
             fields: vec![],
             doc: String::new(),

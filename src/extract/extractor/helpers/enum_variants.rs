@@ -1,6 +1,8 @@
 use crate::core::ir::EnumVariant;
 
-use super::attributes::{extract_binding_exclusion_reason, extract_cfg_condition, extract_version_annotation};
+use super::attributes::{
+    extract_binding_exclusion_reason, extract_cfg_condition, extract_version_annotation, has_serde_untagged,
+};
 use super::fields::extract_field;
 use super::rustdoc::extract_doc_comments;
 
@@ -43,6 +45,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
     let binding_exclusion_reason = extract_binding_exclusion_reason(&v.attrs);
     let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&v.attrs);
+    let serde_untagged = has_serde_untagged(&v.attrs);
 
     EnumVariant {
         name: v.ident.to_string(),
@@ -55,6 +58,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         binding_exclusion_reason,
         originally_had_data_fields: false,
         cfg,
+        serde_untagged,
         version: extract_version_annotation(&v.attrs),
     }
 }

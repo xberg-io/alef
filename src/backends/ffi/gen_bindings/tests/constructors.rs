@@ -128,6 +128,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Get".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -141,6 +142,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Post".to_string(),
                     fields: vec![],
                     doc: String::new(),

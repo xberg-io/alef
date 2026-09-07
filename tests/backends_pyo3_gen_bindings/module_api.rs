@@ -95,6 +95,7 @@ fn test_module_registration() {
             rust_path: "test_lib::Kind".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "First".to_string(),
                 fields: vec![],
                 doc: String::new(),
