@@ -53,9 +53,10 @@ prefix = "sample"
     );
     assert!(
         !header.contains("clippy::useless_conversion"),
-        "useless_conversion's only source is the Vec<u8>::from(..) polymorphic bytes \
-         conversion in bytes_result_match.jinja, which now carries its own narrow \
-         #[allow(clippy::useless_conversion)] at each of its four sites:\n{header}"
+        "useless_conversion's only source was the Vec<u8>::from(..) polymorphic bytes \
+         conversion in bytes_result_match.jinja, which now copies through a `&[u8]` slice \
+         at every one of its four sites -- a real conversion for every input shape, so no \
+         allow is needed anywhere:\n{header}"
     );
     // `unnecessary_cast` fires only when a cast's source expression already has the exact
     // destination type. Every `as i32`/`as u32`/`as usize` this backend emits casts a `bool`
@@ -142,4 +143,63 @@ prefix = "sample"
         "the slice copy is never a useless conversion; the allow must not come back:\n{}",
         lib.content
     );
+}
+
+/// The infallible, non-optional bytes return is the fourth site in `bytes_result_match.jinja`
+/// and the one the other three do not cover: it binds `result` rather than `val`, so a fix
+/// applied only to the `match` arms leaves it converting an owned-only `Vec::<u8>::from(result)`.
+/// A borrowing accessor (`fn as_bytes(&self) -> &Bytes`) then fails to compile in the generated
+/// crate -- exactly the break the arm fix was made to prevent. ~keep
+#[test]
+fn infallible_bytes_return_also_copies_through_a_slice() {
+    let api = ApiSurface {
+        crate_name: "sample_lib".to_string(),
+        version: "0.1.0".to_string(),
+        functions: vec![FunctionDef {
+            name: "render".to_string(),
+            rust_path: "sample_lib::render".to_string(),
+            return_type: TypeRef::Bytes,
+            error_type: None,
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "sample-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "sample"
+"#,
+    );
+
+    let files = FfiBackend.generate_bindings(&api, &config).unwrap();
+    let lib = files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("let buffer = Vec::<u8>::from(&result[..]).into_boxed_slice();"),
+        "the infallible bytes call site must copy through a slice:\n{}",
+        lib.content
+    );
+    // Matched against the whole call site, not the bare `Vec::<u8>::from(result)` prefix: the
+    // `~keep` comment above the line names the old form to explain why it went, and a substring
+    // check would fire on the explanation rather than on a regression. ~keep
+    assert!(
+        !lib.content.contains("Vec::<u8>::from(result).into_boxed_slice()"),
+        "the owned-only conversion rejects a borrowing `&Bytes` accessor:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("clippy::useless_conversion"),
+        "the slice copy is never a useless conversion; the allow must not come back:\n{}",
+        lib.content
+    );
+
+    syn::parse_file(&lib.content).expect("infallible bytes wrapper must parse as valid Rust");
 }

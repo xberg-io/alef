@@ -51,14 +51,8 @@ impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
                         Ok(serde_json::to_string(&resp_zval).unwrap_or_else(|_| "{}".to_string()))
                     })
                 }))
-                .map_err(|_| Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "PHP handler panicked",
-                )) as {{ box_err }})?
-                .map_err(|e| Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e,
-                )) as {{ box_err }})?;
+                .map_err(|_| Box::new(std::io::Error::other("PHP handler panicked")) as {{ box_err }})?
+                .map_err(|e| Box::new(std::io::Error::other(e)) as {{ box_err }})?;
 
                 // Deserialize the JSON result back into the wire response DTO.
                 let response: {{ resp_path }} = serde_json::from_str(&raw_result)

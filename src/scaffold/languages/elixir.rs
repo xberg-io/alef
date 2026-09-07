@@ -95,21 +95,27 @@ pub(crate) fn scaffold_elixir_cargo(
     };
     let mut dep_lines: Vec<String> = vec![
         format!("rustler = \"{}\"", tv::cargo::RUSTLER),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
-        "serde_json = \"1\"".to_owned(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
     if needs_ahash {
-        dep_lines.push("ahash = \"0.8\"".to_owned());
+        dep_lines.push(format!("ahash = \"{}\"", tv::cargo::AHASH));
     }
     if has_trait_bridges {
         dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
         dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
     }
     if has_async || has_trait_bridges || has_streaming {
-        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }".to_owned());
+        dep_lines.push(format!(
+            "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\", \"sync\"] }}",
+            tv::cargo::TOKIO
+        ));
     }
     if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
-        dep_lines.push("futures-util = \"0.3\"".to_owned());
+        dep_lines.push(format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
@@ -121,9 +127,13 @@ pub(crate) fn scaffold_elixir_cargo(
             dep_lines.push(trimmed.to_owned());
         }
     }
-    dep_lines.push("alloc-no-stdlib = \"=2.0.4\"".to_owned());
-    dep_lines.push("alloc-stdlib = \"=0.2.2\"".to_owned());
-    dep_lines.push("brotli-decompressor = \"=5.0.1\"".to_owned());
+    // ~keep The `=` requirement is the mechanism, not a stale pin: a `[patch.crates-io]` entry
+    // with no path/git is a no-op cargo rejects outright, so direct `=` dependencies are the only
+    // way to hold the whole tree on the allocator versions brotli 8.0.x needs. The versions
+    // themselves live in `template_versions` so Renovate tracks them like every other crate.
+    dep_lines.push(format!("alloc-no-stdlib = \"={}\"", tv::cargo::ALLOC_NO_STDLIB));
+    dep_lines.push(format!("alloc-stdlib = \"={}\"", tv::cargo::ALLOC_STDLIB));
+    dep_lines.push(format!("brotli-decompressor = \"={}\"", tv::cargo::BROTLI_DECOMPRESSOR));
     if !core_dep_line.is_empty() {
         dep_lines.push(core_dep_line);
     }

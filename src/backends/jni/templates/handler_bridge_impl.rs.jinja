@@ -10,14 +10,12 @@ impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
 
             let result_json = {
                 let env = self.jvm.attach_current_thread()
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    .map_err(|e| Box::new(std::io::Error::other(
                         format!("failed to attach JVM thread: {}", e)
                     )) as Box<dyn std::error::Error + Send + Sync>)?;
 
                 let req_jni = env.new_string(&req_json)
-                    .map_err(|e| Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    .map_err(|e| Box::new(std::io::Error::other(
                         format!("failed to create JNI string: {}", e)
                     )) as Box<dyn std::error::Error + Send + Sync>)?;
 

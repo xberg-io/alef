@@ -121,14 +121,20 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
             version,
         ),
         format!("extendr-api = \"{}\"", tv::cargo::EXTENDR_API),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
-        "serde_json = \"1\"".to_owned(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
     if has_async {
-        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }".to_owned());
+        dep_lines.push(format!(
+            "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\"] }}",
+            tv::cargo::TOKIO
+        ));
     }
     if has_trait_bridges {
-        dep_lines.push("async-trait = \"0.1\"".to_owned());
+        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
         dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
     }
     dep_lines.extend(render_extra_deps(config, Language::R).lines().map(ToOwned::to_owned));

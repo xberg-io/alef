@@ -156,6 +156,31 @@ fn every_helper_the_service_body_calls_is_imported_by_its_header() {
     }
 }
 
+/// The registration dispatch used to spell its `Option` transform as an explicit
+/// `match { Some(x) => Some(f(x)), None => None }`, which `clippy::manual_map` rejects.
+/// Generated crates are linted like any other, so a lint the emitter can avoid must not be
+/// pushed onto consumers as an `#[allow]` -- and an allow is what a "fix it downstream"
+/// response would cost every one of them. ~keep
+#[test]
+fn registration_dispatch_maps_the_option_rather_than_matching_it() {
+    let api = make_fixture_surface();
+    let config = ResolvedCrateConfig {
+        name: "test_crate".to_owned(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let rs = gen_service_rs(&api, &config);
+
+    assert!(
+        !rs.contains("None => None,"),
+        "a `Some(x) => Some(..), None => None` match is a manual `Option::map`:\n{rs}"
+    );
+    assert!(
+        rs.contains(".map(|owner_ref|"),
+        "the registration dispatch must transform the owner through `Option::map`:\n{rs}"
+    );
+}
+
 #[test]
 fn test_gen_service_rs_produces_valid_rust() {
     let api = make_fixture_surface();

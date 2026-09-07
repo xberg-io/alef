@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The C FFI infallible bytes return did not compile for a borrowing accessor.** The `0.85.2`
+  fix covered the three `match` arms in `bytes_result_match.jinja` (which bind `val`) but not the
+  infallible, non-optional branch, which binds `result`. `Vec::<u8>::from(result)` has no impl for
+  `&Bytes`, so a `fn as_bytes(&self) -> &Bytes` failed to compile in the generated crate. All four
+  sites now copy through `&…[..]`, and the narrow `useless_conversion` allow the branch carried is
+  gone with them.
+- **The FFI header-freshness gate scanned `.rs` files no `mod` or `include!` reaches.** cbindgen
+  expands the module graph, so an unreferenced file's `#[unsafe(no_mangle)]` functions are
+  genuinely absent from both the library and the header — yet the gate reported header drift and
+  told the operator to run a cargo build, which could never converge. The scan now walks from
+  `lib.rs` through `mod`, `#[path]` and `include!`, falls back to the directory walk when there is
+  no `lib.rs` (an empty export set must not silently pass a freshness gate), and reports
+  unreachable files as a warning instead of a failure.
+- **The FFI registration dispatch emitted a manual `Option::map`.** `Some(x) => Some(f(x)), None
+  => None` is `clippy::manual_map`, which fires in every consumer that lints its generated crate.
+- **napi/wasm: `core_type_path` was used where `core_type_path_remapped` was required.** With
+  `core_crate_override` set, the binding crate depends on the override crate alone while the IR
+  keeps each type's original source-crate prefix. `gen_opaque_struct` and `gen_method` emitted the
+  unremapped path, so every delegating method body and every `Default` impl named a crate the
+  generated manifest does not list — one `E0433` per site.
+- **The rustler service NIFs nested `if let` inside `if let`.** `clippy::collapsible_if` fired
+  once per registration in every generated NIF. The registration loops now bind with
+  `let … else { continue; }` and the `method_name` dispatch uses a let-chain.
+- **The rustler crate-level allow list was missing `clippy::useless_conversion`.** Every other
+  backend rendering the same shared `Vec<u8>` field conversions already carried it; rustler was
+  the outlier, so a `Bytes` enum payload failed the generated crate's own lint gate.
+- **`io::Error::new(ErrorKind::Other, e)` is `clippy::io_other_error`.** Six sites across the
+  rustler, magnus, php and jni handler bridges now use `io::Error::other(e)`; only the ruby and
+  elixir bindings surfaced it, the other two were latent.
+- **The php bytes return allocated a `Vec` the borrow never needed.** `String::from_utf8_lossy(&
+  expr.to_vec())` is `clippy::unnecessary_to_owned` on the borrowing path; copying through
+  `&expr[..]` also drops the allocation on the owned one.
+- **The dart handler-bridge doc block was separated from its struct by a blank line**
+  (`clippy::empty_line_after_doc_comments`).
+
+### Changed
+
+- **Cargo version literals inlined in scaffolders are now tracked in `template_versions`.** The
+  e2e Rust scaffolder hardcoded `axum-test = "20"` while the consumer's own crates required `21`,
+  putting two `tungstenite` majors in one lockfile and making `CloseFrame` two distinct types — a
+  hard `E0308` in the consumer's *source*, from a literal in a scaffolder. `ahash`, `anyhow`,
+  `async-trait`, `axum-test`, `bytes`, `futures`, `futures-util`, `libc`, `serde`, `serde_json`
+  and `tokio` are now read from `template_versions` across the swift, dart, ffi, node, php,
+  elixir, ruby, r, python and e2e-rust scaffolders, each with a Renovate marker. The elixir
+  allocator entries keep their `=` requirement — that operator is the mechanism that holds the
+  tree on brotli 8.0.x's allocators, and a no-op `[patch.crates-io]` is not a substitute — but
+  their versions moved to the table like every other crate.
+
+
 ## [0.85.2] - 2026-09-07
 
 ### Fixed

@@ -215,15 +215,157 @@ fn rust_source_files(source_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
 type FfiSourceScan = (BTreeMap<String, Option<String>>, BTreeMap<String, TypedefKind>);
 
 fn scan_generated_ffi_source(source_root: &Path) -> anyhow::Result<FfiSourceScan> {
+    let reachable = reachable_rust_sources(source_root)?;
+    warn_about_unreachable_sources(source_root, &reachable)?;
+
     let mut exports = BTreeMap::new();
     let mut type_hints = BTreeMap::new();
-    for source_path in rust_source_files(source_root)? {
+    for source_path in reachable {
         let source = std::fs::read_to_string(&source_path)
             .with_context(|| format!("failed to read generated FFI source at {}", source_path.display()))?;
         exports.extend(scan_exported_symbols(&source));
         type_hints.extend(rust_type_kind_hints(&source));
     }
     Ok((exports, type_hints))
+}
+
+/// The `.rs` files that are actually part of the compiled crate, walked from `lib.rs`
+/// through `mod` and `include!` declarations.
+///
+/// Scanning the whole `src/` directory instead was wrong in a way no `cargo build` could
+/// ever fix. A `.rs` file that no `mod` or `include!` reaches is not compiled, so its
+/// `#[unsafe(no_mangle)]` functions are not in the library, and cbindgen -- which expands
+/// the same module graph -- correctly never declares them. Counting them as "exported by
+/// the generated source" reported a header drift whose only suggested remedy (run a cargo
+/// build so cbindgen refreshes the header) could not converge, because the header was
+/// already right. The consumer that surfaced this had two hand-written FFI files whose
+/// `include!` lines a regen had dropped months earlier; the gate blamed the header for
+/// every run since. ~keep
+///
+/// Falls back to the directory walk when there is no `lib.rs` to walk from -- an empty
+/// export set would silently pass the gate rather than fail it, which is the one outcome
+/// a freshness check must never produce.
+fn reachable_rust_sources(source_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let crate_root = source_root.join("lib.rs");
+    if !crate_root.is_file() {
+        return rust_source_files(source_root);
+    }
+
+    let mut queue = vec![crate_root];
+    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut reachable = Vec::new();
+    while let Some(path) = queue.pop() {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let Ok(source) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        queue.extend(module_children(&path, &source));
+        reachable.push(path);
+    }
+    reachable.sort();
+    Ok(reachable)
+}
+
+/// Report `.rs` files under the FFI crate's `src/` that nothing declares.
+///
+/// Reported rather than failed: an unreferenced file is dead weight, not drift between
+/// the header and the source, and this gate exists for the latter. Warning keeps the
+/// discovery loud -- the alternative to the old (wrong) hard failure is not silence. ~keep
+fn warn_about_unreachable_sources(source_root: &Path, reachable: &[PathBuf]) -> anyhow::Result<()> {
+    let reachable: BTreeSet<&Path> = reachable.iter().map(PathBuf::as_path).collect();
+    for path in rust_source_files(source_root)? {
+        if !reachable.contains(path.as_path()) {
+            tracing::warn!(
+                "{} is not reachable from lib.rs through any `mod` or `include!` declaration, so it is \
+                 not compiled into the crate and its exports are absent from the C header -- declare it \
+                 or delete it",
+                path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The files a single source file pulls into the module graph.
+///
+/// Handles the three shapes that name another file: `mod name;` (in any visibility),
+/// `#[path = "..."] mod name;`, and `include!("...")`. An inline `mod name { ... }` names
+/// no file and is skipped by the trailing-`;` requirement. Non-existent candidates are
+/// dropped rather than reported: a `mod` whose file is missing is a compile error the
+/// Rust toolchain states far better than this walk could. ~keep
+fn module_children(path: &Path, source: &str) -> Vec<PathBuf> {
+    let Some(parent) = path.parent() else {
+        return Vec::new();
+    };
+    let stem = path.file_stem().and_then(|stem| stem.to_str()).unwrap_or_default();
+    // ~keep `lib.rs`, `main.rs` and `mod.rs` are the module's own directory; every other
+    // file owns a subdirectory named after it (the 2018-edition layout).
+    let module_dir = if matches!(stem, "lib" | "main" | "mod") {
+        parent.to_path_buf()
+    } else {
+        parent.join(stem)
+    };
+
+    let mut children = Vec::new();
+    let mut path_attribute: Option<String> = None;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(target) = path_attribute_target(trimmed) {
+            path_attribute = Some(target.to_string());
+            continue;
+        }
+        if let Some(target) = include_target(trimmed) {
+            children.push(parent.join(target));
+            continue;
+        }
+        if let Some(name) = module_declaration_name(trimmed) {
+            match path_attribute.take() {
+                Some(relative) => children.push(module_dir.join(relative)),
+                None => {
+                    children.push(module_dir.join(format!("{name}.rs")));
+                    children.push(module_dir.join(name).join("mod.rs"));
+                }
+            }
+            continue;
+        }
+        if !trimmed.is_empty() && !trimmed.starts_with("//") && !trimmed.starts_with("#[") {
+            path_attribute = None;
+        }
+    }
+    children.retain(|candidate| candidate.is_file());
+    children
+}
+
+/// `#[path = "relative/file.rs"]` -- the override that decouples a module from its name.
+fn path_attribute_target(line: &str) -> Option<&str> {
+    line.strip_prefix("#[path = \"")?.split('"').next()
+}
+
+/// `include!("relative/file.rs")` -- resolved against the *including file's* directory,
+/// which is what rustc does, and not against the module directory. ~keep
+fn include_target(line: &str) -> Option<&str> {
+    line.strip_prefix("include!(\"")?.split('"').next()
+}
+
+/// The module name in a file-backed `mod` declaration, in any visibility.
+///
+/// The trailing `;` is what separates a file-backed declaration from an inline
+/// `mod name { ... }`, which names no file at all. ~keep
+fn module_declaration_name(line: &str) -> Option<&str> {
+    let declaration = line.strip_suffix(';')?.trim_end();
+    let after_visibility = declaration
+        .strip_prefix("pub(crate) ")
+        .or_else(|| declaration.strip_prefix("pub(super) "))
+        .or_else(|| declaration.strip_prefix("pub "))
+        .unwrap_or(declaration);
+    let name = after_visibility.strip_prefix("mod ")?.trim();
+    (!name.is_empty()
+        && name
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_'))
+    .then_some(name)
 }
 
 /// Test-only convenience wrapper: production code needs the cfg-carrying map
@@ -1006,12 +1148,75 @@ pub unsafe extern "C" fn sample_node_context_tag_name<'context>(
         );
     }
 
+    /// A `.rs` file no `mod` or `include!` reaches is not compiled, so cbindgen never
+    /// declares its functions and the header is *correct* to omit them. Counting them
+    /// produced a drift report whose stated remedy -- run a cargo build so cbindgen
+    /// refreshes the header -- could not converge, because nothing was stale. ~keep
+    #[test]
+    fn should_ignore_exports_from_files_no_module_declaration_reaches() {
+        let directory = tempfile::tempdir().expect("temporary FFI source root");
+        std::fs::write(
+            directory.path().join("lib.rs"),
+            "pub mod service;\n#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_open() {}\n",
+        )
+        .expect("write root module");
+        std::fs::write(
+            directory.path().join("service.rs"),
+            "#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_app_register() {}\n",
+        )
+        .expect("write service module");
+        std::fs::write(
+            directory.path().join("orphan_ffi.rs"),
+            "#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_orphan() {}\n",
+        )
+        .expect("write orphaned module");
+
+        assert_eq!(
+            exported_symbols_in_dir(directory.path()).expect("collect module exports"),
+            BTreeSet::from(["sample_app_register".to_owned(), "sample_open".to_owned()]),
+            "an undeclared file contributes no C ABI symbols"
+        );
+    }
+
+    /// `include!` inlines a file into the *including* file's namespace without a `mod`
+    /// declaration, so a walk that only followed `mod` would call an included file
+    /// orphaned and drop real exports -- the mirror-image false report. ~keep
+    #[test]
+    fn should_collect_exports_from_included_files() {
+        let directory = tempfile::tempdir().expect("temporary FFI source root");
+        std::fs::write(
+            directory.path().join("lib.rs"),
+            "pub mod service;\n#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_open() {}\n",
+        )
+        .expect("write root module");
+        std::fs::write(
+            directory.path().join("service.rs"),
+            "include!(\"lifecycle_ffi.rs\");\n#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_app_register() {}\n",
+        )
+        .expect("write service module");
+        std::fs::write(
+            directory.path().join("lifecycle_ffi.rs"),
+            "#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_app_on_error() {}\n",
+        )
+        .expect("write included file");
+
+        assert_eq!(
+            exported_symbols_in_dir(directory.path()).expect("collect module exports"),
+            BTreeSet::from([
+                "sample_app_on_error".to_owned(),
+                "sample_app_register".to_owned(),
+                "sample_open".to_owned()
+            ]),
+            "an `include!`d file is part of the compiled crate"
+        );
+    }
+
     #[test]
     fn should_collect_exports_from_service_modules() {
         let directory = tempfile::tempdir().expect("temporary FFI source root");
         std::fs::write(
             directory.path().join("lib.rs"),
-            "#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_open() {}\n",
+            "pub mod service;\n#[unsafe(no_mangle)]\npub unsafe extern \"C\" fn sample_open() {}\n",
         )
         .expect("write root module");
         std::fs::write(

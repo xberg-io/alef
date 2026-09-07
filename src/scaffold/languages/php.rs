@@ -193,13 +193,13 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("ahash = \"0.8\"");
+        all_deps.push_str(&format!("ahash = \"{}\"", tv::cargo::AHASH));
     }
     if has_trait_bridges && !all_deps.contains("async-trait") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("async-trait = \"0.1\"");
+        all_deps.push_str(&format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !all_deps.contains("tracing") {
         if !all_deps.is_empty() {
@@ -211,7 +211,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("futures-util = \"0.3\"");
+        all_deps.push_str(&format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
 
     let extra_deps_section = if all_deps.is_empty() {
@@ -270,9 +270,15 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     };
     let mut dep_entries: Vec<String> = vec![
         format!("ext-php-rs = \"{}\"", tv::cargo::EXT_PHP_RS),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
-        "serde_json = \"1\"".to_string(),
-        "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!(
+            "tokio = {{ version = \"{}\", features = [\"full\"] }}",
+            tv::cargo::TOKIO
+        ),
     ];
     if !core_dep_php.is_empty() {
         dep_entries.push(core_dep_php.clone());

@@ -20,10 +20,8 @@ fn call_ruby_proc_with_gvl(
             &mut state as *mut _ as *mut std::ffi::c_void,
         );
         state.result.unwrap_or_else(|| {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "GVL callback failed to set result",
-            )) as Box<dyn std::error::Error + Send + Sync>)
+            Err(Box::new(std::io::Error::other("GVL callback failed to set result"))
+                as Box<dyn std::error::Error + Send + Sync>)
         })
     }
 }
@@ -49,8 +47,7 @@ extern "C" fn ruby_proc_gvl_callback(data: *mut std::ffi::c_void) -> *mut std::f
         let ruby = match Ruby::get() {
             Ok(r) => r,
             Err(_) => {
-                state.result = Some(Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                state.result = Some(Err(Box::new(std::io::Error::other(
                     "Could not obtain Ruby handle within GVL callback",
                 )) as Box<dyn std::error::Error + Send + Sync>));
                 return std::ptr::null_mut();

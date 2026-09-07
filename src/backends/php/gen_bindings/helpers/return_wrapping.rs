@@ -31,12 +31,12 @@ pub(crate) fn php_wrap_return(
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
-            let vec_expr = if returns_ref {
-                format!("{expr}.to_vec()")
-            } else {
-                format!("Vec::<u8>::from({expr})")
-            };
-            format!("String::from_utf8_lossy(&{vec_expr}).into_owned()")
+            // ~keep Indexing with `[..]` derefs every byte-ish shape -- an owned `Vec<u8>` or
+            // `bytes::Bytes`, and equally a borrowed `&Bytes`/`&[u8]` from an accessor -- straight
+            // to the `&[u8]` `from_utf8_lossy` wants. The old `returns_ref` split allocated an
+            // intermediate `Vec` on both paths, and `clippy::unnecessary_to_owned` rejected the
+            // borrowed one: `from_utf8_lossy(&x.to_vec())` is a copy the borrow never needed.
+            format!("String::from_utf8_lossy(&{expr}[..]).into_owned()")
         }
         TypeRef::Primitive(p) if needs_i64_cast(p) => {
             format!("{expr} as i64")

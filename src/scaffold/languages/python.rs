@@ -137,7 +137,7 @@ pub(crate) fn scaffold_python_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("async-trait = \"0.1\"");
+        all_deps.push_str(&format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !all_deps.contains("tracing") {
         if !all_deps.is_empty() {
@@ -160,7 +160,7 @@ pub(crate) fn scaffold_python_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("futures = \"0.3\"");
+        all_deps.push_str(&format!("futures = \"{}\"", tv::cargo::FUTURES));
     }
 
     let extra_deps_section = if all_deps.is_empty() {
@@ -209,8 +209,11 @@ pub(crate) fn scaffold_python_cargo(
             "pyo3-async-runtimes = {{ version = \"{}\", features = [\"tokio-runtime\"] }}",
             tv::cargo::PYO3_ASYNC_RUNTIMES
         ),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
-        "serde_json = \"1\"".to_string(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
     if !core_dep_py.is_empty() {
         dep_entries.push(core_dep_py.clone());

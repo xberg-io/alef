@@ -1,8 +1,8 @@
     match with_handle_mut::<{{ opaque_name }}, _>(owner, |service| {
-        match service.inner.as_mut() {
-            Some(owner_ref) => Some(owner_ref.{{ method_name }}({{ meta_args }}handler).map(|_| ())),
-            None => None,
-        }
+        service
+            .inner
+            .as_mut()
+            .map(|owner_ref| owner_ref.{{ method_name }}({{ meta_args }}handler).map(|_| ()))
     }) {
         Ok(Some(Ok(()))) => 0,
         Ok(Some(Err(error))) => { set_last_error(2, &error.to_string()); 1 }

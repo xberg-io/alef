@@ -161,7 +161,7 @@ pub(crate) fn scaffold_node_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("async-trait = \"0.1\"");
+        all_deps.push_str(&format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !all_deps.contains("tokio-util") {
         if !all_deps.is_empty() {
@@ -186,7 +186,7 @@ pub(crate) fn scaffold_node_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("futures-util = \"0.3\"");
+        all_deps.push_str(&format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
     if has_trait_bridges && !all_deps.contains("tracing") {
         if !all_deps.is_empty() {
@@ -255,8 +255,11 @@ pub(crate) fn scaffold_node_cargo(
             napi = tv::cargo::NAPI
         ),
         format!("napi-derive = \"{}\"", tv::cargo::NAPI_DERIVE),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
-        "serde_json = \"1\"".to_string(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
     if !core_dep.is_empty() {
         dep_entries.push(core_dep.clone());

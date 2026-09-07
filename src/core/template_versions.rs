@@ -151,6 +151,40 @@ pub mod cargo {
     // renovate: datasource=crate depName=axum
     pub const AXUM: &str = "0.8";
 
+    // ~keep Hoisted out of `e2e/codegen/rust/cargo_toml.rs`, which inlined `"20"`. The e2e
+    // crate links the consumer's own crates, so an axum-test major behind theirs put two
+    // `tungstenite` majors in one lockfile and made `CloseFrame` two distinct types -- a
+    // hard `E0308` in the consumer's *source*, from a literal in a scaffolder.
+    // renovate: datasource=crate depName=axum-test
+    pub const AXUM_TEST: &str = "21";
+
+    // renovate: datasource=crate depName=bytes
+    pub const BYTES: &str = "1";
+
+    // renovate: datasource=crate depName=ahash
+    pub const AHASH: &str = "0.8";
+
+    // renovate: datasource=crate depName=libc
+    pub const LIBC: &str = "0.2";
+
+    // renovate: datasource=crate depName=anyhow
+    pub const ANYHOW: &str = "1";
+
+    // ~keep The three entries below are emitted with an `=` requirement, and that operator is
+    // load-bearing: a `[patch.crates-io]` with no path/git is a no-op cargo rejects outright, so
+    // direct `=` dependencies are the only way to hold the whole tree on the allocator versions
+    // brotli 8.0.x needs. Fourteen Elixir NIF matrix cells and the Hex publish failed before it.
+    // The *operator* is the mechanism; the version beside it is still a version, which is why it
+    // belongs here under Renovate rather than inline in the scaffolder.
+    // renovate: datasource=crate depName=alloc-no-stdlib
+    pub const ALLOC_NO_STDLIB: &str = "2.0.4";
+
+    // renovate: datasource=crate depName=alloc-stdlib
+    pub const ALLOC_STDLIB: &str = "0.2.2";
+
+    // renovate: datasource=crate depName=brotli-decompressor
+    pub const BROTLI_DECOMPRESSOR: &str = "5.0.1";
+
     // renovate: datasource=crate depName=tokio-stream
     pub const TOKIO_STREAM: &str = "0.1";
 

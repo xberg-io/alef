@@ -130,7 +130,9 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
             trait_name => trait_name.as_str(),
         },
     ));
-    out.push('\n');
+    // ~keep No blank line between the doc block and the item it documents: the template
+    // already ends in a newline, and the extra one detached the `///` block from the struct
+    // (`clippy::empty_line_after_doc_comments` in the generated crate).
 
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/handler_bridge_struct.rs.jinja",

@@ -95,7 +95,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
     if has_streaming && !extra_dep_lines.iter().any(|l| l.starts_with("futures-util")) {
-        extra_dep_lines.push("futures-util = \"0.3\"".to_string());
+        extra_dep_lines.push(format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
     if let Some(ffi) = config.ffi.as_ref() {
         for capsule in ffi.capsule_types.values() {
@@ -238,10 +238,13 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     };
 
     let mut dep_entries: Vec<String> = vec![
-        "ahash = \"0.8\"".to_string(),
+        format!("ahash = \"{}\"", tv::cargo::AHASH),
         format!("serde = \"{}\"", tv::cargo::SERDE),
-        "serde_json = \"1\"".to_string(),
-        "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!(
+            "tokio = {{ version = \"{}\", features = [\"full\"] }}",
+            tv::cargo::TOKIO
+        ),
     ];
     if !core_dep_line.is_empty() {
         dep_entries.push(core_dep_line.clone());

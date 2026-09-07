@@ -75,12 +75,12 @@
         }
     }
 {% else %}
-    // Convert via Vec<u8> so the path works for both Vec<u8> and bytes::Bytes (and any other
-    // type that implements Into<Vec<u8>>). The Vec<u8> case makes this a no-op clippy calls
-    // out; the conversion stays because it is real work for a bytes::Bytes-returning core fn.
-    // ~keep
-    #[allow(clippy::useless_conversion)]
-    let buffer = Vec::<u8>::from(result).into_boxed_slice();
+    // Copy through a `&[u8]` slice so the path works for every byte-ish return shape:
+    // an owned `Vec<u8>` or `bytes::Bytes`, and equally a *borrowed* `&Bytes`/`&[u8]`
+    // from an accessor like `fn as_bytes(&self) -> &Bytes`. `Vec::<u8>::from(result)`
+    // handled only the owned cases -- there is no `From<&Bytes> for Vec<u8>`, so a
+    // borrowing accessor failed to compile. Indexing with `[..]` derefs uniformly. ~keep
+    let buffer = Vec::<u8>::from(&result[..]).into_boxed_slice();
     let len = buffer.len();
     let ptr = Box::into_raw(buffer).cast::<u8>();
     // SAFETY: out_ptr/out_len/out_cap were null-checked above.

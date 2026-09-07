@@ -101,23 +101,29 @@ pub(crate) fn scaffold_ruby_cargo(
     let mut dep_lines: Vec<String> = vec![
         format!("magnus = \"{}\"", tv::cargo::MAGNUS),
         format!("rb-sys = \"{}\"", tv::cargo::RB_SYS),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_owned(),
-        "serde_json = \"1\"".to_owned(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
     ];
     if has_async || has_trait_bridges {
-        dep_lines.push("tokio = { version = \"1\", features = [\"rt-multi-thread\"] }".to_owned());
+        dep_lines.push(format!(
+            "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\"] }}",
+            tv::cargo::TOKIO
+        ));
     }
     if needs_ahash && !dep_lines.iter().any(|l| l.starts_with("ahash")) {
-        dep_lines.push("ahash = \"0.8\"".to_owned());
+        dep_lines.push(format!("ahash = \"{}\"", tv::cargo::AHASH));
     }
     if has_trait_bridges && !dep_lines.iter().any(|l| l.starts_with("async-trait")) {
-        dep_lines.push("async-trait = \"0.1\"".to_owned());
+        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !dep_lines.iter().any(|l| l.starts_with("tracing")) {
         dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
     }
     if has_streaming_adapter && !dep_lines.iter().any(|l| l.starts_with("futures")) {
-        dep_lines.push("futures = \"0.3\"".to_owned());
+        dep_lines.push(format!("futures = \"{}\"", tv::cargo::FUTURES));
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();

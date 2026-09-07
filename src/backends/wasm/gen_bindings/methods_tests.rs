@@ -48,6 +48,7 @@ fn gen_method_static_default_uses_full_rust_path_for_nested_type() {
         &typ,
         &AHashSet::default(),
         &ahash::AHashMap::default(),
+        &[],
     );
 
     assert!(
@@ -83,6 +84,7 @@ fn gen_method_static_default_uses_bare_path_for_root_type() {
         &typ,
         &AHashSet::default(),
         &ahash::AHashMap::default(),
+        &[],
     );
 
     assert!(
@@ -119,6 +121,7 @@ fn gen_method_instance_delegate_uses_full_rust_path_for_nested_type() {
         &typ,
         &AHashSet::default(),
         &ahash::AHashMap::default(),
+        &[],
     );
 
     assert!(
@@ -128,5 +131,48 @@ fn gen_method_instance_delegate_uses_full_rust_path_for_nested_type() {
     assert!(
         !out.contains("sample_core::RenderOptions::from(self.clone())"),
         "instance delegation must not assume the type is re-exported at the crate root: {out}"
+    );
+}
+
+/// `core_crate_override` makes the binding crate depend on the override crate *only*, while
+/// the IR keeps every type's original source-crate prefix. `source_crate_remaps` is what
+/// bridges the two, and this emitter was the one place that reached for the unremapped path:
+/// every delegating method and every `Default` body named a crate the generated manifest does
+/// not list, so the crate would not compile at all (E0433, once per site). ~keep
+#[test]
+fn gen_method_rewrites_the_source_crate_prefix_when_a_remap_is_configured() {
+    let typ = TypeDef {
+        name: "CorsConfig".to_string(),
+        rust_path: "sample_core::CorsConfig".to_string(),
+        ..Default::default()
+    };
+    let method = MethodDef {
+        name: "is_sane".to_string(),
+        is_static: false,
+        return_type: TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+        receiver: Some(ReceiverKind::Ref),
+        ..Default::default()
+    };
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "CorsConfig",
+        "sample_http",
+        &AHashSet::default(),
+        "Wasm",
+        &typ,
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &[("sample_core", "sample_http")],
+    );
+
+    assert!(
+        out.contains("sample_http::CorsConfig::from(self.clone())"),
+        "the delegation must name the override crate the binding actually depends on: {out}"
+    );
+    assert!(
+        !out.contains("sample_core::"),
+        "no reference to the un-depended-on source crate may survive: {out}"
     );
 }

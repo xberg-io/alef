@@ -412,7 +412,7 @@ impl Backend for WasmBackend {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&gen_opaque_struct(typ, &core_import, &prefix));
+                builder.add_item(&gen_opaque_struct(typ, &core_import, &prefix, &source_remaps_borrowed));
                 builder.add_item(&gen_opaque_struct_methods(
                     typ,
                     &mapper,
@@ -471,6 +471,7 @@ impl Backend for WasmBackend {
                     &mutex_types,
                     &streaming_item_types,
                     &untagged_ts_value_types,
+                    &source_remaps_borrowed,
                 ));
             }
         }

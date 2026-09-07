@@ -197,7 +197,7 @@ fn gen_run_nif(
                     opaque_bindings.push_str(&render(
                         "service_api_opaque_metadata_binding.rs.jinja",
                         context! {
-                            indent => "                    ",
+                            indent => "                ",
                             param_name => meta_param.name,
                             core_import => core_import,
                             type_name => n,
@@ -233,7 +233,7 @@ fn gen_run_nif(
     }
 
     if !service.registrations.is_empty() {
-        out.push_str("            }\n");
+        out.push_str("        }\n");
     }
     let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
     let entrypoint_call = render(
