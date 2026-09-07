@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.5] - 2026-09-07
+
 ### Fixed
 
 - **A file that denies alef authorship was read as claiming it, when the denial negated a word
