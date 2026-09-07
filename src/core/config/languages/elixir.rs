@@ -74,7 +74,10 @@ pub struct ElixirConfig {
     /// GitHub release. `RustlerPrecompiled` reads this list to know which
     /// archives to download at install time. Must agree with the consumer's
     /// CI build matrix and the `generate-elixir-checksums` action's targets
-    /// input. When empty, falls back to [`DEFAULT_NIF_TARGETS`].
+    /// input. When empty, falls back to [`DEFAULT_NIF_TARGETS`]:
+    /// `aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc`.
+    /// Windows is msvc, not gnu -- `RustlerPrecompiled` resolves the msvc triple at install time
+    /// and rejects any triple this list omits.
     #[serde(default)]
     pub nif_targets: Vec<String>,
     /// Per-target overrides for the core-crate dependency emitted into the

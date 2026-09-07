@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.1] - 2026-09-07
+
+### Fixed
+
+- **0.85.0 fixed the type emitter but not the value emitter, so generated TypeScript referenced a
+  member that no longer exists.** With `OutputFormat` correctly declared as a flat string union
+  (`export type OutputFormat = "plain" | ... | (string & {})`), the e2e-fixture and docs-snippet
+  emitters kept writing `OutputFormat.Markdown` and adding the enum to the *value* import list.
+  A type alias has no value binding — and the napi package's `index.js` exports no such symbol —
+  so every generated node and wasm snippet touching the enum failed to compile. The builder asked
+  the container-level `is_untagged_data_enum` alone; it now asks the combined
+  `is_json_passthrough_data_enum`, which also claims the variant-level case, and emits the fixture
+  value verbatim.
+
+- **`wasm_snippet_enum_members_are_declared_by_the_wasm_binding` could not see the drift it exists
+  to catch.** Its "what does the binding declare" helper called `enums::gen_enum` directly, but the
+  pipeline gates that call on `!is_json_passthrough_data_enum` — so for a JSON-passthrough enum the
+  helper reported C-style members that are never emitted, and the assertion compared the snippet
+  against a declaration that does not ship. The helper now consults the same predicate the pipeline
+  does, and the added variant-level case fails without the emitter fix.
+
+- **Every Elixir binding declared the wrong Windows triple, so precompiled NIFs were unreachable on
+  Windows.** The default `nif_targets` listed `x86_64-pc-windows-gnu`, but
+  `RustlerPrecompiled.target/3` defaults the ABI to `"msvc"` on `{:win32, _}` and then rejects any
+  triple absent from the declared list — so `mix deps.get` failed with "precompiled NIF is not
+  available for this target" while CI built, checksummed and uploaded the msvc artifact nobody
+  could reach. alef's own `scaffold::cargo_config` emits `[target.x86_64-pc-windows-msvc]`, so the
+  default also contradicted the toolchain alef scaffolds. The default is now the msvc triple.
+
+  Consumers that already set an explicit `nif_targets` are unaffected. Anyone relying on the
+  default should confirm their CI builds msvc (it almost certainly does — upstream
+  `RustlerPrecompiled` lists both ABIs, but a project must declare exactly what it builds, because
+  checksum generation walks the declared list and fails on a triple with no artifact).
+
+### Changed
+
+- The default NIF target list existed as three byte-identical literals (`rustler`'s
+  `nif_service`, `scaffold::languages::elixir`, `publish::validate`), which is why the wrong
+  Windows triple was uniform across all of them. They now share one
+  `core::config::languages::DEFAULT_NIF_TARGETS`.
+
+- `napi::gen_bindings::enums` gained `is_json_passthrough_data_enum`, mirroring the wasm backend's
+  predicate of the same name; `gen_enum` and the conversion dispatcher now share it instead of each
+  re-deriving `is_untagged_data_enum(e) || is_variant_untagged_string_enum(e)`.
+
 ## [0.85.0] - 2026-09-07
 
 ### Fixed
