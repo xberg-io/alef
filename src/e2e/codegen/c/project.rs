@@ -608,7 +608,7 @@ mod tests {
         for key in ["REPO_URL", "VERSION", "FFI_PKG_NAME"] {
             assert!(script.contains(&format!("{key}={escaped}")), "got: {script}");
         }
-        let status = std::process::Command::new("bash")
+        let status = crate::core::bash_command()
             .args(["-n", "-c", &script])
             .status()
             .expect("bash should parse generated script");

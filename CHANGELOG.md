@@ -43,6 +43,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `&expr[..]` also drops the allocation on the owned one.
 - **The dart handler-bridge doc block was separated from its struct by a blank line**
   (`clippy::empty_line_after_doc_comments`).
+- **`Test (windows-latest)` was red on every run: 14 failures, all toolchain resolution.**
+  `core::tool_command` existed for exactly this -- Windows resolves a bare program name by
+  appending `.exe` alone while `which` honours all of `PATHEXT`, so a tool shipped as `mix.bat`
+  or `tsc.cmd` passes every `is_available()` probe and then fails to spawn -- but adoption was
+  incomplete. `run_formatter` (the choke point every external formatter spawns through) and the
+  `tsc`/`mix`/`elixir` oracles now resolve before spawning. Sites that override `PATH` per
+  command are deliberately left spawning by bare name: resolving at construction time would
+  bypass the very shim such an override exists to install.
+- **`bash` on Windows resolved to the WSL launcher.** `C:\Windows\System32\bash.exe` is not a
+  shell; with no distribution installed it fails every invocation, and it precedes Git for
+  Windows on `PATH`, so the availability probe found it and every `bash -c` then failed. The new
+  `core::bash_command` prefers Git for Windows' real `bash.exe` and skips any `System32`/
+  `SysWOW64` entry.
 
 ### Changed
 

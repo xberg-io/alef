@@ -24,4 +24,4 @@ pub use error::AlefError;
 pub use extension::{Extension, ExtensionConfig};
 pub use ir::ApiSurface;
 pub use template_env::TemplateEnv;
-pub use toolchain::tool_command;
+pub use toolchain::{bash_command, tool_command};

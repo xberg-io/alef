@@ -432,7 +432,7 @@ sources = ["src/lib.rs"]
     fn elixir_is_runnable() -> bool {
         static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *RUNNABLE.get_or_init(|| {
-            std::process::Command::new("elixir")
+            crate::core::tool_command("elixir")
                 .arg("--version")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
@@ -453,7 +453,7 @@ sources = ["src/lib.rs"]
         let script = format!(
             "IO.write(IO.iodata_to_binary(Code.format_string!(IO.read(:stdio, :eof), line_length: {line_length})) <> \"\\n\")"
         );
-        let mut child = std::process::Command::new("elixir")
+        let mut child = crate::core::tool_command("elixir")
             .args(["-e", &script])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

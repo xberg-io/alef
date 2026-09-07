@@ -369,7 +369,7 @@ impl TypeScriptValidator {
         isolated_directory: &std::path::Path,
         project: Option<&std::path::Path>,
     ) -> std::process::Command {
-        let mut command = std::process::Command::new("tsc");
+        let mut command = crate::core::tool_command("tsc");
         command.args(["--noEmit", "--pretty", "false"]);
         if level == ValidationLevel::Syntax {
             command.arg("--noCheck");
@@ -524,7 +524,7 @@ impl SnippetValidator for TypeScriptValidator {
 fn tsc_is_runnable() -> bool {
     static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *RUNNABLE.get_or_init(|| {
-        std::process::Command::new("tsc")
+        crate::core::tool_command("tsc")
             .arg("--version")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())

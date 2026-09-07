@@ -4,7 +4,7 @@ fn assert_strict_typescript_compiles(source: &str) {
     let directory = tempfile::tempdir().expect("temporary TypeScript project");
     let source_path = directory.path().join("snippet.ts");
     std::fs::write(&source_path, source).expect("write TypeScript regression source");
-    let Ok(output) = std::process::Command::new("tsc")
+    let Ok(output) = crate::core::tool_command("tsc")
         .args([
             "--strict",
             "--noUncheckedIndexedAccess",
@@ -28,7 +28,7 @@ fn assert_strict_typescript_rejects(source: &str) {
     let directory = tempfile::tempdir().expect("temporary TypeScript project");
     let source_path = directory.path().join("snippet.ts");
     std::fs::write(&source_path, source).expect("write TypeScript regression source");
-    let Ok(output) = std::process::Command::new("tsc")
+    let Ok(output) = crate::core::tool_command("tsc")
         .args([
             "--strict",
             "--noUncheckedIndexedAccess",

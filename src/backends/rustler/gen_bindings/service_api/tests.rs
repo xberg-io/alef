@@ -280,7 +280,7 @@ fn genserver_module_keeps_single_blank_lines_between_functions() {
 fn mix_is_runnable() -> bool {
     static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *RUNNABLE.get_or_init(|| {
-        std::process::Command::new("mix")
+        crate::core::tool_command("mix")
             .arg("--version")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -309,7 +309,7 @@ fn genserver_template_matches_mix_format_when_available() {
     if !mix_is_runnable() {
         return;
     }
-    let Ok(mut child) = std::process::Command::new("mix")
+    let Ok(mut child) = crate::core::tool_command("mix")
         .args(["format", "-"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

@@ -657,10 +657,7 @@ mod tests {
             .and_then(|line| line.strip_prefix("if "))
             .unwrap();
         let script = format!("{version}\n{expected}\n_output_version='mytool 1.9.0-rc.25'\n{comparison}");
-        let status = std::process::Command::new("bash")
-            .args(["-c", &script])
-            .status()
-            .unwrap();
+        let status = crate::core::bash_command().args(["-c", &script]).status().unwrap();
         assert!(
             status.success(),
             "rendered default version comparison failed:\n{script}"
@@ -683,10 +680,7 @@ mod tests {
             .unwrap();
         let output = crate::core::config::shell::quote_word(&malicious);
         let script = format!("{expected}\n_output_hostile={output}\n{comparison}");
-        let status = std::process::Command::new("bash")
-            .args(["-c", &script])
-            .status()
-            .unwrap();
+        let status = crate::core::bash_command().args(["-c", &script]).status().unwrap();
         assert!(status.success(), "literal expected text did not match:\n{script}");
         assert!(!marker.exists(), "custom expected text executed as shell syntax");
     }
@@ -701,7 +695,7 @@ mod tests {
         );
 
         let script = render_run_tests(malicious, malicious, Some(malicious), malicious, malicious, &[]);
-        let status = std::process::Command::new("bash")
+        let status = crate::core::bash_command()
             .args(["-n", "-c", &script])
             .status()
             .expect("bash should parse generated script");

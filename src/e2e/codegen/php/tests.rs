@@ -792,7 +792,7 @@ mod composer_json_tests {
         for key in ["PKG_NAME", "EXTENSION_NAME", "PINNED_VERSION"] {
             assert!(content.contains(&format!("{key}={escaped}")), "got: {content}");
         }
-        let status = std::process::Command::new("bash")
+        let status = crate::core::bash_command()
             .args(["-n", "-c", &content])
             .status()
             .expect("bash should parse generated script");

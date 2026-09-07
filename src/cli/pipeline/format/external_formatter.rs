@@ -5,11 +5,18 @@
 //! about which languages alef formats or when, which is why it separates cleanly. ~keep
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 /// Run a formatter command with arguments in a specific directory.
 pub(super) fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> anyhow::Result<()> {
-    let output = Command::new(command).args(args).current_dir(work_dir).output()?;
+    // ~keep Resolved, not bare: `is_tool_available` finds a tool through `which`, which
+    // honours all of PATHEXT, while `Command::new` on Windows appends only `.exe`. A
+    // formatter shipped as `mix.bat`/`npm.cmd` therefore passed the availability check and
+    // then failed to spawn at all.
+    let output = crate::core::tool_command(command)
+        .args(args)
+        .current_dir(work_dir)
+        .output()?;
 
     if !output.status.success() {
         return Err(formatter_failure(&output));

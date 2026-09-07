@@ -76,7 +76,7 @@ fn render_adapter_inferred_stream_test() -> String {
 }
 
 fn tsc(required: bool, source: &str) -> std::process::Output {
-    match std::process::Command::new("tsc")
+    match crate::core::tool_command("tsc")
         .args([
             "--strict",
             "--noUncheckedIndexedAccess",

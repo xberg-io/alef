@@ -38,8 +38,8 @@
 //! same install resolved perfectly under a locally installed classic 5.9.3 `tsc`, confirmed with
 //! `--listFiles`: the classic compiler loaded the `@types/node` declaration file into the program,
 //! the native one never did). `alef` shells out to whatever `tsc` a `PATH` lookup finds
-//! (`Command::new("tsc")`, no project-local `node_modules/.bin/tsc` preference), so it cannot
-//! assume a classic compiler is what actually runs a given check.
+//! (a `tool_command("tsc")` PATH resolve, no project-local `node_modules/.bin/tsc` preference), so it
+//! cannot assume a classic compiler is what actually runs a given check.
 //!
 //! The fix that is portable across both: once [`nearest_ancestor_with_types_node`] has already
 //! confirmed a real install exists, `TypeScriptValidator` writes `"types": ["node"]` into the

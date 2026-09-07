@@ -27,7 +27,6 @@ use crate::backends::rustler::gen_bindings::public_api_args::emit_tagged_enum_en
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeRef};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 mod gate;
 
@@ -296,7 +295,11 @@ fn scratch_dir(label: &str) -> PathBuf {
 /// a runner explicitly asked for them with `--ignored`; answering that request by returning
 /// quietly is how a suite reports green having validated nothing. ~keep
 fn run_elixir(dir: &Path, script: &str) -> String {
-    let output = match Command::new("elixir").arg(script).current_dir(dir).output() {
+    let output = match crate::core::tool_command("elixir")
+        .arg(script)
+        .current_dir(dir)
+        .output()
+    {
         Ok(output) => output,
         Err(error) if error.kind() == ErrorKind::NotFound => panic!(
             "`elixir` is not on PATH, but this lane was explicitly selected (it is #[ignore]d and \

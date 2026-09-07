@@ -382,7 +382,7 @@ mod tests {
             root.display(),
             std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".to_string())
         );
-        let output = std::process::Command::new("bash")
+        let output = crate::core::bash_command()
             .arg("run_tests.sh")
             .current_dir(root)
             .env("PATH", path_var)

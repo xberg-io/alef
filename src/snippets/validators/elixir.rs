@@ -62,7 +62,7 @@ impl ElixirValidator {
         }
         let checker_path = dir.path().join(BATCH_CHECKER_NAME);
         std::fs::write(&checker_path, BATCH_CHECKER_SOURCE)?;
-        let mut command = std::process::Command::new("elixir");
+        let mut command = crate::core::tool_command("elixir");
         command.arg(&checker_path).args(&paths);
         if let Some(session) = session {
             session.apply(&mut command);
@@ -168,12 +168,12 @@ end"#,
                 );
                 std::fs::write(&checker_path, checker)?;
 
-                let mut command = std::process::Command::new("elixir");
+                let mut command = crate::core::tool_command("elixir");
                 command.arg(checker_path);
                 command
             }
             ValidationLevel::Run => {
-                let mut command = std::process::Command::new("elixir");
+                let mut command = crate::core::tool_command("elixir");
                 command.arg(&snippet_path);
                 command
             }
@@ -250,11 +250,11 @@ end"#,
         let file = dir.path().join("snippet.exs");
         std::fs::write(&file, &snippet.code)?;
         let mut command = if level == ValidationLevel::Run {
-            let mut value = std::process::Command::new("elixir");
+            let mut value = crate::core::tool_command("elixir");
             value.arg(&file);
             value
         } else {
-            let mut value = std::process::Command::new("elixir");
+            let mut value = crate::core::tool_command("elixir");
             value.args([
                 "-e",
                 &format!("Code.string_to_quoted!(File.read!({:?}))", file.to_string_lossy()),
@@ -284,7 +284,7 @@ mod tests {
     fn elixir_is_runnable() -> bool {
         static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *RUNNABLE.get_or_init(|| {
-            std::process::Command::new("elixir")
+            crate::core::tool_command("elixir")
                 .arg("--version")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
