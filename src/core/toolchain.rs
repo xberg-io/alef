@@ -120,6 +120,17 @@ mod bash_tests {
         assert!(!is_wsl_launcher(std::path::Path::new("/usr/bin/bash")));
     }
 
+    /// On Windows the helper must never hand back the System32 launcher -- resolving that as a
+    /// shell is the whole failure this exists to prevent. Pinned on the platform itself so the
+    /// `bash_command` import is exercised on every host, not only the Unix ones. ~keep
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_host_never_resolves_the_wsl_launcher_as_bash() {
+        let command = bash_command();
+
+        assert!(!is_wsl_launcher(std::path::Path::new(command.get_program())));
+    }
+
     /// Off Windows the helper must stay exactly `tool_command("bash")` -- the launcher does not
     /// exist there and a preference for a Git install would be wrong. ~keep
     #[cfg(not(windows))]
