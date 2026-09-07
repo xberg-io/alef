@@ -8,6 +8,7 @@ fn unit_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Red".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -21,6 +22,7 @@ fn unit_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Blue".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -59,6 +61,7 @@ fn data_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Http".into(),
                 fields: vec![
                     FieldDef {
@@ -121,6 +124,7 @@ fn data_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "ApiKey".into(),
                 fields: vec![
                     FieldDef {
@@ -428,6 +432,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Excel".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -464,6 +469,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -587,6 +593,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Inline".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -600,6 +607,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Anchored".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),

@@ -62,6 +62,7 @@ fn make_image_output_format_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Native".to_string(),
                 fields: vec![],
                 doc: "Keep the original image format.".to_string(),
@@ -75,6 +76,7 @@ fn make_image_output_format_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Jpeg".to_string(),
                 fields: vec![make_field("quality", TypeRef::Primitive(PrimitiveType::U8), false)],
                 doc: "JPEG output.".to_string(),
@@ -88,6 +90,7 @@ fn make_image_output_format_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Heif".to_string(),
                 fields: vec![make_field("quality", TypeRef::Primitive(PrimitiveType::U8), false)],
                 doc: "HEIF/HEIC output. Requires the `heic` feature.".to_string(),

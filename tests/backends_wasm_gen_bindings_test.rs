@@ -142,6 +142,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
@@ -155,6 +156,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
@@ -317,6 +319,7 @@ fn test_enum_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Low".to_string(),
                     fields: vec![],
                     doc: "Low level".to_string(),
@@ -330,6 +333,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Medium".to_string(),
                     fields: vec![],
                     doc: "Medium level".to_string(),
@@ -343,6 +347,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "High".to_string(),
                     fields: vec![],
                     doc: "High level".to_string(),
@@ -1602,6 +1607,7 @@ fn make_visit_result_wasm() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Continue".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -1615,6 +1621,7 @@ fn make_visit_result_wasm() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Stop".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -2852,6 +2859,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
             rust_path: "test_lib::ToolKind".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Function".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -3012,6 +3020,7 @@ fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) 
         variants: variants
             .iter()
             .map(|v| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -3207,6 +3216,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
     let backend = WasmBackend;
 
     let make_data_variant = |name: &str, tag: &str| EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields: vec![FieldDef {
             version: Default::default(),
@@ -3374,6 +3384,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -3410,6 +3421,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "JsonObject".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -3808,6 +3820,7 @@ fn test_wasm_js_name_on_unit_enum() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
@@ -3821,6 +3834,7 @@ fn test_wasm_js_name_on_unit_enum() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
@@ -4205,6 +4219,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -4241,6 +4256,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "MetadataBlock".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),

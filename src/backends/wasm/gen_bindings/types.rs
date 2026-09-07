@@ -28,9 +28,16 @@ use types_helpers::{
 use types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
 
 /// Generate an opaque wasm-bindgen struct with inner Arc or Arc<Mutex<>>.
-pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
+pub(super) fn gen_opaque_struct(
+    typ: &TypeDef,
+    core_import: &str,
+    prefix: &str,
+    source_crate_remaps: &[(&str, &str)],
+) -> String {
     let js_name = format!("{prefix}{}", typ.name);
-    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    // ~keep See `methods::gen_method`: the override crate is the only one this binding depends
+    // on, so the source-crate prefix the IR carries has to be rewritten before it is emitted.
+    let core_path = crate::codegen::conversions::core_type_path_remapped(typ, core_import, source_crate_remaps);
 
     let has_mut_methods = typ
         .methods
@@ -462,6 +469,7 @@ pub(super) fn gen_struct_methods(
     mutex_types: &AHashSet<String>,
     streaming_item_types: &ahash::AHashMap<String, String>,
     untagged_ts_value_types: &AHashMap<String, String>,
+    source_crate_remaps: &[(&str, &str)],
 ) -> String {
     use super::field_references_excluded_type;
 
@@ -540,6 +548,7 @@ pub(super) fn gen_struct_methods(
                 typ,
                 mutex_types,
                 streaming_item_types,
+                source_crate_remaps,
             ));
         }
     }

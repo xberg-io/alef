@@ -310,7 +310,7 @@ fn generate_docs_stage_extras(
         && cli_cfg.is_enabled()
     {
         let explicit_sources = !cli_cfg.sources.is_empty();
-        let sources = docs_sources(config, &cli_cfg.sources, workspace_root);
+        let sources = docs_sources(config, &cli_cfg.sources, workspace_root)?;
         warn_missing_explicit_sources("CLI", &cli_cfg.sources, workspace_root);
         let surface = rust_static::extract_cli_surface(&sources)?;
         if surface.commands.is_empty() {
@@ -333,7 +333,7 @@ fn generate_docs_stage_extras(
         && mcp_cfg.is_enabled()
     {
         let explicit_sources = !mcp_cfg.sources.is_empty();
-        let sources = docs_sources(config, &mcp_cfg.sources, workspace_root);
+        let sources = docs_sources(config, &mcp_cfg.sources, workspace_root)?;
         warn_missing_explicit_sources("MCP", &mcp_cfg.sources, workspace_root);
         let surface = rust_static::extract_mcp_surface(&sources, &mcp_cfg.declared)?;
         if surface.tools.is_empty() && surface.prompts.is_empty() && surface.resources.is_empty() {
@@ -748,13 +748,17 @@ fn parse_allowed_side_effects(configured: &[String]) -> anyhow::Result<Vec<crate
         .collect()
 }
 
-fn docs_sources(config: &ResolvedCrateConfig, configured_sources: &[PathBuf], workspace_root: &Path) -> Vec<PathBuf> {
+fn docs_sources(
+    config: &ResolvedCrateConfig,
+    configured_sources: &[PathBuf],
+    workspace_root: &Path,
+) -> anyhow::Result<Vec<PathBuf>> {
     let sources = if configured_sources.is_empty() {
-        config.source_hash_paths()
+        config.source_hash_paths()?
     } else {
         configured_sources.to_vec()
     };
-    sources
+    Ok(sources
         .into_iter()
         .map(|source| {
             if source.is_absolute() {
@@ -763,7 +767,7 @@ fn docs_sources(config: &ResolvedCrateConfig, configured_sources: &[PathBuf], wo
                 workspace_root.join(source)
             }
         })
-        .collect()
+        .collect())
 }
 
 fn warn_missing_explicit_sources(kind: &str, sources: &[PathBuf], workspace_root: &Path) {

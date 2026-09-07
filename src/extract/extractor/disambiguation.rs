@@ -255,6 +255,7 @@ mod tests {
             rust_path: rust_path.to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Unit".into(),
                 fields: vec![],
                 doc: String::new(),

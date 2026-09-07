@@ -101,7 +101,7 @@ fn harness(generated_assertion: &str) -> String {
 }
 
 fn tsc(source: &std::path::Path) -> std::process::Output {
-    std::process::Command::new("tsc")
+    crate::core::tool_command("tsc")
         .args(["--strict", "--noEmit", "--target", "ES2022"])
         .arg(source)
         .output()

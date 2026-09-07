@@ -97,6 +97,9 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 
     let mut to_add = BTreeSet::new();
     for func in &api.functions {
+        if func.binding_excluded {
+            continue;
+        }
         if let Some(cfg) = &func.cfg {
             let pred = crate::codegen::cfg::parse_cfg_predicate(cfg);
             to_add.extend(missing_features_for(&pred, &active, &core_defaults));
@@ -115,6 +118,9 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for func in &api.functions {
+        if func.binding_excluded {
+            continue;
+        }
         if let Some(cfg) = &func.cfg {
             crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
         }
@@ -187,19 +193,22 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
-    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api
+        .functions
+        .iter()
+        .any(|f| !f.binding_excluded && f.params.iter().any(|p| p.map_is_ahash));
     let mut all_deps = extra_deps;
     if needs_ahash {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("ahash = \"0.8\"");
+        all_deps.push_str(&format!("ahash = \"{}\"", tv::cargo::AHASH));
     }
     if has_trait_bridges && !all_deps.contains("async-trait") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("async-trait = \"0.1\"");
+        all_deps.push_str(&format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }
     if has_trait_bridges && !all_deps.contains("tracing") {
         if !all_deps.is_empty() {
@@ -211,7 +220,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("futures-util = \"0.3\"");
+        all_deps.push_str(&format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
 
     let extra_deps_section = if all_deps.is_empty() {
@@ -270,9 +279,15 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     };
     let mut dep_entries: Vec<String> = vec![
         format!("ext-php-rs = \"{}\"", tv::cargo::EXT_PHP_RS),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
-        "serde_json = \"1\"".to_string(),
-        "tokio = { version = \"1\", features = [\"full\"] }".to_string(),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!(
+            "tokio = {{ version = \"{}\", features = [\"full\"] }}",
+            tv::cargo::TOKIO
+        ),
     ];
     if !core_dep_php.is_empty() {
         dep_entries.push(core_dep_php.clone());

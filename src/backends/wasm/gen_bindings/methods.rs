@@ -25,6 +25,7 @@ pub(super) fn gen_method(
     typ: &TypeDef,
     mutex_types: &AHashSet<String>,
     streaming_item_types: &ahash::AHashMap<String, String>,
+    source_crate_remaps: &[(&str, &str)],
 ) -> String {
     // `type_name` is the bare IR name (`typ.name`) and is only safe to interpolate as
     // `{core_import}::{type_name}` when the type happens to be re-exported at the core crate
@@ -33,7 +34,12 @@ pub(super) fn gen_method(
     // even though `sample_core` genuinely has the feature enabled. `core_type_path` is the
     // shared authority for this: it walks `typ.rust_path` and only falls back to
     // `{core_import}::{name}` when the type actually lives at the crate root. ~keep
-    let qualified_type_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    // ~keep Remapped, not bare: with `core_crate_override` set, IR `rust_path` values still
+    // carry the *source* crate prefix, and the binding crate depends only on the override. The
+    // unremapped form emitted `source_crate::Type::from(..)` into a crate with no such
+    // dependency -- E0433 at every delegating method and `Default` impl.
+    let qualified_type_path =
+        crate::codegen::conversions::core_type_path_remapped(typ, core_import, source_crate_remaps);
     let has_mut_methods = typ
         .methods
         .iter()

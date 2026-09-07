@@ -153,6 +153,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Trace".into(),
                     fields: vec![],
                     doc: "Most verbose level; intended for development only.".into(),
@@ -166,6 +167,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Info".into(),
                     fields: vec![],
                     doc: "Default operational level.".into(),
@@ -223,6 +225,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Empty".into(),
                     fields: vec![],
                     doc: "No payload present.".into(),
@@ -236,6 +239,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".into(),
                     fields: vec![field_with_doc("0", TypeRef::String, "")],
                     is_tuple: true,

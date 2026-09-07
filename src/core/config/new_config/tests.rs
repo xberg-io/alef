@@ -950,3 +950,55 @@ exclude_languages = ["wasm", "elixir"]
     let resolved = cfg.resolve().expect("valid exclude_languages should not fail");
     assert_eq!(resolved[0].trait_bridges[0].exclude_languages, vec!["wasm", "elixir"]);
 }
+
+/// `resolve()` must not eagerly resolve `[[crates.source_crates]]` with `from_registry = true` --
+/// that shells out to `cargo metadata` (see `crate::core::config::registry`), a cost (and a
+/// failure mode) every subcommand paid for before this fix, including `alef publish package`,
+/// which never reads `source_crates` at all. `workspace_root` here points at a directory with no
+/// `Cargo.toml`, which would make `cargo metadata` fail immediately (no network access needed to
+/// prove this deterministically) -- so `resolve()` succeeding is direct proof the resolution
+/// never ran. ~keep
+#[test]
+fn resolve_does_not_invoke_cargo_for_a_from_registry_source_crate() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+workspace_root = "/definitely/does/not/exist/nowhere"
+
+[[crates.source_crates]]
+name = "sample_router-core"
+sources = ["src/http.rs"]
+from_registry = true
+"#,
+    )
+    .unwrap();
+
+    let resolved = cfg
+        .resolve()
+        .expect("resolve() must not eagerly resolve source_crates against a nonexistent workspace_root");
+    let sample_router = &resolved[0];
+
+    // The entry is preserved verbatim, unrebased -- further proof no cargo call happened: a
+    // successful rebase would have rewritten `sources` to an absolute registry path.
+    assert_eq!(sample_router.source_crates.len(), 1);
+    assert!(sample_router.source_crates[0].from_registry);
+    assert_eq!(
+        sample_router.source_crates[0].sources,
+        vec![std::path::PathBuf::from("src/http.rs")]
+    );
+
+    // Only on first access from a codegen/hash-style caller does resolution actually run -- and
+    // it correctly surfaces the cargo failure as an error rather than panicking.
+    let err = sample_router
+        .resolved_source_crates()
+        .expect_err("a nonexistent workspace_root must fail to resolve, proving the lazy path is wired");
+    assert!(
+        matches!(err, ResolveError::RegistryResolution(_)),
+        "unexpected error variant: {err:?}"
+    );
+}

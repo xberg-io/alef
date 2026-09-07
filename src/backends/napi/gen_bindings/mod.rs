@@ -560,11 +560,15 @@ impl Backend for NapiBackend {
         }
         let mut emitted_enum_binding_to_core: AHashSet<String> = AHashSet::new();
         for e in &api.enums {
-            // Asks `enums::is_tagged_data_enum`/`is_untagged_data_enum` -- the same authority
-            // `enums::gen_enum` routes through -- so the binding<->core conversion always matches
-            // whichever shape the compiled `#[napi]` type actually is. (~keep)
+            // Asks `enums::is_tagged_data_enum`/`is_untagged_data_enum`/
+            // `is_variant_untagged_string_enum` -- the same authority `enums::gen_enum` routes
+            // through -- so the binding<->core conversion always matches whichever shape the
+            // compiled `#[napi]` type actually is. The container-level and variant-level untagged
+            // predicates share one conversion branch: both route `gen_enum` to the same
+            // `serde_json::Value` wrapper struct, and the `serde_json::to_value`/`from_value`
+            // conversion below is generic over the payload shape either one produces. ~keep
             let is_tagged_data_enum = enums::is_tagged_data_enum(e);
-            let is_untagged_data_enum = enums::is_untagged_data_enum(e);
+            let is_json_passthrough_data_enum = enums::is_json_passthrough_data_enum(e);
             if is_tagged_data_enum {
                 builder.add_item(&methods::gen_tagged_enum_binding_to_core(
                     e,
@@ -579,7 +583,7 @@ impl Backend for NapiBackend {
                     &struct_names,
                     Some(enabled_features.as_slice()),
                 ));
-            } else if is_untagged_data_enum {
+            } else if is_json_passthrough_data_enum {
                 let binding_name = format!("{prefix}{}", e.name);
                 let core_path = crate::codegen::conversions::core_enum_path_remapped(
                     e,
@@ -692,9 +696,13 @@ impl Backend for NapiBackend {
                 collect_enum_names(&field.ty, &mut field_enums);
                 for enum_name in field_enums {
                     if let Some(enum_def) = api.enums.iter().find(|e| e.name == enum_name) {
-                        // Asks `enums::is_tagged_data_enum`/`is_untagged_data_enum` -- the same
-                        // authority `enums::gen_enum` routes through. (~keep)
-                        if enums::is_tagged_data_enum(enum_def) || enums::is_untagged_data_enum(enum_def) {
+                        // Asks `enums::is_tagged_data_enum`/`is_untagged_data_enum`/
+                        // `is_variant_untagged_string_enum` -- the same authority
+                        // `enums::gen_enum` routes through. (~keep)
+                        if enums::is_tagged_data_enum(enum_def)
+                            || enums::is_untagged_data_enum(enum_def)
+                            || enums::is_variant_untagged_string_enum(enum_def)
+                        {
                             continue;
                         }
                         if !emitted_enum_binding_to_core.contains(&enum_def.name)

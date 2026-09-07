@@ -47,6 +47,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -83,6 +84,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Docx".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -177,6 +179,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Img".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -190,6 +193,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "OgImage".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -203,6 +207,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "TwitterImage".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -293,6 +298,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -329,6 +335,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Other".into(),
                 fields: vec![FieldDef {
                     version: Default::default(),

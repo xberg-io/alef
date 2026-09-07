@@ -452,7 +452,11 @@ pub fn render_test_file(
                         Some(definition) if crate::backends::napi::is_tagged_data_enum(definition) => {
                             Some(format!("type {elem_type}"))
                         }
-                        Some(definition) if crate::backends::napi::is_untagged_data_enum(definition) => None,
+                        // Combined predicate, not the container-level one: a variant-level
+                        // untagged enum also declares no value binding, so importing it here as a
+                        // value is the same type-used-as-value error the builder emits raw strings
+                        // to avoid. ~keep
+                        Some(definition) if crate::backends::napi::is_json_passthrough_data_enum(definition) => None,
                         _ => Some(elem_type),
                     };
                     if let Some(elem_import) = elem_import

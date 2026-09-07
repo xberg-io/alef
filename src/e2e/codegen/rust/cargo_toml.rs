@@ -174,7 +174,7 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
         ));
     }
     if needs_anyhow {
-        dep_entries.push(("anyhow".to_string(), "anyhow = \"1\"".to_string()));
+        dep_entries.push(("anyhow".to_string(), format!("anyhow = \"{}\"", tv::cargo::ANYHOW)));
         dep_entries.push((
             "async-trait".to_string(),
             format!("async-trait = \"{async_trait}\"", async_trait = tv::cargo::ASYNC_TRAIT),
@@ -194,8 +194,14 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
             format!("walkdir = \"{walkdir}\"", walkdir = tv::cargo::WALKDIR),
         ));
         if needs_http_tests {
-            dep_entries.push(("axum-test".to_string(), "axum-test = \"20\"".to_string()));
-            dep_entries.push(("bytes".to_string(), "bytes = \"1\"".to_string()));
+            dep_entries.push((
+                "axum-test".to_string(),
+                format!("axum-test = \"{axum_test}\"", axum_test = tv::cargo::AXUM_TEST),
+            ));
+            dep_entries.push((
+                "bytes".to_string(),
+                format!("bytes = \"{bytes}\"", bytes = tv::cargo::BYTES),
+            ));
         }
         if needs_tower_http {
             dep_entries.push((

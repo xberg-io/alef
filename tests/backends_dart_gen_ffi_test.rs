@@ -306,6 +306,7 @@ fn unit_enum_emits_dart_enum() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Active".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -319,6 +320,7 @@ fn unit_enum_emits_dart_enum() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Inactive".to_string(),
                 fields: vec![],
                 doc: String::new(),

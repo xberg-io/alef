@@ -51,12 +51,25 @@ impl super::E2eCodegen for PythonE2eCodegen {
         // NOTE: app_harness.py and the server-pattern conftest.py are emitted
         // by a consumer extension (Extension::emit_e2e "python" arm).
         // alef emits only the non-server-pattern conftest here.
+        //
+        // ~keep This gate is what makes that NOTE true. Without it alef pushes a
+        // conftest.py unconditionally, so a consumer whose fixtures are HTTP *and* who
+        // configures harness imports gets two generators emitting the same path with
+        // different content, and e2e codegen fails outright with "multiple generators
+        // emitted different content for e2e/python/conftest.py". Every other backend
+        // already derives the same predicate (ruby.rs, java.rs, php.rs, elixir.rs,
+        // wasm.rs, typescript/mod.rs); python was the only one that documented the
+        // hand-off without implementing it.
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
 
-        files.push(GeneratedFile {
-            path: output_base.join("conftest.py"),
-            content: render_conftest(e2e_config, groups, type_defs, enums),
-            generated_header: true,
-        });
+        if !uses_harness {
+            files.push(GeneratedFile {
+                path: output_base.join("conftest.py"),
+                content: render_conftest(e2e_config, groups, type_defs, enums),
+                generated_header: true,
+            });
+        }
 
         // NOTE: do NOT emit a root-level `__init__.py` in the test_app dir.
         // Marking `test_apps/python/` as a Python package interferes with
@@ -258,6 +271,59 @@ mod tests {
             "assertions": []
         }))
         .expect("minimal fixture JSON must parse")
+    }
+
+    fn make_http_fixture(id: &str) -> crate::e2e::fixture::Fixture {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "description": "http fixture",
+            "input": serde_json::Value::Null,
+            "assertions": [],
+            "http": {
+                "handler": { "route": "/api/test", "method": "GET" },
+                "request": { "method": "GET", "path": "/api/test" },
+                "expected_response": { "status_code": 200 }
+            }
+        }))
+        .expect("minimal http fixture JSON must parse")
+    }
+
+    fn python_files_for(e2e_config: &E2eConfig) -> Vec<GeneratedFile> {
+        let groups = vec![FixtureGroup {
+            category: "http".to_owned(),
+            fixtures: vec![make_http_fixture("f1")],
+        }];
+        PythonE2eCodegen
+            .generate(&groups, e2e_config, &ResolvedCrateConfig::default(), &[], &[], &[], &[])
+            .expect("python e2e codegen must succeed")
+    }
+
+    /// A consumer extension owns the server-pattern `conftest.py` (the `uses_harness`
+    /// branch), and this backend's own NOTE says alef emits only the non-server-pattern
+    /// one. That hand-off was documented but never implemented: alef pushed `conftest.py`
+    /// unconditionally, so any consumer with HTTP fixtures *and* configured harness imports
+    /// had two generators emitting the same path with different content, failing the whole
+    /// e2e stage with "multiple generators emitted different content for
+    /// e2e/python/conftest.py". Assert the gate directly -- the emitted file list is the
+    /// only place the contract is observable. ~keep
+    #[test]
+    fn conftest_is_left_to_the_extension_when_the_harness_owns_it() {
+        let mut with_harness = E2eConfig::default();
+        with_harness.harness.imports = vec!["app_harness".to_owned()];
+
+        let emitted = python_files_for(&with_harness);
+        assert!(
+            !emitted.iter().any(|f| f.path.ends_with("conftest.py")),
+            "alef must not emit conftest.py when the harness owns it; got {:?}",
+            emitted.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
+        );
+
+        // The client/mock-server pattern (no harness imports) still gets alef's conftest.
+        let emitted = python_files_for(&E2eConfig::default());
+        assert!(
+            emitted.iter().any(|f| f.path.ends_with("conftest.py")),
+            "alef must still emit conftest.py for the non-harness pattern"
+        );
     }
 
     #[test]

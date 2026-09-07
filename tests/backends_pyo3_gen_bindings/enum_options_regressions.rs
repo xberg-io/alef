@@ -12,6 +12,7 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
             .iter()
             .enumerate()
             .map(|(i, v)| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -585,6 +586,7 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
 fn test_internally_tagged_enum_constructor_wraps_bare_string() {
     fn variant(name: &str, fields: Vec<FieldDef>, is_default: bool) -> EnumVariant {
         EnumVariant {
+            serde_untagged: false,
             name: name.to_string(),
             originally_had_data_fields: !fields.is_empty(),
             fields,
@@ -674,6 +676,7 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
 fn test_internally_tagged_unit_variant_wraps_bare_string() {
     fn variant(name: &str, fields: Vec<FieldDef>, is_default: bool) -> EnumVariant {
         EnumVariant {
+            serde_untagged: false,
             name: name.to_string(),
             originally_had_data_fields: !fields.is_empty(),
             fields,

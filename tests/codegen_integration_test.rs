@@ -204,6 +204,7 @@ fn simple_enum_def() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Json".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -217,6 +218,7 @@ fn simple_enum_def() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Csv".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -230,6 +232,7 @@ fn simple_enum_def() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Plain".to_string(),
                 fields: vec![],
                 doc: String::new(),

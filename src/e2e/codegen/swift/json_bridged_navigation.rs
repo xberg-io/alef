@@ -50,7 +50,17 @@ pub(super) fn render_json_bridged_navigated_assertion(
         return false;
     };
     let leaf_expr = field_resolver.accessor(&leaf_field, "swift", result_var);
-    let value_expr = navigated_value_expr(&leaf_expr, &steps);
+    // ~keep `accessor()` never puts a `?` on the leaf segment itself (see
+    // `navigated_value_expr`'s own doc), so a leaf whose OWN getter returns
+    // `Optional<RustString>` -- e.g. `Metadata::format` -- looks identical here to a
+    // non-optional one; only an optional ANCESTOR shows up as `?.` in `leaf_expr`. Without this,
+    // `Metadata::format().toString()` was emitted unwrapped against a getter that returns
+    // `Optional<RustString>`, which does not compile: "value of optional type 'Optional
+    // <RustString>' must be unwrapped to refer to member 'toString'".
+    let leaf_is_optional = field_resolver
+        .swift_leaf_getter_is_optional(&leaf_field)
+        .unwrap_or(false);
+    let value_expr = navigated_value_expr(&leaf_expr, leaf_is_optional, &steps);
     let local = json_nav_local_name(field, &assertion.assertion_type);
 
     let Some(body) = build_assertion_lines(assertion, &local) else {
@@ -73,9 +83,11 @@ pub(super) fn render_json_bridged_navigated_assertion(
 /// ~keep Mirrors `leaf_shape::swift_json_bridged_count_expr`'s `?.`-detection: an optional
 /// ancestor in `leaf_expr` makes the whole chain `Optional<RustString>`, so the trailing call
 /// needs its own `?.`, coalesced to the JSON text `"null"` (never `""`, which is not valid JSON)
-/// for a missing value.
-fn navigated_value_expr(leaf_expr: &str, steps: &[JsonNavStep]) -> String {
-    let json_text_expr = if leaf_expr.contains("?.") {
+/// for a missing value. `leaf_is_optional` covers the other source of optionality: the leaf's OWN
+/// getter returning `Optional<RustString>`, which `leaf_expr` itself never signals (see the call
+/// site's `~keep`) but needs exactly the same `?.`/coalesce treatment.
+fn navigated_value_expr(leaf_expr: &str, leaf_is_optional: bool, steps: &[JsonNavStep]) -> String {
+    let json_text_expr = if leaf_expr.contains("?.") || leaf_is_optional {
         format!("({leaf_expr}?.toString() ?? \"null\")")
     } else {
         format!("{leaf_expr}.toString()")
@@ -216,6 +228,106 @@ mod tests {
     use crate::e2e::field_access::{FieldResolver, SwiftFirstClassMap};
     use crate::e2e::fixture::Assertion;
     use std::collections::{HashMap, HashSet};
+
+    /// Regression for the `ContractTests.swift` compile break: `Metadata::format` is a
+    /// JSON-bridged leaf whose OWN swift-bridge getter returns `Optional<RustString>` (not an
+    /// optional ANCESTOR in the chain), so `leaf_expr` never contains `"?."` and the old
+    /// `contains("?.")`-only check emitted an unwrapped `.format().toString()` against an
+    /// `Optional<RustString>` -- "value of optional type 'Optional<RustString>' must be
+    /// unwrapped to refer to member 'toString'". Builds the map the same way
+    /// `values::tests::tagged_union_field_is_navigable_end_to_end_from_real_ir` does, from real
+    /// IR rather than a hand-set flag, so this pins the getter_optionality plumbing rather than a
+    /// stub.
+    #[test]
+    fn optional_leaf_getter_with_no_optional_ancestor_still_unwraps() {
+        use super::super::values::build_swift_first_class_map;
+        use crate::core::config::e2e::{CallConfig, E2eConfig};
+        use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+
+        let format_metadata_enum = EnumDef {
+            name: "FormatMetadata".to_string(),
+            has_serde: true,
+            variants: vec![EnumVariant {
+                name: "Html".to_string(),
+                fields: vec![FieldDef {
+                    name: "title".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let extracted_document = TypeDef {
+            name: "ExtractedDocument".to_string(),
+            fields: vec![FieldDef {
+                name: "metadata".to_string(),
+                ty: TypeRef::Named("Metadata".to_string()),
+                optional: false,
+                ..Default::default()
+            }],
+            has_serde: true,
+            ..Default::default()
+        };
+        let metadata = TypeDef {
+            name: "Metadata".to_string(),
+            fields: vec![FieldDef {
+                name: "format".to_string(),
+                ty: TypeRef::Named("FormatMetadata".to_string()),
+                optional: true,
+                ..Default::default()
+            }],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let mut map = build_swift_first_class_map(
+            &[extracted_document, metadata],
+            &[format_metadata_enum],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+        map.root_type = Some("ExtractedDocument".to_string());
+        assert_eq!(
+            map.getter_is_optional("Metadata", "format"),
+            Some(true),
+            "precondition: Metadata::format's getter must be Optional<RustString>"
+        );
+
+        let resolver = FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        );
+        let mut out = String::new();
+
+        let rendered = render_json_bridged_navigated_assertion(
+            &mut out,
+            &assertion(
+                "equals",
+                "metadata.format.html.title",
+                Some(serde_json::json!("Simple Table")),
+            ),
+            &resolver,
+            "result",
+        );
+
+        assert!(rendered, "got:\n{out}");
+        assert!(
+            !out.contains("metadata().format().toString()") && !out.contains("metadata.format().toString()"),
+            "must not emit an unwrapped .toString() call on an Optional<RustString> getter, got:\n{out}"
+        );
+        assert!(
+            out.contains("?.toString() ?? \"null\""),
+            "an optional leaf getter must be unwrapped with the same ?./coalesce idiom used for \
+             an optional ancestor, got:\n{out}"
+        );
+    }
 
     fn resolver_with_json_bridged_field(field_name: &str) -> FieldResolver {
         let swift_first_class_map = SwiftFirstClassMap {

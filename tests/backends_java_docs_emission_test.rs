@@ -321,6 +321,7 @@ fn plain_enum_variants_carry_summary_javadoc() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".into(),
                     fields: vec![],
                     doc: "Prioritise throughput over fidelity.".into(),
@@ -334,6 +335,7 @@ fn plain_enum_variants_carry_summary_javadoc() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".into(),
                     fields: vec![],
                     doc: "Prioritise fidelity over throughput.".into(),
@@ -398,7 +400,7 @@ fn plain_enum_variant_multiline_summary_preserves_every_line() {
             name: "Region".into(),
             rust_path: "demo::Region".into(),
             original_rust_path: String::new(),
-            variants: vec![EnumVariant {
+            variants: vec![EnumVariant { serde_untagged: false,
                 name: "ComplexLayout".into(),
                 fields: vec![],
                 doc: "A region whose layout the primary pipeline cannot handle (multi-column\ninsets, heavily annotated forms, mixed text+diagram)."
@@ -459,7 +461,7 @@ fn sealed_interface_variant_multiline_summary_preserves_every_line() {
             name: "FallbackPolicy".into(),
             rust_path: "demo::FallbackPolicy".into(),
             original_rust_path: String::new(),
-            variants: vec![EnumVariant {
+            variants: vec![EnumVariant { serde_untagged: false,
                 name: "OnLowQuality".into(),
                 fields: vec![field_with_doc(
                     "quality_threshold",

@@ -3,6 +3,7 @@ use crate::codegen::cfg as shared_cfg;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeRef};
+use crate::core::template_versions as tv;
 use std::path::PathBuf;
 
 /// Returns true when any function parameter has `map_is_ahash = true`, meaning
@@ -166,9 +167,9 @@ pub(crate) fn emit_cargo_toml(
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
     });
     let trait_bridge_deps = if has_trait_bridges {
-        "async-trait = \"0.1\"\n"
+        format!("async-trait = \"{}\"\n", tv::cargo::ASYNC_TRAIT)
     } else {
-        ""
+        String::new()
     };
 
     let workspace_extra = config.extra_deps_for_language(crate::core::config::extras::Language::Dart);
@@ -185,26 +186,44 @@ pub(crate) fn emit_cargo_toml(
     crate::scaffold::sort_dependency_lines(&mut workspace_dep_lines);
     let has_trait_bridge_excluded_carrier = api_has_trait_bridge_excluded_carrier(api, config);
     let needs_serde_json = api_has_json_or_enum_field(api) || has_trait_bridge_excluded_carrier;
-    let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
+    let serde_json_dep = if needs_serde_json {
+        format!("serde_json = \"{}\"\n", tv::cargo::SERDE_JSON)
+    } else {
+        String::new()
+    };
     let needs_serde_derive = has_trait_bridge_excluded_carrier;
     let serde_dep = if needs_serde_derive {
-        "serde = { version = \"1\", features = [\"derive\"] }\n"
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}\n",
+            tv::cargo::SERDE
+        )
     } else {
-        ""
+        String::new()
     };
     let needs_ahash = api_has_ahash_param(api);
-    let ahash_dep = if needs_ahash { "ahash = \"0.8\"\n" } else { "" };
+    let ahash_dep = if needs_ahash {
+        format!("ahash = \"{}\"\n", tv::cargo::AHASH)
+    } else {
+        String::new()
+    };
     let has_streaming = config
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::extras::AdapterPattern::Streaming));
-    let futures_util_dep = if has_streaming { "futures-util = \"0.3\"\n" } else { "" };
+    let futures_util_dep = if has_streaming {
+        format!("futures-util = \"{}\"\n", tv::cargo::FUTURES_UTIL)
+    } else {
+        String::new()
+    };
     // `tokio::sync::Mutex<Option<…>>` for thread-safe handoff between `#[frb(sync)]`
     let has_services = !api.services.is_empty();
     let tokio_dep = if has_streaming || has_trait_bridges || has_services {
-        "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }\n"
+        format!(
+            "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\", \"sync\"] }}\n",
+            tv::cargo::TOKIO
+        )
     } else {
-        ""
+        String::new()
     };
     let target_overrides = config
         .dart

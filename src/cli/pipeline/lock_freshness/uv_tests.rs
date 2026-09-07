@@ -356,6 +356,95 @@ mod pending_publish {
         );
     }
 
+    /// The same crate shape as [`resolved_cfg_with_python_registry_package`], except the package
+    /// declares no `version` -- it resolves from the workspace manifest instead.
+    fn resolved_cfg_with_python_registry_package_without_version(pkg_name: &str) -> ResolvedCrateConfig {
+        let e2e = E2eConfig {
+            registry: RegistryConfig {
+                packages: [(
+                    "python".to_string(),
+                    PackageRef {
+                        name: Some(pkg_name.to_string()),
+                        ..PackageRef::default()
+                    },
+                )]
+                .into_iter()
+                .collect(),
+                ..RegistryConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+        ResolvedCrateConfig {
+            e2e: Some(e2e),
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
+    /// The shape this exemption exists for in practice, and the one it used to miss: a consumer
+    /// that declares `name`/`path` for its e2e package and lets the *version* resolve from the
+    /// workspace manifest -- the documented way to avoid a hardpin that has to be bumped by hand
+    /// every release. `registry_self_dependency` read `version` only from the explicit config
+    /// field, while the generator that wrote the requirement being compared resolves it through
+    /// `package.version` -> `resolved_version()`. The two disagreed about the same fact, so no
+    /// exemption applied and `sync-versions` hard-failed the bump telling the operator to run
+    /// `uv lock` against a version that, by construction, is not published yet. ~keep
+    #[test]
+    fn tolerating_variant_falls_back_to_the_resolved_workspace_version_when_the_package_pins_none() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_pyproject(root, "==0.17.0");
+        write_uv_lock_project_shape(root, "==0.17.0rc11");
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        let version_from = root.join("Cargo.toml");
+        std::fs::write(&version_from, "[package]\nname = \"sample\"\nversion = \"0.17.0\"\n")
+            .expect("write workspace manifest");
+
+        let resolved_cfg = ResolvedCrateConfig {
+            version_from: version_from.display().to_string(),
+            ..resolved_cfg_with_python_registry_package_without_version(UV_DEPENDENCY)
+        };
+
+        let result = check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg));
+        assert!(
+            result.is_none(),
+            "a self-dependency whose version resolves from the workspace manifest is still this \
+             crate's own pending release and must warn, not fail: {result:?}"
+        );
+    }
+
+    /// Identity stays strict: the version fallback must not let a package with no configured
+    /// name be vouched for. Without this, widening the version half would quietly widen the
+    /// identity half too, which is the risk the original conservative reading was protecting.
+    #[test]
+    fn the_version_fallback_does_not_relax_the_identity_requirement() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let manifest = write_pyproject(root, "==0.17.0");
+        write_uv_lock_project_shape(root, "==0.17.0rc11");
+        let generated: HashSet<PathBuf> = [manifest].into_iter().collect();
+        let version_from = root.join("Cargo.toml");
+        std::fs::write(&version_from, "[package]\nname = \"sample\"\nversion = \"0.17.0\"\n")
+            .expect("write workspace manifest");
+
+        let e2e = E2eConfig {
+            registry: RegistryConfig {
+                packages: [("python".to_string(), PackageRef::default())].into_iter().collect(),
+                ..RegistryConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+        let resolved_cfg = ResolvedCrateConfig {
+            e2e: Some(e2e),
+            version_from: version_from.display().to_string(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(
+            check_generated_uv_lock_freshness_tolerating_pending_publish(&generated, Some(&resolved_cfg)).is_some(),
+            "no configured package name means no identity to vouch for, resolved version or not"
+        );
+    }
+
     /// The false-negative guard: a genuinely stale THIRD-PARTY pin has nothing to do with this
     /// crate's own registry self-dependency and must still fail even when a resolved config is
     /// supplied -- the exemption must not blanket-suppress every finding just because

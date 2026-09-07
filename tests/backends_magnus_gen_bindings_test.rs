@@ -136,6 +136,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR".to_string(),
@@ -149,6 +150,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR backend".to_string(),
@@ -314,6 +316,7 @@ fn test_enum_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Pending".to_string(),
                     fields: vec![],
                     doc: "Pending status".to_string(),
@@ -327,6 +330,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Processing".to_string(),
                     fields: vec![],
                     doc: "Processing status".to_string(),
@@ -340,6 +344,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Complete".to_string(),
                     fields: vec![],
                     doc: "Complete status".to_string(),
@@ -424,6 +429,7 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Disabled".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -437,6 +443,7 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "OnLowQuality".to_string(),
                     fields: vec![make_field(
                         "quality_threshold",
@@ -1431,6 +1438,7 @@ mod trait_bridge {
                 rust_path: "my_lib::VisitResult".to_string(),
                 original_rust_path: String::new(),
                 variants: vec![EnumVariant {
+                    serde_untagged: false,
                     name: "Continue".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -2086,6 +2094,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Success".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -2122,6 +2131,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Error".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -2248,6 +2258,7 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
             rust_path: "test_lib::BytePayload".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Data".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -2343,6 +2354,7 @@ fn test_tuple_variant_bytes_stays_as_vec() {
             rust_path: "test_lib::SocketMessage".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Binary".to_string(),
                 fields: vec![make_field("_0", TypeRef::Bytes, false)],
                 is_tuple: true,
@@ -2633,6 +2645,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             rust_path: "test_lib::Payload".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Multi".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -2956,6 +2969,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
             rust_path: "sample_markdown_rs::visitor::VisitResult".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Continue".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -3131,6 +3145,7 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "System".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -3167,6 +3182,7 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "User".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -3258,6 +3274,7 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
             rust_path: "test_lib::Message".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "System".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -3353,6 +3370,7 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
             rust_path: "test_lib::Message".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "System".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -3469,6 +3487,7 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "OpenURL".to_string(),
                     fields: vec![make_field("url", TypeRef::String, false)],
                     doc: String::new(),
@@ -3482,6 +3501,7 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "ReadText".to_string(),
                     fields: vec![make_field("value", TypeRef::String, false)],
                     doc: String::new(),
@@ -3556,6 +3576,7 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "System".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -3592,6 +3613,7 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "User".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -3716,6 +3738,7 @@ fn test_enum_yard_doc_emission() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![FieldDef {
                         version: Default::default(),
@@ -3752,6 +3775,7 @@ fn test_enum_yard_doc_emission() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: "Represents an inactive status.".to_string(),
@@ -3834,6 +3858,7 @@ fn test_enum_variant_method_yard_docs() {
             rust_path: "test_lib::Result".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Ok".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -4038,6 +4063,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
             rust_path: "test_lib::Status".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Active".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -4266,6 +4292,7 @@ fn test_async_function_with_vec_named_params() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "TypeA".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -4279,6 +4306,7 @@ fn test_async_function_with_vec_named_params() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "TypeB".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -4520,6 +4548,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Foo".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -4533,6 +4562,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Bar".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -4718,6 +4748,7 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Default".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -4731,6 +4762,7 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Preset".to_string(),
                     fields: vec![make_field("name", TypeRef::String, false)],
                     doc: String::new(),

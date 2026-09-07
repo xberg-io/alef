@@ -96,7 +96,7 @@ pub(super) fn gen_registration_variant_nif(
                 opaque_bindings.push_str(&render(
                     "service_api_opaque_metadata_binding.rs.jinja",
                     context! {
-                        indent => "                ",
+                        indent => "            ",
                         param_name => meta_param.name,
                         core_import => core_import,
                         type_name => n,

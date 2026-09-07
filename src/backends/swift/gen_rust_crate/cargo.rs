@@ -2,6 +2,7 @@
 
 use crate::codegen::cfg as shared_cfg;
 use crate::core::ir::ApiSurface;
+use crate::core::template_versions as tv;
 
 /// Formats a features array for TOML output.
 /// Uses multi-line format when `features.len() >= 3` or the rendered line exceeds 100 chars.
@@ -129,13 +130,19 @@ pub(crate) fn emit_cargo_toml(
         }
     }
     let mut dep_entries: Vec<String> = vec![
-        "ahash = \"0.8\"".to_string(),
-        "async-trait = \"0.1\"".to_string(),
-        "libc = \"0.2\"".to_string(),
-        "serde = { version = \"1\", features = [\"derive\"] }".to_string(),
-        "serde_json = \"1\"".to_string(),
+        format!("ahash = \"{}\"", tv::cargo::AHASH),
+        format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT),
+        format!("libc = \"{}\"", tv::cargo::LIBC),
+        format!(
+            "serde = {{ version = \"{}\", features = [\"derive\"] }}",
+            tv::cargo::SERDE
+        ),
+        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
         format!("swift-bridge = \"{swift_bridge_ver}\""),
-        "tokio = { version = \"1\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }".to_string(),
+        format!(
+            "tokio = {{ version = \"{}\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }}",
+            tv::cargo::TOKIO
+        ),
     ];
     if !core_dep_for_block.is_empty() && target_overrides.is_empty() {
         dep_entries.push(core_dep_for_block.clone());
@@ -211,7 +218,7 @@ pub(crate) fn emit_cargo_toml(
         format!("\n{target_blocks_section}")
     };
     if has_streaming_adapters {
-        dep_entries.push("futures-util = \"0.3\"".to_string());
+        dep_entries.push(format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim_end();
@@ -331,6 +338,7 @@ mod tests {
 
     fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
         EnumVariant {
+            serde_untagged: false,
             name: name.to_string(),
             fields: vec![],
             doc: String::new(),

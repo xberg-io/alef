@@ -16,6 +16,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "System".to_string(),
                 fields: vec![make_field("_0", TypeRef::Named("SystemMessage".to_string()), false)],
                 is_tuple: true,
@@ -29,6 +30,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "User".to_string(),
                 fields: vec![make_field("_0", TypeRef::Named("UserMessage".to_string()), false)],
                 is_tuple: true,
@@ -42,6 +44,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Assistant".to_string(),
                 fields: vec![make_field("_0", TypeRef::Named("AssistantMessage".to_string()), false)],
                 is_tuple: true,
@@ -173,6 +176,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Http".to_string(),
                 fields: vec![
                     make_field("scheme", TypeRef::String, false),
@@ -189,6 +193,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "ApiKey".to_string(),
                 fields: vec![
                     make_field("location", TypeRef::String, false),

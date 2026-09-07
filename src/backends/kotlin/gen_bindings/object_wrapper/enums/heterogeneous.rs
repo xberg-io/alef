@@ -245,6 +245,7 @@ mod tests {
 
     fn make_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         EnumVariant {
+            serde_untagged: false,
             name: name.to_string(),
             fields,
             doc: String::new(),

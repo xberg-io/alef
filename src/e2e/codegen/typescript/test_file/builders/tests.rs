@@ -4,7 +4,7 @@ fn assert_strict_typescript_compiles(source: &str) {
     let directory = tempfile::tempdir().expect("temporary TypeScript project");
     let source_path = directory.path().join("snippet.ts");
     std::fs::write(&source_path, source).expect("write TypeScript regression source");
-    let Ok(output) = std::process::Command::new("tsc")
+    let Ok(output) = crate::core::tool_command("tsc")
         .args([
             "--strict",
             "--noUncheckedIndexedAccess",
@@ -28,7 +28,7 @@ fn assert_strict_typescript_rejects(source: &str) {
     let directory = tempfile::tempdir().expect("temporary TypeScript project");
     let source_path = directory.path().join("snippet.ts");
     std::fs::write(&source_path, source).expect("write TypeScript regression source");
-    let Ok(output) = std::process::Command::new("tsc")
+    let Ok(output) = crate::core::tool_command("tsc")
         .args([
             "--strict",
             "--noUncheckedIndexedAccess",
@@ -1109,4 +1109,75 @@ fn node_nested_tagged_struct_variant_without_its_assertion_is_rejected() {
          createEngine(engineConfig);\n"
     );
     assert_strict_typescript_rejects(&source);
+}
+
+/// `OutputFormat`'s real shape: unit variants plus a `Custom(String)` carrying its own
+/// `#[serde(untagged)]`. The napi `.d.ts` declares this as a flat string-literal union
+/// (`export type OutputFormat = "plain" | ... | (string & {})`) with no value binding, so a
+/// generated snippet that says `OutputFormat.Markdown` is a type-used-as-value error and
+/// `index.js` exports no such symbol to import at runtime either.
+#[test]
+fn node_variant_untagged_string_enum_emits_raw_value_not_enum_member() {
+    let type_defs = [TypeDef {
+        name: "RenderOptions".into(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "output_format".into(),
+            ty: crate::core::ir::TypeRef::Named("OutputFormat".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let enums = [EnumDef {
+        name: "OutputFormat".into(),
+        serde_rename_all: Some("lowercase".into()),
+        variants: vec![
+            crate::core::ir::EnumVariant {
+                name: "Markdown".into(),
+                ..Default::default()
+            },
+            crate::core::ir::EnumVariant {
+                name: "Custom".into(),
+                is_tuple: true,
+                serde_untagged: true,
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "_0".into(),
+                    ty: crate::core::ir::TypeRef::String,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }];
+    let mut referenced_enums = std::collections::BTreeSet::new();
+    let expression = ts_builder_expression(
+        serde_json::json!({"output_format": "markdown"})
+            .as_object()
+            .expect("object"),
+        "RenderOptions",
+        &Default::default(),
+        "node",
+        &[("output_format".to_string(), "OutputFormat".to_string())]
+            .into_iter()
+            .collect(),
+        &Default::default(),
+        &type_defs,
+        &enums,
+        "",
+        &[],
+        &mut referenced_enums,
+    );
+
+    assert!(
+        expression.contains("outputFormat: \"markdown\""),
+        "a variant-level untagged string enum must reach the fixture value verbatim: {expression}"
+    );
+    assert!(
+        !expression.contains("OutputFormat."),
+        "no member reference may survive: {expression}"
+    );
+    assert!(
+        !referenced_enums.iter().any(|e| e == "OutputFormat"),
+        "the enum must not be added to the value-import list: {referenced_enums:?}"
+    );
 }

@@ -320,6 +320,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![make_field("content", TypeRef::String, false)],
                     doc: "A plain-text document.".to_string(),
@@ -333,6 +334,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Object".to_string(),
                     fields: vec![
                         make_field("title", TypeRef::String, false),
@@ -428,6 +430,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Source".to_string(),
                     fields: vec![make_field("source_path", TypeRef::String, false)],
                     doc: "A file path pointing to a document.".to_string(),
@@ -441,6 +444,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Encoded".to_string(),
                     fields: vec![
                         make_field("data", TypeRef::String, false),
@@ -527,6 +531,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Url".to_string(),
                 fields: vec![make_field("url", TypeRef::String, false)],
                 doc: String::new(),
@@ -540,6 +545,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Base64".to_string(),
                 fields: vec![
                     make_field("data", TypeRef::String, false),
@@ -659,6 +665,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Text".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -672,6 +679,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "JsonObject".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -685,6 +693,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "JsonSchema".to_string(),
                 fields: vec![make_field("json_schema", TypeRef::String, false)],
                 doc: String::new(),

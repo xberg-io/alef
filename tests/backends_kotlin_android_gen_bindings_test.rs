@@ -1267,6 +1267,7 @@ fn make_sealed_field(name: &str, ty: TypeRef) -> FieldDef {
 
 fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),
@@ -2232,6 +2233,7 @@ fn make_exclude_types_api() -> ApiSurface {
             rust_path: "demo::TowerStatus".into(),
             original_rust_path: "demo::TowerStatus".into(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Ok".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -2697,6 +2699,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         rust_path: "demo::IncludedMode".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "On".into(),
             fields: vec![],
             doc: String::new(),
@@ -2730,6 +2733,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         rust_path: "demo::SkippedMode".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Off".into(),
             fields: vec![],
             doc: String::new(),

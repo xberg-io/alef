@@ -81,6 +81,7 @@ fn make_visit_result() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Continue".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -94,6 +95,7 @@ fn make_visit_result() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Stop".to_string(),
                 fields: vec![],
                 doc: String::new(),

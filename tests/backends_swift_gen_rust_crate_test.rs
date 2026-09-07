@@ -92,6 +92,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         variants: variants
             .into_iter()
             .map(|v| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -781,6 +782,7 @@ fn lib_rs_struct_with_tagged_enum_field_serializes_to_json() {
         rust_path: "demo::Payload".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Text".to_string(),
             fields: vec![make_field("value", TypeRef::String)],
             doc: String::new(),
@@ -2533,6 +2535,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
         variants: variants
             .into_iter()
             .map(|(v_name, fields)| EnumVariant {
+                serde_untagged: false,
                 name: v_name.to_string(),
                 fields: fields
                     .into_iter()

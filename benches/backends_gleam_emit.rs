@@ -89,6 +89,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
 fn make_enum(name: &str, variant_count: usize) -> EnumDef {
     let variants = (0..variant_count)
         .map(|i| EnumVariant {
+            serde_untagged: false,
             name: format!("Variant{}", i),
             fields: vec![],
             doc: String::new(),

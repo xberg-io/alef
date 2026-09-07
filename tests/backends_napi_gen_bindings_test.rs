@@ -168,6 +168,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
@@ -181,6 +182,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
@@ -554,6 +556,7 @@ fn test_enum_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Pending".to_string(),
                     fields: vec![],
                     doc: "Pending status".to_string(),
@@ -567,6 +570,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Active status".to_string(),
@@ -580,6 +584,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Complete".to_string(),
                     fields: vec![],
                     doc: "Complete status".to_string(),
@@ -1523,6 +1528,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
     // #[serde(tag = "role")] #[serde(rename = "system")]  System(SystemMessage),
     //     #[serde(rename = "user")]    User(UserMessage),
     let make_variant = |name: &str, rename: &str, struct_name: &str| EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields: vec![FieldDef {
             version: Default::default(),
@@ -1768,6 +1774,7 @@ fn make_api_napi() -> ApiSurface {
             rust_path: "my_lib::VisitResult".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Continue".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -2799,6 +2806,7 @@ fn test_napi_js_name_on_string_enum() {
             cfg: None,
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -2812,6 +2820,7 @@ fn test_napi_js_name_on_string_enum() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -3115,6 +3124,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Document".to_string(),
                     fields: vec![],
                     doc: "A textual document (HTML, PDF, …).".to_string(),
@@ -3128,6 +3138,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Image".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -3504,6 +3515,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
             rust_path: "test_lib::callbacks::RenderResult".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Continue".to_string(),
                 fields: vec![],
                 doc: String::new(),

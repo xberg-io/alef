@@ -23,15 +23,12 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
     let repo_url = config.github_repo();
     let build_env_var = format!("{}_BUILD", app_name.to_uppercase());
 
-    let default_nif_targets: &[&str] = &[
-        "aarch64-apple-darwin",
-        "aarch64-unknown-linux-gnu",
-        "x86_64-unknown-linux-gnu",
-        "x86_64-pc-windows-gnu",
-    ];
     let nif_targets_list: Vec<String> = match config.elixir.as_ref() {
         Some(elixir) if !elixir.nif_targets.is_empty() => elixir.nif_targets.clone(),
-        _ => default_nif_targets.iter().map(|s| (*s).to_string()).collect(),
+        _ => crate::core::config::languages::DEFAULT_NIF_TARGETS
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
     };
     // Drop any triple disabled via the workspace `[targets]` opt-out table. ~keep
     let nif_targets = nif_targets_list

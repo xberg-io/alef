@@ -24,6 +24,7 @@ fn make_color_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Red".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -37,6 +38,7 @@ fn make_color_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Green".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -50,6 +52,7 @@ fn make_color_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Blue".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -84,6 +87,7 @@ fn make_color_enum() -> EnumDef {
 fn excluded_variant() -> EnumVariant {
     // Simulates a cfg-gated or #[alef(skip)]-annotated variant absent from the binding.
     EnumVariant {
+        serde_untagged: false,
         name: "Invisible".into(),
         fields: vec![],
         doc: String::new(),
@@ -166,6 +170,7 @@ fn magnus_data_enum_with_excluded_variant_no_catch_all_in_binding_to_core() {
 
 fn cfg_gated_variant(name: &str, cfg: &str) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.into(),
         fields: vec![],
         doc: String::new(),

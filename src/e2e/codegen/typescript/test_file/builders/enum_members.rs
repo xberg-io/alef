@@ -36,23 +36,29 @@ pub(super) fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef], wasm_type_
         .any(|e| e.name == stripped && crate::backends::wasm::gen_bindings::enums::is_tagged_data_enum(e))
 }
 
-/// True when `enum_name` (already unprefixed IR name) is a `#[serde(untagged)]`
-/// enum with at least one variant carrying data — mirrors the `is_untagged_data_enum`
-/// gate the napi `.d.ts` dispatcher uses (see `dispatch .d.ts enums on their serde
-/// representation`). On the wire such an enum serializes as the bare payload of
-/// whichever variant matched, not a named member — a string-typed instance is the
-/// raw JS value itself. Treating it as `EnumType.Variant` turned an empty string
-/// into `WasmEmbeddingInput.` (missing member, a syntax error). ~keep
+/// True when `enum_name` (already unprefixed IR name) is an enum the binding routes through raw
+/// serde value passthrough instead of a nominal type — mirrors the `is_json_passthrough_data_enum`
+/// gate both `.d.ts` dispatchers use. On the wire such an enum serializes as the bare payload of
+/// whichever variant matched, not a named member — a string-typed instance is the raw JS value
+/// itself. Treating it as `EnumType.Variant` turned an empty string into `WasmEmbeddingInput.`
+/// (missing member, a syntax error).
+///
+/// This asks the *combined* predicate, not the container-level `is_untagged_data_enum` alone. An
+/// enum whose data variant carries its own `#[serde(untagged)]` — `OutputFormat`'s `Custom(String)`
+/// — is declared as a flat string-literal union with no value binding at all, so
+/// `OutputFormat.Markdown` is a type-used-as-value error rather than a missing member. Naming only
+/// the container-level predicate here is what let the fixture and snippet emitters keep emitting
+/// member references after the `.d.ts` emitter had already been fixed. ~keep
 fn is_node_untagged_data_enum(enum_name: &str, enums: &[EnumDef]) -> bool {
     enums
         .iter()
-        .any(|e| e.name == enum_name && crate::backends::napi::is_untagged_data_enum(e))
+        .any(|e| e.name == enum_name && crate::backends::napi::is_json_passthrough_data_enum(e))
 }
 
 fn is_wasm_untagged_data_enum(enum_name: &str, enums: &[EnumDef]) -> bool {
     enums
         .iter()
-        .any(|e| e.name == enum_name && crate::backends::wasm::gen_bindings::enums::is_untagged_data_enum(e))
+        .any(|e| e.name == enum_name && crate::backends::wasm::gen_bindings::enums::is_json_passthrough_data_enum(e))
 }
 
 /// True when the WASM binding exposes `enum_name` as a raw serde value rather than as a C-style

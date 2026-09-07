@@ -210,6 +210,7 @@ gem_name = "my_gem"
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Active".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -223,6 +224,7 @@ gem_name = "my_gem"
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Inactive".to_string(),
                 fields: vec![],
                 doc: String::new(),

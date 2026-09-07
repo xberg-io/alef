@@ -51,7 +51,7 @@ impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
 
                 // Await response
                 let response_json = rx.await
-                    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as {{ box_err }})?;
+                    .map_err(|e| Box::new(std::io::Error::other(e)) as {{ box_err }})?;
 
                 let response: {{ resp_path }} = serde_json::from_str(&response_json)
                     .map_err(|e| Box::new(e) as {{ box_err }})?;

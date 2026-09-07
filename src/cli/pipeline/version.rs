@@ -1132,7 +1132,14 @@ fn finalize_hashes_for_updated(config: &ResolvedCrateConfig, config_path: &std::
         return;
     }
     let alef_toml_bytes = super::super::cache::read_alef_toml_bytes(config_path);
-    match super::super::cache::sources_hash(&config.source_hash_paths()) {
+    let source_hash_paths = match config.source_hash_paths() {
+        Ok(paths) => paths,
+        Err(e) => {
+            warn!("Could not resolve source_crates for finalize_hashes: {e}");
+            return;
+        }
+    };
+    match super::super::cache::sources_hash(&source_hash_paths) {
         Ok(sources_hash) => match super::generate::finalize_hashes(&finalize_paths, &sources_hash, &alef_toml_bytes) {
             Ok(n) if n > 0 => {
                 debug!("  Finalized alef:hash in {n} file(s)");

@@ -12,6 +12,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "FirstVariant".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -25,6 +26,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "ActualDefault".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -150,6 +152,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Headless".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -163,6 +166,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Auto".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -198,6 +202,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Option1".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -211,6 +216,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Option2".to_string(),
                     fields: vec![],
                     doc: String::new(),

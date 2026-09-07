@@ -118,6 +118,7 @@ fn table_model_enum() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Tatr".into(),
                 fields: vec![],
                 doc: "TATR transformer (default).".into(),
@@ -131,6 +132,7 @@ fn table_model_enum() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "SlanetWired".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -206,6 +208,7 @@ fn html_theme_enum_with_rename_all() -> EnumDef {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Default".into(),
                 fields: vec![],
                 doc: "Default theme.".into(),
@@ -219,6 +222,7 @@ fn html_theme_enum_with_rename_all() -> EnumDef {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Github".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -267,6 +271,7 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
         rust_path: "test::OutputFormat".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Markdown".into(),
             fields: vec![],
             doc: String::new(),
@@ -380,6 +385,7 @@ fn image_format_enum() -> EnumDef {
         rust_path: "mylib::ImageFormat".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Png".into(),
             fields: vec![],
             doc: "PNG output.".into(),
@@ -420,6 +426,7 @@ fn unrelated_enum() -> EnumDef {
         rust_path: "mylib::Unrelated".into(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "A".into(),
             fields: vec![],
             doc: String::new(),

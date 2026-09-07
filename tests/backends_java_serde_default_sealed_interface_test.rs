@@ -99,6 +99,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
         "EmbeddingModelType",
         vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Preset".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -135,6 +136,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Custom".to_string(),
                 fields: vec![
                     FieldDef {
@@ -277,6 +279,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
         "Status",
         vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pending".to_string(),
                 fields: vec![],
                 doc: "Pending status".to_string(),
@@ -290,6 +293,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Complete".to_string(),
                 fields: vec![],
                 doc: "Complete status".to_string(),

@@ -115,6 +115,7 @@ fn make_unit_enum(name: &str, variants: &[&str]) -> EnumDef {
         variants: variants
             .iter()
             .map(|variant| EnumVariant {
+                serde_untagged: false,
                 name: (*variant).to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -224,6 +225,7 @@ fn test_basic_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Fast".to_string(),
                     fields: vec![],
                     doc: "Fast mode".to_string(),
@@ -237,6 +239,7 @@ fn test_basic_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Accurate".to_string(),
                     fields: vec![],
                     doc: "Accurate mode".to_string(),
@@ -490,6 +493,7 @@ fn test_enum_generation() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Pending".to_string(),
                     fields: vec![],
                     doc: "Pending status".to_string(),
@@ -503,6 +507,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Active status".to_string(),
@@ -516,6 +521,7 @@ fn test_enum_generation() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Completed".to_string(),
                     fields: vec![],
                     doc: "Completed status".to_string(),
@@ -776,6 +782,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -789,6 +796,7 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Heading".to_string(),
                     fields: vec![make_field("level", TypeRef::Primitive(PrimitiveType::U32), false)],
                     doc: String::new(),

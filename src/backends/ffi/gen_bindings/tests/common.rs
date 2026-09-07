@@ -199,6 +199,7 @@ pub(super) fn sample_api() -> ApiSurface {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Text".to_string(),
                     fields: vec![],
                     doc: String::new(),
@@ -212,6 +213,7 @@ pub(super) fn sample_api() -> ApiSurface {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Html".to_string(),
                     fields: vec![],
                     doc: String::new(),

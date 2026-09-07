@@ -137,8 +137,16 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
     if config.source_crates.is_empty() {
         sources.extend(config.sources.iter().map(std::path::PathBuf::as_path));
     } else {
-        for sc in &config.source_crates {
-            sources.extend(sc.sources.iter().map(std::path::PathBuf::as_path));
+        match config.resolved_source_crates() {
+            Ok(resolved) => {
+                for sc in resolved {
+                    sources.extend(sc.sources.iter().map(std::path::PathBuf::as_path));
+                }
+            }
+            Err(err) => {
+                errors.push(format!("service recovery: failed to resolve source_crates: {err}"));
+                sources.extend(config.sources.iter().map(std::path::PathBuf::as_path));
+            }
         }
     }
 

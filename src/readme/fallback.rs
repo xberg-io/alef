@@ -28,7 +28,8 @@ pub(super) fn generate_readme_hardcoded(
             let module = config.python_module_name().trim_start_matches('_').to_string();
             let example_body = api
                 .functions
-                .first()
+                .iter()
+                .find(|function| !function.binding_excluded)
                 .map(|f| {
                     format!(
                         "# result = {module}.{name}(...)\n# See the main repository's docs for full usage.",
@@ -47,7 +48,8 @@ pub(super) fn generate_readme_hardcoded(
             let pkg = config.node_package_name();
             let example_body = api
                 .functions
-                .first()
+                .iter()
+                .find(|function| !function.binding_excluded)
                 .map(|f| {
                     format!(
                         "// const result = await {fname}(...);\n// See the main repository's docs for full usage.",
@@ -130,7 +132,8 @@ pub(super) fn generate_readme_hardcoded(
             let wrapper_class = crate::codegen::naming::csharp_wrapper_class_name(&api.crate_name, &ns);
             let example_body = api
                 .functions
-                .first()
+                .iter()
+                .find(|function| !function.binding_excluded)
                 .map(|f| {
                     format!(
                         "// var result = {wrapper_class}.{method}(...);\n// See the main repository's docs for full usage.",

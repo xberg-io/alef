@@ -187,6 +187,7 @@ fn test_basic_rbs_stubs() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Tesseract".to_string(),
                     fields: vec![],
                     doc: "Tesseract OCR".to_string(),
@@ -200,6 +201,7 @@ fn test_basic_rbs_stubs() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "PaddleOcr".to_string(),
                     fields: vec![],
                     doc: "PaddleOCR backend".to_string(),
@@ -410,6 +412,7 @@ fn test_enum_stubs() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Pending".to_string(),
                     fields: vec![],
                     doc: "Pending status".to_string(),
@@ -423,6 +426,7 @@ fn test_enum_stubs() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Processing".to_string(),
                     fields: vec![],
                     doc: "Processing status".to_string(),
@@ -436,6 +440,7 @@ fn test_enum_stubs() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Complete".to_string(),
                     fields: vec![],
                     doc: "Complete status".to_string(),
@@ -449,6 +454,7 @@ fn test_enum_stubs() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Failed".to_string(),
                     fields: vec![],
                     doc: "Failed status".to_string(),
@@ -893,6 +899,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
             rust_path: "test_lib::Mode".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Fast".to_string(),
                 fields: vec![],
                 doc: String::new(),

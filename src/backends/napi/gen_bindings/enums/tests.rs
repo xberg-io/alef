@@ -1,4 +1,4 @@
-use super::{apply_napi_case, gen_enum, string_enum_js_values};
+use super::{apply_napi_case, gen_enum, is_tagged_data_enum, is_variant_untagged_string_enum, string_enum_js_values};
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 
 fn make_simple_enum(name: &str, variants: &[&str]) -> EnumDef {
@@ -9,6 +9,7 @@ fn make_simple_enum(name: &str, variants: &[&str]) -> EnumDef {
         variants: variants
             .iter()
             .map(|v| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -68,6 +69,7 @@ fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Bold".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -81,6 +83,7 @@ fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "FontSize".to_string(),
                 fields: vec![FieldDef {
                     version: Default::default(),
@@ -153,6 +156,7 @@ fn gen_tagged_enum_tuple_variant_uses_camel_case_value() {
         rust_path: "test::AnnotationKind".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "FontSize".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -224,6 +228,7 @@ fn gen_tagged_enum_struct_variant_emits_field_names() {
         rust_path: "test::AnnotationKind".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Custom".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -300,6 +305,7 @@ fn gen_enum_escapes_jsdoc_block_close_in_variant_docs() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Block".to_string(),
                 fields: vec![],
                 doc: "A block or multi-line comment (e.g., `/* ... */`).".to_string(),
@@ -313,6 +319,7 @@ fn gen_enum_escapes_jsdoc_block_close_in_variant_docs() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Doc".to_string(),
                 fields: vec![],
                 doc: "A documentation comment (e.g., `/// ...` or `/** ... */`).".to_string(),
@@ -462,6 +469,111 @@ fn adjacent_tagged_enum_omits_spread_only_when_all_fields_are_set() {
 /// payload was silently dropped (`Custom,` with no field) before this fix. It must route
 /// through the same tagged-object emitter used for an explicit `#[serde(tag = "...")]`
 /// enum, and the binding<->core conversions must carry the payload both ways. ~keep
+/// A data enum with a `Vec<u8>` payload maps that payload to `napi::bindgen_prelude::Buffer`
+/// on the binding side (see `NapiMapper::bytes` for why `Vec<u8>` is unusable there). `Buffer`
+/// implements neither `Clone` nor serde, and is not `Vec<u8>`, so all three of the emitted
+/// pieces were wrong at once: the struct derived `Clone, Serialize, Deserialize` it cannot
+/// satisfy, the binding->core arm handed a `Buffer` to a `Vec<u8>` variant, and the
+/// core->binding arm handed a `Vec<u8>` to a `Buffer` field. The result did not compile at all.
+/// Assert all three together -- fixing one without the others still yields a broken crate. ~keep
+#[test]
+fn data_enum_with_a_bytes_payload_emits_a_compilable_buffer_round_trip() {
+    let e = EnumDef {
+        name: "WsMessage".to_string(),
+        rust_path: "demo::WsMessage".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                serde_untagged: false,
+                name: "Text".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+            EnumVariant {
+                serde_untagged: false,
+                name: "Binary".to_string(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::Bytes,
+                    ..Default::default()
+                }],
+                doc: String::new(),
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+        ],
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        has_default: false,
+        serde_content: None,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        rename_all_fields: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    };
+
+    let output = gen_enum(&e, "Js", true, "", None);
+
+    assert!(
+        output.contains("pub binary: Option<napi::bindgen_prelude::Buffer>"),
+        "the bytes payload must map to a napi Buffer; got:\n{output}"
+    );
+    assert!(
+        !output.contains("serde::Serialize") && !output.contains("serde::Deserialize"),
+        "Buffer is not serde-serializable, so the struct must not derive serde; got:\n{output}"
+    );
+    assert!(
+        !output.contains("#[derive(Clone"),
+        "Buffer is not Clone, so the struct must not derive Clone; got:\n{output}"
+    );
+
+    let struct_names: ahash::AHashSet<String> = ahash::AHashSet::new();
+
+    let binding_to_core =
+        crate::backends::napi::gen_bindings::methods::gen_tagged_enum_binding_to_core(&e, "demo", "Js", &struct_names);
+    assert!(
+        binding_to_core.contains("val.binary.map(|b| b.to_vec()).unwrap_or_default()"),
+        "binding-to-core must copy the Buffer into the Vec<u8> the core variant wants; got:\n{binding_to_core}"
+    );
+
+    let core_to_binding = crate::backends::napi::gen_bindings::methods::gen_tagged_enum_core_to_binding(
+        &e,
+        "demo",
+        "Js",
+        &struct_names,
+        None,
+    );
+    assert!(
+        core_to_binding.contains("binary: Some(binary.into())"),
+        "core-to-binding must convert the Vec<u8> into a Buffer; got:\n{core_to_binding}"
+    );
+}
+
 #[test]
 fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip() {
     let e = EnumDef {
@@ -470,6 +582,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -483,6 +596,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Custom".to_string(),
                 fields: vec![FieldDef {
                     name: "_0".to_string(),
@@ -556,6 +670,84 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         ),
         "core-to-binding conversion must forward the Custom payload, not discard it; got:\n{core_to_binding}"
     );
+}
+
+/// Regression: a *variant-level* `#[serde(untagged)]` (e.g. `OutputFormat::Custom(String)`
+/// alongside plain unit variants `Plain`, `Markdown`, ...) must NOT route through the
+/// tagged-object emitter the way `default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip`
+/// above proves for an ordinary (non-untagged) data variant. Serde serializes an untagged
+/// variant as its own bare payload with no discriminant at all -- for `Custom(String)` that is
+/// just the raw string -- so `{ "type": "custom", "custom": "..." }` would be wrong on the wire.
+/// `is_tagged_data_enum` must say false and `is_variant_untagged_string_enum` must say true,
+/// routing `gen_enum` to the same `serde_json::Value` passthrough wrapper a container-level
+/// `#[serde(untagged)]` enum uses. ~keep
+#[test]
+fn variant_level_untagged_data_variant_is_not_tagged_object() {
+    let e = EnumDef {
+        name: "OutputFormat".to_string(),
+        rust_path: "demo::OutputFormat".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Custom".to_string(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                serde_untagged: true,
+                ..Default::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".to_string()),
+        has_serde: true,
+        ..Default::default()
+    };
+
+    assert!(
+        !is_tagged_data_enum(&e),
+        "a data variant that opts out via its own #[serde(untagged)] must not force the tagged-object shape"
+    );
+    assert!(
+        is_variant_untagged_string_enum(&e),
+        "every data-carrying variant here is serde_untagged, so this must be claimed as a variant-untagged string enum"
+    );
+
+    let output = gen_enum(&e, "Js", true, "", None);
+    assert!(
+        output.contains("pub struct JsOutputFormat(pub serde_json::Value)"),
+        "must route through the JSON passthrough wrapper, not #[napi(string_enum)] or a tagged object; got:\n{output}"
+    );
+    assert!(
+        !output.contains("#[napi(string_enum"),
+        "a data-carrying enum must never be emitted as #[napi(string_enum)] (it can only hold unit variants); got:\n{output}"
+    );
+    assert!(
+        !output.contains("pub struct JsOutputFormat {"),
+        "must not be emitted as a tagged-object struct; got:\n{output}"
+    );
+}
+
+/// A default-tagged enum with no data-carrying variants at all (every variant unit) is
+/// unaffected by variant-level untagged handling: `is_variant_untagged_string_enum` requires at
+/// least one data-carrying variant, so a plain enum keeps going through the ordinary
+/// `#[napi(string_enum)]` path. ~keep
+#[test]
+fn unit_only_enum_is_not_variant_untagged_string_enum() {
+    let e = make_simple_enum("Status", &["Active", "Inactive"]);
+    assert!(!is_variant_untagged_string_enum(&e));
+    assert!(!is_tagged_data_enum(&e));
+
+    let output = gen_enum(&e, "Js", false, "", None);
+    assert!(output.contains("#[napi(string_enum"));
 }
 
 /// `apply_napi_case` must derive its output from `convert_case` — the exact crate and

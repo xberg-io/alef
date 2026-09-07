@@ -134,6 +134,7 @@ fn make_basic_api() -> ApiSurface {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".to_string(),
                     fields: vec![],
                     doc: "Active state.".to_string(),
@@ -147,6 +148,7 @@ fn make_basic_api() -> ApiSurface {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".to_string(),
                     fields: vec![],
                     doc: "Inactive state.".to_string(),

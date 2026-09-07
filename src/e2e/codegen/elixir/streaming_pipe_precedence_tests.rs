@@ -19,7 +19,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
-use std::process::Command;
 
 use super::assertions::render_assertion;
 use super::snippet::render_snippet_body;
@@ -176,7 +175,7 @@ fn render_streaming_assertion(assertion_type: &str, field: &str) -> String {
 }
 
 fn run_elixir(program: &str, script: &str, required: bool) -> Option<std::process::Output> {
-    match Command::new(program).args(["-e", script]).output() {
+    match crate::core::tool_command(program).args(["-e", script]).output() {
         Ok(output) => Some(output),
         Err(error) if error.kind() == ErrorKind::NotFound && required => {
             panic!("ALEF_REQUIRE_ELIXIR is set but Elixir is unavailable: {error}")

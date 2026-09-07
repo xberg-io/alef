@@ -196,6 +196,35 @@ fn cfg_meta_gates_on_test(meta: &syn::Meta) -> bool {
     }
 }
 
+/// Return true when the container or variant has `#[serde(untagged)]`.
+///
+/// Shared by container-level extraction (`extract::extractor::types::extract_enum`) and
+/// variant-level extraction (`extract::extractor::helpers::enum_variants::extract_enum_variant`)
+/// — serde honours `untagged` on either an enum or a single variant, and both call sites need
+/// the identical needle logic. ~keep
+pub(crate) fn has_serde_untagged(attrs: &[syn::Attribute]) -> bool {
+    for attr in attrs {
+        let tokens = if let Ok(list) = attr.meta.require_list() {
+            format!("{}", list.tokens)
+        } else {
+            continue;
+        };
+        let mut rest = tokens.as_str();
+        while let Some(pos) = rest.find("untagged") {
+            let before = &rest[..pos];
+            let after = &rest[pos + "untagged".len()..];
+            let valid_before = before.is_empty() || before.ends_with(|c: char| !c.is_alphanumeric() && c != '_');
+            let valid_after = after.is_empty() || after.starts_with(|c: char| !c.is_alphanumeric() && c != '_');
+            let not_kv = !after.trim_start().starts_with('=');
+            if valid_before && valid_after && not_kv {
+                return true;
+            }
+            rest = &rest[pos + 1..];
+        }
+    }
+    false
+}
+
 /// Extract `rename_all` value from `#[serde(rename_all = "...")]` or
 /// `#[cfg_attr(..., serde(rename_all = "..."))]` attributes (`cfg_attr` condition can be
 /// arbitrarily complex, e.g. `any(feature = "a", feature = "b")`, and `cfg_attr` may nest).

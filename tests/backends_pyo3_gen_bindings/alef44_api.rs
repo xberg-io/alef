@@ -614,6 +614,7 @@ fn test_options_py_imports_data_enums_as_native_classes() {
             rust_path: "test_lib::StructureKind".to_string(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Function".to_string(),
                 fields: vec![make_field("name", TypeRef::String, false)],
                 doc: String::new(),

@@ -441,6 +441,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -454,6 +455,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -514,6 +516,7 @@ fn data_bearing_enum_emits_associated_values() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Circle".into(),
                     fields: vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64), false)],
                     doc: String::new(),
@@ -527,6 +530,7 @@ fn data_bearing_enum_emits_associated_values() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Unit".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -587,6 +591,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "GitHub".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -600,6 +605,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Default".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -613,6 +619,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Dracula".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -692,6 +699,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Http".into(),
                     fields: vec![
                         make_field("scheme", TypeRef::String, false),
@@ -708,6 +716,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "ApiKey".into(),
                     fields: vec![
                         make_field("location", TypeRef::String, false),
@@ -780,6 +789,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Plain".into(),
                     fields: vec![make_field("text", TypeRef::String, false)],
                     doc: String::new(),
@@ -793,6 +803,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Handle".into(),
                     fields: vec![make_field("handle", TypeRef::Named("OpaqueHandle".into()), false)],
                     doc: String::new(),

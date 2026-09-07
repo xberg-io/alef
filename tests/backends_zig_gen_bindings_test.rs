@@ -586,6 +586,7 @@ fn enum_emits_zig_enum_or_union() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -599,6 +600,7 @@ fn enum_emits_zig_enum_or_union() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),

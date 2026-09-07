@@ -9,6 +9,7 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
         variants: variants
             .iter()
             .map(|v| EnumVariant {
+                serde_untagged: false,
                 name: v.to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -68,6 +69,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -81,6 +83,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Custom".to_string(),
                 fields: vec![FieldDef {
                     name: "_0".to_string(),
@@ -326,6 +329,7 @@ fn gen_enum_keeps_foreign_cfg_variant_unconditionally_regardless_of_configured_f
 /// `pub enum Message { System(SystemMessage), User(UserMessage) }`.
 fn make_tagged_tuple_enum() -> EnumDef {
     let make_tuple_variant = |variant_name: &str, tag: &str| EnumVariant {
+        serde_untagged: false,
         name: variant_name.to_string(),
         fields: vec![FieldDef {
             version: Default::default(),
@@ -466,6 +470,7 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Active".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -479,6 +484,7 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Inactive".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -531,6 +537,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
         rust_path: "test_lib::Auth".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Basic".to_string(),
             fields: vec![FieldDef {
                 version: Default::default(),
@@ -594,6 +601,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
 fn gen_tagged_enum_core_to_binding_hidden_variant_uses_safe_default() {
     let mut e = make_tagged_tuple_enum();
     e.excluded_variants.push(EnumVariant {
+        serde_untagged: false,
         name: "Internal".to_string(),
         fields: vec![],
         doc: String::new(),
@@ -648,6 +656,7 @@ fn gen_tagged_enum_struct_variant_preserves_optional_fields() {
         rust_path: "test_lib::SecuritySchemeInfo".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Http".to_string(),
             fields: vec![
                 field("scheme", TypeRef::String, false),
@@ -792,6 +801,7 @@ fn gen_tagged_enum_binding_to_core_matches_camel_case_tags() {
 /// a conversion from the `TypeRef` instead of the binding type.
 fn make_tagged_struct_enum_with_mixed_field() -> EnumDef {
     let make_variant = |variant_name: &str, tag: &str, model_ty: &str| EnumVariant {
+        serde_untagged: false,
         name: variant_name.to_string(),
         fields: vec![
             FieldDef {

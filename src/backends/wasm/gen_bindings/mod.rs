@@ -361,7 +361,7 @@ impl Backend for WasmBackend {
             .filter(|e| {
                 !exclude_types.contains(&e.name)
                     && !text_field_enum_names.contains(&e.name)
-                    && (enums::is_tagged_data_enum(e) || enums::is_untagged_data_enum(e))
+                    && (enums::is_tagged_data_enum(e) || enums::is_json_passthrough_data_enum(e))
             })
             .map(|e| e.name.clone())
             .collect();
@@ -387,6 +387,21 @@ impl Backend for WasmBackend {
         if !untagged_ts_plan.custom_section.is_empty() {
             builder.add_item(&untagged_ts_plan.custom_section);
         }
+        // Same "no nominal Wasm{Enum} type" treatment as `untagged_ts_plan` above, for a
+        // variant-level (rather than container-level) `#[serde(untagged)]` data enum -- see
+        // `enums::is_variant_untagged_string_enum`. Merged into `untagged_ts_plan.plans` so the
+        // enum loop below only has to consult one map. ~keep
+        let variant_untagged_ts_plan = ts_union::build_variant_untagged_string_enum_ts_plan_for_api(
+            api,
+            &exclude_types,
+            &opaque_types,
+            &text_field_enum_names,
+            &prefix,
+        );
+        if !variant_untagged_ts_plan.custom_section.is_empty() {
+            builder.add_item(&variant_untagged_ts_plan.custom_section);
+        }
+        untagged_ts_plan.plans.extend(variant_untagged_ts_plan.plans);
         let untagged_ts_value_types = ts_union::value_type_names(&untagged_ts_plan);
 
         let core_to_binding_convertible_for_structs =
@@ -397,7 +412,7 @@ impl Backend for WasmBackend {
                 continue;
             }
             if typ.is_opaque {
-                builder.add_item(&gen_opaque_struct(typ, &core_import, &prefix));
+                builder.add_item(&gen_opaque_struct(typ, &core_import, &prefix, &source_remaps_borrowed));
                 builder.add_item(&gen_opaque_struct_methods(
                     typ,
                     &mapper,
@@ -456,6 +471,7 @@ impl Backend for WasmBackend {
                     &mutex_types,
                     &streaming_item_types,
                     &untagged_ts_value_types,
+                    &source_remaps_borrowed,
                 ));
             }
         }
@@ -464,10 +480,15 @@ impl Backend for WasmBackend {
             if exclude_types.contains(&enum_def.name) {
                 continue;
             }
-            // No `Wasm{Enum}` type for an untagged data enum — see `register_untagged_data_enum_overrides`. ~keep
+            // No `Wasm{Enum}` type for a JSON-passthrough data enum (container- or
+            // variant-level untagged) — see `register_untagged_data_enum_overrides`. This check
+            // is independent of the plan-map lookup above: a `text_field_enum_names` opt-out
+            // removes the plan entry (the field type becomes plain `String` instead) but must
+            // NOT fall through to `gen_enum`, which cannot represent a data-carrying variant
+            // outside the tagged-object path either way. ~keep
             if let Some(plan) = untagged_ts_plan.plans.remove(&enum_def.name) {
                 builder.add_item(&plan.extern_type_declaration);
-            } else if !enums::is_untagged_data_enum(enum_def) {
+            } else if !enums::is_json_passthrough_data_enum(enum_def) {
                 builder.add_item(&gen_enum(enum_def, &prefix, &core_import, &configured_features_set));
             }
         }
@@ -688,7 +709,7 @@ impl Backend for WasmBackend {
         }
         for e in &api.enums {
             if !exclude_types.contains(&e.name) {
-                if enums::is_untagged_data_enum(e) {
+                if enums::is_json_passthrough_data_enum(e) {
                     // No `Wasm{Enum}` type to write a `From` impl against; see the `gen_enum` skip above. ~keep
                 } else if enums::is_tagged_data_enum(e) {
                     if input_types.contains(&e.name) {

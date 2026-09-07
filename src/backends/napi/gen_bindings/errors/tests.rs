@@ -568,6 +568,72 @@ fn untagged_enum_declares_bare_union_of_variant_shapes() {
     );
 }
 
+/// A variant-level `#[serde(untagged)]` on an otherwise default-tagged enum (e.g.
+/// `OutputFormat { Plain, Markdown, ..., #[serde(untagged)] Custom(String) }`) must declare a
+/// flat string-literal union over the unit variants -- respecting `serde_rename_all` -- plus a
+/// `(string & {})` tail that widens the type to accept the `Custom` payload while keeping
+/// editor autocomplete for the known literals. This must NOT be the container-level-untagged
+/// shape (`untagged_enum_declares_bare_union_of_variant_shapes` above): unit variants here are
+/// NOT `null`, they keep their name as a literal. ~keep
+#[test]
+fn variant_untagged_enum_declares_literal_union_with_string_widening_tail() {
+    let api = ApiSurface {
+        enums: vec![EnumDef {
+            name: "OutputFormat".to_string(),
+            serde_rename_all: Some("lowercase".to_string()),
+            variants: vec![
+                EnumVariant {
+                    name: "Plain".to_string(),
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Markdown".to_string(),
+                    ..Default::default()
+                },
+                EnumVariant {
+                    name: "Custom".to_string(),
+                    is_tuple: true,
+                    fields: vec![FieldDef {
+                        name: "_0".to_string(),
+                        ty: TypeRef::String,
+                        ..Default::default()
+                    }],
+                    serde_untagged: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let dts = gen_dts(
+        &api,
+        "",
+        &Default::default(),
+        &[],
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        "",
+        None,
+    );
+
+    assert!(
+        dts.contains("export type OutputFormat = \"plain\" | \"markdown\" | (string & {});"),
+        "expected a literal union with a string-widening tail, got:\n{dts}"
+    );
+    assert!(
+        !dts.contains("export declare enum OutputFormat"),
+        "must not emit a nominal #[napi(string_enum)] declaration for a data-carrying enum:\n{dts}"
+    );
+    assert!(
+        !dts.contains("type_tag") && !dts.contains("{ type:"),
+        "must not emit the tagged-object shape:\n{dts}"
+    );
+}
+
 #[test]
 fn gen_dts_includes_service_entrypoint_bridge_functions() {
     use crate::core::ir::{EntrypointDef, EntrypointKind, MethodDef, ReceiverKind, ServiceDef};

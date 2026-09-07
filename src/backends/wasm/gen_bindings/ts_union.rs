@@ -21,7 +21,7 @@ use crate::codegen::naming::ts_property_key::ts_property_key;
 use crate::codegen::naming::{wire_field_name, wire_variant_value};
 use crate::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
-use super::enums::is_untagged_data_enum;
+use super::enums::{is_untagged_data_enum, is_variant_untagged_string_enum};
 
 /// One named auxiliary TS declaration a variant/field recursively depended on: a struct's
 /// interface, a fieldless enum's string-literal union, a nested untagged union's own alias, or
@@ -101,6 +101,146 @@ fn gets_a_ts_union(
     !exclude_types.contains(&enum_def.name)
         && !text_field_enum_names.contains(&enum_def.name)
         && is_untagged_data_enum(enum_def)
+}
+
+/// `mod.rs` entry point for [`is_variant_untagged_string_enum`] enums: filters `api.enums` down
+/// to the non-excluded ones and builds their combined plan. Reuses [`AllUntaggedEnumsTsPlan`]'s
+/// shape (and the same `ts_extern_value_type`/`ts_custom_section` templates
+/// [`build_untagged_enum_ts_plans`] renders) so `mod.rs` merges the two plans the same way it
+/// already merges everything else about a "no nominal `Wasm{Enum}` type" enum -- but the
+/// declared TypeScript differs, so this stays a separate builder rather than a branch inside
+/// `build_untagged_enum_ts_plans`/`TsMapContext::map_variant` (see
+/// [`is_variant_untagged_string_enum`]'s doc comment for why a unit variant must NOT render as
+/// `null` here the way it does there). ~keep
+pub(super) fn build_variant_untagged_string_enum_ts_plan_for_api(
+    api: &ApiSurface,
+    exclude_types: &[String],
+    opaque_type_names: &AHashSet<String>,
+    text_field_enum_names: &AHashSet<String>,
+    prefix: &str,
+) -> AllUntaggedEnumsTsPlan {
+    let exclude_types_set: AHashSet<String> = exclude_types.iter().cloned().collect();
+    let enum_defs: Vec<&EnumDef> = api
+        .enums
+        .iter()
+        .filter(|e| gets_a_variant_untagged_string_enum_ts_union(e, &exclude_types_set, text_field_enum_names))
+        .collect();
+    build_variant_untagged_string_enum_ts_plans(&enum_defs, api, &exclude_types_set, opaque_type_names, prefix)
+}
+
+/// Whether this enum gets the flat literal-union-plus-widening-tail TypeScript type rather than
+/// staying `any`/`String`. Same opt-out precedence as [`gets_a_ts_union`]: an explicit
+/// `untagged_union_text_types` entry pins the field type to plain `String` and must win over
+/// declaring a structural union here. ~keep
+fn gets_a_variant_untagged_string_enum_ts_union(
+    enum_def: &EnumDef,
+    exclude_types: &AHashSet<String>,
+    text_field_enum_names: &AHashSet<String>,
+) -> bool {
+    !exclude_types.contains(&enum_def.name)
+        && !text_field_enum_names.contains(&enum_def.name)
+        && is_variant_untagged_string_enum(enum_def)
+}
+
+/// Build the full TS plan for every [`is_variant_untagged_string_enum`] enum: a flat
+/// string-literal union over the unit variants (their serde WIRE value, per `wire_variant_value`
+/// -- NOT any napi-style runtime case table, since this value round-trips through the CORE
+/// type's own serde impl via `serde_wasm_bindgen`, not through a napi-derive macro with its own
+/// casing algorithm), plus one widening tail member per untagged data variant. A single-field
+/// tuple variant widens via `(T & {})` when `T` is exactly `string` -- the standard TypeScript
+/// "loosen a literal union" idiom, which only helps when the wider type and the literals share a
+/// primitive -- and otherwise (including multi-field tuple and struct-shaped variants) falls
+/// back to [`TsMapContext::map_variant`]'s ordinary structural rendering unwrapped, reusing the
+/// same recursive type mapping [`build_untagged_enum_ts_plans`] uses so a struct-payload variant
+/// still gets its fields expanded into a nested interface declaration. ~keep
+fn build_variant_untagged_string_enum_ts_plans(
+    enum_defs: &[&EnumDef],
+    api: &ApiSurface,
+    exclude_types: &AHashSet<String>,
+    opaque_type_names: &AHashSet<String>,
+    prefix: &str,
+) -> AllUntaggedEnumsTsPlan {
+    let mut ctx = TsMapContext {
+        api,
+        exclude_types,
+        opaque_type_names,
+        prefix,
+        in_progress: AHashMap::default(),
+        resolved_names: AHashMap::default(),
+        decls: Vec::new(),
+    };
+    let mut plans = AHashMap::default();
+
+    for enum_def in enum_defs {
+        let ts_type_name = format!("{prefix}{}", enum_def.name);
+        let mut members: Vec<String> = enum_def
+            .variants
+            .iter()
+            .filter(|v| v.fields.is_empty())
+            .map(|v| {
+                format!(
+                    "\"{}\"",
+                    wire_variant_value(&v.name, v.serde_rename.as_deref(), enum_def.serde_rename_all.as_deref())
+                )
+            })
+            .collect();
+        let rename_all_fields = enum_def.rename_all_fields.as_deref();
+        for variant in enum_def.variants.iter().filter(|v| !v.fields.is_empty()) {
+            if variant.is_tuple && variant.fields.len() == 1 {
+                let ty = ctx.map_type(&variant.fields[0].ty);
+                members.push(if ty == "string" {
+                    "(string & {})".to_string()
+                } else {
+                    ty
+                });
+            } else {
+                members.push(ctx.map_variant(variant, rename_all_fields));
+            }
+        }
+        ctx.decls.push(TsAuxDecl::Alias {
+            name: ts_type_name.clone(),
+            members,
+        });
+
+        let value_type_name = format!("{ts_type_name}Value");
+        let extern_type_declaration = crate::backends::wasm::template_env::render(
+            "ts_extern_value_type",
+            minijinja::context! {
+                ts_type_name => ts_type_name,
+                value_type_name => value_type_name.clone(),
+            },
+        );
+        plans.insert(
+            enum_def.name.clone(),
+            UntaggedEnumTsPlan {
+                value_type_name,
+                extern_type_declaration,
+            },
+        );
+    }
+
+    let ts_body = if ctx.decls.is_empty() {
+        String::new()
+    } else {
+        ctx.decls.iter().map(render_aux_decl).collect::<Vec<_>>().join("\n\n")
+    };
+    let custom_section = if ts_body.is_empty() {
+        String::new()
+    } else {
+        crate::backends::wasm::template_env::render(
+            "ts_custom_section",
+            minijinja::context! {
+                const_name => "ALEF_VARIANT_UNTAGGED_STRING_ENUMS_TS",
+                ts_body => ts_body.clone(),
+            },
+        )
+    };
+
+    AllUntaggedEnumsTsPlan {
+        plans,
+        ts_body,
+        custom_section,
+    }
 }
 
 /// The per-enum extern wrapper type name, by Rust enum name — what `gen_struct_methods` needs to

@@ -7,7 +7,7 @@
 //! rendered body reading the value. Dropping on either one alone regresses the other case.
 
 use super::*;
-use crate::core::ir::{FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+use crate::core::ir::{FieldDef, FunctionDef, TypeDef, TypeRef};
 use crate::e2e::config::CallConfig;
 use crate::e2e::fixture::{Assertion, Fixture};
 
@@ -36,12 +36,6 @@ fn functions() -> Vec<FunctionDef> {
         },
         FunctionDef {
             name: "unregister_backend".to_string(),
-            params: vec![ParamDef {
-                name: "name".to_string(),
-                ty: TypeRef::String,
-                is_ref: true,
-                ..ParamDef::default()
-            }],
             return_type: TypeRef::Unit,
             error_type: Some("Error".to_string()),
             binding_excluded: true,
@@ -163,7 +157,7 @@ fn should_keep_the_named_binding_when_an_assertion_reads_the_result() {
 }
 
 #[test]
-fn should_use_a_binding_excluded_parameterized_function_signature_for_rust() {
+fn should_use_a_binding_excluded_unit_result_signature_for_rust() {
     let out = render("unregister_backend", vec![not_error_assertion()]);
     assert!(
         out.contains("    unregister_backend().expect(\"call failed\");"),

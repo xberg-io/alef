@@ -36,6 +36,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Start".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -49,6 +50,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "End".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -62,6 +64,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Middle".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -196,6 +199,7 @@ fn enum_variant_with_multiple_reserved_words() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Do".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -209,6 +213,7 @@ fn enum_variant_with_multiple_reserved_words() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Fn".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),
@@ -222,6 +227,7 @@ fn enum_variant_with_multiple_reserved_words() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "When".to_string(),
                 fields: Vec::new(),
                 doc: String::new(),

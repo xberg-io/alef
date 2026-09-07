@@ -30,6 +30,7 @@ fn make_field(name: &str, ty: TypeRef) -> FieldDef {
 
 fn make_variant(name: &str, serde_rename: Option<&str>, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

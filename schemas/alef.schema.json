@@ -2551,7 +2551,7 @@
         },
         "nif_targets": {
           "default": [],
-          "description": "Rust target triples for which precompiled NIFs are uploaded to the\nGitHub release. `RustlerPrecompiled` reads this list to know which\narchives to download at install time. Must agree with the consumer's\nCI build matrix and the `generate-elixir-checksums` action's targets\ninput. When empty, falls back to the historical default of\n`aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu`.",
+          "description": "Rust target triples for which precompiled NIFs are uploaded to the\nGitHub release. `RustlerPrecompiled` reads this list to know which\narchives to download at install time. Must agree with the consumer's\nCI build matrix and the `generate-elixir-checksums` action's targets\ninput. When empty, falls back to [`DEFAULT_NIF_TARGETS`]:\n`aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-pc-windows-msvc`.\nWindows is msvc, not gnu -- `RustlerPrecompiled` resolves the msvc triple at install time\nand rejects any triple this list omits.",
           "items": {
             "type": "string"
           },
@@ -8216,7 +8216,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.84.3/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.85.5/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8335,6 +8335,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.84.3",
-  "x-alef-version": "0.84.3"
+  "version": "0.85.5",
+  "x-alef-version": "0.85.5"
 }

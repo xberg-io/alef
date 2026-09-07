@@ -9,6 +9,7 @@ fn tagged_enum_with_single_field(field: FieldDef) -> EnumDef {
         rust_path: "test_lib::ModelSource".to_string(),
         original_rust_path: String::new(),
         variants: vec![EnumVariant {
+            serde_untagged: false,
             name: "Llm".to_string(),
             fields: vec![field],
             doc: String::new(),

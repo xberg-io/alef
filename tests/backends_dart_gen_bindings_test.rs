@@ -227,6 +227,7 @@ fn unit_enum_emits_dart_enum() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Active".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -240,6 +241,7 @@ fn unit_enum_emits_dart_enum() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Inactive".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -303,6 +305,7 @@ fn data_bearing_enum_emits_sealed_class() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Circle".into(),
                     fields: vec![make_field("radius", TypeRef::Primitive(PrimitiveType::F64), false)],
                     doc: String::new(),
@@ -316,6 +319,7 @@ fn data_bearing_enum_emits_sealed_class() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Rectangle".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -893,6 +897,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
             rust_path: "demo::Strategy".into(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Balanced".into(),
                 fields: vec![],
                 doc: String::new(),
@@ -1844,6 +1849,7 @@ fn enum_variant_named_default_is_escaped() {
             original_rust_path: String::new(),
             variants: vec![
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Default".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -1857,6 +1863,7 @@ fn enum_variant_named_default_is_escaped() {
                     version: Default::default(),
                 },
                 EnumVariant {
+                    serde_untagged: false,
                     name: "Dark".into(),
                     fields: vec![],
                     doc: String::new(),
@@ -1919,6 +1926,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             rust_path: "demo::FormatMetadata".into(),
             original_rust_path: String::new(),
             variants: vec![EnumVariant {
+                serde_untagged: false,
                 name: "Pdf".into(),
                 fields: vec![make_field("0", TypeRef::String, false)],
                 doc: String::new(),

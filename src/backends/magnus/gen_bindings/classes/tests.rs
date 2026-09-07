@@ -182,6 +182,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
         original_rust_path: String::new(),
         variants: vec![
             EnumVariant {
+                serde_untagged: false,
                 name: "Pending".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -195,6 +196,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
                 version: Default::default(),
             },
             EnumVariant {
+                serde_untagged: false,
                 name: "Done".to_string(),
                 fields: vec![],
                 doc: String::new(),
@@ -281,6 +283,7 @@ fn gen_enum_unit_variant_try_convert_still_accepts_the_legacy_snake_case_spellin
 
 fn make_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

@@ -642,6 +642,7 @@ fn instance_method_with_borrowed_named_input_delegates_to_core() {
         &typ,
         &Default::default(),
         &Default::default(),
+        &[],
     );
 
     assert!(output.contains("let options_core: sample_core::Options"), "{output}");
@@ -828,6 +829,7 @@ fn async_method_returning_map_bridges_through_serde_not_from() {
         &typ,
         &Default::default(),
         &Default::default(),
+        &[],
     );
 
     assert!(
@@ -869,6 +871,7 @@ fn async_method_returning_named_still_uses_from() {
         &typ,
         &Default::default(),
         &Default::default(),
+        &[],
     );
 
     assert!(

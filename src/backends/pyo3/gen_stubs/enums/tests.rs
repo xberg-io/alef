@@ -43,6 +43,7 @@ fn optional_field(name: &str, ty: TypeRef) -> FieldDef {
 
 fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
     EnumVariant {
+        serde_untagged: false,
         name: name.to_string(),
         fields,
         doc: String::new(),

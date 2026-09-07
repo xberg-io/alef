@@ -2,13 +2,14 @@
     clippy::too_many_arguments,
     clippy::not_unsafe_ptr_arg_deref,
     unused_variables,
-    unused_mut
+    unused_mut,
+    unused_imports
 )]
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
 use std::panic;
-use super::{AlefHandle, HandleError, insert_handle, remove_handle, set_handle_error, take_handle, with_handle, with_handle_mut};
+use super::{AlefHandle, HandleError, insert_handle, remove_handle, set_handle_error, set_last_error, take_handle, with_handle, with_handle_mut};
 
 fn catch_ffi_panic<T>(fallback: T, body: impl FnOnce() -> T) -> T {
     match panic::catch_unwind(panic::AssertUnwindSafe(body)) {

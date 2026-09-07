@@ -2,10 +2,7 @@ mod enum_members;
 
 use super::*;
 pub(in crate::e2e::codegen::typescript::test_file) use enum_members::node_enum_string_literal;
-use enum_members::{
-    declared_enum_member_for_prefixed, is_tagged_data_enum, node_tagged_unit_variant_literal,
-    wasm_enum_bridged_as_raw_value,
-};
+use enum_members::{declared_enum_member_for_prefixed, is_tagged_data_enum, wasm_enum_bridged_as_raw_value};
 
 use crate::e2e::codegen::fixture_refusal::RefusalSite;
 
@@ -689,12 +686,13 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
                 let enum_type = resolve_enum_type(enum_fields, Some(type_name), key, &camel_key);
                 if let Some(enum_type) = enum_type {
                     if let serde_json::Value::String(s) = &preprocessed {
-                        if let Some(literal) = node_tagged_unit_variant_literal(enum_type, enums, s, referenced_enums) {
-                            literal
-                        } else {
-                            let member = declared_enum_member_for_prefixed(enum_type, enums, wasm_type_prefix, s);
-                            enum_member_reference(enum_type, &member, referenced_enums)
-                        }
+                        // Delegates to the same predicate-checked resolver `node_enum_string_literal`
+                        // uses elsewhere in this module: a variant-level untagged enum (e.g.
+                        // `OutputFormat`'s `Custom(String)`) declares no `.d.ts` value binding at
+                        // all, so referencing `OutputFormat.Markdown` here is a type-used-as-value
+                        // error. Calling `declared_enum_member_for_prefixed` directly, as this
+                        // branch previously did, skipped that check. ~keep
+                        node_enum_string_literal(enum_type, enums, s, referenced_enums)
                     } else {
                         json_to_js(&preprocessed)
                     }
@@ -722,10 +720,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
             fields.push(format!("{js_key}: {field_expr}"));
         }
         let obj_literal = format!("{{ {} }}", fields.join(", "));
-        if enums
-            .iter()
-            .any(|definition| definition.name == type_name && crate::backends::napi::is_untagged_data_enum(definition))
-        {
+        if enums.iter().any(|definition| {
+            definition.name == type_name && crate::backends::napi::is_json_passthrough_data_enum(definition)
+        }) {
             referenced_enums.insert(format!("type {type_name}"));
         }
         return format!("{obj_literal} as {type_name}");
@@ -949,21 +946,17 @@ fn node_value_expression(
         && enums.iter().any(|definition| definition.name == *type_name)
         && let Some(variant) = value.as_str()
     {
-        if let Some(literal) = node_tagged_unit_variant_literal(type_name, enums, variant, referenced_enums) {
-            return literal;
-        }
-        let member = declared_enum_member_for_prefixed(type_name, enums, "", variant);
-        return enum_member_reference(type_name, &member, referenced_enums);
+        // See the equivalent branch in `ts_builder_expression_inner`: delegate to the
+        // predicate-checked `node_enum_string_literal` rather than falling straight to
+        // `declared_enum_member_for_prefixed`, which does not know a variant-level untagged
+        // enum declares no `.d.ts` value binding to reference. ~keep
+        return node_enum_string_literal(type_name, enums, variant, referenced_enums);
     }
     let camel_field = underscore_camel_case(field);
     if let Some(enum_type) = resolve_enum_type(enum_fields, owner_type, field, &camel_field)
         && let Some(variant) = value.as_str()
     {
-        if let Some(literal) = node_tagged_unit_variant_literal(enum_type, enums, variant, referenced_enums) {
-            return literal;
-        }
-        let member = declared_enum_member_for_prefixed(enum_type, enums, "", variant);
-        return enum_member_reference(enum_type, &member, referenced_enums);
+        return node_enum_string_literal(enum_type, enums, variant, referenced_enums);
     }
     if let Some(crate::core::ir::TypeRef::Named(type_name)) = field_type
         && let serde_json::Value::Object(object) = value

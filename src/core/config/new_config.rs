@@ -315,7 +315,13 @@ impl NewAlefConfig {
             .map(|raw| validate_crate_attribute(&krate.name, raw))
             .collect::<Result<Vec<String>, ResolveError>>()?;
 
-        let source_crates = resolve_source_crates(&krate.source_crates, krate.workspace_root.as_deref())?;
+        // Deliberately NOT resolved here: rebasing a `from_registry = true` entry shells out to
+        // `cargo metadata`, and `resolve()` runs for every subcommand, including ones (e.g.
+        // `alef publish package`, a pure archive-the-artifact operation) that never read
+        // `source_crates` at all. Resolution is deferred to
+        // `ResolvedCrateConfig::resolved_source_crates`'s first call, from a codegen/hash path
+        // that actually needs it. ~keep
+        let source_crates = krate.source_crates.clone();
 
         // Per-target toggles: workspace defaults, overridden per key by the crate. ~keep
         let mut targets = ws.targets.clone();
@@ -340,6 +346,7 @@ impl NewAlefConfig {
             name: krate.name.clone(),
             sources: krate.sources.clone(),
             source_crates,
+            resolved_source_crates: std::sync::OnceLock::new(),
             version_from: krate.version_from.clone().unwrap_or_else(|| "Cargo.toml".to_string()),
             core_import: krate.core_import.clone(),
             workspace_root: krate.workspace_root.clone(),
@@ -1047,7 +1054,12 @@ fn validate_c_call_override(
 /// `from_registry = true` against the cargo registry path of that crate.
 ///
 /// Entries with `from_registry = false` are returned unchanged.
-fn resolve_source_crates(
+///
+/// Called lazily from [`crate::core::config::resolved::ResolvedCrateConfig::resolved_source_crates`]
+/// rather than eagerly during [`NewAlefConfig::resolve`] -- see that method's doc comment for
+/// why. `pub(crate)` (not private) purely so that lazy caller can reach it; this function itself
+/// is unaware of the caching. ~keep
+pub(crate) fn resolve_source_crates(
     source_crates: &[super::SourceCrate],
     workspace_root: Option<&Path>,
 ) -> Result<Vec<super::SourceCrate>, ResolveError> {
