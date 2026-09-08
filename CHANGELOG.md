@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.7] - 2026-09-08
+
 ### Fixed
+
+- **Swift e2e navigated into an internally-tagged enum by a key that cannot exist.** A fixture
+  path spells a tagged-union field with its variant as a segment
+  (`results[0].metadata.format.excel.sheet_count`), but that segment is a typed accessor, not a
+  JSON key: the enum is internally tagged, so its wire form is flat and the variant name never
+  appears as a key. Typed-language backends map it to a real variant accessor and are correct;
+  JSON-walking backends must skip it, as Zig already did. Swift instead emitted
+  `(json as? [String: Any])?["excel"]`, which returned nil, was swallowed by `?? "null"`, and
+  left the assertion comparing against 0 or "". In one consumer this was four failing assertions
+  reading `metadata().format()` while 93 sibling tests passed. Zig's variant list and skip
+  predicate move into a shared `field_access::format_metadata_variants` that both backends
+  consult, rather than Swift growing a second copy that could drift. Four existing tests asserted
+  the buggy shape and are corrected — they are why it survived.
 
 - **A populated CORS fixture deserialized into a deny-all policy.** `e2e::fixture::CorsConfig`
   reads `allow_origins` / `allow_methods` / `allow_headers`, each `#[serde(default)]`, but every
