@@ -238,3 +238,67 @@ fn render_wasm_excluded_category_emits_named_skip_cases_with_reasons() {
         "must surface the per-fixture skip reason:\n{content}"
     );
 }
+
+#[test]
+fn real_generator_preserves_error_registry_for_variant_and_message_assertions() {
+    let errors = vec![crate::core::ir::ErrorDef {
+        name: "ApiError".into(),
+        rust_path: "lib::ApiError".into(),
+        original_rust_path: String::new(),
+        variants: vec![crate::core::ir::ErrorVariant {
+            name: "Authentication".into(),
+            error_code: Some(100),
+            ..Default::default()
+        }],
+        doc: String::new(),
+        methods: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    }];
+    let fixtures = [Some("Authentication"), Some("invalid (key)"), None]
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| Fixture {
+            id: format!("error_{index}"),
+            category: Some("errors".into()),
+            input: serde_json::json!({}),
+            assertions: vec![crate::e2e::fixture::Assertion {
+                assertion_type: "error".into(),
+                value: value.map(|value| serde_json::json!(value)),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .collect();
+    let mut config = E2eConfig::default();
+    config.call.function = "doThing".into();
+    let files = WasmCodegen
+        .generate(
+            &[FixtureGroup {
+                category: "errors".into(),
+                fixtures,
+            }],
+            &config,
+            &ResolvedCrateConfig::default(),
+            &[],
+            &[],
+            &[],
+            &errors,
+        )
+        .expect("generate WASM suite");
+    let output = &files
+        .iter()
+        .find(|file| file.path.ends_with("errors.test.ts"))
+        .expect("error suite")
+        .content;
+    assert_eq!(output.matches("it(\"error_").count(), 3, "{output}");
+    assert_eq!(output.matches("}).rejects.toThrow();").count(), 2, "{output}");
+    assert_eq!(output.matches("toSatisfy").count(), 1, "{output}");
+    assert!(
+        output.contains("declared error variant 'Authentication' not yet preserved"),
+        "{output}"
+    );
+    assert!(!output.contains("/Authentication/"), "{output}");
+    assert!(output.contains(r"/invalid \(key\)/.test(_message)"), "{output}");
+}
