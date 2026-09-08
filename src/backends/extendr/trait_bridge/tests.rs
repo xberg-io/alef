@@ -279,3 +279,34 @@ fn enum_and_unknown_named_params_keep_json_string_representation() {
         "non-struct Named params must NOT be built as native objects:\n{body}"
     );
 }
+
+#[test]
+fn context_arguments_pass_the_existing_robj_directly() {
+    for is_ref in [true, false] {
+        let param = ParamDef {
+            is_ref,
+            ..ref_named_param("context", "Context")
+        };
+        let expected = if is_ref {
+            "nodecontext_to_robj(context)"
+        } else {
+            "nodecontext_to_robj(&context)"
+        };
+        assert_eq!(super::build_extendr_arg(&param, Some("Context")), expected);
+    }
+}
+
+#[test]
+fn registration_maps_string_errors_with_the_variant_constructor() {
+    let trait_def = greeter_trait_with(vec![]);
+    let config = TraitBridgeConfig {
+        register_fn: Some("register_backend".to_string()),
+        registry_getter: Some("registry".to_string()),
+        ..Default::default()
+    };
+    let output = generator_with(&[]).gen_registration_fn(&plugin_spec(&trait_def, &config));
+    assert!(
+        output.contains("::new(r_backend).map_err(extendr_api::Error::Other)?"),
+        "{output}"
+    );
+}

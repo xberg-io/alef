@@ -8,7 +8,7 @@ pub fn {{ func_name }}({{ params_str }}) -> {{ return_type }} {
     let {{ field_name }}_handle: Option<{{ handle_path }}> = {{ field_name }}_robj
         .map(|v| Arc::new(Mutex::new({{ struct_name }}::new(v))) as {{ handle_path }});
     let opts_local = crate::options::decode_options({{ options_param }})
-        .map_err(|e| extendr_api::Error::Other(e))?;
+        .map_err(extendr_api::Error::Other)?;
     let mut opts: {{ core_import }}::{{ options_type }} = opts_local.into();
     opts.{{ field_name }} = {{ field_name }}_handle;
     {{ core_import }}::{{ func_name }}({{ call_args_str }})

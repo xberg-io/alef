@@ -115,6 +115,7 @@ fn make_api_surface() -> ApiSurface {
 
 mod bridges;
 mod cfg_functions;
+mod clippy_regressions;
 mod declaration_cfg;
 mod determinism;
 mod enum_conversions_cfg;

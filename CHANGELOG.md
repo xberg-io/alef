@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generate R bindings without redundant identity conversions, nested option guards, or error-constructor closures, while preserving wrapped string conversions and NULL handling.
+- Preserve Ruby consuming-method names with borrowed wrapper signatures, and keep visitor options compatible with private fields and non-exhaustive core types under strict Clippy checks.
 - Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
   preserving known response values and rejecting malformed field types. This fixes valid responses failing
   with Jackson `UnrecognizedPropertyException` ([#348](https://github.com/xberg-io/alef/issues/348)).

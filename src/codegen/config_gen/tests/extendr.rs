@@ -247,3 +247,13 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         "hash constructor should call inner-type::try_convert, not Option<T>::try_convert: {output}"
     );
 }
+
+#[test]
+fn extendr_enum_constructor_combines_presence_and_parse_guards() {
+    let mut typ = make_test_type();
+    typ.fields = vec![make_field("style", TypeRef::Named("Style".to_string()))];
+    let enums = ["Style".to_string()].into_iter().collect();
+    let output = gen_extendr_kwargs_constructor(&typ, &simple_type_mapper, &enums);
+    assert!(output.contains("if let Some(v) = style && let Ok(parsed)"), "{output}");
+    assert!(output.contains("__out.style = parsed;"), "{output}");
+}

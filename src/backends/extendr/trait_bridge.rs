@@ -376,7 +376,6 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 registry_getter => registry_getter,
                 required_methods => has_methods,
                 required_methods_list => required_methods_list,
-                error_map => ".map_err(|e| extendr_api::Error::Other(e))?",
             },
         )
     }
@@ -689,7 +688,7 @@ fn build_extendr_arg(p: &crate::core::ir::ParamDef, context_type: Option<&str>) 
         && Some(n.as_str()) == context_type
     {
         let ref_prefix = if p.is_ref { "" } else { "&" };
-        return format!("extendr_api::Robj::from(nodecontext_to_robj({}{}))", ref_prefix, p.name);
+        return format!("nodecontext_to_robj({}{})", ref_prefix, p.name);
     }
 
     if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {

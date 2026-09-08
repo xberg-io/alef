@@ -671,24 +671,26 @@ fn gen_instance_method(
     } else {
         gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
     };
-    let allow_attr = if !can_delegate {
-        "#[allow(unused_variables)]\n    "
-    } else {
-        ""
-    };
     let self_recv = if needs_mut_receiver { "&mut self" } else { "&self" };
-    let trait_allow = if generators::is_trait_method_name(&method.name) {
-        "#[allow(clippy::should_implement_trait)]\n    "
-    } else {
-        ""
-    };
     // See `gen_opaque_instance_method` for why the gate is re-emitted rather than filtered. ~keep
     let method_cfg = method.rust_cfg_attribute();
-    format!(
-        "{method_cfg}{trait_allow}{allow_attr}fn {}({self_recv}, {params}) -> {return_annotation} {{\n        \
-         {body}\n    }}",
-        method.name
+    crate::backends::magnus::template_env::render(
+        "instance_method.rs.jinja",
+        minijinja::context! {
+            method_cfg => method_cfg,
+            trait_method => generators::is_trait_method_name(&method.name),
+            unused_variables => !can_delegate,
+            borrowed_consuming_method => method.receiver == Some(ReceiverKind::Owned)
+                && method.name.starts_with("into_"),
+            name => method.name,
+            self_recv => self_recv,
+            params => params,
+            return_annotation => return_annotation,
+            body => body,
+        },
     )
+    .trim_end()
+    .to_string()
 }
 
 /// Generate an async instance method binding for Magnus (block on runtime).
@@ -935,3 +937,6 @@ pub(super) fn gen_struct_default_impl_explicit(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod clippy_tests;
