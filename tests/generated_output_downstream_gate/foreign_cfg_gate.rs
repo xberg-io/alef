@@ -128,14 +128,10 @@ fn drop_binding_to_core_variant_arm(tree: &EmittedTree) {
     let block = &source[start..end];
     let target = "Swatch::Accent => Self::Accent,";
     assert!(
-        block.lines().any(|line| line.trim() == target),
+        block.matches(target).count() == 1,
         "the binding-to-core block has no Accent arm to remove: {block}"
     );
-    let sabotaged_block: String = block
-        .lines()
-        .filter(|line| line.trim() != target)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let sabotaged_block = block.replacen(target, "", 1);
     let sabotaged = format!("{}{sabotaged_block}{}", &source[..start], &source[end..]);
     std::fs::write(&path, sabotaged).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
 }
@@ -156,12 +152,13 @@ fn add_redundant_core_to_binding_catch_all(tree: &EmittedTree) {
         "the core-to-binding block already has a catch-all, so adding a second one would not \
          prove this sabotage examines anything new:\n{block}"
     );
-    let last_arm = block
-        .lines()
-        .find(|line| line.trim() == "foreign_core::Swatch::Accent => Self::Accent,")
-        .unwrap_or_else(|| panic!("core-to-binding block has no `Accent` arm to anchor the sabotage on:\n{block}"));
-    let indent = &last_arm[..last_arm.len() - last_arm.trim_start().len()];
-    let sabotaged_block = block.replacen(last_arm, &format!("{last_arm}\n{indent}_ => Default::default(),"), 1);
+    let last_arm = "foreign_core::Swatch::Accent => Self::Accent,";
+    assert_eq!(
+        block.matches(last_arm).count(),
+        1,
+        "core-to-binding block must have exactly one Accent arm: {block}"
+    );
+    let sabotaged_block = block.replacen(last_arm, &format!("{last_arm} _ => Default::default(),"), 1);
     let sabotaged = format!("{}{sabotaged_block}{}", &source[..start], &source[end..]);
     std::fs::write(&path, sabotaged).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
 }

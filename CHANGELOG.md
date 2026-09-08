@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
   preserving known response values and rejecting malformed field types. This fixes valid responses failing
   with Jackson `UnrecognizedPropertyException` ([#348](https://github.com/xberg-io/alef/issues/348)).
+- Generated-output CI uses Poly 0.24.0 to support the emitted hook snapshot configuration, and mutation checks handle compact enum conversions.
+- The generated Go visitor fixture builds on Windows x86-64 with its supported archive layout and GCC fallback.
 
 ## [0.85.7] - 2026-09-08
 

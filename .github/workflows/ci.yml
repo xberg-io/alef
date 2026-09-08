@@ -216,12 +216,12 @@ jobs:
         # Goldziher/poly@v0 resolved to tag v0.24.0 (commit
         # 2303580a69638d6887db17d2f4e9bbffe7c4218b) when this pin was written -- pinned to that
         # commit SHA below because a major-version tag like `v0` is mutable and can be
-        # repointed, so the SHA is the real supply-chain pin; `version: v0.23.0` in `with:` is
+        # repointed, so the SHA is the real supply-chain pin; `version: v0.24.0` in `with:` is
         # kept as the human-readable/functional pin the action itself resolves against. To bump
         # poly, update both the SHA below and `version:` together. ~keep
         uses: Goldziher/poly@2303580a69638d6887db17d2f4e9bbffe7c4218b # v0.24.0
         with:
-          version: v0.23.0
+          version: v0.24.0
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
       # tool rather than skipping, so this step exists to fail earlier and more legibly,
       # not to decide whether the gate runs. The poly assertions are deliberately strict
@@ -237,8 +237,8 @@ jobs:
           cargo sort --version
 
           installed_poly_version="$(poly --version | awk '{print $2}')"
-          if [ "$installed_poly_version" != "0.23.0" ]; then
-            echo "::error::expected poly 0.23.0 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the pinned Goldziher/poly uses: SHA and version: input above together with this check." >&2
+          if [ "$installed_poly_version" != "0.24.0" ]; then
+            echo "::error::expected poly 0.24.0 (pinned for the poly.toml added-large-files hook), got ${installed_poly_version:-<empty>}. Update the pinned Goldziher/poly uses: SHA and version: input above together with this check." >&2
             exit 1
           fi
           echo "poly ${installed_poly_version} matches the pinned version."
