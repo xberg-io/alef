@@ -955,13 +955,17 @@ fn render_error_fixture(fixture: &Fixture) -> String {
 }
 
 fn render_error_fixture_with_errors(fixture: &Fixture, errors: &[crate::core::ir::ErrorDef]) -> String {
+    render_error_fixture_for_language("node", fixture, errors)
+}
+
+fn render_error_fixture_for_language(lang: &str, fixture: &Fixture, errors: &[crate::core::ir::ErrorDef]) -> String {
     let mut e2e_config = E2eConfig::default();
     e2e_config.call.function = "doThing".to_string();
     let config = crate::core::config::ResolvedCrateConfig::default();
     let fixtures = vec![fixture];
 
     render_test_file(
-        "node",
+        lang,
         "thing",
         &fixtures,
         "",
@@ -978,6 +982,42 @@ fn render_error_fixture_with_errors(fixture: &Fixture, errors: &[crate::core::ir
         &config,
         errors,
     )
+}
+
+#[test]
+fn wasm_error_assertions_preserve_rejections_and_literal_messages() {
+    let errors = vec![crate::core::ir::ErrorDef {
+        name: "ApiError".into(),
+        rust_path: "lib::ApiError".into(),
+        original_rust_path: String::new(),
+        variants: vec![crate::core::ir::ErrorVariant {
+            name: "Authentication".into(),
+            error_code: Some(100),
+            ..Default::default()
+        }],
+        doc: String::new(),
+        methods: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    }];
+    let variant = error_fixture("auth", Some(serde_json::json!("Authentication")));
+    let rendered = render_error_fixture_for_language("wasm", &variant, &errors);
+    assert!(rendered.contains("}).rejects.toThrow();"), "{rendered}");
+    assert!(!rendered.contains("toSatisfy"), "{rendered}");
+    assert!(
+        rendered.contains("declared error variant 'Authentication' not yet preserved"),
+        "{rendered}"
+    );
+
+    let message = error_fixture("invalid", Some(serde_json::json!("invalid (key)")));
+    let rendered = render_error_fixture_for_language("wasm", &message, &errors);
+    assert!(
+        rendered.contains(r"return /invalid \(key\)/.test(_message) || /invalid \(key\)/.test(_name);"),
+        "{rendered}"
+    );
+    assert!(rendered.contains("String(error)"), "{rendered}");
+    assert!(!rendered.contains("declared error variant"), "{rendered}");
 }
 
 #[test]
