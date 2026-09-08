@@ -51,6 +51,13 @@ fn dotted_key_after_the_bridged_leaf_yields_one_key_step() {
 }
 
 /// Multiple dotted keys chain into multiple `Key` steps, deepest last.
+///
+/// `format.html.title` is NOT three real JSON keys: `metadata.format` resolves to
+/// `FormatMetadata`, an internally-tagged serde enum whose wire form flattens the variant's
+/// fields beside the `format_type` discriminator, so `html` is a typed-accessor variant
+/// segment, not a JSON key. `JSONSerialization` would look up a `"html"` key that does not
+/// exist. See `field_access::format_metadata_variants` for the full rationale; this is the
+/// bug documented in the "swift e2e JSON navigation" defect this test now covers correctly. ~keep
 #[test]
 fn multiple_dotted_keys_chain_into_multiple_key_steps() {
     let resolver = resolver_with_json_bridged_field("metadata");
@@ -64,9 +71,82 @@ fn multiple_dotted_keys_chain_into_multiple_key_steps() {
         steps,
         vec![
             JsonNavStep::Key("format".to_string()),
-            JsonNavStep::Key("html".to_string()),
             JsonNavStep::Key("title".to_string()),
         ]
+    );
+}
+
+/// CONTROL: a non-variant key that happens to follow `format` (i.e. `format` here is NOT the
+/// `FormatMetadata` field but an ordinary nested key on some other object) must still be kept
+/// as a real `Key` step -- the skip is anchored on the literal preceding segment being
+/// `"format"`, exactly as zig's reference implementation is, not on some broader "any enum
+/// variant name anywhere" rule. `revision` is not one of `FORMAT_METADATA_VARIANTS`, so it must
+/// survive even directly after a `format` segment.
+#[test]
+fn a_non_variant_key_after_format_is_still_kept() {
+    let resolver = resolver_with_json_bridged_field("metadata");
+
+    let (leaf_field, steps) = resolver
+        .swift_json_bridged_navigation("results[0].metadata.format.revision")
+        .expect("a dotted key after a JSON-bridged leaf must be navigable");
+
+    assert_eq!(leaf_field, "results[0].metadata");
+    assert_eq!(
+        steps,
+        vec![
+            JsonNavStep::Key("format".to_string()),
+            JsonNavStep::Key("revision".to_string()),
+        ]
+    );
+}
+
+/// The exact regression this fix targets: `metadata.format.excel.sheet_count` must reach
+/// `sheet_count` WITHOUT ever looking up a literal `"excel"` key -- `excel` is a
+/// `FormatMetadata` variant name, and `FormatMetadata` is internally tagged, so there is no
+/// `"excel"` key on the wire at all.
+#[test]
+fn excel_variant_segment_is_skipped_not_turned_into_a_key_step() {
+    let resolver = resolver_with_json_bridged_field("metadata");
+
+    let (leaf_field, steps) = resolver
+        .swift_json_bridged_navigation("results[0].metadata.format.excel.sheet_count")
+        .expect("a variant-crossing dotted path after a JSON-bridged leaf must be navigable");
+
+    assert_eq!(leaf_field, "results[0].metadata");
+    assert_eq!(
+        steps,
+        vec![
+            JsonNavStep::Key("format".to_string()),
+            JsonNavStep::Key("sheet_count".to_string()),
+        ]
+    );
+    assert!(
+        !steps.contains(&JsonNavStep::Key("excel".to_string())),
+        "must not emit a Key step for the variant name, got: {steps:?}"
+    );
+}
+
+/// Same shape as above for the `html` variant (`FormatMetadata::Html`), matching the second of
+/// the two failing CI assertions this fix targets (`testMetadataAccess`).
+#[test]
+fn html_variant_segment_is_skipped_not_turned_into_a_key_step() {
+    let resolver = resolver_with_json_bridged_field("metadata");
+
+    let (leaf_field, steps) = resolver
+        .swift_json_bridged_navigation("results[0].metadata.format.html.title")
+        .expect("a variant-crossing dotted path after a JSON-bridged leaf must be navigable");
+
+    assert_eq!(leaf_field, "results[0].metadata");
+    assert_eq!(
+        steps,
+        vec![
+            JsonNavStep::Key("format".to_string()),
+            JsonNavStep::Key("title".to_string()),
+        ]
+    );
+    assert!(
+        !steps.contains(&JsonNavStep::Key("html".to_string())),
+        "must not emit a Key step for the variant name, got: {steps:?}"
     );
 }
 
@@ -182,6 +262,11 @@ fn resolver_anchored_on_extraction_result(root_type: Option<&str>) -> FieldResol
 /// `ExtractedDocument::metadata` is a real `Metadata` class with no `.toString()`. The
 /// type-aware cursor must walk past `metadata` and stop only at `Metadata::format`, the segment
 /// actually marked bridged for its own owner type.
+///
+/// Here the bridge anchor IS `format` itself (unlike the other tests in this file, where it is
+/// `metadata`), so `excel` is the FIRST segment after the leaf and must still be recognized as
+/// a variant name -- the skip is keyed on the literal preceding segment being `"format"`,
+/// which this shape supplies via the leaf's own name rather than via an earlier `Key` step.
 #[test]
 fn should_anchor_json_bridge_on_owner_type_not_bare_field_name() {
     let resolver = resolver_anchored_on_extraction_result(Some("ExtractionResult"));
@@ -191,13 +276,7 @@ fn should_anchor_json_bridge_on_owner_type_not_bare_field_name() {
         .expect("format is bridged on Metadata and must be found");
 
     assert_eq!(leaf_field, "results[0].metadata.format");
-    assert_eq!(
-        steps,
-        vec![
-            JsonNavStep::Key("excel".to_string()),
-            JsonNavStep::Key("sheet_count".to_string()),
-        ]
-    );
+    assert_eq!(steps, vec![JsonNavStep::Key("sheet_count".to_string())]);
 }
 
 /// CONTROL, pinning the documented fallback: with no `root_type` anywhere the per-segment
@@ -217,7 +296,6 @@ fn should_fall_back_to_the_flat_set_when_the_cursor_cannot_be_anchored() {
         steps,
         vec![
             JsonNavStep::Key("format".to_string()),
-            JsonNavStep::Key("excel".to_string()),
             JsonNavStep::Key("sheet_count".to_string()),
         ]
     );

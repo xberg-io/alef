@@ -4,6 +4,7 @@
 //! actual API struct paths (e.g., "metadata.document.title") and generates
 //! language-specific accessor expressions.
 
+mod format_metadata_variants;
 mod ir_collection;
 mod ir_enum;
 mod ir_result_fields;
@@ -16,6 +17,7 @@ mod renderers;
 mod resolver;
 mod types;
 
+pub(crate) use format_metadata_variants::is_format_metadata_variant_segment;
 pub use leaf_anchor::LeafAnchor;
 pub(crate) use types::WasmEnumRepresentation;
 pub use types::{

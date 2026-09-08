@@ -798,12 +798,9 @@ mod tests {
             .expect("format must resolve as a navigable JSON-bridged leaf on the real IR map");
 
         assert_eq!(leaf_field, "metadata.format");
-        assert_eq!(
-            steps,
-            vec![
-                JsonNavStep::Key("excel".to_string()),
-                JsonNavStep::Key("sheet_count".to_string()),
-            ]
-        );
+        // `FormatMetadata` is internally tagged, so `excel` names a variant, not a JSON key --
+        // there is no `"excel"` key on the wire to look up. See
+        // `field_access::format_metadata_variants` for the shared skip list.
+        assert_eq!(steps, vec![JsonNavStep::Key("sheet_count".to_string())]);
     }
 }

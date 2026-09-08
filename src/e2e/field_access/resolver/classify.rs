@@ -2,6 +2,7 @@ mod collection;
 mod enum_union;
 mod swift_leaf;
 
+use super::super::format_metadata_variants::is_format_metadata_variant_segment;
 use super::super::ir_collection::is_collection_path;
 use super::super::leaf_anchor::LeafAnchor;
 use super::super::parse::{
@@ -176,6 +177,12 @@ impl FieldResolver {
     /// not a plain non-negative integer -- a wildcard `[]` or a string map key `[key]` names a
     /// traversal this walk does not attempt to decode generically, and the caller's existing
     /// refusal remains the honest answer for those.
+    ///
+    /// A segment immediately following a literal `format` segment is skipped rather than turned
+    /// into a `Key` step when it names a `FormatMetadata` variant (`format.excel.sheet_count`):
+    /// that enum is internally tagged, so its wire form has no JSON key for the variant name at
+    /// all -- see [`super::super::format_metadata_variants`] for the shared list zig's
+    /// equivalent JSON-walking codegen also consults.
     pub fn swift_json_bridged_navigation(&self, field: &str) -> Option<(String, Vec<JsonNavStep>)> {
         let resolved = self.resolve(field);
         // ~keep A trailing `.length`/`.count`/`.size` is the synthetic virtual-count idiom
@@ -225,10 +232,24 @@ impl FieldResolver {
                 prefix.push(bare);
                 let mut steps = Vec::new();
                 push_numeric_bracket_step(segment, &mut steps)?;
+                let mut prev_later: Option<&str> = Some(bare);
                 for later in &segments[index + 1..] {
                     let later_bare = later.split('[').next().unwrap_or(later);
+                    // ~keep `FormatMetadata` and its siblings are internally-tagged serde enums:
+                    // their wire form is flat, with the variant name never appearing as a JSON
+                    // key (see `format_metadata_variants` module doc). A typed fixture path
+                    // spells the variant as a segment anyway (`format.excel.sheet_count`), so a
+                    // literal `JsonNavStep::Key("excel")` would look up a key that does not
+                    // exist and `JSONSerialization` would return nil for it. Zig's JSON-walking
+                    // codegen has the identical problem and skips the same segments; this shares
+                    // that one list instead of growing a second copy that could drift.
+                    if is_format_metadata_variant_segment(prev_later, later_bare) {
+                        prev_later = Some(later_bare);
+                        continue;
+                    }
                     steps.push(JsonNavStep::Key(later_bare.to_string()));
                     push_numeric_bracket_step(later, &mut steps)?;
+                    prev_later = Some(later_bare);
                 }
                 return Some((prefix.join("."), steps));
             }

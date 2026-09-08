@@ -3,39 +3,9 @@ use crate::e2e::codegen::assertion_type_skip::{
     streaming_assertion_type_skip_line, streaming_assertion_value_skip_line,
 };
 use crate::e2e::codegen::field_skip::{FieldSkip, nested_wildcard_skip_line};
+use crate::e2e::field_access::is_format_metadata_variant_segment;
 
 mod chunks_synthetic;
-
-/// Variant names of `FormatMetadata` (snake_case, from `#[serde(rename_all = "snake_case")]`).
-///
-/// These appear as typed accessors in fixture paths (e.g. `format.excel.sheet_count`) but are
-/// NOT JSON keys: `FormatMetadata` is internally tagged (`#[serde(tag = "format_type")]`), so
-/// the variant's fields are flattened into the `format` object alongside the discriminator.
-/// Zig asserts over the raw serde JSON, so these segments must be skipped when building a
-/// `std.json.Value` lookup chain.
-const FORMAT_METADATA_VARIANTS: &[&str] = &[
-    "pdf",
-    "docx",
-    "excel",
-    "email",
-    "pptx",
-    "archive",
-    "image",
-    "xml",
-    "text",
-    "html",
-    "ocr",
-    "csv",
-    "bibtex",
-    "citation",
-    "fiction_book",
-    "dbf",
-    "jats",
-    "epub",
-    "pst",
-    "audio",
-    "code",
-];
 
 /// How an absent JSON key is unwrapped in a generated accessor chain.
 ///
@@ -65,7 +35,7 @@ fn json_path_expr_with(result_var: &str, field_path: &str, unwrap: Unwrap, field
         // FormatMetadata is an internally-tagged enum (`#[serde(tag = "format_type")]`),
         // so variant fields are flattened directly into the format object — there is no
         // intermediate JSON key for the variant name.
-        if prev_seg == Some("format") && FORMAT_METADATA_VARIANTS.contains(seg) {
+        if is_format_metadata_variant_segment(prev_seg, seg) {
             prev_seg = Some(seg);
             continue;
         }
