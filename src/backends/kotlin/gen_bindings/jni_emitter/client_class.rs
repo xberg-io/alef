@@ -182,6 +182,9 @@ fn emit_jni_client_companion(
         body.push_str(
             "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
         );
+        body.push_str(
+            "            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n",
+        );
     }
     if let Some(constructor) = constructor {
         emit_jni_client_factory(&type_def.name, bridge_name, constructor, api, body);

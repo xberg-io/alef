@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
+  preserving known response values and rejecting malformed field types. This fixes valid responses failing
+  with Jackson `UnrecognizedPropertyException` ([#348](https://github.com/xberg-io/alef/issues/348)).
+
 ## [0.85.6] - 2026-09-08
 
 ### Fixed
