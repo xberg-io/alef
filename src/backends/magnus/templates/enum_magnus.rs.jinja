@@ -9,7 +9,7 @@
 {% if variant.serde_rename %}    #[serde(rename = "{{ variant.serde_rename }}")]
 {% endif %}{% if variant.fields %}
 {%- if variant.emits_as_tuple %}    {{ variant.name }}({% for field in variant.fields %}{{ field.field_type }}{{ ", " if not loop.last }}{% endfor %}),
-{%- else %}    {{ variant.name }} { {% for field in variant.fields %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
+{%- else %}    {{ variant.name }} { {% for field in variant.fields %}{% if field.flatten_newtype %}#[serde(flatten)] {% endif %}{{ field.name }}: {{ field.field_type }}{{ ", " if not loop.last }}{% endfor %} },
 {%- endif %}
 {% else %}    {{ variant.name }},
 {% endif %}{% endfor %}}
