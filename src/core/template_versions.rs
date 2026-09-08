@@ -172,10 +172,22 @@ pub mod cargo {
 
     // ~keep The three entries below are emitted with an `=` requirement, and that operator is
     // load-bearing: a `[patch.crates-io]` with no path/git is a no-op cargo rejects outright, so
-    // direct `=` dependencies are the only way to hold the whole tree on the allocator versions
-    // brotli 8.0.x needs. Fourteen Elixir NIF matrix cells and the Hex publish failed before it.
-    // The *operator* is the mechanism; the version beside it is still a version, which is why it
-    // belongs here under Renovate rather than inline in the scaffolder.
+    // direct `=` dependencies are the only way to hold a consumer's NIF tree on one chosen
+    // allocator version. Fourteen Elixir NIF matrix cells and the Hex publish failed before it.
+    //
+    // They track the brotli 9.x line (brotli 9.0.0 wants alloc-no-stdlib >=3.0.0,<4,
+    // alloc-stdlib >=0.3.0,<0.4, brotli-decompressor ~6.0), because that is the brotli a
+    // consumer's own crates depend on directly. A brotli 8.0.x copy is ALSO present in such a
+    // tree -- every published `compression-codecs` still requires `brotli ^8`, so anything
+    // reaching brotli through tower-http/async-compression drags it in -- but the two majors
+    // coexist happily, each resolving its own allocator major. The `=` pin selects a version
+    // within the line it names; it does not, and cannot, collapse the two.
+    //
+    // Do not "fix" these to the 8.x line to match the transitive copy: that pins the older major
+    // while the direct dependency stays on 9.x, which is the wrong way round. Moving the line is
+    // a deliberate brotli-major decision, and
+    // `tests/scaffold_elixir_nif_cargo_patch_test.rs` spells the versions out so the move is
+    // never silent.
     // renovate: datasource=crate depName=alloc-no-stdlib
     pub const ALLOC_NO_STDLIB: &str = "3.0.0";
 

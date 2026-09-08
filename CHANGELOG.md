@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Elixir NIF allocator pins were asserted against a stale version line, reddening CI on
+  every platform.** `tests/scaffold_elixir_nif_cargo_patch_test.rs` spells out the three
+  `=`-pinned allocator versions, and a Renovate bump moved the constants to the brotli 9.x line
+  (`alloc-no-stdlib 3.0.0`, `alloc-stdlib 0.3.0`, `brotli-decompressor 6.0.0`) while the test
+  still named the 8.x one. The constants are right: a consumer's own crates depend on brotli 9
+  directly, and although a brotli 8.0.x copy is also present — every published
+  `compression-codecs` still requires `brotli ^8`, so anything reaching brotli through
+  tower-http/async-compression drags it in — the two majors coexist, each resolving its own
+  allocator major. The `=` pin selects a version within the line it names and cannot collapse
+  them. Test updated to the 9.x line, and the `~keep` note now records why the newer line is the
+  correct one to track so the next reader does not "fix" it backwards. Only `tests/` covered
+  this, which is why `cargo test --lib` stayed green while three CI legs were red.
 - **swift e2e: a JSON-navigated assertion inlined a `RustVec` element receiver.** The emitted
   `let _json_nav_… = … result.results()[0].chunks().toString() …` subscripts a temporary:
   swift-bridge hands back a pointer into the Vec's own storage, and Swift ARC may release that

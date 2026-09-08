@@ -40,16 +40,16 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
     let content = &cargo_toml_file.content;
 
     assert!(
-        content.contains("alloc-no-stdlib = \"=2.0.4\""),
-        "NIF Cargo.toml must pin alloc-no-stdlib = 2.0.4 as a direct dep, got:\n{content}"
+        content.contains("alloc-no-stdlib = \"=3.0.0\""),
+        "NIF Cargo.toml must pin alloc-no-stdlib = 3.0.0 as a direct dep, got:\n{content}"
     );
     assert!(
-        content.contains("alloc-stdlib = \"=0.2.2\""),
-        "NIF Cargo.toml must pin alloc-stdlib = 0.2.2 as a direct dep, got:\n{content}"
+        content.contains("alloc-stdlib = \"=0.3.0\""),
+        "NIF Cargo.toml must pin alloc-stdlib = 0.3.0 as a direct dep, got:\n{content}"
     );
     assert!(
-        content.contains("brotli-decompressor = \"=5.0.1\""),
-        "NIF Cargo.toml must pin brotli-decompressor = 5.0.1 as a direct dep, got:\n{content}"
+        content.contains("brotli-decompressor = \"=6.0.0\""),
+        "NIF Cargo.toml must pin brotli-decompressor = 6.0.0 as a direct dep, got:\n{content}"
     );
 
     assert!(
@@ -65,9 +65,9 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
         .expect("[dependencies] section must exist");
     let deps_section = &content[deps_pos..];
     for pin in [
-        "alloc-no-stdlib = \"=2.0.4\"",
-        "alloc-stdlib = \"=0.2.2\"",
-        "brotli-decompressor = \"=5.0.1\"",
+        "alloc-no-stdlib = \"=3.0.0\"",
+        "alloc-stdlib = \"=0.3.0\"",
+        "brotli-decompressor = \"=6.0.0\"",
     ] {
         assert!(
             deps_section.contains(pin),
