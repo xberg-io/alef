@@ -805,6 +805,27 @@ fn poly_toml_empty_typos_config_emits_no_typos_tables() {
     );
 }
 
+/// The commit gate snapshots the git INDEX, so a gitignored `rust-toolchain.toml` is
+/// absent from it and rustup silently falls back to the host default -- the gate then
+/// lints with a different rustc than the worktree and CI, and rejects code CI accepts.
+/// `snapshot_include` pulls the untracked pin back in, and must sit under `[hooks]`
+/// itself (not `[hooks.builtin]`), which is where poly reads it.
+#[test]
+fn poly_toml_pulls_the_rust_toolchain_pin_into_the_staged_snapshot() {
+    let config = test_config();
+    let api = test_api();
+    let files = scaffold(&api, &config, &[Language::Python]).unwrap();
+    let c = &poly_toml(&files).content;
+
+    let hooks_pos = c.find("[hooks]").expect("hooks present");
+    let builtin_pos = c.find("[hooks.builtin]").expect("hooks.builtin present");
+    let hooks_region = &c[hooks_pos..builtin_pos];
+    assert!(
+        hooks_region.contains("snapshot_include = [\"rust-toolchain.toml\"]"),
+        "[hooks] must pull the toolchain pin into the snapshot, before [hooks.builtin]; got:\n{hooks_region}"
+    );
+}
+
 #[test]
 fn poly_toml_omits_uncomment_table_by_default() {
     let config = test_config();

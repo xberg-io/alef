@@ -18,6 +18,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same hoisting the ordinary (non-JSON-bridged) assertion renderers already use, binding the
   Vec to a `let` in the enclosing test method. This had crashed the swift leg of consumers' e2e
   suites (xberg-io/xberg CI E2E).
+- **The commit gate linted with a different rustc than the worktree and CI.** poly's
+  whole-workspace hooks (`cargo clippy`, type checkers) run inside a snapshot of the git
+  **index**, which by construction holds tracked content only. Consumers routinely gitignore
+  the `rust-toolchain.toml` seed so each CI job can pin its own toolchain (a Windows publish
+  leg on nightly, an MSRV matrix), and the pin then vanished from the snapshot: rustup found
+  no toolchain file, fell back to the host default, and the gate lint-checked against a rustc
+  several releases ahead of the pin. The gate rejected code CI accepted, over lints that do
+  not exist at the pinned version — and because generated files are the ones a consumer
+  cannot hand-patch, clearing each one cost a full alef release. The scaffolded `poly.toml`
+  now names the pin in `[hooks] snapshot_include`, poly's designed mechanism for an untracked
+  input a workspace build reads. A listed path that is absent is warned about, not fatal, so
+  this is inert for a consumer that tracks the file instead.
+- **A swift getter emitted a redundant reference into a `format!` argument.**
+  `getter_string_like_debug.jinja` rendered `format!("{:?}", &self.0.field)`; `format!` takes
+  its arguments by reference already, so clippy's `useless_borrows_in_formatting` fires on
+  every site. The generated swift bridge crate is `alef:hash:`-stamped, so a consumer whose
+  lint gate denies warnings could not fix it without an alef release. The optional sibling
+  (`getter_string_like_debug_optional.jinja`) was already correct.
 - **Rust e2e generation lost signatures for source functions hidden from language bindings.**
   The extraction sanitizer deleted every function marked `alef(skip)`, even though Rust e2e tests
   call the source crate directly. `Result<(), E>` calls whose values are unused therefore retained

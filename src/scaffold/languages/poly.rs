@@ -582,7 +582,19 @@ pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[La
     }
     out.push('\n');
 
-    out.push_str("[hooks]\nstages = [\"pre-commit\"]\n\n[hooks.builtin]\n");
+    // The commit gate runs whole-workspace hooks (`cargo clippy`, type checkers) inside a
+    // snapshot of the git INDEX, which by construction holds tracked content only. Consumers
+    // routinely gitignore the `rust-toolchain.toml` seed so each CI job can pin its own
+    // toolchain (a Windows publish leg on nightly, an MSRV matrix), and the pin then vanishes
+    // from the snapshot: rustup finds no toolchain file, falls back to the host default, and
+    // the gate lints with a DIFFERENT rustc than the worktree and CI both use. The result is a
+    // gate that rejects code CI accepts, over lints that do not exist at the pinned version.
+    // `snapshot_include` is poly's designed answer -- name the untracked input the workspace
+    // build reads -- and a listed path that is absent is warned about, not fatal, so this is
+    // inert for a consumer that tracks the file instead. ~keep
+    out.push_str(
+        "[hooks]\nstages = [\"pre-commit\"]\nsnapshot_include = [\"rust-toolchain.toml\"]\n\n[hooks.builtin]\n",
+    );
     out.push_str(&format!("lint = {{ exclude = {hooks_excludes_toml} }}\n"));
     out.push_str(&format!("fmt = {{ exclude = {hooks_excludes_toml} }}\n"));
     out.push_str(&format!("file_safety = {{ exclude = {file_safety_excludes} }}\n"));
