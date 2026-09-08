@@ -458,7 +458,8 @@ mod tests {
              expression, got:\n{out}"
         );
         assert!(
-            out.lines().any(|line| line.trim_start().starts_with("let _vec_results_")),
+            out.lines()
+                .any(|line| line.trim_start().starts_with("let _vec_results_")),
             "must hoist `result.results()` into a local before subscripting it, got:\n{out}"
         );
     }
