@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift e2e: a JSON-navigated assertion inlined a `RustVec` element receiver.** The emitted
+  `let _json_nav_… = … result.results()[0].chunks().toString() …` subscripts a temporary:
+  swift-bridge hands back a pointer into the Vec's own storage, and Swift ARC may release that
+  temporary before the read finishes, so the bytes dangle and `RustStr.toString()`'s force-unwrap
+  traps at runtime (`SwiftBridgeCore.swift:23: Fatal error: Unexpectedly found nil`) instead of
+  failing one assertion. The receiver now goes through `accessors::materialise_vec_temporaries`,
+  the same hoisting the ordinary (non-JSON-bridged) assertion renderers already use, binding the
+  Vec to a `let` in the enclosing test method. This had crashed the swift leg of consumers' e2e
+  suites (xberg-io/xberg CI E2E).
 - **Rust e2e generation lost signatures for source functions hidden from language bindings.**
   The extraction sanitizer deleted every function marked `alef(skip)`, even though Rust e2e tests
   call the source crate directly. `Result<(), E>` calls whose values are unused therefore retained

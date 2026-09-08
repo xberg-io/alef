@@ -26,6 +26,8 @@ use crate::e2e::codegen::field_skip::FieldSkip;
 use crate::e2e::field_access::{FieldResolver, JsonNavStep};
 use crate::e2e::fixture::Assertion;
 
+use super::accessors::materialise_vec_temporaries;
+use super::leaf_shape::mixed_map_then_vec_traversal_skip;
 use super::values::escape_swift;
 
 /// Attempts to render `assertion` as a real Swift check over decoded JSON, when its field steps
@@ -49,7 +51,38 @@ pub(super) fn render_json_bridged_navigated_assertion(
     let Some((leaf_field, steps)) = field_resolver.swift_json_bridged_navigation(field) else {
         return false;
     };
-    let leaf_expr = field_resolver.accessor(&leaf_field, "swift", result_var);
+    let leaf_expr_raw = field_resolver.accessor(&leaf_field, "swift", result_var);
+    let local = json_nav_local_name(field, &assertion.assertion_type);
+    // ~keep The receiver may read through a `RustVec` element, e.g.
+    // `result.results()[0].chunks()` — swift-bridge's `Vec_<T>$get` hands back a pointer into
+    // the Vec's own storage, and `result.results()` is a temporary. Inlined directly into the
+    // `let _json_nav_… : Any? = …` expression below, Swift ARC can release that temporary
+    // before `.chunks().toString()` finishes reading it, so the bytes dangle and
+    // `RustStr.toString()`'s force-unwrap traps at runtime instead of failing the one assertion.
+    // Routing through the same hoisting `accessors::materialise_vec_temporaries` uses for
+    // ordinary (non-JSON-bridged) assertions ties the Vec's lifetime to a `let` bound in the
+    // enclosing test method, exactly like the sibling `count`/`contains` renderers already do.
+    let local_suffix = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        field.hash(&mut hasher);
+        assertion.assertion_type.hash(&mut hasher);
+        format!(
+            "{}_{:x}",
+            assertion.assertion_type.replace(['-', '.'], "_"),
+            hasher.finish() & 0xffff_ffff,
+        )
+    };
+    // `None` is the same mixed map-then-vec hazard `assertions::render_assertion` refuses for
+    // ordinary paths — a string-key subscript decodes to a plain Swift `String` with nothing a
+    // further `RustVec` hoist can act on. Unreachable for every fixture resolvable today (the
+    // leaf's own accessor never carries a map subscript ahead of `steps`), but refusing rather
+    // than emitting broken Swift keeps that guarantee explicit instead of assumed. ~keep
+    let Some((vec_setup, leaf_expr, _is_map_subscript)) = materialise_vec_temporaries(&leaf_expr_raw, &local_suffix)
+    else {
+        out.push_str(&mixed_map_then_vec_traversal_skip(field));
+        return true;
+    };
     // ~keep `accessor()` never puts a `?` on the leaf segment itself (see
     // `navigated_value_expr`'s own doc), so a leaf whose OWN getter returns
     // `Optional<RustString>` -- e.g. `Metadata::format` -- looks identical here to a
@@ -61,8 +94,10 @@ pub(super) fn render_json_bridged_navigated_assertion(
         .swift_leaf_getter_is_optional(&leaf_field)
         .unwrap_or(false);
     let value_expr = navigated_value_expr(&leaf_expr, leaf_is_optional, &steps);
-    let local = json_nav_local_name(field, &assertion.assertion_type);
 
+    // No renderer for this assertion type: neither `vec_setup` nor `value_expr` is referenced
+    // in the emitted Swift, so skip before writing either — an unused `let` triggers a Swift
+    // "variable was never used" warning. ~keep
     let Some(body) = build_assertion_lines(assertion, &local) else {
         let _ = writeln!(
             out,
@@ -72,6 +107,9 @@ pub(super) fn render_json_bridged_navigated_assertion(
         );
         return true;
     };
+    for line in &vec_setup {
+        let _ = writeln!(out, "        {line}");
+    }
     let _ = writeln!(out, "        let {local}: Any? = {value_expr}");
     out.push_str(&body);
     true
@@ -326,6 +364,102 @@ mod tests {
             out.contains("?.toString() ?? \"null\""),
             "an optional leaf getter must be unwrapped with the same ?./coalesce idiom used for \
              an optional ancestor, got:\n{out}"
+        );
+    }
+
+    /// Regression for the `ContractTests.testChunkingConfigAndOutput` runtime crash: the
+    /// receiver of a JSON-bridged navigated leaf can itself read through a `RustVec` element
+    /// (`result.results()[0].chunks()`, `results: Vec<ChunkingResult>`). Inlined directly into
+    /// the `let _json_nav_… : Any? = …` expression, swift-bridge's `Vec_<T>$get` pointer into
+    /// `results()`'s temporary storage can dangle before `.chunks().toString()` reads it --
+    /// `RustStr.toString()`'s force-unwrap then traps at runtime with "Unexpectedly found nil
+    /// while unwrapping an Optional value" instead of the assertion simply failing. Built from
+    /// real IR (`build_swift_first_class_map`), not a hand-set flag, so this pins the actual
+    /// accessor `swift_build_accessor` produces for a real-Vec ancestor feeding a JSON-bridged
+    /// leaf, mirroring `optional_leaf_getter_with_no_optional_ancestor_still_unwraps` above.
+    #[test]
+    fn receiver_through_a_real_vec_element_is_hoisted_not_inlined() {
+        use super::super::values::build_swift_first_class_map;
+        use crate::core::config::e2e::{CallConfig, E2eConfig};
+        use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+
+        let extracted_document = TypeDef {
+            name: "ExtractedDocument".to_string(),
+            fields: vec![FieldDef {
+                name: "results".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("ChunkingResult".to_string()))),
+                optional: false,
+                ..Default::default()
+            }],
+            has_serde: true,
+            ..Default::default()
+        };
+        let chunking_result = TypeDef {
+            name: "ChunkingResult".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "chunks".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    // `Option<Vec<String>>` -- optional plus `Vec` -- is exactly the shape
+                    // `field_needs_json_bridge` collapses to a whole-value JSON `RustString` getter.
+                    optional: true,
+                    ..Default::default()
+                },
+                FieldDef {
+                    // `swift_first_class_field_supported` has no arm for `Map`, so this keeps
+                    // `ChunkingResult` (and transitively `ExtractedDocument`) classified opaque
+                    // -- a real `RustBridge` class reached through method calls, not a Codable
+                    // struct reached by property syntax -- matching the actual `ChunkingResult`
+                    // shape this regression is pinned against. ~keep
+                    name: "extra".to_string(),
+                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    optional: false,
+                    ..Default::default()
+                },
+            ],
+            has_serde: true,
+            ..Default::default()
+        };
+
+        let mut map = build_swift_first_class_map(
+            &[extracted_document, chunking_result],
+            &[],
+            &E2eConfig::default(),
+            &CallConfig::default(),
+        );
+        map.root_type = Some("ExtractedDocument".to_string());
+        assert!(
+            map.is_json_bridged_field_name("chunks"),
+            "precondition: ChunkingResult::chunks must be JSON-bridged on the real IR map"
+        );
+
+        let resolver = FieldResolver::new_with_swift_first_class(
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            map,
+        );
+        let mut out = String::new();
+
+        let rendered = render_json_bridged_navigated_assertion(
+            &mut out,
+            &assertion("not_empty", "results[0].chunks[0]", None),
+            &resolver,
+            "result",
+        );
+
+        assert!(rendered, "got:\n{out}");
+        assert!(
+            !out.contains("()[0].chunks().toString()") && !out.contains("()[0]?.chunks().toString()"),
+            "the RustVec receiver must be hoisted, never subscripted inline into the JSON-decode \
+             expression, got:\n{out}"
+        );
+        assert!(
+            out.lines().any(|line| line.trim_start().starts_with("let _vec_results_")),
+            "must hoist `result.results()` into a local before subscripting it, got:\n{out}"
         );
     }
 
