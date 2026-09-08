@@ -117,12 +117,14 @@ fn native_library_dir() -> Option<&'static str> {
         ("macos", "x86_64") => Some(".lib/macos-x86_64"),
         ("linux", "x86_64") => Some(".lib/linux-x86_64"),
         ("linux", "aarch64") => Some(".lib/linux-aarch64"),
+        ("windows", "x86_64") => Some(".lib/windows-x86_64"),
         _ => None,
     }
 }
 
 fn write_empty_native_archive(directory: &std::path::Path, library_dir: &str) -> bool {
-    let (Ok(compiler), Ok(archiver)) = (which::which("cc"), which::which("ar")) else {
+    let compiler = which::which("cc").or_else(|_| which::which("gcc"));
+    let (Ok(compiler), Ok(archiver)) = (compiler, which::which("ar")) else {
         return false;
     };
     let object = directory.join("empty.o");
