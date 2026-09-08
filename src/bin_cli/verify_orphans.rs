@@ -70,10 +70,27 @@ fn is_create_once_seed(base_dir: &Path, path: &Path) -> bool {
 /// header, ever -- can never appear here; ownership is decided purely by the marker, the same
 /// predicate every other `alef verify` finding uses. A known [`CREATE_ONCE_SEED_PATHS`] entry is
 /// excluded even when absent from `managed_paths`, for the reason documented on that constant.
-pub(crate) fn find_orphaned_generated_files(base_dir: &Path, managed_paths: &HashSet<PathBuf>) -> Vec<String> {
+pub(crate) fn find_orphaned_generated_files(
+    base_dir: &Path,
+    managed_paths: &HashSet<PathBuf>,
+    declared_user_owned: &crate::core::config::UserOwnedPaths,
+) -> Vec<String> {
     let mut orphans: Vec<String> = super::helpers::collect_alef_hashes(base_dir)
         .into_iter()
-        .filter(|(path, _hash, _content)| !managed_paths.contains(path) && !is_create_once_seed(base_dir, path))
+        .filter(|(path, _hash, _content)| {
+            // ~keep A path the repository declared under `[workspace.ownership] user_owned` is
+            // by definition absent from the managed surface -- alef stops producing it, which
+            // is the whole point of the declaration -- so without this it lands here as an
+            // orphan and `has_orphan_files` gates the exit code. That made the declaration
+            // useless for the case it exists to fix: the consumer moves a permanently-failing
+            // path out of "stale"/"frozen" and it reappears under "orphaned", still failing,
+            // still with no reachable remedy. `OwnershipConfig`'s module doc promises such a
+            // path is "counted as a declared skip rather than a failure"; this is where that
+            // promise has to hold.
+            !declared_user_owned.matches(base_dir, path)
+                && !managed_paths.contains(path)
+                && !is_create_once_seed(base_dir, path)
+        })
         .map(|(path, _hash, _content)| path.display().to_string())
         .collect();
     orphans.sort();

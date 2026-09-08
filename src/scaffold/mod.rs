@@ -35,8 +35,8 @@ pub(crate) use languages::{
 
 pub use manifest_header::{ScaffoldMeta, scaffold_meta};
 pub(crate) use manifest_header::{
-    WorkspacePackageInheritance, cargo_package_header, detect_workspace_inheritance,
-    detect_workspace_inheritance_for_crate, readme_language_configured,
+    WorkspacePackageInheritance, cargo_package_header, detect_workspace_inheritance_for_crate,
+    readme_language_configured,
 };
 
 pub(crate) use text_helpers::capitalize_first;

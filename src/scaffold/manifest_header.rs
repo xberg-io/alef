@@ -18,36 +18,6 @@ pub(crate) struct WorkspacePackageInheritance {
     pub license: bool,
 }
 
-/// Detect which `[workspace.package]` fields are available in the root `Cargo.toml`.
-///
-/// Reads `Cargo.toml` from the current working directory. Returns a default
-/// (all false) struct if the file is absent or cannot be parsed.
-pub(crate) fn detect_workspace_inheritance(workspace_root: Option<&std::path::Path>) -> WorkspacePackageInheritance {
-    let cargo_toml_path = workspace_root
-        .map(|r| r.join("Cargo.toml"))
-        .unwrap_or_else(|| std::path::PathBuf::from("Cargo.toml"));
-    let Ok(contents) = std::fs::read_to_string(&cargo_toml_path) else {
-        return WorkspacePackageInheritance::default();
-    };
-    // `toml` 1.x's `FromStr for Value` parses a bare *value*, not a document, so
-    // `contents.parse::<toml::Value>()` fails at `[workspace]` on every real Cargo.toml
-    // and silently yields an all-false result. `from_str` is the document entry point. ~keep
-    let Ok(doc) = toml::from_str::<toml::Value>(&contents) else {
-        return WorkspacePackageInheritance::default();
-    };
-    let Some(workspace) = doc.get("workspace") else {
-        return WorkspacePackageInheritance::default();
-    };
-    let pkg = workspace.get("package");
-    WorkspacePackageInheritance {
-        version: pkg.map(|p| p.get("version").is_some()).unwrap_or(false),
-        readme: pkg.map(|p| p.get("readme").is_some()).unwrap_or(false),
-        keywords: pkg.map(|p| p.get("keywords").is_some()).unwrap_or(false),
-        categories: pkg.map(|p| p.get("categories").is_some()).unwrap_or(false),
-        license: pkg.map(|p| p.get("license").is_some()).unwrap_or(false),
-    }
-}
-
 /// The `[workspace.package]` inheritance fields declared by the `Cargo.toml` at `dir`,
 /// or `None` when the file is missing/unparseable, has no `[workspace]` table at all, or
 /// has a `[workspace]` table with no `[workspace.package]` (an empty self-hosted
@@ -89,8 +59,8 @@ fn crate_dir_is_excluded(root_doc: &toml::Value, crate_relative_dir: &str) -> bo
 }
 
 /// Detect which `[workspace.package]` fields a *specific* generated crate can actually
-/// reach, unlike [`detect_workspace_inheritance`] (kept for callers that only ever emit
-/// into a crate directory that is unconditionally a member of the root workspace).
+/// reach. This is the only detector: a caller must name the crate, because inheritance is
+/// a property of the crate's membership, never of the workspace alone.
 ///
 /// A crate can inherit a field only if it can reach a `[workspace.package]` that defines
 /// it:

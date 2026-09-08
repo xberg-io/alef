@@ -118,7 +118,20 @@ pub(crate) fn emit_cargo_toml(
     // other binding-crate emitter (ffi.rs/php.rs/ruby.rs/node.rs/python.rs) and inherit
     // `[workspace.package] version` when the root Cargo.toml declares one; a standalone
     // (non-workspace) consumer still gets the literal. ~keep
-    let ws = crate::scaffold::detect_workspace_inheritance(config.workspace_root.as_deref());
+    //
+    // ~keep Membership-aware, like ruby.rs and ffi.rs: this crate is routinely named in the
+    // root's `[workspace] exclude` so flutter_rust_bridge builds it with its own resolver
+    // rather than the workspace's. `detect_workspace_inheritance` only asks whether a
+    // workspace exists, so for an excluded crate it emitted `version.workspace = true` into a
+    // manifest that can never resolve it -- cargo then fails to parse the manifest outright
+    // ("error inheriting `version` from workspace root manifest") and takes
+    // `flutter_rust_bridge_codegen` down with it, which is exactly the failure
+    // `detect_workspace_inheritance_for_crate` documents and exists to prevent.
+    let dart_crate_dir = config.package_dir(crate::core::config::extras::Language::Dart);
+    let ws = crate::scaffold::detect_workspace_inheritance_for_crate(
+        config.workspace_root.as_deref(),
+        &format!("{dart_crate_dir}/rust"),
+    );
     let version_line = if ws.version {
         "version.workspace = true".to_string()
     } else {

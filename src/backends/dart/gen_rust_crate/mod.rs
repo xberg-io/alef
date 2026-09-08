@@ -15,6 +15,8 @@ mod cargo_excluded_features_tests;
 #[cfg(test)]
 mod cargo_sort_order_tests;
 #[cfg(test)]
+mod cargo_workspace_inheritance_tests;
+#[cfg(test)]
 mod cfg_variant_e2e_tests;
 mod conversions;
 mod enum_conversions;

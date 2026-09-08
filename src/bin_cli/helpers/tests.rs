@@ -663,7 +663,11 @@ fn a_post_build_owned_path_not_produced_in_band_is_not_reported_as_an_orphan() {
         found.managed_paths
     );
 
-    let orphans = super::super::verify_orphans::find_orphaned_generated_files(dir.path(), &found.managed_paths);
+    let orphans = super::super::verify_orphans::find_orphaned_generated_files(
+        dir.path(),
+        &found.managed_paths,
+        &Default::default(),
+    );
     assert!(
         orphans.is_empty(),
         "a path a post-build step owns unguarded must never be reported as an orphan just \

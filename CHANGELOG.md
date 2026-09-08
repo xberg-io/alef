@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dart bridge crate inherited a workspace version it could not reach.**
+  `backends/dart/gen_rust_crate/cargo.rs` asked `detect_workspace_inheritance`, which only
+  reports whether a `[workspace.package] version` exists anywhere, rather than
+  `detect_workspace_inheritance_for_crate`, which reports whether *this* crate can reach one.
+  Consumers routinely name `packages/dart/rust` in the root `[workspace] exclude` so
+  flutter_rust_bridge builds it with its own resolver, and for those the emitter wrote
+  `version.workspace = true` into a manifest that can never resolve it: cargo then fails to
+  parse the manifest outright (`error inheriting version from workspace root manifest`) and
+  `flutter_rust_bridge_codegen` dies with it, taking the whole dart post-build stage down.
+  `detect_workspace_inheritance_for_crate` already documented this exact failure; ruby.rs and
+  ffi.rs already used it. `detect_workspace_inheritance` had no remaining caller and is removed.
+- **`[workspace.ownership] user_owned` did not stop a declared path failing `alef verify`.**
+  A declared path is deliberately absent from the managed surface — that is what the
+  declaration does — so it fell straight through `find_orphaned_generated_files`, and
+  `has_orphan_files` feeds `ensure_success`. The consumer moved a permanently-failing path out
+  of "stale"/"frozen" only to have it reappear under "orphaned", still gating the exit code,
+  still with no reachable remedy — the stable bad state `OwnershipConfig`'s module doc says the
+  declaration exists to end, and which it promises is "counted as a declared skip rather than a
+  failure". The orphan scan now honours the declaration at both call sites (`verify` and
+  `diff`); undeclared orphans are still reported.
+
+
 ## [0.85.6] - 2026-09-08
 
 ### Fixed

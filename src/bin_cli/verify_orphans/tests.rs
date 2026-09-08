@@ -32,7 +32,7 @@ fn reports_a_marked_file_the_current_run_no_longer_produces() {
     std::fs::write(&dropped, marked_java_content()).expect("write dropped file");
 
     let managed_paths: HashSet<PathBuf> = HashSet::new();
-    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths);
+    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths, &Default::default());
 
     assert_eq!(
         orphans,
@@ -52,7 +52,7 @@ fn does_not_report_a_marked_file_still_in_the_managed_path_set() {
     std::fs::write(&current, marked_java_content()).expect("write current file");
 
     let managed_paths: HashSet<PathBuf> = HashSet::from([current.clone()]);
-    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths);
+    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths, &Default::default());
 
     assert!(
         orphans.is_empty(),
@@ -74,7 +74,7 @@ fn does_not_report_an_unmarked_user_owned_file_in_a_generated_directory() {
     std::fs::write(&hand_written, "package dev.demo;\npublic class UserExtensions {}\n").expect("write hand file");
 
     let managed_paths: HashSet<PathBuf> = HashSet::from([current]);
-    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths);
+    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths, &Default::default());
 
     assert!(
         orphans.is_empty(),
@@ -96,7 +96,7 @@ fn does_not_report_the_rust_toolchain_create_once_seed() {
     std::fs::write(&seed, hashed).expect("write seed");
 
     let managed_paths: HashSet<PathBuf> = HashSet::new();
-    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths);
+    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths, &Default::default());
 
     assert!(
         orphans.is_empty(),
@@ -120,10 +120,64 @@ fn does_not_report_a_file_owned_by_a_different_crate_once_paths_are_unioned() {
     let crate_b_managed: HashSet<PathBuf> = HashSet::from([owned_by_crate_b.clone()]);
     let unioned: HashSet<PathBuf> = crate_a_managed.union(&crate_b_managed).cloned().collect();
 
-    let orphans = find_orphaned_generated_files(dir.path(), &unioned);
+    let orphans = find_orphaned_generated_files(dir.path(), &unioned, &Default::default());
 
     assert!(
         orphans.is_empty(),
         "a file owned by another crate in the union must not be reported: {orphans:?}"
+    );
+}
+
+/// A path the repository declared under `[workspace.ownership] user_owned` must not be reported
+/// as an orphan.
+///
+/// The declaration's whole purpose is to take a path out of alef's managed surface, so such a
+/// path is *always* absent from `managed_paths` and would otherwise land here unconditionally.
+/// Because `has_orphan_files` gates `alef verify`'s exit code, that turned the declaration into
+/// a no-op for the case it exists to fix: a consumer moves a permanently-failing path out of
+/// "stale"/"frozen", and it reappears under "orphaned", still failing, still with no reachable
+/// remedy. `OwnershipConfig`'s module doc promises a declared path is "counted as a declared
+/// skip rather than a failure"; this is the test that keeps that promise. ~keep
+#[test]
+fn a_declared_user_owned_path_is_not_reported_as_an_orphan() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let package_dir = join_components(dir.path(), "packages/java/dev/demo");
+    std::fs::create_dir_all(&package_dir).expect("package dir");
+    let declared_path = package_dir.join("HandWritten.java");
+    std::fs::write(&declared_path, marked_java_content()).expect("write declared file");
+
+    let managed_paths: HashSet<PathBuf> = HashSet::new();
+    let declared =
+        crate::core::config::UserOwnedPaths::compile(&["packages/java/dev/demo/HandWritten.java".to_string()])
+            .expect("compile user_owned patterns");
+
+    let orphans = find_orphaned_generated_files(dir.path(), &managed_paths, &declared);
+
+    assert!(
+        orphans.is_empty(),
+        "a user_owned path must never be reported as an orphan; got: {orphans:?}"
+    );
+}
+
+/// The control: the declaration must not blanket-silence the orphan report for everything else.
+#[test]
+fn an_undeclared_sibling_is_still_reported_alongside_a_declared_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let package_dir = join_components(dir.path(), "packages/java/dev/demo");
+    std::fs::create_dir_all(&package_dir).expect("package dir");
+    std::fs::write(package_dir.join("HandWritten.java"), marked_java_content()).expect("declared");
+    let dropped = package_dir.join("Dropped.java");
+    std::fs::write(&dropped, marked_java_content()).expect("dropped");
+
+    let declared =
+        crate::core::config::UserOwnedPaths::compile(&["packages/java/dev/demo/HandWritten.java".to_string()])
+            .expect("compile user_owned patterns");
+
+    let orphans = find_orphaned_generated_files(dir.path(), &HashSet::new(), &declared);
+
+    assert_eq!(
+        orphans,
+        vec![dropped.display().to_string()],
+        "only the undeclared path may be reported"
     );
 }

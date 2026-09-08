@@ -514,7 +514,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     find_missing_and_frozen_generated_files(&languages, &api, resolved_cfg, config_path, &base_dir)?;
                 all_managed_paths.extend(found.managed_paths);
             }
-            let orphan_generated_files = verify_orphans::find_orphaned_generated_files(&base_dir, &all_managed_paths);
+            // ~keep Same declaration `alef verify` honours: a path the repository declared
+            // user-owned is deliberately absent from the managed surface, so reporting it as an
+            // impending removal here would tell the operator to expect a deletion that will
+            // never happen.
+            let declared = crate::cli::pipeline::declared_user_owned(&base_dir)?;
+            let orphan_generated_files =
+                verify_orphans::find_orphaned_generated_files(&base_dir, &all_managed_paths, &declared);
 
             if all_diffs.is_empty() && orphan_generated_files.is_empty() {
                 crate::bin_cli::output::line("No changes detected.");

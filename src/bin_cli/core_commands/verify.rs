@@ -220,7 +220,8 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         crate::bin_cli::helpers::frozen::has_adoptable_frozen_files(&frozen_generated_files);
     // Report-only: see `verify_orphans`'s module doc for why this never deletes.
     log_managed_surface(&all_managed_paths);
-    let orphan_generated_files = verify_orphans::find_orphaned_generated_files(&base_dir, &all_managed_paths);
+    let orphan_generated_files =
+        verify_orphans::find_orphaned_generated_files(&base_dir, &all_managed_paths, &declared);
     let has_orphan_files = !orphan_generated_files.is_empty();
 
     // Catches the cross-artifact ABI straddle a per-file hash check cannot
