@@ -106,7 +106,7 @@ impl Config {
         self.0.value.clone()
     }
     pub fn label(&self) -> String {
-        format!("{:?}", &self.0.label)
+        format!("{:?}", self.0.label)
     }
     pub fn tag(&self) -> String {
         serde_json::to_string(&self.0.tag).expect("serializable tag")
