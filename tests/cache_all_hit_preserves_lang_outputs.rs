@@ -79,6 +79,7 @@ fn write_fixture(root: &Path) {
 
 fn run_all(root: &Path) -> Output {
     Command::new(alef_binary())
+        .env("RUST_LOG", "info")
         .current_dir(root)
         .args(["all"])
         .output()
