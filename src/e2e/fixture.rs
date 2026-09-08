@@ -290,25 +290,35 @@ pub struct ValidationErrorExpectation {
 }
 
 /// CORS policy configuration for HTTP handler tests.
+///
+/// ~keep Each list accepts BOTH the `allow_*` field name and the `allowed_*` alias, because the
+/// two spellings are already load-bearing in opposite directions: every emitter writes
+/// `allowed_*` into the generated harness on purpose (`codegen::java::tests` asserts
+/// `allow_origins` is absent from the output), so fixture authors reasonably write `allowed_*`
+/// too. Without the alias serde silently dropped those keys onto `#[serde(default)]` and
+/// produced an empty policy -- a CORS config that denies everything, spelled exactly like one
+/// that permits something. It fails open into a 403 on every preflight, and the fixtures that
+/// assert rejection still pass, so the suite reports green on a policy it never applied. A
+/// missing constraint must never be indistinguishable from a satisfied one.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CorsConfig {
     /// Allowed origins (e.g. `["https://example.com"]`). Empty means deny all.
-    #[serde(default)]
+    #[serde(default, alias = "allowed_origins")]
     pub allow_origins: Vec<String>,
     /// Allowed HTTP methods (e.g. `["GET", "POST"]`). Empty means deny all.
-    #[serde(default)]
+    #[serde(default, alias = "allowed_methods")]
     pub allow_methods: Vec<String>,
     /// Allowed request headers (e.g. `["Content-Type"]`). Empty means deny all.
-    #[serde(default)]
+    #[serde(default, alias = "allowed_headers")]
     pub allow_headers: Vec<String>,
     /// Exposed response headers (e.g. `["X-Total-Count"]`).
-    #[serde(default)]
+    #[serde(default, alias = "exposed_headers")]
     pub expose_headers: Vec<String>,
     /// `Access-Control-Max-Age` value in seconds.
     #[serde(default)]
     pub max_age: Option<u64>,
     /// Whether to allow credentials.
-    #[serde(default)]
+    #[serde(default, alias = "allowed_credentials")]
     pub allow_credentials: bool,
 }
 
@@ -930,6 +940,57 @@ pub fn group_fixtures(fixtures: &[Fixture]) -> Vec<FixtureGroup> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A fixture that spells its CORS lists `allowed_*` must parse into a real policy.
+    ///
+    /// Every emitter deliberately writes `allowed_*` into the generated harness, so fixtures are
+    /// written that way too. Before the aliases, serde dropped those keys onto
+    /// `#[serde(default)]` and produced an empty policy: a config that denies every origin,
+    /// byte-identical in shape to one that permits some. In a consumer this surfaced as CORS
+    /// preflights returning 403 where the fixture expected 204, while every fixture asserting
+    /// *rejection* still passed -- the suite reporting green on a policy it had never applied.
+    #[test]
+    fn cors_lists_parse_from_the_allowed_prefixed_spelling() {
+        let parsed: CorsConfig = serde_json::from_str(
+            r#"{
+                "allowed_origins": ["https://example.com"],
+                "allowed_methods": ["POST"],
+                "allowed_headers": ["Content-Type"],
+                "max_age": 3600
+            }"#,
+        )
+        .expect("parse allowed_* spelling");
+
+        assert_eq!(parsed.allow_origins, vec!["https://example.com".to_string()]);
+        assert_eq!(parsed.allow_methods, vec!["POST".to_string()]);
+        assert_eq!(parsed.allow_headers, vec!["Content-Type".to_string()]);
+        assert_eq!(parsed.max_age, Some(3600));
+    }
+
+    /// The original spelling keeps working; the alias adds a spelling, it does not replace one.
+    #[test]
+    fn cors_lists_still_parse_from_the_allow_prefixed_spelling() {
+        let parsed: CorsConfig = serde_json::from_str(
+            r#"{"allow_origins": ["https://a.test"], "allow_methods": ["GET"], "allow_headers": ["X-A"]}"#,
+        )
+        .expect("parse allow_* spelling");
+
+        assert_eq!(parsed.allow_origins, vec!["https://a.test".to_string()]);
+        assert_eq!(parsed.allow_methods, vec!["GET".to_string()]);
+        assert_eq!(parsed.allow_headers, vec!["X-A".to_string()]);
+    }
+
+    /// The negative control that names the defect: an empty policy must only come from an
+    /// actually-empty fixture, never from a spelling the parser failed to recognise.
+    #[test]
+    fn an_unrecognised_cors_spelling_does_not_silently_yield_an_empty_policy() {
+        let parsed: CorsConfig =
+            serde_json::from_str(r#"{"allowed_origins": ["https://example.com"]}"#).expect("parse");
+        assert!(
+            !parsed.allow_origins.is_empty(),
+            "a populated fixture must never deserialize into a deny-all policy"
+        );
+    }
     use super::*;
 
     #[test]

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A populated CORS fixture deserialized into a deny-all policy.** `e2e::fixture::CorsConfig`
+  reads `allow_origins` / `allow_methods` / `allow_headers`, each `#[serde(default)]`, but every
+  emitter deliberately writes the `allowed_*` spelling into generated harnesses
+  (`codegen::java::tests` asserts `allow_origins` is absent from the output), so fixtures are
+  authored that way too. Serde dropped the unrecognised keys onto the defaults and produced an
+  empty allow-list — a policy that denies every origin, indistinguishable in shape from one that
+  permits something. The scalar `max_age` matched and survived, which kept the corruption
+  invisible in a diff. In a consumer this surfaced as CORS preflights returning 403 where the
+  fixture expected 204, while every fixture asserting *rejection* still passed: the suite
+  reported green on a policy it had never applied. Each list now also accepts its `allowed_*`
+  alias; the original spelling still parses.
 - **The dart bridge crate inherited a workspace version it could not reach.**
   `backends/dart/gen_rust_crate/cargo.rs` asked `detect_workspace_inheritance`, which only
   reports whether a `[workspace.package] version` exists anywhere, rather than
