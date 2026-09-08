@@ -15,6 +15,13 @@ fn run_case(case: &str) {
         if case == "unchanged" { "1.2.3" } else { "1.0.0" },
     )
     .expect("write prior marker");
+    if case == "unchanged" {
+        let marker = fixture
+            .path()
+            .join(ffi_build_marker(&fixture.path().join("ffi/Cargo.toml")).expect("marker path"));
+        std::fs::create_dir_all(marker.parent().expect("marker directory")).expect("create build state directory");
+        std::fs::write(marker, "1.2.3").expect("write previous successful FFI version");
+    }
     let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"));
     child
         .args(["--exact", CHILD_TEST, "--nocapture"])

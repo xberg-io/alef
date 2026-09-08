@@ -104,3 +104,59 @@ fn existing_non_workspace_ffi_manifest_builds_successfully() {
         "1.2.3"
     );
 }
+
+#[test]
+fn preceding_crate_cannot_satisfy_another_crates_ffi_rebuild() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path();
+    fixture(root, false);
+    let config = root.join("alef.toml");
+    let mut content = fs::read_to_string(&config).expect("config");
+    content.push_str("\n[[crates]]\nname = 'aux'\nsources = ['aux/src/lib.rs']\nversion_from = 'aux/Cargo.toml'\nlanguages = ['ffi']\n[crates.output]\nffi = 'packages/ffi'\n");
+    fs::write(config, content).expect("two-crate config");
+    fs::create_dir_all(root.join("packages/ffi")).expect("FFI directory");
+    fs::write(root.join("packages/ffi/Cargo.toml"), "invalid = [\n").expect("broken FFI manifest");
+    for attempt in 1..=2 {
+        let output = run(root);
+        assert!(
+            !output.status.success(),
+            "attempt {attempt} skipped required FFI build: {output:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("cargo build --manifest-path packages/ffi/Cargo.toml"),
+            "{output:?}"
+        );
+    }
+}
+
+#[test]
+fn failed_same_version_rebuild_invalidates_previous_success() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path();
+    fixture(root, true);
+    fs::create_dir_all(root.join("packages/ffi/src")).expect("FFI directory");
+    fs::write(
+        root.join("packages/ffi/Cargo.toml"),
+        "[package]\nname = 'custom-bridge'\nversion = '1.2.3'\nedition = '2024'\n",
+    )
+    .expect("FFI manifest");
+    fs::write(root.join("packages/ffi/src/lib.rs"), "pub fn bridge() {}\n").expect("FFI source");
+    assert!(run(root).status.success());
+    fs::write(
+        root.join("aux/Cargo.toml"),
+        "[package]\nname = 'aux'\nversion = '1.0.0'\nedition = '2024'\n",
+    )
+    .expect("stale manifest");
+    fs::write(
+        root.join("packages/ffi/src/lib.rs"),
+        "compile_error!(\"broken bridge\");\n",
+    )
+    .expect("broken FFI source");
+    for attempt in 1..=2 {
+        let output = run(root);
+        assert!(
+            !output.status.success(),
+            "attempt {attempt} reused stale success: {output:?}"
+        );
+    }
+}

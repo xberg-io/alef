@@ -1155,7 +1155,15 @@ fn finalize_hashes_for_updated(config: &ResolvedCrateConfig, config_path: &std::
     }
 }
 
-fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+fn ffi_build_marker(manifest: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    let identity = manifest
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve FFI manifest {}", manifest.display()))?;
+    let key = crate::core::hash::hash_bytes(identity.as_os_str().as_encoded_bytes());
+    Ok(std::path::Path::new(".alef/ffi-builds").join(key))
+}
+
+fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig, version: &str, updated: &[String]) -> anyhow::Result<()> {
     if !config.languages.contains(&Language::Ffi) {
         return Ok(());
     }
@@ -1167,6 +1175,14 @@ fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
         // Version sync also runs before initial generation, when no bridge exists to refresh. ~keep
         return Ok(());
     }
+    let marker = ffi_build_marker(&manifest)?;
+    if updated.is_empty() && std::fs::read_to_string(&marker).is_ok_and(|previous| previous == version) {
+        return Ok(());
+    }
+    crate::core::cache_dir::ensure_cache_dir(std::path::Path::new(".alef/ffi-builds"))
+        .context("Failed to create FFI build state directory")?;
+    // Invalidate prior success before starting, so failed same-version rebuilds remain pending. ~keep
+    std::fs::write(&marker, "").context("Failed to invalidate previous FFI build state")?;
     let command = format!("cargo build --manifest-path {}", manifest.display());
     info!(manifest = %manifest.display(), "Rebuilding FFI to refresh C headers");
     let status = std::process::Command::new("cargo")
@@ -1175,6 +1191,7 @@ fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
         .status()
         .with_context(|| format!("Failed to execute {command} to refresh FFI headers"))?;
     anyhow::ensure!(status.success(), "{command} failed to refresh FFI headers: {status}");
+    std::fs::write(&marker, version).context("Failed to record successful FFI header rebuild")?;
     Ok(())
 }
 
@@ -1298,10 +1315,7 @@ fn finalize_version_sync(
     }
 
     let last_path = std::path::Path::new(".alef").join("last_synced_version");
-    // A failed rebuild leaves updated manifests behind; the marker keeps retries pending. ~keep
-    if !state.updated.is_empty() || !std::fs::read_to_string(&last_path).is_ok_and(|previous| previous == version) {
-        rebuild_ffi_if_needed(config)?;
-    }
+    rebuild_ffi_if_needed(config, version, &state.updated)?;
 
     let _ = crate::core::cache_dir::ensure_cache_dir(std::path::Path::new(".alef"));
     let _ = std::fs::write(&last_path, version);
