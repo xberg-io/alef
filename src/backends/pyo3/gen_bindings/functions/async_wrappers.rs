@@ -104,6 +104,39 @@ fn adapter_param_conversions(
     (conversions, args)
 }
 
+fn streaming_request_argument(
+    owner_type: &str,
+    request: &crate::core::ir::TypeDef,
+    first_field: &crate::core::ir::FieldDef,
+    options_input_types: &std::collections::HashSet<String>,
+) -> (Vec<String>, Option<String>) {
+    use heck::ToSnakeCase;
+
+    let field_name = &first_field.name;
+    let request_name = &request.name;
+    let is_vec = matches!(&first_field.ty, crate::core::ir::TypeRef::Vec(_));
+    let primitive_type = if is_vec { "list[str]" } else { "str" };
+    let runtime_type = if is_vec { "list" } else { "str" };
+    let has_public_dto = options_input_types.contains(request_name);
+    let input_type = if has_public_dto {
+        format!("{primitive_type} | {request_name} | _rust.{request_name}")
+    } else {
+        format!("{primitive_type} | _rust.{request_name}")
+    };
+    let params = vec![format!("engine: {owner_type}"), format!("{field_name}: {input_type}")];
+    let construction = crate::backends::pyo3::template_env::render(
+        "adapter_streaming_request_input.jinja",
+        minijinja::context! {
+            field_name => field_name,
+            request_name => request_name,
+            runtime_type => runtime_type,
+            has_public_dto => has_public_dto,
+            converter => format!("_to_rust_{}", request_name.to_snake_case()),
+        },
+    );
+    (params, Some(construction))
+}
+
 /// Emit a module-level wrapper function for an adapter-based method.
 ///
 /// Two patterns are supported:
@@ -112,8 +145,8 @@ fn adapter_param_conversions(
 /// - `AdapterPattern::AsyncMethod`: the method is a regular async call returning a single value;
 ///   emit `async def foo(engine, ...) -> ReturnType: return await engine.foo(...)`
 ///
-/// For streaming adapters that take request objects, the wrapper accepts primitive args
-/// (e.g., `url: str`) and constructs the request object before calling the engine method.
+/// Request-based streaming wrappers retain the first-field primitive convenience argument
+/// and also accept complete public/native requests without discarding the remaining fields.
 ///
 /// Any other pattern is silently skipped (not applicable to the Python layer).
 ///
@@ -151,12 +184,7 @@ pub(super) fn emit_adapter_wrapper(
         let ir_type = types.iter().find(|t| &t.name == short_name);
         if let Some(ty_def) = ir_type {
             if let Some(first_field) = ty_def.fields.first() {
-                let field_name = &first_field.name;
-                let is_vec = matches!(&first_field.ty, crate::core::ir::TypeRef::Vec(_));
-                let python_type = if is_vec { "list[str]" } else { "str" };
-                let wrapper_params = vec![format!("engine: {owner_type}"), format!("{field_name}: {python_type}")];
-                let construction = format!("    req = _rust.{short_name}({field_name}={field_name})\n");
-                (wrapper_params, Some(construction))
+                streaming_request_argument(owner_type, ty_def, first_field, options_input_types)
             } else {
                 let mut params = vec![format!("engine: {owner_type}")];
                 for p in &adapter.params {

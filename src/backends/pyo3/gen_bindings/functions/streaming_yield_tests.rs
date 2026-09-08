@@ -223,3 +223,58 @@ fn streaming_item_module_follows_the_options_dataclass_decision() {
         "an item with a single native identity must be annotated from the bindings module:\n{native_api_py}"
     );
 }
+
+#[test]
+fn streaming_request_accepts_public_and_native_dtos_without_losing_fields() {
+    let (mut api, adapter) = fixture(false);
+    let request = api
+        .types
+        .iter_mut()
+        .find(|item| item.name == "StreamRequest")
+        .expect("request");
+    request.fields.push(FieldDef {
+        name: "messages".to_owned(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        ..FieldDef::default()
+    });
+    let (output, _) = render(&api, &adapter);
+    assert!(
+        output.contains("topic: str | StreamRequest | _rust.StreamRequest"),
+        "{output}"
+    );
+    assert!(output.contains("if isinstance(topic, str):"), "{output}");
+    assert!(output.contains("req = _rust.StreamRequest(topic=topic)"), "{output}");
+    assert!(
+        output.contains("elif isinstance(topic, _rust.StreamRequest):\n        req = topic"),
+        "{output}"
+    );
+    assert!(output.contains("req = _to_rust_stream_request(topic)"), "{output}");
+    assert!(output.contains("raise TypeError("), "{output}");
+}
+
+#[test]
+fn streaming_request_native_only_preserves_vector_convenience_input() {
+    let (mut api, adapter) = fixture(false);
+    let request = api
+        .types
+        .iter_mut()
+        .find(|item| item.name == "StreamRequest")
+        .expect("request");
+    request.fields[0].ty = TypeRef::Vec(Box::new(TypeRef::String));
+    let mut output = String::new();
+    super::async_wrappers::emit_adapter_wrapper(
+        &mut output,
+        &adapter,
+        &api.types,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+    assert!(output.contains("topic: list[str] | _rust.StreamRequest"), "{output}");
+    assert!(output.contains("if isinstance(topic, list):"), "{output}");
+    assert!(output.contains("req = _rust.StreamRequest(topic=topic)"), "{output}");
+    assert!(
+        output.contains("elif isinstance(topic, _rust.StreamRequest):\n        req = topic"),
+        "{output}"
+    );
+    assert!(!output.contains("_to_rust_stream_request"), "{output}");
+}
