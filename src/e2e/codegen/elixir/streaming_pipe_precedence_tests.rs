@@ -175,7 +175,18 @@ fn render_streaming_assertion(assertion_type: &str, field: &str) -> String {
 }
 
 fn run_elixir(program: &str, script: &str, required: bool) -> Option<std::process::Output> {
-    match crate::core::tool_command(program).args(["-e", script]).output() {
+    // ~keep The script goes to a FILE, never `-e <program>`. On Windows `elixir` resolves to
+    // `elixir.bat`, and since Rust 1.77 `Command` refuses to pass an argument to a batch file
+    // when it cannot be escaped for cmd.exe. An inline Elixir program never can be -- it is full
+    // of quotes, `|>`, parens and `&` -- so the spawn failed with `InvalidInput: batch file
+    // arguments are invalid`. That is not `NotFound`, so it fell past both graceful arms into
+    // the hard panic and reddened every Windows CI leg while ubuntu and macOS stayed green. A
+    // script path contains none of those characters, so the identical program runs on every
+    // host, and Windows keeps the coverage instead of silently skipping it.
+    let script_dir = tempfile::tempdir().expect("create a temp dir for the Elixir script");
+    let script_path = script_dir.path().join("alef_streaming_accessor.exs");
+    std::fs::write(&script_path, script).expect("write the Elixir script");
+    match crate::core::tool_command(program).arg(&script_path).output() {
         Ok(output) => Some(output),
         Err(error) if error.kind() == ErrorKind::NotFound && required => {
             panic!("ALEF_REQUIRE_ELIXIR is set but Elixir is unavailable: {error}")

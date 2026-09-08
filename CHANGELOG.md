@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three Elixir runtime regression tests could not run on Windows, and failed loudly instead of
+  skipping.** `run_elixir` handed the generated accessor program to the interpreter inline via
+  `-e <script>`. On Windows `elixir` resolves to `elixir.bat`, and since Rust 1.77
+  `std::process::Command` refuses to pass an argument to a batch file when it cannot be escaped
+  for `cmd.exe` — which an Elixir program never can be, being full of quotes, `|>`, parens and
+  `&`. The spawn failed with `InvalidInput: batch file arguments are invalid`, which is not
+  `NotFound`, so it fell past both graceful arms of the helper into its hard `panic!` and
+  reddened every Windows CI leg while ubuntu and macOS stayed green. The script is now written
+  to a temp `.exs` file and passed as a path, which carries none of those characters, so the
+  identical program runs on every host and Windows keeps the coverage rather than skipping it.
 - **The Elixir NIF allocator pins were asserted against a stale version line, reddening CI on
   every platform.** `tests/scaffold_elixir_nif_cargo_patch_test.rs` spells out the three
   `=`-pinned allocator versions, and a Renovate bump moved the constants to the brotli 9.x line
