@@ -467,7 +467,13 @@ pub(super) fn gen_struct(
             // reference a function the module decided not to generate — see that function's
             // doc comment for the disagreement this closes.
             let wants_default_timeout = super::field_wants_default_timeout(field);
+            let wire_name = crate::codegen::naming::wire_field_name(
+                &field.name,
+                field.serde_rename.as_deref(),
+                typ.serde_rename_all.as_deref(),
+            );
             minijinja::context! {
+                serde_rename => (wire_name != field.name).then(|| format!("{wire_name:?}")),
                 name => &field.name,
                 field_type => &field_type,
                 wants_default_timeout => wants_default_timeout,

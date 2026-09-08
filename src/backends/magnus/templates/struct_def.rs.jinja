@@ -4,7 +4,8 @@
 {% endif %}#[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {
 {% for field in fields %}
-{% if field.wants_default_timeout %}    #[serde(default = "default_timeout")]
+{% if field.serde_rename %}    #[serde(rename = {{ field.serde_rename }})]
+{% endif %}{% if field.wants_default_timeout %}    #[serde(default = "default_timeout")]
 {% endif %}{% if field.cfg %}    #[cfg({{ field.cfg }})]
 {% endif %}    {{ field.name }}: {{ field.field_type }},
 {% endfor %}
