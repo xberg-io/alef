@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.8] - 2026-09-08
+
 ### Fixed
 
 - Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
