@@ -137,27 +137,18 @@ pub(super) fn options_wrapped_type_names(
     names
 }
 
-/// Downgrade `options_via` from `"from_json"` to `"kwargs"` unless the target type's *public*
-/// name actually resolves to a class carrying `from_json`. Two independent conditions must both
-/// hold:
-///
-/// 1. The name is not in [`options_wrapped_type_names`] -- otherwise `__init__.py` exports it
-///    from `.options`, a plain dataclass with no methods at all, and `from_json` is unreachable
-///    through the public name no matter what the native class underneath carries.
-/// 2. Failing that (or when there's no wrapper for the type at all), the native class itself must
-///    pass pyo3's Rust-codegen gate ([`pyo3_would_inject_from_json`]) -- the gate that also
-///    controls whether the `.pyi` stub declares the method, so passing it guarantees the emitted
-///    call type-checks against the shipped stub.
-///
-/// Every generated DTO still exposes a plain kwargs constructor, so falling back there keeps the
-/// emitted call valid for types that clear neither condition. ~keep
+/// Preserve `from_json` only when the selected class exposes the native serde constructor.
+/// Public imports supply their options-wrapped names, which shadow native classes with
+/// method-less dataclasses. An explicitly selected native module passes `None` because that
+/// namespace has no public dataclass shadowing; serde availability and core-to-binding
+/// convertibility still apply in both cases. ~keep
 pub(super) fn effective_options_via_for_type<'a>(
     options_via: &'a str,
     options_type: Option<&str>,
     type_defs: &[crate::core::ir::TypeDef],
     convertible_types: &ahash::AHashSet<String>,
     crate_has_serde: bool,
-    options_wrapped_types: &HashSet<String>,
+    options_wrapped_types: Option<&HashSet<String>>,
 ) -> &'a str {
     if options_via != "from_json" {
         return options_via;
@@ -165,7 +156,7 @@ pub(super) fn effective_options_via_for_type<'a>(
     let Some(name) = options_type else {
         return "kwargs";
     };
-    if options_wrapped_types.contains(name) {
+    if options_wrapped_types.is_some_and(|types| types.contains(name)) {
         return "kwargs";
     }
     if pyo3_would_inject_from_json(name, type_defs, convertible_types, crate_has_serde) {
@@ -492,7 +483,7 @@ mod tests {
                 &type_defs,
                 &convertible,
                 true,
-                &HashSet::new()
+                Some(&HashSet::new()),
             ),
             "from_json"
         );
@@ -514,7 +505,7 @@ mod tests {
                 &type_defs,
                 &convertible,
                 true,
-                &HashSet::new()
+                Some(&HashSet::new()),
             ),
             "kwargs"
         );
@@ -536,7 +527,7 @@ mod tests {
                 &type_defs,
                 &convertible,
                 false,
-                &HashSet::new()
+                Some(&HashSet::new()),
             ),
             "kwargs"
         );
@@ -552,7 +543,7 @@ mod tests {
                 &[],
                 &convertible,
                 true,
-                &HashSet::new()
+                Some(&HashSet::new()),
             ),
             "kwargs"
         );
@@ -562,11 +553,11 @@ mod tests {
     fn effective_options_via_for_type_leaves_non_from_json_values_untouched() {
         let convertible = core_to_binding_convertible_types(&[], &[]);
         assert_eq!(
-            effective_options_via_for_type("dict", None, &[], &convertible, true, &HashSet::new()),
+            effective_options_via_for_type("dict", None, &[], &convertible, true, Some(&HashSet::new()),),
             "dict"
         );
         assert_eq!(
-            effective_options_via_for_type("kwargs", None, &[], &convertible, true, &HashSet::new()),
+            effective_options_via_for_type("kwargs", None, &[], &convertible, true, Some(&HashSet::new()),),
             "kwargs"
         );
     }
@@ -605,11 +596,37 @@ mod tests {
                 &type_defs,
                 &convertible,
                 true,
-                &options_wrapped
+                Some(&options_wrapped),
             ),
             "kwargs",
             "the public name resolves to options.py's method-less dataclass, not the native class"
         );
+    }
+
+    #[test]
+    fn explicit_native_import_keeps_serde_and_convertibility_guards() {
+        let types = vec![crate::core::ir::TypeDef {
+            name: "Request".to_string(),
+            has_serde: true,
+            has_default: true,
+            ..Default::default()
+        }];
+        let convertible = core_to_binding_convertible_types(&types, &[]);
+        for (has_serde, eligible, expected) in [
+            (true, true, "from_json"),
+            (false, true, "kwargs"),
+            (true, false, "kwargs"),
+        ] {
+            let selected = if eligible {
+                convertible.clone()
+            } else {
+                ahash::AHashSet::new()
+            };
+            assert_eq!(
+                effective_options_via_for_type("from_json", Some("Request"), &types, &selected, has_serde, None,),
+                expected
+            );
+        }
     }
 
     /// Symmetric case: `reexported_types` is the documented per-type escape hatch
@@ -640,7 +657,7 @@ mod tests {
                 &type_defs,
                 &convertible,
                 true,
-                &options_wrapped
+                Some(&options_wrapped),
             ),
             "from_json"
         );
