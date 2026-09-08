@@ -30,9 +30,8 @@ fn as_type_path_prefix(type_str: &str) -> String {
 
 /// Build the `Some(v) => ...` arm shared by every field kind: convert the present Ruby value
 /// and, on failure, raise a `TypeError` naming the field instead of silently discarding the
-/// error. `kwargs.get` already tells the two cases apart (`None` = "not provided", `Some(v)` =
-/// "provided, must convert") — this expression is only ever reached for the latter, so a
-/// conversion failure here is always a genuine bad value, never an absent one. ~keep
+/// error. Optional fields filter Ruby `nil` before this conversion, since `RHash::get`
+/// distinguishes a missing key from a present nil value. ~keep
 fn try_convert_or_raise(field_name: &str, type_prefix: &str) -> String {
     format!(
         "{type_prefix}::try_convert(v).map_err(|e| magnus::Error::new(unsafe {{ magnus::Ruby::get_unchecked() }}.exception_type_error(), format!(\"invalid value for `{field_name}`: {{}}\", e)))?"
@@ -61,7 +60,7 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
 
             let assignment = if is_optional {
                 format!(
-                    "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => Some({}), None => None }},",
+                    "match kwargs.get(ruby.to_symbol(\"{}\")).filter(|v| !v.is_nil()) {{ Some(v) => Some({}), None => None }},",
                     field.name, try_convert
                 )
             } else if use_unwrap_or_default(field) {
