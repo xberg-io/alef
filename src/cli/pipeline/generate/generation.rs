@@ -8,6 +8,24 @@ use rayon::prelude::*;
 use std::path::Path;
 use tracing::info;
 
+/// Project the source IR to the surface binding backends may emit.
+///
+/// The extracted surface deliberately retains functions marked binding_excluded because Rust
+/// documentation and e2e tests call the source crate directly. Binding backends must receive a
+/// view without those functions, preserving the same output boundary the extraction sanitizer
+/// enforced before Rust-only consumers needed the signatures. ~keep
+fn project_binding_api(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+) -> anyhow::Result<ApiSurface> {
+    let mut projected = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
+        api, config, languages,
+    )?;
+    projected.functions.retain(|function| !function.binding_excluded);
+    Ok(projected)
+}
+
 /// `write_cache` controls whether a freshly generated language's output paths are
 /// recorded to `.alef/<crate>/hashes/<lang>.{hash,manifest}`. Read-only callers that
 /// regenerate in memory only to inspect the result — `alef verify`'s missing-file
@@ -28,9 +46,7 @@ pub fn generate(
     // Report against the extracted source surface, then project the documentation used by every
     // backend so it cannot advertise a foreign cfg-only variant that none of them emit. ~keep
     crate::codegen::foreign_cfg_variants::warn_foreign_cfg_gated_variants(api, config, languages);
-    let projected_api = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
-        api, config, languages,
-    )?;
+    let projected_api = project_binding_api(api, config, languages)?;
     let api = &projected_api;
     let validated_api = validate_generation_api(api, config, languages)?;
 
@@ -152,9 +168,7 @@ pub fn generate_stubs(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    let projected_api = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
-        api, config, languages,
-    )?;
+    let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
@@ -181,9 +195,7 @@ pub fn generate_service_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    let projected_api = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
-        api, config, languages,
-    )?;
+    let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
     let api = validated_api.api();
 
@@ -286,9 +298,7 @@ pub fn generate_public_api(
     languages: &[Language],
     config_path: &Path,
 ) -> anyhow::Result<Vec<(Language, Vec<GeneratedFile>)>> {
-    let projected_api = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
-        api, config, languages,
-    )?;
+    let projected_api = project_binding_api(api, config, languages)?;
     let validated_api = validate_generation_api(&projected_api, config, languages)?;
 
     let results: Vec<(Language, Vec<GeneratedFile>)> = languages
@@ -346,6 +356,40 @@ fn languages_missing_ffi(configured: &[Language], requested: &[Language]) -> Vec
 mod tests {
     use super::*;
     use crate::core::extension::{Extension, ExtensionConfig};
+
+    #[test]
+    fn binding_projection_hides_rust_only_functions_without_mutating_source_ir() {
+        let hidden = crate::core::ir::FunctionDef {
+            name: "internal_helper".to_string(),
+            binding_excluded: true,
+            ..Default::default()
+        };
+        let visible = crate::core::ir::FunctionDef {
+            name: "public_api".to_string(),
+            ..Default::default()
+        };
+        let api = ApiSurface {
+            functions: vec![hidden, visible],
+            ..Default::default()
+        };
+
+        let projected = project_binding_api(&api, &ResolvedCrateConfig::default(), &[Language::Python])
+            .expect("project binding surface");
+
+        assert_eq!(
+            projected
+                .functions
+                .iter()
+                .map(|function| function.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["public_api"]
+        );
+        assert_eq!(
+            api.functions.len(),
+            2,
+            "source IR must remain available to Rust consumers"
+        );
+    }
 
     /// A `--lang`-filtered run must not be reported as a missing-FFI configuration.
     #[test]

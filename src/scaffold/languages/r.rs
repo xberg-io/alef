@@ -97,8 +97,8 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     let ws = crate::scaffold::WorkspacePackageInheritance::default();
     let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta, &ws);
 
-    let has_async =
-        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
+        || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     // `#[async_trait::async_trait]` on their methods — declare the crate here so
     let has_trait_bridges = !config.trait_bridges.is_empty();
 

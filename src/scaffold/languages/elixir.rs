@@ -39,8 +39,8 @@ pub(crate) fn scaffold_elixir_cargo(
     let pkg_header = cargo_package_header(&nif_name, version, "2024", &meta, &ws);
 
     let extra_deps = render_extra_deps(config, Language::Elixir);
-    let has_async =
-        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
+        || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     let has_trait_bridges = config
         .trait_bridges
         .iter()
@@ -49,7 +49,10 @@ pub(crate) fn scaffold_elixir_cargo(
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
-    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api
+        .functions
+        .iter()
+        .any(|f| !f.binding_excluded && f.params.iter().any(|p| p.map_is_ahash));
     let lib_path_line = if let Some(elixir_out) = config.explicit_output.elixir.as_ref() {
         let output_dir = elixir_out.to_string_lossy();
         if output_dir.contains("/native/") {

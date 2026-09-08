@@ -70,9 +70,12 @@ pub(crate) fn scaffold_ruby_cargo(
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
-    let has_async =
-        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
+        || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let needs_ahash = api
+        .functions
+        .iter()
+        .any(|f| !f.binding_excluded && f.params.iter().any(|p| p.map_is_ahash));
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
 
     let excluded_default_features: HashSet<&str> = config

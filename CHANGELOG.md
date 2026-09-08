@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rust e2e generation lost signatures for source functions hidden from language bindings.**
+  The extraction sanitizer deleted every function marked `alef(skip)`, even though Rust e2e tests
+  call the source crate directly. `Result<(), E>` calls whose values are unused therefore retained
+  a let-unit binding. The IR now preserves those signatures while each binding generator still
+  enforces `binding_excluded` visibility.
+
 ## [0.85.5] - 2026-09-07
 
 ### Fixed

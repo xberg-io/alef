@@ -97,6 +97,9 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 
     let mut to_add = BTreeSet::new();
     for func in &api.functions {
+        if func.binding_excluded {
+            continue;
+        }
         if let Some(cfg) = &func.cfg {
             let pred = crate::codegen::cfg::parse_cfg_predicate(cfg);
             to_add.extend(missing_features_for(&pred, &active, &core_defaults));
@@ -115,6 +118,9 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for func in &api.functions {
+        if func.binding_excluded {
+            continue;
+        }
         if let Some(cfg) = &func.cfg {
             crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
         }
@@ -187,7 +193,10 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .adapters
         .iter()
         .any(|a| matches!(a.pattern, AdapterPattern::Streaming));
-    let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    let needs_ahash = api
+        .functions
+        .iter()
+        .any(|f| !f.binding_excluded && f.params.iter().any(|p| p.map_is_ahash));
     let mut all_deps = extra_deps;
     if needs_ahash {
         if !all_deps.is_empty() {

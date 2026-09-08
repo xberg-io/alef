@@ -115,6 +115,9 @@ fn api_has_json_fields(api: &ApiSurface) -> bool {
     }
 
     for func in &api.functions {
+        if func.binding_excluded {
+            continue;
+        }
         if type_ref_contains_json(&func.return_type) {
             return true;
         }
