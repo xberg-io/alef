@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "optional_numeric_field.jinja",
+        include_str!("templates/optional_numeric_field.jinja"),
+    ),
+    (
         "enum_variant_constructor.rs.jinja",
         include_str!("templates/enum_variant_constructor.rs.jinja"),
     ),

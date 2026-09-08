@@ -550,6 +550,8 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                 }
             } else if is_boxed {
                 "(*_0).into()".to_string()
+            } else if is_plain_string_payload(first_field) {
+                "_0".to_string()
             } else {
                 "_0.into()".to_string()
             };
@@ -632,6 +634,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
             out.push_str(&template_env::render(
                 "flat_enum_from_binding_variant_tuple.jinja",
                 minijinja::context! {
+                    needs_conversion => !is_plain_string_payload(&variant.fields[0]),
                     wire => &wire_name,
                     vname => &variant.name,
                     fname => &field_name,
@@ -651,3 +654,11 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
 mod json_functions;
 
 pub use json_functions::{gen_extendr_json_bridged_function, return_type_needs_json};
+
+fn is_plain_string_payload(field: &crate::core::ir::FieldDef) -> bool {
+    matches!(field.ty, TypeRef::String)
+        && !field.is_boxed
+        && !field.sanitized
+        && field.core_wrapper == crate::core::ir::CoreWrapper::None
+        && field.newtype_wrapper.is_none()
+}

@@ -100,41 +100,17 @@ pub fn gen_options_field_bridge_function(
     }) else {
         return String::new();
     };
-    let visitor_extract = format!(
-        "let {options_name}_core = match {bridge_param_name} {{\n    \
-         Some(v) if !v.is_nil() => {{\n        \
-         if magnus::RHash::from_value(v).is_some() {{\n            \
-         let json = v.funcall::<_, _, String>(\"to_json\", ()).map_err(|e| {{\n                \
-         magnus::Error::new(\n                    \
-         unsafe {{ magnus::Ruby::get_unchecked() }}.exception_runtime_error(),\n                    \
-         format!(\"failed to serialize Ruby options to JSON: {{}}\", e),\n                \
-         )\n            \
-         }})?;\n            \
-         serde_json::from_str::<{core_import}::{options_type}>(&json).map_err(|e| {{\n                \
-         magnus::Error::new(\n                    \
-         unsafe {{ magnus::Ruby::get_unchecked() }}.exception_runtime_error(),\n                    \
-         format!(\"failed to deserialize options JSON: {{}}\", e),\n                \
-         )\n            \
-         }})?\n        \
-         }} else if let Ok(opts_binding) = <&{options_type} as magnus::TryConvert>::try_convert(v) {{\n            \
-         opts_binding.clone().into()\n        \
-         }} else {{\n            \
-         let bridge = {struct_name}::new(v, String::new())?;\n            \
-         let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path};\n            \
-         let mut opts = {core_import}::{options_type}::default();\n            \
-         opts.{options_field} = Some(handle);\n            \
-         opts\n        \
-         }}\n    \
-         }},\n    \
-         _ => {core_import}::{options_type}::default(),\n    \
-         }};",
-        struct_name = struct_name,
-        handle_path = handle_path,
-        core_import = core_import,
-        options_name = options_name,
-        options_type = options_type,
-        options_field = options_field,
-        bridge_param_name = bridge_param_name,
+    let visitor_extract = crate::backends::magnus::template_env::render(
+        "options_field_extract.rs.jinja",
+        minijinja::context! {
+            struct_name => struct_name,
+            handle_path => handle_path,
+            core_import => core_import,
+            options_name => options_name,
+            options_type => options_type,
+            options_field => options_field,
+            bridge_param_name => bridge_param_name,
+        },
     );
 
     let call_args: String = non_option_params

@@ -10,7 +10,7 @@ pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> extendr_api::Result<()
     }
 
 {% endif %}
-    let wrapper = {{ wrapper }}::new(r_backend).map_err(|e| extendr_api::Error::Other(e))?;
+    let wrapper = {{ wrapper }}::new(r_backend).map_err(extendr_api::Error::Other)?;
     let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
 
     let registry = {{ registry_getter }}();

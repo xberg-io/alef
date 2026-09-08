@@ -1,0 +1,4 @@
+    if let Some(v) = list_get(&list, "{{ lookup_name }}").filter(|v| !v.is_null()) {
+        let f64_val = {{ decode_type }}::try_from(&v).map_err(|e| format!("{{ lookup_name }}: {e}"))?;
+        opts.{{ field_name }} = Some(f64_val{% if cast_type %} as {{ cast_type }}{% endif %});
+    }

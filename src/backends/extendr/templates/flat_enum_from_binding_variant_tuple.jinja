@@ -1,2 +1,2 @@
 {% if cfg %}            #[cfg({{ cfg }})]
-{% endif %}            "{{ wire }}" => Self::{{ vname }}(val.{{ fname }}.unwrap_or_default().into()),
+{% endif %}            "{{ wire }}" => Self::{{ vname }}(val.{{ fname }}.unwrap_or_default(){% if needs_conversion %}.into(){% endif %}),

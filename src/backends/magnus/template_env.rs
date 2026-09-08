@@ -2,6 +2,14 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "instance_method.rs.jinja",
+        include_str!("templates/instance_method.rs.jinja"),
+    ),
+    (
+        "options_field_extract.rs.jinja",
+        include_str!("templates/options_field_extract.rs.jinja"),
+    ),
+    (
         "opaque_struct.rs.jinja",
         include_str!("templates/opaque_struct.rs.jinja"),
     ),
