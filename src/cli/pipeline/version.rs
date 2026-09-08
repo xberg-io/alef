@@ -1155,26 +1155,27 @@ fn finalize_hashes_for_updated(config: &ResolvedCrateConfig, config_path: &std::
     }
 }
 
-fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig, updated: &[String]) {
-    if updated.is_empty() || !config.languages.contains(&Language::Ffi) {
-        return;
+fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+    if !config.languages.contains(&Language::Ffi) {
+        return Ok(());
     }
-    let ffi_crate = config
-        .explicit_output
-        .ffi
-        .as_ref()
-        .and_then(|p| {
-            let p = p.to_string_lossy();
-            let trimmed = p.trim_end_matches('/');
-            let trimmed = trimmed.strip_suffix("/src").unwrap_or(trimmed);
-            trimmed.rsplit('/').next().map(|s| s.to_string())
-        })
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("{}-ffi", config.core_crate_dir()));
-    info!("Rebuilding FFI ({ffi_crate}) to refresh C headers...");
-    let _ = std::process::Command::new("cargo")
-        .args(["build", "-p", &ffi_crate])
-        .status();
+    let manifest = std::path::Path::new(&config.package_dir(Language::Ffi)).join("Cargo.toml");
+    if !manifest
+        .try_exists()
+        .with_context(|| format!("Failed to inspect FFI manifest {}", manifest.display()))?
+    {
+        // Version sync also runs before initial generation, when no bridge exists to refresh. ~keep
+        return Ok(());
+    }
+    let command = format!("cargo build --manifest-path {}", manifest.display());
+    info!(manifest = %manifest.display(), "Rebuilding FFI to refresh C headers");
+    let status = std::process::Command::new("cargo")
+        .args(["build", "--manifest-path"])
+        .arg(&manifest)
+        .status()
+        .with_context(|| format!("Failed to execute {command} to refresh FFI headers"))?;
+    anyhow::ensure!(status.success(), "{command} failed to refresh FFI headers: {status}");
+    Ok(())
 }
 
 fn resync_package_swift_placeholder_after_regen(version: &str, updated: &mut Vec<String>) -> anyhow::Result<()> {
@@ -1296,9 +1297,12 @@ fn finalize_version_sync(
         info!("  Updated: {file}");
     }
 
-    rebuild_ffi_if_needed(config, &state.updated);
-
     let last_path = std::path::Path::new(".alef").join("last_synced_version");
+    // A failed rebuild leaves updated manifests behind; the marker keeps retries pending. ~keep
+    if !state.updated.is_empty() || !std::fs::read_to_string(&last_path).is_ok_and(|previous| previous == version) {
+        rebuild_ffi_if_needed(config)?;
+    }
+
     let _ = crate::core::cache_dir::ensure_cache_dir(std::path::Path::new(".alef"));
     let _ = std::fs::write(&last_path, version);
 
