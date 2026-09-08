@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.8] - 2026-09-08
+
 ### Fixed
 
 - Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
@@ -14,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with Jackson `UnrecognizedPropertyException` ([#348](https://github.com/xberg-io/alef/issues/348)).
 - Generated-output CI uses Poly 0.24.0 to support the emitted hook snapshot configuration, and mutation checks handle compact enum conversions.
 - The generated Go visitor fixture builds on Windows x86-64 with its supported archive layout and GCC fallback.
+- Ruby optional constructor fields accept explicit `nil` while still rejecting invalid non-nil values.
+- Version synchronization propagates FFI rebuild failures and preserves retries per manifest, including non-workspace bridges and same-version failures.
+- WASM generated tests retain rejection and literal-message checks while reporting unavailable error-variant identity accurately.
 
 ## [0.85.7] - 2026-09-08
 
