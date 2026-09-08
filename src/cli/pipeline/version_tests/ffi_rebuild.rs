@@ -85,10 +85,11 @@ fn isolated_finalization_child() {
     );
     let expected_marker = if matches!(case.as_str(), "nonzero" | "spawn") {
         let error = outcome.expect_err("a required FFI build failure must stop finalization");
-        assert!(
-            error.to_string().contains("cargo build --manifest-path ffi/Cargo.toml"),
-            "{error:#}"
+        let expected_command = format!(
+            "cargo build --manifest-path {}",
+            std::path::Path::new("ffi").join("Cargo.toml").display()
         );
+        assert!(error.to_string().contains(&expected_command), "{error:#}");
         if case == "spawn" {
             assert_eq!(
                 error.downcast_ref::<std::io::Error>().expect("spawn I/O cause").kind(),

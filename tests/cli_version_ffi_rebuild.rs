@@ -42,10 +42,11 @@ fn failed_existing_ffi_build_stops_cli_before_sync_marker() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        diagnostics.contains("cargo build --manifest-path packages/ffi/Cargo.toml"),
-        "{diagnostics}"
+    let expected_command = format!(
+        "cargo build --manifest-path {}",
+        Path::new("packages/ffi").join("Cargo.toml").display()
     );
+    assert!(diagnostics.contains(&expected_command), "{diagnostics}");
     assert!(!root.join(".alef/last_synced_version").exists());
     let retry = run(root);
     assert!(
@@ -122,8 +123,12 @@ fn preceding_crate_cannot_satisfy_another_crates_ffi_rebuild() {
             !output.status.success(),
             "attempt {attempt} skipped required FFI build: {output:?}"
         );
+        let expected_command = format!(
+            "cargo build --manifest-path {}",
+            Path::new("packages/ffi").join("Cargo.toml").display()
+        );
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("cargo build --manifest-path packages/ffi/Cargo.toml"),
+            String::from_utf8_lossy(&output.stderr).contains(&expected_command),
             "{output:?}"
         );
     }
