@@ -386,6 +386,11 @@ fn wasm_imports_nested_types_from_json_object_element_types() {
     let file_config = make_type("FileExtractionConfig", vec![]);
     let enums = [EnumDef {
         name: "ExtractInputKind".into(),
+        variants: vec![crate::core::ir::EnumVariant {
+            name: "Bytes".into(),
+            serde_rename: Some("bytes".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     }];
     let config = crate::core::config::ResolvedCrateConfig::default();

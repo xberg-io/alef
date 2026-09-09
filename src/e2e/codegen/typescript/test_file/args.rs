@@ -69,6 +69,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
     ir: crate::e2e::codegen::call_ir::CallIr<'_>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
+    if args.is_empty() && matches!(target, crate::e2e::codegen::call_ir::TargetParams::Known([])) {
+        return (Vec::new(), String::new());
+    }
     if args.is_empty() {
         // When the call has no configured args and the fixture input is an
         // empty object, emit no positional arguments. This lets `extra_args`
@@ -589,34 +592,25 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             parts.push(format!("{} as {opts_type}", json_to_js_camel(v)));
                         }
                     } else {
-                        // No `options_type`/`element_type` was configured for this
-                        // call/language -- e.g. node's `chat` call, whose binding needs no
-                        // runtime constructor for a plain `ChatCompletionRequest` object
-                        // literal, so nobody configured one. Ask the core IR what this
-                        // argument's parameter is actually declared as, so the fallback
-                        // converter below can resolve a serde-renamed field's key correctly
-                        // instead of blindly camelCasing the fixture's wire key -- see
-                        // `json_to_js_camel_with_types`'s doc for why it is that (narrower)
-                        // converter and not the full `ts_builder_expression` typed-object
-                        // path. A resolved name absent from `type_defs` (an external/opaque
-                        // type) is filtered out: there is no declared field set to resolve
-                        // against, so `json_to_js_camel_with_types` would behave identically
-                        // to the blind converter anyway. ~keep
+                        // ~keep Node inputs need typed lowering even without a constructor override:
+                        // tagged tuple variants nest their payload in the binding's named field.
                         let declared_type_name = target
                             .declared_type_name(&arg.name, idx)
                             .filter(|declared| type_defs.iter().any(|definition| &definition.name == declared));
                         if lang == "node" {
-                            // For node (napi-rs), tagged-data enum discriminants are
-                            // always exposed as `"kind"` in TypeScript, regardless of the
-                            // original Rust serde_tag attribute. Pre-process the JSON to
-                            // rename serde_tag keys (e.g. `role`, `type`) to `"kind"` when
-                            // the value matches a known enum variant, then convert to JS.
-                            let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
-                            parts.push(json_to_js_camel_with_types(
-                                &preprocessed,
-                                declared_type_name,
-                                type_defs,
-                            ));
+                            if let Some(type_name) = declared_type_name {
+                                parts.push(node_typed_value_expression(
+                                    v,
+                                    type_name,
+                                    enum_fields,
+                                    type_defs,
+                                    enums,
+                                    referenced_enums,
+                                ));
+                            } else {
+                                let preprocessed = rename_napi_serde_tags_to_kind(v, enums);
+                                parts.push(json_to_js_camel_with_types(&preprocessed, None, type_defs));
+                            }
                         } else {
                             parts.push(json_to_js_camel_with_types(v, declared_type_name, type_defs));
                         }

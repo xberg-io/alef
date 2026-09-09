@@ -27,6 +27,8 @@ mod handle_values_tests;
 mod helpers;
 mod http;
 #[cfg(test)]
+mod input_contract_tests;
+#[cfg(test)]
 mod json_object_field_agreement_tests;
 #[cfg(test)]
 mod loop_binding_tests;

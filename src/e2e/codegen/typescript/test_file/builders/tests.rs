@@ -328,6 +328,11 @@ fn node_typed_objects_lower_bytes_and_enums_from_ir() {
     }];
     let enums = [EnumDef {
         name: "InputKind".into(),
+        variants: vec![crate::core::ir::EnumVariant {
+            name: "Bytes".into(),
+            serde_rename: Some("bytes".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     }];
     let expression = ts_builder_expression(
@@ -388,6 +393,11 @@ fn wasm_typed_objects_lower_bytes_and_enums_from_ir() {
     }];
     let enums = [EnumDef {
         name: "ExtractInputKind".into(),
+        variants: vec![crate::core::ir::EnumVariant {
+            name: "Bytes".into(),
+            serde_rename: Some("bytes".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     }];
     let expression = ts_builder_expression(

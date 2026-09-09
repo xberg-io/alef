@@ -491,6 +491,11 @@ mod tests {
         ];
         let enums = [EnumDef {
             name: "WhisperModel".into(),
+            variants: vec![crate::core::ir::EnumVariant {
+                name: "Base".into(),
+                serde_rename: Some("base".into()),
+                ..Default::default()
+            }],
             ..Default::default()
         }];
 

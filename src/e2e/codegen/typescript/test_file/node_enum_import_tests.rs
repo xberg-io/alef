@@ -70,6 +70,11 @@ fn node_imports_enum_values_referenced_by_typed_inputs() {
     };
     let enums = [EnumDef {
         name: "InputKind".into(),
+        variants: vec![crate::core::ir::EnumVariant {
+            name: "Uri".into(),
+            serde_rename: Some("uri".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     }];
 
