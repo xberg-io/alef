@@ -95,7 +95,7 @@ pub(crate) fn generated_tree_needs_formatting(base_dir: &Path) -> bool {
         "--fix-generated".to_owned(),
         path_str,
     ];
-    super::push_poly_elixir_excludes(&mut args);
+    super::push_poly_format_excludes(&mut args);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     super::run_formatter("poly", &arg_refs, base_dir).is_err()
 }

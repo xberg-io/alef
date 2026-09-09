@@ -371,7 +371,7 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
 fn poly_fmt_is_clean(base_dir: &Path) -> bool {
     let path_str = base_dir.to_string_lossy().into_owned();
     let mut args: Vec<String> = vec!["fmt".to_owned(), "--check".to_owned(), path_str];
-    push_poly_elixir_excludes(&mut args);
+    push_poly_format_excludes(&mut args);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     run_formatter("poly", &arg_refs, base_dir).is_ok()
 }
@@ -590,11 +590,32 @@ fn collapse_nested_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
 /// on a partial regen.
 const POLY_ELIXIR_EXCLUDE_GLOBS: [&str; 2] = ["**/*.ex", "**/*.exs"];
 
-/// Append `--exclude <glob>` for each of [`POLY_ELIXIR_EXCLUDE_GLOBS`] to `args`.
-fn push_poly_elixir_excludes(args: &mut Vec<String>) {
-    for glob in POLY_ELIXIR_EXCLUDE_GLOBS {
+/// C# source, excluded from poly for a different reason than Elixir: not corruption, but
+/// *irreproducibility*.
+///
+/// Poly delegates `.cs` to an external `clang-format`, whose output is not stable across its own
+/// versions. Two machines on identical alef and identical poly commit different bytes for the same
+/// generated file — clang-format 18.1.8 and 23.1.0 each reproduce a different committed blob,
+/// differing in nullable-switch layout — so the freshness gate fails for a reason no consumer can
+/// see in its own diff, and the remedy looks like "pin clang-format in every consumer's CI".
+///
+/// alef already emits C# in the layout `dotnet format whitespace` accepts, and
+/// `generated_csharp_uses_formatter_stable_layout` asserts exactly that against the real formatter.
+/// So the emission is already canonical, and letting a second formatter reflow it afterwards can
+/// only move it off that contract — differently per version. Excluding poly leaves the committed
+/// bytes equal to what alef emits, which is the same on every machine.
+///
+/// Excluding rather than reformatting-after, for the reason the Elixir globs above give: a
+/// `--check` pass that still considers itself authoritative over files it no longer formats is the
+/// bug class, not the fix. Anchored with a bare `**/` for the same root-independence reason. ~keep
+const POLY_CSHARP_EXCLUDE_GLOBS: [&str; 1] = ["**/*.cs"];
+
+/// Append `--exclude <glob>` for every glob poly must not format: [`POLY_ELIXIR_EXCLUDE_GLOBS`]
+/// and [`POLY_CSHARP_EXCLUDE_GLOBS`].
+fn push_poly_format_excludes(args: &mut Vec<String>) {
+    for glob in POLY_ELIXIR_EXCLUDE_GLOBS.iter().chain(POLY_CSHARP_EXCLUDE_GLOBS.iter()) {
         args.push("--exclude".to_owned());
-        args.push(glob.to_owned());
+        args.push((*glob).to_owned());
     }
 }
 
@@ -650,7 +671,7 @@ pub(crate) fn poly_format_strict(paths: &[PathBuf], config_start: &Path) -> anyh
     let executable_modes = snapshot_executable_modes(paths);
     let mut args: Vec<String> = vec!["fmt".to_owned(), "--fix".to_owned()];
     args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
-    push_poly_elixir_excludes(&mut args);
+    push_poly_format_excludes(&mut args);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = run_poly_formatter(&arg_refs, config_start);
     restore_executable_modes(&executable_modes);

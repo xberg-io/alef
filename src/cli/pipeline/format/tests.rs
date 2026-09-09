@@ -760,3 +760,22 @@ fn is_tool_available_resolves_from_path_alone_without_a_which_binary() {
         "a tool genuinely absent from PATH must still be reported absent, not found by accident"
     );
 }
+
+/// Poly must not format `.cs`.
+///
+/// Poly delegates C# to an external clang-format whose layout differs across its own versions
+/// (18.1.8 and 23.1.0 each reproduce a different committed blob), so letting it reflow generated
+/// C# makes the committed bytes depend on which clang-format the machine happens to have. alef's
+/// emission is already `dotnet format whitespace`-clean, pinned by
+/// `generated_csharp_uses_formatter_stable_layout`, so the exclusion is what keeps that contract
+/// authoritative rather than advisory. ~keep
+#[test]
+fn poly_excludes_csharp_and_elixir_sources() {
+    let mut args: Vec<String> = Vec::new();
+    super::push_poly_format_excludes(&mut args);
+
+    for glob in ["**/*.cs", "**/*.ex", "**/*.exs"] {
+        let excluded = args.windows(2).any(|pair| pair[0] == "--exclude" && pair[1] == glob);
+        assert!(excluded, "poly was not told to exclude {glob}: {args:?}");
+    }
+}
