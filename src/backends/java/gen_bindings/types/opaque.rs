@@ -12,6 +12,8 @@ use crate::backends::java::gen_bindings::marshal::{is_ffi_string_return, java_ff
 mod extended;
 use extended::{gen_static_factory_method, gen_streaming_helpers, gen_streaming_method, param_needs_null_check};
 mod instance;
+#[cfg(test)]
+mod optional_bytes_result_tests;
 use instance::gen_instance_method;
 
 struct OpaqueClassMethods<'a> {

@@ -386,6 +386,11 @@ fn emit_bytes_result(out: &mut String, context: &ResultMarshalling<'_>) {
             ffi_handle => symbols.ffi_handle,
             args_joined => context.args_joined,
             named_frees => receiver_commit(symbols),
+            // The template branches on `optional` alone. Passing only the pre-rendered
+            // `empty_return`/`success_return` left it undefined, which minijinja reads as
+            // falsy, so an Option<Vec<u8>> method returned a bare byte[] from a method
+            // declared Optional<byte[]> and would not compile. ~keep
+            optional => symbols.is_optional_return,
             empty_return,
             free_bytes,
             success_return,
