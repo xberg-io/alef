@@ -6,6 +6,9 @@ use super::visitor::{emit_visitor_test_body, resolve_zig_visitor_call_symbols};
 use super::*;
 use crate::core::hash::{self, CommentStyle};
 
+#[path = "snippet_stream.rs"]
+mod snippet_stream;
+
 /// Emit a call whose Zig wrapper reports success via an `i32` return code plus an
 /// `out_error` pointer — the trait-bridge `register_*` shape — instead of a Zig
 /// error union. `_ = call(...)` alone discards both the return code and the
@@ -404,11 +407,12 @@ fn render_test_fn(
             .is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
     });
     let is_stream_fn = function_name.contains("stream");
-    let streaming_adapter = if has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some() {
-        resolve_zig_streaming_adapter(config, &function_name)
-    } else {
-        None
-    };
+    let streaming_adapter =
+        if client_factory.is_some() && (for_docs || (has_streaming_virtual_assertions && is_stream_fn)) {
+            resolve_zig_streaming_adapter(config, &function_name)
+        } else {
+            None
+        };
     let uses_streaming_virtual_path =
         result_is_json_struct && has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some();
     // Whether the streaming-virtual path also parses JSON (for non-streaming assertions).
@@ -542,6 +546,8 @@ fn render_test_fn(
         if !for_docs {
             crate::e2e::codegen::error_path_assertions::emit(out, fixture, "    // ", "zig");
         }
+    } else if for_docs && let Some(adapter) = streaming_adapter.as_ref() {
+        snippet_stream::render(out, adapter, module_name, ffi_prefix, &args_str);
     } else if fixture.assertions.is_empty() {
         // No assertions: emit a call to verify compilation.
         if result_is_json_struct {
@@ -861,13 +867,15 @@ pub(super) fn render_snippet_body(
     // A `result_is_json_struct` call binds `_result_json` — a `[]u8` payload — instead of a
     // typed `result`, so no `docs.shows` field path has a struct to read from. Those
     // fixtures keep the whole-payload print below. ~keep
-    let binds_typed_result = !expects_error && !call.returns_void && !body.contains("const _result_json =");
+    let displays_stream = body.contains("const _stream_handle =");
+    let binds_typed_result =
+        !expects_error && !call.returns_void && !displays_stream && !body.contains("const _result_json =");
     let presentation = if binds_typed_result {
         crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "zig", type_defs, enums, functions)
     } else {
         Vec::new()
     };
-    if !expects_error && !call.returns_void && presentation.is_empty() {
+    if !expects_error && !call.returns_void && !displays_stream && presentation.is_empty() {
         let displayed_result = if body.contains("const _result_json =") {
             "_result_json"
         } else {
