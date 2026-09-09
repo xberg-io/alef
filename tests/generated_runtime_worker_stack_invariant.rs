@@ -153,6 +153,22 @@ fn is_comment_line(line: &str) -> bool {
     line.trim_start().starts_with("//")
 }
 
+/// Repo-relative path rendered with `/` separators.
+///
+/// Every path in `HOST_OWNED_CALLING_THREADS` and `UNREACHABLE_DART_TEMPLATES` is written with
+/// `/`, but `Path::display()` renders native separators. On Windows the scan therefore produced
+/// `src\backends\...` and no exemption matched anything, so these tests failed claiming every
+/// entry was stale — reporting a bookkeeping problem that did not exist while saying nothing
+/// about the invariant they exist to defend. ~keep
+fn relative_slash_path(path: &Path, repo_root: &Path) -> String {
+    path.strip_prefix(repo_root)
+        .unwrap_or(path)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn collect_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -210,7 +226,7 @@ fn scan(files: &[PathBuf], repo_root: &Path) -> ScanReport {
             if is_assertion_line(line) || is_comment_line(line) {
                 continue;
             }
-            let relative = path.strip_prefix(repo_root).unwrap_or(path).display();
+            let relative = relative_slash_path(path, repo_root);
             let location = format!("{relative}:{}", index + 1);
 
             if line.contains(BANNED_CONSTRUCTOR) {
@@ -415,7 +431,7 @@ fn dart_spawn_blocking_trait_method_templates_are_unreachable() {
     let mut registry_seen = vec![false; UNREACHABLE_DART_TEMPLATES.len()];
 
     for path in &files {
-        let relative = path.strip_prefix(&repo_root).unwrap_or(path).display().to_string();
+        let relative = relative_slash_path(path, &repo_root);
         // The template file is literally named after itself; only other files can reference it.
         if UNREACHABLE_DART_TEMPLATES.iter().any(|name| relative.ends_with(name)) {
             continue;
