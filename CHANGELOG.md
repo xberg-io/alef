@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Swift documentation examples inherit the configured client factory, import Foundation for environment access, and use native error handling without XCTest assertions.
 - Generate declared no-argument TypeScript calls without invented arguments, preserve typed Node request payloads and flattened WASM configuration, and refuse undeclared enum values.
 - Preserve arbitrary Node JSON and map keys, including colliding snake/camel spellings and `__proto__`, while retaining typed nested values.
 - Node and WASM documentation examples consume streams, catch deferred errors, and release owned WASM stream resources.
