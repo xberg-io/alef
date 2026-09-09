@@ -81,3 +81,24 @@ fn traversal_prefix_is_unaffected_for_an_already_resolved_path() {
 
     assert_eq!(prefix.as_deref(), Some("metadata.document.open_graph"));
 }
+
+#[test]
+fn bridged_prefix_preserves_indices_before_the_bridged_leaf() {
+    let resolver = resolver_with_document_hop_alias();
+    for path in [
+        "items[2].metadata.open_graph[title]",
+        "items[2].metadata.open_graph.title",
+    ] {
+        assert_eq!(
+            resolver.swift_json_bridged_traversal_prefix(path).as_deref(),
+            Some("items[2].metadata.open_graph"),
+            "only the JSON-bridged leaf loses its subscript: {path}"
+        );
+    }
+    assert_eq!(
+        resolver
+            .swift_json_bridged_iteration_prefix("items[2].metadata.open_graph")
+            .as_deref(),
+        Some("items[2].metadata.open_graph")
+    );
+}

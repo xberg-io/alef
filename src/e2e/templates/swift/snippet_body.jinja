@@ -3,6 +3,7 @@
 import {{ module }}
 
 {{ body }}
+{% set rendered_presentation %}
 {% for operation in presentation %}
 {% if operation.kind == "show" %}
 {{ "print" if operation.display else "debugPrint" }}({{ operation.expression }}{% if operation.shown_optional %} as Any{% endif %})
@@ -14,3 +15,9 @@ for {{ operation.item }} in {{ operation.expression }}{% if operation.optional %
 }
 {% endif %}
 {% endfor %}
+
+{% endset %}
+{% if stream_item %}for {{ stream_item }} in chunks {
+{{ rendered_presentation | indent(4, true) }}
+}
+{% else %}{{ rendered_presentation }}{% endif %}

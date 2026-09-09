@@ -168,6 +168,11 @@ pub(super) fn render_with_ir(
     if !expects_error && !call.returns_void && presentation.is_empty() {
         body.push_str(&format!("\nprint({result_var})"));
     }
+    let stream_item = if presentation.is_empty() {
+        None
+    } else {
+        crate::e2e::codegen::presentation::stream_item_binding(fixture, e2e_config, "swift")
+    };
     let needs_foundation = swift_body_references_type(&body, "Data")
         || swift_body_references_type(&body, "URL")
         || swift_body_references_type(&body, "ProcessInfo")
@@ -176,7 +181,7 @@ pub(super) fn render_with_ir(
     Ok(crate::e2e::template_env::render(
         "swift/snippet_body.jinja",
         minijinja::context! { module => module, body => body, needs_foundation => needs_foundation,
-        presentation => presentation },
+        presentation => presentation, stream_item => stream_item },
     ))
 }
 
@@ -625,3 +630,7 @@ mod tests {
         assert!(!rendered.contains("XCTest"));
     }
 }
+
+#[cfg(test)]
+#[path = "snippet_presentation_tests.rs"]
+mod presentation_tests;

@@ -147,7 +147,6 @@ impl FieldResolver {
         for (index, segment) in segments.iter().enumerate() {
             opaque |= !map.is_first_class(cursor.as_deref());
             let bare = segment.split('[').next().unwrap_or(segment);
-            prefix.push(bare);
             let steps_past = index < last || segment.contains('[') || steps_past_leaf;
             let bridged = opaque
                 && cursor
@@ -155,8 +154,10 @@ impl FieldResolver {
                     .and_then(|owner| map.json_bridged_getter(owner, bare))
                     .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
             if steps_past && bridged {
+                prefix.push(bare);
                 return Some(prefix.join("."));
             }
+            prefix.push(segment);
             cursor = map.advance(cursor.as_deref(), bare);
         }
         None
