@@ -266,3 +266,101 @@ fn a_fixture_without_a_docs_client_keeps_the_bare_client_construction_call() {
         "no docs client must mean no baseUrl argument:\n{body}"
     );
 }
+
+fn android_factory_body(global: &[(&str, &str)], named: Option<&[(&str, &str)]>, android: bool) -> String {
+    let make_call = |factories: &[(&str, &str)]| {
+        let mut call = CallConfig {
+            function: "chat".into(),
+            ..CallConfig::default()
+        };
+        for (language, factory) in factories {
+            call.overrides.insert(
+                (*language).into(),
+                CallOverride {
+                    client_factory: Some((*factory).into()),
+                    ..CallOverride::default()
+                },
+            );
+        }
+        call
+    };
+    let mut e2e = E2eConfig {
+        call: make_call(global),
+        ..E2eConfig::default()
+    };
+    let mut fixture = Fixture {
+        id: "factory_precedence".into(),
+        ..Fixture::default()
+    };
+    if let Some(factories) = named {
+        e2e.calls.insert("named".into(), make_call(factories));
+        fixture.call = Some("named".into());
+    }
+    render_snippet_body(
+        &fixture,
+        &e2e,
+        &ResolvedCrateConfig {
+            name: "sample".into(),
+            ..ResolvedCrateConfig::default()
+        },
+        &[],
+        &[],
+        android,
+    )
+    .expect("Android snippet renders")
+}
+
+#[test]
+fn android_snippet_inherits_java_factory_for_default_and_named_calls() {
+    for named in [None, Some(&[][..]), Some(&[("java", "named_factory")][..])] {
+        let body = android_factory_body(&[("java", "global_factory")], named, true);
+        let factory = if named.is_some_and(|entries| !entries.is_empty()) {
+            "namedFactory"
+        } else {
+            "globalFactory"
+        };
+        assert!(
+            body.contains(&format!(
+                "Sample.{factory}(apiKey = apiKey).use {{ client -> client.chat() }}"
+            )),
+            "{body}"
+        );
+        assert!(
+            !body.contains("Sample.chat("),
+            "instance method emitted as static: {body}"
+        );
+    }
+}
+
+#[test]
+fn android_snippet_preserves_android_factory_precedence_over_java() {
+    let globals = [("kotlin_android", "global_android"), ("java", "global_java")];
+    for (named, expected) in [
+        (
+            &[("kotlin_android", "named_android"), ("java", "named_java")][..],
+            "namedAndroid",
+        ),
+        (&[("java", "named_java")][..], "globalAndroid"),
+        (&[][..], "globalAndroid"),
+    ] {
+        let body = android_factory_body(&globals, Some(named), true);
+        assert!(
+            body.contains(&format!(
+                "Sample.{expected}(apiKey = apiKey).use {{ client -> client.chat() }}"
+            )),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn android_factory_fallback_keeps_plain_and_non_android_calls_unchanged() {
+    for body in [
+        android_factory_body(&[], Some(&[]), true),
+        android_factory_body(&[("java", "java_factory")], None, false),
+    ] {
+        assert!(body.contains("Sample.chat()"), "{body}");
+        assert!(!body.contains(".use {"), "{body}");
+        assert!(!body.contains("System.getenv"), "{body}");
+    }
+}

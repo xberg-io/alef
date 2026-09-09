@@ -199,13 +199,19 @@ pub(crate) fn render_snippet_body_with_ir(
         };
     }
     args = rebind_mapper_references(&args);
-    let client_factory = overrides.and_then(|value| value.client_factory.as_deref()).or_else(|| {
-        e2e_config
-            .call
-            .overrides
-            .get(lang)
-            .and_then(|value| value.client_factory.as_deref())
-    });
+    let client_factory = overrides
+        .and_then(|value| value.client_factory.as_deref())
+        .or_else(|| e2e_config.call.overrides.get(lang)?.client_factory.as_deref())
+        .or_else(|| {
+            if !kotlin_android_style {
+                return None;
+            }
+            // ~keep Android shares Java's JNI factory contract, matching the JUnit emitter.
+            call.overrides
+                .get("java")
+                .and_then(|value| value.client_factory.as_deref())
+                .or_else(|| e2e_config.call.overrides.get("java")?.client_factory.as_deref())
+        });
     let needs_mapper = args.contains(SNIPPET_MAPPER_REFERENCE)
         || setup_lines.iter().any(|line| line.contains(SNIPPET_MAPPER_REFERENCE));
     let is_async = client_factory.is_some() || call.r#async;
