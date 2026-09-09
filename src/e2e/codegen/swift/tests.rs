@@ -57,6 +57,7 @@ fn swift_ir_reachable_field_absent_from_result_fields_is_not_skipped() {
         &HashMap::new(),
         false,
         false,
+        "Sample",
     );
     assert!(!out.contains("skipped"), "got: {out}");
 }
@@ -103,6 +104,7 @@ fn swift_ir_excluded_field_present_in_result_fields_is_still_skipped() {
         &HashMap::new(),
         false,
         false,
+        "Sample",
     );
     assert!(out.contains("skipped"), "got: {out}");
 }
@@ -146,6 +148,7 @@ fn not_empty_is_type_aware_for_optional_values() {
             &HashMap::new(),
             false,
             false,
+            "Sample",
         );
         assert!(out.contains(expected), "field {field}: {out}");
         assert!(!out.contains("toString"), "field {field}: {out}");
@@ -196,6 +199,7 @@ fn not_error_on_a_non_void_result_emits_no_tautological_assertion() {
         &HashMap::new(),
         false,
         false,
+        "Sample",
     );
     assert!(!out.contains("XCTAssertNotNil"), "got: {out}");
     assert_eq!(out, "        // not_error: covered by try propagation\n");
@@ -224,6 +228,7 @@ fn not_error_on_a_streaming_fixture_emits_no_tautological_assertion() {
         &HashMap::new(),
         true,
         false,
+        "Sample",
     );
     assert!(!out.contains("XCTAssertNotNil(chunks)"), "got: {out}");
 }
@@ -253,6 +258,7 @@ fn not_error_on_a_returns_void_call_emits_nothing() {
         &HashMap::new(),
         false,
         true,
+        "Sample",
     );
     assert!(
         out.is_empty(),
@@ -937,6 +943,7 @@ fn render_field_assertion(
         &HashMap::new(),
         false,
         false,
+        "Sample",
     );
     out
 }

@@ -34,6 +34,7 @@ pub(super) fn render_assertion(
     result_field_accessor: &HashMap<String, String>,
     is_streaming: bool,
     returns_void: bool,
+    module_name: &str,
 ) {
     // When the bare result is `Optional<T>` (no field path) the opaque class
     // exposed by swift-bridge has no `.toString()` method, so the usual
@@ -199,18 +200,29 @@ pub(super) fn render_assertion(
         return;
     }
 
+    // Determine if this field is a display-as-text content union (e.g. `AssistantContent`).
+    // Such fields are emitted as Swift enums (not `String`) and expose a `.text()` method
+    // that concatenates the plain-text representation. The assertion must call `.text()` to
+    // compare against the fixture's expected string, mirroring the Kotlin/Go/Java backends.
+    let field_is_display_as_text = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_display_as_text(f));
+
     // A payload-carrying union is the union shape `gen_bindings::enums::emit_enum` renders with
     // associated values instead of a `: String` raw-value enum. It has no `.rawValue`, and every
     // string arm below reads one lowered expression, so withholding the accessor alone would
     // route it into `XCTAssertEqual(result.kind, "key_value")` — a type mismatch that does not
     // compile. Refuse, after the wildcard gate so a union-typed element keeps its own path. ~keep
-    if let Some(line) = payload_union_skip_line(
-        "        ",
-        "//",
-        field_resolver,
-        assertion.field.as_deref(),
-        UnionLoweringTarget::Swift,
-    ) {
+    if !field_is_display_as_text
+        && let Some(line) = payload_union_skip_line(
+            "        ",
+            "//",
+            field_resolver,
+            assertion.field.as_deref(),
+            UnionLoweringTarget::Swift,
+        )
+    {
         let _ = writeln!(out, "{line}");
         return;
     }
@@ -225,15 +237,6 @@ pub(super) fn render_assertion(
         .as_deref()
         .filter(|f| !f.is_empty())
         .is_some_and(|f| field_resolver.is_enum(f));
-
-    // Determine if this field is a display-as-text content union (e.g. `AssistantContent`).
-    // Such fields are emitted as Swift enums (not `String`) and expose a `.text()` method
-    // that concatenates the plain-text representation. The assertion must call `.text()` to
-    // compare against the fixture's expected string, mirroring the Kotlin/Go/Java backends.
-    let field_is_display_as_text = assertion
-        .field
-        .as_deref()
-        .is_some_and(|f| field_resolver.is_display_as_text(f));
 
     let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
         !f.is_empty() && (field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f)))
@@ -358,7 +361,23 @@ pub(super) fn render_assertion(
         // enum exposing `.text()` returning a non-optional `String`. For optional content
         // (`AssistantContent?`) or an optional ancestor chain, unwrap with `?.text()` and
         // coalesce to "" so XCTAssert receives a concrete Swift `String`.
-        if field_is_optional || accessor_is_optional {
+        if !leaf_is_property_access
+            && let Some(enum_name) = assertion
+                .field
+                .as_deref()
+                .and_then(|field| field_resolver.ir_enum_type_name(field))
+        {
+            // ~keep Opaque enum getters serialize JSON; quoted empty text must not satisfy not_empty.
+            let json = if leaf_getter_is_optional || accessor_is_optional {
+                format!("({field_expr}?.toString() ?? \"null\")")
+            } else {
+                format!("{field_expr}.toString()")
+            };
+            let enum_name = crate::backends::swift::naming::swift_source_ident(&enum_name);
+            format!(
+                "((try JSONDecoder().decode({module_name}.{enum_name}?.self, from: Data({json}.utf8)))?.text() ?? \"\")"
+            )
+        } else if field_is_optional || accessor_is_optional {
             format!("({field_expr}?.text() ?? \"\")")
         } else {
             format!("{field_expr}.text()")
@@ -592,7 +611,7 @@ pub(super) fn render_assertion(
             // For result_is_simple (e.g. Data, String), use .isEmpty directly on
             // the result — avoids calling .toString() on non-RustString types.
             // For string fields, convert to Swift String and check .isEmpty.
-            if bare_result_is_option {
+            if field_is_display_as_text || bare_result_is_option {
                 let _ = writeln!(
                     out,
                     "        XCTAssertFalse({string_expr}.isEmpty, \"expected non-empty value\")"
@@ -666,7 +685,12 @@ pub(super) fn render_assertion(
             }
         }
         "is_empty" => {
-            if bare_result_is_option {
+            if field_is_display_as_text {
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertTrue({string_expr}.isEmpty, \"expected empty value\")"
+                );
+            } else if bare_result_is_option {
                 let _ = writeln!(out, "        XCTAssertNil({result_var}, \"expected nil value\")");
             } else if let Some(count_expr) = super::leaf_shape::swift_json_bridged_count_expr(
                 field_resolver,

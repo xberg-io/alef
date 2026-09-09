@@ -382,3 +382,40 @@ fn the_union_refusal_is_recognised_by_the_field_skip_funnel() {
         Some(("kind", FieldSkip::PayloadUnionHasNoScalarWireAccessor))
     );
 }
+
+fn render_configured_text_assertion(native: bool, kind: &str) -> String {
+    let (mut types, enums, functions) = table_ir();
+    types.iter_mut().find(|ty| ty.name == "UnionResult").unwrap().fields[0].optional = true;
+    let config = e2e_config_for("process_union", "UnionResult", |call| {
+        call.fields_display_as_text.insert("kind".into());
+    });
+    let map = if native {
+        first_class_map()
+    } else {
+        super::values::build_swift_first_class_map(&types, &enums, &config, &config.calls["process_union"])
+    };
+    let mut fixture = fixture_calling("process_union");
+    fixture.assertions[0].assertion_type = kind.into();
+    render(&fixture, &config, &map, &types, &enums, &functions)
+}
+
+#[test]
+fn configured_native_content_checks_text_emptiness_not_presence() {
+    for (kind, assertion) in [("not_empty", "XCTAssertFalse"), ("is_empty", "XCTAssertTrue")] {
+        let out = render_configured_text_assertion(true, kind);
+        assert!(out.contains("result.kind?.text()"), "{out}");
+        assert!(out.contains(assertion) && out.contains(".isEmpty"), "{out}");
+        assert!(!out.contains("skipped:") && !out.contains("!= nil"), "{out}");
+    }
+}
+
+#[test]
+fn configured_opaque_content_decodes_json_before_checking_text() {
+    for (kind, assertion) in [("not_empty", "XCTAssertFalse"), ("is_empty", "XCTAssertTrue")] {
+        let out = render_configured_text_assertion(false, kind);
+        assert!(out.contains("JSONDecoder().decode(Sample.StageOutput?.self"), "{out}");
+        assert!(out.contains("result.kind()?.toString()"), "{out}");
+        assert!(out.contains(assertion) && out.contains(".isEmpty"), "{out}");
+        assert!(!out.contains("skipped:") && !out.contains("!= nil"), "{out}");
+    }
+}

@@ -597,6 +597,7 @@ pub(super) fn render_test_method(
             result_field_accessor,
             is_streaming,
             call_config.returns_void,
+            module_name,
         );
         // Module-qualify swift-bridge-ambiguous DTO type names that appear in
         // streaming-virtual assertion expressions (e.g. `[StreamToolCall]`,

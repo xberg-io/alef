@@ -27,6 +27,7 @@ fn render(assertion: &Assertion, is_streaming: bool) -> String {
         &HashMap::new(),
         is_streaming,
         false,
+        "Sample",
     );
     out
 }
