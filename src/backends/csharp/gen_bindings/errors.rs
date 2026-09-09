@@ -63,7 +63,7 @@ pub(super) fn compute_variant_dispatch(errors: &[ErrorDef]) -> (bool, String, Ve
         .into_iter()
         .map(|(class, prefix)| {
             let escaped_prefix = prefix.replace('\\', "\\\\").replace('"', "\\\"");
-            format!("        if (message.StartsWith(\"{escaped_prefix}\")) return new {class}(message);")
+            format!("        if (message.StartsWith(\"{escaped_prefix}\")) return WithNativeCode(new {class}(message), code);")
         })
         .collect();
 
@@ -377,9 +377,9 @@ mod tests {
         assert_eq!(
             dispatch_lines,
             vec![
-                "        if (message.StartsWith(\"Authentication failed:\")) return new AuthenticationException(message);"
+                "        if (message.StartsWith(\"Authentication failed:\")) return WithNativeCode(new AuthenticationException(message), code);"
                     .to_string(),
-                "        if (message.StartsWith(\"Corrupt archive:\")) return new CorruptException(message);".to_string(),
+                "        if (message.StartsWith(\"Corrupt archive:\")) return WithNativeCode(new CorruptException(message), code);".to_string(),
             ]
         );
     }
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(
             dispatch_lines,
             vec![
-                "        if (message.StartsWith(\"Authentication failed:\")) return new AuthenticationException(message);"
+                "        if (message.StartsWith(\"Authentication failed:\")) return WithNativeCode(new AuthenticationException(message), code);"
                     .to_string(),
             ]
         );
@@ -437,7 +437,7 @@ mod tests {
             "",
             "public class SampleClientException : Exception",
             "{",
-            "    public int Code { get; }",
+            "    public int Code { get; private set; }",
             "",
             "    public SampleClientException(int code, string message) : base(message)",
             "    {",
@@ -454,6 +454,12 @@ mod tests {
             "        Code = 0;",
             "    }",
             "",
+            "    private static SampleClientException WithNativeCode(SampleClientException exception, int code)",
+            "    {",
+            "        exception.Code = code;",
+            "        return exception;",
+            "    }",
+            "",
             "    /// <summary>",
             "    /// Builds the concrete exception for the FFI's current thread-local last-error state,",
             "    /// dispatching to the specific per-variant exception class when the message's prefix",
@@ -465,9 +471,9 @@ mod tests {
             "        var code = NativeMethods.LastErrorCode();",
             "        var ctxPtr = NativeMethods.LastErrorContext();",
             "        var message = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? fallbackMessage;",
-            "        if (message.StartsWith(\"Authentication failed:\")) return new AuthenticationException(message);",
-            "        if (message.StartsWith(\"Bad request:\")) return new BadRequestException(message);",
-            "        if (code == 2) return new ApiErrorException(message);",
+            "        if (message.StartsWith(\"Authentication failed:\")) return WithNativeCode(new AuthenticationException(message), code);",
+            "        if (message.StartsWith(\"Bad request:\")) return WithNativeCode(new BadRequestException(message), code);",
+            "        if (code == 2) return WithNativeCode(new ApiErrorException(message), code);",
             "        return new SampleClientException(code, message);",
             "    }",
             "}",
