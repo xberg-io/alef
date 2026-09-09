@@ -6,7 +6,17 @@ pub fn new_{{ type_name_lower }}(
 ) -> {{ type_name }} {
     let mut __out = <{{ type_name }}>::default();
 {% for field in body_assignments -%}
-    {{ field.code }}
+{% if field.is_named_enum %}
+{% if field.optional_enum %}
+    if let Some(v) = {{ field.name }} { __out.{{ field.name }} = serde_json::from_str(&format!("\"{v}\"")).ok(); }
+{% else %}
+    if let Some(v) = {{ field.name }} && let Ok(parsed) = serde_json::from_str(&format!("\"{v}\"")) { __out.{{ field.name }} = parsed; }
+{% endif %}
+{% elif field.optional_value %}
+    if let Some(v) = {{ field.name }} { __out.{{ field.name }} = Some(v); }
+{% else %}
+    if let Some(v) = {{ field.name }} { __out.{{ field.name }} = v; }
+{% endif %}
 {% endfor -%}
     __out
 }

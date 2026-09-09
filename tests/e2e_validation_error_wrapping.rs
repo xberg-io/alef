@@ -146,57 +146,35 @@ fn ruby_validation_setup_lines_are_inside_expect_block() {
 }
 
 #[test]
-fn php_validation_setup_lines_are_after_expect_exception() {
-    // The fixture declares an error `value` ("max_depth"), so PhpCodegen emits the
-    // message-or-class-name try/catch shape rather than a bare `expectException`.
+fn php_validation_setup_is_caught_and_assertions_are_outside_the_handler() {
     let content = generate_content(&PhpCodegen, "php");
-
-    assert!(content.contains("try {"), "try block opener missing:\n{content}");
-    assert!(
-        content.contains("} catch (\\Exception $e) {"),
-        "catch block missing:\n{content}"
-    );
-    assert!(
-        content.contains("$this->fail("),
-        "fail() call for the unexpected-success path missing:\n{content}"
-    );
-    assert!(
-        content.contains("$this->assertTrue("),
-        "message-or-class-name assertion missing:\n{content}"
-    );
-
-    let try_pos = content.find("try {").expect("try { not found");
+    let try_pos = content.find("try {").expect("try block missing");
     let create_engine_pos = content
         .find("createEngine")
         .or_else(|| content.find("create_engine"))
-        .expect("engine creation call (createEngine or create_engine) not found");
-    let fail_pos = content.find("$this->fail(").expect("$this->fail( not found");
-    let catch_pos = content
-        .find("} catch (\\Exception $e) {")
-        .expect("catch block not found");
-    let assert_true_pos = content.find("$this->assertTrue(").expect("assertTrue( not found");
+        .expect("engine creation call missing");
+    let catch_pos = content.find("} catch (\\Exception $e) {").expect("catch missing");
+    let catch_end = catch_pos
+        + content[catch_pos..]
+            .find("\n        }")
+            .expect("catch closing brace missing");
+    let instance_pos = content
+        .find("$this->assertInstanceOf(")
+        .expect("exception assertion missing");
+    let message_pos = content.find("$this->assertTrue(").expect("message assertion missing");
 
-    // Setup (engine creation) is the property this test guards: it must be
-    // inside the error-catching construct, not before it.
     assert!(
-        create_engine_pos > try_pos,
-        "engine creation must appear inside the try block (after `try {{`), \
-         but engine creation at {create_engine_pos} is before try at {try_pos}:\n{content}"
+        create_engine_pos > try_pos && create_engine_pos < catch_pos,
+        "{content}"
+    );
+    assert!(instance_pos > catch_end && message_pos > instance_pos, "{content}");
+    assert!(
+        content.contains("$caughtException = $e;"),
+        "the actual exception must be retained: {content}"
     );
     assert!(
-        create_engine_pos < fail_pos,
-        "engine creation must appear before fail(), so an unexpected success is caught, \
-         but engine creation at {create_engine_pos} is after fail() at {fail_pos}:\n{content}"
-    );
-    assert!(
-        fail_pos < catch_pos,
-        "fail() must run inside try, before the catch block, \
-         but fail() at {fail_pos} is after catch at {catch_pos}:\n{content}"
-    );
-    assert!(
-        assert_true_pos > catch_pos,
-        "the message-or-class-name assertion must be inside the catch block, \
-         but assertTrue at {assert_true_pos} is before catch at {catch_pos}:\n{content}"
+        !content.contains("$this->fail("),
+        "framework failures must not replace the application error: {content}"
     );
 }
 

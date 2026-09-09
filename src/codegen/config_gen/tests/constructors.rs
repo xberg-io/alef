@@ -123,7 +123,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
             original_type: None,
         })
         .collect();
-    fields[0].optional = true;
+    fields[0].ty = TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
 
     let typ = TypeDef {
         name: "BigConfig".to_string(),
@@ -161,9 +161,9 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
     assert!(output.contains("ruby.to_symbol("), "should use symbol lookup");
     assert!(
         output.contains(
-            "field_0: match kwargs.get(ruby.to_symbol(\"field_0\")) { Some(v) => Some(u32::try_convert(v).map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_type_error(), format!(\"invalid value for `field_0`: {}\", e)))?), None => None },"
+            "field_0: match kwargs.get(ruby.to_symbol(\"field_0\")).filter(|v| !v.is_nil()) { Some(v) => Some(u32::try_convert(v).map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_type_error(), format!(\"invalid value for `field_0`: {}\", e)))?), None => None },"
         ),
-        "optional field must default to None when the key is absent, and raise a TypeError \
+        "optional field must map absent or nil to None, and raise a TypeError \
          (never silently default) when the key is present but fails to convert; got:\n{output}"
     );
     assert!(

@@ -156,7 +156,7 @@ fn wasm_snippet_enum_members_are_declared_by_the_wasm_binding() {
                 vec![unit_variant("Markdown"), unit_variant("Html")],
                 None,
             ),
-            "markdown",
+            "Markdown",
         ),
         (
             "multi-word unit variant under snake_case rename_all",

@@ -1,0 +1,15 @@
+{{ method_cfg }}{% if trait_method %}
+#[allow(clippy::should_implement_trait)]
+{% endif %}
+{% if unused_variables %}
+#[allow(unused_variables)]
+{% endif %}
+{% if borrowed_consuming_method %}
+#[allow(
+    clippy::wrong_self_convention,
+    reason = "Ruby borrows wrapper instances while consuming a cloned core value"
+)]
+{% endif %}
+fn {{ name }}({{ self_recv }}, {{ params }}) -> {{ return_annotation }} {
+        {{ body }}
+    }

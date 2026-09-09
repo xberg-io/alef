@@ -56,6 +56,11 @@ fn wasm_snippet_imports_the_same_prefixed_names_its_body_references() {
     );
     let enums = [EnumDef {
         name: "ExtractInputKind".into(),
+        variants: vec![crate::core::ir::EnumVariant {
+            name: "Uri".into(),
+            serde_rename: Some("uri".into()),
+            ..Default::default()
+        }],
         ..Default::default()
     }];
     let config = crate::core::config::ResolvedCrateConfig::default();

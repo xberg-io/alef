@@ -136,7 +136,7 @@ fn a_readme_only_change_still_formats_stray_files_and_stays_hash_stable() {
 
     assert_eq!(
         fs::read_to_string(&messy).expect("read messy.py after the second run"),
-        "x = 1\n",
+        if cfg!(windows) { "x = 1\r\n" } else { "x = 1\n" },
         "a run whose only reported change was the README must still run the whole-tree \
          formatting pass and reformat every other file under the tree, including this \
          alef-unmanaged stray file -- if this still reads `x=1`, the format gate is still \

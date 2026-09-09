@@ -1,0 +1,10 @@
+    if isinstance({{ field_name }}, {{ runtime_type }}):
+        req = _rust.{{ request_name }}({{ field_name }}={{ field_name }})
+    elif isinstance({{ field_name }}, _rust.{{ request_name }}):
+        req = {{ field_name }}
+{% if has_public_dto %}
+    elif isinstance({{ field_name }}, {{ request_name }}):
+        req = {{ converter }}({{ field_name }})
+{% endif %}
+    else:
+        raise TypeError("{{ field_name }} must be {{ runtime_type }} or a {{ request_name }} request")

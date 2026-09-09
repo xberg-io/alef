@@ -521,7 +521,9 @@ pub(super) fn render_test_method(
     // entirely, even though the call genuinely throwing IS the check the fixture asked for. Fires
     // only when EVERY declared assertion is `not_error` — a fixture that pairs `not_error` with a
     // real field assertion keeps binding `result` unchanged, since that assertion still needs it.
+    // ~keep A stream must stay bound and be drained: iteration can fail after the call succeeds.
     let non_void_not_error_only = !call_config.returns_void
+        && !is_streaming
         && !fixture.assertions.is_empty()
         && fixture
             .assertions
@@ -595,6 +597,7 @@ pub(super) fn render_test_method(
             result_field_accessor,
             is_streaming,
             call_config.returns_void,
+            module_name,
         );
         // Module-qualify swift-bridge-ambiguous DTO type names that appear in
         // streaming-virtual assertion expressions (e.g. `[StreamToolCall]`,
@@ -666,7 +669,7 @@ pub(super) fn render_test_method(
         // Already emitted into `body_buffer` above.
     } else if call_config.returns_void {
         let _ = writeln!(out, "        {call_expr}");
-    } else if fixture.assertions.is_empty() {
+    } else if fixture.assertions.is_empty() && !is_streaming {
         let _ = writeln!(out, "        _ = {call_expr}");
     } else {
         let _ = writeln!(out, "        let {result_var} = {call_expr}");

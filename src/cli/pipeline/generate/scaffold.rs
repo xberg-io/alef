@@ -193,10 +193,10 @@ pub fn reconcile_managed_scaffold_manifests(
 /// alef never wrote it, since alef could have marked it and did not. This applies uniformly
 /// regardless of `generated_header` — a `generated_header: false` seed (`build.zig`,
 /// `*_test.dart`, `*Tests.swift`, ...) never gets a marker by design, so once such a seed
-/// exists on disk it is permanently create-once: neither a hand-edit nor a later regen intent
-/// (e.g. a version bump wanting to update an embedded version string) can silently touch it
-/// again. That is intentional, not a gap — a seed that needs ongoing regeneration belongs on
-/// the marker rail instead, by becoming `generated_header: true`.
+/// exists on disk it remains create-once unless explicitly adopted. A later regen intent
+/// (e.g. a version bump wanting to update an embedded version string) cannot silently adopt it.
+/// After explicit adoption, authorised writes preserve the marker even when the emitter
+/// still declares `generated_header: false`.
 ///
 /// The guard only ever engages when the newly generated content would actually change what
 /// is on disk (byte-identical regeneration is always a silent no-op, whichever route proved
@@ -306,7 +306,10 @@ pub fn write_scaffold_files_report(
         };
         let normalized = normalize_content(&full_path, &content);
         // Seeded unstamped -- see `super::user_owned::skip_declared_existing`. ~keep
-        let normalized = if file.generated_header && !declared.matches(base_dir, &full_path) {
+        // Explicit adoption remains durable even when this emitter produces an unmarked seed. ~keep
+        let normalized = if !declared.matches(base_dir, &full_path)
+            && (file.generated_header || super::write::disk_carries_alef_marker(&full_path))
+        {
             super::write::ensure_generated_header(&full_path, &normalized)
         } else {
             normalized
@@ -1055,41 +1058,5 @@ mod swift_package_manifest_marker_tests {
                  `alef generate`:\n{on_disk}"
             );
         }
-    }
-
-    /// The counterpart proving the assertion above is not vacuous: with `generated_header: false`
-    /// (this repository's state before the fix), the identical sequence loses the marker on the
-    /// very first overwrite -- the write guard still authorises the write (the pre-existing file
-    /// carries a marker), but nothing re-adds one to the content it writes.
-    #[test]
-    fn the_pre_fix_generated_header_false_shape_reproduces_the_marker_loss() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let base = temporary.path();
-        let relative = std::path::Path::new("test_apps/swift_e2e/Package.swift");
-        std::fs::create_dir_all(base.join("test_apps/swift_e2e")).expect("test_apps/swift_e2e directory");
-        std::fs::write(
-            base.join(relative),
-            "// swift-tools-version: 6.0\n\
-             // The first-party dependency pin below is managed by alef (sync.text_replacements); do not edit it \
-             by hand.\n\
-             // alef:hash:0000000000000000000000000000000000000000000000000000000000000000\n\
-             import PackageDescription\n\n\
-             let package = Package(\n  name: \"E2eSwift\"\n)\n",
-        )
-        .expect("seed a Package.swift carrying an out-of-band marker");
-
-        let unmarked_rendering = GeneratedFile {
-            generated_header: false,
-            ..rendered_package_swift()
-        };
-        write_scaffold_files_report(&[unmarked_rendering], base, true).expect("overwrite must succeed");
-
-        let on_disk = std::fs::read_to_string(base.join(relative)).expect("read Package.swift");
-        assert!(
-            !crate::core::hash::content_has_alef_marker(&on_disk),
-            "this test documents the historical defect and must start failing (proving it is \
-             fixed) only if `generated_header: false` itself stops losing the marker -- if it \
-             does, delete this test rather than the assertion:\n{on_disk}"
-        );
     }
 }

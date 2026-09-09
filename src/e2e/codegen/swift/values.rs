@@ -760,6 +760,7 @@ mod tests {
         };
         let extracted_document = TypeDef {
             name: "ExtractedDocument".to_string(),
+            is_opaque: true,
             fields: vec![named_field("metadata", TypeRef::Named("Metadata".to_string()), false)],
             has_serde: true,
             ..Default::default()

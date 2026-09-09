@@ -42,34 +42,15 @@ pub fn gen_extendr_kwargs_constructor(
     let body_assignments: Vec<_> = typ
         .fields
         .iter()
-        .filter(|f| !f.binding_excluded && f.cfg.is_none() && !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty))
+        .filter(|f| {
+            !f.binding_excluded && f.cfg.is_none() && !is_named_struct(&f.ty) && !is_optional_named_struct(&f.ty)
+        })
         .map(|field| {
-            let code = if is_named_enum(&field.ty) {
-                if field.optional {
-                    format!(
-                        "if let Some(v) = {} {{ __out.{} = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")).ok(); }}",
-                        field.name, field.name
-                    )
-                } else {
-                    format!(
-                        "if let Some(v) = {} {{ if let Ok(parsed) = serde_json::from_str(&format!(\"\\\"{{v}}\\\"\")) {{ __out.{} = parsed; }} }}",
-                        field.name, field.name
-                    )
-                }
-            } else if ty_is_optional(&field.ty) || field.optional {
-                format!(
-                    "if let Some(v) = {} {{ __out.{} = Some(v); }}",
-                    field.name, field.name
-                )
-            } else {
-                format!(
-                    "if let Some(v) = {} {{ __out.{} = v; }}",
-                    field.name, field.name
-                )
-            };
-
             minijinja::context! {
-                code => code,
+                name => field.name,
+                is_named_enum => is_named_enum(&field.ty),
+                optional_enum => field.optional,
+                optional_value => ty_is_optional(&field.ty) || field.optional,
             }
         })
         .collect();

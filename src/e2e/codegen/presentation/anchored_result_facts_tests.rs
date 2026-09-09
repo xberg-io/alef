@@ -460,7 +460,7 @@ fn a_result_field_named_like_a_streaming_pseudo_field_still_derives_its_accessor
             .iter()
             .map(|operation| operation.expression.as_str())
             .collect::<Vec<_>>(),
-        vec!["result.total"],
+        vec!["result_chunk.total"],
         "on a streaming fixture `chunks` names the collected local list, not a result member"
     );
 }

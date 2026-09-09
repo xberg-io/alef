@@ -152,8 +152,7 @@ pub(super) fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import
     code.push_str("    if let Ok(ext) = ExternalPtr::<crate::");
     code.push_str(&opts_type.name);
     code.push_str(">::try_from(&options) {\n");
-    code.push_str("        // Clone the binding struct and convert to core type via the generated From impl\n");
-    code.push_str("        return Ok((*ext).clone().into());\n");
+    code.push_str("        return Ok((*ext).clone());\n");
     code.push_str("    }\n\n");
 
     code.push_str("    // Try to decode as a named list\n");
@@ -402,30 +401,21 @@ pub(super) fn gen_field_decoder(
                 PrimitiveType::Isize => "isize",
                 _ => unreachable!(),
             };
+            if field.optional {
+                code.push_str(&gen_optional_numeric_field(field, "f64", Some(core_ty)));
+                return;
+            }
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
-            if field.optional {
-                code.push_str("        if !v.is_null() {\n");
-                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-                code.push_str("            opts.");
-                code.push_str(field_name);
-                code.push_str(" = Some(f64_val as ");
-                code.push_str(core_ty);
-                code.push_str(");\n");
-                code.push_str("        }\n");
-            } else {
-                code.push_str("        let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-                code.push_str("        opts.");
-                code.push_str(field_name);
-                code.push_str(" = f64_val as ");
-                code.push_str(core_ty);
-                code.push_str(";\n");
-            }
+            code.push_str("        let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?;\n");
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = f64_val as ");
+            code.push_str(core_ty);
+            code.push_str(";\n");
             code.push_str("    }\n");
         }
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {
@@ -433,29 +423,20 @@ pub(super) fn gen_field_decoder(
                 TypeRef::Primitive(PrimitiveType::F32) => "f32",
                 _ => "f64",
             };
+            if field.optional {
+                code.push_str(&gen_optional_numeric_field(field, ty, None));
+                return;
+            }
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
-            if field.optional {
-                code.push_str("        if !v.is_null() {\n");
-                code.push_str("            let f64_val = ");
-                code.push_str(ty);
-                code.push_str("::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-                code.push_str("            opts.");
-                code.push_str(field_name);
-                code.push_str(" = Some(f64_val);\n");
-                code.push_str("        }\n");
-            } else {
-                code.push_str("        opts.");
-                code.push_str(field_name);
-                code.push_str(" = ");
-                code.push_str(ty);
-                code.push_str("::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-            }
+            code.push_str("        opts.");
+            code.push_str(field_name);
+            code.push_str(" = ");
+            code.push_str(ty);
+            code.push_str("::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Vec(inner) => {
@@ -516,43 +497,21 @@ pub(super) fn gen_field_decoder(
                 code.push_str("    }\n");
             }
             TypeRef::Primitive(
-                prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+                prim @ (PrimitiveType::U64
+                | PrimitiveType::I64
+                | PrimitiveType::Usize
+                | PrimitiveType::Isize
+                | PrimitiveType::F64),
             ) => {
-                let core_ty = match prim {
-                    PrimitiveType::U64 => "u64",
-                    PrimitiveType::I64 => "i64",
-                    PrimitiveType::Usize => "usize",
-                    PrimitiveType::Isize => "isize",
+                let cast_type = match prim {
+                    PrimitiveType::U64 => Some("u64"),
+                    PrimitiveType::I64 => Some("i64"),
+                    PrimitiveType::Usize => Some("usize"),
+                    PrimitiveType::Isize => Some("isize"),
+                    PrimitiveType::F64 => None,
                     _ => unreachable!(),
                 };
-                code.push_str("    if let Some(v) = list_get(&list, \"");
-                code.push_str(field_name_trim);
-                code.push_str("\") {\n");
-                code.push_str("        if !v.is_null() {\n");
-                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-                code.push_str("            opts.");
-                code.push_str(field_name);
-                code.push_str(" = Some(f64_val as ");
-                code.push_str(core_ty);
-                code.push_str(");\n");
-                code.push_str("        }\n");
-                code.push_str("    }\n");
-            }
-            TypeRef::Primitive(PrimitiveType::F64) => {
-                code.push_str("    if let Some(v) = list_get(&list, \"");
-                code.push_str(field_name_trim);
-                code.push_str("\") {\n");
-                code.push_str("        if !v.is_null() {\n");
-                code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
-                code.push_str(field_name_trim);
-                code.push_str(": {e}\"))?;\n");
-                code.push_str("            opts.");
-                code.push_str(field_name);
-                code.push_str(" = Some(f64_val);\n");
-                code.push_str("        }\n");
-                code.push_str("    }\n");
+                code.push_str(&gen_optional_numeric_field(field, "f64", cast_type));
             }
             _ => {}
         },
@@ -563,4 +522,16 @@ pub(super) fn gen_field_decoder(
 /// Convert a CamelCase type name to snake_case for function names.
 fn r_function_component(name: &str) -> String {
     public_host_identifier(Language::R, PublicIdentifierKind::Function, name)
+}
+
+fn gen_optional_numeric_field(field: &FieldDef, decode_type: &str, cast_type: Option<&str>) -> String {
+    crate::backends::extendr::template_env::render(
+        "optional_numeric_field.jinja",
+        minijinja::context! {
+            field_name => &field.name,
+            lookup_name => field.name.trim_start_matches('_'),
+            decode_type => decode_type,
+            cast_type => cast_type,
+        },
+    )
 }

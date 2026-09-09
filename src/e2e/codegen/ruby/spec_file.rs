@@ -201,6 +201,7 @@ pub(super) fn render_spec_file(
                         streaming_item_type_owned.as_deref(),
                         config,
                         type_defs,
+                        errors,
                     )
                 } else {
                     super::examples::render_example(

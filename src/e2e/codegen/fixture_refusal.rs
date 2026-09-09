@@ -93,6 +93,13 @@ pub(crate) struct FixtureKeyRefusal {
     key: String,
     site: RefusalSite,
     attribution: Option<Attribution>,
+    kind: RefusalKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RefusalKind {
+    Field,
+    EnumValue,
 }
 
 #[derive(Debug, Clone)]
@@ -112,12 +119,21 @@ thread_local! {
 /// about which call or language it is serving; [`attribute`] fills that in from the frame that
 /// does.
 pub(crate) fn record(type_name: &str, key: &str, site: RefusalSite) {
+    record_value(type_name, key, site, RefusalKind::Field);
+}
+
+pub(crate) fn record_enum_value(type_name: &str, value: &str) {
+    record_value(type_name, value, RefusalSite::Argument, RefusalKind::EnumValue);
+}
+
+fn record_value(type_name: &str, key: &str, site: RefusalSite, kind: RefusalKind) {
     LEDGER.with(|ledger| {
         ledger.borrow_mut().push(FixtureKeyRefusal {
             type_name: type_name.to_owned(),
             key: key.to_owned(),
             site,
             attribution: None,
+            kind,
         });
     });
 }
@@ -162,8 +178,7 @@ pub(crate) fn take_error(language: &str) -> Option<anyhow::Error> {
         return None;
     }
     Some(anyhow::anyhow!(
-        "{language} e2e generator refused {} fixture value(s): a fixture key is not declared by the \
-         type the value is being built as.{}",
+        "{language} e2e generator refused {} fixture value(s).{}",
         refusals.len(),
         refusals
             .iter()
@@ -187,19 +202,25 @@ impl FixtureKeyRefusal {
             .unwrap_or(fallback_language);
         let type_name = &self.type_name;
         let key = &self.key;
+        let problem = match self.kind {
+            RefusalKind::Field => format!("key `{key}` is not declared as a field by `{type_name}`"),
+            RefusalKind::EnumValue => format!("value `{key}` is not a declared wire variant of enum `{type_name}`"),
+        };
         let mut message = match self.attribution.as_ref() {
             Some(attribution) => format!(
-                "fixture `{}` (call {}, language `{language}`): key `{key}` is not declared as a field by `{type_name}`",
+                "fixture `{}` (call {}, language `{language}`): {problem}",
                 attribution.fixture_id,
                 call_reference(attribution.call_key.as_deref()),
             ),
-            None => format!("language `{language}`: key `{key}` is not declared as a field by `{type_name}`"),
+            None => format!("language `{language}`: {problem}"),
         };
         if let RefusalSite::Nested { via } = &self.site {
             message.push_str(&format!(" (reached through {via})"));
         }
         message.push('.');
-        if let Some(attribution) = self.attribution.as_ref() {
+        if let Some(attribution) = self.attribution.as_ref()
+            && matches!(self.kind, RefusalKind::Field)
+        {
             message.push(' ');
             message.push_str(&self.lever(attribution, language));
         }

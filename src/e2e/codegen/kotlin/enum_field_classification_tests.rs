@@ -466,3 +466,46 @@ fn an_externally_tagged_data_enum_is_refused_on_android_but_kept_on_the_jvm() {
          getValue(), so the JVM target must NOT refuse it"
     );
 }
+
+#[test]
+fn display_text_union_empty_assertions_use_payload_instead_of_wrapper_presence() {
+    for optional in [false, true] {
+        let (mut types, enums, functions) = table_ir();
+        let union = types
+            .iter_mut()
+            .find(|ty| ty.name == "UnionResult")
+            .expect("union result");
+        if optional {
+            union.fields[0] = kind_field(TypeRef::Optional(Box::new(TypeRef::Named("StageOutput".into()))), true);
+        }
+        let mut config = e2e_config_for("process_union", |_| {});
+        config.fields_display_as_text.insert("kind".into());
+        for (assertion_type, predicate) in [("not_empty", "isNotEmpty"), ("is_empty", "isEmpty")] {
+            let mut fixture = fixture_calling("process_union");
+            fixture.assertions[0].assertion_type = assertion_type.into();
+            fixture.assertions[0].value = None;
+            let output = render_android(&fixture, &config, &types, &enums, &functions);
+            let accessor = if optional {
+                "result.kind?.text().orEmpty()"
+            } else {
+                "result.kind.text()"
+            };
+            assert!(
+                output.contains(&format!("assertTrue({accessor}.{predicate}()")),
+                "{output}"
+            );
+            assert!(!output.contains("assumeTrue(false"), "{output}");
+            assert!(!output.contains("result.kind != null"), "{output}");
+            assert!(!output.contains(".toWire()"), "{output}");
+        }
+    }
+}
+
+#[test]
+fn mock_server_listener_handles_nullable_os_property() {
+    let output = super::project::render_mock_server_listener_kt("example");
+    assert!(
+        output.contains("System.getProperty(\"os.name\", \"\").orEmpty().lowercase()"),
+        "{output}"
+    );
+}

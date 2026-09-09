@@ -14,11 +14,15 @@
         print(f"{type(error).__name__}: {error}")
 {% else %}{% for line in body %}    {{ line }}
 {% endfor %}
-{% for operation in presentation %}
-{% if operation.kind == "show" %}    print({{ operation.expression }})
-{% else %}    for {{ operation.item }} in {{ operation.expression }}{% if operation.optional %} or []{% endif %}:
-{% for field in operation.fields %}        print({{ field }})
-{% endfor %}{% if not operation.fields %}        print({{ operation.item }})
+{% if stream_item_binding and presentation %}    for {{ stream_item_binding }} in chunks:
+{% endif %}{% for operation in presentation %}
+{% set indent = "        " if stream_item_binding else "    " %}
+{% if operation.guard_condition %}{{ indent }}if {{ operation.guard_condition }}:
+{% set indent = indent ~ "    " %}
+{% endif %}{% if operation.kind == "show" %}{{ indent }}print({{ operation.expression }})
+{% else %}{{ indent }}for {{ operation.item }} in {{ operation.expression }}{% if operation.optional %} or []{% endif %}:
+{% for field in operation.fields %}{{ indent }}    print({{ field }})
+{% endfor %}{% if not operation.fields %}{{ indent }}    print({{ operation.item }})
 {% endif %}{% endif %}
 {% endfor %}
 {% if not presentation and not returns_void %}    print({{ result_var }})

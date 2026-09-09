@@ -67,6 +67,7 @@ pub(super) fn render_chat_stream_example(
     streaming_item_type: Option<&str>,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    errors: &[crate::core::ir::ErrorDef],
 ) -> String {
     let test_name = sanitize_ident(&fixture.id);
     let description = fixture.description.clone();
@@ -202,7 +203,8 @@ pub(super) fn render_chat_stream_example(
     };
 
     if expects_error {
-        out.push_str(&format!("    expect {{ {call_expr} {{ |_chunk| }} }}.to raise_error\n"));
+        let clause = render_raise_error_clause(fixture, errors);
+        out.push_str(&format!("    expect {{ {call_expr} {{ |_chunk| }} }}.to {clause}\n"));
         out.push_str("  end\n");
         return out;
     }
@@ -340,6 +342,7 @@ mod stream_complete_declaration_gate_tests {
             None,
             None,
             &ResolvedCrateConfig::default(),
+            &[],
             &[],
         )
     }
@@ -853,6 +856,7 @@ mod inert_example_refusal_tests {
             None,
             &config,
             &type_defs,
+            &[],
         )
     }
 

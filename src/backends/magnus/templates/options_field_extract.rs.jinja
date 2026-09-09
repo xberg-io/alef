@@ -1,0 +1,33 @@
+let {{ options_name }}_core = match {{ bridge_param_name }} {
+    Some(v) if !v.is_nil() => {
+        if magnus::RHash::from_value(v).is_some() {
+            let json = v.funcall::<_, _, String>("to_json", ()).map_err(|e| {
+                magnus::Error::new(
+                    unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(),
+                    format!("failed to serialize Ruby options to JSON: {}", e),
+                )
+            })?;
+            serde_json::from_str::<{{ core_import }}::{{ options_type }}>(&json).map_err(|e| {
+                magnus::Error::new(
+                    unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(),
+                    format!("failed to deserialize options JSON: {}", e),
+                )
+            })?
+        } else if let Ok(opts_binding) = <&{{ options_type }} as magnus::TryConvert>::try_convert(v) {
+            opts_binding.clone().into()
+        } else {
+            let bridge = {{ struct_name }}::new(v, String::new())?;
+            let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }};
+            #[allow(
+                clippy::field_reassign_with_default,
+                reason = "External options may be non-exhaustive or contain private fields"
+            )]
+            {
+                let mut opts = {{ core_import }}::{{ options_type }}::default();
+                opts.{{ options_field }} = Some(handle);
+                opts
+            }
+        }
+    },
+    _ => {{ core_import }}::{{ options_type }}::default(),
+};

@@ -196,7 +196,7 @@ class MockServerListener : LauncherSessionListener {{
         }}
         val repoRoot = locateRepoRoot()
             ?: error("MockServerListener: could not locate repo root (looked for fixtures/ in ancestors of ${{System.getProperty("user.dir")}})")
-        val binName = if (System.getProperty("os.name", "").lowercase().contains("win")) "mock-server.exe" else "mock-server"
+        val binName = if (System.getProperty("os.name", "").orEmpty().lowercase().contains("win")) "mock-server.exe" else "mock-server"
         val bin = repoRoot.resolve("e2e").resolve("rust").resolve("target").resolve("release").resolve(binName).toFile()
         val fixturesDir = repoRoot.resolve("fixtures").toFile()
         check(bin.exists()) {{

@@ -311,6 +311,7 @@ pub(super) fn render_snippet_body(
             expects_error => expects_error,
             error_type => go_error_type_name(&config.error_type_name(), &config.go_package_name()),
             import_alias => import_alias,
+            stream_item => crate::e2e::codegen::presentation::stream_item_binding(fixture, e2e_config, "go"),
             presentation => presentation,
         },
     )
@@ -2013,5 +2014,29 @@ mod tests {
         let body = render_mode_snippet(&[unit_enum()], &[send_function(TypeRef::String)]);
 
         assert!(body.contains("pkg.Send(`careful`)"), "{body}");
+    }
+}
+
+#[cfg(test)]
+mod stream_presentation_regression {
+    use super::*;
+
+    #[test]
+    fn streaming_usage_is_printed_from_consumed_chunks() {
+        let fixture: Fixture = serde_json::from_value(serde_json::json!({
+            "id":"stream_usage", "description":"Read stream usage", "input":{},
+            "docs":{"topic":"streaming"},
+            "assertions":[{"type":"not_empty", "field":"usage.total_tokens"}]
+        }))
+        .expect("fixture");
+        let config: E2eConfig = serde_json::from_value(serde_json::json!({
+            "call":{"function":"stream_usage", "module":"example", "streaming":true},
+            "fields_optional":["usage"]
+        }))
+        .expect("config");
+        let body =
+            render_snippet_body(&fixture, &config, &ResolvedCrateConfig::default(), &[], &[], &[]).expect("snippet");
+        assert!(body.contains("for resultChunk := range result"), "{body}");
+        assert!(body.contains("resultChunk.Usage != nil"), "{body}");
     }
 }

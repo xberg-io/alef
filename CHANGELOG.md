@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.8] - 2026-09-09
+
+### Changed
+
+- Refresh compatible hybrid-array, zerocopy, encoding_rs, and multiversion dependencies.
+
+### Fixed
+
+- Specialize PHP enum conversion guards to the core dependency feature configuration and normalize them
+  for strict Clippy checks.
+
+- Drain Zig streams even without field assertions, preserve configured assertions, and check deferred
+  errors before releasing native resources.
+
+- Require native RuntimeError exceptions in Ruby streaming error tests and preserve declared message checks and unsupported error-identity diagnostics.
+
+- Swift documentation examples inherit the configured client factory, use native error handling, preserve indexed JSON paths, and present already-collected stream chunks.
+- Kotlin documentation examples collect streams within the client lifetime and decode snake_case request fields while preserving arbitrary JSON keys and strict input validation.
+- Android documentation examples inherit configured Java client factories when no Android-specific factory is supplied.
+- Kotlin snippet validation filters nonexistent Gradle classpath entries after checking required dependencies, preserving strict compiler warnings.
+- Node untagged input declarations preserve serde wire shapes, including nested named payloads, and generated requests retain flattened tool configuration.
+- Generate declared no-argument TypeScript calls without invented arguments, preserve typed Node request payloads and flattened WASM configuration, and refuse undeclared enum values.
+- Preserve arbitrary Node JSON and map keys, including colliding snake/camel spellings and `__proto__`, while retaining typed nested values.
+- Node and WASM documentation examples consume streams, catch deferred errors, and release owned WASM stream resources.
+- Preserve Android, Java, and R toolchain paths during snippet validation, including installed R libraries in individual and batch sessions.
+- Preserve explicit adoption markers when regenerating manifest seeds, so later version bumps retain ownership.
+- Generate R bindings without redundant identity conversions, nested option guards, or error-constructor closures, while preserving wrapped string conversions and NULL handling.
+- Preserve Ruby consuming-method names with borrowed wrapper signatures, and keep visitor options compatible with private fields and non-exhaustive core types under strict Clippy checks.
+- Kotlin JNI client response mappers now accept serializer-added fields consistently with the facade mapper,
+  preserving known response values and rejecting malformed field types. This fixes valid responses failing
+  with Jackson `UnrecognizedPropertyException` ([#348](https://github.com/xberg-io/alef/issues/348)).
+- Generated-output CI uses Poly 0.24.0 to support the emitted hook snapshot configuration, and mutation checks handle compact enum conversions.
+- The generated Go visitor fixture builds on Windows x86-64 with its supported archive layout and GCC fallback.
+- Ruby optional constructor fields accept explicit `nil` while still rejecting invalid non-nil values.
+- Ruby internally tagged newtype enums preserve flat serialized payloads instead of requiring an invented wrapper field.
+- Ruby DTO serialization preserves explicit field renames and container naming rules instead of dropping renamed values.
+- Version synchronization propagates FFI rebuild failures and preserves retries per manifest, including non-workspace bridges and same-version failures.
+- FFI failure and Swift package-root regression tests compare native path components on Windows and Unix.
+- Python E2E generation honors explicit native `from_json` imports, including inherited module settings.
+- Python streaming helpers accept complete public or native request objects while preserving existing primitive calls.
+- PHP generated error tests assert real exceptions without catching PHPUnit failures.
+- Kotlin generated assertions verify explicitly configured union text content.
+- Elixir top-level instance methods accept native references and typed wrappers with validated receivers.
+- Swift generated tests drain streams and preserve native versus opaque field access across nested DTOs.
+- Swift configured content assertions decode bridge JSON before checking text, so empty and null content fail correctly.
+- Go, Java, Dart, and Python documentation examples read streaming fields from individual chunks and avoid invented fields on byte results.
+- Zig documentation examples consume native streams incrementally, release handles, and propagate stream read failures.
+- Java snippet validation reports global compiler errors and strict classpath warnings even when another snippet has a local error.
+- WASM generated tests retain rejection and literal-message checks while reporting unavailable error-variant identity accurately.
+
 ## [0.85.7] - 2026-09-08
 
 ### Fixed

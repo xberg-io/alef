@@ -82,7 +82,7 @@ pub(super) fn wasm_enum_bridged_as_raw_value(enum_name: &str, enums: &[EnumDef],
 /// `#[wasm_bindgen]` (and napi's `#[napi]`) publish a C-style enum's members under the Rust
 /// variant identifier verbatim, so the only correct answer is that identifier — never a re-cased
 /// copy of the wire value. Returns `None` when no declared variant carries that wire value, so
-/// callers fall back to emitting the raw value rather than inventing a member that does not
+/// callers can refuse an undeclared value rather than inventing a member that does not
 /// exist. See [`crate::codegen::serde_enum_repr::variant_name_for_wire`], which owns the
 /// wire-value-to-variant mapping and delegates to `naming::wire_variant_value`. ~keep
 fn declared_enum_member(enum_name: &str, enums: &[EnumDef], wire_value: &str) -> Option<String> {
@@ -99,11 +99,21 @@ pub(super) fn declared_enum_member_for_prefixed(
     enums: &[EnumDef],
     wasm_type_prefix: &str,
     wire_value: &str,
-) -> String {
+) -> Option<String> {
     let stripped = prefixed_enum.strip_prefix(wasm_type_prefix).unwrap_or(prefixed_enum);
-    declared_enum_member(stripped, enums, wire_value)
+    if let Some(member) = declared_enum_member(stripped, enums, wire_value)
         .or_else(|| declared_enum_member(prefixed_enum, enums, wire_value))
-        .unwrap_or_else(|| wire_value.to_upper_camel_case())
+    {
+        return Some(member);
+    }
+    if let Some(definition) = enums
+        .iter()
+        .find(|definition| definition.name == stripped || definition.name == prefixed_enum)
+    {
+        crate::e2e::codegen::fixture_refusal::record_enum_value(&definition.name, wire_value);
+        return None;
+    }
+    Some(wire_value.to_upper_camel_case())
 }
 
 pub(super) fn node_tagged_unit_variant_literal(
@@ -145,5 +155,5 @@ pub(in crate::e2e::codegen::typescript::test_file) fn node_enum_string_literal(
         return literal;
     }
     let member = declared_enum_member_for_prefixed(enum_name, enums, "", wire_value);
-    enum_member_reference(enum_name, &member, referenced_enums)
+    enum_member_reference(enum_name, member.as_deref(), referenced_enums)
 }

@@ -109,7 +109,7 @@ pub(super) fn render_test_file(
     };
     // Only honor "from_json" when the pyo3 backend actually injects a from_json() staticmethod
     // for this type (gated on per-type has_serde AND crate-level serde availability AND
-    // core→binding convertibility) AND the type's public name isn't shadowed by options.py's
+    // core→binding convertibility) AND the selected import isn't shadowed by options.py's
     // method-less dataclass mirror — every DTO still has a plain kwargs constructor, so
     // downgrading keeps the emitted call and its import valid. Computed once per file/snippet
     // render; `type_defs`/`enums`/`config` don't change across fixtures in the same category. ~keep
@@ -121,13 +121,37 @@ pub(super) fn render_test_file(
         .map(|c| c.reexported_types.clone())
         .unwrap_or_default();
     let options_wrapped_types = helpers::options_wrapped_type_names(type_defs, enums, &config.dto, &reexported_types);
+    // When options_via == "from_json", the options_type is imported from a separate native
+    // module (e.g., the PyO3 _internal_bindings) rather than the main public module.
+    let from_json_module: Option<String> = e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.from_json_module.clone())
+        .or_else(|| {
+            fixtures.iter().find_map(|f| {
+                let cc = e2e_config.resolve_call_for_fixture(
+                    f.call.as_deref(),
+                    &f.id,
+                    &f.resolved_category(),
+                    &f.tags,
+                    &f.input,
+                );
+                cc.overrides.get("python").and_then(|o| o.from_json_module.clone())
+            })
+        });
+
     let effective_options_via = helpers::effective_options_via_for_type(
         effective_options_via,
         effective_options_type.as_deref(),
         type_defs,
         &convertible_types,
         crate_has_serde,
-        &options_wrapped_types,
+        from_json_module
+            .as_deref()
+            .filter(|candidate| *candidate != module)
+            .is_none()
+            .then_some(&options_wrapped_types),
     );
 
     let enum_fields = resolve_enum_fields(e2e_config);
@@ -190,26 +214,6 @@ pub(super) fn render_test_file(
             .args
             .iter()
             .any(|arg| arg.arg_type == "mock_url" || arg.arg_type == "mock_url_list");
-
-    // When options_via == "from_json", the options_type is imported from a separate native
-    // module (e.g., the PyO3 _internal_bindings) rather than the main public module.
-    let from_json_module: Option<String> = e2e_config
-        .call
-        .overrides
-        .get("python")
-        .and_then(|o| o.from_json_module.clone())
-        .or_else(|| {
-            fixtures.iter().find_map(|f| {
-                let cc = e2e_config.resolve_call_for_fixture(
-                    f.call.as_deref(),
-                    &f.id,
-                    &f.resolved_category(),
-                    &f.tags,
-                    &f.input,
-                );
-                cc.overrides.get("python").and_then(|o| o.from_json_module.clone())
-            })
-        });
 
     let needs_path_import = fixtures.iter().any(|f| {
         if f.docs
@@ -764,10 +768,20 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
                 type_defs,
                 convertible_types,
                 crate_has_serde,
-                options_wrapped_types,
+                python_override
+                    .from_json_module
+                    .as_deref()
+                    .or(from_json_module)
+                    .filter(|candidate| *candidate != module)
+                    .is_none()
+                    .then_some(options_wrapped_types),
             ) == "from_json"
         {
-            let native_module = python_override.from_json_module.as_deref().unwrap_or(module);
+            let native_module = python_override
+                .from_json_module
+                .as_deref()
+                .or(from_json_module)
+                .unwrap_or(module);
             extra_from_json_imports.insert((native_module.to_string(), options_type.clone()));
         }
     }

@@ -81,41 +81,70 @@ fn seed_owned_files(root: &Path) {
     .expect("write unselected manifest");
 }
 
-fn run_generate(root: &Path, fail_swift_post_build: bool) -> Output {
-    let mut command = Command::new(alef_binary());
-    command.current_dir(root).args(["generate", "--lang", "swift,go,zig"]);
-    let cargo_lookup = Command::new("which").arg("cargo").output().expect("locate cargo");
-    assert!(cargo_lookup.status.success(), "cargo must be available for the fixture");
-    let real_cargo = String::from_utf8(cargo_lookup.stdout).expect("cargo path is UTF-8");
+fn fixture_command(root: &Path, program: &Path, fail_swift_post_build: bool) -> Command {
     let fake_bin = root.join("fake-bin");
-    fs::create_dir_all(&fake_bin).expect("create fake binary directory");
-    let fake_cargo = fake_bin.join("cargo");
-    fs::write(
-        &fake_cargo,
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$*\" in\n",
-            "  *packages/swift/rust/Cargo.toml*)\n",
-            "    [ \"$FAIL_SWIFT_POST_BUILD\" = 1 ] && exit 17 || exit 0\n",
-            "    ;;\n",
-            "esac\n",
-            "exec \"$REAL_CARGO\" \"$@\"\n",
-        ),
-    )
-    .expect("write fake cargo");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&fake_cargo, fs::Permissions::from_mode(0o755)).expect("make fake cargo executable");
+    fs::create_dir_all(&fake_bin).expect("create fixture binary directory");
+    let fake_cargo = fake_bin.join(format!("cargo{}", std::env::consts::EXE_SUFFIX));
+    if !fake_cargo.exists() {
+        let source = root.join("cargo_shim.rs");
+        fs::write(&source, include_str!("cli_generate_atomicity/cargo_shim.rs")).expect("write Cargo shim source");
+        let compiled = Command::new("rustc")
+            .args(["--edition=2024", "--crate-name", "atomicity_cargo_shim"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&fake_cargo)
+            .output()
+            .expect("compile native Cargo shim");
+        assert!(
+            compiled.status.success(),
+            "compile native Cargo shim: {}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
     }
     let path = std::env::var_os("PATH").unwrap_or_default();
-    command.env(
+    let mut command = Command::new(program);
+    command.current_dir(root).env(
         "PATH",
         std::env::join_paths(std::iter::once(fake_bin).chain(std::env::split_paths(&path))).unwrap(),
     );
-    command.env("REAL_CARGO", real_cargo.trim());
+    command.env("REAL_CARGO", env!("CARGO"));
     command.env("FAIL_SWIFT_POST_BUILD", if fail_swift_post_build { "1" } else { "0" });
-    command.output().expect("run alef generate")
+    command
+}
+
+fn run_generate(root: &Path, fail_swift_post_build: bool) -> Output {
+    fixture_command(root, &alef_binary(), fail_swift_post_build)
+        .args(["generate", "--lang", "swift,go,zig"])
+        .output()
+        .expect("run alef generate")
+}
+
+#[test]
+fn native_cargo_shim_intercepts_both_path_styles_and_delegates_other_commands() {
+    let fixture = tempfile::tempdir().expect("create shim fixture");
+    let root = fixture.path();
+    for manifest in ["packages/swift/rust/Cargo.toml", r"packages\swift\rust\Cargo.toml"] {
+        for (fail, status) in [(true, 17), (false, 0)] {
+            let output = fixture_command(root, Path::new("cargo"), fail)
+                .args(["build", "--manifest-path", manifest])
+                .output()
+                .expect("invoke Cargo shim through PATH");
+            assert_eq!(output.status.code(), Some(status));
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap().trim(),
+                format!("atomicity fixture cargo: Swift post-build exit {status}")
+            );
+        }
+    }
+    let expected = Command::new(env!("CARGO")).arg("--version").output().unwrap();
+    let delegated = fixture_command(root, Path::new("cargo"), true)
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(expected.status.success());
+    assert_eq!(delegated.status.code(), expected.status.code());
+    assert_eq!(delegated.stdout, expected.stdout);
+    assert_eq!(delegated.stderr, expected.stderr);
 }
 
 fn generated_hashed_files(root: &Path) -> Vec<PathBuf> {
@@ -173,7 +202,8 @@ fn failed_swift_post_build_preserves_owned_files_and_written_outputs() {
     );
     let first_stderr = String::from_utf8_lossy(&first_failure.stderr);
     assert!(
-        first_stderr.contains("post-build") || first_stderr.contains("status 17"),
+        first_stderr.contains("atomicity fixture cargo: Swift post-build exit 17")
+            && first_stderr.contains("status 17"),
         "unexpected first failure:\n{first_stderr}"
     );
     // `alef generate` stamps exactly once, after post-build AND the format pass (0.67.6,
@@ -199,7 +229,7 @@ fn failed_swift_post_build_preserves_owned_files_and_written_outputs() {
     );
     let stderr = String::from_utf8_lossy(&failed.stderr);
     assert!(
-        stderr.contains("post-build") || stderr.contains("status 17"),
+        stderr.contains("atomicity fixture cargo: Swift post-build exit 17") && stderr.contains("status 17"),
         "unexpected failure:\n{stderr}"
     );
 
@@ -218,6 +248,10 @@ fn failed_swift_post_build_preserves_owned_files_and_written_outputs() {
         first_success.status.success(),
         "generation after the post-build failure must recover: {}",
         String::from_utf8_lossy(&first_success.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&first_success.stderr).contains("atomicity fixture cargo: Swift post-build exit 0"),
+        "recovery must execute the successful fixture post-build"
     );
     assert!(
         !generated_hashed_files(root).is_empty(),

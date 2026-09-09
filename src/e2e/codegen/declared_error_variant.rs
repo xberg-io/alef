@@ -28,8 +28,8 @@
 //! is the only observable signal it has, and its author's claim is that a variant's type name is
 //! typically echoed into that text by the CLI's own error formatting. Nothing in this fix's
 //! evidence contradicts that, and brew was not among the measured-broken backends, so it is left
-//! untouched rather than reclassified on inference. `wasm` has no `declared_error_value` call
-//! site at all and needs no change either.
+//! untouched rather than reclassified on inference. `wasm` shares the TypeScript renderer and
+//! classifier call site with `node`.
 //!
 //! Deliberately NOT fuzzy: [`classify`] never lowercases, splits camelCase, or does a
 //! case-insensitive substring compare to try to make the type-name side "work". That would make
@@ -150,6 +150,8 @@ pub(crate) fn declared_variant<'a>(
 /// - `typescript` (NAPI): every throw site is `napi::Error::new(Status::GenericFailure,
 ///   e.to_string())` — generic status, generic `.name`, message only, even though NAPI-RS
 ///   supports custom JS `Error` subclasses.
+/// - `wasm`: fallible calls use `JsValue::from_str(&e.to_string())`, exposing only the display
+///   message. Generated structured-error helpers are not used by these call sites. ~keep
 ///
 /// Any language absent from this match keeps today's behaviour (`true`), so a backend this fix
 /// did not audit and rewrite is never silently weakened.
@@ -158,12 +160,10 @@ pub(crate) fn substantiates_variant_identity(lang: &str, variant: &ErrorVariant)
         "python" => true,
         "go" | "java" | "zig" => variant.error_code.is_some(),
         "csharp" => crate::backends::csharp::gen_bindings::variant_dispatch_prefix(variant).is_some(),
-        // `node`, not `typescript`: `TypeScriptCodegen::language_name()` returns `"node"` (it
-        // covers both the NAPI/node and WASM targets via a shared `lang` parameter) — this is
-        // the literal string every `classify(lang, ..)` call site in `typescript/` passes.
+        // The shared TypeScript renderer passes `node` or `wasm` through its `lang` parameter.
         // `"typescript"` here was dead: it never matched what the backend actually threads
         // through, so the wiring silently fell through to the `true` default below. ~keep
-        "c" | "dart" | "php" | "swift" | "ruby" | "elixir" | "gleam" | "r" | "node" => false,
+        "c" | "dart" | "php" | "swift" | "ruby" | "elixir" | "gleam" | "r" | "node" | "wasm" => false,
         _ => true,
     }
 }
@@ -252,6 +252,19 @@ mod tests {
             binding_exclusion_reason: None,
             version: Default::default(),
         }
+    }
+
+    #[test]
+    fn wasm_string_errors_cannot_substantiate_variant_identity() {
+        let errors = vec![error_def(vec![coded_variant("Authentication", Some(100))])];
+        assert_eq!(
+            classify("wasm", &fixture_with("Authentication"), &errors),
+            DeclaredErrorAssertion::Unsubstantiable("Authentication")
+        );
+        assert_eq!(
+            classify("wasm", &fixture_with("authentication failed"), &errors),
+            DeclaredErrorAssertion::Assert("authentication failed")
+        );
     }
 
     /// A fixture that declares its error expectation the way real fixtures do — a bare

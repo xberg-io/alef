@@ -113,6 +113,7 @@ fn append_method_wrapper(
             unwrap_result => unwrap_result,
             preserve_result => method.is_async || method.error_type.is_some(),
             returns_self => returns_self,
+            has_receiver => method.receiver.is_some(),
             app_module => app_module,
             type_name => &opaque_type.name,
         },
@@ -129,7 +130,7 @@ fn method_arguments(
     let mut calls = Vec::new();
     if method.receiver.is_some() {
         definitions.push("obj".to_string());
-        calls.push("obj.ref".to_string());
+        calls.push("obj".to_string());
     }
     let json_params = json_encode_param_indices(&method.params, opaque_types, default_types);
     let tagged_params = AHashMap::new();

@@ -260,3 +260,46 @@ fn options_field_bridge_function_without_error_type_stays_result_shaped() {
         "the tail expression must be Ok(..)-wrapped to fit the Result-shaped signature, got: {code}"
     );
 }
+
+#[test]
+fn should_preserve_external_options_construction_with_targeted_lint_allowance() {
+    let mut func = render_document_function();
+    func.params = vec![
+        ParamDef {
+            name: "html".to_string(),
+            ty: TypeRef::String,
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "options".to_string(),
+            ty: TypeRef::Named("RenderOptions".to_string()),
+            ..ParamDef::default()
+        },
+    ];
+    let code = gen_options_field_bridge_function(
+        &ApiSurface::default(),
+        &func,
+        1,
+        &options_field_bridge_config(),
+        &IdentityMapper,
+        &ahash::AHashSet::new(),
+        "sample_core",
+    );
+    syn::parse_file(&code).expect("generated options wrapper must parse");
+    assert!(
+        code.contains("let mut opts = sample_core::RenderOptions::default();"),
+        "must use public Default: {code}"
+    );
+    assert!(
+        code.contains("opts.visitor = Some(handle);"),
+        "must set only the public visitor field: {code}"
+    );
+    assert!(
+        code.contains("clippy::field_reassign_with_default"),
+        "construction exception must be explicit: {code}"
+    );
+    assert!(
+        !code.contains("..Default::default()"),
+        "must support non-exhaustive and private-field options: {code}"
+    );
+}

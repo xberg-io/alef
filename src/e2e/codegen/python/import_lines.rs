@@ -502,6 +502,82 @@ mod tests {
         e2e_config
     }
 
+    #[test]
+    fn explicit_native_from_json_preserves_import_and_constructor() {
+        let temp = tempfile::tempdir().expect("fixture directory");
+        std::fs::write(
+            temp.path().join("Cargo.toml"),
+            "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n",
+        )
+        .expect("serde manifest");
+        let types = vec![TypeDef {
+            name: "Request".to_string(),
+            has_serde: true,
+            has_default: true,
+            fields: vec![FieldDef {
+                name: "message".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        let mut config = crate::core::config::ResolvedCrateConfig::default();
+        config
+            .output_paths
+            .insert("python".to_string(), temp.path().join("src"));
+        let mut e2e = e2e_config_with_options_type("Request");
+        let python = e2e.call.overrides.get_mut("python").expect("override");
+        python.options_via = Some("from_json".to_string());
+        python.from_json_module = Some("sample_pkg._internal_bindings".to_string());
+        python.client_factory = Some("create_client".to_string());
+        let mut fixture = fixture_with_input(
+            "native_request",
+            serde_json::json!({"config": {"message": "preserved"}}),
+        );
+        for mode in [0, 1, 2] {
+            if mode == 1 {
+                e2e.calls.insert("native".to_string(), e2e.call.clone());
+                e2e.call.overrides.insert(
+                    "python".to_string(),
+                    crate::e2e::config::CallOverride {
+                        client_factory: Some("create_client".to_string()),
+                        ..Default::default()
+                    },
+                );
+                fixture.call = Some("native".to_string());
+            }
+            if mode == 2 {
+                e2e.calls
+                    .get_mut("native")
+                    .expect("named call")
+                    .overrides
+                    .get_mut("python")
+                    .expect("named override")
+                    .from_json_module = None;
+                e2e.call
+                    .overrides
+                    .get_mut("python")
+                    .expect("global override")
+                    .from_json_module = Some("sample_pkg._internal_bindings".to_string());
+            }
+            let output =
+                super::super::render_test_file("native", &[&fixture], &e2e, &config, &types, &[], &[], &[], false);
+            assert!(
+                output.contains("from sample_pkg._internal_bindings import Request"),
+                "{output}"
+            );
+            assert!(output.contains("Request.from_json("), "{output}");
+            assert!(output.contains("preserved"), "{output}");
+            assert!(
+                output
+                    .lines()
+                    .filter(|line| line.starts_with("from sample_pkg import "))
+                    .all(|line| !line.split([' ', ',']).any(|name| name == "Request")),
+                "{output}"
+            );
+        }
+    }
+
     /// End-to-end coverage of the import half of the nested-config fix: `render_test_file`
     /// (not a hand-populated `used_config_types`, which every prior test used) must run the real
     /// scan -- through `collect_nested_config_types` -- and land a `from <module> import

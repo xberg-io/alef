@@ -19,11 +19,17 @@ public final class Example {
 {% elif returns_void %}        {{ class_name }}.{{ function_name }}({{ args }});
 {% else %}        var {{ result_var }} = {{ class_name }}.{{ function_name }}({{ args }});
 {% endif %}
-{% if not returns_void %}{% if presentation %}{% for operation in presentation %}{% if operation.kind == "show" %}        System.out.println({{ operation.expression }});
-{% elif operation.kind == "iterate" %}        for (var {{ operation.item }} : {{ operation.expression }}) {
+{% if not returns_void %}{% if stream_item %}        try ({{ result_var }}) {
+        {{ result_var }}.forEach({{ stream_item }} -> {
+{% endif %}{% if presentation %}{% for operation in presentation %}{% if operation.kind == "show" %}{% if operation.guard_condition %}        if ({{ operation.guard_condition }}) {
+{% endif %}        System.out.println({{ operation.expression }});
+{% if operation.guard_condition %}        }
+{% endif %}{% elif operation.kind == "iterate" %}        for (var {{ operation.item }} : {{ operation.expression }}) {
 {% for field in operation.fields %}            System.out.println({{ field }});
 {% endfor %}        }
-{% endif %}{% endfor %}{% else %}        System.out.println({{ result_var }});
+{% endif %}{% endfor %}{% else %}        System.out.println({{ stream_item or result_var }});
+{% endif %}{% if stream_item %}        });
+        }
 {% endif %}{% endif %}
 {% if client_factory %}        }
 {% endif %}

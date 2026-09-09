@@ -302,3 +302,6 @@ mod optional_parent_collection_tests;
 mod tests;
 #[cfg(test)]
 mod void_not_error_call_tests;
+
+#[cfg(test)]
+mod runtime_compile_contract_tests;

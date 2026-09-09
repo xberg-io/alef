@@ -26,7 +26,7 @@ const PINNED_POLY_SHA: &str = "2303580a69638d6887db17d2f4e9bbffe7c4218b";
 
 /// The `version:` value the action's `with:` block, and the "Verify downstream tooling"
 /// step's own runtime check, must both agree on.
-const PINNED_POLY_VERSION: &str = "v0.23.0";
+const PINNED_POLY_VERSION: &str = "v0.24.0";
 
 /// Whether `block` has an actual `uses:` step line pinning `Goldziher/poly` to `sha`.
 ///

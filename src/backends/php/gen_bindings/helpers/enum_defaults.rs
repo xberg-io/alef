@@ -914,3 +914,7 @@ fn main() {{
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+#[path = "enum_defaults/forced_cfg_tests.rs"]
+mod forced_cfg_tests;

@@ -192,6 +192,7 @@ fn mixed_optional_map_then_vec_reaches_the_registered_skip_via_render_assertion(
         &HashMap::new(),
         false,
         false,
+        "Sample",
     );
 
     assert!(

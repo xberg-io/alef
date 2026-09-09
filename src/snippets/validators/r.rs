@@ -59,7 +59,7 @@ impl RValidator {
         command.arg(&checker_path).args(&paths);
         if let Some(session) = session {
             session.apply(&mut command);
-            command.env("R_LIBS_USER", &session.working_directory);
+            super::append_r_library_path(&mut command, &session.working_directory)?;
         }
         let (_, output) = run_command(&mut command, timeout_secs)?;
         Ok(Self::checker_results(&file_names, &output))
@@ -142,7 +142,7 @@ impl RValidator {
         }
         if let Some(value) = session {
             value.apply(&mut command);
-            command.env("R_LIBS_USER", &value.working_directory);
+            super::append_r_library_path(&mut command, &value.working_directory)?;
         }
         let (success, output) = run_command(&mut command, timeout_secs)?;
         Ok(if success {
@@ -280,6 +280,88 @@ mod tests {
         let mut value = undefined_function_snippet();
         value.code = code.into();
         value
+    }
+
+    #[test]
+    fn snippet_environment_preserves_installed_r_libraries_for_single_and_batch_validation() {
+        if !rscript_is_runnable() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temp directory");
+        let library = directory.path().join("installed-library");
+        std::fs::create_dir(&library).expect("library directory");
+        let profile = directory.path().join("startup.R");
+        std::fs::write(
+            &profile,
+            "stopifnot(normalizePath(Sys.getenv('EXPECTED_LIBRARY'), winslash = '/', mustWork = TRUE) %in% .libPaths())\n",
+        )
+        .expect("startup library assertion");
+        let session = ValidationSession {
+            language: Language::R,
+            working_directory: directory.path().to_path_buf(),
+            manifest: None,
+            fingerprint: "installed-library-fixture".into(),
+            env: std::collections::BTreeMap::from([
+                ("R_LIBS_USER".into(), library.to_string_lossy().into_owned()),
+                ("R_PROFILE_USER".into(), profile.to_string_lossy().into_owned()),
+                ("EXPECTED_LIBRARY".into(), library.to_string_lossy().into_owned()),
+            ]),
+            include_paths: Vec::new(),
+            rust_features: Vec::new(),
+            rust_dependencies: std::collections::BTreeMap::new(),
+        };
+        let snippet = r_snippet("value <- 1\n");
+        let single = RValidator
+            .validate_in_session(
+                &snippet,
+                ValidationLevel::Run,
+                TOOLCHAIN_TEST_TIMEOUT_SECS,
+                Some(&session),
+            )
+            .expect("individual R validation");
+        assert_eq!(
+            single,
+            (SnippetStatus::Pass, None),
+            "installed R library must survive individual validation"
+        );
+        let batch = RValidator::validate_batch_with_context(&[&snippet], TOOLCHAIN_TEST_TIMEOUT_SECS, Some(&session))
+            .expect("batch R validation");
+        assert_eq!(
+            batch,
+            vec![(SnippetStatus::Pass, None)],
+            "installed R library must survive batch validation"
+        );
+        assert_unregistered_library_fails(directory.path(), session, &snippet);
+    }
+
+    fn assert_unregistered_library_fails(directory: &std::path::Path, session: ValidationSession, snippet: &Snippet) {
+        let unregistered_library = directory.join("unregistered-library");
+        std::fs::create_dir(&unregistered_library).expect("unregistered library directory");
+        let mut mismatched_session = session;
+        mismatched_session.env.insert(
+            "EXPECTED_LIBRARY".into(),
+            unregistered_library.to_string_lossy().into_owned(),
+        );
+        let single = RValidator
+            .validate_in_session(
+                snippet,
+                ValidationLevel::Run,
+                TOOLCHAIN_TEST_TIMEOUT_SECS,
+                Some(&mismatched_session),
+            )
+            .expect("individual R negative control");
+        let batch =
+            RValidator::validate_batch_with_context(&[snippet], TOOLCHAIN_TEST_TIMEOUT_SECS, Some(&mismatched_session))
+                .expect("batch R negative control");
+        assert_eq!(batch.len(), 1);
+        for (status, diagnostic) in std::iter::once(single).chain(batch) {
+            assert_eq!(status, SnippetStatus::Fail);
+            assert!(
+                diagnostic
+                    .expect("library assertion diagnostic")
+                    .contains("is not TRUE")
+            );
+        }
     }
 
     #[test]

@@ -6,6 +6,12 @@ use super::visitor::{emit_visitor_test_body, resolve_zig_visitor_call_symbols};
 use super::*;
 use crate::core::hash::{self, CommentStyle};
 
+#[path = "snippet_stream.rs"]
+mod snippet_stream;
+
+#[path = "stream_error.rs"]
+mod stream_error;
+
 /// Emit a call whose Zig wrapper reports success via an `i32` return code plus an
 /// `out_error` pointer — the trait-bridge `register_*` shape — instead of a Zig
 /// error union. `_ = call(...)` alone discards both the return code and the
@@ -58,7 +64,7 @@ fn emit_declared_error_value_assertion(
     out: &mut String,
     fixture: &Fixture,
     errors: &[crate::core::ir::ErrorDef],
-    module_name: &str,
+    message_expression: &str,
     for_docs: bool,
 ) {
     // ~keep A documentation snippet is a `main`, not a `test`: `testing` is never bound in
@@ -66,25 +72,30 @@ fn emit_declared_error_value_assertion(
     // snippet emitter rewrites the literal `else |_| {}` arm into a printing one. Snippet output
     // therefore stays byte-identical to before this change.
     if for_docs {
-        out.push_str(&render_declared_error_branch("bare", module_name, "", ""));
+        out.push_str(&render_declared_error_branch("bare", message_expression, "", ""));
         return;
     }
     use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
     match classify("zig", fixture, errors) {
         DeclaredErrorAssertion::Undeclared => {
-            out.push_str(&render_declared_error_branch("bare", module_name, "", ""));
+            out.push_str(&render_declared_error_branch("bare", message_expression, "", ""));
         }
         DeclaredErrorAssertion::Assert(declared) => {
             out.push_str(&render_declared_error_branch(
                 "assert",
-                module_name,
+                message_expression,
                 &escape_zig(declared),
                 "",
             ));
         }
         DeclaredErrorAssertion::Unsubstantiable(variant) => {
             let skip = skip_line("        ", "//", variant, &fixture.id, "zig");
-            out.push_str(&render_declared_error_branch("unsubstantiable", module_name, "", &skip));
+            out.push_str(&render_declared_error_branch(
+                "unsubstantiable",
+                message_expression,
+                "",
+                &skip,
+            ));
         }
     }
 }
@@ -95,12 +106,12 @@ fn emit_declared_error_value_assertion(
 /// tests against move together. ~keep
 const ZIG_UNKNOWN_ERROR_NAME: &str = "UnknownFfiError";
 
-fn render_declared_error_branch(kind: &str, module_name: &str, expected: &str, skip_line: &str) -> String {
+fn render_declared_error_branch(kind: &str, message_expression: &str, expected: &str, skip_line: &str) -> String {
     crate::e2e::template_env::render(
         "zig/declared_error_branch.jinja",
         minijinja::context! {
             kind => kind,
-            module_name => module_name,
+            message_expression => message_expression,
             expected => expected,
             skip_line => skip_line,
             unknown_error_name => ZIG_UNKNOWN_ERROR_NAME,
@@ -404,15 +415,17 @@ fn render_test_fn(
             .is_some_and(|f| !f.is_empty() && is_streaming_virtual_field(f))
     });
     let is_stream_fn = function_name.contains("stream");
-    let streaming_adapter = if has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some() {
+    let streaming_adapter = if client_factory.is_some() {
         resolve_zig_streaming_adapter(config, &function_name)
     } else {
         None
     };
-    let uses_streaming_virtual_path =
-        result_is_json_struct && has_streaming_virtual_assertions && is_stream_fn && client_factory.is_some();
+    let uses_streaming_virtual_path = result_is_json_struct
+        && (streaming_adapter.is_some() || (has_streaming_virtual_assertions && is_stream_fn))
+        && client_factory.is_some();
     // Whether the streaming-virtual path also parses JSON (for non-streaming assertions).
-    let streaming_path_has_non_streaming = uses_streaming_virtual_path
+    let streaming_path_has_non_streaming = !expects_error
+        && uses_streaming_virtual_path
         && fixture.assertions.iter().any(|a| {
             !a.field
                 .as_ref()
@@ -536,12 +549,31 @@ fn render_test_fn(
         // The success arm discards its capture (`|_|`) rather than binding `result`,
         // since a fixture asserting `error` has nothing meaningful to check once the
         // call has already failed the test by succeeding.
-        let _ = writeln!(out, "    if ({call_prefix}.{function_name}({args_str})) |_| {{");
+        if let Some(adapter) = streaming_adapter.as_ref() {
+            stream_error::render(out, adapter, module_name, ffi_prefix, &args_str);
+        } else {
+            let _ = writeln!(out, "    if ({call_prefix}.{function_name}({args_str})) |_| {{");
+        }
         let _ = writeln!(out, "        return error.TestUnexpectedResult;");
-        emit_declared_error_value_assertion(out, fixture, errors, module_name, for_docs);
+        let message_expression = if streaming_adapter.is_some() {
+            format!(
+                "if ({module_name}.c.{ffi_prefix}_last_error_context()) |_message| std.mem.span(_message) else \"\""
+            )
+        } else {
+            format!("{module_name}._last_error() orelse \"\"")
+        };
+        emit_declared_error_value_assertion(out, fixture, errors, &message_expression, for_docs);
         if !for_docs {
             crate::e2e::codegen::error_path_assertions::emit(out, fixture, "    // ", "zig");
         }
+    } else if (for_docs
+        || fixture
+            .assertions
+            .iter()
+            .all(|assertion| assertion.assertion_type == "not_error"))
+        && let Some(adapter) = streaming_adapter.as_ref()
+    {
+        snippet_stream::render(out, adapter, module_name, ffi_prefix, &args_str);
     } else if fixture.assertions.is_empty() {
         // No assertions: emit a call to verify compilation.
         if result_is_json_struct {
@@ -649,6 +681,10 @@ fn render_test_fn(
                 out.push_str("    ");
                 out.push_str(&snip);
                 out.push('\n');
+                let _ = writeln!(
+                    out,
+                    "    if ({module_name}.c.{ffi_prefix}_last_error_code() != 0) return error.StreamReadFailed;"
+                );
                 // For non-streaming assertions (e.g. usage), we also need _result_json.
                 // Re-serialize the last chunk in `chunks` to get the JSON.
                 if streaming_path_has_non_streaming {
@@ -861,13 +897,15 @@ pub(super) fn render_snippet_body(
     // A `result_is_json_struct` call binds `_result_json` — a `[]u8` payload — instead of a
     // typed `result`, so no `docs.shows` field path has a struct to read from. Those
     // fixtures keep the whole-payload print below. ~keep
-    let binds_typed_result = !expects_error && !call.returns_void && !body.contains("const _result_json =");
+    let displays_stream = body.contains("const _stream_handle =");
+    let binds_typed_result =
+        !expects_error && !call.returns_void && !displays_stream && !body.contains("const _result_json =");
     let presentation = if binds_typed_result {
         crate::e2e::codegen::presentation::resolve(fixture, e2e_config, "zig", type_defs, enums, functions)
     } else {
         Vec::new()
     };
-    if !expects_error && !call.returns_void && presentation.is_empty() {
+    if !expects_error && !call.returns_void && !displays_stream && presentation.is_empty() {
         let displayed_result = if body.contains("const _result_json =") {
             "_result_json"
         } else {
@@ -935,3 +973,7 @@ mod discard_rebinding_tests;
 #[cfg(test)]
 #[path = "register_call_check_tests.rs"]
 mod register_call_check_tests;
+
+#[cfg(test)]
+#[path = "stream_lifecycle_tests.rs"]
+mod stream_lifecycle_tests;

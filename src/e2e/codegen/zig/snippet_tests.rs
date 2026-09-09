@@ -465,6 +465,17 @@ fn streaming_e2e_uses_scalar_handle_tokens() {
     });
     let mut e2e = E2eConfig::default();
     e2e.call.function = "stream_records".into();
+    e2e.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "request".into(),
+        field: "input".into(),
+        arg_type: "json_object".into(),
+        optional: false,
+        owned: true,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
     e2e.call.streaming = Some(crate::core::config::e2e::StreamingConfig::Enabled(true));
     e2e.call.overrides.insert(
         "zig".into(),
@@ -513,6 +524,33 @@ fn streaming_e2e_uses_scalar_handle_tokens() {
     assert!(rendered.contains("sample.c.sample_client_stream_records_start(_client._handle, _req_handle)"));
     assert!(rendered.contains("if (_stream_handle == 0)"));
     assert!(!rendered.contains("@ptrCast(_client._handle)"));
+
+    let snippet = render_snippet_body(&fixture, &e2e, "sample", "sample", &config, &[], &[], &[])
+        .expect("streaming snippet renders");
+    assert!(
+        snippet.contains("sample.c.sample_client_stream_records_start"),
+        "{snippet}"
+    );
+    assert!(
+        snippet.contains("defer sample.c.sample_client_stream_records_free"),
+        "{snippet}"
+    );
+    assert!(
+        !snippet.contains("free(_result_json)"),
+        "a stream is not a byte slice: {snippet}"
+    );
+    assert!(
+        snippet.contains("sample.c.sample_client_stream_records_next"),
+        "stream items must be read: {snippet}"
+    );
+    assert!(
+        snippet.contains("std.debug.print"),
+        "stream items must be displayed: {snippet}"
+    );
+    assert!(
+        snippet.contains("sample.c.sample_last_error_code()"),
+        "stream failures must propagate: {snippet}"
+    );
 }
 
 /// Fixture shared by the snippet/test-target pair below: a `json_object` arg whose docs

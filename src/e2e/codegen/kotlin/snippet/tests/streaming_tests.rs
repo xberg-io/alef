@@ -153,3 +153,69 @@ fn kotlin_android_snippet_binds_the_declared_request_before_the_call() {
         "owner handle config must not leak into the request JSON:\n{body}"
     );
 }
+
+fn cold_flow_snippet(presentation: bool, expects_error: bool) -> String {
+    let mut fixture: Fixture = serde_json::from_value(serde_json::json!({
+        "id": "cold_flow", "description": "Cold flow", "input": null,
+        "docs": {"topic": "streaming", "presentation": {"operations": [
+            {"op": "show", "path": "usage.total_tokens", "display": true}
+        ]}}
+    }))
+    .expect("fixture");
+    if !presentation {
+        fixture.docs = None;
+    }
+    if expects_error {
+        fixture.assertions = serde_json::from_value(serde_json::json!([{"type": "error"}])).expect("assertions");
+    }
+    let config: E2eConfig = serde_json::from_value(serde_json::json!({
+        "call": {"function": "chat_stream", "streaming": true, "overrides": {
+            "java": {"client_factory": "create_client"}
+        }},
+        "result_fields": ["usage"], "fields_optional": ["usage"]
+    }))
+    .expect("config");
+    render_snippet_body(
+        &fixture,
+        &config,
+        &ResolvedCrateConfig {
+            name: "sample".into(),
+            ..ResolvedCrateConfig::default()
+        },
+        &[],
+        &[],
+        true,
+    )
+    .expect("snippet")
+}
+
+#[test]
+fn android_cold_flow_collects_once_inside_client_lifetime() {
+    for presentation in [false, true] {
+        let body = cold_flow_snippet(presentation, false);
+        assert!(body.contains(".use { client ->\n"), "{body}");
+        assert!(body.contains("client.chatStream().collect { resultChunk ->"), "{body}");
+        assert_eq!(body.matches(".collect {").count(), 1, "{body}");
+        assert!(!body.contains("toList("), "{body}");
+        assert!(!body.contains("result.usage"), "{body}");
+        assert!(
+            body.contains(if presentation {
+                "println(resultChunk.usage?.totalTokens)"
+            } else {
+                "println(resultChunk)"
+            }),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn android_deferred_flow_error_is_collected_inside_the_catch_scope() {
+    let body = cold_flow_snippet(false, true);
+    let attempt = body.find("try {").expect("error handler");
+    let lifetime = body.find(".use { client ->").expect("client lifetime");
+    let collect = body.find(".collect {").expect("cold flow collected");
+    let catch = body.find("catch (error: Exception)").expect("error catch");
+    assert!(attempt < lifetime && lifetime < collect && collect < catch, "{body}");
+    assert_eq!(body.matches(".collect {").count(), 1, "{body}");
+}

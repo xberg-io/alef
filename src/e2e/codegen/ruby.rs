@@ -255,3 +255,7 @@ mod enum_field_classification_tests;
 mod is_true_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "ruby/stream_error_tests.rs"]
+mod stream_error_tests;

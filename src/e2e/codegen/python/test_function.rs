@@ -149,16 +149,28 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         .unwrap_or(options_via);
     // Only honor "from_json" when the pyo3 backend actually injects a from_json()
     // staticmethod for this type (gated on per-type has_serde AND crate-level serde
-    // availability AND core→binding convertibility) AND the type's public name isn't
+    // availability AND core→binding convertibility) AND the selected import isn't
     // shadowed by options.py's method-less dataclass mirror — every DTO still has a plain
     // kwargs constructor, so downgrading keeps the emitted call valid. ~keep
+    let native_module = python_override
+        .and_then(|value| value.from_json_module.as_deref())
+        .or_else(|| {
+            e2e_config
+                .call
+                .overrides
+                .get("python")
+                .and_then(|value| value.from_json_module.as_deref())
+        });
     let effective_options_via = helpers::effective_options_via_for_type(
         effective_options_via,
         effective_options_type,
         type_defs,
         convertible_types,
         crate_has_serde,
-        options_wrapped_types,
+        native_module
+            .filter(|candidate| *candidate != helpers::resolve_module(e2e_config))
+            .is_none()
+            .then_some(options_wrapped_types),
     );
 
     let desc_with_period = if description.ends_with('.') {

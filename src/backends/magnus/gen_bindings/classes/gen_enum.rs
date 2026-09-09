@@ -92,6 +92,11 @@ pub fn gen_enum(enum_def: &EnumDef, core_import: &str, configured_features: Opti
                     minijinja::context! {
                         name => &f.name,
                         field_type => field_type_for_serde(f),
+                        flatten_newtype => variant.is_tuple
+                            && variant.fields.len() == 1
+                            && enum_def.serde_tag.is_some()
+                            && enum_def.serde_content.is_none()
+                            && !enum_def.serde_untagged,
                     }
                 })
                 .collect();

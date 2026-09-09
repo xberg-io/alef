@@ -67,12 +67,10 @@ pub(super) fn render_with_ir(
         .unwrap_or_else(|| config.name.to_upper_camel_case());
     let module = package.to_upper_camel_case();
     let first_class_map = values::build_swift_first_class_map(type_defs, enums, e2e_config, call);
-    let override_config = call.overrides.get("swift");
+    let override_config = e2e_config.call.overrides.get("swift");
     let result_var = call.effective_result_var();
     let mut call_fixture = fixture.clone();
-    if !expects_error {
-        call_fixture.assertions.clear();
-    }
+    call_fixture.assertions.clear();
     let mut method = String::new();
     test_method::render_test_method(
         &mut method,
@@ -132,10 +130,16 @@ pub(super) fn render_with_ir(
             line.replace("_apiKey ?? \"test-key\"", "_apiKey")
                 .replace("_baseUrl", &base_url_expr)
         })
-        .filter(|line| !line.contains("XCTFail(\"expected to throw\")"))
-        .map(|line| line.replace("// success", "print(\"\\(type(of: error)): \\(error)\")"))
         .collect::<Vec<_>>()
         .join("\n");
+    if expects_error {
+        let indented = body
+            .lines()
+            .map(|line| format!("    {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        body = format!("do {{\n{indented}\n}} catch {{\n    print(\"\\(type(of: error)): \\(error)\")\n}}");
+    }
     // The presentation accessors are rooted on `result_var`, which only exists on the
     // success path of a non-void call — the error path binds nothing and the void path
     // has nothing to read. ~keep
@@ -164,14 +168,20 @@ pub(super) fn render_with_ir(
     if !expects_error && !call.returns_void && presentation.is_empty() {
         body.push_str(&format!("\nprint({result_var})"));
     }
+    let stream_item = if presentation.is_empty() {
+        None
+    } else {
+        crate::e2e::codegen::presentation::stream_item_binding(fixture, e2e_config, "swift")
+    };
     let needs_foundation = swift_body_references_type(&body, "Data")
         || swift_body_references_type(&body, "URL")
+        || swift_body_references_type(&body, "ProcessInfo")
         || body.contains("JSONDecoder")
         || body.contains("JSONEncoder");
     Ok(crate::e2e::template_env::render(
         "swift/snippet_body.jinja",
         minijinja::context! { module => module, body => body, needs_foundation => needs_foundation,
-        presentation => presentation },
+        presentation => presentation, stream_item => stream_item },
     ))
 }
 
@@ -417,6 +427,67 @@ mod tests {
         e2e
     }
 
+    #[test]
+    fn named_call_snippet_inherits_global_client_factory() {
+        let mut e2e = client_factory_e2e();
+        let mut named_call = e2e.call.clone();
+        named_call.overrides.clear();
+        e2e.calls.insert("named_chat".into(), named_call);
+        let mut fixture = client_factory_fixture();
+        fixture.call = Some("named_chat".into());
+        let rendered =
+            render(&fixture, &e2e, &ResolvedCrateConfig::default(), &[], &[]).expect("named client snippet renders");
+
+        assert!(rendered.contains("let _client = try SampleClient("), "{rendered}");
+        assert!(rendered.contains("_client.chat("), "{rendered}");
+        assert!(rendered.contains("import Foundation"), "{rendered}");
+        assert!(!rendered.contains("XCT"), "{rendered}");
+    }
+
+    #[test]
+    fn named_call_snippet_keeps_specific_client_factory() {
+        let mut e2e = client_factory_e2e();
+        let mut named_call = e2e.call.clone();
+        named_call
+            .overrides
+            .get_mut("swift")
+            .expect("Swift override")
+            .client_factory = Some("SpecificClient".into());
+        e2e.calls.insert("named_chat".into(), named_call);
+        let mut fixture = client_factory_fixture();
+        fixture.call = Some("named_chat".into());
+        let rendered =
+            render(&fixture, &e2e, &ResolvedCrateConfig::default(), &[], &[]).expect("specific client snippet renders");
+
+        assert!(rendered.contains("let _client = try SpecificClient("), "{rendered}");
+        assert!(!rendered.contains("try SampleClient("), "{rendered}");
+    }
+
+    #[test]
+    fn declared_error_snippets_use_native_catch_without_test_assertions() {
+        for is_async in [false, true] {
+            let fixture: Fixture = serde_json::from_value(serde_json::json!({
+                "id": "invalid_request", "input": null,
+                "assertions": [{"type": "error", "value": "BadRequest"}]
+            }))
+            .expect("declared error fixture");
+            let mut e2e = client_factory_e2e();
+            e2e.call.r#async = is_async;
+            let rendered =
+                render(&fixture, &e2e, &ResolvedCrateConfig::default(), &[], &[]).expect("error snippet renders");
+
+            assert!(rendered.contains("do {"), "{rendered}");
+            assert!(rendered.contains("} catch {"), "{rendered}");
+            assert!(
+                rendered.contains("print(\"\\(type(of: error)): \\(error)\")"),
+                "{rendered}"
+            );
+            assert_eq!(rendered.contains("await _client.chat("), is_async, "{rendered}");
+            assert!(!rendered.contains("XCT"), "{rendered}");
+            assert!(!rendered.contains("_errorMessage"), "{rendered}");
+        }
+    }
+
     /// `test_method` only emits its environment-reading client constructor for a fixture
     /// that names an `env.api_key_var`; every other fixture fell through to
     /// `Factory(apiKey: "test-key", baseUrl: AlefE2EMockServer.baseURL + "/fixtures/<id>")`,
@@ -559,3 +630,7 @@ mod tests {
         assert!(!rendered.contains("XCTest"));
     }
 }
+
+#[cfg(test)]
+#[path = "snippet_presentation_tests.rs"]
+mod presentation_tests;

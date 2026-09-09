@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod adopted_seed_marker_tests;
 mod binary;
 mod diff;
 mod generation;

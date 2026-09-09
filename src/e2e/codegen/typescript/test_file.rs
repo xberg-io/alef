@@ -27,6 +27,8 @@ mod handle_values_tests;
 mod helpers;
 mod http;
 #[cfg(test)]
+mod input_contract_tests;
+#[cfg(test)]
 mod json_object_field_agreement_tests;
 #[cfg(test)]
 mod loop_binding_tests;
@@ -45,6 +47,13 @@ mod resolver_metadata_wiring_tests;
 #[cfg(test)]
 mod result_enum_import_invariant_tests;
 mod snippet;
+#[cfg(test)]
+mod snippet_error_stream_tests;
+mod snippet_stream_resources;
+#[cfg(test)]
+mod snippet_stream_runtime_tests;
+#[cfg(test)]
+mod snippet_stream_tests;
 #[cfg(test)]
 mod stream_adapter_item_tests;
 #[cfg(test)]

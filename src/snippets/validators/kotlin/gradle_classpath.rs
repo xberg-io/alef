@@ -158,7 +158,20 @@ fn run_gradle_class_path(
             entries.len()
         )));
     }
-    std::env::join_paths(entries)
+    existing_class_path(root, entries)
+}
+
+fn existing_class_path(root: &Path, entries: Vec<PathBuf>) -> Result<OsString> {
+    // Gradle reports destinations for unbuilt variants as well as resolved artifacts. Passing those
+    // absent outputs to kotlinc triggers warnings under -Werror before checking snippet types. ~keep
+    let existing: Vec<_> = entries.into_iter().filter(|entry| entry.exists()).collect();
+    if existing.is_empty() {
+        return Err(Error::Other(format!(
+            "resolving Gradle classpath for {}: no existing classpath entries",
+            root.display()
+        )));
+    }
+    std::env::join_paths(existing)
         .map_err(|error| Error::Other(format!("building Gradle classpath for {}: {error}", root.display())))
 }
 
@@ -246,21 +259,21 @@ mod tests {
         let manifest = root.path().join("build.gradle.kts");
         std::fs::write(&manifest, "plugins {}").expect("manifest");
         let invocation_log = root.path().join("invocations");
-        write_executable(
-            &root.path().join(WRAPPER_NAME),
-            &format!(
-                "#!/bin/sh\necho invoked >> {log}\necho \"noise: unrelated gradle output\"\necho \"ALEF_CLASSPATH_ENTRY:/fake/one.jar\"\necho \"ALEF_CLASSPATH_ENTRY:/fake/two.jar\"\n",
-                log = invocation_log.display()
-            ),
-        );
+        let libraries = [root.path().join("one.jar"), root.path().join("two.jar")];
+        for library in &libraries {
+            std::fs::write(library, "fixture").expect("dependency artifact");
+        }
+        let wrapper = reported_paths(root.path(), &libraries);
+        let mut script = std::fs::read_to_string(&wrapper).expect("wrapper script");
+        script.push_str(&format!("echo invoked >> '{}'\n", invocation_log.display()));
+        write_executable(&wrapper, &script);
         let working_directory = tempfile::tempdir().expect("working directory");
         let session = session(working_directory.path(), "wrapper-fixture");
 
         let first = resolve_class_path(&manifest, &session, TEST_TIMEOUT_SECS).expect("first resolution");
         let second = resolve_class_path(&manifest, &session, TEST_TIMEOUT_SECS).expect("second resolution");
 
-        let expected = std::env::join_paths([PathBuf::from("/fake/one.jar"), PathBuf::from("/fake/two.jar")])
-            .expect("expected classpath");
+        let expected = std::env::join_paths(libraries).expect("expected classpath");
         assert_eq!(first, expected);
         assert_eq!(second, expected);
         let invocations = std::fs::read_to_string(&invocation_log).unwrap_or_default();
@@ -333,22 +346,121 @@ mod tests {
         let root = tempfile::tempdir().expect("project root");
         let manifest = root.path().join("build.gradle.kts");
         std::fs::write(&manifest, "plugins {}").expect("manifest");
-        write_executable(
-            &root.path().join(WRAPPER_NAME),
-            "#!/bin/sh\necho \"ALEF_CLASSPATH_TASK:compileKotlin\"\necho \"ALEF_CLASSPATH_ENTRY:/fake/build/classes/kotlin/main\"\necho \"ALEF_CLASSPATH_ENTRY:/fake/caches/direct-dependency.jar\"\necho \"ALEF_CLASSPATH_ENTRY:/fake/caches/transitive-dependency.jar\"\n",
-        );
+        let entries = [
+            root.path().join("classes"),
+            root.path().join("direct.jar"),
+            root.path().join("transitive.jar"),
+        ];
+        std::fs::create_dir(&entries[0]).expect("classes directory");
+        for library in &entries[1..] {
+            std::fs::write(library, "fixture").expect("dependency artifact");
+        }
+        let wrapper = reported_paths(root.path(), &entries);
+        let mut script = std::fs::read_to_string(&wrapper).expect("wrapper script");
+        script.push_str("echo 'ALEF_CLASSPATH_TASK:compileKotlin'\n");
+        write_executable(&wrapper, &script);
         let working_directory = tempfile::tempdir().expect("working directory");
         let session = session(working_directory.path(), "complete-wrapper-fixture");
 
         let class_path = resolve_class_path(&manifest, &session, TEST_TIMEOUT_SECS).expect("resolves from Gradle");
 
-        let expected = std::env::join_paths([
-            PathBuf::from("/fake/build/classes/kotlin/main"),
-            PathBuf::from("/fake/caches/direct-dependency.jar"),
-            PathBuf::from("/fake/caches/transitive-dependency.jar"),
-        ])
-        .expect("expected classpath");
+        let expected = std::env::join_paths(entries).expect("expected classpath");
         assert_eq!(class_path, expected);
+    }
+
+    #[cfg(unix)]
+    fn reported_paths(root: &Path, entries: &[PathBuf]) -> PathBuf {
+        let wrapper = root.join(WRAPPER_NAME);
+        let mut script = String::from("#!/bin/sh\n");
+        for entry in entries {
+            script.push_str(&format!("printf '%s\\n' 'ALEF_CLASSPATH_ENTRY:{}'\n", entry.display()));
+        }
+        write_executable(&wrapper, &script);
+        wrapper
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_variant_outputs_are_excluded_without_dropping_existing_dependencies() {
+        let root = tempfile::tempdir().expect("project root");
+        let classes = root.path().join("classes");
+        let library = root.path().join("dependency.jar");
+        std::fs::create_dir(&classes).expect("classes directory");
+        std::fs::write(&library, "fixture").expect("dependency artifact");
+        let wrapper = reported_paths(
+            root.path(),
+            &[
+                classes.clone(),
+                root.path().join("unbuilt/classes"),
+                library.clone(),
+                root.path().join("unbuilt/R.jar"),
+            ],
+        );
+        let resolved = run_gradle_class_path(&wrapper, root.path(), &session(root.path(), "mixed"), TEST_TIMEOUT_SECS)
+            .expect("existing dependency paths resolve");
+        assert_eq!(
+            std::env::split_paths(&resolved).collect::<Vec<_>>(),
+            vec![classes, library]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_entirely_missing_gradle_classpath_is_rejected() {
+        let root = tempfile::tempdir().expect("project root");
+        let wrapper = reported_paths(root.path(), &[root.path().join("missing.jar")]);
+        let error = run_gradle_class_path(
+            &wrapper,
+            root.path(),
+            &session(root.path(), "missing"),
+            TEST_TIMEOUT_SECS,
+        )
+        .expect_err("nonexistent classpath cannot validate dependencies");
+        assert!(error.to_string().contains("no existing classpath entries"), "{error}");
+    }
+
+    #[cfg(unix)]
+    fn compile_fixture(source: &Path, library: &Path, classpath: Option<&std::ffi::OsStr>) -> (bool, String) {
+        let mut command = std::process::Command::new("kotlinc");
+        command.arg(source).arg("-Werror").arg("-d").arg(library);
+        if let Some(classpath) = classpath {
+            command.arg("-classpath").arg(classpath);
+        }
+        run_command(&mut command, TEST_TIMEOUT_SECS).expect("real Kotlin compiler executes")
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "requires installed kotlinc and JVM; run explicitly with --include-ignored"]
+    fn filtered_gradle_classpath_preserves_real_type_and_dependency_checks() {
+        let _toolchain_guard = crate::snippets::validators::jvm_toolchain_test_lock();
+        let root = tempfile::tempdir().expect("project root");
+        let source = root.path().join("Library.kt");
+        let library = root.path().join("library.jar");
+        std::fs::write(
+            &source,
+            "package fixture\nobject Values { const val value: Int = 37 }\n",
+        )
+        .expect("library source");
+        let (success, output) = compile_fixture(&source, &library, None);
+        assert!(success, "real dependency compiles: {output}");
+        let wrapper = reported_paths(root.path(), &[root.path().join("unbuilt/classes"), library]);
+        let classpath = run_gradle_class_path(&wrapper, root.path(), &session(root.path(), "real"), TEST_TIMEOUT_SECS)
+            .expect("classpath resolves");
+        let cases = [
+            ("val result: Int = fixture.Values.value", true, ""),
+            ("val result: String = fixture.Values.value", false, "type mismatch"),
+            ("val result = absent.Required.value", false, "unresolved reference"),
+        ];
+        for (code, expected, diagnostic) in cases {
+            std::fs::write(&source, code).expect("snippet source");
+            let (success, output) = compile_fixture(&source, &root.path().join("snippet.jar"), Some(&classpath));
+            assert_eq!(success, expected, "{code}: {output}");
+            assert!(
+                output.to_lowercase().contains(diagnostic),
+                "expected {diagnostic}: {output}"
+            );
+        }
     }
 
     /// The init script's compile-task match must use `=~` (find), not `==~` (full string match).

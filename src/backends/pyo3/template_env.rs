@@ -437,6 +437,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/function_docstring.jinja"),
     ),
     (
+        "adapter_streaming_request_input.jinja",
+        include_str!("templates/adapter_streaming_request_input.jinja"),
+    ),
+    (
         "adapter_streaming_wrapper.jinja",
         include_str!("templates/adapter_streaming_wrapper.jinja"),
     ),

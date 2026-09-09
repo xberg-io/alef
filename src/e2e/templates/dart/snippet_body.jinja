@@ -41,6 +41,8 @@ Future<void> main() async {
     {{ statement }}
 {% endfor %}
 {% if not returns_void %}
+{% if stream_item %}    for (final {{ stream_item }} in {{ result_var }}) {
+{% endif %}
 {% if presentation %}
 {% for operation in presentation %}
 {% if operation.kind == "show" %}
@@ -54,7 +56,9 @@ Future<void> main() async {
 {% endif %}
 {% endfor %}
 {% else %}
-    stdout.writeln({{ result_var }});
+    stdout.writeln({{ stream_item or result_var }});
+{% endif %}
+{% if stream_item %}    }
 {% endif %}
 {% endif %}
 {% endif %}

@@ -14,6 +14,8 @@ mod catch_all_ownership;
 mod e2e_manifests;
 #[path = "version_tests/e2e_rust_manifest.rs"]
 mod e2e_rust_manifest;
+#[path = "version_tests/ffi_rebuild.rs"]
+mod ffi_rebuild;
 #[path = "version_tests/git_ignored_discovery.rs"]
 mod git_ignored_discovery;
 #[path = "version_tests/go_const_alignment.rs"]

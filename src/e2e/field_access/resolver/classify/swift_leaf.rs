@@ -49,7 +49,13 @@ impl FieldResolver {
     /// did not describe the leaf, and callers must keep their existing behaviour rather than
     /// assume either answer.
     pub fn swift_leaf_is_json_bridged(&self, field: &str) -> Option<bool> {
-        self.swift_leaf_fact(field, |map, owner, leaf| map.json_bridged_getter(owner, leaf))
+        self.swift_leaf_fact(field, |map, owner, leaf, opaque| {
+            if opaque {
+                map.json_bridged_getter(owner, leaf)
+            } else {
+                Some(false)
+            }
+        })
     }
 
     /// Walk the Swift type cursor to `field`'s leaf owner and ask `fact` about that one getter.
@@ -62,7 +68,7 @@ impl FieldResolver {
     pub(super) fn swift_leaf_fact(
         &self,
         field: &str,
-        fact: impl Fn(&SwiftFirstClassMap, &str, &str) -> Option<bool>,
+        fact: impl Fn(&SwiftFirstClassMap, &str, &str, bool) -> Option<bool>,
     ) -> Option<bool> {
         let map = &self.swift_first_class_map;
         let resolved = self.resolve(field);
@@ -74,10 +80,13 @@ impl FieldResolver {
             .clone()
             .or_else(|| self.ir_enum_map.root_type.clone())
             .or_else(|| map.root_type.clone())?;
+        // ~keep A raw bridge getter never converts its child into the separately emitted Codable DTO.
+        let mut opaque = false;
         for (index, segment) in segments.iter().enumerate() {
+            opaque |= !map.is_first_class(Some(&current));
             let bare = segment.split('[').next().unwrap_or(segment);
             if index == last && !segment.contains('[') {
-                return fact(map, &current, bare);
+                return fact(map, &current, bare, opaque);
             }
             current = map.advance(Some(&current), bare)?;
         }
@@ -92,6 +101,12 @@ impl FieldResolver {
     /// is. `None` means the IR did not describe the leaf, in which case callers must keep their
     /// existing behaviour rather than assume either answer.
     pub fn swift_leaf_getter_is_optional(&self, field: &str) -> Option<bool> {
-        self.swift_leaf_fact(field, |map, owner, leaf| map.getter_is_optional(owner, leaf))
+        self.swift_leaf_fact(field, |map, owner, leaf, opaque| {
+            if opaque {
+                map.getter_is_optional(owner, leaf)
+            } else {
+                Some(self.is_optional(field))
+            }
+        })
     }
 }

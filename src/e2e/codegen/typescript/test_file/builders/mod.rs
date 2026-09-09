@@ -1,4 +1,5 @@
 mod enum_members;
+mod flattened_map;
 
 use super::*;
 pub(in crate::e2e::codegen::typescript::test_file) use enum_members::node_enum_string_literal;
@@ -301,9 +302,13 @@ fn rename_napi_serde_tags_recursive(
 /// enum member must go through here rather than formatting the reference itself. ~keep
 fn enum_member_reference(
     enum_type: &str,
-    member: &str,
+    member: Option<&str>,
     referenced_enums: &mut std::collections::BTreeSet<String>,
 ) -> String {
+    let Some(member) = member else {
+        // ~keep A recorded fixture refusal discards this backend's output at the generation boundary.
+        return "undefined".to_string();
+    };
     referenced_enums.insert(enum_type.to_string());
     format!("{enum_type}.{member}")
 }
@@ -471,7 +476,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn wasm_scalar_value_expressi
     {
         let member = declared_enum_member_for_prefixed(enum_type, enums, wasm_type_prefix, variant);
         let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
-        return enum_member_reference(&enum_type, &member, referenced_enums);
+        return enum_member_reference(&enum_type, member.as_deref(), referenced_enums);
     }
 
     if let Some(enum_type) = resolve_enum_type(enum_fields, owner_type, key, camel_key)
@@ -480,7 +485,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn wasm_scalar_value_expressi
     {
         let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
         let member = declared_enum_member_for_prefixed(&enum_type, enums, wasm_type_prefix, s);
-        return enum_member_reference(&enum_type, &member, referenced_enums);
+        return enum_member_reference(&enum_type, member.as_deref(), referenced_enums);
     }
 
     let is_bigint =
@@ -601,6 +606,27 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
     depth: usize,
     referenced_enums: &mut std::collections::BTreeSet<String>,
 ) -> String {
+    if lang == "node"
+        && (enums.iter().any(|definition| {
+            definition.name == type_name && crate::backends::napi::is_json_passthrough_data_enum(definition)
+        }) || flattened_map::collect(obj, type_defs.iter().find(|definition| definition.name == type_name))
+            .is_some())
+    {
+        let expression = node_value_expression(
+            &serde_json::Value::Object(obj.clone()),
+            "",
+            enum_fields,
+            docs_files,
+            pointer,
+            Some(&TypeRef::Named(type_name.into())),
+            type_defs,
+            enums,
+            None,
+            referenced_enums,
+        );
+        referenced_enums.insert(format!("type {type_name}"));
+        return format!("({expression} satisfies {type_name})");
+    }
     // Use a depth-indexed variable name so nested IFEs don't shadow each other.
     // Without this, `const _u = WasmOptions.default(); _u.preprocessing =
     // (() => { const _u = WasmOptions.default(); ... })()` triggers
@@ -758,7 +784,15 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
     let mut needs_async = false;
     let ir_owner_name = type_name.strip_prefix(wasm_type_prefix).unwrap_or(type_name);
     let owner_type = type_defs.iter().find(|definition| definition.name == ir_owner_name);
+    let flattened = flattened_map::collect(obj, owner_type);
+    if let Some((field, values)) = &flattened {
+        let key = node_field_public_key(owner_type, &field.name);
+        stmts.push(format!("{var}.{key} = {};", flattened_map::expression(values)));
+    }
     for (key, val) in obj {
+        if flattened.as_ref().is_some_and(|(_, values)| values.contains_key(key)) {
+            continue;
+        }
         let camel_key = node_field_public_key(owner_type, key);
         let field_pointer = json_pointer_child(pointer, key);
         let field_type = resolve_owner_field(owner_type, key).map(|field| match &field.ty {
@@ -860,7 +894,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
         {
             let member = declared_enum_member_for_prefixed(enum_type, enums, wasm_type_prefix, variant);
             let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
-            let reference = enum_member_reference(&enum_type, &member, referenced_enums);
+            let reference = enum_member_reference(&enum_type, member.as_deref(), referenced_enums);
             stmts.push(format!("{var}.{camel_key} = {reference};"));
         } else if let Some(enum_type) = resolve_enum_type(enum_fields, Some(ir_owner_name), key, &camel_key)
             && !wasm_enum_bridged_as_raw_value(enum_type, enums, wasm_type_prefix)
@@ -878,7 +912,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
             let enum_type = wasm_prefixed_wrapped_type(lang, enum_type, type_defs, enums, wasm_type_prefix);
             if let serde_json::Value::String(s) = val {
                 let member = declared_enum_member_for_prefixed(&enum_type, enums, wasm_type_prefix, s);
-                let reference = enum_member_reference(&enum_type, &member, referenced_enums);
+                let reference = enum_member_reference(&enum_type, member.as_deref(), referenced_enums);
                 stmts.push(format!("{var}.{camel_key} = {reference};"));
             } else {
                 stmts.push(format!("{var}.{camel_key} = {};", json_to_js(val)));
@@ -931,6 +965,16 @@ fn node_value_expression(
         crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     });
+    if let Some(TypeRef::Named(name)) = field_type
+        && enums.iter().any(|definition| {
+            definition.name == *name && crate::backends::napi::is_json_passthrough_data_enum(definition)
+        })
+    {
+        return json_to_js(value);
+    }
+    if matches!(field_type, Some(crate::core::ir::TypeRef::Json)) {
+        return json_to_js(value);
+    }
     if matches!(field_type, Some(crate::core::ir::TypeRef::Bytes)) {
         // Ask the shared classifier rather than assuming array-shaped input — a fixture's
         // `bytes` value is just as often a JSON string (file path / inline text / base64).
@@ -957,6 +1001,26 @@ fn node_value_expression(
         && let Some(variant) = value.as_str()
     {
         return node_enum_string_literal(enum_type, enums, variant, referenced_enums);
+    }
+    if let Some(crate::core::ir::TypeRef::Named(type_name)) = field_type
+        && let serde_json::Value::Object(object) = value
+        && let Some(enum_def) = enums.iter().find(|definition| definition.name == *type_name)
+        && let Some(literal) = build_node_tagged_enum_variant_literal(
+            object,
+            type_name,
+            enum_def,
+            &Default::default(),
+            enum_fields,
+            &Default::default(),
+            type_defs,
+            enums,
+            docs_files,
+            pointer,
+            0,
+            referenced_enums,
+        )
+    {
+        return literal;
     }
     if let Some(crate::core::ir::TypeRef::Named(type_name)) = field_type
         && let serde_json::Value::Object(object) = value
@@ -993,17 +1057,28 @@ fn node_value_expression(
                 };
                 refuse_undeclared_json_keys(object, &definition.name, type_defs, RefusalSite::Nested { via });
             }
-            let fields = object
+            let map_value_type = match field_type {
+                Some(crate::core::ir::TypeRef::Map(_, value_type)) => Some(value_type.as_ref()),
+                _ => None,
+            };
+            let flattened = flattened_map::collect(object, nested_type);
+            let mut fields = object
                 .iter()
+                .filter(|(name, _)| flattened.as_ref().is_none_or(|(_, values)| !values.contains_key(*name)))
                 .map(|(name, value)| {
-                    let nested_field_type = resolve_owner_field(nested_type, name).map(|field| &field.ty);
-                    let js_key = node_field_public_key(nested_type, name);
+                    let nested_field_type =
+                        map_value_type.or_else(|| resolve_owner_field(nested_type, name).map(|field| &field.ty));
+                    let js_key = if map_value_type.is_some() {
+                        js_object_key(name)
+                    } else {
+                        node_field_public_key(nested_type, name)
+                    };
                     format!(
                         "{}: {}",
                         js_key,
                         node_value_expression(
                             value,
-                            name,
+                            if map_value_type.is_some() { "" } else { name },
                             enum_fields,
                             docs_files,
                             &json_pointer_child(pointer, name),
@@ -1016,6 +1091,24 @@ fn node_value_expression(
                     )
                 })
                 .collect::<Vec<_>>();
+            if let Some((field, values)) = flattened {
+                let expression = node_value_expression(
+                    &serde_json::Value::Object(values),
+                    "",
+                    enum_fields,
+                    docs_files,
+                    pointer,
+                    Some(&field.ty),
+                    type_defs,
+                    enums,
+                    None,
+                    referenced_enums,
+                );
+                fields.push(format!(
+                    "{}: {expression}",
+                    node_field_public_key(nested_type, &field.name)
+                ));
+            }
             format!("{{ {} }}", fields.join(", "))
         }
         serde_json::Value::Array(values) => {
@@ -1101,3 +1194,9 @@ mod bigint_tests;
 mod tests;
 #[cfg(test)]
 mod wire_name_tests;
+
+#[cfg(test)]
+mod map_json_tests;
+
+#[cfg(test)]
+mod untagged_input_tests;
