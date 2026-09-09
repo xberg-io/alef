@@ -405,7 +405,9 @@ fn infer_enum_fields(
             continue;
         };
         for field in &type_def.fields {
-            let Some(named) = named_type(&field.ty) else { continue };
+            let Some(named) = crate::e2e::codegen::call_ir::named_type(&field.ty) else {
+                continue;
+            };
             if enums.iter().any(|definition| definition.name == named) {
                 // Key by owning-type + field, not the bare field name: this map
                 // accumulates entries from every type reachable in the call's whole
@@ -420,14 +422,6 @@ fn infer_enum_fields(
                 pending.push(named.to_string());
             }
         }
-    }
-}
-
-fn named_type(value: &crate::core::ir::TypeRef) -> Option<&str> {
-    match value {
-        crate::core::ir::TypeRef::Named(name) => Some(name),
-        crate::core::ir::TypeRef::Optional(inner) | crate::core::ir::TypeRef::Vec(inner) => named_type(inner),
-        _ => None,
     }
 }
 
