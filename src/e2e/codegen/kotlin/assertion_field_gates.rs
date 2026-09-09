@@ -79,7 +79,60 @@ pub(super) fn try_render_field_shape_gates(
     ) {
         return true;
     }
+    if try_render_display_text_presence(
+        out,
+        assertion,
+        field_resolver,
+        result_var,
+        result_is_simple,
+        kotlin_android_style,
+    ) {
+        return true;
+    }
     try_skip_payload_union_scalar_lowering(out, assertion, field_resolver, kotlin_android_style)
+}
+
+fn try_render_display_text_presence(
+    out: &mut String,
+    assertion: &Assertion,
+    resolver: &FieldResolver,
+    result_var: &str,
+    result_is_simple: bool,
+    android_style: bool,
+) -> bool {
+    if !assertion
+        .field
+        .as_deref()
+        .is_some_and(|field| resolver.is_display_as_text(field))
+    {
+        return false;
+    }
+    let (template, predicate) = match assertion.assertion_type.as_str() {
+        "not_empty" => ("kotlin/not_empty_assertion.kt.jinja", "isNotEmpty"),
+        "is_empty" => ("kotlin/is_empty_assertion.kt.jinja", "isEmpty"),
+        _ => return false,
+    };
+    let language = if android_style { "kotlin_android" } else { "kotlin" };
+    let field = super::assertion_scalar_context::resolve_field_expr(
+        assertion,
+        resolver,
+        result_var,
+        result_is_simple,
+        language,
+    );
+    let optional = super::assertion_scalar_context::resolve_field_is_optional(
+        result_is_simple,
+        &field,
+        assertion,
+        resolver,
+        android_style,
+    );
+    let text = super::assertion_scalar_context::resolve_string_field_expr(&field, true, false, false, optional);
+    out.push_str(&crate::e2e::template_env::render(
+        template,
+        minijinja::context! { predicate => format!("{text}.{predicate}()") },
+    ));
+    true
 }
 
 /// The last gate, deliberately after the union-traversal and wildcard gates above: those two have
