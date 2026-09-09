@@ -7,12 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.11] - 2026-09-09
+
+Four FFI ABI defects, all of the same shape: a question about how a value crosses the C boundary,
+answered independently by each backend rather than once by the IR, and answered differently. Go
+never reproduced any of them, because cgo type-checks its declarations against the real header at
+build time while C# `DllImport` and Java Panama `FunctionDescriptor` restate the signature by hand
+and compile clean when wrong.
+
 ### Fixed
 
-- Preserve native numeric error codes in C# typed exceptions and base-error fallbacks without changing existing
-  public constructors (#362).
-- Preserve the native int32 status for C# bindings of fallible void functions and methods, and propagate failures
-  from synchronous, asynchronous, and trait-bridge wrappers without changing their public void or Task return types.
+- **The bytes out-param convention was decided by four hand-restated predicates that disagreed**
+  (#353). The FFI backend emits the header and therefore defines the truth: `Bytes` and
+  `Optional<Bytes>` cross through the trailing `(uint8_t **out_ptr, uintptr_t *out_len,
+  uintptr_t *out_cap)` triple plus an `int32_t` status, with no fallibility condition. C# matched
+  bare `Bytes` only, so an `Optional<Bytes>` return fell through to the *string* template: six
+  native parameters declared as three, and a pointer-width status that passes the null guard,
+  gets dereferenced by `PtrToStringUTF8` and then freed. Java additionally required
+  `error_type.is_some()`, so an infallible bytes return missed the same way.
+  `TypeRef::returns_bytes_out_params` is now the single source of that truth, on the IR rather
+  than in a backend, because every backend must answer it identically or emit a declaration the
+  header contradicts. This pins the shape, not the contract — the check that would catch the
+  class, reading the emitted header and comparing arity and width class per symbol, still does
+  not exist.
+
+- **A boolean FFI return was compared across all 64 bits** (#355). `java_ffi_return_cast` emitted a
+  bare `(long)` for `Bool`, on the reasoning written into its own doc comment that the `!= 0`
+  comparison downstream "handles narrowing". It does not. The native function returns `int32_t`
+  while the descriptor declares `JAVA_LONG`, so the upper half of the register is undefined and
+  any garbage there turns a native `false` into a Java `true` — meaning a boolean-returning FFI
+  call could never report `false`. Reported against two independent consumers, ~20 sites in one.
+  The fix is at the call site, not the layout: `java_ffi_type` maps `Bool` to `JAVA_LONG`
+  deliberately, since narrowing the descriptor reintroduces a JBR-on-Windows `ClassCastException`.
+  Widened layout and narrowed call site are now each pinned by tests so neither can be
+  "simplified" into the other, including a runtime test that compiles the emitted expression with
+  `javac` and runs it over `{0, 1, 1L<<32, (1L<<32)|1}`.
+
+- **C# bindings for fallible unit-returning functions dropped the native status** (#354). The
+  P/Invoke was declared `void`, so a native failure could not reach managed code and validation
+  silently succeeded — reproduced on two independent consumers, one reporting native status `-1`
+  and native error `109` for an invalid config with no managed exception at all. The wrappers now
+  bind the native result whenever `error_type` is set, even where the public return stays `void`,
+  and throw on a non-zero status. Public `void`/`Task` signatures are unchanged, pinned
+  explicitly.
+
+- **C# typed exceptions lost their native numeric code** (#362). An exception dispatched by
+  message prefix was constructed without its code, so `Code` read as its default and the numeric
+  identity of the failure disappeared the moment it became typed; the base-error fallback had the
+  same gap. `Code` becomes `{ get; private set; }` and a generated `WithNativeCode` helper stamps
+  it, leaving every existing public constructor intact.
+
+- **Poly reformatted generated C#, making the freshness gate fail for reasons no consumer could
+  see.** Poly delegates `.cs` to an external clang-format whose layout is not stable across its
+  own versions: 18.1.8 and 23.1.0 each reproduce a different committed blob for the same generated
+  file, so two machines on identical alef and identical poly commit different bytes. Reported from
+  three separate consumer repos. Alef already emits C# in the layout `dotnet format whitespace`
+  accepts, asserted against the real formatter, so the emission is canonical and a second
+  formatter can only move it off that contract. Excluded rather than reformatted-after, for the
+  reason the Elixir exclusion already gives — a `--check` pass that still considers itself
+  authoritative over files it no longer formats is the bug class, not the fix.
+
+- **`sync-versions` skipped the FFI rebuild whenever no version moved.** `rebuild_ffi_if_needed`
+  treated an empty `updated` list as its whole notion of "nothing changed", but that list holds
+  version-stamped files only and can never mention `packages/ffi/src/lib.rs`. Editing a bridge
+  source without moving a version left the recorded success standing, and the command exited 0
+  reporting "Version sync complete" over a bridge that no longer compiles. A recorded success now
+  pins a content hash of the sources it was built from as well as the version — hashes rather than
+  mtimes, since mtime granularity varies by filesystem and does not survive a fresh checkout,
+  which is exactly where a false "already built" costs the most.
+
+- **The generated mock server stripped `content-encoding` and served a plain body,** leaving every
+  client-side decompression branch unreachable in all fourteen e2e suites — so a compression
+  regression in any binding's HTTP surface could not fail a single test. The strip was safe on its
+  own terms, since declaring an encoding without applying one breaks clients. The server now
+  gzip-encodes the body when a fixture declares the header, and an encoding it cannot produce is a
+  hard error naming the value rather than a silent fallback to unencoded bytes.
+
+- **`FfiJsonExtensions.cs` opened its braces on the declaration line,** failing
+  `generated_csharp_uses_formatter_stable_layout`. The whitespace was always wrong; it became
+  reachable only once 0.85.10 started emitting the file unconditionally rather than beside trait
+  bridges, so the formatter finally saw it.
+
+- **Four runtime worker-stack invariant tests failed on Windows only.** Their exemption tables
+  spell paths with `/` while the scan built its comparison string with `Path::display()`, which
+  renders native separators — so on Windows every entry matched nothing and the tests reported
+  that all six exemptions were stale. They did not report the invariant they exist to defend; they
+  reported a bookkeeping problem that did not exist. Both comparison sites now normalise
+  separators.
+
+### Changed
+
+- `push_poly_elixir_excludes` is now `push_poly_format_excludes`, since it is no longer
+  Elixir-only.
+- The C# runtime check adopts the `ALEF_REQUIRE_DOTNET` gate, so a missing toolchain cannot turn a
+  skipped check into a silent pass.
+- Six comments naming a specific consumer project were reworded to describe the shape instead,
+  which `no_project_name_special_casing_in_enforced_files` requires.
 
 ## [0.85.10] - 2026-09-09
 
