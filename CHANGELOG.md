@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Swift documentation examples inherit the configured client factory, import Foundation for environment access, and use native error handling without XCTest assertions.
+- Swift documentation examples inherit the configured client factory, use native error handling, preserve indexed JSON paths, and present already-collected stream chunks.
+- Kotlin documentation examples collect streams within the client lifetime and decode snake_case request fields while preserving arbitrary JSON keys and strict input validation.
+- Android documentation examples inherit configured Java client factories when no Android-specific factory is supplied.
+- Kotlin snippet validation filters nonexistent Gradle classpath entries after checking required dependencies, preserving strict compiler warnings.
 - Node untagged input declarations preserve serde wire shapes, including nested named payloads, and generated requests retain flattened tool configuration.
 - Generate declared no-argument TypeScript calls without invented arguments, preserve typed Node request payloads and flattened WASM configuration, and refuse undeclared enum values.
 - Preserve arbitrary Node JSON and map keys, including colliding snake/camel spellings and `__proto__`, while retaining typed nested values.
