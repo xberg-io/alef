@@ -7,7 +7,7 @@ namespace {{ namespace }};
 
 public class {{ class_name }} : Exception
 {
-    public int Code { get; }
+    public int Code { get; private set; }
 
     public {{ class_name }}(int code, string message) : base(message)
     {
@@ -24,6 +24,14 @@ public class {{ class_name }} : Exception
         Code = 0;
     }
 
+{% if has_base_error %}
+    private static {{ class_name }} WithNativeCode({{ class_name }} exception, int code)
+    {
+        exception.Code = code;
+        return exception;
+    }
+
+{% endif %}
     /// <summary>
     /// Builds the concrete exception for the FFI's current thread-local last-error state,
     /// dispatching to the specific per-variant exception class when the message's prefix
@@ -39,7 +47,7 @@ public class {{ class_name }} : Exception
 {% for line in variant_dispatch_lines %}
 {{ line }}
 {% endfor %}
-        if (code == 2) return new {{ base_exception_class }}(message);
+        if (code == 2) return WithNativeCode(new {{ base_exception_class }}(message), code);
 {% endif %}
         return new {{ class_name }}(code, message);
     }

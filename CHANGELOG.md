@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve native numeric error codes in C# typed exceptions and base-error fallbacks without changing existing
+  public constructors (#362).
 - Preserve the native int32 status for C# bindings of fallible void functions and methods, and propagate failures
   from synchronous, asynchronous, and trait-bridge wrappers without changing their public void or Task return types.
 

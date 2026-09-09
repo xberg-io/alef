@@ -243,7 +243,7 @@ fn test_generated_code_example() {
             .content
             .contains("public class SampleCrateException : Exception")
     );
-    assert!(exception.content.contains("public int Code { get; }"));
+    assert!(exception.content.contains("public int Code { get; private set; }"));
     assert!(exception.content.contains("namespace SampleCrate"));
 
     let wrapper = files
