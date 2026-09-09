@@ -10,6 +10,6 @@ fn forced_feature_is_not_guarded_by_an_undeclared_php_feature_in_string_conversi
     enum_cfg::specialize(&mut api, &config, &declared).expect("specialize");
     let expression = super::gen_string_to_enum_expr("value", "Mode", false, &api.enums, "core_lib", "mode");
     assert!(expression.contains("core_lib::Mode::Remote"), "{expression}");
-    assert!(expression.contains("#[cfg(all())]"), "{expression}");
+    assert!(!expression.contains("#[cfg("), "{expression}");
     assert!(!expression.contains(r#"feature = "remote""#), "{expression}");
 }

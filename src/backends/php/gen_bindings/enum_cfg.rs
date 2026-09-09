@@ -19,7 +19,8 @@ pub(super) fn specialize(
         }
         for variant in &mut definition.variants {
             if let Some(cfg) = &variant.cfg {
-                variant.cfg = Some(specialize_cfg(cfg, declared, &guards)?);
+                let specialized = specialize_cfg(cfg, declared, &guards)?;
+                variant.cfg = (specialized != "all()").then_some(specialized);
             }
         }
     }
@@ -106,7 +107,8 @@ fn add_edge(
 
 fn specialize_cfg(cfg: &str, declared: &BTreeSet<String>, guards: &FeatureGuards) -> anyhow::Result<String> {
     let predicate: syn::Meta = syn::parse_str(cfg).context("parse PHP enum cfg predicate")?;
-    specialize_meta(&predicate, declared, guards)
+    let specialized = specialize_meta(&predicate, declared, guards)?;
+    normalize_meta(&syn::parse_str(&specialized).context("parse specialized PHP enum cfg")?)
 }
 
 fn specialize_meta(meta: &syn::Meta, declared: &BTreeSet<String>, guards: &FeatureGuards) -> anyhow::Result<String> {
@@ -144,6 +146,46 @@ fn specialize_meta(meta: &syn::Meta, declared: &BTreeSet<String>, guards: &Featu
     Ok(meta.to_token_stream().to_string())
 }
 
+fn normalize_meta(meta: &syn::Meta) -> anyhow::Result<String> {
+    let syn::Meta::List(list) = meta else {
+        return Ok(meta.to_token_stream().to_string());
+    };
+    if !["all", "any", "not"].iter().any(|name| list.path.is_ident(name)) {
+        return Ok(meta.to_token_stream().to_string());
+    }
+    let members = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+        .parse2(list.tokens.clone())
+        .context("parse PHP cfg normalization operands")?;
+    let members = members.iter().map(normalize_meta).collect::<anyhow::Result<Vec<_>>>()?;
+    let operator = list.path.to_token_stream().to_string();
+    Ok(fold_members(&operator, members))
+}
+
+fn fold_members(operator: &str, mut members: Vec<String>) -> String {
+    if operator == "not" {
+        return match members.as_slice() {
+            [only] if only == "all()" => "any()".into(),
+            [only] if only == "any()" => "all()".into(),
+            [only] if only.starts_with("not(") && only.ends_with(')') => only[4..only.len() - 1].into(),
+            _ => format!("not({})", members.join(", ")),
+        };
+    }
+    let (neutral, absorbing) = if operator == "all" {
+        ("all()", "any()")
+    } else {
+        ("any()", "all()")
+    };
+    if members.iter().any(|member| member == absorbing) {
+        return absorbing.into();
+    }
+    members.retain(|member| member != neutral);
+    match members.as_slice() {
+        [] => neutral.into(),
+        [only] => only.clone(),
+        _ => format!("{operator}({})", members.join(", ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,13 +197,10 @@ mod tests {
         for (input, expected) in [
             (
                 r#"all(feature = "forced", target_os = "linux")"#,
-                r#"all(all(), target_os = "linux")"#,
+                r#"target_os = "linux""#,
             ),
-            (
-                r#"any(feature = "forced", feature = "optional")"#,
-                r#"any(all(), feature = "optional")"#,
-            ),
-            (r#"not(feature = "forced")"#, "not(all())"),
+            (r#"any(feature = "forced", feature = "optional")"#, "all()"),
+            (r#"not(feature = "forced")"#, "any()"),
             (r#"feature = "missing""#, "any()"),
         ] {
             assert_eq!(specialize_cfg(input, &declared, &guards).expect("specialize"), expected);
@@ -175,5 +214,43 @@ mod tests {
             specialize_cfg(r#"feature = "remote""#, &BTreeSet::new(), &guards).expect("cfg"),
             r#"target_os = "linux""#
         );
+    }
+
+    #[test]
+    fn specialized_variants_pass_real_clippy_without_redundant_cfg() {
+        let root = tempfile::tempdir().expect("fixture");
+        super::super::host_enum_feature_tests::write_fixture(root.path(), true, None, false, false);
+        let mut command = std::process::Command::new("cargo");
+        command
+            .args(["clippy", "--offline", "--quiet", "--manifest-path"])
+            .arg(root.path().join("crates/core-lib-php/Cargo.toml"))
+            .args(["--", "-Dclippy::non_minimal_cfg", "-Dunexpected_cfgs"])
+            .env("CARGO_TARGET_DIR", root.path().join("target"))
+            .env("CARGO_BUILD_JOBS", "1");
+        let (success, output) =
+            crate::snippets::validators::run_command(&mut command, 60).expect("bounded generated conversion Clippy");
+        assert!(success, "{output}");
+    }
+
+    #[test]
+    fn boolean_folding_preserves_target_exclusion_and_optional_guards() {
+        let guards = BTreeMap::from([("forced".into(), vec!["all()".into()])]);
+        let declared = BTreeSet::from(["optional".into()]);
+        for (input, expected) in [
+            (r#"all(feature = "missing", unix)"#, "any()"),
+            (r#"any(feature = "missing", unix)"#, "unix"),
+            (r#"not(feature = "missing")"#, "all()"),
+            (
+                r#"all(feature = "forced", any(feature = "missing", not(windows)))"#,
+                "not(windows)",
+            ),
+            (r#"not(not(feature = "optional"))"#, r#"feature = "optional""#),
+            (
+                r#"all(unix, any(windows, feature = "optional"))"#,
+                r#"all(unix, any(windows, feature = "optional"))"#,
+            ),
+        ] {
+            assert_eq!(specialize_cfg(input, &declared, &guards).expect("cfg"), expected);
+        }
     }
 }
