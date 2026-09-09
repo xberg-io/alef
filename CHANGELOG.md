@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Specialize PHP enum conversion guards to the core dependency feature configuration.
+- Specialize PHP enum conversion guards to the core dependency feature configuration and normalize them
+  for strict Clippy checks.
+
+- Drain Zig streams even without field assertions, preserve configured assertions, and check deferred
+  errors before releasing native resources.
 
 - Require native RuntimeError exceptions in Ruby streaming error tests and preserve declared message checks and unsupported error-identity diagnostics.
 
