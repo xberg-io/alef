@@ -7,7 +7,10 @@ use crate::e2e::fixture::{Assertion, Fixture};
 fn render(call: CallConfig, assertions: Vec<Assertion>, types: &[TypeDef], config: ResolvedCrateConfig) -> String {
     let root = super::values::swift_call_result_type(&call).unwrap_or_else(|| "Response".into());
     let function = FunctionDef {
-        name: call.function.clone(),
+        name: call
+            .core_lookup_name("swift")
+            .expect("fixture call must resolve")
+            .into_owned(),
         return_type: TypeRef::Named(root.clone()),
         ..Default::default()
     };
