@@ -14,6 +14,28 @@ fn render_mock_server_binary_contains_main() {
     assert!(out.contains("MOCK_SERVER_URL=http://"));
 }
 
+/// xberg-io/xberg#1598: the mock server used to strip `content-encoding` and serve a
+/// plain body, which left every client-side decompression branch unreachable in all
+/// fourteen suites -- a compression regression could not fail any test. The generated
+/// server must now encode for real, and must not silently fall back to an unencoded
+/// body under an encoding it cannot produce.
+#[test]
+fn render_mock_server_binary_encodes_declared_content_encoding() {
+    let out = render_mock_server_binary();
+    assert!(
+        out.contains("GzEncoder::new"),
+        "mock server must gzip-encode a body whose fixture declares content-encoding"
+    );
+    assert!(
+        !out.contains("// Skip content-encoding headers"),
+        "the old strip must be gone; leaving it makes the client decompression paths dead code"
+    );
+    assert!(
+        out.contains("cannot produce (only gzip is supported)"),
+        "an unsupported encoding must be a loud error, not a silent unencoded body"
+    );
+}
+
 #[test]
 fn render_mock_server_binary_is_valid_rust() {
     let out = render_mock_server_binary();

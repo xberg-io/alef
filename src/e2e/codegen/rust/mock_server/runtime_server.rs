@@ -98,13 +98,33 @@ fn serve_route(route: &MockRoute) -> Response {
         };
         builder = builder.header("content-type", default_ct);
     }
-    for (name, value) in &route.headers {
-        // Skip content-encoding headers — the mock server returns uncompressed bodies.
-        // Sending a content-encoding without actually encoding the body would cause
-        // clients to fail decompression.
-        if name.to_lowercase() == "content-encoding" {
-            continue;
+    // A fixture that declares `content-encoding` now gets a body actually encoded that
+    // way. This server used to strip the header and serve plain bytes instead, which was
+    // safe but left every client-side decompression branch unreachable in every suite --
+    // so a compression regression in any binding's HTTP surface could not fail a single
+    // test (xberg-io/xberg#1598). An unsupported encoding is a hard error rather than a
+    // silent fallback to an unencoded body: serving plain bytes under a content-encoding
+    // header is exactly the breakage the old strip existed to avoid, and a fixture asking
+    // for an encoding this server cannot produce is a fixture bug that should be loud.
+    let declared_encoding = route
+        .headers
+        .iter()
+        .find(|(name, _)| name.to_lowercase() == "content-encoding")
+        .map(|(_, value)| value.as_str());
+    let response_body = match declared_encoding {
+        None | Some("<<absent>>") => route.body.clone(),
+        Some("gzip") => {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(&route.body).expect("mock-server: gzip encode failed");
+            encoder.finish().expect("mock-server: gzip finish failed")
         }
+        Some(other) => panic!(
+            "mock-server: fixture declares content-encoding {other:?}, which this server \
+             cannot produce (only gzip is supported). Serving an unencoded body under that \
+             header would make clients fail to decode."
+        ),
+    };
+    for (name, value) in &route.headers {
         // The <<absent>> sentinel means this header must NOT be present in the
         // real server response — do not emit it from the mock server either.
         if value == "<<absent>>" {
@@ -126,7 +146,7 @@ fn serve_route(route: &MockRoute) -> Response {
         }
         builder = builder.header(name, value);
     }
-    builder.body(Body::from(route.body.clone())).unwrap().into_response()
+    builder.body(Body::from(response_body)).unwrap().into_response()
 }
 
 /// Generate a pseudo-random u32 using the current time nanoseconds.

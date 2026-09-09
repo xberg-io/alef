@@ -17,7 +17,7 @@ const BINARY_INTRO_SOURCE: &str = r####"//
 // then blocks until stdin is closed (parent process exit triggers cleanup).
 
 use std::collections::HashMap;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -27,6 +27,8 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;

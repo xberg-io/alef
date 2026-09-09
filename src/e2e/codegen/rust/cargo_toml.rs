@@ -119,6 +119,9 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
         machete_ignored.push("\"serde\"");
         machete_ignored.push("\"walkdir\"");
     }
+    if needs_mock_server {
+        machete_ignored.push("\"flate2\"");
+    }
     if needs_tokio_stream {
         machete_ignored.push("\"tokio-stream\"");
     }
@@ -193,6 +196,15 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
             "walkdir".to_string(),
             format!("walkdir = \"{walkdir}\"", walkdir = tv::cargo::WALKDIR),
         ));
+        if needs_mock_server {
+            // The mock server gzip-encodes a body whose fixture declares
+            // `content-encoding: gzip`, so the client-side decompression paths are
+            // actually reachable (xberg-io/xberg#1598). ~keep
+            dep_entries.push((
+                "flate2".to_string(),
+                format!("flate2 = \"{flate2}\"", flate2 = tv::cargo::FLATE2),
+            ));
+        }
         if needs_http_tests {
             dep_entries.push((
                 "axum-test".to_string(),
