@@ -291,7 +291,7 @@ mod environment_tests {
 
     #[cfg(unix)]
     #[test]
-    fn installed_toolchain_paths_reach_child_processes_without_unrelated_environment() {
+    fn installed_toolchain_paths_reach_child_processes() {
         let keys = [
             "ANDROID_HOME",
             "ANDROID_SDK_ROOT",
@@ -306,18 +306,54 @@ mod environment_tests {
             .map(|key| (*key, OsString::from(format!("path-for-{key}"))))
             .collect();
         let mut command = std::process::Command::new("/bin/sh");
-        command.args(["-c", "printf '%s\n' \"$ANDROID_HOME\" \"$ANDROID_SDK_ROOT\" \"$JAVA_HOME\" \"$R_HOME\" \"$R_LIBS\" \"$R_LIBS_USER\" \"$R_LIBS_SITE\" \"${UNRELATED_SECRET-unset}\""]);
-        super::apply_environment_allowlist(&mut command, false, |key| {
-            if key == "UNRELATED_SECRET" {
-                Some(OsString::from("must-not-leak"))
-            } else {
-                environment.get(key).cloned()
-            }
-        });
+        command.args(["-c", "printf '%s\n' \"$ANDROID_HOME\" \"$ANDROID_SDK_ROOT\" \"$JAVA_HOME\" \"$R_HOME\" \"$R_LIBS\" \"$R_LIBS_USER\" \"$R_LIBS_SITE\""]);
+        super::apply_environment_allowlist(&mut command, false, |key| environment.get(key).cloned());
         let output = command.output().expect("run child with injected environment");
         assert!(output.status.success());
-        let expected = keys.iter().map(|key| format!("path-for-{key}\n")).collect::<String>() + "unset\n";
+        let expected = keys.iter().map(|key| format!("path-for-{key}\n")).collect::<String>();
         assert_eq!(String::from_utf8(output.stdout).expect("UTF-8 output"), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unallowlisted_ambient_secret_is_removed_from_child_environment() {
+        const CHILD_MARKER: &str = "ALEF_SANITIZER_CHILD_PROBE";
+        const SECRET_KEY: &str = "ALEF_SANITIZER_SECRET_PROBE";
+        const SYNTHETIC_VALUE: &str = "synthetic-ambient-value";
+        const TIMEOUT_SECS: u64 = 10;
+        if std::env::var_os(CHILD_MARKER).as_deref() == Some(std::ffi::OsStr::new("child")) {
+            assert_eq!(
+                std::env::var_os(SECRET_KEY),
+                Some(OsString::from(SYNTHETIC_VALUE)),
+                "probe must begin with the synthetic secret in its inherited environment"
+            );
+            let mut command = std::process::Command::new("/bin/sh");
+            command.args(["-c", r#"printf '%s\n' "${ALEF_SANITIZER_SECRET_PROBE-unset}""#]);
+            let output = super::run_command_streams(&mut command, TIMEOUT_SECS).expect("sanitized grandchild");
+            assert!(output.success, "{}", output.stderr);
+            assert_eq!(
+                output.stdout, "unset\n",
+                "unallowlisted ambient secret reached sanitized child"
+            );
+            return;
+        }
+        let mut command = std::process::Command::new(std::env::current_exe().expect("current test executable"));
+        command.args([
+            "--exact",
+            "snippets::validators::process::environment_tests::unallowlisted_ambient_secret_is_removed_from_child_environment",
+            "--nocapture",
+        ]).env(CHILD_MARKER, "child").env(SECRET_KEY, SYNTHETIC_VALUE);
+        let output = super::run_command_streams(&mut command, TIMEOUT_SECS).expect("isolated environment probe");
+        assert!(
+            output.success,
+            "isolated sanitizer probe failed: {}{}",
+            output.stdout, output.stderr
+        );
+        assert!(
+            output.stdout.contains("1 passed; 0 failed"),
+            "exact child test must run once: {}",
+            output.stdout
+        );
     }
 
     #[test]
