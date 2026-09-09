@@ -267,6 +267,25 @@ pub(crate) fn all_error_lines_match(
     diagnostic_lines.iter().all(|line| matches(line))
 }
 
+fn append_r_library_path(command: &mut std::process::Command, directory: &std::path::Path) -> Result<()> {
+    let existing = command
+        .get_envs()
+        .find(|(key, _)| *key == "R_LIBS_USER")
+        .map(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+        .unwrap_or_else(|| std::env::var_os("R_LIBS_USER"));
+    let mut directories = existing
+        .as_ref()
+        .map(|value| std::env::split_paths(value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if !directories.iter().any(|path| path == directory) {
+        directories.push(directory.to_path_buf());
+    }
+    let joined = std::env::join_paths(directories)
+        .map_err(|error| crate::snippets::error::Error::Other(format!("preserving R library search paths: {error}")))?;
+    command.env("R_LIBS_USER", joined);
+    Ok(())
+}
+
 pub fn run_script(
     snippet: &Snippet,
     level: ValidationLevel,
@@ -292,7 +311,9 @@ pub fn run_script(
     if let Some(value) = session {
         value.apply(&mut command);
         command.env("RUBYLIB", &value.working_directory);
-        command.env("R_LIBS_USER", &value.working_directory);
+        if value.language == Language::R {
+            append_r_library_path(&mut command, &value.working_directory)?;
+        }
     }
     let (success, output) = run_command(&mut command, timeout_secs)?;
     Ok(if success {

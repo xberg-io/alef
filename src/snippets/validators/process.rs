@@ -117,6 +117,13 @@ const SANITIZED_ENVIRONMENT_VARIABLES: &[&str] = &[
     "LC_ALL",
     "GOMODCACHE",
     "GOPATH",
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "JAVA_HOME",
+    "R_HOME",
+    "R_LIBS",
+    "R_LIBS_USER",
+    "R_LIBS_SITE",
 ];
 
 /// The variables that identify the machine itself on Windows, allowed through in addition to
@@ -280,6 +287,37 @@ mod environment_tests {
                 "{key} must not leak into a non-Windows child"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_toolchain_paths_reach_child_processes_without_unrelated_environment() {
+        let keys = [
+            "ANDROID_HOME",
+            "ANDROID_SDK_ROOT",
+            "JAVA_HOME",
+            "R_HOME",
+            "R_LIBS",
+            "R_LIBS_USER",
+            "R_LIBS_SITE",
+        ];
+        let environment: HashMap<_, _> = keys
+            .iter()
+            .map(|key| (*key, OsString::from(format!("path-for-{key}"))))
+            .collect();
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "printf '%s\n' \"$ANDROID_HOME\" \"$ANDROID_SDK_ROOT\" \"$JAVA_HOME\" \"$R_HOME\" \"$R_LIBS\" \"$R_LIBS_USER\" \"$R_LIBS_SITE\" \"${UNRELATED_SECRET-unset}\""]);
+        super::apply_environment_allowlist(&mut command, false, |key| {
+            if key == "UNRELATED_SECRET" {
+                Some(OsString::from("must-not-leak"))
+            } else {
+                environment.get(key).cloned()
+            }
+        });
+        let output = command.output().expect("run child with injected environment");
+        assert!(output.status.success());
+        let expected = keys.iter().map(|key| format!("path-for-{key}\n")).collect::<String>() + "unset\n";
+        assert_eq!(String::from_utf8(output.stdout).expect("UTF-8 output"), expected);
     }
 
     #[test]
