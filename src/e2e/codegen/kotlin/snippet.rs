@@ -363,6 +363,23 @@ mod tests {
     }
 
     #[test]
+    fn snippet_mapper_decodes_snake_case_without_ignoring_unknown_fields() {
+        for android in [false, true] {
+            let body = batch_snippet(android);
+            assert!(
+                body.contains(
+                    ".setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+                ),
+                "{body}"
+            );
+            assert!(
+                !body.contains("FAIL_ON_UNKNOWN_PROPERTIES"),
+                "unknown inputs must remain errors: {body}"
+            );
+        }
+    }
+
+    #[test]
     fn jvm_batch_snippet_binds_list_elements_to_the_locally_declared_mapper() {
         let body = batch_snippet(false);
 

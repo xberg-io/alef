@@ -4,7 +4,7 @@ import {{ package_name }}.*
 {% endif %}
 
 fun main() {% if is_async %}= kotlinx.coroutines.runBlocking {% endif %}{
-{% if needs_mapper %}    val mapper = jacksonObjectMapper()
+{% if needs_mapper %}    val mapper = jacksonObjectMapper().setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
 {% endif %}
 {% if expects_error %}    try {
 {% endif %}
