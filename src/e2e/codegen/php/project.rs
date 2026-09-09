@@ -490,7 +490,7 @@ pub(super) fn render_run_tests_php(
     // Deriving it from the same `cargo_package_name` the build hint below prints keeps the path
     // the guard reports missing and the command it tells you to run from naming two different
     // artifacts. The previous fallback built the name from `extension_name` instead and appended
-    // a `_php` suffix of its own, so an extension already called `spikard_php` was looked for as
+    // a `_php` suffix of its own, so an extension already called `<name>_php` was looked for as
     // `libspikard_php_php` -- a file cargo never emits, which failed every php e2e run with an
     // "extension build not found" that no amount of building could satisfy. ~keep
     let ext_lib_name = format!("lib{}", cargo_package_name.replace('-', "_"));

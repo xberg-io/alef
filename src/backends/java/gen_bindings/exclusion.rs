@@ -110,7 +110,7 @@ pub(super) fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashS
     // dumb class beside the service class. `effective_exclude_types` folds those marks into
     // `exclude_types`, so testing a service against that set asks "is this service excluded
     // because it is a service", and the answer is always yes: java emitted no service class for
-    // any consumer, and the App.java sitting in spikard's tree was a leftover from before the
+    // any consumer, and the App.java sitting in the consumer's tree was a leftover from before the
     // mark existed, going stale against this backend's own templates until every generated route
     // registration answered 404. A service's own owner name therefore carries no exclusion
     // signal and is removed before the test. ~keep

@@ -1,5 +1,6 @@
 /// <summary>FFI JSON serialization extension methods and options</summary>
-internal static class FfiJsonExtensions {
+internal static class FfiJsonExtensions
+{
 
     /// <summary>Global JsonSerializerOptions for FFI marshalling with relaxed numeric handling.
     /// Supports: enum-to-snake_case conversion, ignoring default values, and reading numeric values from strings.
@@ -12,7 +13,8 @@ internal static class FfiJsonExtensions {
     };
 
     /// <summary>Serialize any object to JSON for FFI marshalling</summary>
-    internal static string ToFfiJson<T>(this T value) {
+    internal static string ToFfiJson<T>(this T value)
+    {
         return JsonSerializer.Serialize(value, FfiJsonOptions);
     }
 

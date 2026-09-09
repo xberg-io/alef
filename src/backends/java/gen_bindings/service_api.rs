@@ -181,7 +181,7 @@ fn validate_service_param(api: &ApiSurface, locator: &str, param: &ParamDef) -> 
 ///
 /// The assertion that used to live here read `!typ.has_serde`, and `has_serde` records *derives*.
 /// It is false for a type with hand-written `impl Serialize`/`impl Deserialize`, and false again
-/// for a type alef resolved at a re-export site rather than at its definition -- spikard's
+/// for a type alef resolved at a re-export site rather than at its definition -- a consumer's
 /// `RequestData` is both at once, and the FFI crate serialises it perfectly well. A guard that
 /// fails generation on evidence it cannot fully observe, about a contract it does not
 /// participate in, rejects working surfaces. ~keep
@@ -233,7 +233,7 @@ fn validate_registration(api: &ApiSurface, service: &ServiceDef, registration: &
 /// as an `i32` status code, so its value is dropped. That is worth saying out loud, but it is not
 /// a reason to refuse the whole service: the C export exists, the status is meaningful, and the
 /// csharp backend already emits exactly this shape (`public int into_router()` over
-/// `spikard_app_ep_into_router(handle) -> i32`). Failing here instead cost java its entire
+/// `<crate>_app_ep_into_router(handle) -> i32`). Failing here instead cost java its entire
 /// binding for one lossy entrypoint. ~keep
 fn validate_service_abi(api: &ApiSurface, service: &ServiceDef) -> anyhow::Result<()> {
     for registration in &service.registrations {

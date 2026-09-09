@@ -348,9 +348,9 @@ pub fn scalar_c_abi_named_types(api: &crate::core::ir::ApiSurface) -> AHashSet<S
 /// Strictly wider than [`scalar_c_abi_named_types`], and deliberately so: that set answers
 /// "is this type `Copy`", but a parameter's C width is decided by whether the FFI crate can
 /// lower it to a discriminant, and it emits a `<enum>_from_i32` helper for **any** enum whose
-/// variants are all fieldless -- `Copy` or not. `Method` in spikard is the worked example: not
+/// variants are all fieldless -- `Copy` or not. A consumer's `Method` is the worked example: not
 /// `Copy`, so the `Copy` set omits it, yet the C header declares
-/// `spikard_route_builder_new(int32_t method, …)` and the C# wrapper casts `(int)method`, while
+/// `<crate>_route_builder_new(int32_t method, …)` and the C# wrapper casts `(int)method`, while
 /// the C# `[DllImport]` derived from the `Copy` set declared `ulong`. Three renderings of one
 /// parameter, two of them agreeing and the declaration between them disagreeing -- a CS1503 at
 /// best and a silent ABI violation at worst.

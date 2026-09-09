@@ -109,8 +109,8 @@ fn optional_param(name: &str, ty: TypeRef) -> ParamDef {
 ///
 /// The FFI crate lowers any all-fieldless enum to an `i32` discriminant and emits a
 /// `<enum>_from_i32` helper for it, `Copy` or not; a `Copy`-only view of "which named types are
-/// scalars" therefore disagrees with the header it is supposed to describe. `spikard::Method` is
-/// exactly this shape. ~keep
+/// scalars" therefore disagrees with the header it is supposed to describe. A consumer's
+/// HTTP-method enum, fieldless but carrying a hand-written impl, is exactly this shape. ~keep
 fn fieldless_non_copy_enum(name: &str) -> EnumDef {
     EnumDef {
         is_copy: false,
