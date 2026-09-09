@@ -58,11 +58,25 @@ pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
 /// Examples:
 /// - JAVA_LONG return (i32 → long): `(int)(long)` unboxes Long then narrows to int
 /// - JAVA_LONG return (i16 → long): `(short)(long)` unboxes Long then narrows to short
-/// - JAVA_LONG return (bool → long): `(long)` unboxes Long directly (comparison handles narrowing)
+/// - JAVA_LONG return (bool → long): `(int)(long)` unboxes Long then narrows to int
+///
+/// The bool arm previously emitted a bare `(long)`, on the reasoning that the `!= 0`
+/// comparison in [`java_ffi_return_expr`] "handles narrowing". It does not: `!= 0` on a
+/// `long` compares all 64 bits. The native function returns `int32_t` while the descriptor
+/// declares JAVA_LONG, so the upper half is whatever happened to be in the register — and
+/// any non-zero garbage there turns a native `false` into a Java `true`. A boolean-returning
+/// FFI call could therefore never report false. Narrowing to `int` first discards the
+/// undefined half, matching the i32 arm directly above.
+///
+/// The fix belongs here, at the call site, and NOT in the layout: `java_ffi_type` maps Bool
+/// to JAVA_LONG deliberately and is pinned by a test, because narrowing the *descriptor* to
+/// JAVA_INT reintroduces a JBR-on-Windows `ClassCastException`
+/// (`ValueLayouts$OfIntImpl` cannot be cast to `ValueLayout$OfLong`). Widened layout,
+/// narrowed call site. ~keep
 pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "(long)",
+            PrimitiveType::Bool => "(int)(long)",
             PrimitiveType::U8 | PrimitiveType::I8 => "(byte)(long)",
             PrimitiveType::U16 | PrimitiveType::I16 => "(short)(long)",
             PrimitiveType::U32 | PrimitiveType::I32 => "(int)(long)",
@@ -648,5 +662,48 @@ mod typed_error_tests {
             expected.len(),
             "generated switch must have exactly one case per declared exception, no extras and no drops"
         );
+    }
+}
+
+#[cfg(test)]
+mod bool_return_narrowing_tests {
+    use super::*;
+
+    /// A boolean FFI return must be narrowed to `int` before the `!= 0` comparison.
+    ///
+    /// The descriptor declares JAVA_LONG while the native function returns `int32_t`, so the
+    /// upper 32 bits are undefined. Comparing the untruncated `long` against 0 turns any
+    /// garbage in that half into a spurious `true`, meaning such a call can never report
+    /// false. Reported against two separate consumers' generated bindings. ~keep
+    #[test]
+    fn a_bool_return_narrows_before_the_zero_comparison() {
+        assert_eq!(
+            java_ffi_return_cast(&TypeRef::Primitive(PrimitiveType::Bool)),
+            "(int)(long)",
+            "a bare (long) leaves the undefined upper half in the != 0 comparison"
+        );
+    }
+
+    /// The companion half: the *layout* must stay JAVA_LONG. Narrowing the descriptor instead
+    /// of the call site reintroduces a JBR-on-Windows ClassCastException. ~keep
+    #[test]
+    fn a_bool_layout_stays_widened() {
+        assert_eq!(
+            crate::backends::java::type_map::java_ffi_type(&PrimitiveType::Bool),
+            "ValueLayout.JAVA_LONG"
+        );
+    }
+
+    /// Every other integral return already narrows; bool is now consistent with them.
+    #[test]
+    fn integral_returns_all_narrow_from_the_widened_layout() {
+        for (prim, expected) in [
+            (PrimitiveType::I8, "(byte)(long)"),
+            (PrimitiveType::I16, "(short)(long)"),
+            (PrimitiveType::I32, "(int)(long)"),
+            (PrimitiveType::Bool, "(int)(long)"),
+        ] {
+            assert_eq!(java_ffi_return_cast(&TypeRef::Primitive(prim)), expected);
+        }
     }
 }
