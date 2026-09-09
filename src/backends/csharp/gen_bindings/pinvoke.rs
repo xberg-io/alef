@@ -26,12 +26,12 @@ const BYTES_RESULT_OUT_PARAMS: &str = concat!(
 /// Returns true when a function returns bytes — uses the owned out-param convention:
 /// `(args..., out IntPtr, out UIntPtr, out UIntPtr) -> int`.
 pub(super) fn is_bytes_result_func(func: &FunctionDef) -> bool {
-    matches!(func.return_type, TypeRef::Bytes)
+    func.return_type.returns_bytes_out_params()
 }
 
 /// Same check for MethodDef.
 pub(super) fn is_bytes_result_method(method: &MethodDef) -> bool {
-    matches!(method.return_type, TypeRef::Bytes)
+    method.return_type.returns_bytes_out_params()
 }
 
 /// The declared parameter list of one `[DllImport]`, rendered as the text that goes between the

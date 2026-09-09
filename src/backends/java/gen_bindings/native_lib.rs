@@ -31,11 +31,7 @@ fn should_emit_from_json_handle(typ: &TypeDef) -> bool {
 /// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
 /// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
 fn is_bytes_result_method(method: &MethodDef) -> bool {
-    if method.error_type.is_none() {
-        return false;
-    }
-    matches!(method.return_type, TypeRef::Bytes)
-        || matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes))
+    method.return_type.returns_bytes_out_params()
 }
 
 fn extract_required_symbols(blocks: impl IntoIterator<Item = impl AsRef<str>>) -> BTreeSet<String> {

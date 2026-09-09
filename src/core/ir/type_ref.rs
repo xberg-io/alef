@@ -20,6 +20,37 @@ pub enum TypeRef {
 }
 
 impl TypeRef {
+    /// Whether this return type crosses the C boundary through the byte-buffer out-param
+    /// convention — trailing `(uint8_t **out_ptr, uintptr_t *out_len, uintptr_t *out_cap)` plus an
+    /// `int32_t` status return — rather than as a direct return value.
+    ///
+    /// This is the single source of truth for that ABI question, and it lives on the IR rather
+    /// than in a backend because every backend must answer it identically or emit a declaration
+    /// that disagrees with the header. It previously existed as several hand-restated copies,
+    /// which disagreed:
+    ///
+    /// - the FFI backend, which emits the header and therefore defines the truth, matched `Bytes`
+    ///   and `Optional<Bytes>` with no fallibility condition
+    /// - C# matched bare `Bytes` only, so an `Optional<Bytes>` return fell through to the *string*
+    ///   template: six native parameters declared as three, an `int32_t` status declared
+    ///   pointer-width, and a call that dereferenced and freed a small integer as a pointer
+    /// - Java additionally required `error_type.is_some()`, so an infallible bytes return missed
+    ///   the same way
+    /// - Go derives its call through cgo, which type-checks against the real header, which is why
+    ///   Go was the one backend that could not get this wrong
+    ///
+    /// `Optional<Bytes>` shares one C signature with bare `Bytes`, encoding `None` as
+    /// `*out_ptr == NULL`; absence rides on the pointer, not on a length or status sentinel. The
+    /// optional wrapper therefore cannot change the answer, and a predicate that inspects only the
+    /// outer constructor is wrong by construction. ~keep
+    pub fn returns_bytes_out_params(&self) -> bool {
+        match self {
+            Self::Bytes => true,
+            Self::Optional(inner) => matches!(inner.as_ref(), Self::Bytes),
+            _ => false,
+        }
+    }
+
     /// Render this type as the Rust source text it stands for.
     ///
     /// Unlike the per-language mappers this performs no normalization and no naming policy: a

@@ -28,9 +28,7 @@ fn instance_method_symbols(
     let prefix_upper = prefix.to_uppercase();
     let owner_upper = owner_snake.to_uppercase();
     let method_upper = method.name.to_snake_case().to_uppercase();
-    let is_bytes_result = method.error_type.is_some()
-        && (matches!(method.return_type, TypeRef::Bytes)
-            || matches!(&method.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes)));
+    let is_bytes_result = method.return_type.returns_bytes_out_params();
     let (is_optional_return, dispatch_return) = match &method.return_type {
         TypeRef::Optional(inner) => (true, (**inner).clone()),
         other => (false, other.clone()),
