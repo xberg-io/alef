@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.12] - 2026-09-09
+
+Two fixes for defects 0.85.11 introduced, both found by consumers rather than by this
+repository's own tests, and both in code paths that 0.85.11 made reachable for the first time.
+
+### Fixed
+
+- **The generated mock server panicked on a fixture declaring `content-encoding: br`.** 0.85.10
+  taught it to encode a body whose fixture declares an encoding, and made an encoding it cannot
+  produce a hard error rather than a silent unencoded body. Both of those remain right. What it
+  could not produce was anything but gzip, and its own commit note recorded why nothing caught
+  that: no fixture in this repository or in the consumer it was written for declared an encoding
+  at all, so the new path was unexercised. The first consumer whose fixtures do declare one
+  declares `br`.
+
+  The cost was not one failed assertion. The panic kills the shared mock server, so every later
+  test in that suite fails as a connection error — six of that consumer's fourteen e2e suites went
+  red, and the ones that named the real cause were outnumbered by ones that did not. Its kotlin
+  suite reported four compression failures plus a server-config failure unrelated to compression,
+  which reads as harness death rather than a missing codec.
+
+  `br` is now encoded through `brotli::BrotliCompress`, brotli tracking the 9.x line for the
+  reason already recorded above the elixir allocator trio. Declared for generated crates that emit
+  a mock server, with the matching cargo-machete entry, exactly as flate2 is. The hard error is
+  kept for every other encoding, its text widened to name both it can produce.
+
+- **A Java `Option<Vec<u8>>` return was declared `Optional<byte[]>` and returned a bare
+  `byte[]`.** 0.85.11 implemented that method, which had previously been a stub that threw
+  "unsupported return shape", so the shape became reachable. The template branches on a single
+  context key, `optional`, while the emitter passed only the pre-rendered strings its two sibling
+  templates consume; minijinja read the undefined key as falsy and the `Optional` wrap was dead
+  code. Generated Java therefore failed to compile with `byte[] cannot be converted to
+  Optional<byte[]>`.
+
+  Worth recording, because it explains the delay rather than the defect: exactly one CI leg
+  anywhere compiles generated Java sources. Every other Java leg builds the native library and
+  stops. A Java codegen break is invisible outside that single job.
+
+  Authored by the xberg release session. Reviewed by breaking it rather than by reading it: with
+  the one-line context addition removed and the tests kept,
+  `optional_bytes_return_is_wrapped_in_an_optional` fails while its negative control
+  `bare_bytes_return_is_not_wrapped` stays green, so the test pins the wrap rather than the mere
+  presence of the word. Restored, all three pass.
+
 ## [0.85.11] - 2026-09-09
 
 Four FFI ABI defects, all of the same shape: a question about how a value crosses the C boundary,
