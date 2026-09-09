@@ -99,40 +99,24 @@ fn render_error_test_body(
     match classify("php", fixture, errors) {
         DeclaredErrorAssertion::Assert(declared) => {
             let pattern = php_pcre_literal(declared);
-            // The failure message is its own single-quoted PHP string literal, separate
-            // from `pattern` (itself already a quoted `'/.../'` literal). Interpolating
-            // `pattern` directly here would nest one single-quoted string inside another
-            // and produce invalid PHP — escape the raw declared value for this string
-            // instead of reusing the pre-quoted PCRE literal.
             let message_value = escape_php_single(declared);
-            out.push_str("        try {\n");
+            // ~keep PHPUnit assertion failures are Exceptions too; assert outside the application's catch.
+            out.push_str("        $caughtException = null;\n        try {\n");
             for line in setup_lines {
                 let _ = writeln!(out, "            {line}");
             }
             let _ = writeln!(out, "            {call_expr};");
-            out.push_str("            $this->fail('Expected an exception to be thrown');\n");
-            out.push_str("        } catch (\\Exception $e) {\n");
-            let _ = writeln!(
+            out.push_str("        } catch (\\Exception $e) {\n            $caughtException = $e;\n        }\n");
+            out.push_str("        $this->assertInstanceOf(\\Exception::class, $caughtException);\n");
+            let _ = write!(
                 out,
-                "            $this->assertTrue(preg_match({pattern}, $e->getMessage()) === 1 || preg_match({pattern}, get_class($e)) === 1, 'expected exception message or class name to match {message_value}');"
+                "        $this->assertTrue(preg_match({pattern}, $caughtException->getMessage()) === 1 || preg_match({pattern}, get_class($caughtException)) === 1, 'expected exception message or class name to match {message_value}');"
             );
-            out.push_str("        }");
         }
-        DeclaredErrorAssertion::Unsubstantiable(variant) => {
-            // ~keep The call must still run inside a try/catch so the test still fails loudly if
-            // it does NOT throw — only the unsatisfiable message-or-class-name comparison is
-            // replaced, not the "the call must fail" half of the coverage.
-            out.push_str("        try {\n");
-            for line in setup_lines {
-                let _ = writeln!(out, "            {line}");
+        declared => {
+            if let DeclaredErrorAssertion::Unsubstantiable(variant) = declared {
+                let _ = writeln!(out, "{}", skip_line("        ", "//", variant, &fixture.id, "php"));
             }
-            let _ = writeln!(out, "            {call_expr};");
-            out.push_str("            $this->fail('Expected an exception to be thrown');\n");
-            out.push_str("        } catch (\\Exception $e) {\n");
-            let _ = writeln!(out, "{}", skip_line("            ", "//", variant, &fixture.id, "php"));
-            out.push_str("        }");
-        }
-        DeclaredErrorAssertion::Undeclared => {
             out.push_str("        $this->expectException(\\Exception::class);\n");
             for line in setup_lines {
                 let _ = writeln!(out, "        {line}");
@@ -693,6 +677,34 @@ mod error_test_body_tests {
     }
 
     #[test]
+    fn unavailable_variant_still_asserts_an_exception_with_phpunit() {
+        let fixture = fixture_with_declared_error("Authentication");
+        let errors = vec![coded_error_def("Authentication")];
+        let body = render_error_test_body(&[], "Client::create()", &fixture, &errors);
+        assert!(body.contains("$this->expectException(\\Exception::class);"), "{body}");
+        assert!(
+            !body.contains("catch ("),
+            "framework failures must not be caught: {body}"
+        );
+        assert!(body.contains("Client::create();"), "the actual call must run: {body}");
+    }
+
+    #[test]
+    fn literal_error_checks_are_outside_the_catch_that_observes_the_call() {
+        let fixture = fixture_with_declared_error("Expected an exception to be thrown");
+        let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
+        let catch_end = body.find("        }\n").expect("catch must end before assertions");
+        let assertion = body
+            .find("$this->assertInstanceOf(\\Exception::class, $caughtException)")
+            .expect("an actual exception must be asserted");
+        assert!(assertion > catch_end, "{body}");
+        assert!(
+            !body.contains("$this->fail("),
+            "do not synthesize an exception the fixture can match: {body}"
+        );
+    }
+
+    #[test]
     fn no_declared_value_is_byte_identical_to_expect_exception() {
         let fixture = Fixture {
             id: "no_error".to_string(),
@@ -718,7 +730,7 @@ mod error_test_body_tests {
         let body = render_error_test_body(&[], "Client::create()", &fixture, &[]);
         assert_eq!(
             body,
-            "        try {\n            Client::create();\n            $this->fail('Expected an exception to be thrown');\n        } catch (\\Exception $e) {\n            $this->assertTrue(preg_match('/BadRequest/', $e->getMessage()) === 1 || preg_match('/BadRequest/', get_class($e)) === 1, 'expected exception message or class name to match BadRequest');\n        }"
+            "        $caughtException = null;\n        try {\n            Client::create();\n        } catch (\\Exception $e) {\n            $caughtException = $e;\n        }\n        $this->assertInstanceOf(\\Exception::class, $caughtException);\n        $this->assertTrue(preg_match('/BadRequest/', $caughtException->getMessage()) === 1 || preg_match('/BadRequest/', get_class($caughtException)) === 1, 'expected exception message or class name to match BadRequest');"
         );
     }
 
@@ -789,7 +801,7 @@ mod error_test_body_tests {
         let body = render_error_test_body(&[], "Client::create()", &fixture, &errors);
         assert_eq!(
             body,
-            "        try {\n            Client::create();\n            $this->fail('Expected an exception to be thrown');\n        } catch (\\Exception $e) {\n            // skipped: declared error variant 'Authentication' not yet preserved as a distinct identity by this backend's generator\n        }"
+            "        // skipped: declared error variant 'Authentication' not yet preserved as a distinct identity by this backend's generator\n        $this->expectException(\\Exception::class);\n        Client::create();"
         );
         assert!(
             !body.contains("assertTrue(preg_match"),
