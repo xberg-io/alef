@@ -34,14 +34,7 @@ pub(super) fn json_to_js(value: &serde_json::Value) -> String {
             let entries: Vec<String> = map
                 .iter()
                 .map(|(k, v)| {
-                    // Quote keys that aren't valid JS identifiers (contain hyphens, spaces, etc.)
-                    let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-                        && !k.starts_with(|c: char| c.is_ascii_digit())
-                    {
-                        k.clone()
-                    } else {
-                        format!("\"{}\"", escape_js(k))
-                    };
+                    let key = js_object_key(k);
                     format!("{key}: {}", json_to_js(v))
                 })
                 .collect();
@@ -70,13 +63,7 @@ pub(super) fn json_to_js_multiline(value: &serde_json::Value, indent: usize) -> 
             let entries: Vec<String> = map
                 .iter()
                 .map(|(k, v)| {
-                    let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-                        && !k.starts_with(|c: char| c.is_ascii_digit())
-                    {
-                        k.clone()
-                    } else {
-                        format!("\"{}\"", escape_js(k))
-                    };
+                    let key = js_object_key(k);
                     format!("{inner_pad}{key}: {},", json_to_js_multiline(v, indent + 2))
                 })
                 .collect();
@@ -89,8 +76,13 @@ pub(super) fn json_to_js_multiline(value: &serde_json::Value, indent: usize) -> 
 
 /// Render `key` as an object-literal key, quoting it when it is not a bare JS identifier
 /// (hyphens, spaces, a leading digit).
+/// Computed `__proto__` remains an own data property instead of changing the prototype. ~keep
 pub(super) fn js_object_key(key: &str) -> String {
-    if key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    if key == "__proto__" {
+        return "[\"__proto__\"]".to_string();
+    }
+    if !key.is_empty()
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
         && !key.starts_with(|c: char| c.is_ascii_digit())
     {
         key.to_string()
@@ -158,61 +150,82 @@ fn resolve_owner_field<'a>(
 /// stays `type`, and the binding only accepts `toolType`, silently leaving the field at its
 /// `#[serde(default)]` value.
 ///
-/// Deliberately narrow in what it changes: only the KEY is resolved through the IR; every VALUE
-/// is still rendered by the plain, non-type-aware converters (`json_to_js`/`json_to_js_camel`
-/// for values whose own nested owner type could not be resolved). This module intentionally does
-/// not reach for `ts_builder_expression`'s enum-literal synthesis
-/// (`declared_enum_member_for_prefixed`/`node_tagged_unit_variant_literal`) here: that machinery
-/// assumes an enum-typed field's fixture value is always one of the enum's declared variants,
-/// which does not hold for an untagged string/composite union modeled as an IR enum over
-/// arbitrary free text (e.g. `ModerationRequest.input: ModerationInput`) or for a fixture that
-/// deliberately sends an undeclared value to exercise an error path (e.g.
-/// `CreateFileRequest.purpose: "invalid-purpose"`) -- routing either through that synthesis
-/// manufactures a nonexistent enum member reference (`ModerationInput.` for an empty string,
-/// `FilePurpose.InvalidPurpose` for a value with no matching variant), a hard compile error in
-/// the first case and a silently wrong test in the second. Every host binding's `ts_type`
-/// override for an enum-typed field already accepts the plain wire string as an alternative
-/// (`ts_type = "ToolType | 'function'"`), so leaving values as plain JS literals is not a
-/// downgrade -- `toolType: "function"` type-checks exactly as `toolType: ToolType.Function`
-/// does. ~keep
+/// Struct keys resolve through their declared fields; explicit Map and Json payloads retain
+/// their data keys verbatim. Container value types propagate recursively so a map's entry keys
+/// remain unchanged while fields inside its typed struct values still resolve correctly.
+/// Unknown struct types and fields retain the legacy camelCase fallback. Values remain literals
+/// rather than synthesized enum members: fixtures may contain free-form union payloads or
+/// intentionally invalid enum values that must reach the binding unchanged. ~keep
 pub(super) fn json_to_js_camel_with_types(
     value: &serde_json::Value,
     current_type_name: Option<&str>,
     type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
-    let owner_type = current_type_name.and_then(|name| type_defs.iter().find(|definition| definition.name == name));
-    match value {
-        serde_json::Value::Object(map) => {
-            let entries: Vec<String> = map
+    let field_type = current_type_name.map(|name| crate::core::ir::TypeRef::Named(name.to_string()));
+    json_to_js_with_type(value, field_type.as_ref(), type_defs)
+}
+
+fn json_to_js_with_type(
+    value: &serde_json::Value,
+    field_type: Option<&crate::core::ir::TypeRef>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> String {
+    use crate::core::ir::TypeRef;
+    if let Some(TypeRef::Optional(inner)) = field_type {
+        return json_to_js_with_type(value, Some(inner), type_defs);
+    }
+    let owner = match field_type {
+        Some(TypeRef::Named(name)) => type_defs.iter().find(|definition| definition.name == *name),
+        _ => None,
+    };
+    match (value, field_type) {
+        (serde_json::Value::Object(map), Some(TypeRef::Map(_, inner))) => {
+            let entries = map
                 .iter()
-                .map(|(k, v)| {
-                    let (key, nested_type_name) = match resolve_owner_field(owner_type, k) {
-                        Some(field) => (
-                            js_object_key(&crate::codegen::naming::to_node_name(&field.name)),
-                            crate::e2e::codegen::call_ir::named_type(&field.ty).map(str::to_string),
-                        ),
-                        None => (js_object_key(&underscore_camel_case(k)), None),
-                    };
+                .map(|(key, value)| {
                     format!(
-                        "{key}: {}",
-                        json_to_js_camel_with_types(v, nested_type_name.as_deref(), type_defs)
+                        "{}: {}",
+                        js_object_key(key),
+                        json_to_js_with_type(value, Some(inner), type_defs)
                     )
                 })
-                .collect();
+                .collect::<Vec<_>>();
             format!("{{ {} }}", entries.join(", "))
         }
-        serde_json::Value::Array(arr) => {
-            // Array elements share the CONTAINER field's already-unwrapped `current_type_name`
-            // (`named_type` unwraps `Vec` alongside `Option`), not a per-index lookup -- there is
-            // no key to resolve a field through at this level, only the element type carried
-            // down from the field that held this array.
-            let items: Vec<String> = arr
+        (serde_json::Value::Object(map), _) if owner.is_some() => {
+            let entries = map
                 .iter()
-                .map(|item| json_to_js_camel_with_types(item, current_type_name, type_defs))
-                .collect();
+                .map(|(key, value)| {
+                    let field = resolve_owner_field(owner, key);
+                    let key = field.map_or_else(
+                        || underscore_camel_case(key),
+                        |field| crate::codegen::naming::to_node_name(&field.name),
+                    );
+                    format!(
+                        "{}: {}",
+                        js_object_key(&key),
+                        json_to_js_with_type(value, field.map(|field| &field.ty), type_defs)
+                    )
+                })
+                .collect::<Vec<_>>();
+            format!("{{ {} }}", entries.join(", "))
+        }
+        (serde_json::Value::Array(items), Some(TypeRef::Vec(inner))) => {
+            let items = items
+                .iter()
+                .map(|value| json_to_js_with_type(value, Some(inner), type_defs))
+                .collect::<Vec<_>>();
             format!("[{}]", items.join(", "))
         }
-        other => json_to_js(other),
+        (serde_json::Value::Array(items), Some(TypeRef::Named(_))) => {
+            let items = items
+                .iter()
+                .map(|value| json_to_js_with_type(value, field_type, type_defs))
+                .collect::<Vec<_>>();
+            format!("[{}]", items.join(", "))
+        }
+        (_, Some(TypeRef::Json)) => json_to_js(value),
+        _ => json_to_js_camel(value),
     }
 }
 

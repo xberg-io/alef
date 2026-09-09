@@ -944,6 +944,9 @@ fn node_value_expression(
         crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     });
+    if matches!(field_type, Some(crate::core::ir::TypeRef::Json)) {
+        return json_to_js(value);
+    }
     if matches!(field_type, Some(crate::core::ir::TypeRef::Bytes)) {
         // Ask the shared classifier rather than assuming array-shaped input — a fixture's
         // `bytes` value is just as often a JSON string (file path / inline text / base64).
@@ -1026,17 +1029,26 @@ fn node_value_expression(
                 };
                 refuse_undeclared_json_keys(object, &definition.name, type_defs, RefusalSite::Nested { via });
             }
+            let map_value_type = match field_type {
+                Some(crate::core::ir::TypeRef::Map(_, value_type)) => Some(value_type.as_ref()),
+                _ => None,
+            };
             let fields = object
                 .iter()
                 .map(|(name, value)| {
-                    let nested_field_type = resolve_owner_field(nested_type, name).map(|field| &field.ty);
-                    let js_key = node_field_public_key(nested_type, name);
+                    let nested_field_type =
+                        map_value_type.or_else(|| resolve_owner_field(nested_type, name).map(|field| &field.ty));
+                    let js_key = if map_value_type.is_some() {
+                        js_object_key(name)
+                    } else {
+                        node_field_public_key(nested_type, name)
+                    };
                     format!(
                         "{}: {}",
                         js_key,
                         node_value_expression(
                             value,
-                            name,
+                            if map_value_type.is_some() { "" } else { name },
                             enum_fields,
                             docs_files,
                             &json_pointer_child(pointer, name),
@@ -1134,3 +1146,6 @@ mod bigint_tests;
 mod tests;
 #[cfg(test)]
 mod wire_name_tests;
+
+#[cfg(test)]
+mod map_json_tests;
