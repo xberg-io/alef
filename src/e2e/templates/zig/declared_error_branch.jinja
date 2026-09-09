@@ -3,7 +3,7 @@
 
     Context variables:
     - kind:               "assert" | "unsubstantiable" | "bare"
-    - module_name:        generated Zig module identifier that exposes `_last_error()`
+    - message_expression: current error message expression for wrapper or raw FFI calls
     - expected:           Zig-escaped declared value (kind == "assert" only)
     - skip_line:          fully indented `// skipped: ..` line (kind == "unsubstantiable" only)
     - unknown_error_name: error-set member every uncoded variant collapses to
@@ -11,7 +11,7 @@
 {% if kind == "assert" %}
     } else |_err| {
         const _err_name = @errorName(_err);
-        const _err_message: []const u8 = {{ module_name }}._last_error() orelse "";
+        const _err_message: []const u8 = {{ message_expression }};
         try testing.expect(std.mem.indexOf(u8, _err_message, "{{ expected }}") != null or std.mem.indexOf(u8, _err_name, "{{ expected }}") != null);
     }
 {% elif kind == "unsubstantiable" %}
@@ -22,7 +22,7 @@
 {# so a binding that loses the message AND collapses the code to the catch-all member fails here. #}
 {# Capturing `_err` and discarding it made this arm pass for any failure whatsoever. ~keep #}
         const _err_name = @errorName(_err);
-        const _err_message: []const u8 = {{ module_name }}._last_error() orelse "";
+        const _err_message: []const u8 = {{ message_expression }};
         try testing.expect(_err_message.len > 0 or !std.mem.eql(u8, _err_name, "{{ unknown_error_name }}"));
     }
 {% else %}
