@@ -59,7 +59,7 @@ impl RValidator {
         command.arg(&checker_path).args(&paths);
         if let Some(session) = session {
             session.apply(&mut command);
-            command.env("R_LIBS_USER", &session.working_directory);
+            super::append_r_library_path(&mut command, &session.working_directory)?;
         }
         let (_, output) = run_command(&mut command, timeout_secs)?;
         Ok(Self::checker_results(&file_names, &output))
@@ -142,7 +142,7 @@ impl RValidator {
         }
         if let Some(value) = session {
             value.apply(&mut command);
-            command.env("R_LIBS_USER", &value.working_directory);
+            super::append_r_library_path(&mut command, &value.working_directory)?;
         }
         let (success, output) = run_command(&mut command, timeout_secs)?;
         Ok(if success {
@@ -280,6 +280,57 @@ mod tests {
         let mut value = undefined_function_snippet();
         value.code = code.into();
         value
+    }
+
+    #[test]
+    fn snippet_environment_preserves_installed_r_libraries_for_single_and_batch_validation() {
+        if !rscript_is_runnable() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temp directory");
+        let library = directory.path().join("installed-library");
+        std::fs::create_dir(&library).expect("library directory");
+        let profile = directory.path().join("startup.R");
+        std::fs::write(
+            &profile,
+            "stopifnot(normalizePath(Sys.getenv('EXPECTED_LIBRARY')) %in% .libPaths())\n",
+        )
+        .expect("startup library assertion");
+        let session = ValidationSession {
+            language: Language::R,
+            working_directory: directory.path().to_path_buf(),
+            manifest: None,
+            fingerprint: "installed-library-fixture".into(),
+            env: std::collections::BTreeMap::from([
+                ("R_LIBS_USER".into(), library.to_string_lossy().into_owned()),
+                ("R_PROFILE_USER".into(), profile.to_string_lossy().into_owned()),
+                ("EXPECTED_LIBRARY".into(), library.to_string_lossy().into_owned()),
+            ]),
+            include_paths: Vec::new(),
+            rust_features: Vec::new(),
+            rust_dependencies: std::collections::BTreeMap::new(),
+        };
+        let snippet = r_snippet("value <- 1\n");
+        let single = RValidator
+            .validate_in_session(
+                &snippet,
+                ValidationLevel::Run,
+                TOOLCHAIN_TEST_TIMEOUT_SECS,
+                Some(&session),
+            )
+            .expect("individual R validation");
+        assert_eq!(
+            single,
+            (SnippetStatus::Pass, None),
+            "installed R library must survive individual validation"
+        );
+        let batch = RValidator::validate_batch_with_context(&[&snippet], TOOLCHAIN_TEST_TIMEOUT_SECS, Some(&session))
+            .expect("batch R validation");
+        assert_eq!(
+            batch,
+            vec![(SnippetStatus::Pass, None)],
+            "installed R library must survive batch validation"
+        );
     }
 
     #[test]
