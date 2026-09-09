@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Refresh compatible hybrid-array and zerocopy dependency patches.
+- Refresh compatible hybrid-array, zerocopy, encoding_rs, and multiversion dependencies.
 
 ### Fixed
 
