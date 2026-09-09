@@ -1,0 +1,179 @@
+use crate::core::config::ResolvedCrateConfig;
+use crate::core::ir::ApiSurface;
+use anyhow::Context;
+use quote::ToTokens;
+use std::collections::{BTreeMap, BTreeSet};
+use syn::parse::Parser;
+
+type FeatureGuards = BTreeMap<String, Vec<String>>;
+
+pub(super) fn specialize(
+    api: &mut ApiSurface,
+    config: &ResolvedCrateConfig,
+    declared: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let guards = dependency_feature_guards(api, config)?;
+    for definition in &mut api.enums {
+        if !crate::codegen::cfg::is_host_owned_rust_path(&api.crate_name, &definition.rust_path) {
+            continue;
+        }
+        for variant in &mut definition.variants {
+            if let Some(cfg) = &variant.cfg {
+                variant.cfg = Some(specialize_cfg(cfg, declared, &guards)?);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn dependency_feature_guards(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<FeatureGuards> {
+    // ~keep Render only: this pure scaffolder is the authority for target edges and core defaults.
+    // Re-deriving its dependency features here would diverge when a target override replaces them.
+    let files = crate::scaffold::languages::php::scaffold_php_cargo(api, config)?;
+    let manifest = files
+        .iter()
+        .find(|file| file.path.ends_with("Cargo.toml"))
+        .context("PHP manifest missing")?;
+    let manifest: toml::Value = toml::from_str(&manifest.content).context("parse generated PHP manifest")?;
+    let mut guards = FeatureGuards::new();
+    add_edge(&mut guards, config, &manifest, "all()")?;
+    if let Some(targets) = manifest.get("target").and_then(toml::Value::as_table) {
+        for (target, table) in targets {
+            let predicate = target
+                .strip_prefix("cfg(")
+                .and_then(|value| value.strip_suffix(')'))
+                .context("generated PHP dependency target must be a cfg predicate")?;
+            add_edge(&mut guards, config, table, predicate)?;
+        }
+    }
+    add_passthrough_edges(&mut guards, config, &manifest);
+    Ok(guards)
+}
+
+fn add_passthrough_edges(guards: &mut FeatureGuards, config: &ResolvedCrateConfig, manifest: &toml::Value) {
+    let Some(features) = manifest.get("features").and_then(toml::Value::as_table) else {
+        return;
+    };
+    let prefix = format!("{}/", config.name);
+    for (binding_feature, members) in features {
+        let requested: Vec<String> = members
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(toml::Value::as_str)
+            .filter_map(|member| member.strip_prefix(&prefix))
+            .map(str::to_owned)
+            .collect();
+        let predicate = format!("feature = {binding_feature:?}");
+        for feature in crate::scaffold::core_feature_closure(config, &requested).0 {
+            guards.entry(feature).or_default().push(predicate.clone());
+        }
+    }
+}
+
+fn add_edge(
+    guards: &mut FeatureGuards,
+    config: &ResolvedCrateConfig,
+    table: &toml::Value,
+    predicate: &str,
+) -> anyhow::Result<()> {
+    let Some(dependency) = table.get("dependencies").and_then(|deps| deps.get(&config.name)) else {
+        return Ok(());
+    };
+    let dependency = dependency
+        .as_table()
+        .context("generated PHP core dependency must be a table")?;
+    let mut requested: Vec<String> = dependency
+        .get("features")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    if dependency
+        .get("default-features")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(true)
+    {
+        requested.extend(crate::scaffold::core_feature_closure(config, &[]).1);
+    }
+    for feature in crate::scaffold::core_feature_closure(config, &requested).0 {
+        guards.entry(feature).or_default().push(predicate.to_string());
+    }
+    Ok(())
+}
+
+fn specialize_cfg(cfg: &str, declared: &BTreeSet<String>, guards: &FeatureGuards) -> anyhow::Result<String> {
+    let predicate: syn::Meta = syn::parse_str(cfg).context("parse PHP enum cfg predicate")?;
+    specialize_meta(&predicate, declared, guards)
+}
+
+fn specialize_meta(meta: &syn::Meta, declared: &BTreeSet<String>, guards: &FeatureGuards) -> anyhow::Result<String> {
+    if let syn::Meta::NameValue(value) = meta
+        && value.path.is_ident("feature")
+        && let syn::Expr::Lit(literal) = &value.value
+        && let syn::Lit::Str(name) = &literal.lit
+    {
+        let name = name.value();
+        let mut alternatives = guards.get(&name).cloned().unwrap_or_default();
+        if alternatives.iter().any(|predicate| predicate == "all()") {
+            return Ok("all()".to_string());
+        }
+        let local = meta.to_token_stream().to_string();
+        if declared.contains(&name) && !alternatives.contains(&local) {
+            alternatives.push(local);
+        }
+        return Ok(match alternatives.as_slice() {
+            [only] => only.clone(),
+            _ => format!("any({})", alternatives.join(", ")),
+        });
+    }
+    if let syn::Meta::List(list) = meta
+        && ["all", "any", "not"].iter().any(|name| list.path.is_ident(name))
+    {
+        let members = syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated
+            .parse2(list.tokens.clone())
+            .context("parse PHP compound enum cfg")?;
+        let members = members
+            .iter()
+            .map(|member| specialize_meta(member, declared, guards))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        return Ok(format!("{}({})", list.path.to_token_stream(), members.join(", ")));
+    }
+    Ok(meta.to_token_stream().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compound_guards_preserve_targets_and_toggleable_features() {
+        let declared = BTreeSet::from(["optional".to_string()]);
+        let guards = BTreeMap::from([("forced".to_string(), vec!["all()".to_string()])]);
+        for (input, expected) in [
+            (
+                r#"all(feature = "forced", target_os = "linux")"#,
+                r#"all(all(), target_os = "linux")"#,
+            ),
+            (
+                r#"any(feature = "forced", feature = "optional")"#,
+                r#"any(all(), feature = "optional")"#,
+            ),
+            (r#"not(feature = "forced")"#, "not(all())"),
+            (r#"feature = "missing""#, "any()"),
+        ] {
+            assert_eq!(specialize_cfg(input, &declared, &guards).expect("specialize"), expected);
+        }
+    }
+
+    #[test]
+    fn target_specific_dependency_feature_remains_target_specific() {
+        let guards = BTreeMap::from([("remote".to_string(), vec![r#"target_os = "linux""#.to_string()])]);
+        assert_eq!(
+            specialize_cfg(r#"feature = "remote""#, &BTreeSet::new(), &guards).expect("cfg"),
+            r#"target_os = "linux""#
+        );
+    }
+}

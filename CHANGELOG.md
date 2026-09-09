@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Specialize PHP enum conversion guards to the core dependency feature configuration.
+
 - Require native RuntimeError exceptions in Ruby streaming error tests and preserve declared message checks and unsupported error-identity diagnostics.
 
 - Swift documentation examples inherit the configured client factory, use native error handling, preserve indexed JSON paths, and present already-collected stream chunks.

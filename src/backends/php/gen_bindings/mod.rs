@@ -2,8 +2,11 @@
 mod cfg_field_e2e_tests;
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
+mod enum_cfg;
 mod functions;
 mod helpers;
+#[cfg(test)]
+mod host_enum_feature_tests;
 mod opaque_files;
 mod php_types;
 mod public_api;

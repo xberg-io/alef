@@ -100,7 +100,7 @@ fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
 
 pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     // host method so the generated `#[php_impl]` block does not emit duplicate associated
-    let deduped_api = api.with_deduped_functions();
+    let mut deduped_api = api.with_deduped_functions();
     let api = &deduped_api;
 
     let data_enum_names: AHashSet<String> = api
@@ -171,6 +171,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let php_declared_features = crate::scaffold::languages::php::php_declared_features(api, &php_excluded_default);
     let php_declared_features_set: std::collections::HashSet<&str> =
         php_declared_features.iter().map(String::as_str).collect();
+    super::enum_cfg::specialize(&mut deduped_api, config, &php_declared_features)?;
+    let api = &deduped_api;
 
     let php_config = config.php.as_ref();
     let exclude_functions = php_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
