@@ -293,7 +293,7 @@ mod tests {
         let profile = directory.path().join("startup.R");
         std::fs::write(
             &profile,
-            "stopifnot(normalizePath(Sys.getenv('EXPECTED_LIBRARY')) %in% .libPaths())\n",
+            "stopifnot(normalizePath(Sys.getenv('EXPECTED_LIBRARY'), winslash = '/', mustWork = TRUE) %in% .libPaths())\n",
         )
         .expect("startup library assertion");
         let session = ValidationSession {
@@ -331,6 +331,37 @@ mod tests {
             vec![(SnippetStatus::Pass, None)],
             "installed R library must survive batch validation"
         );
+        assert_unregistered_library_fails(directory.path(), session, &snippet);
+    }
+
+    fn assert_unregistered_library_fails(directory: &std::path::Path, session: ValidationSession, snippet: &Snippet) {
+        let unregistered_library = directory.join("unregistered-library");
+        std::fs::create_dir(&unregistered_library).expect("unregistered library directory");
+        let mut mismatched_session = session;
+        mismatched_session.env.insert(
+            "EXPECTED_LIBRARY".into(),
+            unregistered_library.to_string_lossy().into_owned(),
+        );
+        let single = RValidator
+            .validate_in_session(
+                snippet,
+                ValidationLevel::Run,
+                TOOLCHAIN_TEST_TIMEOUT_SECS,
+                Some(&mismatched_session),
+            )
+            .expect("individual R negative control");
+        let batch =
+            RValidator::validate_batch_with_context(&[snippet], TOOLCHAIN_TEST_TIMEOUT_SECS, Some(&mismatched_session))
+                .expect("batch R negative control");
+        assert_eq!(batch.len(), 1);
+        for (status, diagnostic) in std::iter::once(single).chain(batch) {
+            assert_eq!(status, SnippetStatus::Fail);
+            assert!(
+                diagnostic
+                    .expect("library assertion diagnostic")
+                    .contains("is not TRUE")
+            );
+        }
     }
 
     #[test]
