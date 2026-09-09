@@ -54,7 +54,7 @@ impl NativeCall<'_> {
         }
 
         out.push_str(self.call_indent);
-        if *self.return_type != TypeRef::Unit {
+        if *self.return_type != TypeRef::Unit || self.has_error_type {
             out.push_str("var nativeResult = ");
         }
         out.push_str(
@@ -105,6 +105,12 @@ impl NativeCall<'_> {
 
     fn emit_result_check(&self, out: &mut String) {
         if *self.return_type == TypeRef::Unit {
+            if self.has_error_type {
+                out.push_str(&render(
+                    "status_error_throw.jinja",
+                    minijinja::context! { indent => self.call_indent },
+                ));
+            }
             return;
         }
         if returns_ptr(self.return_type) {

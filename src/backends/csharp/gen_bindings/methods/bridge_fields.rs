@@ -141,7 +141,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
         minijinja::context! { options_pascal, field_name_pascal, options_param_camel },
     ));
 
-    if func.return_type != TypeRef::Unit {
+    if func.return_type != TypeRef::Unit || func.error_type.is_some() {
         out.push_str("                    var nativeResult = ");
     } else {
         out.push_str("                    ");
@@ -175,6 +175,13 @@ pub(super) fn gen_bridge_field_wrapper_function(
     }
     out.push_str(");\n");
 
+    if func.return_type == TypeRef::Unit && func.error_type.is_some() {
+        out.push_str(&render(
+            "status_error_throw.jinja",
+            minijinja::context! { indent => "                    " },
+        ));
+    }
+
     if func.return_type != TypeRef::Unit {
         let zero = zero_sentinel(&func.return_type);
         out.push_str(&format!(
@@ -203,7 +210,7 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str("            else\n");
     out.push_str("            {\n");
 
-    if func.return_type != TypeRef::Unit {
+    if func.return_type != TypeRef::Unit || func.error_type.is_some() {
         out.push_str("                var nativeResult = ");
     } else {
         out.push_str("                ");
@@ -223,6 +230,13 @@ pub(super) fn gen_bridge_field_wrapper_function(
         out.push_str(arg);
     }
     out.push_str(");\n");
+
+    if func.return_type == TypeRef::Unit && func.error_type.is_some() {
+        out.push_str(&render(
+            "status_error_throw.jinja",
+            minijinja::context! { indent => "                " },
+        ));
+    }
 
     if func.return_type != TypeRef::Unit {
         let zero = zero_sentinel(&func.return_type);
