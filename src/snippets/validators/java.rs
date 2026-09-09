@@ -184,7 +184,15 @@ impl JavaValidator {
     }
 
     fn batch_results(units: &[JavaBatchUnit], warnings_fail: bool, success: bool, output: &str) -> BatchValidation {
-        let (diagnostics, mut unmatched) = Self::split_diagnostics(output);
+        let (diagnostics, unmatched) = Self::split_diagnostics(output);
+        let mut global = unmatched
+            .iter()
+            .filter(|line| {
+                (line.starts_with("error:") && *line != "error: warnings found and -Werror specified")
+                    || (warnings_fail && line.starts_with("warning:"))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
         let mut attributed = vec![Vec::<String>::new(); units.len()];
         for diagnostic in diagnostics {
             if diagnostic.severity == DiagnosticSeverity::Warning && !warnings_fail {
@@ -192,7 +200,7 @@ impl JavaValidator {
             }
             let owners = Self::owning_units(units, &diagnostic.path);
             if owners.is_empty() {
-                unmatched.push(diagnostic.text);
+                global.push(diagnostic.text);
                 continue;
             }
             for owner in owners {
@@ -200,19 +208,22 @@ impl JavaValidator {
             }
         }
         let attributed_any = attributed.iter().any(|messages| !messages.is_empty());
-        let fallback = (!success && !attributed_any).then(|| {
-            if unmatched.is_empty() {
+        if global.is_empty() && !success && !attributed_any {
+            global.push(if unmatched.is_empty() {
                 "javac failed without a snippet-specific diagnostic".to_string()
             } else {
                 unmatched.join("\n")
-            }
-        });
+            });
+        }
         attributed
             .into_iter()
-            .map(|messages| match (messages.is_empty(), &fallback) {
-                (true, Some(message)) => (SnippetStatus::Fail, Some(message.clone())),
-                (true, None) => (SnippetStatus::Pass, None),
-                (false, _) => (SnippetStatus::Fail, Some(messages.join("\n"))),
+            .map(|mut messages| {
+                messages.extend(global.iter().cloned());
+                if messages.is_empty() {
+                    (SnippetStatus::Pass, None)
+                } else {
+                    (SnippetStatus::Fail, Some(messages.join("\n")))
+                }
             })
             .collect()
     }
@@ -247,8 +258,12 @@ impl JavaValidator {
             let Some(index) = line.find(marker) else {
                 continue;
             };
-            let (path, number) = line[..index].rsplit_once(':')?;
-            if !path.is_empty() && !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()) {
+            let prefix = &line[..index];
+            let path = match prefix.rsplit_once(':') {
+                Some((path, number)) if !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()) => path,
+                _ => prefix,
+            };
+            if !path.is_empty() {
                 return Some((path, severity));
             }
         }
@@ -767,21 +782,6 @@ mod tests {
         );
     }
 
-    /// A javac run that failed with nothing attributable must fail every snippet carrying the real
-    /// output — never silently pass the batch. ~keep
-    #[test]
-    fn an_unattributable_javac_failure_fails_every_snippet_with_the_real_output() {
-        let units = [batch_unit("sfirst"), batch_unit("ssecond")];
-
-        let results = JavaValidator::batch_results(&units, false, false, "error: invalid flag: --nonsense\n");
-
-        assert_eq!(results.len(), 2);
-        for result in &results {
-            assert_eq!(result.0, SnippetStatus::Fail);
-            assert_eq!(result.1.as_deref(), Some("error: invalid flag: --nonsense"));
-        }
-    }
-
     /// `-Werror` is only passed at `TypeCheck`, so a warning must fail its snippet there and be
     /// ignored at `Compile` — exactly what the per-snippet path does with the same flags. ~keep
     #[test]
@@ -989,3 +989,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "java_global_diagnostics_tests.rs"]
+mod global_diagnostics_tests;
