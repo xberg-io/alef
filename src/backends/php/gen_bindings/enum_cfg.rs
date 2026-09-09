@@ -12,7 +12,21 @@ pub(super) fn specialize(
     config: &ResolvedCrateConfig,
     declared: &BTreeSet<String>,
 ) -> anyhow::Result<()> {
-    let guards = dependency_feature_guards(api, config)?;
+    let mut feature_names = BTreeSet::new();
+    for definition in &api.enums {
+        if crate::codegen::cfg::is_host_owned_rust_path(&api.crate_name, &definition.rust_path) {
+            for variant in &definition.variants {
+                if let Some(cfg) = &variant.cfg {
+                    crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut feature_names);
+                }
+            }
+        }
+    }
+    let guards = if feature_names.is_empty() {
+        FeatureGuards::new()
+    } else {
+        dependency_feature_guards(api, config)?
+    };
     for definition in &mut api.enums {
         if !crate::codegen::cfg::is_host_owned_rust_path(&api.crate_name, &definition.rust_path) {
             continue;
@@ -189,6 +203,68 @@ fn fold_members(operator: &str, mut members: Vec<String>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unguarded_host_and_external_enums_generate_without_scaffold_configuration() {
+        use crate::core::backend::Backend;
+        use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
+        for rust_path in ["sample::Outcome", "external::Outcome"] {
+            let api = ApiSurface {
+                crate_name: "sample".into(),
+                enums: vec![EnumDef {
+                    name: "Outcome".into(),
+                    rust_path: rust_path.into(),
+                    serde_tag: Some("wire_tag".into()),
+                    serde_content: Some("wire_content".into()),
+                    has_serde: true,
+                    variants: vec![EnumVariant {
+                        name: "Ready".into(),
+                        is_tuple: true,
+                        fields: vec![FieldDef {
+                            name: "0".into(),
+                            ty: TypeRef::String,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let files = crate::backends::php::PhpBackend
+                .generate_bindings(&api, &ResolvedCrateConfig::default())
+                .unwrap_or_else(|error| panic!("{rust_path}: {error:#}"));
+            assert!(
+                files.iter().any(|file| file.content.contains("wire_tag")),
+                "{rust_path}"
+            );
+        }
+    }
+
+    #[test]
+    fn target_only_host_and_feature_guarded_external_enums_need_no_core_manifest() {
+        use crate::core::ir::{EnumDef, EnumVariant};
+        for (rust_path, cfg) in [
+            ("sample::Outcome", "unix"),
+            ("external::Outcome", r#"feature = "remote""#),
+        ] {
+            let mut api = ApiSurface {
+                crate_name: "sample".into(),
+                enums: vec![EnumDef {
+                    rust_path: rust_path.into(),
+                    variants: vec![EnumVariant {
+                        cfg: Some(cfg.into()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            specialize(&mut api, &ResolvedCrateConfig::default(), &BTreeSet::new())
+                .unwrap_or_else(|error| panic!("{rust_path}: {error:#}"));
+            assert_eq!(api.enums[0].variants[0].cfg.as_deref(), Some(cfg));
+        }
+    }
 
     #[test]
     fn compound_guards_preserve_targets_and_toggleable_features() {
