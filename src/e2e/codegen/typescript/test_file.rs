@@ -46,6 +46,13 @@ mod resolver_metadata_wiring_tests;
 mod result_enum_import_invariant_tests;
 mod snippet;
 #[cfg(test)]
+mod snippet_error_stream_tests;
+mod snippet_stream_resources;
+#[cfg(test)]
+mod snippet_stream_runtime_tests;
+#[cfg(test)]
+mod snippet_stream_tests;
+#[cfg(test)]
 mod stream_adapter_item_tests;
 #[cfg(test)]
 mod tagged_union_wiring_tests;

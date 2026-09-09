@@ -305,20 +305,40 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
         imports.insert(name.to_string());
     }
 
+    let stream_item_binding = super::snippet_stream_resources::item_binding(fixture, e2e_config, call, lang);
+    let wasm_stream_core_type = if lang == "wasm" && stream_item_binding.is_some() {
+        super::snippet_stream_resources::item_type(call, config, &function_name, type_defs)
+    } else {
+        None
+    };
+    let wasm_stream_item_type = wasm_stream_core_type.map(import_name);
+    if let Some(name) = &wasm_stream_item_type {
+        imports.insert(name.clone());
+    }
+    let presentation =
+        crate::e2e::codegen::presentation::resolve(fixture, e2e_config, lang, type_defs, enums, functions);
+    let wasm_stream_resources = match (wasm_stream_core_type, stream_item_binding.as_deref()) {
+        (Some(item_type), Some(root)) => {
+            super::snippet_stream_resources::plans(&presentation, item_type, type_defs, root)
+        }
+        _ => Vec::new(),
+    };
     crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
         minijinja::context! {
             imports => imports.into_iter().collect::<Vec<_>>(), module => module,
             setup_lines => setup_lines, client_setup => client_setup, call_expr => call_expr,
             result_var => call.effective_result_var(),
-            is_async => override_config.and_then(|value| value.r#async).unwrap_or(call.r#async),
+            is_async => stream_item_binding.is_some() || override_config.and_then(|value| value.r#async).unwrap_or(call.r#async),
+            stream_item_binding => stream_item_binding,
+            wasm_stream => lang == "wasm",
+            wasm_stream_item_type => wasm_stream_item_type,
+            wasm_stream_resources => wasm_stream_resources,
             expects_error => expects_error, client_release => client_release,
             error_type => error_type_name.clone(),
             thrown_value_is_opaque => lang == "wasm",
             returns_void => call.returns_void,
-            presentation => crate::e2e::codegen::presentation::resolve(
-                fixture, e2e_config, lang, type_defs, enums, functions,
-            ),
+            presentation => presentation,
         },
     )
 }

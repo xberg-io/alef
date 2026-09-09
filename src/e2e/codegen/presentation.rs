@@ -135,7 +135,7 @@ pub(crate) fn resolve(
 }
 
 pub(crate) fn stream_item_binding(fixture: &Fixture, config: &E2eConfig, language: &str) -> Option<String> {
-    if !matches!(language, "go" | "java" | "dart" | "python") {
+    if !matches!(language, "go" | "java" | "dart" | "python" | "node" | "wasm") {
         return None;
     }
     let call = config.resolve_call_for_fixture(

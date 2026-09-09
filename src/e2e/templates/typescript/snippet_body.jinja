@@ -9,8 +9,22 @@ async function main() {
   {{ client_setup }}
 {% endif %}
 {% if expects_error %}  try {
-    await {{ call_expr }};
-  } catch (error) {
+{% if stream_item_binding %}    const {{ result_var }} = await {{ call_expr }};
+{% if wasm_stream %}    try {
+      while (true) {
+        const {{ stream_item_binding }}{% if wasm_stream_item_type %}: {{ wasm_stream_item_type }} | null{% endif %} = await {{ result_var }}.next();
+        if ({{ stream_item_binding }} === null) break;
+{% if wasm_stream_item_type %}        {{ stream_item_binding }}.free();
+{% endif %}      }
+    } finally {
+      {{ result_var }}.free();
+    }
+{% else %}    for await (const {{ stream_item_binding }} of {{ result_var }}) {
+      void {{ stream_item_binding }};
+    }
+{% endif %}
+{% else %}    await {{ call_expr }};
+{% endif %}  } catch (error) {
 {% if thrown_value_is_opaque %}    console.error(String(error));
 {% else %}    if (error instanceof {{ error_type }}) {
       console.error(`${error.name}: ${error.message}`);
@@ -23,20 +37,63 @@ async function main() {
 {% if client_release %}  try {
 {% endif %}
 {{ body_indent }}const {{ result_var }} = await {{ call_expr }};
+{% set stream_indent = body_indent %}
+{% if stream_item_binding %}
+{% if wasm_stream %}{{ stream_indent }}try {
+{{ stream_indent }}  while (true) {
+{{ stream_indent }}    const {{ stream_item_binding }}{% if wasm_stream_item_type %}: {{ wasm_stream_item_type }} | null{% endif %} = await {{ result_var }}.next();
+{{ stream_indent }}    if ({{ stream_item_binding }} === null) break;
+{% if wasm_stream_item_type %}{{ stream_indent }}    try {
+{% set body_indent = stream_indent ~ "      " %}
+{% else %}{% set body_indent = stream_indent ~ "    " %}
+{% endif %}
+{% else %}{{ stream_indent }}for await (const {{ stream_item_binding }} of {{ result_var }}) {
+{% set body_indent = stream_indent ~ "  " %}
+{% endif %}
+{% endif %}
 {% for operation in presentation %}
+{% set operation_indent = body_indent %}
+{% set resource_plan = wasm_stream_resources[loop.index0] if wasm_stream_resources else none %}
+{% if resource_plan %}
+{% for resource in resource_plan.resources %}
+{% set resource_indent = operation_indent ~ ("  " * loop.index0) %}
+{{ resource_indent }}const {{ resource.binding }} = {{ resource.initializer }};
+{{ resource_indent }}try {
+{% endfor %}
+{% set body_indent = operation_indent ~ ("  " * (resource_plan.resources | length)) %}
+{% endif %}
 {% if operation.kind == "show" %}{% if operation.guard_condition %}{{ body_indent }}const {{ operation.guard_binding }} = {{ operation.guard_source }};
 {{ body_indent }}if ({{ operation.guard_condition }}) {
 {{ body_indent }}  console.log({{ operation.expression }});
 {{ body_indent }}}
-{% else %}{{ body_indent }}console.log({{ operation.expression }});
+{% else %}{{ body_indent }}console.log({{ resource_plan.expression if resource_plan else operation.expression }});
 {% endif %}
 {% else %}{% if operation.destructure_source %}{{ body_indent }}const [{{ operation.destructure_item }}] = {{ operation.destructure_source }};
 {% endif %}{{ body_indent }}for (const {{ operation.item }} of {{ operation.expression }}{% if operation.optional %} ?? []{% endif %}) {
 {% for field in operation.fields %}{{ body_indent }}  console.log({{ field }});
 {% endfor %}{{ body_indent }}}
 {% endif %}
+{% if resource_plan %}
+{% for resource in resource_plan.resources | reverse %}
+{% set resource_indent = operation_indent ~ ("  " * loop.revindex0) %}
+{{ resource_indent }}} finally {
+{{ resource_indent }}  {{ resource.release }}
+{{ resource_indent }}}
 {% endfor %}
-{% if not presentation and not returns_void %}{{ body_indent }}console.log({{ result_var }});
+{% endif %}
+{% endfor %}
+{% if not presentation and not returns_void %}{{ body_indent }}console.log({{ stream_item_binding or result_var }});
+{% endif %}
+{% if stream_item_binding %}
+{% if wasm_stream %}{% if wasm_stream_item_type %}{{ stream_indent }}    } finally {
+{{ stream_indent }}      {{ stream_item_binding }}.free();
+{{ stream_indent }}    }
+{% endif %}{{ stream_indent }}  }
+{{ stream_indent }}} finally {
+{{ stream_indent }}  {{ result_var }}.free();
+{{ stream_indent }}}
+{% else %}{{ stream_indent }}}
+{% endif %}
 {% endif %}
 {% if client_release %}  } finally {
     {{ client_release }}
