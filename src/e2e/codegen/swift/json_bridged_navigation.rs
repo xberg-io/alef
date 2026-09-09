@@ -299,6 +299,7 @@ mod tests {
         };
         let extracted_document = TypeDef {
             name: "ExtractedDocument".to_string(),
+            is_opaque: true,
             fields: vec![FieldDef {
                 name: "metadata".to_string(),
                 ty: TypeRef::Named("Metadata".to_string()),
@@ -385,6 +386,7 @@ mod tests {
 
         let extracted_document = TypeDef {
             name: "ExtractedDocument".to_string(),
+            is_opaque: true,
             fields: vec![FieldDef {
                 name: "results".to_string(),
                 ty: TypeRef::Vec(Box::new(TypeRef::Named("ChunkingResult".to_string()))),

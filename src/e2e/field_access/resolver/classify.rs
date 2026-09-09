@@ -142,14 +142,18 @@ impl FieldResolver {
             .or_else(|| self.ir_enum_map.root_type.clone())
             .or_else(|| map.root_type.clone());
         let mut prefix: Vec<&str> = Vec::with_capacity(segments.len());
+        // ~keep Match accessor rendering: once a path enters RustBridge, nested DTOs stay opaque.
+        let mut opaque = false;
         for (index, segment) in segments.iter().enumerate() {
+            opaque |= !map.is_first_class(cursor.as_deref());
             let bare = segment.split('[').next().unwrap_or(segment);
             prefix.push(bare);
             let steps_past = index < last || segment.contains('[') || steps_past_leaf;
-            let bridged = cursor
-                .as_deref()
-                .and_then(|owner| map.json_bridged_getter(owner, bare))
-                .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
+            let bridged = opaque
+                && cursor
+                    .as_deref()
+                    .and_then(|owner| map.json_bridged_getter(owner, bare))
+                    .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
             if steps_past && bridged {
                 return Some(prefix.join("."));
             }
@@ -221,13 +225,17 @@ impl FieldResolver {
             .or_else(|| self.ir_enum_map.root_type.clone())
             .or_else(|| map.root_type.clone());
         let mut prefix: Vec<&str> = Vec::with_capacity(segments.len());
+        // ~keep Match accessor rendering: once a path enters RustBridge, nested DTOs stay opaque.
+        let mut opaque = false;
         for (index, segment) in segments.iter().enumerate() {
+            opaque |= !map.is_first_class(cursor.as_deref());
             let bare = segment.split('[').next().unwrap_or(segment);
             let steps_past = index < last || segment.contains('[');
-            let bridged = cursor
-                .as_deref()
-                .and_then(|owner| map.json_bridged_getter(owner, bare))
-                .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
+            let bridged = opaque
+                && cursor
+                    .as_deref()
+                    .and_then(|owner| map.json_bridged_getter(owner, bare))
+                    .unwrap_or_else(|| map.is_json_bridged_field_name(bare));
             if steps_past && bridged {
                 prefix.push(bare);
                 let mut steps = Vec::new();
