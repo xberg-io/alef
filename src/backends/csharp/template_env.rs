@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "status_error_throw.jinja",
+        include_str!("templates/status_error_throw.jinja"),
+    ),
+    (
         "async_task_return_type.jinja",
         include_str!("templates/async_task_return_type.jinja"),
     ),

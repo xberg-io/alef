@@ -7,3 +7,6 @@ mod native_call;
 mod wrappers;
 
 pub(super) use class::gen_wrapper_class;
+
+#[cfg(test)]
+mod fallible_void_tests;

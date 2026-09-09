@@ -107,7 +107,7 @@ pub(super) fn gen_pinvoke_for_func(
 ) -> String {
     let cs_name = to_csharp_name(&func.name);
     let is_bytes_result = is_bytes_result_func(func);
-    let return_type = if is_bytes_result {
+    let return_type = if is_bytes_result || (func.return_type == TypeRef::Unit && func.error_type.is_some()) {
         "int"
     } else {
         pinvoke_return_type_with_capsules(&func.return_type, capsule_types, FfiEmitter::FreeFunction)
@@ -139,7 +139,7 @@ pub(super) fn gen_pinvoke_for_method(
     scalar_named_types: &ahash::AHashSet<String>,
 ) -> String {
     let is_bytes_result = is_bytes_result_method(method);
-    let return_type = if is_bytes_result {
+    let return_type = if is_bytes_result || (method.return_type == TypeRef::Unit && method.error_type.is_some()) {
         "int"
     } else {
         pinvoke_return_type_with_capsules(&method.return_type, capsule_types, FfiEmitter::Method)

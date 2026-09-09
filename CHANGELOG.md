@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve the native int32 status for C# bindings of fallible void functions and methods, and propagate failures
+  from synchronous, asynchronous, and trait-bridge wrappers without changing their public void or Task return types.
+
 ## [0.85.10] - 2026-09-09
 
 Combined release. Carries the enterprise consumer-correction work, the R/Ruby, adopted-marker and
