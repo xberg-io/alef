@@ -33,6 +33,8 @@ pub(super) fn render_snippet_body(
     // and that fallback has nothing to read once this function empties the list. ~keep
     let presentation =
         crate::e2e::codegen::presentation::resolve(&call_fixture, e2e_config, "python", type_defs, enums, functions);
+    let stream_item_binding =
+        crate::e2e::codegen::presentation::stream_item_binding(&call_fixture, e2e_config, "python");
     call_fixture.assertions.clear();
     call_fixture.mock_response = None;
     // With `mock_response` cleared, `test_function`'s `client_factory` path falls through
@@ -153,6 +155,7 @@ pub(super) fn render_snippet_body(
             typed_error_type => typed_branch.as_ref().map(|branch| branch.host_type.clone()),
             result_var => call.effective_result_var(),
             returns_void => call.returns_void,
+            stream_item_binding => stream_item_binding,
         },
     ))
 }
@@ -180,6 +183,10 @@ fn extract_python_snippet(rendered: &str) -> Result<(Vec<&str>, Vec<&str>, bool)
 #[cfg(test)]
 #[path = "snippet_iterate_empty_fields_tests.rs"]
 mod snippet_iterate_empty_fields_tests;
+
+#[cfg(test)]
+#[path = "snippet_streaming_presentation_tests.rs"]
+mod snippet_streaming_presentation_tests;
 
 #[cfg(test)]
 mod tests {
