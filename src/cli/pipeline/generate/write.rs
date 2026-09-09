@@ -60,7 +60,7 @@ pub fn stampable_output_paths(
 }
 
 /// Whether the file already on disk at `path` declares itself alef-generated.
-fn disk_carries_alef_marker(path: &Path) -> bool {
+pub(super) fn disk_carries_alef_marker(path: &Path) -> bool {
     std::fs::read_to_string(path).is_ok_and(|content| hash::content_has_alef_marker(&content))
 }
 
@@ -577,7 +577,10 @@ pub fn write_files_report(files: &[(Language, Vec<GeneratedFile>)], base_dir: &P
             // marker-driven staleness walk -- where the consumer's first hand-edit makes it
             // permanently stale with no reachable remedy, which is the stable bad state this
             // declaration exists to end. ~keep
-            let normalized = if file.generated_header && !declared.matches(base_dir, &full_path) {
+            // Explicit adoption remains durable even when this emitter produces an unmarked seed. ~keep
+            let normalized = if !declared.matches(base_dir, &full_path)
+                && (file.generated_header || disk_carries_alef_marker(&full_path))
+            {
                 ensure_generated_header(&full_path, &normalized)
             } else {
                 if hash::content_has_alef_marker(&normalized) {
