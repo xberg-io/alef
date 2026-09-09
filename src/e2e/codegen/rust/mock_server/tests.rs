@@ -31,8 +31,17 @@ fn render_mock_server_binary_encodes_declared_content_encoding() {
         "the old strip must be gone; leaving it makes the client decompression paths dead code"
     );
     assert!(
-        out.contains("cannot produce (only gzip is supported)"),
+        out.contains("cannot produce (only gzip and br are supported)"),
         "an unsupported encoding must be a loud error, not a silent unencoded body"
+    );
+    // br is pinned separately from gzip because the two reached the server by different
+    // routes: gzip was the encoding the feature was written for, br was the encoding the
+    // first consumer's fixtures actually declared. Serving br was a hard panic, and since
+    // the panic takes the shared mock server down it failed every later test in the suite
+    // as a connection error, which reads as harness death rather than a missing codec.
+    assert!(
+        out.contains(r#"Some("br")"#) && out.contains("BrotliCompress"),
+        "mock server must brotli-encode a body whose fixture declares content-encoding: br"
     );
 }
 

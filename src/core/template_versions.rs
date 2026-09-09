@@ -206,6 +206,15 @@ pub mod cargo {
     /// `content-encoding: gzip` is served a genuinely encoded body. ~keep
     pub const FLATE2: &str = "1";
 
+    /// brotli encoder for the generated mock server, so a fixture declaring
+    /// `content-encoding: br` is served a genuinely encoded body rather than
+    /// aborting the server. Tracks the 9.x line for the reason spelled out above
+    /// the allocator trio: 9.x is what a consumer's own crates depend on directly,
+    /// and the transitive 8.0.x copy pulled in through compression-codecs coexists
+    /// with it rather than replacing it. ~keep
+    // renovate: datasource=crate depName=brotli
+    pub const BROTLI: &str = "9";
+
     // renovate: datasource=crate depName=tower-http
     pub const TOWER_HTTP: &str = "0.7";
 

@@ -98,8 +98,10 @@ fn serve_route(route: &MockRoute) -> Response {
         };
         builder = builder.header("content-type", default_ct);
     }
-    // A fixture that declares `content-encoding` now gets a body actually encoded that
-    // way. This server used to strip the header and serve plain bytes instead, which was
+    // A fixture that declares `content-encoding` gets a body actually encoded that way --
+    // gzip and br. br is not optional coverage: a consumer with a brotli compression
+    // fixture is the first thing this hard error meets, and a panic here kills the server
+    // for every later test in the suite, not just the compression one. This server used to strip the header and serve plain bytes instead, which was
     // safe but left every client-side decompression branch unreachable in every suite --
     // so a compression regression in any binding's HTTP surface could not fail a single
     // test (xberg-io/xberg#1598). An unsupported encoding is a hard error rather than a
@@ -118,10 +120,20 @@ fn serve_route(route: &MockRoute) -> Response {
             encoder.write_all(&route.body).expect("mock-server: gzip encode failed");
             encoder.finish().expect("mock-server: gzip finish failed")
         }
+        Some("br") => {
+            let mut encoded = Vec::new();
+            brotli::BrotliCompress(
+                &mut route.body.as_slice(),
+                &mut encoded,
+                &brotli::enc::BrotliEncoderParams::default(),
+            )
+            .expect("mock-server: brotli encode failed");
+            encoded
+        }
         Some(other) => panic!(
             "mock-server: fixture declares content-encoding {other:?}, which this server \
-             cannot produce (only gzip is supported). Serving an unencoded body under that \
-             header would make clients fail to decode."
+             cannot produce (only gzip and br are supported). Serving an unencoded body under \
+             that header would make clients fail to decode."
         ),
     };
     for (name, value) in &route.headers {

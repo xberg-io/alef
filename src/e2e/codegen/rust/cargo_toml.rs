@@ -121,6 +121,7 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
     }
     if needs_mock_server {
         machete_ignored.push("\"flate2\"");
+        machete_ignored.push("\"brotli\"");
     }
     if needs_tokio_stream {
         machete_ignored.push("\"tokio-stream\"");
@@ -203,6 +204,10 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
             dep_entries.push((
                 "flate2".to_string(),
                 format!("flate2 = \"{flate2}\"", flate2 = tv::cargo::FLATE2),
+            ));
+            dep_entries.push((
+                "brotli".to_string(),
+                format!("brotli = \"{brotli}\"", brotli = tv::cargo::BROTLI),
             ));
         }
         if needs_http_tests {
