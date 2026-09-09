@@ -165,3 +165,75 @@ fn failed_same_version_rebuild_invalidates_previous_success() {
         );
     }
 }
+
+/// A bridge edit with no version change must still rebuild.
+///
+/// `updated` lists version-stamped files only, so it can never mention the FFI sources. Using it
+/// as the whole notion of "nothing changed" let a recorded success survive an edit that broke the
+/// bridge: `sync-versions` exited 0 reporting "Version sync complete" while the bridge no longer
+/// compiled. This is the defect Windows CI surfaced through
+/// `failed_same_version_rebuild_invalidates_previous_success`, but it reproduces on every platform
+/// — Windows only differed in that its `updated` happened to come back empty. ~keep
+#[test]
+fn changed_ffi_source_rebuilds_even_when_no_version_moves() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path();
+    fixture(root, true);
+    fs::create_dir_all(root.join("packages/ffi/src")).expect("FFI directory");
+    fs::write(
+        root.join("packages/ffi/Cargo.toml"),
+        "[package]\nname = 'custom-bridge'\nversion = '1.2.3'\nedition = '2024'\n",
+    )
+    .expect("FFI manifest");
+    fs::write(root.join("packages/ffi/src/lib.rs"), "pub fn bridge() {}\n").expect("FFI source");
+    assert!(run(root).status.success(), "initial sync should build the bridge");
+
+    // Leave every version alone, so `updated` is empty, and break only the bridge itself.
+    fs::write(
+        root.join("packages/ffi/src/lib.rs"),
+        "compile_error!(\"broken bridge\");\n",
+    )
+    .expect("broken FFI source");
+
+    let output = run(root);
+    assert!(
+        !output.status.success(),
+        "a broken bridge was reported as a successful sync: {output:?}"
+    );
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        diagnostics.contains("Rebuilding FFI to refresh C headers"),
+        "the bridge edit did not even trigger a rebuild attempt: {diagnostics}"
+    );
+
+    // And it must stay failed: a retry cannot resurrect the invalidated success.
+    assert!(
+        !run(root).status.success(),
+        "a retry reused the invalidated success over a broken bridge"
+    );
+}
+
+/// An untouched tree must still skip the rebuild, so the fingerprint does not turn every
+/// `sync-versions` into a cargo spawn. ~keep
+#[test]
+fn unchanged_ffi_source_still_skips_the_rebuild() {
+    let temporary = tempfile::tempdir().expect("fixture");
+    let root = temporary.path();
+    fixture(root, true);
+    fs::create_dir_all(root.join("packages/ffi/src")).expect("FFI directory");
+    fs::write(
+        root.join("packages/ffi/Cargo.toml"),
+        "[package]\nname = 'custom-bridge'\nversion = '1.2.3'\nedition = '2024'\n",
+    )
+    .expect("FFI manifest");
+    fs::write(root.join("packages/ffi/src/lib.rs"), "pub fn bridge() {}\n").expect("FFI source");
+    assert!(run(root).status.success());
+
+    let second = run(root);
+    assert!(second.status.success(), "{second:?}");
+    let diagnostics = String::from_utf8_lossy(&second.stderr);
+    assert!(
+        !diagnostics.contains("Rebuilding FFI to refresh C headers"),
+        "an unchanged bridge was rebuilt anyway: {diagnostics}"
+    );
+}

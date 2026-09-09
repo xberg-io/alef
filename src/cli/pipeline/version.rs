@@ -1163,6 +1163,52 @@ fn ffi_build_marker(manifest: &std::path::Path) -> anyhow::Result<std::path::Pat
     Ok(std::path::Path::new(".alef/ffi-builds").join(key))
 }
 
+/// Content fingerprint of the FFI package, so a recorded success is invalidated by an edit to the
+/// bridge itself and not only by a version bump.
+///
+/// The skip below treated `updated.is_empty()` as its whole notion of "nothing changed", but
+/// `updated` lists version-stamped files only — it can never mention `packages/ffi/src/lib.rs`.
+/// Editing a bridge source without touching any version therefore left the recorded success
+/// standing, and `sync-versions` exited 0 reporting "Version sync complete" over a bridge that no
+/// longer compiles. Reproduced directly: break the FFI source, re-run with versions unchanged, and
+/// alef never spawns cargo. Windows CI hit it first only because its `updated` came back empty
+/// where Unix's did not, which made a cross-platform defect look platform-specific.
+///
+/// Content hashing rather than mtimes: mtime granularity varies by filesystem and does not survive
+/// a fresh checkout, which is exactly where a false "already built" costs the most. ~keep
+fn ffi_source_fingerprint(package_dir: &std::path::Path) -> String {
+    let mut entries: Vec<(String, String)> = walkdir::WalkDir::new(package_dir)
+        .into_iter()
+        .filter_entry(|entry| entry.file_name() != "target")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter_map(|entry| {
+            let relative = entry.path().strip_prefix(package_dir).ok()?;
+            // Separator-normalised so an identical tree fingerprints identically on Windows. ~keep
+            let key = relative
+                .components()
+                .map(|component| component.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            let bytes = std::fs::read(entry.path()).ok()?;
+            Some((key, crate::core::hash::hash_bytes(&bytes)))
+        })
+        .collect();
+    entries.sort();
+    let joined = entries
+        .into_iter()
+        .map(|(path, digest)| format!("{path}:{digest}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    crate::core::hash::hash_content(&joined)
+}
+
+/// What a marker holds after a successful build: the version it was built at, and the fingerprint
+/// of the sources it was built from. A skip is sound only when both still match.
+fn ffi_build_state(version: &str, package_dir: &std::path::Path) -> String {
+    format!("{version}\n{}", ffi_source_fingerprint(package_dir))
+}
+
 fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig, version: &str, updated: &[String]) -> anyhow::Result<()> {
     if !config.languages.contains(&Language::Ffi) {
         return Ok(());
@@ -1176,7 +1222,9 @@ fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig, version: &str, updated: &
         return Ok(());
     }
     let marker = ffi_build_marker(&manifest)?;
-    if updated.is_empty() && std::fs::read_to_string(&marker).is_ok_and(|previous| previous == version) {
+    let package_dir = std::path::PathBuf::from(config.package_dir(Language::Ffi));
+    let state = ffi_build_state(version, &package_dir);
+    if updated.is_empty() && std::fs::read_to_string(&marker).is_ok_and(|previous| previous == state) {
         return Ok(());
     }
     crate::core::cache_dir::ensure_cache_dir(std::path::Path::new(".alef/ffi-builds"))
@@ -1191,7 +1239,10 @@ fn rebuild_ffi_if_needed(config: &ResolvedCrateConfig, version: &str, updated: &
         .status()
         .with_context(|| format!("Failed to execute {command} to refresh FFI headers"))?;
     anyhow::ensure!(status.success(), "{command} failed to refresh FFI headers: {status}");
-    std::fs::write(&marker, version).context("Failed to record successful FFI header rebuild")?;
+    // Re-fingerprint after the build: cargo may have rewritten generated headers in place, and
+    // recording the pre-build state would make the next run rebuild forever. ~keep
+    std::fs::write(&marker, ffi_build_state(version, &package_dir))
+        .context("Failed to record successful FFI header rebuild")?;
     Ok(())
 }
 

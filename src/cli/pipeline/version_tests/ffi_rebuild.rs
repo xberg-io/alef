@@ -20,7 +20,10 @@ fn run_case(case: &str) {
             .path()
             .join(ffi_build_marker(&fixture.path().join("ffi/Cargo.toml")).expect("marker path"));
         std::fs::create_dir_all(marker.parent().expect("marker directory")).expect("create build state directory");
-        std::fs::write(marker, "1.2.3").expect("write previous successful FFI version");
+        // A recorded success now pins the sources it was built from, not just the version, so the
+        // fixture has to record the same state the child will recompute. ~keep
+        let state = ffi_build_state("1.2.3", &fixture.path().join("ffi"));
+        std::fs::write(marker, state).expect("write previous successful FFI build state");
     }
     let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"));
     child
