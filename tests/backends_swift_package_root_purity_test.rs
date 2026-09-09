@@ -91,12 +91,12 @@ fn api_with_options_field_trait_bridge() -> ApiSurface {
 
 /// Generates the swift bindings and returns every produced file path, sorted so the comparison is
 /// over the SET of paths rather than whatever incidental order the backend returned them in.
-fn generated_paths(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
-    let mut paths: Vec<String> = SwiftBackend
+fn generated_paths(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = SwiftBackend
         .generate_bindings(api, config)
         .expect("swift generation must succeed")
         .into_iter()
-        .map(|file| file.path.to_string_lossy().into_owned())
+        .map(|file| file.path)
         .collect();
     paths.sort();
     paths
@@ -138,11 +138,13 @@ fn generated_paths_are_identical_across_different_ambient_directory_state() {
     assert!(
         paths_from_clean_state
             .iter()
-            .any(|path| path.starts_with("packages/swift/Sources/RustBridge/")),
+            .any(|path| path.starts_with(Path::new("packages").join("swift").join("Sources").join("RustBridge"))),
         "expected a packages/swift/Sources/RustBridge/... file, got: {paths_from_clean_state:?}"
     );
     assert!(
-        paths_from_clean_state.iter().all(|path| !path.starts_with("Sources/")),
+        paths_from_clean_state
+            .iter()
+            .all(|path| !path.starts_with(Path::new("Sources"))),
         "no generated path should fall back to a bare Sources/... prefix, got: {paths_from_clean_state:?}"
     );
 }
