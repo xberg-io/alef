@@ -606,6 +606,27 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
     depth: usize,
     referenced_enums: &mut std::collections::BTreeSet<String>,
 ) -> String {
+    if lang == "node"
+        && (enums.iter().any(|definition| {
+            definition.name == type_name && crate::backends::napi::is_json_passthrough_data_enum(definition)
+        }) || flattened_map::collect(obj, type_defs.iter().find(|definition| definition.name == type_name))
+            .is_some())
+    {
+        let expression = node_value_expression(
+            &serde_json::Value::Object(obj.clone()),
+            "",
+            enum_fields,
+            docs_files,
+            pointer,
+            Some(&TypeRef::Named(type_name.into())),
+            type_defs,
+            enums,
+            None,
+            referenced_enums,
+        );
+        referenced_enums.insert(format!("type {type_name}"));
+        return format!("({expression} satisfies {type_name})");
+    }
     // Use a depth-indexed variable name so nested IFEs don't shadow each other.
     // Without this, `const _u = WasmOptions.default(); _u.preprocessing =
     // (() => { const _u = WasmOptions.default(); ... })()` triggers
@@ -944,6 +965,13 @@ fn node_value_expression(
         crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     });
+    if let Some(TypeRef::Named(name)) = field_type
+        && enums.iter().any(|definition| {
+            definition.name == *name && crate::backends::napi::is_json_passthrough_data_enum(definition)
+        })
+    {
+        return json_to_js(value);
+    }
     if matches!(field_type, Some(crate::core::ir::TypeRef::Json)) {
         return json_to_js(value);
     }
@@ -1033,8 +1061,10 @@ fn node_value_expression(
                 Some(crate::core::ir::TypeRef::Map(_, value_type)) => Some(value_type.as_ref()),
                 _ => None,
             };
-            let fields = object
+            let flattened = flattened_map::collect(object, nested_type);
+            let mut fields = object
                 .iter()
+                .filter(|(name, _)| flattened.as_ref().is_none_or(|(_, values)| !values.contains_key(*name)))
                 .map(|(name, value)| {
                     let nested_field_type =
                         map_value_type.or_else(|| resolve_owner_field(nested_type, name).map(|field| &field.ty));
@@ -1061,6 +1091,24 @@ fn node_value_expression(
                     )
                 })
                 .collect::<Vec<_>>();
+            if let Some((field, values)) = flattened {
+                let expression = node_value_expression(
+                    &serde_json::Value::Object(values),
+                    "",
+                    enum_fields,
+                    docs_files,
+                    pointer,
+                    Some(&field.ty),
+                    type_defs,
+                    enums,
+                    None,
+                    referenced_enums,
+                );
+                fields.push(format!(
+                    "{}: {expression}",
+                    node_field_public_key(nested_type, &field.name)
+                ));
+            }
             format!("{{ {} }}", fields.join(", "))
         }
         serde_json::Value::Array(values) => {
@@ -1149,3 +1197,6 @@ mod wire_name_tests;
 
 #[cfg(test)]
 mod map_json_tests;
+
+#[cfg(test)]
+mod untagged_input_tests;

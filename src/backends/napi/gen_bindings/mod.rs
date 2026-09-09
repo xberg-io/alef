@@ -11,6 +11,7 @@ pub mod service_api;
 mod support;
 mod type_stubs;
 pub mod types;
+mod wire_types;
 
 #[cfg(test)]
 mod cfg_variant_e2e_tests;

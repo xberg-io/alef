@@ -378,7 +378,7 @@ fn node_lowers_external_tagged_unit_and_payload_array_elements() {
 }
 
 #[test]
-fn node_imports_untagged_object_array_element_casts_as_types() {
+fn node_imports_untagged_object_array_constraints_as_types() {
     let argument = ArgMapping {
         name: "choices".into(),
         field: "input.choices".into(),
@@ -435,5 +435,8 @@ fn node_imports_untagged_object_array_element_casts_as_types() {
     );
 
     assert!(output.contains("type ObjectChoice"), "{output}");
-    assert!(output.contains("{ value: \"payload\" } as ObjectChoice"), "{output}");
+    assert!(
+        output.contains("{ value: \"payload\" } satisfies ObjectChoice"),
+        "{output}"
+    );
 }
