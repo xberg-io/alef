@@ -214,7 +214,9 @@ pub(crate) fn render_snippet_body_with_ir(
         });
     let needs_mapper = args.contains(SNIPPET_MAPPER_REFERENCE)
         || setup_lines.iter().any(|line| line.contains(SNIPPET_MAPPER_REFERENCE));
-    let is_async = client_factory.is_some() || call.r#async;
+    let is_streaming = !call.returns_void
+        && crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
+    let is_async = client_factory.is_some() || call.r#async || is_streaming;
     let package_name = if kotlin_android_style {
         config
             .kotlin_android
@@ -263,6 +265,8 @@ pub(crate) fn render_snippet_body_with_ir(
             result_var => result_var,
             returns_void => call.returns_void,
             is_async => is_async,
+            is_streaming => is_streaming,
+            stream_item => format!("{result_var}Chunk"),
             fixture_id => fixture.id,
             expects_error => expects_error,
             api_key_var => api_key_var,

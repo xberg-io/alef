@@ -1,5 +1,6 @@
 import {{ package_name }}.*
-{% if needs_mapper %}import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+{% if is_streaming %}import kotlinx.coroutines.flow.collect
+{% endif %}{% if needs_mapper %}import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 {% endif %}
 
 fun main() {% if is_async %}= kotlinx.coroutines.runBlocking {% endif %}{
@@ -10,9 +11,12 @@ fun main() {% if is_async %}= kotlinx.coroutines.runBlocking {% endif %}{
 {% for line in setup_lines %}    {{ line }}
 {% endfor %}
 {% if client_factory %}    val apiKey = requireNotNull(System.getenv("{{ api_key_var }}")) { "{{ api_key_var }} must be set" }
-{% if returns_void %}    {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client -> client.{{ function_name }}({{ args }}) }
+{% if is_streaming %}    {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client ->
+        client.{{ function_name }}({{ args }}).collect { {{ stream_item }} ->
+{% elif returns_void %}    {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client -> client.{{ function_name }}({{ args }}) }
 {% else %}    val {{ result_var }} = {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client -> client.{{ function_name }}({{ args }}) }
 {% endif %}
+{% elif is_streaming %}    {{ class_name }}.{{ function_name }}({{ args }}).collect { {{ stream_item }} ->
 {% elif returns_void %}    {{ class_name }}.{{ function_name }}({{ args }})
 {% else %}    val {{ result_var }} = {{ class_name }}.{{ function_name }}({{ args }})
 {% endif %}
@@ -30,9 +34,12 @@ fun main() {% if is_async %}= kotlinx.coroutines.runBlocking {% endif %}{
 {% endif %}
 {% endfor %}
 {% else %}
-    println({{ result_var }})
+    println({% if is_streaming %}{{ stream_item }}{% else %}{{ result_var }}{% endif %})
 {% endif %}
 {% endif %}
+{% if is_streaming %}    }
+{% if client_factory %}    }
+{% endif %}{% endif %}
 {% if expects_error %}    } catch (error: Exception) {
         System.err.println("${error::class.simpleName}: ${error.message}")
     }
