@@ -176,9 +176,9 @@ fn assert_sync_root_contract(root: &str) {
         "{:error, error} -> raise ArgumentError, error",
         "def merge(opts \\\\ []) do",
         "case MyLib.Native.merge(\n      case Keyword.get(opts, :first)",
-        "case MyLib.Native.builder_with_config(obj.ref, (cond do is_nil(config)",
+        "case MyLib.Native.builder_with_config(obj, (cond do is_nil(config)",
         "%MyLib.Builder{ref: ref}",
-        "case MyLib.Native.builder_configure_many(obj.ref, (cond do is_nil(configs)",
+        "case MyLib.Native.builder_configure_many(obj, (cond do is_nil(configs)",
     ] {
         assert!(root.contains(expected), "root wrapper missing `{expected}`:\n{root}");
     }
@@ -212,8 +212,8 @@ pub(super) fn assert_returns_self_result_shapes() {
         assert_result_wrapper(&builder, call, "%__MODULE__{ref: ref}");
     }
     for call in [
-        "MyLib.Native.builder_with_config_later_async(obj.ref",
-        "MyLib.Native.builder_try_with_config(obj.ref",
+        "MyLib.Native.builder_with_config_later_async(obj",
+        "MyLib.Native.builder_try_with_config(obj",
     ] {
         assert_result_wrapper(&root, call, "%MyLib.Builder{ref: ref}");
     }
@@ -284,7 +284,7 @@ fn assert_json_public_contract(root: &str, builder: &str) {
     for expected in [
         "case MyLib.Native.render(metadata) do",
         "MyLib.Native.render_async(metadata)",
-        "case MyLib.Native.builder_set_metadata(obj.ref, metadata) do",
+        "case MyLib.Native.builder_set_metadata(obj, metadata) do",
     ] {
         assert!(
             root.contains(expected),
@@ -301,4 +301,35 @@ fn assert_json_public_contract(root: &str, builder: &str) {
             "Builder JSON wrapper missing `{expected}`:\n{builder}"
         );
     }
+}
+
+#[test]
+fn top_level_methods_should_accept_factory_references_and_exact_wrappers() {
+    let (root, builder) = generated_public(&config_marshalling_api_surface());
+    for expected in [
+        "reference when is_reference(reference) -> reference",
+        "%MyLib.Builder{ref: reference} when is_reference(reference) -> reference",
+        "raise ArgumentError, \"receiver must be a reference or MyLib.Builder wrapper\"",
+        "MyLib.Native.builder_configure(obj,",
+    ] {
+        assert!(
+            root.contains(expected),
+            "missing receiver contract `{expected}`:\n{root}"
+        );
+    }
+    assert!(!root.contains("MyLib.Native.builder_configure(obj.ref,"));
+    assert!(builder.contains("Native.builder_configure(obj.ref,"));
+}
+
+#[test]
+fn static_opaque_methods_should_not_normalize_a_nonexistent_receiver() {
+    let mut api = config_marshalling_api_surface();
+    let builder = api.types.iter_mut().find(|typ| typ.name == "Builder").unwrap();
+    builder.methods.truncate(1);
+    builder.methods[0].receiver = None;
+    let (root, _) = generated_public(&api);
+    let start = root.find("def builder_configure(config) do").unwrap();
+    let method = &root[start..];
+    assert!(method.contains("MyLib.Native.builder_configure((cond do"));
+    assert!(!method.contains("case obj do"));
 }

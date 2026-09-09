@@ -2,6 +2,13 @@
   @doc "{{ doc_first }}"
 {% endif %}{% if def_args %}  def {{ func_name }}({{ def_args }}) do
 {% else %}  def {{ func_name }} do
+{% endif %}{% if has_receiver %}    obj =
+      case obj do
+        reference when is_reference(reference) -> reference
+        %{{ app_module }}.{{ type_name }}{ref: reference} when is_reference(reference) -> reference
+        _ -> raise ArgumentError, "receiver must be a reference or {{ app_module }}.{{ type_name }} wrapper"
+      end
+
 {% endif %}{% if returns_self %}{% if preserve_result %}    case {{ native_mod }}.{{ func_name }}({{ call_args }}) do
       {:ok, ref} -> {:ok, %{{ app_module }}.{{ type_name }}{ref: ref}}
       {:error, error} -> {:error, error}
