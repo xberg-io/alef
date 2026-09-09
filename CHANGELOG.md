@@ -7,7 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.85.8] - 2026-09-09
+## [0.85.10] - 2026-09-09
+
+Combined release. Carries the enterprise consumer-correction work, the R/Ruby, adopted-marker and
+snippet-toolchain fixes prepared for html-to-markdown, and ten generator fixes found by driving a
+14-language consumer e2e matrix from seven red suites to fourteen green.
+
+Versions 0.85.8 and 0.85.9 were reserved during preparation and were never published; both sets of
+work are in this release instead. Publishing them separately would have left `latest` resolving to
+a version missing one of the three contributions.
+
+### Fixed (generator defects found by consumer e2e)
+
+- **The java backend had never emitted a service class, for any consumer.** The extractor marks
+  every service owner `binding_excluded` so the plain type pipeline does not emit a duplicate class
+  beside the service class; java's exclusion pass folded those marks into its own set and then
+  asked, in effect, "is this service excluded because it is a service". In one consumer the
+  `App.java` on disk was a leftover from before the mark existed. Frozen, it drifted from the
+  service-registration template until it lost the `response_free` upcall the C export had grown,
+  every route registration returned non-zero, and 557 of 558 e2e tests answered 404.
+
+- **Three java guards downstream of that filter asserted things that were false about the surface,**
+  none of them ever having executed against a real service: that a callback wire type must *derive*
+  serde (false for hand-written impls and for a type resolved at a re-export site); that named
+  service parameters have no C carrier (the header declares an `AlefHandle`, and this backend
+  already renders `JAVA_LONG` for it); and that a `Finalize` entrypoint returning a non-surface
+  type is fatal (it crosses as an `i32` status, which the csharp backend already ships).
+
+- **csharp emitted `FfiJsonExtensions` only alongside trait bridges,** though the service-API
+  renderer calls it unconditionally. This stopped a consumer's shipped NuGet package from building,
+  silently, behind a `continue-on-error` publish gate.
+
+- **csharp omitted `{Type}FromJson` for types reachable only through a service,** so the binding
+  called a P/Invoke that was never declared.
+
+- **csharp read parameter widths from the `Copy` set while the FFI types them from the fieldless
+  set.** A fieldless non-`Copy` enum crosses as `int32_t` and the wrapper cast `(int)`; only the
+  `[DllImport]` between them said `ulong`. The two parity tests that asserted the old stance are
+  rewritten — they passed only because the test fed the same fabricated set to both sides.
+
+- **csharp e2e handed a parameterized `Content-Type` to `StringContent`'s constructor,** which
+  rejects any media type carrying parameters, so the fixture failed on its own construction.
+
+- **The typescript e2e decompress helper decoded on the `content-encoding` header alone.** Every
+  mainstream `fetch` decodes transparently and leaves the header in place, so it failed exactly the
+  servers that really compressed. Now gated on the gzip magic, with brotli falling back.
+
+- **Generated swift XCTest suites declared a stored mutable `static`,** a hard error under the
+  Swift 6 language mode a `swift-tools-version: 6.0` package selects. The whole test target was
+  unbuildable, which presents as "no tests ran" rather than as a test failure.
+
+- **php `run_tests.php` looked for a cdylib nothing emits, in a directory it may not be in** — the
+  library name carried a doubled suffix, and only the workspace-root `target/` was searched, though
+  a php extension crate is routinely excluded from the workspace.
+
+- **php `run_tests.php` compared a version against a constraint by string identity,** so a consumer
+  configuring `>=3.12.3` got a runner that could never pass and an error naming the extension
+  rather than the configuration.
+
+- **A dart consumer could not honour flutter_rust_bridge's own version contract:** frb asserts
+  codegen and runtime versions are equal, the Rust crate pins with `=`, and the pubspec emitted a
+  caret that a stale lockfile could satisfy with an older minor.
+
+### Added
+
+- **`[[crates.services.registrations]] wrapper_options`** — chaining methods on the wrapper type
+  exposed as optional parameters on every variant and applied before delegating. A verb shortcut
+  that can only pin constructor args is strictly weaker than the registration it wraps: per-route
+  CORS and compression were unreachable through it. Byte-identical for backends that do not
+  declare it.
+
+## [0.85.8 and 0.85.9 - unpublished, folded into 0.85.10]
 
 ### Changed
 
