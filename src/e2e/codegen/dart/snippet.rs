@@ -137,6 +137,7 @@ pub(super) fn render_snippet_body_with_ir(
             result_var => call.effective_result_var(),
             returns_void => call.returns_void,
             stub_classes => stub_classes,
+            stream_item => crate::e2e::codegen::presentation::stream_item_binding(fixture, e2e_config, "dart"),
             presentation => presentation,
         },
     ))
@@ -819,5 +820,28 @@ mod tests {
             !body.contains("urlsBase"),
             "the mock-server base local must not survive into a standalone snippet: {body}"
         );
+    }
+}
+
+#[cfg(test)]
+mod stream_presentation_regression {
+    use super::*;
+
+    #[test]
+    fn streaming_usage_is_printed_from_consumed_chunks() {
+        let fixture: Fixture = serde_json::from_value(serde_json::json!({
+            "id":"stream_usage", "description":"Read stream usage", "input":{},
+            "docs":{"topic":"streaming"},
+            "assertions":[{"type":"not_empty", "field":"usage.total_tokens"}]
+        }))
+        .expect("fixture");
+        let config: E2eConfig = serde_json::from_value(serde_json::json!({
+            "call":{"function":"stream_usage", "module":"example", "streaming":true},
+            "fields_optional":["usage"]
+        }))
+        .expect("config");
+        let body = render_snippet_body(&fixture, &config, &ResolvedCrateConfig::default(), &[], &[]).expect("snippet");
+        assert!(body.contains("for (final resultChunk in result)"), "{body}");
+        assert!(body.contains("resultChunk.usage?.totalTokens"), "{body}");
     }
 }

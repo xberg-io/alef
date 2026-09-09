@@ -47,8 +47,8 @@ pub(crate) struct PresentationOperation {
     /// up to (not through) the union field. Empty exactly when `guard_binding` is.
     pub(crate) guard_source: String,
     /// The discriminant check gating [`Self::expression`], e.g. `format?.format_type ===
-    /// "html"`. Empty exactly when `guard_binding` is; a template treats a non-empty condition
-    /// as the signal to wrap the operation's `console.log` in an `if` block.
+    /// "html"`, or a nullable stream payload guard without a separate binding. A non-empty
+    /// condition tells the target template to guard the operation before reading the payload. ~keep
     pub(crate) guard_condition: String,
 }
 
@@ -127,8 +127,66 @@ pub(crate) fn resolve(
         &fixture.tags,
         &fixture.input,
     );
+    if returns_native_bytes(call, language, type_defs, functions) {
+        return Vec::new();
+    }
     let resolver = build_resolver(e2e_config, call, language, type_defs, enums, functions);
     resolve_with(fixture, e2e_config, language, &resolver, type_defs, enums, functions)
+}
+
+pub(crate) fn stream_item_binding(fixture: &Fixture, config: &E2eConfig, language: &str) -> Option<String> {
+    if !matches!(language, "go" | "java" | "dart" | "python") {
+        return None;
+    }
+    let call = config.resolve_call_for_fixture(
+        fixture.call.as_deref(),
+        &fixture.id,
+        &fixture.resolved_category(),
+        &fixture.tags,
+        &fixture.input,
+    );
+    if call.returns_void
+        || fixture
+            .assertions
+            .iter()
+            .any(|assertion| assertion.assertion_type == "error")
+        || !crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled())
+    {
+        return None;
+    }
+    let suffix = if language == "python" { "_chunk" } else { "Chunk" };
+    Some(format!("{}{suffix}", call.effective_result_var()))
+}
+
+fn returns_native_bytes(
+    call: &crate::core::config::e2e::CallConfig,
+    language: &str,
+    type_defs: &[crate::core::ir::TypeDef],
+    functions: &[crate::core::ir::FunctionDef],
+) -> bool {
+    let Some(name) = call.core_lookup_name(language) else {
+        return false;
+    };
+    crate::e2e::codegen::call_ir::CallIr { functions, type_defs }
+        .signature(&name)
+        .is_some_and(|signature| matches!(signature.return_type, crate::core::ir::TypeRef::Bytes))
+}
+
+fn stream_nullable_guard(resolver: &FieldResolver, path: &str, language: &str, root: &str) -> String {
+    let (null, conjunction) = match language {
+        "go" => ("nil", " && "),
+        "java" => ("null", " && "),
+        "python" => ("None", " and "),
+        _ => return String::new(),
+    };
+    let comparison = if language == "python" { "is not" } else { "!=" };
+    let segments: Vec<_> = path.split('.').collect();
+    (1..=segments.len())
+        .map(|length| segments[..length].join("."))
+        .filter(|prefix| resolver.is_optional(prefix))
+        .map(|prefix| format!("{} {comparison} {null}", resolver.accessor(&prefix, language, root)))
+        .collect::<Vec<_>>()
+        .join(conjunction)
 }
 
 /// The bare, IR-backed resolver [`resolve`] answers with. Shared with [`apply_derived_shows`] so
@@ -264,6 +322,9 @@ pub(crate) fn apply_derived_shows(
         &fixture.tags,
         &fixture.input,
     );
+    if returns_native_bytes(call, language, type_defs, functions) {
+        return;
+    }
     let resolver = build_resolver(e2e_config, call, language, type_defs, enums, functions);
     let paths: Vec<String> = default_operations_from_assertions(fixture, call, language, &resolver)
         .into_iter()
@@ -318,7 +379,11 @@ pub(crate) fn resolve_with(
     // build it from config alone, so the anchoring has to be applied here rather than at each
     // construction site -- one place decides what a snippet knows about its result type. ~keep
     let resolver = &anchor_to_declared_result_type(resolver.clone(), call, language, type_defs, enums, functions);
-    let result_var = call.effective_result_var();
+    if returns_native_bytes(call, language, type_defs, functions) {
+        return Vec::new();
+    }
+    let stream_item = stream_item_binding(fixture, e2e_config, language);
+    let result_var = stream_item.as_deref().unwrap_or_else(|| call.effective_result_var());
     let result_root = root_variable(language, result_var);
     let operations = docs
         .shows
@@ -381,9 +446,12 @@ pub(crate) fn resolve_with(
                     .as_ref()
                     .map(|(_, _, _, expression)| expression.clone())
                     .unwrap_or_else(|| resolver.accessor(path, language, &result_root));
-                let (guard_binding, guard_source, guard_condition) = guard
+                let (guard_binding, guard_source, mut guard_condition) = guard
                     .map(|(binding, source, condition, _)| (binding, source, condition))
                     .unwrap_or_default();
+                if stream_item.is_some() && guard_condition.is_empty() {
+                    guard_condition = stream_nullable_guard(resolver, path, language, &result_root);
+                }
                 PresentationOperation {
                     kind: "show",
                     expression,
@@ -907,3 +975,7 @@ mod tagged_union_crossing_tests;
 #[cfg(test)]
 #[path = "presentation/namespace_prefixed_optional_tests.rs"]
 mod namespace_prefixed_optional_tests;
+
+#[cfg(test)]
+#[path = "presentation/stream_and_bytes_tests.rs"]
+mod stream_and_bytes_tests;

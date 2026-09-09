@@ -270,3 +270,26 @@ fn a_non_streaming_call_with_no_matching_adapter_keeps_the_flat_mock_url_shape()
         "a call with no matching adapter must not wrap its mock_url arg in a request DTO:\n{body}"
     );
 }
+
+#[cfg(test)]
+mod stream_presentation_regression {
+    use super::*;
+
+    #[test]
+    fn streaming_usage_is_printed_from_consumed_chunks() {
+        let fixture: Fixture = serde_json::from_value(serde_json::json!({
+            "id":"stream_usage", "description":"Read stream usage", "input":{},
+            "docs":{"topic":"streaming"},
+            "assertions":[{"type":"not_empty", "field":"usage.total_tokens"}]
+        }))
+        .expect("fixture");
+        let config: E2eConfig = serde_json::from_value(serde_json::json!({
+            "call":{"function":"stream_usage", "module":"example", "streaming":true},
+            "fields_optional":["usage"]
+        }))
+        .expect("config");
+        let body = render_snippet_body(&fixture, &config, &ResolvedCrateConfig::default(), &[]);
+        assert!(body.contains("result.forEach(resultChunk ->"), "{body}");
+        assert!(body.contains("resultChunk.usage() != null"), "{body}");
+    }
+}

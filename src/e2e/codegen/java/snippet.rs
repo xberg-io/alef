@@ -200,6 +200,7 @@ pub(super) fn render_snippet_body_with_ir(
             returns_void => call.returns_void,
             needs_mapper => needs_mapper,
             fixture_id => fixture.id,
+            stream_item => crate::e2e::codegen::presentation::stream_item_binding(fixture, e2e_config, "java"),
             presentation => presentation,
             expects_error => expects_error,
             exception_class => exception_class,

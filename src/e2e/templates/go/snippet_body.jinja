@@ -28,10 +28,16 @@ func main() {
   {{- "\tif err != nil {\n\t\tpanic(err)\n\t}" }}
 {% endif %}
 {% if not returns_void and not expects_error %}
+{% if stream_item %}    for {{ stream_item }} := range {{ result_var }} {
+{% endif %}
 {% if presentation %}
 {% for operation in presentation %}
 {% if operation.kind == "show" %}
+{% if operation.guard_condition %}        if {{ operation.guard_condition }} {
+{% endif %}
   {{- "\t" }}fmt.Printf("{{ "%v" if operation.display else "%+v" }}\n", {{ operation.expression }})
+{% if operation.guard_condition %}        }
+{% endif %}
 {% else %}
   {{- "\t" }}for _, {{ operation.item }} := range {{ operation.expression }} {
 {% for field in operation.fields %}
@@ -44,7 +50,9 @@ func main() {
 {% endif %}
 {% endfor %}
 {% else %}
-  {{- "\t" }}fmt.Printf("%+v\n", {{ result_var }})
+  {{- "\t" }}fmt.Printf("%+v\n", {{ stream_item or result_var }})
+{% endif %}
+{% if stream_item %}    }
 {% endif %}
 {% endif %}
 }
