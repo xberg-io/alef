@@ -105,8 +105,23 @@ fn service_references_excluded_type(service: &ServiceDef, excluded: &HashSet<Str
 pub(super) fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>) -> ApiSurface {
     let lifetime_bound_types = lifetime_bound_type_names(api);
     let mut filtered = api.clone();
+    // Every service owner type is `binding_excluded` -- the extractor marks it "managed by
+    // services service extraction" precisely so the plain type pipeline does not emit a second,
+    // dumb class beside the service class. `effective_exclude_types` folds those marks into
+    // `exclude_types`, so testing a service against that set asks "is this service excluded
+    // because it is a service", and the answer is always yes: java emitted no service class for
+    // any consumer, and the App.java sitting in spikard's tree was a leftover from before the
+    // mark existed, going stale against this backend's own templates until every generated route
+    // registration answered 404. A service's own owner name therefore carries no exclusion
+    // signal and is removed before the test. ~keep
+    let service_owner_names: HashSet<String> = api.services.iter().map(|service| service.name.clone()).collect();
+    let service_exclude_types: HashSet<String> = exclude_types
+        .iter()
+        .filter(|name| !service_owner_names.contains(*name))
+        .cloned()
+        .collect();
     filtered.services.retain(|service| {
-        !service_references_excluded_type(service, exclude_types)
+        !service_references_excluded_type(service, &service_exclude_types)
             && !service_references_excluded_type(service, &lifetime_bound_types)
     });
     filtered.types.retain(|typ| !exclude_types.contains(&typ.name));
@@ -139,4 +154,78 @@ pub(super) fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashS
         .retain(|func| !signature_references_excluded_type(&func.params, &func.return_type, exclude_types));
     filtered.errors.retain(|error| !exclude_types.contains(&error.name));
     filtered
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{MethodDef, TypeDef};
+
+    fn service_surface() -> ApiSurface {
+        let mut api = ApiSurface::default();
+        api.types.push(TypeDef {
+            name: "App".to_string(),
+            binding_excluded: true,
+            binding_exclusion_reason: Some("managed by services service extraction".to_string()),
+            ..Default::default()
+        });
+        api.services.push(ServiceDef {
+            name: "App".to_string(),
+            rust_path: "my_crate::App".to_string(),
+            constructor: MethodDef {
+                name: "new".to_string(),
+                ..Default::default()
+            },
+            configurators: Vec::new(),
+            registrations: Vec::new(),
+            entrypoints: Vec::new(),
+            doc: String::new(),
+            cfg: None,
+        });
+        api
+    }
+
+    /// The extractor marks every service owner `binding_excluded` so the plain type pipeline does
+    /// not emit a second class beside the service class. Folding that mark into the set the
+    /// service filter tests against asks "is this service excluded because it is a service", to
+    /// which the answer is always yes -- the java backend then emitted no service class at all,
+    /// for any consumer.
+    #[test]
+    fn a_service_survives_its_owner_types_service_managed_binding_exclusion() {
+        let api = service_surface();
+        let exclude_types: HashSet<String> = std::iter::once("App".to_string()).collect();
+
+        let filtered = api_without_excluded_types(&api, &exclude_types);
+
+        assert_eq!(
+            filtered.services.len(),
+            1,
+            "a service must not be filtered out by the exclusion its own owner type carries"
+        );
+        assert!(
+            !filtered.types.iter().any(|t| t.name == "App"),
+            "the owner type itself must still be excluded from the plain type surface"
+        );
+    }
+
+    /// Negative control for the exemption above: it must be scoped to the service's own name and
+    /// nothing else, or a service genuinely referencing a type java cannot bind would be emitted
+    /// with a signature naming a class that does not exist.
+    #[test]
+    fn a_service_referencing_another_excluded_type_is_still_filtered_out() {
+        let mut api = service_surface();
+        api.services[0].constructor.params.push(ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("Unbindable".to_string()),
+            ..Default::default()
+        });
+        let exclude_types: HashSet<String> = ["App".to_string(), "Unbindable".to_string()].into_iter().collect();
+
+        let filtered = api_without_excluded_types(&api, &exclude_types);
+
+        assert!(
+            filtered.services.is_empty(),
+            "a service whose signature names a genuinely excluded type must still be dropped"
+        );
+    }
 }

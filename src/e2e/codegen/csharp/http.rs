@@ -154,6 +154,23 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
                 out.push_str(&format!("        mediaType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue(\"boundary\", \"{boundary_value}\"));\n"));
                 out.push_str("        multipartContent.Headers.ContentType = mediaType;\n");
                 out.push_str("        request.Content = multipartContent;\n");
+            } else if content_type.contains(';') {
+                // Any media type carrying parameters has to go through `MediaTypeHeaderValue`,
+                // not through `StringContent`'s three-argument constructor: that constructor runs
+                // `CheckMediaTypeFormat`, which rejects a media type with parameters outright and
+                // throws `FormatException` before a request is ever sent. The multipart branch
+                // above exists for the same reason; it is kept separate only because
+                // `ByteArrayContent` avoids `StringContent` appending its own `charset` for the
+                // one case where the fixture body is already-encoded bytes. Assigning
+                // `Headers.ContentType` after construction overwrites that appended charset, so
+                // the header the request carries is exactly what the fixture declared. ~keep
+                out.push_str(&format!(
+                    "        var parameterizedContent = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8);\n"
+                ));
+                out.push_str(&format!(
+                    "        parameterizedContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(\"{content_type}\");\n"
+                ));
+                out.push_str("        request.Content = parameterizedContent;\n");
             } else {
                 out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
             }
@@ -326,4 +343,66 @@ fn extract_path_param_names(path: &str) -> Vec<String> {
     }
 
     params
+}
+
+#[cfg(test)]
+mod content_type_parameter_tests {
+    use super::*;
+    use crate::e2e::codegen::client::{CallCtx, TestClientRenderer};
+    use std::collections::BTreeMap;
+
+    fn render_body_call(content_type: &str) -> String {
+        let headers = BTreeMap::new();
+        let query_params = BTreeMap::new();
+        let cookies = BTreeMap::new();
+        let body = serde_json::json!({"value": "test"});
+        let ctx = CallCtx {
+            method: "POST",
+            path: "/fixtures/sample/data",
+            headers: &headers,
+            query_params: &query_params,
+            cookies: &cookies,
+            body: Some(&body),
+            content_type: Some(content_type),
+            response_var: "response",
+        };
+        let mut out = String::new();
+        CSharpTestClientRenderer.render_call(&mut out, &ctx);
+        out
+    }
+
+    /// `StringContent(string, Encoding, string)` runs `MediaTypeHeaderValue.CheckMediaTypeFormat`
+    /// on its third argument, which rejects any media type carrying parameters. Handing it a
+    /// fixture's full `Content-Type` threw `FormatException` before the request was sent, so the
+    /// fixture failed on the test's own construction rather than on anything the server did.
+    #[test]
+    fn a_content_type_with_parameters_is_set_through_the_header_not_the_constructor() {
+        let out = render_body_call("application/json; charset=utf-16");
+
+        assert!(
+            out.contains("MediaTypeHeaderValue.Parse(\"application/json; charset=utf-16\")"),
+            "a parameterized content type must be parsed into the header, got:\n{out}"
+        );
+        assert!(
+            !out.contains("System.Text.Encoding.UTF8, \"application/json; charset=utf-16\""),
+            "the parameterized value must not reach StringContent's mediaType argument, got:\n{out}"
+        );
+    }
+
+    /// Negative control: a bare media type has no parameters to reject, so it keeps the shorter
+    /// three-argument form. Without this, "always use MediaTypeHeaderValue" would pass the test
+    /// above while churning every other generated request.
+    #[test]
+    fn a_bare_content_type_still_uses_the_string_content_constructor() {
+        let out = render_body_call("application/json");
+
+        assert!(
+            out.contains("System.Text.Encoding.UTF8, \"application/json\""),
+            "a bare media type must keep the constructor form, got:\n{out}"
+        );
+        assert!(
+            !out.contains("MediaTypeHeaderValue.Parse"),
+            "a bare media type needs no header parse, got:\n{out}"
+        );
+    }
 }

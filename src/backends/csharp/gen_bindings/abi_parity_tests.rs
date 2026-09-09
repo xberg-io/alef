@@ -5,7 +5,7 @@
 //! the two emitters against each other through a shared width/signedness lattice, so a future
 //! change that moves *both* sides in step still passes while a change that moves only one fails.
 
-use crate::backends::ffi::type_map::{c_param_type_with_paths_and_enums, scalar_c_abi_named_types};
+use crate::backends::ffi::type_map::{c_param_type_with_paths_and_enums, scalar_c_abi_param_named_types};
 use crate::core::ir::{ApiSurface, EnumDef, EnumVariant, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use std::collections::{HashMap, HashSet};
@@ -105,6 +105,19 @@ fn optional_param(name: &str, ty: TypeRef) -> ParamDef {
     }
 }
 
+/// A fieldless enum that is deliberately **not** `Copy`.
+///
+/// The FFI crate lowers any all-fieldless enum to an `i32` discriminant and emits a
+/// `<enum>_from_i32` helper for it, `Copy` or not; a `Copy`-only view of "which named types are
+/// scalars" therefore disagrees with the header it is supposed to describe. `spikard::Method` is
+/// exactly this shape. ~keep
+fn fieldless_non_copy_enum(name: &str) -> EnumDef {
+    EnumDef {
+        is_copy: false,
+        ..scalar_enum(name)
+    }
+}
+
 /// A neutral fixture: one `Copy` discriminant enum, one JSON-backed record, and a function
 /// taking both plus a scalar primitive.
 fn fixture() -> ApiSurface {
@@ -165,12 +178,12 @@ fn csharp_declaration(api: &ApiSurface) -> String {
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        &scalar_c_abi_named_types(api),
+        &scalar_c_abi_param_named_types(api),
     )
 }
 
 fn c_declaration_types(api: &ApiSurface) -> Vec<String> {
-    let scalar_named_types = scalar_c_abi_named_types(api);
+    let scalar_named_types = scalar_c_abi_param_named_types(api);
     let path_map = AHashMap::new();
     api.functions[0]
         .params
@@ -247,15 +260,24 @@ fn should_still_declare_a_json_backed_record_param_as_an_alef_handle() {
     );
 }
 
+/// A data-carrying enum has no discriminant to pass, so it is boxed as a handle. This is the
+/// negative control for [`a_fieldless_non_copy_enum_param_is_declared_at_the_discriminant_width`]
+/// below: without it, "fieldless" could be dropped from the rule and both sides would still
+/// agree — on the wrong width, for every enum in the surface.
 #[test]
-fn should_not_treat_a_non_copy_enum_as_a_c_abi_discriminant() {
+fn should_not_treat_a_data_carrying_enum_as_a_c_abi_discriminant() {
     let mut api = fixture();
     api.enums[0].is_copy = false;
-    let scalar_named_types = scalar_c_abi_named_types(&api);
+    api.enums[0].variants[0].fields = vec![crate::core::ir::FieldDef {
+        name: "payload".to_string(),
+        ty: TypeRef::String,
+        ..Default::default()
+    }];
+    let scalar_named_types = scalar_c_abi_param_named_types(&api);
 
     assert!(
         !scalar_named_types.contains("Mode"),
-        "a non-Copy enum is boxed as a handle by the FFI backend, so it must not be a discriminant",
+        "an enum with a data-carrying variant is boxed as a handle, so it must not be a discriminant",
     );
     assert_eq!(c_declaration_types(&api)[0], "AlefHandle");
     assert_eq!(
@@ -264,14 +286,31 @@ fn should_not_treat_a_non_copy_enum_as_a_c_abi_discriminant() {
     );
 }
 
+/// The set is built from "can the FFI lower this to a discriminant", which is `Copy`-ness for a
+/// struct and all-variants-fieldless for an enum.
+///
+/// It used to be built from `Copy`-ness alone, and this test asserted exactly that. The FFI
+/// backend never implemented that rule for parameters: every one of its parameter-typing call
+/// sites (`gen_opaque_static_constructor`, `gen_method_wrapper`, `gen_free_function`) is handed
+/// the all-fieldless-enum set and emits `int32_t` for a member of it, `Copy` or not. The old
+/// assertion survived only because these tests fed the *same* `Copy`-only set to both sides,
+/// fabricating the C half instead of reading what the FFI emits — so a `Copy`-only view of the
+/// world was self-consistent here and contradicted by the header on disk. ~keep
 #[test]
-fn should_build_the_scalar_named_type_set_from_copy_ness_not_enum_ness() {
+fn should_build_the_scalar_named_type_set_from_lowerability_not_copy_ness_alone() {
     let mut api = fixture();
     api.types[0].is_copy = true;
-    let scalar_named_types: AHashSet<String> = scalar_c_abi_named_types(&api);
+    api.enums[0].is_copy = false;
+    let scalar_named_types: AHashSet<String> = scalar_c_abi_param_named_types(&api);
 
-    assert!(scalar_named_types.contains("Mode"));
-    assert!(scalar_named_types.contains("Settings"));
+    assert!(
+        scalar_named_types.contains("Mode"),
+        "a fieldless enum is lowerable to a discriminant whether or not it is Copy"
+    );
+    assert!(
+        scalar_named_types.contains("Settings"),
+        "a Copy struct is still a discriminant-width param"
+    );
 }
 
 #[test]
@@ -351,4 +390,30 @@ fn optional_return_pointerness_matches_the_ffi_crate() {
             pinvoke_return_type(&optional)
         );
     }
+}
+
+/// A fieldless enum that is not `Copy` still crosses as a discriminant, so the C# declaration
+/// must be `int`. Declaring the handle width here is not a mere type error: the wrapper casts
+/// `(int)`, the header says `int32_t`, and only the declaration between them said `ulong` --
+/// which is a live ABI violation, not just a CS1503.
+#[test]
+fn a_fieldless_non_copy_enum_param_is_declared_at_the_discriminant_width() {
+    let mut api = fixture();
+    api.enums = vec![fieldless_non_copy_enum("Mode")];
+
+    let csharp_types = declared_param_types(&csharp_declaration(&api));
+    let c_types = c_declaration_types(&api);
+
+    assert_eq!(
+        csharp_scalar_shape(&csharp_types[0]),
+        c_scalar_shape(&c_types[0]),
+        "C# declared `{}` for a fieldless non-Copy enum the C signature spells `{}`",
+        csharp_types[0],
+        c_types[0]
+    );
+    assert_eq!(
+        csharp_scalar_shape(&csharp_types[0]),
+        Some((Width::Bits(DISCRIMINANT_BITS), true)),
+        "both sides agreed, but on the handle width rather than the discriminant width"
+    );
 }

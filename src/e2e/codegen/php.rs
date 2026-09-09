@@ -210,14 +210,26 @@ impl E2eCodegen for PhpCodegen {
             .php_cargo_crate_name()
             .map(str::to_string)
             .unwrap_or_else(|| format!("{}-php", config.core_crate_dir()));
+        // The binding crate's root, so the harness can also look in a crate-local `target/`.
+        // A php extension crate is routinely excluded from the workspace (ext-php-rs links
+        // against libphp, which a `cargo build` at the root must not be forced into), and an
+        // excluded crate never writes to the workspace-root `target/`. Derived by stripping the
+        // `src` leaf off the configured output dir -- the same `<crate-root>/src` convention
+        // `cli::pipeline::format` reads. ~keep
+        let php_binding_crate_dir = {
+            let output_dir = config.package_dir(crate::core::config::extras::Language::Php);
+            output_dir
+                .strip_suffix("/src")
+                .map_or_else(|| output_dir.clone(), str::to_string)
+        };
         files.push(GeneratedFile {
             path: output_base.join("run_tests.php"),
             content: project::render_run_tests_php(
                 &extension_name,
-                config.php_cargo_crate_name(),
                 &cargo_package_name,
+                &php_binding_crate_dir,
                 &pkg_version,
-            ),
+            )?,
             generated_header: true,
         });
 

@@ -54,6 +54,7 @@ fn make_fixture_surface() -> ApiSurface {
                     wrapper_type_name: "Route".into(),
                     constructor_method: "get".into(),
                     args: vec![],
+                    options: Vec::new(),
                 }),
                 signature_params: vec![ParamDef {
                     name: "path".into(),
@@ -73,6 +74,7 @@ fn make_fixture_surface() -> ApiSurface {
                     wrapper_type_name: "Route".into(),
                     constructor_method: "post".into(),
                     args: vec![],
+                    options: Vec::new(),
                 }),
                 signature_params: vec![ParamDef {
                     name: "path".into(),
@@ -505,15 +507,28 @@ fn generate_rejects_unsupported_service_abi_shapes() {
     assert!(error.to_string().contains("TestService.add_handler.get"), "{error:#}");
 }
 
+/// A Finalize entrypoint returning a type the surface does not wrap crosses the C ABI as an
+/// `i32` status, so its value is unreachable from Java. That is worth a warning, not a refusal:
+/// the C export exists, the status is meaningful, and the csharp backend already ships this exact
+/// shape (`public int into_router()`).
+///
+/// This test asserted the refusal. Under it, one lossy entrypoint cost java its entire binding --
+/// spikard's `App.into_router` returns a `String`, so java emitted no service class at all and
+/// every generated route registration in the e2e suite answered 404. ~keep
 #[test]
-fn generate_rejects_nonopaque_finalize_results() {
+fn a_lossy_finalize_return_warns_rather_than_refusing_the_whole_service() {
     let mut surface = make_fixture_surface();
     surface.services[0].registrations[0].variants.clear();
     surface.services[0].entrypoints[0].kind = EntrypointKind::Finalize;
     surface.services[0].entrypoints[0].return_type = TypeRef::Primitive(crate::core::ir::PrimitiveType::I32);
 
-    let error = generate(&surface, &make_test_config()).expect_err("nonopaque finalize must be rejected");
-    assert!(error.to_string().contains("TestService.run return"), "{error:#}");
+    let files = generate(&surface, &make_test_config()).expect("a lossy finalize must not refuse the service");
+
+    assert!(
+        files.iter().any(|file| file.path.ends_with("TestService.java")),
+        "the service class must still be emitted, got: {:?}",
+        files.iter().map(|f| &f.path).collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -581,16 +596,42 @@ fn generated_service_uses_native_width_primitive_carriers() {
     assert!(!java.contains("(long) ((flag ? 1 : 0))"), "{java}");
 }
 
+/// A `Named` metadata parameter naming a type on this surface is carried, not refused: the C
+/// export declares it as an `AlefHandle` and this backend already renders `ValueLayout.JAVA_LONG`
+/// with `<param>.handle().address()` for it.
+///
+/// The guard this replaces refused every one of them with "unsupported until the generated C
+/// header declares a carrier" -- a carrier the header had declared all along. It never ran,
+/// because java's exclusion pass dropped the service before validation could reach it, so the
+/// claim went untested against a real surface for as long as it existed. ~keep
 #[test]
-fn generated_java_service_rejects_named_params_until_header_matches_runtime() {
+fn a_named_metadata_param_on_the_surface_is_carried_as_a_handle() {
     let mut surface = make_fixture_surface();
     surface.services[0].registrations[0].variants.clear();
     surface.services[0].registrations[0].metadata_params[0].ty = TypeRef::Named("RequestData".into());
 
-    let error = generate(&surface, &make_test_config()).expect_err("named header mismatch must be rejected");
+    let files = generate(&surface, &make_test_config()).expect("a surface-defined named param must be carried");
 
     assert!(
-        error.to_string().contains("named parameters are unsupported"),
+        files.iter().any(|file| file.path.ends_with("TestService.java")),
+        "the service class must still be emitted"
+    );
+}
+
+/// Negative control for the above: a `Named` type the surface does not define has no handle
+/// carrier at all, and `java_type_for_metadata` would degrade it to `Object`. That is still a
+/// refusal -- without this, "accept every Named param" would pass the test above while emitting a
+/// signature naming a class that does not exist.
+#[test]
+fn a_named_metadata_param_absent_from_the_surface_is_still_rejected() {
+    let mut surface = make_fixture_surface();
+    surface.services[0].registrations[0].variants.clear();
+    surface.services[0].registrations[0].metadata_params[0].ty = TypeRef::Named("NotOnThisSurface".into());
+
+    let error = generate(&surface, &make_test_config()).expect_err("an undefined named param must be rejected");
+
+    assert!(
+        error.to_string().contains("is not defined on this surface"),
         "{error:#}"
     );
 }
@@ -614,8 +655,17 @@ fn java_backend_service_generation_suppresses_lifetime_bound_types() {
     assert!(files.is_empty(), "lifetime-bound service signatures must be suppressed");
 }
 
+/// Java marshals neither direction of the callback: the C export declares it as
+/// `char *(*)(void*, const char*)`, so the generated Java hands the JSON straight through as a
+/// `String` and never names the wire type in any signature it emits. Producing that JSON is the
+/// FFI crate's job.
+///
+/// The assertion this replaces read `!typ.has_serde`, and `has_serde` records *derives*. It is
+/// false for a type with hand-written `impl Serialize`/`impl Deserialize`, and false again for a
+/// type alef resolved at a re-export site rather than at its definition. spikard's `RequestData`
+/// is both at once, and the FFI crate serialises it perfectly well. ~keep
 #[test]
-fn java_service_rejects_missing_or_nonserde_callback_wire_types() {
+fn a_callback_wire_type_without_serde_derives_is_accepted() {
     let mut surface = make_fixture_surface();
     surface.services[0].registrations[0].variants.clear();
     surface
@@ -625,10 +675,28 @@ fn java_service_rejects_missing_or_nonserde_callback_wire_types() {
         .unwrap()
         .has_serde = false;
 
-    let error = generate(&surface, &make_test_config()).expect_err("nonserde callback request");
+    let files =
+        generate(&surface, &make_test_config()).expect("a wire type without serde derives must not refuse the service");
 
     assert!(
-        error.to_string().contains("callback request type RequestData"),
+        files.iter().any(|file| file.path.ends_with("TestService.java")),
+        "the service class must still be emitted"
+    );
+}
+
+/// Negative control: a contract that names no wire type at all is still a refusal. That one is
+/// about alef's own configuration being coherent, not about what java can marshal, so relaxing
+/// the serde assertion must not take it with it.
+#[test]
+fn a_callback_contract_naming_no_wire_type_is_still_rejected() {
+    let mut surface = make_fixture_surface();
+    surface.services[0].registrations[0].variants.clear();
+    surface.handler_contracts[0].wire_request_type = None;
+
+    let error = generate(&surface, &make_test_config()).expect_err("a missing wire type must be rejected");
+
+    assert!(
+        error.to_string().contains("the callback request type is missing"),
         "{error:#}"
     );
 }
@@ -722,13 +790,14 @@ fn java_class_marshals_service_metadata_to_ffi_carriers() {
     assert_emits_line(&java, "                , cpath");
     assert!(java.contains("varHandle.invokeWithArguments("), "{java}");
     assert!(!java.contains("invokeExact(args)"), "{java}");
-    // A named metadata parameter has no C carrier the runtime can marshal, so `generate()` refuses
-    // the whole surface (see `generated_java_service_rejects_named_params_until_header_matches_runtime`).
-    // The renderer must therefore not invent a `*_from_json` round trip for it either — that
-    // symbol is never in the generated header. ~keep
+    // A named metadata parameter crosses as an `AlefHandle`, which the descriptor carries as
+    // `JAVA_LONG` and the call site passes as `options.handle().address()`. The renderer must not
+    // invent a `*_from_json` round trip for it: that symbol is not in the generated header, and
+    // the handle is already the carrier. ~keep
     assert!(!java.contains("TEST_CRATE_REQUEST_OPTIONS_FROM_JSON"), "{java}");
     assert!(!java.contains("nativeResources.register(cOptions"), "{java}");
-    generate(&surface, &make_test_config()).expect_err("named service metadata must be rejected");
+    assert_emits_line(&java, "                , ValueLayout.JAVA_LONG    // options param");
+    generate(&surface, &make_test_config()).expect("a surface-defined named metadata param is carried");
 }
 
 #[test]

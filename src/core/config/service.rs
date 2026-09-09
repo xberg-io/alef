@@ -61,6 +61,27 @@ pub struct RegistrationSpec {
     /// `Conn`-wrapping handler adapter for `"context_object"` registrations. ~keep
     #[serde(default)]
     pub handler_shape: Option<String>,
+    /// Chaining methods on the wrapper type that every variant of this registration exposes as
+    /// an extra optional parameter.
+    ///
+    /// Only meaningful when the base registration takes a wrapper-typed metadata param with a
+    /// static constructor (the `wrapper_call` shape). Each entry names a method on that wrapper
+    /// taking exactly one argument and returning the wrapper, e.g. `RouteBuilder::cors`. A
+    /// variant then gains an optional param of that argument's type and, when the caller passes
+    /// one, chains the method onto the constructed wrapper before delegating.
+    ///
+    /// Exists because a verb shortcut that can only pin constructor args is strictly weaker than
+    /// the base registration it wraps: everything the builder can express after construction --
+    /// per-route CORS, compression, timeouts -- becomes unreachable through the shortcut, and a
+    /// binding whose only route API is the shortcut cannot express it at all.
+    ///
+    /// ```toml
+    /// [[crates.services.registrations]]
+    /// method = "route"
+    /// wrapper_options = ["cors", "compression"]
+    /// ```
+    #[serde(default)]
+    pub wrapper_options: Vec<String>,
 }
 
 /// A named shortcut over a base [`RegistrationSpec`] with one or more pinned

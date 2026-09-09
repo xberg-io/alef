@@ -35,7 +35,13 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let dependency_block = match style {
         DartStyle::Frb => format!(
             r#"  # FRB runtime is pure-Dart; works in both Flutter and server-Dart contexts.
-  flutter_rust_bridge: ^{flutter_rust_bridge}
+  # Pinned exactly, not with a caret: flutter_rust_bridge asserts at RustLib.init() that the
+  # Dart runtime version equals the version its codegen ran as, and the sibling Rust crate
+  # carries an `=` pin on the same constant. A caret lets `dart pub get` satisfy a stale
+  # pubspec.lock with an older minor and hand the app a "codegen version (X) should be the same
+  # as runtime version (Y)" Bad state at first call -- a range on one side of an equality
+  # requirement is drift waiting to happen. ~keep
+  flutter_rust_bridge: {flutter_rust_bridge}
   # FRB codegen-2.x emits `@freezed` sealed classes annotated with these.
   freezed_annotation: '{freezed_annotation}'
   json_annotation: '{json_annotation}'

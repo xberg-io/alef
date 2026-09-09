@@ -241,10 +241,9 @@ pub fn gen_trait_bridges_file(
         out.push('\n');
     }
 
-    out.push_str(&render(
-        "ffi_json_extensions.jinja",
-        Value::from_serialize(serde_json::json!({})),
-    ));
+    // `FfiJsonExtensions` is emitted as its own file by `gen_bindings::mod`, not appended here:
+    // service-API marshalling calls `ToFfiJson` whether or not the crate declares a trait bridge,
+    // and appending it to a conditionally-written file left those calls undefined. ~keep
 
     TraitBridgesFile {
         filename: "TraitBridges.cs".to_string(),

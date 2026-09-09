@@ -594,6 +594,7 @@ fn make_surface_with_variant() -> ApiSurface {
                     },
                 },
             ],
+            options: Vec::new(),
         }),
         signature_params: vec![ParamDef {
             name: "path".to_owned(),

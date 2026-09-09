@@ -15,7 +15,7 @@ pub use metadata::{
 pub use service::{
     EntrypointDef, EntrypointKind, HandlerContractDef, HandlerShape, ParameterConstraint, RegistrationDef,
     RegistrationVariant, RegistrationVariantLanguageOverride, RegistrationVariantOverride, RegistrationVariantStyle,
-    ResolvedVariant, ServiceDef, WrapperConstructorArg, WrapperConstructorCall,
+    ResolvedVariant, ServiceDef, WrapperConstructorArg, WrapperConstructorCall, WrapperOption,
 };
 pub use surface::{ApiSurface, UnsupportedPublicItem, cfg_feature_satisfied};
 pub use type_ref::{PrimitiveType, TypeRef};

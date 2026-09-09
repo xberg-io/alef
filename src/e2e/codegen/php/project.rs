@@ -481,18 +481,40 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
 /// having none, because it creates false confidence. ~keep
 pub(super) fn render_run_tests_php(
     extension_name: &str,
-    cargo_crate_name: Option<&str>,
     cargo_package_name: &str,
+    binding_crate_dir: &str,
     pkg_version: &str,
-) -> String {
+) -> anyhow::Result<String> {
     let header = hash::header(CommentStyle::DoubleSlash);
-    let ext_lib_name = if let Some(crate_name) = cargo_crate_name {
-        // Cargo replaces hyphens with underscores for lib names, and the crate name
-        // already includes the _php suffix.
-        format!("lib{}", crate_name.replace('-', "_"))
-    } else {
-        format!("lib{extension_name}_php")
-    };
+    // Cargo names the cdylib `lib` + the package name with hyphens replaced by underscores.
+    // Deriving it from the same `cargo_package_name` the build hint below prints keeps the path
+    // the guard reports missing and the command it tells you to run from naming two different
+    // artifacts. The previous fallback built the name from `extension_name` instead and appended
+    // a `_php` suffix of its own, so an extension already called `spikard_php` was looked for as
+    // `libspikard_php_php` -- a file cargo never emits, which failed every php e2e run with an
+    // "extension build not found" that no amount of building could satisfy. ~keep
+    let ext_lib_name = format!("lib{}", cargo_package_name.replace('-', "_"));
+    // Where cargo puts that cdylib depends on whether the binding crate is a workspace member:
+    // a member builds into the workspace-root `target/`, an excluded crate into its own. Both
+    // are checked rather than picking one, because the consumer's `Cargo.toml` decides which is
+    // true and a generated test harness cannot see that decision. ~keep
+    let crate_local_target = format!("{}/target/release/", binding_crate_dir.trim_end_matches('/'));
+    // How the runner decides the loaded extension is the wrong build.
+    //
+    // `pkg_version` is whatever the consumer configured, and that is not always a bare version:
+    // a registry-mode php package routinely carries a Composer constraint. The check used to be
+    // an unconditional `$loadedVersion !== '<pkg_version>'`, which compares a *version* against a
+    // *constraint* by string identity -- so a consumer configuring `>=3.12.3` got
+    // `'3.12.3' !== '>=3.12.3'`, true for every build forever. The runner could not pass, and the
+    // error it printed named the extension rather than the configuration that made passing
+    // impossible, so it read as a broken build rather than a broken comparison.
+    //
+    // A leading comparison operator is honoured through PHP's `version_compare`. A bare version
+    // keeps strict equality, byte for byte as before. Anything else -- caret, tilde, `||`, `*`,
+    // a range -- is refused at generation time rather than emitted as a check that cannot pass:
+    // alef does not vendor a Composer constraint parser, and silently accepting an input it
+    // cannot evaluate is what produced this bug. ~keep
+    let version_mismatch_condition = php_version_mismatch_condition(pkg_version)?;
     const TEMPLATE: &str = r#"#!/usr/bin/env php
 <?php
 __HEADER__
@@ -503,7 +525,18 @@ $extSuffix = match (PHP_OS_FAMILY) {
     'Darwin' => '.dylib',
     default => '.so',
 };
-$localExtPath = __DIR__ . '/../../target/release/__EXT_LIB_NAME__' . $extSuffix;
+$repoRoot = __DIR__ . '/../../';
+$localExtCandidates = [
+    $repoRoot . 'target/release/__EXT_LIB_NAME__' . $extSuffix,
+    $repoRoot . '__CRATE_LOCAL_TARGET____EXT_LIB_NAME__' . $extSuffix,
+];
+$localExtPath = $localExtCandidates[0];
+foreach ($localExtCandidates as $candidate) {
+    if (file_exists($candidate)) {
+        $localExtPath = $candidate;
+        break;
+    }
+}
 $extPath = $localExtPath;
 
 // Check for PIE-installed extension path (set by install.sh in registry mode).
@@ -521,7 +554,9 @@ if ($pieInstalledExtPath && file_exists($pieInstalledExtPath)) {
 // code instead of this checkout. ~keep
 if (!file_exists($extPath)) {
     fwrite(STDERR, "error: no __EXTENSION_NAME__ PHP extension build found.\n");
-    fwrite(STDERR, "  looked for a local build at: $localExtPath\n");
+    foreach ($localExtCandidates as $candidate) {
+        fwrite(STDERR, "  looked for a local build at: $candidate\n");
+    }
     $pieDisplay = $pieInstalledExtPath !== false ? $pieInstalledExtPath : '(unset)';
     fwrite(STDERR, "  looked for PIE_INSTALLED_EXTENSION_PATH at: $pieDisplay\n");
     fwrite(STDERR, "Build it locally with:\n");
@@ -654,7 +689,7 @@ if ($preflightExit !== 0 || $preflightStdout === '') {
     exit(1);
 }
 $loadedVersion = $preflightStdout;
-if ($loadedVersion !== '__PKG_VERSION__') {
+if (__VERSION_MISMATCH_CONDITION__) {
     fwrite(STDERR, "error: loaded __EXTENSION_NAME__ extension version mismatch.\n");
     fwrite(STDERR, "  extension at $extPath reports version: $loadedVersion\n");
     fwrite(STDERR, "  expected version: __PKG_VERSION__\n");
@@ -679,12 +714,49 @@ $cmd = array_merge(
 passthru(implode(' ', array_map('escapeshellarg', $cmd)), $exitCode);
 exit($exitCode);
 "#;
-    TEMPLATE
+    Ok(TEMPLATE
         .replace("__HEADER__", &header)
         .replace("__EXT_LIB_NAME__", &ext_lib_name)
+        .replace("__CRATE_LOCAL_TARGET__", &crate_local_target)
+        .replace("__VERSION_MISMATCH_CONDITION__", &version_mismatch_condition)
         .replace("__EXTENSION_NAME__", extension_name)
         .replace("__PKG_VERSION__", pkg_version)
-        .replace("__CARGO_PACKAGE_NAME__", cargo_package_name)
+        .replace("__CARGO_PACKAGE_NAME__", cargo_package_name))
+}
+
+/// Render the PHP condition that decides the loaded extension is the wrong build.
+///
+/// See the call site for why this is not a plain string comparison.
+fn php_version_mismatch_condition(pkg_version: &str) -> anyhow::Result<String> {
+    const OPERATORS: [&str; 5] = [">=", "<=", "!=", ">", "<"];
+    let trimmed = pkg_version.trim();
+
+    for operator in OPERATORS {
+        if let Some(version) = trimmed.strip_prefix(operator) {
+            let version = version.trim();
+            // Negate the constraint: the runner errors when the loaded version does NOT satisfy it.
+            let negated = match operator {
+                ">=" => "<",
+                "<=" => ">",
+                ">" => "<=",
+                "<" => ">=",
+                _ => "==",
+            };
+            return Ok(format!("version_compare($loadedVersion, '{version}', '{negated}')"));
+        }
+    }
+
+    let exact = trimmed.strip_prefix('=').unwrap_or(trimmed).trim();
+    if exact.starts_with(|c: char| c.is_ascii_digit()) && !exact.contains([' ', '|', '*', ',']) {
+        return Ok(format!("$loadedVersion !== '{exact}'"));
+    }
+
+    anyhow::bail!(
+        "php e2e: configured package version `{pkg_version}` is a constraint this runner cannot \
+         evaluate. Configure an exact version, or a single `>=`/`<=`/`>`/`<` comparison. Emitting \
+         a string comparison against a constraint produces a runner that can never pass and \
+         blames the extension for it."
+    )
 }
 
 #[cfg(test)]
@@ -772,12 +844,15 @@ mod tests {
 
     #[test]
     fn test_render_run_tests_php_fails_loudly_when_extension_missing() {
-        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
 
         let expected_failure_branch = "\
 if (!file_exists($extPath)) {
     fwrite(STDERR, \"error: no sample_ext PHP extension build found.\\n\");
-    fwrite(STDERR, \"  looked for a local build at: $localExtPath\\n\");
+    foreach ($localExtCandidates as $candidate) {
+        fwrite(STDERR, \"  looked for a local build at: $candidate\\n\");
+    }
     $pieDisplay = $pieInstalledExtPath !== false ? $pieInstalledExtPath : '(unset)';
     fwrite(STDERR, \"  looked for PIE_INSTALLED_EXTENSION_PATH at: $pieDisplay\\n\");
     fwrite(STDERR, \"Build it locally with:\\n\");
@@ -799,9 +874,93 @@ if (!file_exists($extPath)) {
         );
     }
 
+    /// The cdylib cargo emits is `lib` + the *package* name, and nothing else. The previous
+    /// fallback derived it from the extension name and appended its own `_php`, so an extension
+    /// named `sample_ext_php` was looked for as `libsample_ext_php_php` -- a path cargo never
+    /// writes, which no amount of building could satisfy.
+    #[test]
+    fn the_extension_library_name_comes_from_the_cargo_package_name() {
+        let result = render_run_tests_php("sample_ext_php", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
+
+        assert!(
+            result.contains("libsample_ext_php'"),
+            "library name must be lib + package name with hyphens underscored, got:\n{result}"
+        );
+        assert!(
+            !result.contains("libsample_ext_php_php"),
+            "the extension name must not have a second _php appended to it, got:\n{result}"
+        );
+    }
+
+    /// A bare version keeps strict equality — the byte-for-byte shape every existing consumer
+    /// already generates.
+    #[test]
+    fn a_bare_version_still_compares_by_strict_equality() {
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
+
+        assert!(
+            result.contains("if ($loadedVersion !== '1.2.3') {"),
+            "a bare version must keep the strict-equality form, got:\n{result}"
+        );
+    }
+
+    /// A comparison constraint has to go through `version_compare`. Comparing a version against a
+    /// constraint by string identity — which is what this used to emit — yields
+    /// `'3.12.3' !== '>=3.12.3'`, true for every build forever. The runner could not pass, and the
+    /// error named the extension rather than the configuration that made passing impossible.
+    #[test]
+    fn a_comparison_constraint_is_evaluated_rather_than_string_compared() {
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", ">=3.12.3")
+            .expect("a comparison constraint renders");
+
+        assert!(
+            result.contains("version_compare($loadedVersion, '3.12.3', '<')"),
+            "a >= constraint must fail only when the loaded version is lower, got:\n{result}"
+        );
+        assert!(
+            !result.contains("!== '>=3.12.3'"),
+            "the constraint must never reach a string comparison, got:\n{result}"
+        );
+    }
+
+    /// Anything alef cannot evaluate is refused at generation time. Emitting a check that cannot
+    /// pass is worse than refusing to emit one: it fails in the consumer's CI, blaming their
+    /// extension build, arbitrarily far from the configuration that caused it.
+    #[test]
+    fn a_constraint_that_cannot_be_evaluated_is_refused_at_generation_time() {
+        let error = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "^3.12.3")
+            .expect_err("a caret constraint must be refused");
+
+        assert!(
+            error.to_string().contains("cannot \nevaluate") || error.to_string().contains("cannot evaluate"),
+            "the refusal must say what it could not evaluate, got: {error:#}"
+        );
+    }
+
+    /// A php extension crate excluded from the workspace builds into its own `target/`, never
+    /// the workspace-root one, so the harness must check both. Asserting only the workspace path
+    /// would pass for a member crate and silently fail for every excluded one.
+    #[test]
+    fn the_harness_checks_both_the_workspace_and_the_crate_local_target_dir() {
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
+
+        assert!(
+            result.contains("$repoRoot . 'target/release/libsample_ext_php'"),
+            "workspace-root target must still be a candidate, got:\n{result}"
+        );
+        assert!(
+            result.contains("$repoRoot . 'crates/sample-ext-php/target/release/libsample_ext_php'"),
+            "the crate-local target must be a candidate too, got:\n{result}"
+        );
+    }
+
     #[test]
     fn test_render_run_tests_php_asserts_preflight_extension_version() {
-        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
 
         let expected_version_branch = "\
 $loadedVersion = $preflightStdout;
@@ -822,7 +981,8 @@ if ($loadedVersion !== '1.2.3') {
 
     #[test]
     fn test_render_run_tests_php_detects_already_loaded_warning() {
-        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
 
         assert!(
             result.contains("stripos($preflightStderr, 'already loaded') !== false"),
@@ -838,7 +998,8 @@ if ($loadedVersion !== '1.2.3') {
 
     #[test]
     fn test_render_run_tests_php_builds_isolated_ini_before_loading_extension() {
-        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
 
         assert!(
             result.contains("function alef_build_isolated_ini(string $php, string $extensionName): string {"),
@@ -858,7 +1019,8 @@ if ($loadedVersion !== '1.2.3') {
 
     #[test]
     fn test_render_run_tests_php_preflight_runs_unconditionally_before_phpunit() {
-        let result = render_run_tests_php("sample_ext", None, "sample-ext-php", "1.2.3");
+        let result = render_run_tests_php("sample_ext", "sample-ext-php", "crates/sample-ext-php", "1.2.3")
+            .expect("bare version renders");
 
         // Regression guard: a previous revision put the version/identity check after a
         // branch that unconditionally `passthru`'d into PHPUnit and then `exit`'d, so the

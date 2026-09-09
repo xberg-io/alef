@@ -741,6 +741,7 @@ mod classify_service_imports_tests {
                         param: named_param("path", "Path"),
                     },
                 ],
+                options: Vec::new(),
             }),
             signature_params: vec![named_param("path", "Path")],
             doc: None,

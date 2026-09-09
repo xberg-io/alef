@@ -420,6 +420,7 @@ fn registration_variants_emit_napi_methods() {
                         },
                     },
                 ],
+                options: Vec::new(),
             }),
             signature_params: vec![ParamDef {
                 name: "path".to_owned(),

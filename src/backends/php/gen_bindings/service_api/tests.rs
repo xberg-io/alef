@@ -894,6 +894,7 @@ fn php_output_wrapper_call_delegates_to_base_method() {
                         },
                     },
                 ],
+                options: Vec::new(),
             }),
             signature_params: vec![ParamDef {
                 name: "path".to_owned(),

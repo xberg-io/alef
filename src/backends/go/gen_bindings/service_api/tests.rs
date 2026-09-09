@@ -461,6 +461,7 @@ fn test_registration_variant_wrapper_call_emits_free_args() {
                     },
                 },
             ],
+            options: Vec::new(),
         }),
         signature_params: vec![ParamDef {
             name: "path".to_owned(),

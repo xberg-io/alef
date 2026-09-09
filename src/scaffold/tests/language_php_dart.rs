@@ -345,6 +345,25 @@ fn test_scaffold_dart() {
         "got: {}",
         pubspec.content
     );
+    // flutter_rust_bridge checks Dart-runtime == codegen version for equality at
+    // `RustLib.init()`, and the sibling Rust crate pins the same constant with `=`. A caret
+    // here lets `dart pub get` satisfy a stale lockfile with an older minor, which surfaces as
+    // a "Bad state: codegen version should be the same as runtime version" on first call
+    // rather than as a resolution failure. Assert the exact pin, and assert the caret is gone
+    // so a "relax the constraint" edit has to argue with this test.
+    assert!(
+        pubspec.content.contains(&format!(
+            "flutter_rust_bridge: {}",
+            crate::core::template_versions::cargo::FLUTTER_RUST_BRIDGE
+        )),
+        "flutter_rust_bridge must be pinned exactly, got: {}",
+        pubspec.content
+    );
+    assert!(
+        !pubspec.content.contains("flutter_rust_bridge: ^"),
+        "flutter_rust_bridge must not carry a caret range, got: {}",
+        pubspec.content
+    );
     assert!(
         pubspec.content.contains("sdk: '>=3.13.0 <4.0.0'"),
         "got: {}",

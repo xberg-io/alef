@@ -640,6 +640,12 @@ impl Backend for CsharpBackend {
         }
 
         files.push(GeneratedFile {
+            path: base_path.join("FfiJsonExtensions.cs"),
+            content: types::gen_ffi_json_extensions(&namespace),
+            generated_header: true,
+        });
+
+        files.push(GeneratedFile {
             path: base_path.join("JsonLeniency.cs"),
             content: types::gen_json_leniency(&namespace),
             generated_header: true,

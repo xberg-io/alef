@@ -144,7 +144,17 @@ fn finalize_return_representable(return_type: &TypeRef, api: &ApiSurface) -> boo
 /// Reject a service parameter the C ABI cannot carry.
 ///
 /// `locator` reads `{Service}.{member}[.{variant}].{param}` so a failure names the declaration.
-fn validate_service_param(locator: &str, param: &ParamDef) -> anyhow::Result<()> {
+///
+/// A `Named` parameter naming a type on this surface is carried, not rejected: the C export
+/// declares it as an `AlefHandle`, and this backend already renders it as
+/// `ValueLayout.JAVA_LONG` in the descriptor with `<param>.handle().address()` at the call site
+/// (`java_layout_for_metadata`, `metadata_arg_expr`). This used to reject every one of them with
+/// "unsupported until the generated C header declares a carrier", which the header had in fact
+/// declared all along -- the guard never ran, because java's exclusion pass dropped the service
+/// before validation could reach it, so the claim was never tested against a real surface. A
+/// `Named` type the surface does not define is still rejected: there is nothing to marshal, and
+/// `java_type_for_metadata` would degrade it to `Object`. ~keep
+fn validate_service_param(api: &ApiSurface, locator: &str, param: &ParamDef) -> anyhow::Result<()> {
     if param.optional {
         anyhow::bail!("{locator}: optional service parameters are unsupported — the C ABI carries no presence flag");
     }
@@ -153,29 +163,31 @@ fn validate_service_param(locator: &str, param: &ParamDef) -> anyhow::Result<()>
             "{locator}: `bytes` service parameters are unsupported — the C ABI passes `*const u8` \
              with no length carrier alongside it"
         ),
-        TypeRef::Named(name) => anyhow::bail!(
-            "{locator}: named parameters are unsupported until the generated C header declares a \
-             `{name}` carrier this runtime can marshal"
+        TypeRef::Named(name) if !api.types.iter().any(|typ| typ.name == *name) => anyhow::bail!(
+            "{locator}: named parameter type `{name}` is not defined on this surface, so there is \
+             no handle carrier to marshal it through"
         ),
         _ => Ok(()),
     }
 }
 
-/// Reject a callback wire type the handler bridge cannot marshal as JSON.
-fn validate_callback_wire_type(
-    api: &ApiSurface,
-    locator: &str,
-    role: &str,
-    wire_type: Option<&str>,
-) -> anyhow::Result<()> {
-    let Some(name) = wire_type else {
+/// Reject a callback contract that names no wire type at all.
+///
+/// Deliberately does **not** assert that the wire type is serde-capable. Java marshals neither
+/// direction: the C export declares the callback as `char *(*)(void*, const char*)`, so the
+/// generated Java hands the JSON straight through as a `String` and never names the wire type in
+/// any signature it emits. Producing that JSON is the FFI crate's job, and the FFI backend
+/// validates its own ability to do it.
+///
+/// The assertion that used to live here read `!typ.has_serde`, and `has_serde` records *derives*.
+/// It is false for a type with hand-written `impl Serialize`/`impl Deserialize`, and false again
+/// for a type alef resolved at a re-export site rather than at its definition -- spikard's
+/// `RequestData` is both at once, and the FFI crate serialises it perfectly well. A guard that
+/// fails generation on evidence it cannot fully observe, about a contract it does not
+/// participate in, rejects working surfaces. ~keep
+fn validate_callback_wire_type(locator: &str, role: &str, wire_type: Option<&str>) -> anyhow::Result<()> {
+    if wire_type.is_none() {
         anyhow::bail!("{locator}: the callback {role} type is missing, so the handler bridge has nothing to marshal");
-    };
-    if api.types.iter().any(|typ| typ.name == name && !typ.has_serde) {
-        anyhow::bail!(
-            "{locator}: callback {role} type {name} does not derive serde, so the handler bridge \
-             cannot marshal it as JSON"
-        );
     }
     Ok(())
 }
@@ -192,11 +204,11 @@ fn validate_registration(api: &ApiSurface, service: &ServiceDef, registration: &
                 registration.callback_contract
             )
         })?;
-    validate_callback_wire_type(api, &locator, "request", contract.wire_request_type.as_deref())?;
-    validate_callback_wire_type(api, &locator, "response", contract.wire_response_type.as_deref())?;
+    validate_callback_wire_type(&locator, "request", contract.wire_request_type.as_deref())?;
+    validate_callback_wire_type(&locator, "response", contract.wire_response_type.as_deref())?;
 
     for param in &registration.metadata_params {
-        validate_service_param(&format!("{locator}.{}", param.name), param)?;
+        validate_service_param(api, &format!("{locator}.{}", param.name), param)?;
     }
 
     for variant in &registration.variants {
@@ -208,16 +220,21 @@ fn validate_registration(api: &ApiSurface, service: &ServiceDef, registration: &
             );
         }
         for param in &variant.signature_params {
-            validate_service_param(&format!("{variant_locator}.{}", param.name), param)?;
+            validate_service_param(api, &format!("{variant_locator}.{}", param.name), param)?;
         }
     }
     Ok(())
 }
 
-/// Fail generation loudly for every service shape whose value the C ABI would silently drop.
+/// Reject the service shapes this backend genuinely cannot emit, and warn about the one whose
+/// value the C ABI drops.
 ///
-/// A Finalize entrypoint returning anything but `()` or a surface-wrapped type crosses the C
-/// ABI as an `i32` status code, so its value is dropped with no diagnostic. ~keep
+/// A Finalize entrypoint returning anything but `()` or a surface-wrapped type crosses the C ABI
+/// as an `i32` status code, so its value is dropped. That is worth saying out loud, but it is not
+/// a reason to refuse the whole service: the C export exists, the status is meaningful, and the
+/// csharp backend already emits exactly this shape (`public int into_router()` over
+/// `spikard_app_ep_into_router(handle) -> i32`). Failing here instead cost java its entire
+/// binding for one lossy entrypoint. ~keep
 fn validate_service_abi(api: &ApiSurface, service: &ServiceDef) -> anyhow::Result<()> {
     for registration in &service.registrations {
         validate_registration(api, service, registration)?;
@@ -226,12 +243,17 @@ fn validate_service_abi(api: &ApiSurface, service: &ServiceDef) -> anyhow::Resul
     for entrypoint in &service.entrypoints {
         let locator = format!("{}.{}", service.name, entrypoint.method);
         for param in &entrypoint.params {
-            validate_service_param(&format!("{locator}.{}", param.name), param)?;
+            validate_service_param(api, &format!("{locator}.{}", param.name), param)?;
         }
         if matches!(entrypoint.kind, EntrypointKind::Finalize)
             && !finalize_return_representable(&entrypoint.return_type, api)
         {
-            anyhow::bail!("{locator} return: a Finalize entrypoint may only return `()` or a type this surface wraps");
+            tracing::warn!(
+                entrypoint = %locator,
+                "Finalize entrypoint returns a type the C ABI carries as an i32 status, so the \
+                 returned value is not reachable from Java; the entrypoint is emitted returning \
+                 that status"
+            );
         }
     }
     Ok(())

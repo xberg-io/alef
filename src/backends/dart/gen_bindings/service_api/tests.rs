@@ -505,6 +505,7 @@ fn test_emit_registration_variants() {
                     },
                 },
             ],
+            options: Vec::new(),
         }),
         signature_params: vec![ParamDef {
             name: "path".to_owned(),

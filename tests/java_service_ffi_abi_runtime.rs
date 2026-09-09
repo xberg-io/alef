@@ -69,6 +69,7 @@ fn route_registration() -> RegistrationDef {
                 wrapper_type_name: "Route".to_owned(),
                 constructor_method: "new".to_owned(),
                 args: vec![WrapperConstructorArg::Free { param: path }],
+                options: Vec::new(),
             }),
             doc: Some("Register a GET handler.".to_owned()),
             ..RegistrationVariant::default()

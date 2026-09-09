@@ -388,6 +388,12 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
     let service_snake = class_name.to_snake_case();
     let service_camel = service_snake.to_lower_camel_case();
 
+    // Which named types this backend emits as first-class Codable structs, and therefore which
+    // carry the `intoRust()` shim a wrapper-option parameter has to go through. Computed from
+    // the same function the DTO emitter uses, so the two cannot disagree about a type. ~keep
+    let first_class_dto_names =
+        super::dto::compute_first_class_dto_names(api, &super::effective_exclude_types(config, api));
+
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_file_header.swift.jinja",
         minijinja::Value::from(()),
@@ -520,7 +526,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
     ));
 
     for reg in &service.registrations {
-        gen_registration_method(&mut out, service, reg, api, &service_snake);
+        gen_registration_method(&mut out, service, reg, api, &service_snake, &first_class_dto_names);
     }
 
     for ep in &service.entrypoints {
@@ -546,6 +552,7 @@ fn gen_registration_method(
     reg: &RegistrationDef,
     _api: &ApiSurface,
     service_snake: &str,
+    first_class_dto_names: &std::collections::HashSet<String>,
 ) {
     let method_name = &reg.method;
     let method_camel = method_name.to_lower_camel_case();
@@ -602,7 +609,7 @@ fn gen_registration_method(
     ));
 
     for variant in &reg.variants {
-        gen_registration_variant(out, service_snake, reg, variant);
+        gen_registration_variant(out, service_snake, reg, variant, first_class_dto_names);
     }
 }
 
@@ -611,6 +618,7 @@ fn gen_registration_variant(
     service_snake: &str,
     reg: &RegistrationDef,
     variant: &crate::core::ir::RegistrationVariant,
+    first_class_dto_names: &std::collections::HashSet<String>,
 ) {
     use crate::core::ir::WrapperConstructorArg;
 
@@ -677,6 +685,40 @@ fn gen_registration_variant(
         let base_param_name = &wrapper_call.metadata_param;
         let base_method_camel = reg.method.to_lower_camel_case();
 
+        // Optional builder-chained metadata (`wrapper_options` in alef.toml). The parameter is
+        // typed with the *ergonomic* Swift name rather than the `RustBridge.`-qualified one the
+        // constructor's free args use: a caller outside this module can only name the ergonomic
+        // type, because `RustBridge` is a target of the generated package and not one of its
+        // products. First-class DTOs therefore convert through their `intoRust()` shim; a type
+        // that is only a typealias over the bridge class is already the bridge type and passes
+        // straight through. ~keep
+        let options: Vec<minijinja::Value> = wrapper_call
+            .options
+            .iter()
+            .map(|option| {
+                let param_name = option.name.to_lower_camel_case();
+                let swift_type = match &option.ty {
+                    TypeRef::Named(name) => name.clone(),
+                    other => typeref_to_swift_type(other),
+                };
+                let needs_into_rust =
+                    matches!(&option.ty, TypeRef::Named(name) if first_class_dto_names.contains(name));
+                let into_rust_expr = if needs_into_rust {
+                    format!("try {param_name}.intoRust()")
+                } else {
+                    param_name.clone()
+                };
+                let bridge_fn_camel = format!("{}_{}", wrapper_call.wrapper_type_name.to_snake_case(), option.method)
+                    .to_lower_camel_case();
+                minijinja::context! {
+                    name => param_name,
+                    swift_type => swift_type,
+                    bridge_fn_camel => bridge_fn_camel,
+                    into_rust_expr => into_rust_expr,
+                }
+            })
+            .collect();
+
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_registration_variant_delegate.swift.jinja",
             minijinja::context! {
@@ -688,6 +730,7 @@ fn gen_registration_variant(
                 wrapper_type_name => &wrapper_call.wrapper_type_name,
                 base_param_name => base_param_name,
                 base_method_camel => base_method_camel,
+                options => options,
             },
         ));
     } else {

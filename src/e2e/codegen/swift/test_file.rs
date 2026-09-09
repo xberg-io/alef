@@ -63,8 +63,19 @@ pub(super) fn render_test_file(
 
     if has_http_fixtures {
         // Holds the spawned harness subprocess (if any) so tearDown can terminate it
-        // deterministically instead of leaving it orphaned when the suite exits. ~keep
-        let _ = writeln!(out, "    private static var _harnessProcess: Process?");
+        // deterministically instead of leaving it orphaned when the suite exits.
+        //
+        // `nonisolated(unsafe)` because a mutable static is a hard error under the Swift 6
+        // language mode a `swift-tools-version: 6.0` package selects, and XCTest's `class
+        // setUp`/`class tearDown` are the only writers: the runner calls them once each per
+        // suite, before and after that suite's tests, so there is no concurrent access for the
+        // compiler's isolation checking to protect. Without the annotation every generated suite
+        // fails to compile, which is not a test failure the suite can report -- the whole target
+        // is simply unbuildable. ~keep
+        let _ = writeln!(
+            out,
+            "    nonisolated(unsafe) private static var _harnessProcess: Process?"
+        );
         let _ = writeln!(out);
     }
 

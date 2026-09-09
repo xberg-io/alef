@@ -614,13 +614,12 @@ fn sanitize_filename_produces_expected_names() {
     assert_eq!(names, vec!["basic_tests.test.ts", "edge_cases.test.ts"]);
 }
 
-/// An HTTP-only test file whose fixture has a JSON body assertion must still emit
-/// `_alefE2eDecompressAndParseJson` in the helper_functions block.  The previous
-/// implementation only emitted the helper when `has_non_http_fixtures` was true,
-/// causing "cannot find function" compile errors for HTTP-only categories with
-/// JSON response bodies, partial bodies, or validation-error assertions.
-#[test]
-fn http_only_test_file_with_json_body_emits_decompress_helper() {
+/// Render a node HTTP test file for a single JSON-body fixture.
+///
+/// Shared by the helper-emission tests below so each asserts on the same rendered output
+/// rather than re-deriving a fixture; a divergence between them would make the assertions
+/// describe different programs. ~keep
+fn render_json_body_test_file() -> String {
     use crate::e2e::config::E2eConfig;
     use crate::e2e::fixture::{Fixture, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
 
@@ -677,7 +676,7 @@ fn http_only_test_file_with_json_body_emits_decompress_helper() {
     let e2e_config = E2eConfig::default();
     let config = crate::core::config::ResolvedCrateConfig::default();
 
-    let output = render_test_file(
+    render_test_file(
         "node",
         "users",
         &fixtures,
@@ -694,11 +693,61 @@ fn http_only_test_file_with_json_body_emits_decompress_helper() {
         "",
         &config,
         &[],
-    );
+    )
+}
+
+/// An HTTP-only test file whose fixture has a JSON body assertion must still emit
+/// `_alefE2eDecompressAndParseJson` in the helper_functions block.  The previous
+/// implementation only emitted the helper when `has_non_http_fixtures` was true,
+/// causing "cannot find function" compile errors for HTTP-only categories with
+/// JSON response bodies, partial bodies, or validation-error assertions.
+#[test]
+fn http_only_test_file_with_json_body_emits_decompress_helper() {
+    let output = render_json_body_test_file();
 
     assert!(
         output.contains("_alefE2eDecompressAndParseJson"),
         "HTTP-only test file with JSON body must emit _alefE2eDecompressAndParseJson helper;\n\
+             actual output:\n{output}"
+    );
+}
+
+/// The decompression helper must key off the payload's own bytes, not the response header
+/// alone. Every mainstream `fetch` implementation (undici on Node, the browser's) decodes
+/// `content-encoding` transparently while leaving the header in place, so a server that
+/// genuinely compressed hands this helper an already-plain body under a `gzip` header.
+/// Decoding on the header alone threw "incorrect header check" and failed the fixture for
+/// exactly the servers that did the right thing.
+#[test]
+fn the_decompress_helper_gates_gzip_on_the_payload_magic_not_the_header() {
+    let output = render_json_body_test_file();
+
+    assert!(
+        output.contains("bytes[0] === 0x1f && bytes[1] === 0x8b"),
+        "gzip decoding must be gated on the 0x1f8b magic pair;\nactual output:\n{output}"
+    );
+    assert!(
+        !output.contains("if (contentEncoding === \"gzip\") {"),
+        "the header-only gzip branch must be gone -- it is what double-decoded an\n\
+             already-decoded body;\nactual output:\n{output}"
+    );
+}
+
+/// Negative control for the guard above: brotli carries no magic number, so it cannot be
+/// gated the same way and must instead tolerate the already-decoded case rather than
+/// throwing. Without this the two branches would look symmetric and a future edit could
+/// "tidy" the `try` away.
+#[test]
+fn the_decompress_helper_tolerates_an_already_decoded_brotli_body() {
+    let output = render_json_body_test_file();
+
+    let brotli_at = output
+        .find("brotliDecompressSync(bytes)")
+        .expect("brotli branch must still decode");
+    let preceding = &output[..brotli_at];
+    assert!(
+        preceding.rsplit('\n').take(3).any(|line| line.trim() == "try {"),
+        "the brotli decode must sit inside a try so an already-decoded body falls back;\n\
              actual output:\n{output}"
     );
 }

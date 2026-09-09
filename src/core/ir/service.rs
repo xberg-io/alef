@@ -535,6 +535,28 @@ pub struct WrapperConstructorCall {
     /// Constructor args in declared order. Each is either fixed (with a value
     /// expression substituted in) or free (taken from the variant's signature).
     pub args: Vec<WrapperConstructorArg>,
+    /// Chaining methods on the wrapper the variant exposes as trailing optional params.
+    ///
+    /// Resolved from `[[crates.services.registrations]] wrapper_options`. Empty for every
+    /// registration that does not declare any, so a backend that ignores this field keeps its
+    /// previous output byte for byte.
+    #[serde(default)]
+    pub options: Vec<WrapperOption>,
+}
+
+/// One optional chaining method a [`WrapperConstructorCall`] exposes on its variants.
+///
+/// Rendered as a trailing optional parameter whose type is the chaining method's own single
+/// argument type; when the caller supplies a value, the backend chains
+/// `wrapper = wrapper.<method>(value)` before delegating to the base registration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WrapperOption {
+    /// Parameter name as it appears in the variant's signature (the method name).
+    pub name: String,
+    /// Method to call on the wrapper (e.g. `"cors"`).
+    pub method: String,
+    /// Type of the chaining method's single argument (e.g. `Named("CorsConfig")`).
+    pub ty: TypeRef,
 }
 
 /// One argument in a [`WrapperConstructorCall`].

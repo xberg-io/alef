@@ -30,7 +30,10 @@ pub(crate) mod zero_arg_default;
 
 pub struct SwiftBackend;
 
-fn effective_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> std::collections::HashSet<String> {
+pub(super) fn effective_exclude_types(
+    config: &ResolvedCrateConfig,
+    api: &ApiSurface,
+) -> std::collections::HashSet<String> {
     let mut exclude_types: std::collections::HashSet<String> = config
         .ffi
         .as_ref()

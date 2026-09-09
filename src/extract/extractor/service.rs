@@ -563,6 +563,54 @@ fn find_wrapper_constructor<'a>(
     found
 }
 
+/// Resolve `[[crates.services.registrations]] wrapper_options` against the wrapper type's own
+/// methods.
+///
+/// Each named method must exist on the wrapper and take exactly one argument beside its
+/// receiver: the option is rendered as a trailing optional parameter of that argument's type,
+/// so a method with none or several has no single type to give the parameter. Both conditions
+/// are hard errors rather than silent skips -- a typo in `wrapper_options` would otherwise
+/// produce a binding quietly missing the surface the config asked for, which is precisely the
+/// failure the option exists to fix.
+fn resolve_wrapper_options(
+    svc_cfg: &ServiceConfig,
+    reg_spec: &crate::core::config::service::RegistrationSpec,
+    v_spec: &RegistrationVariantSpec,
+    wrapper_type: &crate::core::ir::TypeDef,
+) -> Result<Vec<crate::core::ir::WrapperOption>, String> {
+    let mut options = Vec::with_capacity(reg_spec.wrapper_options.len());
+    for method_name in &reg_spec.wrapper_options {
+        let method = wrapper_type
+            .methods
+            .iter()
+            .find(|m| &m.name == method_name)
+            .ok_or_else(|| {
+                format!(
+                    "service `{}` registration `{}` variant `{}`: wrapper option `{}` names no method on wrapper `{}`",
+                    svc_cfg.owner_type, reg_spec.method, v_spec.name, method_name, wrapper_type.name
+                )
+            })?;
+        let [param] = method.params.as_slice() else {
+            return Err(format!(
+                "service `{}` registration `{}` variant `{}`: wrapper option `{}` must take exactly one argument on `{}::{}`, found {}",
+                svc_cfg.owner_type,
+                reg_spec.method,
+                v_spec.name,
+                method_name,
+                wrapper_type.name,
+                method_name,
+                method.params.len()
+            ));
+        };
+        options.push(crate::core::ir::WrapperOption {
+            name: method_name.clone(),
+            method: method_name.clone(),
+            ty: param.ty.clone(),
+        });
+    }
+    Ok(options)
+}
+
 fn resolve_via_wrapper(
     surface: &ApiSurface,
     svc_cfg: &ServiceConfig,
@@ -626,6 +674,8 @@ fn resolve_via_wrapper(
         wrapper_type.rust_path.clone()
     };
 
+    let options = resolve_wrapper_options(svc_cfg, reg_spec, v_spec, wrapper_type)?;
+
     Ok(RegistrationVariant {
         name: v_spec.name.clone(),
         overrides,
@@ -635,6 +685,7 @@ fn resolve_via_wrapper(
             wrapper_type_name: wrapper_type.name.clone(),
             constructor_method: ctor.name.clone(),
             args,
+            options,
         }),
         signature_params,
         doc: v_spec.doc.clone(),

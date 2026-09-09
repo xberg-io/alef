@@ -146,7 +146,10 @@ pub(super) fn gen_native_methods(
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
-    let scalar_named_types = crate::backends::ffi::type_map::scalar_c_abi_named_types(api);
+    // Parameter widths come from the FFI's own parameter-position rule, not from the `Copy`
+    // set: a fieldless non-`Copy` enum crosses as `int32_t`, and reading the narrower set here
+    // declared `ulong` against a header that says `int32_t` while the wrapper cast `(int)`. ~keep
+    let scalar_named_types = crate::backends::ffi::type_map::scalar_c_abi_param_named_types(api);
 
     let mut out = render(
         "native_methods_header.jinja",
@@ -214,6 +217,28 @@ pub(super) fn gen_native_methods(
             if method.receiver.is_some() {
                 opaque_param_types.insert(typ.name.clone());
                 opaque_return_types.insert(typ.name.clone());
+            }
+        }
+    }
+
+    // Service methods marshal named parameters too, and they are NOT reachable through the
+    // `api.types` walk above: a configurator or registration declared under `[[crates.services]]`
+    // is routinely also listed in `[crates.exclude] methods`, precisely so the plain type-method
+    // pipeline does not emit a second copy of it. The service renderer still emits
+    // `NativeMethods.{Type}FromJson(...)` for each named parameter, so a type reachable only that
+    // way produced a binding calling a P/Invoke this file never declared -- CS0117 on
+    // `ServerConfigFromJson` for an `App.config(ServerConfig)` configurator. A declaration's
+    // lifetime has to follow its call sites, wherever they are emitted from. ~keep
+    for service in &api.services {
+        let service_params = service
+            .configurators
+            .iter()
+            .chain(std::iter::once(&service.constructor))
+            .flat_map(|method| method.params.iter())
+            .chain(service.registrations.iter().flat_map(|reg| reg.metadata_params.iter()));
+        for param in service_params {
+            if let Some(name) = inner_named(&param.ty) {
+                opaque_param_types.insert(name.to_string());
             }
         }
     }

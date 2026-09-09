@@ -184,6 +184,26 @@ pub(crate) fn gen_duration_millis_converter(namespace: &str) -> String {
     out
 }
 
+/// Generate `FfiJsonExtensions.cs`: the `ToFfiJson` serializer every marshalled `Named`
+/// parameter goes through.
+///
+/// Emitted as its own file, unconditionally. It used to be appended to `TraitBridges.cs`, which
+/// is only written when the crate declares trait bridges -- but the service-API renderer emits
+/// `FfiJsonExtensions.ToFfiJson(...)` for any named parameter regardless, so a crate with a
+/// configurator and no trait bridge produced a binding that referenced a class no file defined.
+/// A helper's lifetime must be tied to its call sites, not to an unrelated feature. ~keep
+pub(crate) fn gen_ffi_json_extensions(namespace: &str) -> String {
+    use crate::backends::csharp::template_env::render;
+
+    let mut out = csharp_file_header();
+    out.push_str("using System.Text.Json;\n");
+    out.push_str("using System.Text.Json.Serialization;\n\n");
+    out.push_str(&render("namespace_decl.jinja", minijinja::context! { namespace }));
+    out.push('\n');
+    out.push_str(&render("ffi_json_extensions.jinja", minijinja::Value::from(())));
+    out
+}
+
 /// Generate `JsonLeniency.cs`: a helper that strips unknown properties from a JSON
 /// object before deserialization, so payloads carrying extra fields still parse into
 /// types that do not declare them.
