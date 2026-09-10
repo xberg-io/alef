@@ -300,3 +300,6 @@ fn a_forced_streaming_call_still_routes_to_the_streaming_branch_unaffected_by_en
         "a forced-streaming call must not emit the non-streaming field-assertion path, got:\n{out}"
     );
 }
+
+#[path = "wildcard_enum_tests.rs"]
+mod wildcard_enum_tests;

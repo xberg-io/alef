@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Compare C# wildcard enum assertions through their wire converters, preserving renamed variants.
+
 - Resolve namespaced Go assertion fields to their binding types and check nullable JSON payload lengths safely.
 
 - Parse Zig JSON results without inventing a wrapper based on the called function name.
