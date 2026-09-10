@@ -108,6 +108,7 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
     // Mock server requires axum (HTTP router). The standalone binary additionally needs serde
     // (derive) and walkdir. Http integration tests require axum-test for the test server.
     let needs_axum = needs_mock_server || needs_http_tests;
+    let needs_tokio_stream = needs_tokio_stream || needs_axum;
 
     // Build the cargo-machete ignore list.
     let mut machete_ignored: Vec<&str> = Vec::new();
@@ -335,6 +336,27 @@ mod tests {
             "e2e Cargo.toml must not contain 'Issues & docs:' — cargo-sort strips it, \
              causing prek to loop forever:\n{out}"
         );
+    }
+
+    #[test]
+    fn mock_servers_include_stream_dependency_without_streaming_fixtures() {
+        for (needs_mock_server, needs_http_tests) in [(true, false), (false, true)] {
+            let out = render_cargo_toml(&CargoTomlInputs {
+                crate_name: "sample",
+                dep_name: "sample",
+                crate_path: "../sample",
+                needs_mock_server,
+                needs_http_tests,
+                needs_tokio_stream: false,
+                dep_mode: DependencyMode::Local,
+                ..Default::default()
+            });
+            let manifest: toml::Value = toml::from_str(&out).expect("valid emitted manifest");
+            assert_eq!(
+                manifest["dependencies"]["tokio-stream"].as_str(),
+                Some(tv::cargo::TOKIO_STREAM)
+            );
+        }
     }
 
     #[test]

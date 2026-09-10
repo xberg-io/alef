@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Serve intentionally truncated mock responses without rejecting their declared Content-Length before headers arrive.
+
 - Compare Dart wildcard unit-enum assertions using wire values while retaining payload-enum subclass matching.
 
 - Compare C# wildcard enum assertions through their wire converters, preserving renamed variants.

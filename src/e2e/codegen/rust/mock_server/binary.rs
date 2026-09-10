@@ -2,6 +2,7 @@
 
 use crate::core::hash::{self, CommentStyle};
 
+use super::response_body::RESPONSE_BODY_SOURCE;
 use super::route_loading::render_route_loading_source;
 use super::runtime_server::render_runtime_server_source;
 
@@ -428,6 +429,7 @@ pub fn render_mock_server_binary() -> String {
     ));
     out.push_str(BINARY_AFTER_FIXTURE_SOURCE);
     out.push_str(render_runtime_server_source());
+    out.push_str(RESPONSE_BODY_SOURCE);
     out.push_str(render_route_loading_source());
     out.push_str(BINARY_ENTRYPOINT_SOURCE);
     out

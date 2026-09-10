@@ -1,5 +1,6 @@
 //! Rendering for the generated Rust tests/mock_server.rs module.
 
+use super::response_body::RESPONSE_BODY_SOURCE;
 use crate::core::hash::{self, CommentStyle};
 
 /// Generate the complete `mock_server.rs` module source.
@@ -147,7 +148,7 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
             for (name, value) in &route.headers {
                 builder = builder.header(name, value);
             }
-            return builder.body(Body::from(route.body.clone())).unwrap().into_response();
+            return builder.body(response_body_with_headers(&route.headers, route.body.clone().into_bytes())).unwrap().into_response();
         }
     }
 
@@ -158,5 +159,5 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
         .unwrap()
         .into_response()
 }
-"#
+"# + RESPONSE_BODY_SOURCE
 }

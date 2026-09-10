@@ -158,7 +158,8 @@ fn serve_route(route: &MockRoute) -> Response {
         }
         builder = builder.header(name, value);
     }
-    builder.body(Body::from(response_body)).unwrap().into_response()
+    let body = response_body_with_headers(&route.headers, response_body);
+    builder.body(body).unwrap().into_response()
 }
 
 /// Generate a pseudo-random u32 using the current time nanoseconds.
