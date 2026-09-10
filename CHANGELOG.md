@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.13] - 2026-09-10
+
+Finishes what 0.85.10 started. Making the mock server encode a body for real did not break
+the compression suites so much as reveal that most of them had never tested compression:
+they passed because the server stripped `content-encoding` and served plain bytes. Once it
+stopped, five of one consumer's fourteen suites went red at once — and not one of them on a
+comparison. They failed on undecoded bytes reaching a parser:
+
+    csharp   '0x1B' is an invalid start of a value          <- brotli's first byte
+    kotlin   com.fasterxml.jackson.core.JsonParseException
+    dart     FormatException: Invalid UTF-8 byte (at offset 3)
+    php      JsonException: Control character error
+    zig      failure inside std.http.Client.receiveHead     <- before a body exists at all
+
+### Fixed
+
+- **The generated test client now decodes a compressed body, or says plainly that it
+  cannot.** The fixture is not at fault in any of these: advertising `Accept-Encoding: br`
+  and expecting `content-encoding: br` is a realistic exchange, and the server should serve
+  it. Whether the generated *client* can read the result is a property of the language's
+  HTTP stack, so `TestClientRenderer::decodable_content_encodings` answers it once — default
+  gzip and br — instead of every consumer duplicating the knowledge into its fixture corpus.
+
+  **csharp is fixed rather than skipped.** `HttpClientHandler` gains
+  `AutomaticDecompression = DecompressionMethods.All`, covering gzip, deflate and brotli
+  natively, so its compression fixtures genuinely decode. Both emitters carry it — the
+  string builder and `http_request.jinja` hold two copies of the same handler line and would
+  otherwise drift.
+
+  The rest declare what they can read, and the shared driver turns an undecodable exchange
+  into a named skip:
+
+  - `kotlin` — `java.net.http.HttpClient` performs no content decoding at all. The JDK ships
+    `GZIPInputStream` but no brotli decoder, so it claims neither rather than pretending to a
+    gzip path it does not apply.
+  - `php` — Guzzle decodes transparently only while it owns `Accept-Encoding`; setting that
+    header from the fixture turns `decode_content` off. `gzdecode()` exists, brotli needs a
+    PECL extension, and hand-decoding would assert on the test's own unpacking.
+  - `dart` — `dart:io` inflates gzip via `autoUncompress`; the SDK has no brotli decoder.
+  - `zig` — `std.http.Client` handles gzip and rejects an unknown encoding while parsing the
+    response head, which is why its failure had no body to assert on.
+
+  A skip removes nothing here. Without it the test does not fail on an assertion, it fails
+  on bytes, and a named skip states the limitation where a red suite states nothing. The
+  gate reads both halves of the exchange — an undecodable response encoding, and a request
+  advertising an encoding the client cannot read, which is itself the defect.
+
+  Pinned by a negative control as well as the skips: a decodable encoding, and the
+  `<<absent>>` sentinel that asserts a header is *missing* rather than naming an encoding,
+  must both still render a real test.
+
 ## [0.85.12] - 2026-09-09
 
 Two fixes for defects 0.85.11 introduced, both found by consumers rather than by this
