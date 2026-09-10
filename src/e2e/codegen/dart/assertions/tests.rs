@@ -78,6 +78,52 @@ mod wildcard_tests {
         array_resolver(field.split("[].").next().unwrap_or(field)).with_enum_fields([field.to_string()].into())
     }
 
+    #[test]
+    fn extracted_unit_enum_wildcard_compares_wire_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("lib.rs");
+        std::fs::write(
+            &source,
+            r#"#[serde(rename_all = "snake_case")] pub enum LinkType { Internal, External, #[serde(rename = "fragment")] Anchor }
+            pub struct Link { pub link_type: LinkType } pub struct Result { pub links: Vec<Link> }"#,
+        )
+        .unwrap();
+        let surface = crate::extract::extractor::extract(&[&source], "sample", "1.0.0", None).unwrap();
+        let resolver = array_resolver("links").with_ir_enum_map(
+            FieldResolver::ir_enum_fields(&surface.types, &surface.enums),
+            Some("Result".into()),
+        );
+        assert_eq!(
+            resolver.enum_variant_for_wire_value("links[].link_type", "fragment"),
+            Some("Anchor")
+        );
+        let out = render_contains(&resolver, "links[].link_type", "fragment");
+        assert!(out.contains("e.linkType.wireValue.contains('fragment')"), "{out}");
+        assert!(!out.contains("runtimeType"), "{out}");
+        if !super::dart_is_runnable() {
+            return;
+        }
+        let dart = format!(
+            "const isTrue = true; void expect(bool a, bool b) {{ if (a != b) throw StateError('mismatch'); }}\n\
+             enum LinkType {{ internal, anchor }}\n\
+             extension Wire on LinkType {{ String get wireValue => this == LinkType.anchor ? 'fragment' : name; }}\n\
+             class Link {{ final LinkType linkType; Link(this.linkType); }}\n\
+             class Result {{ final List<Link> links; Result(this.links); }}\n\
+             void verify(Result result) {{ {out} }}\n\
+             void main() {{ verify(Result([Link(LinkType.internal), Link(LinkType.anchor)]));\n\
+             var failed = false; try {{ verify(Result([Link(LinkType.internal)])); }}\n\
+             on StateError {{ failed = true; }} if (!failed) throw StateError('missing anchor passed'); }}"
+        );
+        let path = directory.path().join("main.dart");
+        std::fs::write(&path, dart).unwrap();
+        let run = std::process::Command::new("dart")
+            .arg("run")
+            .arg(path)
+            .output()
+            .unwrap();
+        assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    }
+
     /// Regression: `structure[].kind` is a data-carrying Rust enum. flutter_rust_bridge/freezed
     /// stringifies it as `'StructureKind.function()'` (lowerCamelCase constructor call), which a
     /// fixture's PascalCase variant name (`'Function'`) never case-sensitively matches — and

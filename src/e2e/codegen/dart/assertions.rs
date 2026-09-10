@@ -157,7 +157,15 @@ pub(super) fn render_assertion_dart(
         // element) must keep comparing its actual `.toString()` content, not its Dart runtime
         // type name. ~keep
         let elem_is_enum = field_resolver.is_enum(f) || field_resolver.is_enum(resolved_full);
-        let elem_to_string = if elem_is_enum {
+        // Unit enums share one runtime class, so only their generated wire value distinguishes
+        // variants. Keep runtime subclass names for payload enums, which have no wireValue. ~keep
+        let is_unit_enum = field_resolver
+            .ir_enum_is_data_carrying(f)
+            .or_else(|| field_resolver.ir_enum_is_data_carrying(resolved_full))
+            == Some(false);
+        let elem_to_string = if is_unit_enum {
+            format!("e.{elem_accessor}.wireValue")
+        } else if elem_is_enum {
             format!("e.{elem_accessor}.runtimeType.toString()")
         } else {
             format!("e.{elem_accessor}.toString()")
