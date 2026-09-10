@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.15] - 2026-09-10
+
+Repairs a regression 0.85.14 shipped. **Anyone generating PHP against 0.85.14 should move to
+this release**: if any fixture is skipped for php, the generated test files do not parse.
+
+### Fixed
+
+- **A php skip reason was escaped for the wrong kind of string literal.**
+  `markTestSkipped('...')` is single-quoted, but the reason was escaped with `escape_php` —
+  the double-quoted escaper. It escapes `"` and `$`, neither of which is special inside
+  single quotes, and leaves `'` alone, which is the only character that can terminate the
+  literal. A reason containing an apostrophe therefore closed the string early and the rest
+  of the line became syntax. One consumer's suite reported 408 `mago parse` errors across
+  every generated php test file, none of which named escaping as the cause.
+
+  The correct helper already existed alongside it, with a doc comment stating the rule
+  exactly: `escape_php_single` — "single-quoted PHP strings only interpret `\\` and `\'`".
+  This was choosing the wrong one, not a missing capability.
+
+  Latent well before 0.85.14: any fixture-supplied `skip.reason` containing an apostrophe
+  would have produced the same unparseable output. What made it reachable was 0.85.13's
+  encoding-capability gate generating reasons of its own, one of which reads "this
+  language's generated test client".
+
+  Pinned in both directions, because choosing the wrong quoting context is the defect and
+  only half of it is visible: an apostrophe must come out escaped, and `$` and `"` must come
+  out verbatim rather than carrying the double-quoted escaper's backslashes.
+
+### Changed
+
+- Runtime probe tests are portable to a strict, clean CI environment.
+
 ## [0.85.14] - 2026-09-10
 
 ### Fixed
