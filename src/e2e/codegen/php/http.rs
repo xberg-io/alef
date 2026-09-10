@@ -19,6 +19,16 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
         "php"
     }
 
+    /// Guzzle decodes transparently only while it owns the `Accept-Encoding` header. These
+    /// tests set that header explicitly, from the fixture, which turns Guzzle's
+    /// `decode_content` handling off and delivers the encoded bytes to `json_decode` — a
+    /// `JsonException: Control character error` rather than a comparison failure. PHP could
+    /// gzip-decode via `gzdecode()`, but brotli needs a PECL extension, and decoding by hand
+    /// here would assert on the test's own unpacking rather than on the exchange.
+    fn decodable_content_encodings(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Convert a fixture id to a PHP-valid identifier (snake_case via `sanitize_filename`).
     fn sanitize_test_name(&self, id: &str) -> String {
         sanitize_filename(id)
