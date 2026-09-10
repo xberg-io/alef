@@ -160,21 +160,15 @@ mod dedupe_tests {
         let plans = vec![
             (
                 Language::Node,
-                vec![
-                    "corepack use pnpm@latest".to_string(),
-                    "pnpm up --latest -r -w".to_string(),
-                ],
+                vec!["pnpm self-update".to_string(), "pnpm up --latest -r -w".to_string()],
             ),
             (
                 Language::Wasm,
-                vec![
-                    "corepack use pnpm@latest".to_string(),
-                    "pnpm up --latest -r -w".to_string(),
-                ],
+                vec!["pnpm self-update".to_string(), "pnpm up --latest -r -w".to_string()],
             ),
         ];
         let result = dedupe_plans(plans);
-        assert_eq!(result[0].1, vec!["corepack use pnpm@latest", "pnpm up --latest -r -w"]);
+        assert_eq!(result[0].1, vec!["pnpm self-update", "pnpm up --latest -r -w"]);
         assert!(result[1].1.is_empty(), "Wasm should have no commands after dedupe");
     }
 

@@ -114,13 +114,24 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
                     // (e.g. napi-rs's @emnapi/*, @octokit/core, typanion) into the project's own
                     // `dependencies` and stamps them with the workspace version — corrupting
                     // package.json on every update. ~keep
+                    // No package-manager bump in the conservative plan. This used to run
+                    // `corepack up`, which moves pnpm to the newest release of its *current*
+                    // major. pnpm's own `self-update` has no equivalent -- bare, it targets the
+                    // `latest` dist-tag and will cross a major -- and a routine `update` that
+                    // silently jumps pnpm majors rewrites every lockfile in the repo as a side
+                    // effect. Refreshing the package manager belongs in `upgrade`, which is the
+                    // plan that already opts into latest-everything. ~keep
                     vec![
-                        "corepack up".to_string(),
                         "pnpm up -r --config.auto-install-peers=false --config.dedupe-peer-dependents=false"
                             .to_string(),
                     ],
+                    // `pnpm self-update` replaces `corepack use pnpm@latest`: it rewrites the
+                    // `packageManager` field and installs that version, which is what corepack
+                    // did, without requiring corepack itself. Homebrew's pnpm formula declares an
+                    // explicit conflict with corepack, so on a Homebrew-managed machine the old
+                    // command could not run at all. ~keep
                     vec![
-                        "corepack use pnpm@latest".to_string(),
+                        "pnpm self-update".to_string(),
                         "pnpm up --latest -r -w --config.auto-install-peers=false --config.dedupe-peer-dependents=false"
                             .to_string(),
                     ],

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`alef update`/`alef upgrade` no longer shell out to corepack for pnpm workspaces.**
+  `corepack use pnpm@latest` is replaced by `pnpm self-update`, which does the same thing --
+  rewrite the `packageManager` field and install that version -- without requiring corepack.
+  Homebrew's pnpm formula declares an explicit conflict with corepack, so on a Homebrew-managed
+  machine the old command could not run at all.
+
+  The conservative `update` plan drops its package-manager bump entirely rather than gaining a
+  `pnpm self-update`. The old `corepack up` moved pnpm to the newest release of its *current*
+  major; bare `pnpm self-update` targets the `latest` dist-tag and will cross a major. A routine
+  `alef update` that silently jumps pnpm majors rewrites every lockfile in the repo as a side
+  effect, so refreshing the package manager now belongs solely to `upgrade`, the plan that already
+  opts into latest-everything.
+
 ## [0.85.15] - 2026-09-10
 
 Repairs a regression 0.85.14 shipped. **Anyone generating PHP against 0.85.14 should move to
