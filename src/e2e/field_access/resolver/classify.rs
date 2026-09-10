@@ -338,7 +338,7 @@ impl FieldResolver {
     /// resolve it. This is independent of Rust optionality: Go slices and sealed interfaces are
     /// nullable values, while unresolved required named fields use `*json.RawMessage`.
     pub fn target_field_is_pointer(&self, field: &str) -> Option<bool> {
-        super::super::ir_result_fields::pointer_at_path(&self.ir_result_field_map, self.resolve(field))
+        super::super::ir_result_fields::pointer_at_path(&self.ir_result_field_map, &self.result_relative_path(field))
     }
 
     pub fn target_field_is_data_interface(&self, field: &str) -> bool {

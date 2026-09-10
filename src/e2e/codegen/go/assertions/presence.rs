@@ -36,7 +36,8 @@ pub(super) fn render_not_empty(
     // to detect), so the check degrades to a no-op, matching how `not_empty`
     // already treats "no meaningful check applies" for e.g. `not_error`.
     let is_numeric_scalar = !field_is_pointer && !field_is_array && numeric_scalar_fields.contains(resolved_field);
-    if field_is_pointer && !field_is_array {
+    let raw_message = context.field_resolver.target_field_is_raw_message(resolved_field);
+    if field_is_pointer && !field_is_array && !raw_message {
         let _ = writeln!(out_ref, "\tif {field_expr} == nil {{");
     } else if field_is_nullable && field_is_slice {
         let _ = writeln!(out_ref, "\tif {field_expr} == nil || len({field_expr}) == 0 {{");
@@ -84,7 +85,11 @@ pub(super) fn render_is_empty(
     };
     let simple_scalar_result =
         result_is_simple && !result_is_array && assertion.field.as_ref().is_none_or(|f| f.is_empty());
-    if simple_scalar_result || field_is_pointer && !field_is_array {
+    let raw_message = assertion
+        .field
+        .as_deref()
+        .is_some_and(|field| field_resolver.target_field_is_raw_message(field));
+    if simple_scalar_result || field_is_pointer && !field_is_array && !raw_message {
         let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
     } else if field_is_nullable && field_is_slice {
         let _ = writeln!(out_ref, "\tif {field_expr} != nil && len({field_expr}) != 0 {{");

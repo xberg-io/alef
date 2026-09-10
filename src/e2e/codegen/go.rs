@@ -24,6 +24,8 @@ mod field_shape_tests;
 #[cfg(test)]
 mod go_batch;
 #[cfg(test)]
+mod namespace_presence_tests;
+#[cfg(test)]
 mod package_compile_tests;
 
 fn resolve_handle_config_type(

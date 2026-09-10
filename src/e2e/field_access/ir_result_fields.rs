@@ -202,6 +202,12 @@ fn record_ir_result_field(
             .or_default()
             .insert(field.name.clone());
     }
+    if go_type.trim_start_matches('*') == "json.RawMessage" {
+        map.raw_message_fields
+            .entry(type_def.name.clone())
+            .or_default()
+            .insert(field.name.clone());
+    }
     if let Some(value_ty) = map_value_type(&field.ty)
         && !map_value_is_go_nilable(value_ty, names)
     {
@@ -329,6 +335,16 @@ pub(super) fn pointer_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool
     let (owner, leaf) = walk_to_owner_from(map, root, path)?;
     Some(
         map.pointer_fields
+            .get(owner)
+            .is_some_and(|fields| fields.contains(&leaf)),
+    )
+}
+
+pub(super) fn raw_message_at_path(map: &IrResultFieldMap, path: &str) -> Option<bool> {
+    let root = map.root_type.as_deref()?;
+    let (owner, leaf) = walk_to_owner_from(map, root, path)?;
+    Some(
+        map.raw_message_fields
             .get(owner)
             .is_some_and(|fields| fields.contains(&leaf)),
     )
