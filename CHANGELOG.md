@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.14] - 2026-09-10
+
 ### Fixed
 
 - Serve intentionally truncated mock responses without rejecting their declared Content-Length before headers arrive.
@@ -21,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Handle nullable Dart collections in generated wildcard assertions without losing checks over all elements.
 
+- Preserve folded Java string-list defaults in builders and records without replacing explicit empty lists.
+
 - Give generated Kotlin mock URL lists explicit string element types so empty batches compile.
 
-- Preserve folded Java string-list defaults in builders and records without replacing explicit empty lists.
+- Load the verified PHP extension when spawning generated application test harnesses.
 
 ## [0.85.13] - 2026-09-10
 
