@@ -15,10 +15,21 @@ if (file_exists($pkgAutoloader)) {
 }{% if uses_server_harness %}
 
 // Spawn the app harness subprocess for server-pattern HTTP fixtures.
+//
+// The harness must be given the extension explicitly. run_tests.php runs this process
+// under `-n` (no php.ini at all) plus an isolated ini, precisely so an ambient
+// system-wide copy of the extension cannot win over the one under test -- which means a
+// child spawned as a bare PHP_BINARY inherits no extension whatsoever and dies on the
+// first `new App()` with "Class not found". run_tests.php exports the path it verified,
+// so the harness loads the same file the tests do rather than re-deriving it.
 $appHarnessBin = __DIR__ . '/app_harness.php';
 if (file_exists($appHarnessBin)) {
+    $harnessExtPath = getenv('ALEF_PHP_EXTENSION_PATH');
+    $harnessCmd = ($harnessExtPath !== false && $harnessExtPath !== '')
+        ? [PHP_BINARY, '-d', 'extension=' . $harnessExtPath, $appHarnessBin]
+        : [PHP_BINARY, $appHarnessBin];
     $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR];
-    $proc = proc_open([PHP_BINARY, $appHarnessBin], $descriptors, $pipes);
+    $proc = proc_open($harnessCmd, $descriptors, $pipes);
     if (is_resource($proc)) {
         // Read startup line from the app harness: "Harness listening on {host}:{port}"
         $line = fgets($pipes[1]);

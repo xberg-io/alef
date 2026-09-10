@@ -698,6 +698,13 @@ if (__VERSION_MISMATCH_CONDITION__) {
     exit(1);
 }
 
+// Hand the verified extension path to the test process so anything it spawns can load the
+// same file. bootstrap.php needs this for the app harness: this process runs under `-n`, so
+// a child started as a bare PHP_BINARY would inherit no extension at all. `passthru` below
+// passes the environment through, and exporting the path that was just verified is what
+// keeps the harness and the tests on one build rather than two discovery attempts.
+putenv('ALEF_PHP_EXTENSION_PATH=' . $extPath);
+
 // Invoke PHPUnit through the same isolated, verified configuration.
 $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 if (!file_exists($phpunitPath)) {
@@ -769,6 +776,57 @@ mod tests {
             env,
             ..E2eConfig::default()
         }
+    }
+
+    fn bootstrap_with_harness(uses_server_harness: bool) -> String {
+        render_bootstrap(BootstrapOptions {
+            e2e_config: &E2eConfig::default(),
+            pkg_path: "../../packages/php",
+            has_mock_server_fixtures: false,
+            has_file_fixtures: false,
+            test_documents_path: "../../testing_data",
+            uses_server_harness,
+            harness_host: "127.0.0.1",
+            harness_port: 8000,
+        })
+    }
+
+    /// The harness runs as a child of a process started with `-n`, so it inherits no
+    /// php.ini and therefore no extension. Spawned bare it dies on the first `new App()`
+    /// with "Class not found", which reads as a missing autoloader rather than as a
+    /// deliberately isolated interpreter. Both halves are pinned here because either one
+    /// alone is silent: an exported path nothing reads, or a read of something never set.
+    #[test]
+    fn the_app_harness_is_spawned_with_the_extension_the_tests_verified() {
+        let bootstrap = bootstrap_with_harness(true);
+        assert!(
+            bootstrap.contains("getenv('ALEF_PHP_EXTENSION_PATH')"),
+            "bootstrap must read the exported extension path: {bootstrap}"
+        );
+        assert!(
+            bootstrap.contains("'-d', 'extension=' . $harnessExtPath"),
+            "bootstrap must pass the extension to the harness child: {bootstrap}"
+        );
+        assert!(
+            !bootstrap.contains("proc_open([PHP_BINARY, $appHarnessBin]"),
+            "the bare spawn is the defect and must not survive: {bootstrap}"
+        );
+    }
+
+    /// Negative control: the export is worthless if the consumer never receives it, and a
+    /// project without a server harness must not grow a spawn it does not need.
+    #[test]
+    fn run_tests_exports_the_path_and_a_harnessless_project_spawns_nothing() {
+        let run_tests = render_run_tests_php("spikard_php", "spikard-php", "crates/spikard-php", "0.1.0")
+            .expect("run_tests renders");
+        assert!(
+            run_tests.contains("putenv('ALEF_PHP_EXTENSION_PATH=' . $extPath)"),
+            "run_tests must export the verified extension path: {run_tests}"
+        );
+        assert!(
+            !bootstrap_with_harness(false).contains("app_harness.php"),
+            "a project with no server harness must not spawn one"
+        );
     }
 
     #[test]
