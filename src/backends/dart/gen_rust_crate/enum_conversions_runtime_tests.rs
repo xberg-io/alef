@@ -23,7 +23,7 @@ fn generated_json_decoder_returns_error_for_excluded_variant_at_runtime() {
     emit_enum_from_json_fn(&mut generated, &en, "mylib");
     let generated = generated.replace("#[frb]\n", "");
     let source = format!(
-        "mod mylib {{\n    #[derive(serde::Deserialize)]\n    pub enum WorkflowStep {{ Ready, Internal }}\n}}\n\n#[derive(Debug, PartialEq)]\nenum WorkflowStep {{ Ready }}\n\n{generated}\nfn main() {{\n    let result = create_workflow_step_from_json(\"\\\"Internal\\\"\".to_string());\n    assert_eq!(result, Err(\"WorkflowStep contains a variant unavailable in the Dart binding\".to_string()));\n}}\n"
+        "mod mylib {{\n    #[derive(serde::Deserialize)]\n    pub enum WorkflowStep {{ Ready, Internal }}\n}}\n\n#[derive(Debug, PartialEq)]\npub enum WorkflowStep {{ Ready }}\n\n#[allow(unreachable_patterns)]\n{generated}\nfn main() {{\n    assert_eq!(create_workflow_step_from_json(\"\\\"Ready\\\"\".to_string()), Ok(WorkflowStep::Ready));\n    let result = create_workflow_step_from_json(\"\\\"Internal\\\"\".to_string());\n    assert_eq!(result, Err(\"WorkflowStep contains a variant unavailable in the Dart binding\".to_string()));\n}}\n"
     );
     let temp = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir(temp.path().join("src")).expect("create src");
@@ -36,22 +36,11 @@ fn generated_json_decoder_returns_error_for_excluded_variant_at_runtime() {
     let output = std::process::Command::new("cargo")
         .args(["run", "--quiet"])
         .env("CARGO_TARGET_DIR", temp.path().join("target"))
-        // ~keep `RUSTFLAGS` is REMOVED, not passed through, and that is the whole point of this
-        // line. This test spawns a child cargo, and a child cargo inherits the parent's
-        // environment -- so on CI, where `xberg-io/actions/setup-rust` writes
-        // `RUSTFLAGS=-D warnings` into `$GITHUB_ENV` (`scripts/configure-flags.sh:42,85`), two
-        // warnings in the synthetic fixture below became hard errors and this test failed on all
-        // three runners while passing on every developer machine. The two are fixture artifacts,
-        // not defects in what alef emits: the hand-written `enum WorkflowStep { Ready }` is
-        // private while the generated fn is `pub` (`private_interfaces`), and the generated
-        // `_ => unreachable!(..)` catch-all is genuinely unreachable when the fixture declares no
-        // cfg-gated variant -- that arm exists precisely because a wrapper crate cannot forward a
-        // foreign cfg, per `emit_cfg_gated_arm`'s rule, so it is correct in the real case this
-        // fixture does not model. What this test asserts is that the generated bridge COMPILES
-        // AND RETURNS `Err` WITHOUT PANICKING. Inheriting the flag silently widened that to "and
-        // is warning-clean under whatever the host happens to set", making the outcome a property
-        // of the environment rather than of the code under test.
-        .env_remove("RUSTFLAGS")
+        // ~keep The real generated crate allows unreachable_patterns (emit_lib_rs), mirrored
+        // only on the generated impl above. Keep every other warning fatal, including Cargo's
+        // separate warning policy used by CI; removing RUSTFLAGS alone does not isolate it.
+        .env("RUSTFLAGS", "-D warnings")
+        .env("CARGO_BUILD_WARNINGS", "deny")
         .current_dir(temp.path())
         .output()
         .expect("run generated bridge crate");

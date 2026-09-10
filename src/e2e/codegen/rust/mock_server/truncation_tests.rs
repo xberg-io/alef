@@ -14,7 +14,7 @@ fn truncated_mock_response_reaches_native_and_node_body_readers() {
     );
     std::fs::write(directory.path().join("src/main.rs"), source).expect("write generated server probe");
     let output = std::process::Command::new("cargo")
-        .args(["test", "--offline", "--quiet", "--", "--nocapture"])
+        .args(["test", "--quiet", "--", "--nocapture"])
         .current_dir(directory.path())
         .output()
         .expect("run generated server wire and client probes");
