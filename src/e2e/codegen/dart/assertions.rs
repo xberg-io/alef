@@ -138,6 +138,11 @@ pub(super) fn render_assertion_dart(
         } else {
             field_resolver.accessor(array_part, "dart", result_var)
         };
+        let array_accessor = if field_resolver.is_optional(array_part) {
+            format!("({array_accessor} ?? const [])")
+        } else {
+            array_accessor
+        };
         let elem_accessor = field_to_dart_accessor(elem_part);
         // A data-carrying Rust enum (e.g. `StructureKind::Other(String)`) has no `wireValue`
         // extension in Dart — alef only emits `wireValue` for unit-only enums — so this

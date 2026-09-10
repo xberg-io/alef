@@ -51,6 +51,29 @@ mod wildcard_tests {
         assert!(out.contains("result.links.any((e) => e.url"), "got: {out}");
     }
 
+    #[test]
+    fn optional_wildcard_collection_compiles_and_checks_all_elements() {
+        let fields: HashSet<String> = ["links".to_string()].into();
+        let resolver = FieldResolver::new(&HashMap::new(), &fields, &fields, &fields, &HashSet::new());
+        let out = render_contains(&resolver, "links[].url", "example.test");
+        assert!(out.contains("(result.links ?? const []).any"), "got: {out}");
+        if !super::dart_is_runnable() {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("temporary Dart directory");
+        let source = format!(
+            "const isTrue = true;\nvoid expect(bool actual, bool expected) {{ if (actual != expected) throw StateError('mismatch'); }}\nclass Link {{ final String url; Link(this.url); }}\nclass Result {{ final List<Link>? links; Result(this.links); }}\nvoid verify(Result result) {{\n{out}}}\nvoid main() {{ verify(Result([Link('other'), Link('example.test')])); var failed = false; try {{ verify(Result(null)); }} on StateError {{ failed = true; }} if (!failed) throw StateError('null passed contains'); }}\n"
+        );
+        let path = directory.path().join("main.dart");
+        std::fs::write(&path, source).expect("write Dart probe");
+        let run = std::process::Command::new("dart")
+            .arg("run")
+            .arg(path)
+            .output()
+            .expect("run Dart probe");
+        assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+    }
+
     fn array_resolver_with_enum_field(field: &str) -> FieldResolver {
         array_resolver(field.split("[].").next().unwrap_or(field)).with_enum_fields([field.to_string()].into())
     }

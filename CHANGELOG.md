@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Handle nullable Dart collections in generated wildcard assertions without losing checks over all elements.
+
 - Give generated Kotlin mock URL lists explicit string element types so empty batches compile.
 
 - Preserve folded Java string-list defaults in builders and records without replacing explicit empty lists.
