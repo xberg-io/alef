@@ -1,6 +1,6 @@
 //! PHP HTTP-specific e2e rendering.
 
-use crate::e2e::escape::{escape_php, sanitize_filename};
+use crate::e2e::escape::{escape_php, escape_php_single, sanitize_filename};
 use crate::e2e::fixture::{Fixture, HttpFixture, ValidationErrorExpectation};
 
 use crate::e2e::codegen::client;
@@ -40,7 +40,12 @@ impl client::TestClientRenderer for PhpTestClientRenderer {
     /// shared driver calls `render_test_close` immediately after, so the closing
     /// brace is emitted symmetrically.
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
-        let escaped_reason = skip_reason.map(escape_php);
+        // `markTestSkipped('...')` is a SINGLE-quoted PHP literal, so it needs the
+        // single-quote escaper. `escape_php` is the double-quoted one: it escapes `"` and
+        // `$` -- neither of which is special here -- and leaves `'` alone, which is the only
+        // character that can actually terminate this literal. A reason containing an
+        // apostrophe therefore closed the string and emitted PHP that does not parse.
+        let escaped_reason = skip_reason.map(escape_php_single);
         let rendered = crate::e2e::template_env::render(
             "php/http_test_open.jinja",
             minijinja::context! {
@@ -313,8 +318,38 @@ pub(super) fn render_http_test_method(out: &mut String, fixture: &Fixture, http:
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::e2e::codegen::client::{CallCtx, TestClientRenderer};
     use std::collections::BTreeMap;
+
+    /// `markTestSkipped('...')` is single-quoted, so an apostrophe in the reason closes the
+    /// literal and the generated file stops being PHP. Reachable two ways -- a
+    /// fixture-supplied `skip.reason`, and the reason the encoding-capability gate builds --
+    /// and it produced 408 parse errors across a consumer's php suite before it was caught,
+    /// none of which named escaping as the cause.
+    #[test]
+    fn a_skip_reason_containing_an_apostrophe_stays_inside_its_php_literal() {
+        let mut out = String::new();
+        PhpTestClientRenderer.render_test_open(
+            &mut out,
+            "test_thing",
+            "desc",
+            Some("this language's client cannot decode it"),
+        );
+        let escaped = "language\\'s";
+        assert!(out.contains(escaped), "apostrophe must be escaped: {out}");
+
+        // Using the wrong quoting context is the defect itself, so pin the other direction
+        // too: `$` and `"` carry no meaning inside a single-quoted PHP literal and must
+        // survive verbatim rather than picking up the double-quoted escaper's backslashes.
+        let mut out = String::new();
+        let reason = "$var and \"quotes\"";
+        PhpTestClientRenderer.render_test_open(&mut out, "t", "d", Some(reason));
+        assert!(
+            out.contains(reason),
+            "single-quoted literal must not escape $ or quotes: {out}"
+        );
+    }
 
     fn ctx_with<'a>(
         path: &'a str,
