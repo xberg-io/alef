@@ -507,3 +507,39 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
         "kotlin_android test must NOT loadLibrary the raw crate name, got:\n{out}"
     );
 }
+
+#[test]
+fn empty_mock_url_lists_have_explicit_string_element_types() {
+    for preserve in [false, true] {
+        let fixture: Fixture = serde_json::from_value(serde_json::json!({
+            "id": "empty_batch", "input": { "urls": [] }, "preserve_input_urls": preserve
+        }))
+        .expect("valid fixture");
+        let args: Vec<ArgMapping> = serde_json::from_value(serde_json::json!([{
+            "name": "urls", "field": "input.urls", "type": "mock_url_list"
+        }]))
+        .expect("valid URL argument");
+        let (setup, call) = build_args_and_setup(
+            &fixture.input,
+            &args,
+            KotlinArgsContext {
+                fixture: &fixture,
+                class_name: "SampleBinding",
+                options_type: None,
+                fixture_id: "empty_batch",
+                kotlin_android_style: true,
+                config: &ResolvedCrateConfig::default(),
+                type_defs: &[],
+                owner_handle_is_receiver: false,
+                enums: &[],
+                target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            },
+        )
+        .expect("URL argument generation succeeds");
+        assert_eq!(call, "urls");
+        assert!(
+            setup.iter().any(|line| line.contains("listOf<String>()")),
+            "preserve={preserve}: {setup:?}"
+        );
+    }
+}

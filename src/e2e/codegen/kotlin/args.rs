@@ -170,7 +170,7 @@ pub(super) fn build_args_and_setup(
                     .map(|url| format!("\"{}\"", escape_kotlin(url)))
                     .collect::<Vec<_>>()
                     .join(", ");
-                setup_lines.push(format!("val {} = listOf({literals})", arg.name));
+                setup_lines.push(format!("val {} = listOf<String>({literals})", arg.name));
                 parts.push(arg.name.clone());
                 continue;
             }
@@ -196,7 +196,7 @@ pub(super) fn build_args_and_setup(
                 "val {name}Base = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: ((System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"))"
             ));
             setup_lines.push(format!(
-                "val {name} = listOf({paths_literal}).map {{ if (it.startsWith(\"http\")) it else {name}Base + it }}"
+                "val {name} = listOf<String>({paths_literal}).map {{ if (it.startsWith(\"http\")) it else {name}Base + it }}"
             ));
             parts.push(name.clone());
             continue;
