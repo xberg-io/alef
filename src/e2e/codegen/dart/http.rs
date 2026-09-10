@@ -44,6 +44,13 @@ impl client::TestClientRenderer for DartTestClientRenderer {
         "dart"
     }
 
+    /// `dart:io`'s `HttpClient` transparently inflates gzip (`autoUncompress`, on by
+    /// default) but the SDK ships no brotli decoder, so a brotli body reaches
+    /// `utf8.decoder` as raw bytes and throws on brotli's leading 0x1B.
+    fn decodable_content_encodings(&self) -> &'static [&'static str] {
+        &["gzip"]
+    }
+
     /// Emit the test opening.
     ///
     /// For skipped fixtures: emit the entire self-contained stub (open + body +

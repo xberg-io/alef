@@ -39,6 +39,15 @@ impl client::TestClientRenderer for KotlinTestClientRenderer {
         "kotlin"
     }
 
+    /// `java.net.http.HttpClient` performs no content decoding whatsoever — it has no
+    /// equivalent of .NET's `AutomaticDecompression` and no transparent gzip path — so an
+    /// encoded body reaches Jackson as raw bytes. The JDK ships a gzip decoder
+    /// (`GZIPInputStream`) but no brotli one, so brotli could not be added here without a
+    /// third-party artifact. Claims neither rather than pretending to gzip it does not apply.
+    fn decodable_content_encodings(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn sanitize_test_name(&self, id: &str) -> String {
         sanitize_ident(id).to_upper_camel_case()
     }

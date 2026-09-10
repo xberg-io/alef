@@ -7,6 +7,13 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         "zig"
     }
 
+    /// `std.http.Client` handles gzip but rejects an encoding it does not know while parsing
+    /// the response head, so an unsupported encoding fails inside `receiveHead` before a body
+    /// exists to assert on. No brotli decoder exists in the standard library.
+    fn decodable_content_encodings(&self) -> &'static [&'static str] {
+        &["gzip"]
+    }
+
     fn render_test_open(&self, out: &mut String, fn_name: &str, description: &str, skip_reason: Option<&str>) {
         if let Some(reason) = skip_reason {
             let _ = writeln!(out, "test \"{fn_name}\" {{");

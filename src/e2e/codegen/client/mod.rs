@@ -88,6 +88,26 @@ pub trait TestClientRenderer {
     /// Identifier used in fixture skip directives (e.g. `"python"`, `"node"`).
     fn language_name(&self) -> &'static str;
 
+    /// Content-encodings this language's generated test client can decode.
+    ///
+    /// A fixture may legitimately advertise `Accept-Encoding: br` and expect a
+    /// `content-encoding: br` response — that is a realistic exchange and the mock server
+    /// serves it for real. Whether the *generated client* can read the result is a property
+    /// of the language and its HTTP stack, not of the fixture, so it is answered here rather
+    /// than duplicated into every consumer's fixture corpus.
+    ///
+    /// Overriding this to omit an encoding does not weaken an existing assertion: without it
+    /// the test does not fail on a comparison, it fails on undecoded bytes reaching a JSON
+    /// reader, or — for stacks that reject an encoding they cannot handle at the protocol
+    /// layer — before a body exists to compare at all. A named skip states the limitation;
+    /// the alternative states nothing and is red.
+    ///
+    /// The default claims gzip and brotli, matching the stacks that decode both
+    /// transparently. ~keep
+    fn decodable_content_encodings(&self) -> &'static [&'static str] {
+        &["gzip", "br"]
+    }
+
     /// Convert a fixture id (`my_test_id`) to a language-valid identifier.
     /// Default implementation lower-cases and replaces non-alphanumerics with `_`.
     fn sanitize_test_name(&self, id: &str) -> String {

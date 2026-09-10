@@ -11,7 +11,7 @@
    - cookie_header: combined cookie header value (if has_cookies)
 #}
         var baseUrl = Environment.GetEnvironmentVariable("MOCK_SERVER_URL") ?? "http://localhost:8080";
-        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };
+        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false, AutomaticDecompression = System.Net.DecompressionMethods.All };
         using var client = new System.Net.Http.HttpClient(handler);
         var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{{ method }}, $"{baseUrl}{{ path }}");
 {% if has_body %}

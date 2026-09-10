@@ -120,8 +120,14 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
 
         // Disable auto-follow so redirect-status fixtures (3xx) can assert the
         // server's status code rather than the followed-target's status.
+        // AutomaticDecompression is not a convenience here, it is required for
+        // correctness. A fixture declaring `content-encoding` is served a genuinely
+        // encoded body, and this client advertises the encoding in `Accept-Encoding`;
+        // without decompression the raw bytes reach the JSON reader, which fails on
+        // brotli's leading 0x1B. .NET decodes gzip, deflate and brotli natively, so the
+        // whole class is covered by the handler rather than per-encoding test code.
         out.push_str(
-            "        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };\n",
+            "        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false, AutomaticDecompression = System.Net.DecompressionMethods.All };\n",
         );
         out.push_str("        using var client = new System.Net.Http.HttpClient(handler);\n");
         // Don't escape the path - it contains {param} placeholders that need to be preserved

@@ -32,6 +32,13 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
 
     let fn_name = renderer.sanitize_test_name(&fixture.id);
 
+    // An encoding this client cannot decode is a skip, not a failure. See
+    // `TestClientRenderer::decodable_content_encodings` for why the capability is answered
+    // by the language rather than by the fixture.
+    let undecodable = undecodable_encoding(http, renderer.decodable_content_encodings());
+    let generated_skip = undecodable
+        .map(|encoding| format!("{encoding} responses are not decodable by this language's generated test client"));
+
     let skip_reason = if is_skipped(fixture, renderer.language_name()) {
         Some(
             fixture
@@ -41,7 +48,7 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
                 .unwrap_or("skipped"),
         )
     } else {
-        None
+        generated_skip.as_deref()
     };
 
     renderer.render_test_open(out, &fn_name, &fixture.description, skip_reason);
@@ -287,6 +294,35 @@ fn synthesize_multipart_body_raw(props: &serde_json::Map<String, serde_json::Val
     body
 }
 
+/// The content-encoding this exchange requires the client to decode, when it is one the
+/// client cannot.
+///
+/// Both halves matter. The response header is what actually arrives encoded, but a request
+/// advertising `Accept-Encoding` for an encoding the client cannot read is itself the defect
+/// — it asks a server for bytes it has no way to interpret — so a fixture is skipped on
+/// either. `<<absent>>` is the sentinel for "this header must not be present" and never
+/// names an encoding to decode.
+fn undecodable_encoding<'a>(http: &'a crate::e2e::fixture::HttpFixture, decodable: &[&str]) -> Option<&'a str> {
+    let is_undecodable = |value: &str| {
+        !value.is_empty() && value != "<<absent>>" && !decodable.iter().any(|known| known.eq_ignore_ascii_case(value))
+    };
+
+    http.expected_response
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+        .map(|(_, value)| value.as_str())
+        .filter(|value| is_undecodable(value))
+        .or_else(|| {
+            http.request
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
+                .map(|(_, value)| value.as_str())
+                .filter(|value| is_undecodable(value))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{CallCtx, TestClientRenderer};
@@ -297,9 +333,15 @@ mod tests {
     /// Mock renderer that records every call as a tag in `out`. Lets us assert
     /// the exact sequence of trait calls the shared driver makes for each
     /// expected-response shape.
-    struct TagRenderer;
+    /// The tuple field is the set the mock client can decode, so the capability gate can be
+    /// driven from a test without a second full renderer impl.
+    struct TagRenderer(&'static [&'static str]);
 
     impl TestClientRenderer for TagRenderer {
+        fn decodable_content_encodings(&self) -> &'static [&'static str] {
+            self.0
+        }
+
         fn language_name(&self) -> &'static str {
             "mock"
         }
@@ -389,7 +431,7 @@ mod tests {
     fn driver_emits_open_call_status_close_in_order() {
         let fixture = http_fixture("simple", empty_expected(200));
         let mut out = String::new();
-        let emitted = render_http_test(&mut out, &TagRenderer, &fixture);
+        let emitted = render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(emitted);
         assert_eq!(
             out,
@@ -402,7 +444,7 @@ mod tests {
         let mut fixture = http_fixture("noop", empty_expected(200));
         fixture.http = None;
         let mut out = String::new();
-        let emitted = render_http_test(&mut out, &TagRenderer, &fixture);
+        let emitted = render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(!emitted);
         assert!(out.is_empty());
     }
@@ -415,11 +457,60 @@ mod tests {
             reason: Some("not yet".into()),
         });
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(out.contains("OPEN(skipme|skip=not yet)"));
         assert!(out.contains("CLOSE"));
         assert!(!out.contains("CALL"));
         assert!(!out.contains("STATUS"));
+    }
+
+    #[test]
+    fn an_undecodable_response_encoding_becomes_a_named_skip() {
+        let mut expected = empty_expected(200);
+        expected.headers.insert("content-encoding".into(), "br".into());
+        let fixture = http_fixture("brotli_only", expected);
+        let mut out = String::new();
+        render_http_test(&mut out, &TagRenderer(&["gzip"]), &fixture);
+        assert!(out.contains("skip=br responses are not decodable"), "{out}");
+        // The point of the skip is that no assertion runs: an undecodable body fails on the
+        // bytes, not on a comparison, so emitting the call would be red rather than absent.
+        assert!(!out.contains("CALL"), "{out}");
+        assert!(!out.contains("STATUS"), "{out}");
+    }
+
+    #[test]
+    fn an_undecodable_accept_encoding_request_header_becomes_a_skip() {
+        let mut fixture = http_fixture("asks_for_brotli", empty_expected(200));
+        fixture
+            .http
+            .as_mut()
+            .expect("http fixture")
+            .request
+            .headers
+            .insert("Accept-Encoding".into(), "br".into());
+        let mut out = String::new();
+        render_http_test(&mut out, &TagRenderer(&["gzip"]), &fixture);
+        assert!(out.contains("skip=br responses are not decodable"), "{out}");
+    }
+
+    /// Negative control for both tests above: the gate must skip only what the client
+    /// cannot read. A decodable encoding, and the `<<absent>>` sentinel that asserts a
+    /// header is *missing*, must both still render a real test.
+    #[test]
+    fn decodable_and_absent_encodings_still_render_assertions() {
+        let mut gzip = empty_expected(200);
+        gzip.headers.insert("content-encoding".into(), "gzip".into());
+        let mut out = String::new();
+        render_http_test(&mut out, &TagRenderer(&["gzip"]), &http_fixture("gzipped", gzip));
+        assert!(!out.contains("skip="), "{out}");
+        assert!(out.contains("STATUS"), "{out}");
+
+        let mut absent = empty_expected(200);
+        absent.headers.insert("content-encoding".into(), "<<absent>>".into());
+        let mut out = String::new();
+        render_http_test(&mut out, &TagRenderer(&["gzip"]), &http_fixture("plain", absent));
+        assert!(!out.contains("skip="), "{out}");
+        assert!(out.contains("STATUS"), "{out}");
     }
 
     #[test]
@@ -429,7 +520,7 @@ mod tests {
         expected.headers.insert("X-Foo".into(), "bar".into());
         let fixture = http_fixture("hdr", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(!out.contains("HEADER(Content-Encoding"));
         assert!(out.contains("HEADER(X-Foo=bar)"));
     }
@@ -442,7 +533,7 @@ mod tests {
         expected.headers.insert("M-Header".into(), "m".into());
         let fixture = http_fixture("hdr", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         let a_pos = out.find("HEADER(A-Header").unwrap();
         let m_pos = out.find("HEADER(M-Header").unwrap();
         let z_pos = out.find("HEADER(Z-Header").unwrap();
@@ -456,14 +547,14 @@ mod tests {
         expected.body = Some(serde_json::Value::Null);
         let fixture = http_fixture("nullbody", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(!out.contains("JSON_BODY"));
 
         let mut expected = empty_expected(200);
         expected.body = Some(serde_json::Value::String(String::new()));
         let fixture = http_fixture("emptybody", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(!out.contains("JSON_BODY"));
     }
 
@@ -473,7 +564,7 @@ mod tests {
         expected.body_partial = Some(serde_json::json!({"k": "v"}));
         let fixture = http_fixture("partial", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(out.contains("PARTIAL_BODY"));
     }
 
@@ -487,7 +578,7 @@ mod tests {
         }]);
         let fixture = http_fixture("ve", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(out.contains("VALIDATION(1)"));
 
         // Empty vec → no assertion
@@ -495,7 +586,7 @@ mod tests {
         expected.validation_errors = Some(vec![]);
         let fixture = http_fixture("ve_empty", expected);
         let mut out = String::new();
-        render_http_test(&mut out, &TagRenderer, &fixture);
+        render_http_test(&mut out, &TagRenderer(&["gzip", "br"]), &fixture);
         assert!(!out.contains("VALIDATION"));
     }
 
