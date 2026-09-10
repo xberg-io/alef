@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve folded Java string-list defaults in builders and records without replacing explicit empty lists.
+
 ## [0.85.13] - 2026-09-10
 
 Finishes what 0.85.10 started. Making the mock server encode a body for real did not break

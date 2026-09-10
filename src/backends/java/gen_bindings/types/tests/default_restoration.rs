@@ -4,6 +4,72 @@
 
 use super::*;
 
+#[test]
+fn folded_string_collection_default_preserves_named_function_value() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("lib.rs");
+    std::fs::write(
+        &source,
+        r#"
+        #[derive(serde::Serialize, serde::Deserialize)]
+        pub struct SsrfPolicy {
+            #[serde(default = "default_scheme_allowlist", skip_serializing_if = "is_default_scheme_allowlist")]
+            pub scheme_allowlist: Vec<String>,
+        }
+        fn default_scheme_allowlist() -> Vec<String> {
+            vec!["http".to_owned(), "https".to_owned()]
+        }
+        fn is_default_scheme_allowlist(value: &Vec<String>) -> bool {
+            *value == default_scheme_allowlist()
+        }
+        "#,
+    )
+    .unwrap();
+    let surface = crate::extract::extractor::extract(&[&source], "sample_crate", "1.0.0", None).unwrap();
+    let typ = surface.types.iter().find(|typ| typ.name == "SsrfPolicy").unwrap();
+    assert_eq!(
+        typ.fields[0].typed_default,
+        Some(DefaultValue::ListLiteral(vec![
+            DefaultValue::StringLiteral("http".into()),
+            DefaultValue::StringLiteral("https".into()),
+        ]))
+    );
+    let out = render_impl_default_record(typ);
+    assert!(out.contains("schemeAllowlist = List.of(\"http\", \"https\")"), "{out}");
+    assert!(
+        out.contains("if (schemeAllowlist == null) { schemeAllowlist = List.of(\"http\", \"https\"); }"),
+        "{out}"
+    );
+    assert!(!out.contains("List.of()"), "{out}");
+}
+
+#[test]
+fn collection_default_literals_preserve_empty_escape_strings_and_decline_unknown_values() {
+    use crate::backends::java::gen_bindings::helpers::serde_default_collection_literal;
+    let string_list = TypeRef::Vec(Box::new(TypeRef::String));
+    let render = |value| serde_default_collection_literal(&string_list, true, true, Some(&value));
+    assert_eq!(render(DefaultValue::Empty).as_deref(), Some("List.of()"));
+    assert_eq!(render(DefaultValue::ListLiteral(vec![])).as_deref(), Some("List.of()"));
+    assert_eq!(
+        render(DefaultValue::ListLiteral(vec![DefaultValue::StringLiteral(
+            "a\"\\\n".into()
+        )]))
+        .as_deref(),
+        Some(r#"List.of("a\"\\\n")"#)
+    );
+    assert_eq!(render(DefaultValue::Unresolved("unknown()".into())), None);
+    assert_eq!(render(DefaultValue::FunctionCall("default_tags".into())), None);
+    assert_eq!(
+        serde_default_collection_literal(
+            &TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+            true,
+            true,
+            Some(&DefaultValue::ListLiteral(vec![DefaultValue::IntLiteral(7)])),
+        ),
+        None
+    );
+}
+
 /// A record whose defaults come from an `impl Default` body: `field.default` is `None` and
 /// `typed_default` is the only carrier of the value.
 fn impl_default_record(fields: Vec<FieldDef>) -> TypeDef {
@@ -677,7 +743,7 @@ fn named_map_default_defers_while_a_bare_serde_default_still_builds_the_empty_co
 /// The predicate in isolation, so the four-argument contract is pinned independently of how
 /// `gen_record_type` happens to weave it together today.
 #[test]
-fn serde_default_collection_literal_declines_only_the_function_call_defaults() {
+fn serde_default_collection_literal_preserves_known_empty_defaults() {
     use crate::backends::java::gen_bindings::helpers::serde_default_collection_literal;
 
     let vec_ty = TypeRef::Vec(Box::new(TypeRef::String));
@@ -687,11 +753,11 @@ fn serde_default_collection_literal_declines_only_the_function_call_defaults() {
 
     assert_eq!(
         serde_default_collection_literal(&vec_ty, true, true, Some(&DefaultValue::Empty)),
-        Some("List.of()")
+        Some("List.of()".to_string())
     );
     assert_eq!(
         serde_default_collection_literal(&vec_ty, true, true, None),
-        Some("List.of()")
+        Some("List.of()".to_string())
     );
     assert_eq!(
         serde_default_collection_literal(&vec_ty, true, true, Some(&named)),
@@ -707,7 +773,7 @@ fn serde_default_collection_literal_declines_only_the_function_call_defaults() {
     );
     assert_eq!(
         serde_default_collection_literal(&map_ty, true, true, Some(&DefaultValue::Empty)),
-        Some("Map.of()")
+        Some("Map.of()".to_string())
     );
     // `skip_serializing_if` and the serde-default marker remain preconditions for either form.
     assert_eq!(

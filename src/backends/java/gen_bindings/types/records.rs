@@ -281,7 +281,6 @@ pub(crate) fn gen_record_type(
                     f.serde_skip_serializing_if,
                     f.typed_default.as_ref(),
                 )
-                .map(str::to_string)
             })?;
             let jname = safe_java_field_name(&f.name);
             Some(format!("        if ({jname} == null) {{ {jname} = {literal}; }}"))

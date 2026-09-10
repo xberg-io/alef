@@ -78,50 +78,36 @@ pub(crate) fn boxes_to_carry_literal_default(ty: &TypeRef, typed_default: Option
     java_literal_default(ty, typed_default).is_some()
 }
 
-/// The Java empty-collection literal that a non-optional `Vec`/`Map` field must fall back to when
-/// `#[serde(default, skip_serializing_if = "...")]` lets the wire key go missing, or `None` when
-/// the field does not qualify.
+/// Restore a known collection default when serde may omit its wire key.
 ///
-/// `skip_serializing_if` on a collection guarantees the JSON key is absent when the collection is
-/// empty, so any deserialization path that binds straight onto a constructor parameter (a record's
-/// canonical/compact constructor, or a builder's setter called with an explicit JSON `null`) sees
-/// `null` for a Rust `Vec<T>`/`HashMap<K, V>` that itself is never null. `builders.rs`'s eager
-/// field initializer and `records.rs`'s "must this component be `@Nullable`" decision and compact
-/// constructor restore all have to agree on this same value, or the record ends up `@Nullable`
-/// over a component the compact constructor never actually lets be null (or vice versa) — this is
-/// the single place that decision is made.
-///
-/// Only the *bare* `#[serde(default)]` qualifies, which is what `typed_default` discriminates.
-/// For it, `Default::default()` on a `Vec`/`Map` is the empty collection, so this literal is the
-/// exact Rust value. A named `#[serde(default = "path")]` reaches the IR as
-/// [`DefaultValue::FunctionCall`] (or `PublicFunctionCall` once postprocessing resolves the path),
-/// and alef never evaluates that function body — so `List.of()`/`Map.of()` would be a *claim*
-/// about a value alef does not have, and a wrong one for the common "return a populated list"
-/// case: a scheme allow-list of `["http", "https"]` shipped as `[]`. Declining leaves the
-/// component `@Nullable` with a `null` builder default and no compact-constructor restore, which
-/// `@JsonInclude(NON_ABSENT)` then drops from the wire so Rust's own serde default supplies the
-/// real value. That is the stance Kotlin (`object_wrapper::types::kotlin_field_default`), Swift
-/// (`gen_bindings::dto::emit_decoder_init`) and C# (`gen_bindings::types::records`) already take
-/// for `FunctionCall`; keying on `typed_default` here is what makes all four backends agree from
-/// one signal instead of four. ~keep
+/// Named default functions can fold into a nonempty `ListLiteral`. Preserve supported string
+/// lists rather than mistaking them for the collection type's zero. Unknown or unsupported
+/// values remain nullable and are omitted from JSON so Rust supplies its own default. ~keep
 pub(crate) fn serde_default_collection_literal(
     ty: &TypeRef,
     has_serde_default: bool,
     serde_skip_serializing_if: bool,
     typed_default: Option<&DefaultValue>,
-) -> Option<&'static str> {
+) -> Option<String> {
     if !has_serde_default || !serde_skip_serializing_if {
         return None;
     }
-    if matches!(
-        typed_default,
-        Some(DefaultValue::FunctionCall(_) | DefaultValue::PublicFunctionCall(_))
-    ) {
-        return None;
-    }
-    match ty {
-        TypeRef::Vec(_) => Some("List.of()"),
-        TypeRef::Map(_, _) => Some("Map.of()"),
+    match (ty, typed_default) {
+        (TypeRef::Vec(element), Some(DefaultValue::ListLiteral(items))) if **element == TypeRef::String => {
+            let values: Option<Vec<String>> = items
+                .iter()
+                .map(|item| match item {
+                    DefaultValue::StringLiteral(value) => Some(format!(
+                        "\"{}\"",
+                        crate::codegen::java_literal::escape_java_string_literal(value)
+                    )),
+                    _ => None,
+                })
+                .collect();
+            Some(format!("List.of({})", values?.join(", ")))
+        }
+        (TypeRef::Vec(_), None | Some(DefaultValue::Empty)) => Some("List.of()".into()),
+        (TypeRef::Map(_, _), None | Some(DefaultValue::Empty)) => Some("Map.of()".into()),
         _ => None,
     }
 }
