@@ -190,3 +190,45 @@ fn an_explicit_override_still_forces_json_struct_without_ir_support() {
         "an explicit override must still force the JSON path, got:\n{rendered}"
     );
 }
+
+#[test]
+fn json_result_is_not_wrapped_based_on_function_name() {
+    for name in ["process", "interact"] {
+        let type_defs = vec![response_type()];
+        let functions = vec![FunctionDef {
+            name: name.to_string(),
+            return_type: TypeRef::Named("Response".to_string()),
+            ..FunctionDef::default()
+        }];
+        let fixture = summary_fixture();
+        let mut e2e = E2eConfig::default();
+        e2e.call.function = name.to_string();
+        let rendered = render_test_file(
+            "smoke",
+            &[&fixture],
+            &e2e,
+            name,
+            "result",
+            &[],
+            "sample",
+            "sample",
+            &ResolvedCrateConfig::default(),
+            &type_defs,
+            &[],
+            CallIr {
+                functions: &functions,
+                type_defs: &type_defs,
+            },
+            &[],
+        );
+        assert!(
+            rendered.contains("parseFromSlice(std.json.Value, allocator, _result_json"),
+            "{name}: {rendered}"
+        );
+        assert!(!rendered.contains("_wrapped_json"), "{name}: {rendered}");
+        assert!(
+            rendered.contains("result.object.get(\"summary\")"),
+            "{name}: {rendered}"
+        );
+    }
+}

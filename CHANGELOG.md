@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Parse Zig JSON results without inventing a wrapper based on the called function name.
+
 - Handle nullable Dart collections in generated wildcard assertions without losing checks over all elements.
 
 - Give generated Kotlin mock URL lists explicit string element types so empty batches compile.
