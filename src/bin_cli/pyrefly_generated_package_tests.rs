@@ -108,6 +108,24 @@ impl ByteContainer {
     }
 }
 
+#[derive(Default, Clone)]
+pub struct MethodShadow;
+
+impl MethodShadow {
+    pub fn bytes(&self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    pub fn consume(&self, payload: Vec<u8>) -> Vec<u8> {
+        payload
+    }
+}
+
+pub enum BinaryPayload {
+    Bytes { marker: u8 },
+    Data { payload: Vec<u8> },
+}
+
 pub enum Shape {
     Circle { radius: f64 },
     Rectangle { width: f64, height: f64 },
@@ -465,6 +483,16 @@ fn alef_all_generated_python_package_type_checks_clean_under_pyrefly() {
     assert!(
         stub.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
         "a class field must qualify sibling method annotations in the same class scope:\n{stub}"
+    );
+    assert_eq!(
+        stub.matches("def consume(self, payload: builtins.bytes) -> builtins.bytes")
+            .count(),
+        2,
+        "both the field-shadowed and method-shadowed classes must qualify sibling annotations:\n{stub}"
+    );
+    assert!(
+        stub.contains("def data(payload: builtins.bytes) -> BinaryPayload"),
+        "a data-enum factory must qualify annotations shadowed by a sibling factory:\n{stub}"
     );
     let project_dir = find_pyrefly_project_dir(&root);
 

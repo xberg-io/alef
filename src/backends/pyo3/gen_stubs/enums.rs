@@ -1,4 +1,6 @@
-use super::{pyi_docstring, python_safe_name};
+use super::{
+    SHADOWABLE_BUILTIN_TYPES, pyi_docstring, python_safe_name, qualify_parameter_type, qualify_shadowed_builtin_types,
+};
 use crate::backends::pyo3::type_map::python_type;
 use crate::core::ir::{EnumDef, EnumVariant, TypeRef};
 use ahash::AHashSet;
@@ -193,8 +195,7 @@ fn gen_data_enum_variant_constructor_stubs(
         })
         .collect();
 
-    const SHADOWABLE_BUILTINS: &[&str] = &["list", "dict", "set", "tuple", "frozenset", "type"];
-    let shadowed: Vec<&str> = SHADOWABLE_BUILTINS
+    let shadowed: Vec<&str> = SHADOWABLE_BUILTIN_TYPES
         .iter()
         .copied()
         .filter(|b| ctors.iter().any(|c| c.snake_name == *b))
@@ -207,10 +208,9 @@ fn gen_data_enum_variant_constructor_stubs(
             .enumerate()
             .map(|(idx, p)| {
                 let optional = p.optional || crate::codegen::shared::is_promoted_optional(&ctor.params, idx);
-                let mut py_type = factory_param_type(&p.ty, coercible_dtos);
-                for builtin in &shadowed {
-                    py_type = py_type.replace(&format!("{builtin}["), &format!("builtins.{builtin}["));
-                }
+                let py_type = factory_param_type(&p.ty, coercible_dtos);
+                let py_type = qualify_parameter_type(&python_safe_name(&p.name), &py_type);
+                let py_type = qualify_shadowed_builtin_types(&py_type, &shadowed);
                 let py_type = if optional && !py_type.contains("| None") {
                     format!("{py_type} | None")
                 } else {

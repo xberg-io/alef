@@ -17,16 +17,34 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 /// whenever the body references it.
 /// The builtins shadowed by a field name in `typ`, using the resolved Python stub field names.
 fn shadowed_builtins(typ: &TypeDef, config: &ResolvedCrateConfig) -> Vec<&'static str> {
+    let field_names: std::collections::HashSet<String> = binding_fields(&typ.fields)
+        .map(|field| {
+            config
+                .resolve_field_name(Language::Python, &typ.name, &field.name)
+                .unwrap_or_else(|| field.name.clone())
+        })
+        .collect();
     SHADOWABLE_BUILTIN_TYPES
         .iter()
         .copied()
         .filter(|builtin| {
-            binding_fields(&typ.fields).any(|f| {
-                let name = config
-                    .resolve_field_name(Language::Python, &typ.name, &f.name)
-                    .unwrap_or_else(|| f.name.clone());
-                name == *builtin
-            })
+            field_names.contains(*builtin)
+                || typ.methods.iter().any(|method| {
+                    (method.is_static || !field_names.contains(&method.name))
+                        && python_safe_name(&method.name) == *builtin
+                })
+        })
+        .collect()
+}
+
+fn opaque_shadowed_builtins(typ: &TypeDef) -> Vec<&'static str> {
+    SHADOWABLE_BUILTIN_TYPES
+        .iter()
+        .copied()
+        .filter(|builtin| {
+            typ.methods
+                .iter()
+                .any(|method| python_safe_name(&method.name) == *builtin)
         })
         .collect()
 }
@@ -38,6 +56,7 @@ pub(super) fn gen_opaque_type_stub(
     ctor: Option<&ClientConstructorConfig>,
 ) -> String {
     let mut lines = vec![];
+    let shadowed = opaque_shadowed_builtins(typ);
 
     lines.push(format!("class {}:", typ.name));
 
@@ -75,7 +94,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
-                &[],
+                &shadowed,
             ));
         }
     }
@@ -88,7 +107,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
-                &[],
+                &shadowed,
             ));
         }
     }
@@ -619,6 +638,129 @@ mod tests {
         assert!(
             control.contains("def consume(self, payload: bytes) -> bytes"),
             "annotations should stay concise when no class attribute shadows them:\n{control}"
+        );
+    }
+
+    fn builtin_named_method_fixture() -> TypeDef {
+        TypeDef {
+            name: "Container".to_string(),
+            methods: vec![
+                MethodDef {
+                    name: "bytes".to_string(),
+                    return_type: TypeRef::Unit,
+                    ..Default::default()
+                },
+                MethodDef {
+                    name: "consume".to_string(),
+                    params: vec![ParamDef {
+                        name: "payload".to_string(),
+                        ty: TypeRef::Bytes,
+                        ..Default::default()
+                    }],
+                    return_type: TypeRef::Bytes,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn method_named_bytes_qualifies_sibling_annotations_for_regular_classes() {
+        let render = |typ: &TypeDef| {
+            gen_type_stub(
+                typ,
+                &ApiSurface::default(),
+                &ResolvedCrateConfig::default(),
+                &std::collections::HashSet::new(),
+                &OptionsFieldBridges::default(),
+                false,
+                &std::collections::HashMap::new(),
+            )
+        };
+        let mut typ = builtin_named_method_fixture();
+        let stub = render(&typ);
+
+        assert!(
+            stub.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
+            "an emitted method name shadows builtins throughout the class scope:\n{stub}"
+        );
+
+        typ.methods.remove(0);
+        let control = render(&typ);
+        assert!(
+            control.contains("def consume(self, payload: bytes) -> bytes"),
+            "annotations should stay concise without a builtin-named class member:\n{control}"
+        );
+    }
+
+    #[test]
+    fn method_named_bytes_qualifies_sibling_annotations_for_opaque_classes() {
+        let mut typ = builtin_named_method_fixture();
+        typ.is_opaque = true;
+        let stub = gen_opaque_type_stub(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashMap::new(),
+            None,
+        );
+
+        assert!(
+            stub.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
+            "opaque class methods share the same class annotation scope:\n{stub}"
+        );
+    }
+
+    fn object_named_method_fixture() -> TypeDef {
+        TypeDef {
+            name: "ObjectContainer".to_string(),
+            methods: vec![
+                MethodDef {
+                    name: "object".to_string(),
+                    return_type: TypeRef::Unit,
+                    ..Default::default()
+                },
+                MethodDef {
+                    name: "consume".to_string(),
+                    params: vec![ParamDef {
+                        name: "payload".to_string(),
+                        ty: TypeRef::Named("object".to_string()),
+                        ..Default::default()
+                    }],
+                    return_type: TypeRef::Named("object".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn method_named_object_qualifies_regular_and_opaque_class_annotations() {
+        let typ = object_named_method_fixture();
+        let regular = gen_type_stub(
+            &typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &std::collections::HashSet::new(),
+            &OptionsFieldBridges::default(),
+            false,
+            &std::collections::HashMap::new(),
+        );
+        assert!(
+            regular.contains("def consume(self, payload: builtins.object) -> builtins.object"),
+            "regular class methods can shadow object annotations:\n{regular}"
+        );
+
+        let opaque = gen_opaque_type_stub(
+            &typ,
+            &std::collections::HashSet::new(),
+            &std::collections::HashMap::new(),
+            None,
+        );
+        assert!(
+            opaque.contains("def consume(self, payload: builtins.object) -> builtins.object"),
+            "opaque class methods can shadow object annotations:\n{opaque}"
         );
     }
 
