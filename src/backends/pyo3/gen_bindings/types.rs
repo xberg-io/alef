@@ -156,6 +156,7 @@ pub(super) fn gen_options_py(
     module_name: &str,
     dto: &DtoConfig,
     reexported_types: &[String],
+    has_serde: bool,
 ) -> String {
     use crate::core::ir::TypeRef;
 
@@ -192,6 +193,19 @@ pub(super) fn gen_options_py(
         let mut options_types = dataclass_names.clone();
         options_types.extend(published_return_type_names.iter().cloned());
         api.types.iter().any(|t| options_types.contains(&t.name))
+    };
+    // A dataclass twin needs the native module imported by name (not just the specific
+    // native symbols `runtime_native_imports` already pulls in) whenever at least one
+    // `options.py`-published type gets a delegating `from_json` staticmethod below -- the
+    // method body calls `{module_name}.{ClassName}.from_json(...)` directly. Scoped to the
+    // exact same type set `gen_from_native_converters` emits `_from_native_*` for, so this
+    // never imports a module nothing in the file ends up using. ~keep
+    let emits_from_json = {
+        let mut options_types = dataclass_names.clone();
+        options_types.extend(published_return_type_names.iter().cloned());
+        api.types
+            .iter()
+            .any(|t| options_types.contains(&t.name) && type_has_from_json(t, api, has_serde))
     };
     // Json-typed fields used to render as `dict[str, Any]` and so pulled in `Any`. They now
     // render as `str`, so a Json field alone no longer references `Any`; keeping the
@@ -323,6 +337,12 @@ pub(super) fn gen_options_py(
             ));
         }
         out.push_str(")\n");
+    }
+    if emits_from_json {
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "import_module_relative.jinja",
+            minijinja::context! { module_name => module_name },
+        ));
     }
     out.push('\n');
     if !type_checking_only_imports.is_empty() {
@@ -474,7 +494,10 @@ pub(super) fn gen_options_py(
         ));
         out.push('\n');
 
+        let native_delegation_py = render_native_delegation_methods(typ, api, has_serde, module_name);
+
         if ordered_fields.is_empty() {
+            out.push_str(&native_delegation_py);
             out.push('\n');
             continue;
         }
@@ -546,11 +569,49 @@ pub(super) fn gen_options_py(
                 out.push('\n');
             }
         }
+        out.push_str(&native_delegation_py);
         out.push('\n');
     }
 
     out.push_str(&gen_from_native_converters(api, dto, reexported_types));
 
+    out
+}
+
+/// Delegating methods appended to one `options.py` dataclass body so a consumer's public name
+/// for `typ` does not lose native-only capability relative to the native `#[pyclass]` it shadows
+/// -- the defect this generator exists to close. Eligibility is decided by the SAME predicate
+/// the native `#[pymethods]` injection uses (`type_has_from_json`, consulted from
+/// `gen_bindings::mod`'s `from_json` text injection too), so the two call sites can never drift
+/// apart again the way they did before.
+///
+/// Only `from_json` is wired up here. The no-arg native helpers (`validate`, `is_empty`,
+/// `is_ok`, ...) and the `Self`-returning builders (`with_*`, `from_bytes`, `from_uri`) both
+/// need a dataclass -> native forward conversion first, and that conversion is not a small
+/// thing to add safely: the only existing implementation is `functions::converters::emit_converters`
+/// (~700 lines), which handles trait-bridge params, opaque/capsule types, and fields that must
+/// be OMITTED from the native constructor call (not passed as `None`) so the Rust-side default
+/// applies (see `defers_to_rust_default`). A parallel, simplified re-implementation here would
+/// silently mishandle exactly the fields that logic exists to get right. The correct follow-up
+/// is extracting a per-type callable out of `emit_converters` that both `api.py` and `options.py`
+/// can call, not duplicating it. ~keep
+fn render_native_delegation_methods(
+    typ: &crate::core::ir::TypeDef,
+    api: &ApiSurface,
+    has_serde: bool,
+    module_name: &str,
+) -> String {
+    let mut out = String::new();
+    if type_has_from_json(typ, api, has_serde) {
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "trait_bridge/options_from_json_method.jinja",
+            minijinja::context! {
+                class_name => &typ.name,
+                module_name => module_name,
+                from_native_fn => from_native_converter_name(&typ.name),
+            },
+        ));
+    }
     out
 }
 

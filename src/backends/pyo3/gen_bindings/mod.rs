@@ -17,6 +17,8 @@ pub mod functions;
 pub mod methods;
 mod mutex;
 #[cfg(test)]
+mod native_delegation_tests;
+#[cfg(test)]
 mod nested_serde_default_tests;
 mod opaque_helpers;
 mod postprocess;

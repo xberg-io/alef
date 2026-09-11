@@ -100,7 +100,7 @@ fn render(api: &ApiSurface, adapter: &AdapterConfig) -> (String, String) {
         &crate::core::config::ResolvedCrateConfig::default(),
     );
     let options_py =
-        crate::backends::pyo3::gen_bindings::types::gen_options_py(api, MODULE_NAME, &DtoConfig::default(), &[]);
+        crate::backends::pyo3::gen_bindings::types::gen_options_py(api, MODULE_NAME, &DtoConfig::default(), &[], false);
     (api_py, options_py)
 }
 

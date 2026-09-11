@@ -70,6 +70,7 @@ fn render(api: &ApiSurface, adapter: &AdapterConfig) -> (String, String) {
         "_internal_bindings",
         &DtoConfig::default(),
         &[],
+        false,
     );
     (api_py, options_py)
 }
