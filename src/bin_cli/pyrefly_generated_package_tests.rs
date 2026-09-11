@@ -97,6 +97,17 @@ pub fn list_points(count: i64) -> Vec<Point> {
     (0..count).map(|i| Point::new(i, i, None)).collect()
 }
 
+#[derive(Default, Clone)]
+pub struct ByteContainer {
+    pub bytes: Vec<u8>,
+}
+
+impl ByteContainer {
+    pub fn consume(&self, payload: Vec<u8>) -> Vec<u8> {
+        payload
+    }
+}
+
 pub enum Shape {
     Circle { radius: f64 },
     Rectangle { width: f64, height: f64 },
@@ -450,6 +461,10 @@ fn alef_all_generated_python_package_type_checks_clean_under_pyrefly() {
     assert!(
         stub.contains("bytes: builtins.bytes"),
         "a Python-visible `bytes` parameter must keep its builtin type annotation resolvable:\n{stub}"
+    );
+    assert!(
+        stub.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
+        "a class field must qualify sibling method annotations in the same class scope:\n{stub}"
     );
     let project_dir = find_pyrefly_project_dir(&root);
 

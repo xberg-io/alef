@@ -75,6 +75,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &[],
             ));
         }
     }
@@ -87,6 +88,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &[],
             ));
         }
     }
@@ -167,6 +169,7 @@ pub(super) fn gen_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &shadowed,
             ));
         }
     }
@@ -179,6 +182,7 @@ pub(super) fn gen_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &shadowed,
             ));
         }
     }
@@ -315,6 +319,7 @@ fn gen_method_stub(
     capsule_names: &std::collections::HashSet<&str>,
     owner_type: Option<&str>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
+    owner_shadowed_builtins: &[&str],
 ) -> String {
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
@@ -323,6 +328,7 @@ fn gen_method_stub(
         .map(|p| {
             let param_type = substitute_capsule_type(&python_type(&p.ty), capsule_names);
             let param_type = qualify_parameter_type(&p.name, &param_type);
+            let param_type = qualify_shadowed_builtin_types(&param_type, owner_shadowed_builtins);
             format!("{}: {}", p.name, param_type)
         })
         .collect();
@@ -330,6 +336,7 @@ fn gen_method_stub(
     params.extend(optional.iter().map(|p| {
         let type_str = substitute_capsule_type(&python_type(&p.ty), capsule_names);
         let type_str = qualify_parameter_type(&p.name, &type_str);
+        let type_str = qualify_shadowed_builtin_types(&type_str, owner_shadowed_builtins);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -345,6 +352,7 @@ fn gen_method_stub(
     } else {
         substitute_capsule_type(&python_type(&method.return_type), capsule_names)
     };
+    let return_type = qualify_shadowed_builtin_types(&return_type, owner_shadowed_builtins);
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
     // `adapter_streaming_wrapper.jinja` emits a streaming method's real wrapper as an async
@@ -494,6 +502,7 @@ mod tests {
             &std::collections::HashSet::new(),
             Some("DefaultClient"),
             &streaming_return_types,
+            &[],
         );
 
         assert!(
@@ -519,6 +528,7 @@ mod tests {
             &std::collections::HashSet::new(),
             Some("DefaultClient"),
             &std::collections::HashMap::new(),
+            &[],
         );
 
         assert!(
@@ -547,6 +557,7 @@ mod tests {
             &std::collections::HashSet::new(),
             Some("Document"),
             &std::collections::HashMap::new(),
+            &[],
         );
 
         assert!(
@@ -556,6 +567,58 @@ mod tests {
         assert!(
             !stub.contains("bytes: bytes"),
             "the ambiguous annotation is rejected by pyrefly:\n{stub}"
+        );
+    }
+
+    #[test]
+    fn class_field_named_bytes_qualifies_all_method_annotations_in_class_scope() {
+        let method = MethodDef {
+            name: "consume".to_string(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Bytes,
+            ..Default::default()
+        };
+        let with_shadow = TypeDef {
+            name: "Container".to_string(),
+            fields: vec![FieldDef {
+                name: "bytes".to_string(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            methods: vec![method.clone()],
+            ..Default::default()
+        };
+        let without_shadow = TypeDef {
+            name: "Container".to_string(),
+            methods: vec![method],
+            ..Default::default()
+        };
+        let render = |typ: &TypeDef| {
+            gen_type_stub(
+                typ,
+                &ApiSurface::default(),
+                &ResolvedCrateConfig::default(),
+                &std::collections::HashSet::new(),
+                &OptionsFieldBridges::default(),
+                false,
+                &std::collections::HashMap::new(),
+            )
+        };
+
+        let shadowed = render(&with_shadow);
+        assert!(
+            shadowed.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
+            "class attributes shadow builtin names throughout the class body:\n{shadowed}"
+        );
+
+        let control = render(&without_shadow);
+        assert!(
+            control.contains("def consume(self, payload: bytes) -> bytes"),
+            "annotations should stay concise when no class attribute shadows them:\n{control}"
         );
     }
 
