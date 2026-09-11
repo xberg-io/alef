@@ -30,6 +30,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/options_from_native_helper.jinja"),
     ),
     (
+        "trait_bridge/options_from_json_method.jinja",
+        include_str!("templates/trait_bridge/options_from_json_method.jinja"),
+    ),
+    (
         "trait_bridge/indented_import_item.jinja",
         include_str!("templates/trait_bridge/indented_import_item.jinja"),
     ),
@@ -160,6 +164,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "import_from_options.jinja",
         include_str!("templates/import_from_options.jinja"),
+    ),
+    (
+        "import_module_relative.jinja",
+        include_str!("templates/import_module_relative.jinja"),
     ),
     (
         "converters/signature_with_visitor.jinja",

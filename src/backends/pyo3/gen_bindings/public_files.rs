@@ -63,7 +63,8 @@ pub(super) fn generate_public_api(
         .map(|c| c.reexported_types.clone())
         .unwrap_or_default();
 
-    let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types);
+    let has_serde = types::crate_has_serde(config);
+    let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types, has_serde);
     files.push(GeneratedFile {
         path: output_base.join("options.py"),
         content: options_content,

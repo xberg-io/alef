@@ -87,7 +87,7 @@ fn options_dataclass_type_names_includes_a_required_field_of_a_dataclass_type() 
 #[test]
 fn gen_options_py_emits_captioning_config_with_a_required_llm_field() {
     let api = captioning_config_api();
-    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[]);
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false);
 
     assert!(
         options_py.contains("class CaptioningConfig:"),

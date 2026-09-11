@@ -89,7 +89,7 @@ fn api_surface() -> ApiSurface {
 }
 
 fn render() -> String {
-    gen_options_py(&api_surface(), "_internal_bindings", &DtoConfig::default(), &[])
+    gen_options_py(&api_surface(), "_internal_bindings", &DtoConfig::default(), &[], false)
 }
 
 /// A bare `#[serde(default)]` field on a closure-only type (no core `Default`) must render as
