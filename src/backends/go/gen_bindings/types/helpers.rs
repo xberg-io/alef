@@ -456,7 +456,8 @@ mod last_error_tests {
         let helper = gen_last_error_helper(&api, "sample");
 
         assert!(helper.contains(&format!("case {code}:")));
-        assert!(helper.contains("return ErrInvalidInput"));
+        assert!(helper.contains("sentinel = ErrInvalidInput"));
+        assert!(helper.contains("return &nativeError{sentinel: sentinel, message: message}"));
         assert!(helper.contains("fmt.Errorf(\"[%d] %s\", code, message)"));
     }
 }
