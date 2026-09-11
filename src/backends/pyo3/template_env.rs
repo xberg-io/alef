@@ -2,6 +2,10 @@ use minijinja::Environment;
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "from_json_method.jinja",
+        include_str!("templates/from_json_method.jinja"),
+    ),
+    (
         "trait_bridge/import_item.jinja",
         include_str!("templates/trait_bridge/import_item.jinja"),
     ),
