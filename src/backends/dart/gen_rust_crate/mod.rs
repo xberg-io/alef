@@ -35,7 +35,10 @@ mod trait_types;
 
 use bridge_fn::emit_bridge_fn;
 use build_rs::{emit_build_rs, emit_frb_yaml};
-use cargo::emit_cargo_toml;
+// Re-exported crate-wide, not merely imported: `scaffold::tests::repair` needs the manifest this
+// backend actually writes as the baseline its repair pass must leave untouched, and a hand-built
+// string could not prove that. ~keep
+pub(crate) use cargo::emit_cargo_toml;
 use mirror::{emit_mirror_enum, emit_mirror_error, emit_mirror_struct};
 use trait_bridge::{emit_excluded_bridge_types, emit_trait_bridge, needs_excluded_bridge_type};
 

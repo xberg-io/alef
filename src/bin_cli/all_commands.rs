@@ -395,6 +395,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 let scaffold_sweep_roots = pipeline::generate_sweep_roots(&languages, false, resolved_cfg, &base_dir);
                 pipeline::sweep_manifest_orphans(&previous_scaffold_paths, &scaffold_keep, &scaffold_sweep_roots, &[])?;
                 cache::write_scaffold_manifest(&resolved_cfg.name, &scaffold_output_paths)?;
+                // The same call `alef generate` and `alef scaffold` make after their own scaffold
+                // phase. Omitting it here left the three manifests `scaffold::repair` covers with
+                // two different contents for one tree, decided by which command last ran: a
+                // manifest whose wholesale write the ownership guard refused above stays stale
+                // under this command and gets patched under the other two. The repair is
+                // additive-only and, on a tree whose scaffold write succeeded, a no-op -- so
+                // running it here costs nothing and is the only way the commands can agree. ~keep
+                crate::scaffold::repair_missing_cfg_binding_features(&api, resolved_cfg, &languages);
 
                 tracing::info!("Running post-build processing...");
                 // A bare `?`/`return Err` here used to hard-stop the entire run: not just the
