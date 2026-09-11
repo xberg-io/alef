@@ -27,12 +27,12 @@ pub(super) struct ArgSetupContext<'a> {
     /// so `from_json` does not exist on them.
     ///
     /// `options_via` is resolved ONCE for the whole call, against the call's options type -- but it
-    /// is then applied to every argument, and a call can mix the two spellings. xberg's `extract`
-    /// does: its config resolves to the native `ExtractionConfig` (which has `from_json`) while its
-    /// input resolves to the public `ExtractInput` dataclass (which does not), and every generated
-    /// Python e2e test died on `AttributeError: type object 'ExtractInput' has no attribute
-    /// 'from_json'`. Consulted per argument so one argument's eligibility cannot decide another's.
-    /// ~keep
+    /// is then applied to every argument, and a call can mix the two spellings. A measured consumer
+    /// call does: its config argument resolves to a native extension type (which has `from_json`)
+    /// while its input argument resolves to a public `options.py` dataclass mirror (which does
+    /// not), and every generated Python e2e test died on `AttributeError: type object '<Input>' has
+    /// no attribute 'from_json'`. Consulted per argument so one argument's eligibility cannot
+    /// decide another's. ~keep
     pub from_json_unavailable_types: &'a HashSet<String>,
     pub enum_fields: &'a HashMap<String, String>,
     pub handle_nested_types: &'a HashMap<String, String>,

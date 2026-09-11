@@ -161,10 +161,15 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
                 .get("python")
                 .and_then(|value| value.from_json_module.as_deref())
         });
-    // An explicitly selected native module has no public dataclass shadowing it, so neither the
-    // options type nor any argument type should be measured against the options-wrapped set. Compute
-    // it once and use the same answer for both decisions. ~keep
-    let shadowing_types = native_module
+    // An explicitly selected native module means the CALL's own options type has no public
+    // dataclass shadowing it, so that one type should not be measured against the
+    // options-wrapped set. This says nothing about any OTHER argument's type: a consumer's
+    // `from_json_module` override on a call exists to unshadow that call's options type, but
+    // a sibling argument can resolve to a completely different type that is still shadowed by
+    // `options.py`'s dataclass mirror regardless of where the options type is imported from.
+    // Gating the per-argument set on this override let every call with a `from_json_module`
+    // override skip the per-argument check entirely. ~keep
+    let call_options_type_shadowing = native_module
         .filter(|candidate| *candidate != helpers::resolve_module(e2e_config))
         .is_none()
         .then_some(options_wrapped_types);
@@ -174,9 +179,26 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         type_defs,
         convertible_types,
         crate_has_serde,
-        shadowing_types,
+        call_options_type_shadowing,
     );
-    static NO_SHADOWED_TYPES: std::sync::LazyLock<HashSet<String>> = std::sync::LazyLock::new(HashSet::new);
+    // A `from_json_module` override that names a different module than the default resolves
+    // shadowing for the call's OWN options type only (that one type really is imported from the
+    // native module and really does have `from_json`). It says nothing about any OTHER
+    // argument's type, which stays shadowed by `options.py`'s dataclass mirror regardless of
+    // where the options type is imported from. Scope the exemption to that single type name
+    // rather than either the whole set (masks a sibling argument) or none of it (breaks the
+    // call's own options type, which has no public dataclass to fall back on). ~keep
+    let native_module_applies = native_module
+        .filter(|candidate| *candidate != helpers::resolve_module(e2e_config))
+        .is_some();
+    let from_json_unavailable_types: std::borrow::Cow<'_, HashSet<String>> =
+        if native_module_applies && effective_options_type.is_some_and(|name| options_wrapped_types.contains(name)) {
+            let mut narrowed = options_wrapped_types.clone();
+            narrowed.remove(effective_options_type.expect("checked above"));
+            std::borrow::Cow::Owned(narrowed)
+        } else {
+            std::borrow::Cow::Borrowed(options_wrapped_types)
+        };
 
     let desc_with_period = if description.ends_with('.') {
         description.to_string()
@@ -228,7 +250,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         call_config,
         options_type: effective_options_type,
         options_via: effective_options_via,
-        from_json_unavailable_types: shadowing_types.unwrap_or(&NO_SHADOWED_TYPES),
+        from_json_unavailable_types: from_json_unavailable_types.as_ref(),
         enum_fields,
         handle_nested_types,
         handle_dict_types,
@@ -510,5 +532,109 @@ mod tests {
         render_test_function(&mut out, &fixture, context);
         assert!(out.contains("pytest.mark.skip"), "got: {out}");
         assert!(out.contains("not supported"), "got: {out}");
+    }
+
+    /// Pins the `extract`-shaped defect: a call whose options type (`ExtractionConfig`) has an
+    /// explicit `from_json_module` override must not let that override blanket-exempt a
+    /// *different* argument's type (`ExtractInput`) from the options-wrapped shadow check.
+    /// `ExtractInput` is still `options.py`'s method-less `@dataclass` mirror regardless of
+    /// where `ExtractionConfig` is imported from, so the `input` argument must fall back to a
+    /// plain constructor, not `ExtractInput.from_json(...)`. ~keep
+    #[test]
+    fn a_from_json_module_override_on_the_call_options_type_does_not_exempt_a_sibling_argument() {
+        use crate::e2e::config::{ArgMapping, CallConfig, CallOverride};
+        use crate::e2e::fixture::Fixture;
+
+        let fixture = Fixture {
+            docs: None,
+            requirements: Vec::new(),
+            id: "extract_from_bytes".to_string(),
+            description: "Extracts from raw bytes".to_string(),
+            input: serde_json::json!({ "input": { "kind": "bytes" } }),
+            http: None,
+            asyncapi: None,
+            websocket: None,
+            preserve_input_urls: false,
+            assertions: Vec::new(),
+            call: None,
+            skip: None,
+            env: None,
+            setup: Vec::new(),
+            visitor: None,
+            args: vec![ArgMapping {
+                name: "input".to_string(),
+                field: "input".to_string(),
+                arg_type: "json_object".to_string(),
+                optional: false,
+                owned: true,
+                element_type: Some("ExtractInput".to_string()),
+                go_type: None,
+                vec_inner_is_ref: false,
+                trait_name: None,
+            }],
+            assertion_recipes: vec![],
+            mock_response: None,
+            source: String::new(),
+            category: None,
+            tags: Vec::new(),
+        };
+
+        let python_override = CallOverride {
+            options_type: Some("ExtractionConfig".to_string()),
+            options_via: Some("from_json".to_string()),
+            from_json_module: Some("xberg._xberg".to_string()),
+            ..Default::default()
+        };
+
+        let mut call_config = CallConfig {
+            function: "extract".to_string(),
+            module: "xberg".to_string(),
+            ..Default::default()
+        };
+        call_config.overrides.insert("python".to_string(), python_override);
+
+        let e2e_config = crate::e2e::config::E2eConfig {
+            call: call_config.clone(),
+            ..Default::default()
+        };
+
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        // `ExtractionConfig` is serde-derived and core<->binding convertible, so pyo3 actually
+        // injects `from_json` on it -- the call-level decision must survive down to "from_json"
+        // for this test to exercise the per-argument check rather than a call-level downgrade
+        // that would mask it.
+        let type_defs: Vec<crate::core::ir::TypeDef> = vec![crate::core::ir::TypeDef {
+            name: "ExtractionConfig".to_string(),
+            has_serde: true,
+            ..Default::default()
+        }];
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
+        let convertible_types = helpers::core_to_binding_convertible_types(&type_defs, &enums);
+        // `ExtractInput` has a public `@dataclass` mirror in `options.py`; `ExtractionConfig`
+        // does not (it is reexported natively), matching the real xberg configuration.
+        let options_wrapped_types: HashSet<String> = ["ExtractInput".to_string()].into_iter().collect();
+        let mut out = String::new();
+        let context = RenderTestFunctionContext {
+            e2e_config: &e2e_config,
+            config: &config,
+            type_defs: &type_defs,
+            enums: &enums,
+            functions: &[],
+            errors: &[],
+            options_type: None,
+            options_via: "kwargs",
+            enum_fields: &HashMap::new(),
+            handle_nested_types: &HashMap::new(),
+            handle_dict_types: &HashSet::new(),
+            force_bind_result: false,
+            convertible_types: &convertible_types,
+            crate_has_serde: true,
+            options_wrapped_types: &options_wrapped_types,
+        };
+        render_test_function(&mut out, &fixture, context);
+        assert!(
+            !out.contains("ExtractInput.from_json("),
+            "the shadowed argument type must not use from_json: got: {out}"
+        );
     }
 }
