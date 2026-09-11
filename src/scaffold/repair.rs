@@ -27,6 +27,7 @@
 
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// One Rust-emitting binding manifest this repair covers: the language it belongs to, its
@@ -35,25 +36,54 @@ use std::path::PathBuf;
 /// the row points at a dependency-table entry the manifest does not have. Ruby and Elixir key
 /// their forwarding rows off the raw, unmodified crate name; Dart keys off `[crates.dart]
 /// core_crate_override` when configured, otherwise the crate name with `-` replaced by `_` (see
-/// `backends::dart::gen_rust_crate::dart_core_dep_key`'s doc). ~keep
-fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, String)> {
+/// `backends::dart::gen_rust_crate::dart_core_dep_key`'s doc).
+///
+/// The fourth element is that language's own `excluded_default_features`, read from the same
+/// config field its scaffolder reads. The repair has to honour it for the same reason the
+/// scaffolder does: a name the config deliberately keeps out of `default` must stay out, or this
+/// pass re-enables exactly what the scaffolder just excluded and the two disagree on disk. ~keep
+fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, String, HashSet<&str>)> {
+    fn excluded(names: Option<&[String]>) -> HashSet<&str> {
+        names.unwrap_or_default().iter().map(String::as_str).collect()
+    }
+
     vec![
         (
             Language::Ruby,
             super::ruby_native_manifest_path(config),
             config.name.clone(),
+            excluded(config.ruby.as_ref().map(|c| c.excluded_default_features.as_slice())),
         ),
         (
             Language::Elixir,
             PathBuf::from(super::elixir_native_crate_dir(config)).join("Cargo.toml"),
             config.name.clone(),
+            excluded(config.elixir.as_ref().map(|c| c.excluded_default_features.as_slice())),
         ),
         (
             Language::Dart,
             crate::backends::dart::gen_rust_crate::dart_native_manifest_path(config),
             crate::backends::dart::gen_rust_crate::dart_core_dep_key(config),
+            excluded(config.dart.as_ref().map(|c| c.excluded_default_features.as_slice())),
         ),
     ]
+}
+
+/// The surface a binding backend actually emits from, given the surface this repair is handed.
+///
+/// `cli::pipeline::generate::generation::project_binding_api` drops every `binding_excluded`
+/// function before any backend sees the IR, so a manifest written by a backend declares features
+/// gated on the *projected* surface. This repair is called with the raw, unprojected surface --
+/// whose `#[cfg(feature = "...")]` gates include those of functions no binding ever emits -- so
+/// without the same projection it proposes forwarding rows for features nothing in the generated
+/// crate references, and the manifest a backend wrote and the manifest this pass leaves behind
+/// differ by exactly those names. Only the function retain is reproduced: the sibling projection
+/// step (`project_docs_without_unreachable_foreign_variants`) rewrites doc lines only and cannot
+/// change what `collect_cfg_features` finds. ~keep
+fn project_binding_surface(api: &ApiSurface) -> ApiSurface {
+    let mut projected = api.clone();
+    projected.functions.retain(|function| !function.binding_excluded);
+    projected
 }
 
 /// Add every cfg-forwarded feature the generated source for `languages` references but an
@@ -73,7 +103,8 @@ pub(crate) fn repair_missing_cfg_binding_features(
     languages: &[Language],
 ) -> Vec<PathBuf> {
     let mut repaired = Vec::new();
-    for (language, relative_manifest, core_dep_key) in managed_manifests(config) {
+    let projected = project_binding_surface(api);
+    for (language, relative_manifest, core_dep_key, excluded_default_features) in managed_manifests(config) {
         if !languages.contains(&language) {
             continue;
         }
@@ -100,7 +131,13 @@ pub(crate) fn repair_missing_cfg_binding_features(
             continue;
         };
         let core_declared_features = crate::codegen::cfg::core_crate_declared_features(config);
-        match crate::codegen::cfg::merge_missing_cfg_features(&existing, api, &core_dep_key, &core_declared_features) {
+        match crate::codegen::cfg::merge_missing_cfg_features(
+            &existing,
+            &projected,
+            &core_dep_key,
+            &core_declared_features,
+            &excluded_default_features,
+        ) {
             Ok(Some(patched)) => match std::fs::write(&manifest_path, &patched) {
                 Ok(()) => {
                     tracing::info!(

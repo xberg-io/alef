@@ -696,11 +696,21 @@ pub fn cfg_default_and_forwarding_lines(
 /// a purely additive `[features]` change cannot corrupt, reorder, or drop anything else in the
 /// file, so it is safe to apply on its own, narrower write path even when the guard would
 /// otherwise refuse the whole manifest. ~keep
+///
+/// `excluded_default_features` is the same per-language list every scaffolder feeds
+/// [`cfg_default_and_forwarding_lines`], and it binds here for the same reason: a name the
+/// binding's own config deliberately keeps out of `default` must not be put back by a later
+/// repair pass. Without it this function re-enabled exactly the names a scaffolder had just
+/// excluded, so the manifest a scaffold run wrote and the manifest a scaffold-plus-repair run
+/// wrote disagreed on `default` for every configured exclusion. An excluded name still gets its
+/// forwarding row (so `cargo build --features <name>` keeps working), matching the scaffolders'
+/// own treatment -- only the `default` array is held back. ~keep
 pub fn merge_missing_cfg_features(
     existing: &str,
     api: &ApiSurface,
     core_crate_name: &str,
     core_declared_features: &BTreeSet<String>,
+    excluded_default_features: &HashSet<&str>,
 ) -> anyhow::Result<Option<String>> {
     let mut doc = existing
         .parse::<toml_edit::DocumentMut>()
@@ -727,7 +737,11 @@ pub fn merge_missing_cfg_features(
         .filter(|feature| core_declared_features.contains(feature))
         .collect();
     let needs_declaration: BTreeSet<String> = referenced.difference(&declared).cloned().collect();
-    let needs_default: BTreeSet<String> = referenced.difference(&enabled_by_default).cloned().collect();
+    let needs_default: BTreeSet<String> = referenced
+        .difference(&enabled_by_default)
+        .filter(|name| !excluded_default_features.contains(name.as_str()))
+        .cloned()
+        .collect();
 
     if needs_declaration.is_empty() && needs_default.is_empty() {
         return Ok(None);

@@ -669,6 +669,8 @@ struct MergeCase {
     existing: &'static str,
     gated_functions: &'static [(&'static str, Option<&'static str>)],
     core_declared_features: &'static [&'static str],
+    /// The binding's configured `excluded_default_features`, exactly as its scaffolder reads it.
+    excluded_default_features: &'static [&'static str],
     /// Substrings the patched output must contain. Empty when [`Self::expect_none`] is `true`.
     expect_contains: &'static [&'static str],
     /// Substrings that must survive verbatim -- proof the merge is additive-only, not a
@@ -690,6 +692,7 @@ fn merge_missing_cfg_features_table() {
                        [dependencies]\nserde = \"1\"\n",
             gated_functions: &[("count_tokens", Some(r#"feature = "tokenizer""#))],
             core_declared_features: &["native-http", "tokenizer"],
+            excluded_default_features: &[],
             expect_contains: &[
                 r#"tokenizer = ["core/tokenizer"]"#,
                 r#"default = ["native-http", "tokenizer"]"#,
@@ -708,6 +711,7 @@ fn merge_missing_cfg_features_table() {
                        tokenizer = [\"core/tokenizer\"]\n",
             gated_functions: &[("count_tokens", Some(r#"feature = "tokenizer""#))],
             core_declared_features: &["tokenizer"],
+            excluded_default_features: &[],
             expect_contains: &[],
             expect_preserved: &[r#"tokenizer = ["core/tokenizer"]"#],
             expect_none: true,
@@ -720,6 +724,7 @@ fn merge_missing_cfg_features_table() {
                        tokenizer = [\"core/tokenizer\"]\n",
             gated_functions: &[("count_tokens", Some(r#"feature = "tokenizer""#))],
             core_declared_features: &["native-http", "tokenizer"],
+            excluded_default_features: &[],
             expect_contains: &[r#"default = ["native-http", "tokenizer"]"#],
             expect_preserved: &[
                 r#"tokenizer = ["core/tokenizer"]"#,
@@ -732,6 +737,7 @@ fn merge_missing_cfg_features_table() {
             existing: "[package]\nname = \"x\"\nversion = \"0.1.0\"\n\n[dependencies]\nserde = \"1\"\n",
             gated_functions: &[("count_tokens", Some(r#"feature = "tokenizer""#))],
             core_declared_features: &["tokenizer"],
+            excluded_default_features: &[],
             expect_contains: &[
                 "[features]",
                 r#"tokenizer = ["core/tokenizer"]"#,
@@ -745,8 +751,22 @@ fn merge_missing_cfg_features_table() {
             existing: "[package]\nname = \"x\"\n\n[features]\ndefault = []\n",
             gated_functions: &[("count_tokens", Some(r#"feature = "tokenizer""#))],
             core_declared_features: &[],
+            excluded_default_features: &[],
             expect_contains: &[],
             expect_preserved: &["default = []"],
+            expect_none: true,
+        },
+        MergeCase {
+            name: "an excluded_default_features name already forwarded is not pushed back into default",
+            existing: "[package]\nname = \"x\"\n\n[features]\n\
+                       default = [\"native-http\"]\n\
+                       native-http = [\"core/native-http\"]\n\
+                       heic = [\"core/heic\"]\n",
+            gated_functions: &[("decode", Some(r#"feature = "heic""#))],
+            core_declared_features: &["native-http", "heic"],
+            excluded_default_features: &["heic"],
+            expect_contains: &[],
+            expect_preserved: &["default = [\"native-http\"]", r#"heic = ["core/heic"]"#],
             expect_none: true,
         },
     ];
@@ -755,7 +775,9 @@ fn merge_missing_cfg_features_table() {
         let api = api_with_gated_functions(case.gated_functions);
         let core_declared: BTreeSet<String> = case.core_declared_features.iter().map(|s| s.to_string()).collect();
 
-        let result = merge_missing_cfg_features(case.existing, &api, "core", &core_declared)
+        let excluded: HashSet<&str> = case.excluded_default_features.iter().copied().collect();
+
+        let result = merge_missing_cfg_features(case.existing, &api, "core", &core_declared, &excluded)
             .unwrap_or_else(|error| panic!("case `{}`: merge failed: {error}", case.name));
 
         if case.expect_none {
@@ -811,7 +833,7 @@ fn merge_missing_cfg_features_preserves_untouched_lines_verbatim() {
     let api = api_with_gated_functions(&[("count_tokens", Some(r#"feature = "tokenizer""#))]);
     let core_declared: BTreeSet<String> = ["native-http", "tokenizer"].into_iter().map(String::from).collect();
 
-    let patched = merge_missing_cfg_features(existing, &api, "core", &core_declared)
+    let patched = merge_missing_cfg_features(existing, &api, "core", &core_declared, &HashSet::new())
         .expect("merge must succeed")
         .expect("a missing feature must produce a patch");
 
