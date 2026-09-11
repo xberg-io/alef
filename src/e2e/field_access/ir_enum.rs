@@ -67,7 +67,8 @@ pub(super) fn build_ir_enum_map(type_defs: &[TypeDef], enums: &[EnumDef]) -> IrE
         }
     }
 
-    let (variant_payload_types, variant_payload_is_collection) = build_variant_payload_types(enums);
+    let (variant_payload_types, variant_payload_is_collection, variant_payload_tuple) =
+        build_variant_payload_types(enums);
 
     IrEnumMap {
         field_types,
@@ -75,6 +76,7 @@ pub(super) fn build_ir_enum_map(type_defs: &[TypeDef], enums: &[EnumDef]) -> IrE
         enum_field_types,
         variant_payload_types,
         variant_payload_is_collection,
+        variant_payload_tuple,
         tagged_enum_wire: build_tagged_enum_wire(enums),
         data_carrying_enum_names: data_carrying_enum_names(enums),
         enum_wire_variants: build_enum_wire_variants(enums),
@@ -183,9 +185,16 @@ type VariantPayloadTypeMap = HashMap<String, HashMap<String, (String, String)>>;
 /// [`IrEnumMap::variant_payload_is_collection`] for the field this feeds.
 type VariantPayloadCollectionMap = HashMap<String, HashSet<String>>;
 
-fn build_variant_payload_types(enums: &[EnumDef]) -> (VariantPayloadTypeMap, VariantPayloadCollectionMap) {
+fn build_variant_payload_types(
+    enums: &[EnumDef],
+) -> (
+    VariantPayloadTypeMap,
+    VariantPayloadCollectionMap,
+    VariantPayloadCollectionMap,
+) {
     let mut variant_payload_types: HashMap<String, HashMap<String, (String, String)>> = HashMap::new();
     let mut variant_payload_is_collection: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut variant_payload_tuple: HashMap<String, HashSet<String>> = HashMap::new();
     for enum_def in enums {
         for variant in &enum_def.variants {
             let [only_field] = variant.fields.as_slice() else {
@@ -204,9 +213,19 @@ fn build_variant_payload_types(enums: &[EnumDef]) -> (VariantPayloadTypeMap, Var
                     .or_default()
                     .insert(variant.name.clone());
             }
+            if variant.is_tuple {
+                variant_payload_tuple
+                    .entry(enum_def.name.clone())
+                    .or_default()
+                    .insert(variant.name.clone());
+            }
         }
     }
-    (variant_payload_types, variant_payload_is_collection)
+    (
+        variant_payload_types,
+        variant_payload_is_collection,
+        variant_payload_tuple,
+    )
 }
 
 /// Walk `map.field_types` from `root` through `prefix`, returning the owner type the path's

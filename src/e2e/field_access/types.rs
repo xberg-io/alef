@@ -328,6 +328,16 @@ pub struct IrEnumMap {
     /// variant with no field inside it — asserting a collection check directly against the
     /// payload value only makes sense for the first shape. ~keep
     pub variant_payload_is_collection: HashMap<String, HashSet<String>>,
+    /// `variant_payload_tuple[enum_name]` — the subset of `variant_payload_types[enum_name]`'s
+    /// keys whose single payload field is *unnamed* (`Variant(Payload)`, not
+    /// `Variant { field: Payload }`).
+    ///
+    /// Read from the same `EnumVariant::is_tuple` flag `backends::magnus`'s `flatten_newtype`
+    /// predicate reads, so the Ruby e2e generator and the Ruby binding backend cannot disagree
+    /// about which variants serde flattens. They did disagree once: alef 0.85.11 taught the
+    /// binding to flatten and left the e2e generator emitting the `_0` hop, which turned every
+    /// tagged-enum payload assertion in xberg's Ruby suite into a `KeyError`. ~keep
+    pub variant_payload_tuple: HashMap<String, HashSet<String>>,
     /// `tagged_enum_wire[enum_name] -> (serde_tag, Rust variant -> serde wire value)`.
     /// Carries the exact discriminator spellings assertion generators need at runtime.
     pub tagged_enum_wire: HashMap<String, TaggedEnumWire>,

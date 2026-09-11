@@ -76,22 +76,26 @@ pub(super) fn classify(field_resolver: &FieldResolver, field: &str) -> RubyEnumA
 /// Render the one Ruby-accessible tagged-enum payload shape Alef can prove from the IR: a path
 /// crosses a known single-payload variant and names one plain field on that payload.
 ///
-/// ~keep Core's own wire format flattens a tagged enum's single-field variant beside the
-/// discriminator (`#[serde(tag = "format_type")] enum FormatMetadata { Excel(ExcelMetadata) }`
-/// serializes to `{"format_type":"excel","sheet_count":2,...}`), but `backends::magnus` does NOT
-/// mirror that shape. `enum_magnus.rs.jinja` restates every such variant as a Rust STRUCT variant
-/// (`Excel { _0: ExcelMetadata }` — see `gen_enum`'s `emits_tuple_variant`, which is false
-/// whenever the enum has neither `serde_content` nor `serde_untagged`), so its own
-/// `serde_json::to_value` nests the payload one level deeper, under the field's own name:
-/// `{"format_type":"excel","_0":{"sheet_count":2,...}}`. An adjacently-tagged enum
-/// (`#[serde(tag = "..", content = "..")]`) nests under that configured `content` key instead,
-/// regardless of tuple/struct form, because serde puts adjacently-tagged payloads there
-/// unconditionally. Either way there IS a runtime Hash level between the discriminator and the
-/// payload field on the Ruby side — omitting that hop (as this function once did) produces a
-/// `KeyError` for every tagged-enum payload assertion in the Ruby suite. `union_variant_payload`'s
-/// field name is exactly the key `backends::magnus` declares for the wrapped field (both read the
-/// same IR field), so using it (falling back to the `content` key when the enum sets one) keeps
-/// this generator and that backend from drifting independently.
+/// ~keep How many Hash levels sit between the discriminator and the payload field depends on what
+/// `backends::magnus` emitted, and there are three cases.
+///
+/// `enum_magnus.rs.jinja` restates every single-payload variant as a Rust STRUCT variant
+/// (`Excel { _0: ExcelMetadata }`). For an INTERNALLY tagged enum whose variant is a tuple variant
+/// it also puts `#[serde(flatten)]` on that field (`gen_enum`'s `flatten_newtype`), so
+/// `serde_json::to_value` produces core's own flat wire —
+/// `{"format_type":"excel","sheet_count":2,...}` — and there is NO hop: the payload field sits
+/// beside the discriminator. That is the common case and the one this generator got wrong.
+///
+/// Without the flatten the payload nests under the field's own name (`"_0"`), and an
+/// ADJACENTLY tagged enum (`#[serde(tag = "..", content = "..")]`) nests under its configured
+/// `content` key regardless of tuple/struct form, because serde puts adjacently-tagged payloads
+/// there unconditionally. Both of those need the hop.
+///
+/// Emitting the wrong one of the three is a `KeyError` at runtime, in either direction — alef
+/// 0.85.11 taught the binding to flatten and left this generator emitting the `_0` hop, and xberg's
+/// Ruby suite was red from its 1.1.4 release onward. `union_variant_payload_is_tuple` and
+/// `union_variant_payload` read the same IR the magnus backend reads, so the two cannot drift
+/// apart again without the flag itself changing meaning.
 ///
 /// Unsupported/nested/indexed suffixes return `None` and retain the explicit generator-gap skip.
 pub(super) fn variant_field_accessor(field_resolver: &FieldResolver, field: &str, result_var: &str) -> Option<String> {
@@ -120,26 +124,30 @@ pub(super) fn variant_field_accessor(field_resolver: &FieldResolver, field: &str
             return None;
         }
         let (serde_tag, wire_variant) = field_resolver.tagged_enum_wire_discriminator(&enum_type, &variant)?;
-        let magnus_wrapper_key = field_resolver
-            .tagged_enum_content_key(&enum_type)
-            .unwrap_or(wrapped_field);
+        let content_key = field_resolver.tagged_enum_content_key(&enum_type);
+        let flattened = content_key.is_none() && field_resolver.union_variant_payload_is_tuple(&enum_type, &variant);
+        let magnus_wrapper_key = content_key.unwrap_or(wrapped_field);
 
         let enum_hash = field_resolver.accessor(&prefix, "ruby", result_var);
         let tag = crate::e2e::escape::ruby_string_literal(serde_tag);
         let wire_variant = crate::e2e::escape::ruby_string_literal(wire_variant);
         let magnus_wrapper_key = crate::e2e::escape::ruby_string_literal(magnus_wrapper_key);
         let payload_field = crate::e2e::escape::ruby_string_literal(payload_field);
+        let payload_access = if flattened {
+            format!("enum_hash.fetch({payload_field}.to_sym)")
+        } else {
+            format!("enum_hash.fetch({magnus_wrapper_key}.to_sym).fetch({payload_field}.to_sym)")
+        };
         return Some(format!(
             concat!(
                 "{enum_hash}.then {{ |enum_hash| raise \"unexpected tagged enum variant\" ",
                 "unless enum_hash.fetch({tag}.to_sym) == {wire_variant}; ",
-                "enum_hash.fetch({magnus_wrapper_key}.to_sym).fetch({payload_field}.to_sym) }}"
+                "{payload_access} }}"
             ),
             enum_hash = enum_hash,
             tag = tag,
             wire_variant = wire_variant,
-            magnus_wrapper_key = magnus_wrapper_key,
-            payload_field = payload_field,
+            payload_access = payload_access,
         ));
     }
     None
@@ -216,6 +224,12 @@ mod tests {
                         serde_rename: Some("sheet'kind".to_string()),
                         is_tuple: true,
                         fields: vec![field("_0", named("SpreadsheetDetails"))],
+                        ..EnumVariant::default()
+                    },
+                    EnumVariant {
+                        name: "Named".to_string(),
+                        serde_rename: Some("named'kind".to_string()),
+                        fields: vec![field("payload", named("WrappedPayload"))],
                         ..EnumVariant::default()
                     },
                     EnumVariant {
@@ -373,24 +387,31 @@ mod tests {
             out.contains("enum_hash.fetch(\"type'kind\".to_sym) == \"sheet'kind\""),
             "got: {out}"
         );
-        assert!(
-            out.contains("enum_hash.fetch('_0'.to_sym).fetch('sheet_count'.to_sym)"),
-            "got: {out}"
-        );
+        assert!(out.contains("enum_hash.fetch('sheet_count'.to_sym)"), "got: {out}");
+        assert!(!out.contains("fetch('_0'.to_sym)"), "got: {out}");
         assert!(!out.contains("# skipped:"), "got: {out}");
     }
 
-    /// THE REGRESSION for the CI-confirmed `_0` hop defect: `backends::magnus` restates every
-    /// single-field tagged-enum variant as a struct with a field named after the IR's own field
-    /// name (`_0` for a tuple-origin variant), so the payload is nested one Hash level deeper
-    /// than the tag check alone reaches. Without the `.fetch('_0'.to_sym)` hop, the generated
-    /// Ruby raises `KeyError: key not found: :sheet_count` against the real binding — this test
-    /// pins the hop is present in the generated source.
+    /// THE REGRESSION, in the direction it actually shipped: `backends::magnus` puts
+    /// `#[serde(flatten)]` on a TUPLE variant's field when the enum is internally tagged, so the
+    /// payload lands beside the discriminator and there is no wrapper Hash to hop through. Emitting
+    /// the hop anyway raises `KeyError: key not found: :_0` against the real binding, which is what
+    /// xberg's Ruby suite did from its 1.1.4 release onward.
     #[test]
-    fn render_assertion_hops_through_the_magnus_wrapper_field_before_the_payload_field() {
+    fn render_assertion_omits_the_wrapper_hop_for_a_flattened_tuple_variant() {
         let out = render("summary.encoding.spreadsheet.sheet_count");
+        assert!(out.contains("enum_hash.fetch('sheet_count'.to_sym)"), "got: {out}");
+        assert!(!out.contains("fetch('_0'.to_sym)"), "got: {out}");
+    }
+
+    /// The other side of the same flag, and the reason it cannot simply be deleted: a STRUCT
+    /// variant (one NAMED field) is not flattened by `backends::magnus`, so its payload really does
+    /// nest one Hash level deeper and the hop must still be emitted.
+    #[test]
+    fn render_assertion_keeps_the_wrapper_hop_for_a_named_single_field_variant() {
+        let out = render("summary.encoding.named.value");
         assert!(
-            out.contains("enum_hash.fetch('_0'.to_sym).fetch('sheet_count'.to_sym)"),
+            out.contains("enum_hash.fetch('payload'.to_sym).fetch('value'.to_sym)"),
             "got: {out}"
         );
     }
