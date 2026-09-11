@@ -528,10 +528,12 @@ impl Backend for Pyo3Backend {
                 );
                 // Inject from_json staticmethod into the existing #[pymethods] block when serde
                 if types::type_has_from_json(typ, api, has_serde) {
+                    let core_type_path = crate::codegen::conversions::core_type_path(typ, &core_import);
                     let from_json_method = crate::backends::pyo3::template_env::render(
                         "from_json_method.jinja",
                         minijinja::context! {
-                            core_type_path => &typ.rust_path,
+                            core_type_path => core_type_path,
+                            has_lifetime_params => typ.has_lifetime_params,
                         },
                     );
                     if impl_block.is_empty() {

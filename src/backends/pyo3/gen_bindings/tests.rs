@@ -235,17 +235,31 @@ fn from_json_deserializes_the_core_type_before_conversion() {
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![TypeDef {
-            name: "ExtractionConfig".to_string(),
-            rust_path: "test_lib::config::ExtractionConfig".to_string(),
-            has_serde: true,
-            fields: vec![FieldDef {
-                name: "chunking".to_string(),
-                ty: TypeRef::String,
+        types: vec![
+            TypeDef {
+                name: "ExtractionConfig".to_string(),
+                rust_path: "test-lib::config::ExtractionConfig".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "chunking".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        }],
+            },
+            TypeDef {
+                name: "BorrowedConfig".to_string(),
+                rust_path: "test-lib::config::BorrowedConfig".to_string(),
+                has_serde: true,
+                has_lifetime_params: true,
+                fields: vec![FieldDef {
+                    name: "label".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
         ..Default::default()
     };
 
@@ -255,6 +269,10 @@ fn from_json_deserializes_the_core_type_before_conversion() {
     assert!(
         content.contains("serde_json::from_str::<test_lib::config::ExtractionConfig>(&json_str)"),
         "from_json must preserve the core serde contract before converting to the binding: {content}"
+    );
+    assert!(
+        content.contains("serde_json::from_str::<test_lib::config::BorrowedConfig<'static>>(&json_str)"),
+        "from_json must specialize lifetime-bearing core DTOs before deserializing: {content}"
     );
     assert!(
         content.contains(".map(Into::into)"),

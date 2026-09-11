@@ -1,6 +1,6 @@
     #[staticmethod]
     fn from_json(json_str: String) -> pyo3::PyResult<Self> {
-        serde_json::from_str::<{{ core_type_path }}>(&json_str)
+        serde_json::from_str::<{{ core_type_path }}{% if has_lifetime_params %}<'static>{% endif %}>(&json_str)
             .map(Into::into)
             .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
     }
