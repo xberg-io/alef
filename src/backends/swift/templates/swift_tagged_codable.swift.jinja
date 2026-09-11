@@ -1,14 +1,14 @@
     private enum CodingKeys: String, CodingKey {
-        case {{ tag_key }}
+        case {{ tag_ident }} = "{{ tag_wire }}"
 {{ coding_key_cases }}    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .{{ tag_key }})
+        let type = try container.decode(String.self, forKey: .{{ tag_ident }})
         switch type {
 {{ decode_cases }}        default:
             throw DecodingError.dataCorruptedError(
-                forKey: .{{ tag_key }},
+                forKey: .{{ tag_ident }},
                 in: container,
                 debugDescription: "Unknown {{ enum_name }} type: \(type)"
             )

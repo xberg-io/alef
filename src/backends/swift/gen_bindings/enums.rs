@@ -1,4 +1,4 @@
-use crate::backends::swift::gen_bindings::adjacent_codable::emit_serde_adjacent_codable;
+use crate::backends::swift::gen_bindings::adjacent_codable::{emit_serde_adjacent_codable, is_newtype_variant};
 use crate::backends::swift::naming::swift_source_ident as swift_case_ident;
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
@@ -101,17 +101,44 @@ fn has_untagged_single_payloads(en: &EnumDef) -> bool {
             .all(|v| v.fields.len() == 1)
 }
 
+/// serde flattens an internally tagged *newtype* variant's payload into the very object that
+/// carries the tag (`{"format_type":"excel","sheet_count":2}`), so there is no `"0"` key to decode
+/// from: the payload has to be handed the same decoder, and encode into the same container.
+///
+/// The optionality guard exists only because `T?(from:)` is not expressible in Swift. serde cannot
+/// internally tag an `Option` payload either, so the keyed path such a variant keeps is no more
+/// wrong than it already was. ~keep
+fn is_flattened_newtype_variant(variant: &EnumVariant) -> bool {
+    if !is_newtype_variant(variant) {
+        return false;
+    }
+    let field = &variant.fields[0];
+    !field.optional && !matches!(&field.ty, TypeRef::Optional(_))
+}
+
 /// Emits a custom Codable conformance for a serde-internally-tagged enum.
 /// Handles variant-tag decoding/encoding and respects field renames.
 pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
-    let tag_key = crate::codegen::serde_enum_repr::tagged_object_tag_key(en);
+    let tag_wire = crate::codegen::serde_enum_repr::tagged_object_tag_key(en);
+    let tag_ident = swift_case_ident(&tag_wire.to_lower_camel_case());
 
     let mut field_keys = std::collections::BTreeSet::new();
     for variant in &en.variants {
+        if is_flattened_newtype_variant(variant) {
+            continue;
+        }
         for (idx, field) in variant.fields.iter().enumerate() {
             let swift_name = swift_associated_label(&field.name, idx);
-            let rust_name = field.serde_rename.as_deref().unwrap_or(&field.name);
-            field_keys.insert((swift_name, rust_name.to_string()));
+            // `rename_all_fields` renames the fields INSIDE a struct variant, a separate namespace
+            // from `rename_all`, which renames the variants themselves. Reading only
+            // `serde_rename` ignored it and emitted CodingKeys that do not match the wire. The
+            // adjacent emitter already asks `wire_field_name` for this; both now do. ~keep
+            let rust_name = crate::codegen::naming::wire_field_name(
+                &field.name,
+                field.serde_rename.as_deref(),
+                en.rename_all_fields.as_deref(),
+            );
+            field_keys.insert((swift_name, rust_name));
         }
     }
 
@@ -143,6 +170,18 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
                 minijinja::context! {
                     variant_tag => &variant_tag,
                     case_name => &case_name,
+                },
+            ));
+        } else if is_flattened_newtype_variant(variant) {
+            let field = &variant.fields[0];
+            let label = swift_associated_label(&field.name, 0);
+            let payload_ty = mapper.map_type(&field.ty);
+            decode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_decode_payload_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    case_name => &case_name,
+                    field_decoders => format!("{label}: try {payload_ty}(from: decoder)"),
                 },
             ));
         } else {
@@ -184,8 +223,20 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
                 "swift_tagged_encode_unit_case.swift.jinja",
                 minijinja::context! {
                     variant_tag => &variant_tag,
-                    tag_key => tag_key,
+                    tag_key => &tag_ident,
                     case_name => &case_name,
+                },
+            ));
+        } else if is_flattened_newtype_variant(variant) {
+            let label = swift_associated_label(&variant.fields[0].name, 0);
+            encode_cases.push_str(&crate::backends::swift::template_env::render(
+                "swift_tagged_encode_payload_case.swift.jinja",
+                minijinja::context! {
+                    variant_tag => &variant_tag,
+                    tag_key => &tag_ident,
+                    case_name => &case_name,
+                    bindings => format!("let {label}"),
+                    field_encoders => format!("            try {label}.encode(to: encoder)\n"),
                 },
             ));
         } else {
@@ -214,7 +265,7 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
                 "swift_tagged_encode_payload_case.swift.jinja",
                 minijinja::context! {
                     variant_tag => &variant_tag,
-                    tag_key => tag_key,
+                    tag_key => &tag_ident,
                     case_name => &case_name,
                     bindings => bindings.join(", "),
                     field_encoders => field_encoders,
@@ -227,7 +278,8 @@ pub(super) fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: 
         "swift_tagged_codable.swift.jinja",
         minijinja::context! {
             enum_name => &en.name,
-            tag_key => tag_key,
+            tag_ident => &tag_ident,
+            tag_wire => tag_wire,
             coding_key_cases => coding_key_cases,
             decode_cases => decode_cases,
             encode_cases => encode_cases,
@@ -630,4 +682,183 @@ pub(super) fn swift_associated_label(name: &str, idx: usize) -> String {
         return format!("field{idx}");
     }
     swift_case_ident(&name.to_lower_camel_case())
+}
+
+#[cfg(test)]
+mod tagged_codable_tests {
+    use super::*;
+    use crate::core::ir::FieldDef;
+
+    fn render_tagged(en: &EnumDef) -> String {
+        let mut out = String::new();
+        emit_serde_tagged_codable(en, &mut out, &SwiftMapper);
+        out
+    }
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..FieldDef::default()
+        }
+    }
+
+    fn newtype_variant(name: &str, ty: TypeRef) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            is_tuple: true,
+            fields: vec![field("0", ty)],
+            ..EnumVariant::default()
+        }
+    }
+
+    fn struct_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            ..EnumVariant::default()
+        }
+    }
+
+    fn tagged_enum(tag: &str, variants: Vec<EnumVariant>) -> EnumDef {
+        EnumDef {
+            name: "FormatMetadata".to_string(),
+            has_serde: true,
+            serde_tag: Some(tag.to_string()),
+            serde_rename_all: Some("snake_case".to_string()),
+            variants,
+            ..EnumDef::default()
+        }
+    }
+
+    #[test]
+    fn should_decode_an_internally_tagged_newtype_payload_from_the_same_decoder() {
+        let en = tagged_enum(
+            "format_type",
+            vec![newtype_variant("Excel", TypeRef::Named("ExcelMetadata".to_string()))],
+        );
+        let out = render_tagged(&en);
+        assert!(
+            out.contains("self = .excel(field0: try ExcelMetadata(from: decoder))"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn should_encode_an_internally_tagged_newtype_payload_into_the_tag_container() {
+        let en = tagged_enum(
+            "format_type",
+            vec![newtype_variant("Excel", TypeRef::Named("ExcelMetadata".to_string()))],
+        );
+        let out = render_tagged(&en);
+        assert!(out.contains("case .excel(let field0):"), "{out}");
+        assert!(
+            out.contains("try container.encode(\"excel\", forKey: .formatType)"),
+            "{out}"
+        );
+        assert!(out.contains("try field0.encode(to: encoder)"), "{out}");
+    }
+
+    #[test]
+    fn should_not_give_an_internally_tagged_newtype_payload_a_positional_coding_key() {
+        let en = tagged_enum(
+            "format_type",
+            vec![newtype_variant("Excel", TypeRef::Named("ExcelMetadata".to_string()))],
+        );
+        let out = render_tagged(&en);
+        assert!(
+            !out.contains("field0 = \"0\""),
+            "serde flattens the payload; there is no \"0\" key on the wire: {out}"
+        );
+        assert!(
+            !out.contains("forKey: .field0"),
+            "serde flattens the payload; there is no \"0\" key on the wire: {out}"
+        );
+    }
+
+    #[test]
+    fn should_keep_the_keyed_form_for_an_internally_tagged_struct_variant() {
+        let en = tagged_enum(
+            "type",
+            vec![struct_variant(
+                "Basic",
+                vec![field("username", TypeRef::String), field("password", TypeRef::String)],
+            )],
+        );
+        let out = render_tagged(&en);
+        // No `= "wire"` alias when the Swift label already equals the wire name -- that is the
+        // shape `AuthConfig` ships with today, and the alias is only emitted when they differ. ~keep
+        assert!(out.contains("case username"), "{out}");
+        assert!(out.contains("case password"), "{out}");
+        assert!(!out.contains("case username = "), "{out}");
+        assert!(
+            out.contains(
+                "self = .basic(username: try container.decode(String.self, forKey: .username), \
+                 password: try container.decode(String.self, forKey: .password))"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("try container.encode(username, forKey: .username)"),
+            "{out}"
+        );
+        assert!(
+            !out.contains("(from: decoder)"),
+            "a named-field variant is not a flattened newtype: {out}"
+        );
+    }
+
+    #[test]
+    fn should_keep_the_keyed_form_for_an_optional_newtype_payload() {
+        let en = tagged_enum(
+            "format_type",
+            vec![newtype_variant(
+                "Excel",
+                TypeRef::Optional(Box::new(TypeRef::Named("ExcelMetadata".to_string()))),
+            )],
+        );
+        let out = render_tagged(&en);
+        assert!(
+            out.contains("field0: try container.decodeIfPresent("),
+            "`T?(from:)` is not expressible in Swift, so the keyed path is kept: {out}"
+        );
+        assert!(out.contains("forKey: .field0"), "{out}");
+        assert!(out.contains("case field0 = \"0\""), "{out}");
+        assert!(!out.contains("(from: decoder)"), "{out}");
+    }
+
+    #[test]
+    fn should_alias_a_snake_case_tag_key_onto_a_camel_case_swift_identifier() {
+        let en = tagged_enum("format_type", vec![struct_variant("Excel", vec![])]);
+        let out = render_tagged(&en);
+        assert!(out.contains("case formatType = \"format_type\""), "{out}");
+        assert!(out.contains("forKey: .formatType"), "{out}");
+        assert!(!out.contains("case format_type"), "{out}");
+        assert!(!out.contains("forKey: .format_type"), "{out}");
+    }
+
+    #[test]
+    fn should_alias_a_hyphenated_tag_key_onto_a_legal_swift_identifier() {
+        let en = tagged_enum("format-type", vec![struct_variant("Excel", vec![])]);
+        let out = render_tagged(&en);
+        assert!(out.contains("case formatType = \"format-type\""), "{out}");
+        assert!(out.contains("forKey: .formatType"), "{out}");
+        assert!(!out.contains("case format-type"), "{out}");
+    }
+
+    #[test]
+    fn should_backtick_escape_a_tag_key_that_collides_with_a_swift_keyword() {
+        let en = tagged_enum("protocol", vec![struct_variant("Excel", vec![])]);
+        let out = render_tagged(&en);
+        assert!(out.contains("case `protocol` = \"protocol\""), "{out}");
+        assert!(out.contains("forKey: .`protocol`"), "{out}");
+    }
+
+    #[test]
+    fn should_give_the_conventional_type_tag_key_an_explicit_raw_value() {
+        let en = tagged_enum("type", vec![struct_variant("Excel", vec![])]);
+        let out = render_tagged(&en);
+        assert!(out.contains("case type = \"type\""), "{out}");
+        assert!(out.contains("forKey: .type"), "{out}");
+    }
 }

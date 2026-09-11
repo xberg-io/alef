@@ -103,7 +103,11 @@ fn payload_key_cases(en: &EnumDef) -> String {
 
 /// A single positional payload: serde puts the value itself under the content key rather than
 /// wrapping it in an object.
-fn is_newtype_variant(variant: &EnumVariant) -> bool {
+///
+/// Shared with the internally tagged emitter in [`super::enums`], which needs the same answer for
+/// the same reason — a positional payload is never a `"0"` key on the wire — so the two emitters
+/// cannot drift apart on what counts as a newtype variant. ~keep
+pub(super) fn is_newtype_variant(variant: &EnumVariant) -> bool {
     variant.is_tuple && variant.fields.len() == 1
 }
 
