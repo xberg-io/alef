@@ -215,6 +215,53 @@ fn struct_impl_block_skips_method_colliding_with_a_field_getter() {
     );
 }
 
+#[test]
+fn from_json_deserializes_the_core_type_before_conversion() {
+    use crate::core::ir::{ApiSurface, TypeDef};
+
+    let temporary_directory = tempfile::tempdir().unwrap();
+    let binding_directory = temporary_directory.path().join("test-lib-py");
+    std::fs::create_dir_all(binding_directory.join("src")).unwrap();
+    std::fs::write(
+        binding_directory.join("Cargo.toml"),
+        "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n",
+    )
+    .unwrap();
+    let mut config = python_config();
+    config
+        .output_paths
+        .insert("python".to_string(), binding_directory.join("src"));
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "test_lib::config::ExtractionConfig".to_string(),
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "chunking".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = Pyo3Backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("serde_json::from_str::<test_lib::config::ExtractionConfig>(&json_str)"),
+        "from_json must preserve the core serde contract before converting to the binding: {content}"
+    );
+    assert!(
+        content.contains(".map(Into::into)"),
+        "from_json must convert the deserialized core value into the pyo3 wrapper: {content}"
+    );
+}
+
 /// Regression test for issue #380, exercised through the real `Pyo3Backend::generate_bindings`
 /// path (not just the `gen_function` unit): a `&mut T` DTO parameter on a unit-returning free
 /// function must render as a binding that returns the mutated intermediate.
