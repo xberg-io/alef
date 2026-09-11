@@ -1816,7 +1816,7 @@ fn test_opaque_type_with_constructor_emits_init_stub() {
 languages = ["python"]
 
 [workspace.client_constructors.DefaultClient]
-body = "{source_path}::new(api_key, base_url)"
+body = "{source_path}::new(api_key, base_url, bytes)"
 
 [[workspace.client_constructors.DefaultClient.params]]
 name = "api_key"
@@ -1825,6 +1825,10 @@ type = "&str"
 [[workspace.client_constructors.DefaultClient.params]]
 name = "base_url"
 type = "String"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "bytes"
+type = "Vec<u8>"
 
 [[crates]]
 name = "test-lib"
@@ -1846,8 +1850,8 @@ output = "packages/python/src/"
     let content = result.unwrap().into_iter().next().unwrap().content;
 
     assert!(
-        content.contains("def __init__(self, api_key: str, base_url: str) -> None: ..."),
-        "opaque type with constructor must emit __init__ stub. Got:\n{content}"
+        content.contains("bytes: builtins.bytes"),
+        "opaque constructor parameters must keep shadowed builtin annotations resolvable. Got:\n{content}"
     );
 
     assert!(

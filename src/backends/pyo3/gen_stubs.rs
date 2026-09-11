@@ -98,6 +98,63 @@ pub fn is_python_builtin_name(name: &str) -> bool {
     BUILTINS.contains(&name)
 }
 
+const SHADOWABLE_BUILTIN_TYPES: &[&str] = &[
+    "bytes",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "type",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "frozenset",
+];
+
+pub(super) fn qualify_shadowed_builtin_types(annotation: &str, shadowed: &[&str]) -> String {
+    let mut qualified = annotation.to_string();
+    for builtin in shadowed {
+        qualified = replace_bare_ident(&qualified, builtin, &format!("builtins.{builtin}"));
+    }
+    qualified
+}
+
+pub(super) fn qualify_parameter_type(name: &str, annotation: &str) -> String {
+    if SHADOWABLE_BUILTIN_TYPES.contains(&name) {
+        qualify_shadowed_builtin_types(annotation, &[name])
+    } else {
+        annotation.to_string()
+    }
+}
+
+fn replace_bare_ident(haystack: &str, ident: &str, replacement: &str) -> String {
+    let bytes = haystack.as_bytes();
+    let mut output = String::with_capacity(haystack.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if haystack[index..].starts_with(ident) {
+            let before_is_boundary = index == 0 || {
+                let byte = bytes[index - 1];
+                !(byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
+            };
+            let end = index + ident.len();
+            let after_is_boundary = end >= bytes.len() || {
+                let byte = bytes[end];
+                !(byte.is_ascii_alphanumeric() || byte == b'_')
+            };
+            if before_is_boundary && after_is_boundary {
+                output.push_str(replacement);
+                index = end;
+                continue;
+            }
+        }
+        output.push(bytes[index] as char);
+        index += 1;
+    }
+    output
+}
+
 /// Map a raw Rust type string from [`ClientConstructorConfig`] to its Python equivalent.
 ///
 /// Constructor params come from `alef.toml` as raw Rust type strings (e.g. `"&str"`).
@@ -516,10 +573,34 @@ pub(super) fn substitute_capsule_type(type_str: &str, capsule_names: &std::colle
 
 #[cfg(test)]
 mod tests {
-    use super::{gen_stubs, gen_type_stub, with_from_json_stub};
+    use super::{gen_stubs, gen_type_stub, qualify_parameter_type, with_from_json_stub};
     use crate::core::config::ResolvedCrateConfig;
     use crate::core::config::new_config::NewAlefConfig;
     use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+
+    #[test]
+    fn parameter_annotations_qualify_every_shadowable_builtin_type() {
+        let cases = [
+            ("bytes", "bytes | None", "builtins.bytes | None"),
+            ("str", "str", "builtins.str"),
+            ("int", "int", "builtins.int"),
+            ("float", "float", "builtins.float"),
+            ("bool", "bool", "builtins.bool"),
+            ("type", "type", "builtins.type"),
+            ("list", "list[str]", "builtins.list[str]"),
+            ("dict", "dict[str, int]", "builtins.dict[str, int]"),
+            ("set", "set[str]", "builtins.set[str]"),
+            ("tuple", "tuple[str, int]", "builtins.tuple[str, int]"),
+            ("frozenset", "frozenset[str]", "builtins.frozenset[str]"),
+        ];
+
+        for (name, annotation, expected) in cases {
+            assert_eq!(qualify_parameter_type(name, annotation), expected);
+        }
+        assert_eq!(qualify_parameter_type("license", "str"), "str");
+        assert_eq!(qualify_parameter_type("bytes", "bytestring"), "bytestring");
+        assert_eq!(qualify_parameter_type("bytes", "builtins.bytes"), "builtins.bytes");
+    }
 
     fn python_config() -> ResolvedCrateConfig {
         let cfg: NewAlefConfig = toml::from_str(

@@ -1,6 +1,7 @@
 use super::{
-    OptionsFieldBridges, constructor_param_type, constructor_rust_type_to_python, is_python_builtin_name,
-    pyi_docstring, python_safe_name, substitute_capsule_type,
+    OptionsFieldBridges, SHADOWABLE_BUILTIN_TYPES, constructor_param_type, constructor_rust_type_to_python,
+    is_python_builtin_name, pyi_docstring, python_safe_name, qualify_parameter_type, qualify_shadowed_builtin_types,
+    substitute_capsule_type,
 };
 use crate::backends::pyo3::type_map::python_type;
 use crate::codegen::shared::binding_fields;
@@ -14,23 +15,9 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 /// rejects it (`Variable "X.bytes" is not valid as a type [valid-type]`). Qualifying such
 /// annotations as `builtins.<name>` breaks the shadowing; `gen_stubs.rs` emits `import builtins`
 /// whenever the body references it.
-const SHADOWABLE_BUILTINS: &[&str] = &[
-    "bytes",
-    "str",
-    "int",
-    "float",
-    "bool",
-    "type",
-    "list",
-    "dict",
-    "set",
-    "tuple",
-    "frozenset",
-];
-
 /// The builtins shadowed by a field name in `typ`, using the resolved Python stub field names.
 fn shadowed_builtins(typ: &TypeDef, config: &ResolvedCrateConfig) -> Vec<&'static str> {
-    SHADOWABLE_BUILTINS
+    SHADOWABLE_BUILTIN_TYPES
         .iter()
         .copied()
         .filter(|builtin| {
@@ -42,46 +29,6 @@ fn shadowed_builtins(typ: &TypeDef, config: &ResolvedCrateConfig) -> Vec<&'stati
             })
         })
         .collect()
-}
-
-/// Qualify whole-identifier occurrences of each shadowed builtin in a type annotation as
-/// `builtins.<name>` (e.g. `bytes | None` -> `builtins.bytes | None`).
-fn qualify_shadowed_builtins(annotation: &str, shadowed: &[&str]) -> String {
-    let mut out = annotation.to_string();
-    for builtin in shadowed {
-        out = replace_bare_ident(&out, builtin, &format!("builtins.{builtin}"));
-    }
-    out
-}
-
-/// Replace whole-identifier occurrences of `ident` — not preceded by `.`, an ASCII alphanumeric,
-/// or `_`, and not followed by an ASCII alphanumeric or `_` — with `replacement`. Annotations are
-/// ASCII, so byte-wise scanning is safe.
-fn replace_bare_ident(haystack: &str, ident: &str, replacement: &str) -> String {
-    let bytes = haystack.as_bytes();
-    let mut out = String::with_capacity(haystack.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if haystack[i..].starts_with(ident) {
-            let before_ok = i == 0 || {
-                let b = bytes[i - 1];
-                !(b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
-            };
-            let end = i + ident.len();
-            let after_ok = end >= bytes.len() || {
-                let b = bytes[end];
-                !(b.is_ascii_alphanumeric() || b == b'_')
-            };
-            if before_ok && after_ok {
-                out.push_str(replacement);
-                i = end;
-                continue;
-            }
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    out
 }
 
 pub(super) fn gen_opaque_type_stub(
@@ -100,6 +47,7 @@ pub(super) fn gen_opaque_type_stub(
             .iter()
             .map(|p| {
                 let py_type = constructor_rust_type_to_python(&p.ty);
+                let py_type = qualify_parameter_type(&p.name, py_type);
                 format!("{}: {}", p.name, py_type)
             })
             .collect();
@@ -191,7 +139,7 @@ pub(super) fn gen_type_stub(
         } else {
             type_str
         };
-        let field_type = qualify_shadowed_builtins(&field_type, &shadowed);
+        let field_type = qualify_shadowed_builtin_types(&field_type, &shadowed);
         let stub_field_name = config
             .resolve_field_name(Language::Python, &typ.name, &field.name)
             .unwrap_or_else(|| field.name.clone());
@@ -280,7 +228,7 @@ fn gen_type_init_stub(
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
-            let param_type = qualify_shadowed_builtins(&constructor_param_type(&f.ty, api), &shadowed);
+            let param_type = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty, api), &shadowed);
             let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
                 &f.name,
                 f.serde_rename.as_ref(),
@@ -292,7 +240,7 @@ fn gen_type_init_stub(
         .collect();
 
     params.extend(optional.iter().map(|f| {
-        let type_str = qualify_shadowed_builtins(&constructor_param_type(&f.ty, api), &shadowed);
+        let type_str = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty, api), &shadowed);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -374,12 +322,14 @@ fn gen_method_stub(
         .iter()
         .map(|p| {
             let param_type = substitute_capsule_type(&python_type(&p.ty), capsule_names);
+            let param_type = qualify_parameter_type(&p.name, &param_type);
             format!("{}: {}", p.name, param_type)
         })
         .collect();
 
     params.extend(optional.iter().map(|p| {
         let type_str = substitute_capsule_type(&python_type(&p.ty), capsule_names);
+        let type_str = qualify_parameter_type(&p.name, &type_str);
         let param_type = if !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
@@ -493,8 +443,8 @@ fn gen_method_stub(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::FieldDef;
     use crate::core::ir::PrimitiveType;
+    use crate::core::ir::{FieldDef, ParamDef};
 
     fn streaming_method(name: &str) -> crate::core::ir::MethodDef {
         crate::core::ir::MethodDef {
@@ -574,6 +524,38 @@ mod tests {
         assert!(
             stub.trim_start().starts_with("async def chat("),
             "a non-streaming async method must keep `async def`, got:\n{stub}"
+        );
+    }
+
+    #[test]
+    fn method_parameter_named_bytes_qualifies_its_builtin_annotation() {
+        let method = MethodDef {
+            name: "from_bytes".to_string(),
+            params: vec![ParamDef {
+                name: "bytes".to_string(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Named("Document".to_string()),
+            is_static: true,
+            ..Default::default()
+        };
+
+        let stub = gen_method_stub(
+            &method,
+            true,
+            &std::collections::HashSet::new(),
+            Some("Document"),
+            &std::collections::HashMap::new(),
+        );
+
+        assert!(
+            stub.contains("bytes: builtins.bytes"),
+            "the parameter must not resolve its annotation to its own value:\n{stub}"
+        );
+        assert!(
+            !stub.contains("bytes: bytes"),
+            "the ambiguous annotation is rejected by pyrefly:\n{stub}"
         );
     }
 
