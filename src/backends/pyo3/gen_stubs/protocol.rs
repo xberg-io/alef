@@ -1,4 +1,4 @@
-use super::{pyi_docstring, python_safe_name, substitute_capsule_type};
+use super::{pyi_docstring, python_safe_name, qualify_parameter_type, substitute_capsule_type};
 use crate::backends::pyo3::type_map::{python_callback_return_type, python_type};
 use crate::codegen::shared::substitute_excluded_types;
 use crate::core::config::TraitBridgeConfig;
@@ -121,6 +121,7 @@ pub(super) fn gen_visitor_protocol_stub(
                     capsule_names,
                 ),
             };
+            let param_type = qualify_parameter_type(&p.name, &param_type);
             params.push(format!("{}: {}", p.name, param_type));
         }
         // Return position: the host produces this value and the bridge extracts it, so it takes

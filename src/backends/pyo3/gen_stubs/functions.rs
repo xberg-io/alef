@@ -1,4 +1,6 @@
-use super::{OptionsFieldBridges, is_python_builtin_name, python_safe_name, substitute_capsule_type};
+use super::{
+    OptionsFieldBridges, is_python_builtin_name, python_safe_name, qualify_parameter_type, substitute_capsule_type,
+};
 use crate::backends::pyo3::type_map::python_type;
 use crate::core::ir::{FunctionDef, TypeRef};
 
@@ -23,6 +25,7 @@ pub(super) fn gen_function_stub(
             } else {
                 substitute_capsule_type(&python_type(&p.ty), capsule_names)
             };
+            let type_str = qualify_parameter_type(&p.name, &type_str);
             if optional {
                 let param_type = if type_str.ends_with("| None") {
                     type_str
@@ -119,6 +122,33 @@ pub(super) fn gen_function_stub(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ir::ParamDef;
+
+    #[test]
+    fn free_function_parameter_named_bytes_qualifies_its_builtin_annotation() {
+        let function = FunctionDef {
+            name: "decode".to_string(),
+            params: vec![ParamDef {
+                name: "bytes".to_string(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            ..Default::default()
+        };
+
+        let stub = gen_function_stub(
+            &function,
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &OptionsFieldBridges::default(),
+            &std::collections::HashMap::new(),
+            &ahash::AHashSet::new(),
+        );
+
+        assert!(stub.contains("bytes: builtins.bytes"), "{stub}");
+        assert!(!stub.contains("bytes: bytes"), "{stub}");
+    }
 
     /// Free-function counterpart of `classes::tests::
     /// streaming_method_stub_keeps_a_plain_def_keyword_despite_method_is_async`: a streaming

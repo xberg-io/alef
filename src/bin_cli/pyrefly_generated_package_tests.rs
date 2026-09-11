@@ -87,6 +87,10 @@ impl Point {
             label: self.label.clone(),
         }
     }
+
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Point {
+        Point::new(bytes.into().len() as i64, 0, None)
+    }
 }
 
 pub fn list_points(count: i64) -> Vec<Point> {
@@ -440,6 +444,12 @@ fn alef_all_generated_python_package_type_checks_clean_under_pyrefly() {
     assert!(
         api_py.is_file(),
         "sanity: alef all must have written api.py, got tree under {root:?}"
+    );
+    let stub = std::fs::read_to_string(root.join("packages/python/test_lib/test_lib.pyi"))
+        .expect("alef all must write the native module stub");
+    assert!(
+        stub.contains("bytes: builtins.bytes"),
+        "a Python-visible `bytes` parameter must keep its builtin type annotation resolvable:\n{stub}"
     );
     let project_dir = find_pyrefly_project_dir(&root);
 
