@@ -547,9 +547,13 @@ mod tests {
                 is_opaque: false,
                 has_serde: true,
                 cfg: cfg.map(str::to_string),
+                // `Bytes`, not `Map`: the helper's whole premise is a BRIDGE type, i.e. one that is
+                // not first-class, and a `[String: String]` stopped meaning that once Swift
+                // dictionaries became legal stored properties. `Bytes` still has no idiomatic
+                // stored-property spelling. ~keep
                 fields: vec![FieldDef {
                     name: "table".to_string(),
-                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    ty: TypeRef::Bytes,
                     ..FieldDef::default()
                 }],
                 ..TypeDef::default()

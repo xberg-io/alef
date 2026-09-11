@@ -144,30 +144,19 @@ pub(super) fn resolve_streaming_adapter<'a>(
         })
 }
 
-/// Returns true when the field type would be emitted as a Swift primitive value
-/// or a known first-class Codable struct/unit-enum, so it can appear on a
-/// first-class Codable Swift struct without forcing the host type into a
-/// typealias. Mirrors `first_class_field_supported` in alef-backend-swift.
+/// Whether a field type keeps its owner in the Swift first-class (Codable struct) set.
 ///
-/// Accepts:
-/// - `Primitive` and `String`
-/// - `Named(S)` when `S` is in `known_dto_names` (seeded with unit-serde enums and
-///   grown via fixed-point iteration over candidate struct DTOs)
-/// - `Vec<T>` and `Optional<T>` recursively
-///
-/// Rejects `Map`, `Path`, `Bytes`, `Duration`, `Char`, `Json`, and unknown
-/// `Named(_)` references (the backend treats those as typealias-to-opaque).
+/// Delegates to the binding emitter's own predicate rather than restating it. This was a
+/// hand-copied mirror, and a mirror of an emit decision is exactly the shape that produced the
+/// Ruby `_0` defect: one side was taught a new rule and the other was not, so the generated
+/// assertions addressed a shape the binding had stopped emitting. Here the failure would be a
+/// Swift compile error in the generated suite -- method-call navigation (`.metaTags()`) rendered
+/// against a struct whose `metaTags` is a `public let`. ~keep
 pub(super) fn swift_first_class_field_supported(
     ty: &crate::core::ir::TypeRef,
     known_dto_names: &HashSet<String>,
 ) -> bool {
-    use crate::core::ir::TypeRef;
-    match ty {
-        TypeRef::Primitive(_) | TypeRef::String => true,
-        TypeRef::Named(name) => known_dto_names.contains(name),
-        TypeRef::Vec(inner) | TypeRef::Optional(inner) => swift_first_class_field_supported(inner, known_dto_names),
-        _ => false,
-    }
+    crate::backends::swift::gen_bindings::dto::first_class_field_supported(ty, known_dto_names)
 }
 
 /// Build the per-type Swift first-class/opaque classification map used by

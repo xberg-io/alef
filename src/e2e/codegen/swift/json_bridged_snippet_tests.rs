@@ -70,6 +70,13 @@ fn bridged_ir() -> (Vec<TypeDef>, Vec<FunctionDef>) {
                     TypeRef::Vec(Box::new(TypeRef::Named("SectionInfo".to_string()))),
                     false,
                 ),
+                // Holds `PageMetadata` out of the first-class set, which is what makes its fields
+                // swift-bridge METHODS and so gives this file a JSON-bridged leaf to test at all.
+                // The `Map` above used to do that on its own; once a Swift `Dictionary` became a
+                // legal stored property, `PageMetadata` turned into a Codable struct and every
+                // test here lost its premise while still passing its own assertions. `Bytes` has
+                // no idiomatic Swift stored-property spelling and is still rejected. ~keep
+                field("thumbnail", TypeRef::Bytes, false),
             ],
             has_serde: true,
             ..TypeDef::default()

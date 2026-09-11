@@ -30,19 +30,33 @@ pub(super) fn can_emit_first_class_struct(
 /// - Vec<T> where T is itself accepted (Vec<Primitive>, Vec<String>, Vec<Named(S)>)
 /// - Optional<T> (via TypeRef::Optional) where T is accepted — covers Optional<String>,
 ///   Optional<Primitive>, Optional<Named>, Optional<Vec<T>>
+/// - Map<String, V> where V is accepted — a Swift `Dictionary` is `Codable`, `Sendable` and
+///   `Hashable`, so it is a valid stored property and a valid Codable enum payload. Accepting it
+///   does not change the bridge: `field_needs_json_bridge` already collapses every Map field to
+///   one serde_json `String` getter, and `needs_json_bridge_for_swift` already makes the
+///   first-class `init(_ rb:)` JSON-decode it, so the wire form is identical either way. The
+///   old rejection reasoned about the getter layer, which was never the constraint. ~keep
 /// - field.optional = true is handled at the call site; this function only sees the TypeRef
 ///
 /// Rejected (fall through to typealias):
-/// - Map<K, V> — bridge layer serialises maps to JSON String; per-field JSON decode is
-///   complex and rarely worth the ergonomic gain vs the typealias
+/// - Map whose key is not `String` — Swift's `Dictionary: Codable` emits a JSON *object* only
+///   when `Key` is `String` or `Int`; any other key type encodes as a flat array of alternating
+///   keys and values, which does not match the serde_json object the bridge getter produces, and
+///   the mismatch is silent until decode. `Int` is excluded with the rest because it is
+///   reachable only from `isize`, which is not a portable serde map key. A `Named` key is
+///   excluded for the same reason, `Hashable` or not: a generated enum is not
+///   `CodingKeyRepresentable`, so it also lands in the array encoding. ~keep
 /// - Path, Bytes, Duration, Char, Json — not representable as idiomatic Swift stored props
 ///   without additional infra
-pub(super) fn first_class_field_supported(ty: &TypeRef, known_dto_names: &HashSet<String>) -> bool {
+pub(crate) fn first_class_field_supported(ty: &TypeRef, known_dto_names: &HashSet<String>) -> bool {
     match ty {
         TypeRef::Primitive(_) | TypeRef::String => true,
         TypeRef::Named(name) => known_dto_names.contains(name),
         TypeRef::Vec(inner) => first_class_field_supported(inner, known_dto_names),
         TypeRef::Optional(inner) => first_class_field_supported(inner, known_dto_names),
+        TypeRef::Map(key, value) => {
+            matches!(key.as_ref(), TypeRef::String) && first_class_field_supported(value, known_dto_names)
+        }
         _ => false,
     }
 }
@@ -1213,6 +1227,195 @@ mod tests {
         assert!(
             !out.contains("timeoutMs: UInt32? = nil"),
             "`nil` is not what `Some(30_000)` means:\n{out}"
+        );
+    }
+
+    fn string_map() -> TypeRef {
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String))
+    }
+
+    fn named_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..Default::default()
+        }
+    }
+
+    fn serde_struct(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            has_serde: true,
+            fields,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn should_accept_a_string_keyed_map_field_when_classifying_first_class() {
+        let known = HashSet::new();
+        assert!(
+            first_class_field_supported(&string_map(), &known),
+            "`Map<String, String>` is a Swift `[String: String]`, which is Codable"
+        );
+        assert!(
+            first_class_field_supported(&TypeRef::Optional(Box::new(string_map())), &known),
+            "`Option<Map<String, String>>` must be accepted too"
+        );
+        let map_of_vec = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Vec(Box::new(TypeRef::String))),
+        );
+        assert!(
+            first_class_field_supported(&map_of_vec, &known),
+            "a Map value recurses like any other accepted type"
+        );
+    }
+
+    #[test]
+    fn should_reject_a_map_field_when_the_key_is_not_a_string() {
+        let known: HashSet<String> = ["Tag".to_string()].into_iter().collect();
+        let u32_keyed = TypeRef::Map(
+            Box::new(TypeRef::Primitive(PrimitiveType::U32)),
+            Box::new(TypeRef::String),
+        );
+        assert!(
+            !first_class_field_supported(&u32_keyed, &known),
+            "Swift encodes a non-String/Int-keyed Dictionary as an array, not the serde_json object"
+        );
+        assert!(
+            !first_class_field_supported(
+                &TypeRef::Map(Box::new(TypeRef::Named("Tag".to_string())), Box::new(TypeRef::String)),
+                &known
+            ),
+            "a generated enum is Hashable but not CodingKeyRepresentable, so it hits the array encoding"
+        );
+    }
+
+    #[test]
+    fn should_reject_a_string_keyed_map_when_the_value_type_is_unknown() {
+        let known = HashSet::new();
+        assert!(
+            !first_class_field_supported(
+                &TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("Mystery".to_string()))
+                ),
+                &known
+            ),
+            "an unknown Named value is still a typealias to an opaque class and cannot be Codable"
+        );
+        assert!(
+            !first_class_field_supported(
+                &TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Bytes)),
+                &known
+            ),
+            "the value side must keep the same rejections as any other field position"
+        );
+    }
+
+    /// Apparatus check for the two tests above: widening `Map` must not have widened anything
+    /// else. Without this, an emitter that had started accepting every type would pass them.
+    #[test]
+    fn should_still_reject_path_bytes_duration_char_and_json_fields() {
+        let known = HashSet::new();
+        for ty in [
+            TypeRef::Path,
+            TypeRef::Bytes,
+            TypeRef::Duration,
+            TypeRef::Char,
+            TypeRef::Json,
+            TypeRef::Unit,
+        ] {
+            assert!(
+                !first_class_field_supported(&ty, &known),
+                "{ty:?} has no idiomatic Swift stored-property form and must still fall back"
+            );
+        }
+    }
+
+    /// The shipped defect: `HtmlMetadata` carries three `BTreeMap<String, String>` fields, so it
+    /// was not first-class, so `FormatMetadata::Html(HtmlMetadata)` failed
+    /// `all_variants_codable_safe` and *all* of the enum's variants collapsed into a single
+    /// payload-erased `typealias`. Both halves are asserted: the struct must enter the
+    /// first-class set, and the enum that carries it must survive as a real Swift enum.
+    #[test]
+    fn should_keep_a_data_enum_first_class_when_a_variant_payload_carries_map_fields() {
+        let html_metadata = serde_struct(
+            "HtmlMetadata",
+            vec![
+                named_field("title", TypeRef::String),
+                named_field("meta_tags", string_map()),
+                named_field("open_graph", string_map()),
+                named_field("twitter_card", string_map()),
+            ],
+        );
+        let api = ApiSurface {
+            types: vec![html_metadata],
+            enums: vec![crate::core::ir::EnumDef {
+                name: "FormatMetadata".to_string(),
+                rust_path: "demo::FormatMetadata".to_string(),
+                has_serde: true,
+                variants: vec![crate::core::ir::EnumVariant {
+                    name: "Html".to_string(),
+                    is_tuple: true,
+                    fields: vec![named_field("0", TypeRef::Named("HtmlMetadata".to_string()))],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let known = compute_first_class_dto_names(&api, &HashSet::new());
+
+        assert!(
+            known.contains("HtmlMetadata"),
+            "a struct whose only exotic fields are String-keyed maps must be first-class, got {known:?}"
+        );
+        assert!(
+            super::super::enums::all_variants_codable_safe(&api.enums[0], &known),
+            "the payload struct being first-class is what keeps the enum's variants from collapsing"
+        );
+    }
+
+    /// A `Map` field must render as a Swift `Dictionary` property and be read back through the
+    /// getter's serde_json `String`, which is what `needs_json_bridge_for_swift` already routes
+    /// it to. A property typed `RustBridge.…` or an `rb.metaTags()` read with no JSON decode
+    /// would both compile-fail in the consuming package, so both are pinned.
+    #[test]
+    fn should_render_a_map_field_as_a_swift_dictionary_property() {
+        let ty = serde_struct(
+            "HtmlMetadata",
+            vec![
+                named_field("meta_tags", string_map()),
+                named_field("title", TypeRef::String),
+            ],
+        );
+
+        let mut out = String::new();
+        emit_first_class_struct(
+            &ty,
+            &SwiftMapper,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            "DemoError",
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+
+        assert!(
+            out.contains("public let metaTags: [String: String]"),
+            "the Map field must be a Swift Dictionary stored property:\n{out}"
+        );
+        assert!(
+            out.contains("self.metaTags = try JSONDecoder().decode([String: String].self"),
+            "the FFI init must JSON-decode the getter's serde_json String:\n{out}"
         );
     }
 }
