@@ -218,7 +218,7 @@ fn test_basic_generation() {
         "Should call FFI error code function"
     );
     assert!(
-        content.contains("if ctx == nil {\n\t\treturn fmt.Errorf(\"[%d] native error\", code)\n\t}"),
+        content.contains("if message == \"\" {\n\t\treturn fmt.Errorf(\"[%d] native error\", code)\n\t}"),
         "lastError must tolerate a nonzero error code with no context pointer"
     );
 
@@ -893,6 +893,77 @@ fn test_error_types() {
     assert!(
         content.contains("GoError") || content.contains("lastError"),
         "Should generate error-related code"
+    );
+}
+
+#[test]
+fn coded_error_keeps_the_native_message_and_still_matches_its_sentinel() {
+    let backend = GoBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "GoError".to_string(),
+            rust_path: "test_lib::GoError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Timeout".to_string(),
+                error_code: Some(1014),
+                fields: vec![
+                    make_field("elapsed_ms", TypeRef::String, false),
+                    make_field("limit_ms", TypeRef::String, false),
+                ],
+                doc: "Extraction timed out".to_string(),
+                message_template: Some("Extraction timed out after {elapsed_ms}ms (limit: {limit_ms}ms)".to_string()),
+                has_source: false,
+                has_from: false,
+                is_unit: false,
+                is_tuple: false,
+            }],
+            doc: "Error type for library".to_string(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config())
+        .expect("Generation should succeed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("sentinel = ErrTimeout"),
+        "the coded variant must still resolve to its sentinel: {content}"
+    );
+    assert!(
+        !content.contains("case 1014:\n\t\treturn ErrTimeout"),
+        "returning the bare sentinel discards the native message"
+    );
+    assert!(
+        content.contains("return &nativeError{sentinel: sentinel, message: message}"),
+        "a coded error carrying a context message must surface that message"
+    );
+    assert!(
+        content.contains("func (e *nativeError) Unwrap() error { return e.sentinel }"),
+        "errors.Is must keep matching the sentinel through Unwrap"
+    );
+
+    let context_read = content.find("C.test_last_error_context()").expect("reads context");
+    let switch_start = content.find("\tswitch code {").expect("emits the code switch");
+    assert!(
+        context_read < switch_start,
+        "the context must be read before the switch, or coded errors return early and lose it"
     );
 }
 
