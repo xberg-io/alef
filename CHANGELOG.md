@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.16] - 2026-09-11
+
+### Fixed
+
+- **Ruby e2e no longer emits the `_0` wrapper hop for a flattened tuple variant.** `backends::magnus`
+  puts `#[serde(flatten)]` on a tuple variant's field when the enum is internally tagged, so the
+  payload reaches Ruby beside the discriminator and there is no wrapper Hash to hop through. The e2e
+  generator kept emitting `.fetch('_0')`, and every tagged-enum payload assertion in a consuming
+  suite raised `KeyError: key not found: :_0`. The two sides landed out of order in 0.85.11: the
+  binding learned to flatten and the generator did not move with it. They now read the same
+  `EnumVariant::is_tuple` flag. The hop is still emitted where serde really does nest -- a struct
+  variant with one named field, and an adjacently-tagged enum's `content` key.
+- **Python e2e decides `from_json` per argument instead of per call.** `options_via` was resolved
+  once against the call's options type and then applied to every argument, so a call mixing the
+  native pyclass (which has `from_json`) with the public `@dataclass` mirror (which does not)
+  generated `Type.from_json(...)` against the dataclass. Every test in the file failed with
+  `AttributeError` before reaching the call. An explicitly selected native module still bypasses the
+  check in both places.
+
 ### Changed
 
 - **`alef update`/`alef upgrade` no longer shell out to corepack for pnpm workspaces.**
