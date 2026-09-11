@@ -21,11 +21,20 @@ use std::collections::{HashMap, HashSet};
 /// Each method `fn method_name(&self, param: T) -> Result<R, E>` becomes
 /// `pub fn type_name_method_name(client: &TypeName, param: BridgeT) -> Result<BridgeR, String>`.
 /// Async methods are blocked on a Tokio current-thread runtime (same pattern as function shims).
+///
+/// The two enum sets are NOT interchangeable and both are required, because the paired
+/// `extern "Rust"` declaration (`extern_block::emit_extern_block_for_type_methods`) consults each
+/// for a different decision and the two signatures must agree exactly or swift-bridge reports
+/// `E0308`: `enum_names` (ALL enums) decides the bridge type — every enum crosses as `String` —
+/// while `unit_enum_names` (fieldless variants only) decides both the fallible reverse conversion
+/// (`enum_from_string_fn_name`, a helper `enums.rs` emits for unit enums only) and, through
+/// `forces_fallible_enum_bridge`, whether the wrapper's return type is forced to `Result`. ~keep
 pub(crate) fn emit_type_method_shims(
     ty: &TypeDef,
     _source_crate: &str,
-    _type_paths: &HashMap<String, String>,
+    type_paths: &HashMap<String, String>,
     handle_returned_types: &std::collections::HashSet<String>,
+    enum_names: &HashSet<&str>,
     unit_enum_names: &HashSet<&str>,
 ) -> String {
     let type_snake = ty.name.to_snake_case();
@@ -71,7 +80,7 @@ pub(crate) fn emit_type_method_shims(
         };
         let mut params_vec: Vec<String> = vec![client_receiver];
         for p in &method.params {
-            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, unit_enum_names);
+            let bridge_ty = bridge_type_enum_aware_ref(&p.ty, enum_names);
             let bridge_ty = if p.optional && !needs_json_bridge(&p.ty) {
                 format!("Option<{bridge_ty}>")
             } else {
@@ -103,6 +112,13 @@ pub(crate) fn emit_type_method_shims(
         };
 
         let mut pre_call_bindings: Vec<String> = Vec::new();
+        let source_type = |type_name: &str| {
+            type_paths
+                .get(type_name)
+                .cloned()
+                .unwrap_or_else(|| type_name.to_string())
+                .replace('-', "_")
+        };
         let call_args: Vec<String> = method
             .params
             .iter()
@@ -131,6 +147,55 @@ pub(crate) fn emit_type_method_shims(
                         return format!("&{bound}");
                     }
                     return bound;
+                }
+                // A data-carrying enum has no `__alef_{enum}_from_swift_string` helper to call --
+                // `enums.rs` emits that reconstruction only for fieldless enums, since a
+                // discriminant-only wire string carries no field data. Such a parameter crosses as
+                // JSON instead, exactly as `shims::swift_call_arg` already routes a free
+                // function's tagged-enum parameter. ~keep
+                if let TypeRef::Vec(vec_inner) = &p.ty
+                    && let TypeRef::Named(n) = vec_inner.as_ref()
+                    && enum_names.contains(n.as_str())
+                {
+                    let native_ty = source_type(n);
+                    let map_expr = format!(
+                        "values.into_iter().map(|s| ::serde_json::from_str::<{native_ty}>(&s).expect(\"valid JSON for {name} element\")).collect::<Vec<_>>()"
+                    );
+                    if p.optional {
+                        return format!("{name}.map(|values| {map_expr})");
+                    }
+                    if p.is_ref {
+                        return format!("&{{ let values = {name}; {map_expr} }}");
+                    }
+                    return format!("{{ let values = {name}; {map_expr} }}");
+                }
+                if let TypeRef::Named(n) = &p.ty
+                    && enum_names.contains(n.as_str())
+                    && !unit_enum_names.contains(n.as_str())
+                {
+                    let native_ty = source_type(n);
+                    let deserialize = |value: &str| {
+                        format!("::serde_json::from_str::<{native_ty}>({value}).expect(\"valid JSON for {name}\")")
+                    };
+                    if p.optional {
+                        let converted = format!("{name}.as_ref().map(|value| {})", deserialize("value"));
+                        if p.is_ref {
+                            return if p.is_mut {
+                                format!("{converted}.as_mut()")
+                            } else {
+                                format!("{converted}.as_ref()")
+                            };
+                        }
+                        return converted;
+                    }
+                    let converted = deserialize(&format!("&{name}"));
+                    if p.is_ref {
+                        if p.is_mut {
+                            return format!("&mut {converted}");
+                        }
+                        return format!("&{converted}");
+                    }
+                    return converted;
                 }
                 if let TypeRef::Named(n) = &p.ty
                     && unit_enum_names.contains(n.as_str())
@@ -480,10 +545,18 @@ mod tests {
         };
         let ty = opaque_type("Client", vec![method]);
         let enum_names = HashSet::from(["Mode"]);
+        let unit_enum_names = enum_names.clone();
         let handle_returned_types = HashSet::new();
         let type_paths = HashMap::new();
 
-        let out = emit_type_method_shims(&ty, "sample_crate", &type_paths, &handle_returned_types, &enum_names);
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
 
         assert!(
             out.contains("-> Result<(), String>"),
@@ -523,10 +596,18 @@ mod tests {
         };
         let ty = opaque_type("Client", vec![method]);
         let enum_names = HashSet::from(["Mode"]);
+        let unit_enum_names = enum_names.clone();
         let handle_returned_types = HashSet::new();
         let type_paths = HashMap::new();
 
-        let out = emit_type_method_shims(&ty, "sample_crate", &type_paths, &handle_returned_types, &enum_names);
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
 
         assert!(out.contains("-> Result<(), String>"), "got:\n{out}");
         assert!(
@@ -555,10 +636,18 @@ mod tests {
         };
         let ty = opaque_type("Client", vec![method]);
         let enum_names = HashSet::new();
+        let unit_enum_names = enum_names.clone();
         let handle_returned_types = HashSet::new();
         let type_paths = HashMap::new();
 
-        let out = emit_type_method_shims(&ty, "sample_crate", &type_paths, &handle_returned_types, &enum_names);
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
 
         assert!(
             out.contains("-> Result<String, String>"),
@@ -589,10 +678,18 @@ mod tests {
         };
         let ty = opaque_type("Client", vec![method]);
         let enum_names = HashSet::new();
+        let unit_enum_names = enum_names.clone();
         let handle_returned_types = HashSet::new();
         let type_paths = HashMap::new();
 
-        let out = emit_type_method_shims(&ty, "sample_crate", &type_paths, &handle_returned_types, &enum_names);
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
 
         assert!(
             out.contains("-> u64"),
@@ -601,6 +698,107 @@ mod tests {
         assert!(
             !out.contains("serde_json::to_string"),
             "an infallible u64 getter must not be JSON-bridged, got:\n{out}"
+        );
+    }
+
+    /// `emit_type_method_shims` used to take a single enum set, and `gen_rust_crate::mod` handed it
+    /// `enum_names` (ALL enums) for a parameter named `unit_enum_names`. A data-carrying enum
+    /// parameter therefore reached the unit-enum branch and emitted a call to
+    /// `__alef_{enum}_from_swift_string` -- a helper `enums.rs` deliberately emits only for
+    /// fieldless enums (`E0425`) -- and, through `forces_fallible_enum_bridge`, forced the wrapper's
+    /// return type to `Result` while `extern_block::emit_extern_block_for_type_methods` (fed the
+    /// real `unit_enum_names`) declared the infallible one, an `E0308` signature mismatch. A tagged
+    /// enum parameter must instead cross as JSON, the route free-function parameters already take.
+    #[test]
+    fn data_carrying_enum_method_param_bridges_through_json_not_the_unit_enum_helper() {
+        let method = crate::core::ir::MethodDef {
+            name: "set_routing".to_string(),
+            params: vec![param("routing", TypeRef::Named("Routing".to_string()))],
+            return_type: TypeRef::Unit,
+            receiver: Some(ReceiverKind::RefMut),
+            error_type: None,
+            ..Default::default()
+        };
+        let ty = opaque_type("Client", vec![method]);
+        let enum_names = HashSet::from(["Routing"]);
+        let unit_enum_names: HashSet<&str> = HashSet::new();
+        let handle_returned_types = HashSet::new();
+        let type_paths = HashMap::from([("Routing".to_string(), "sample_crate::Routing".to_string())]);
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
+
+        assert!(
+            out.contains("routing: String"),
+            "every enum crosses the bridge as a String, matching the extern declaration, got:\n{out}"
+        );
+        assert!(
+            out.contains("::serde_json::from_str::<sample_crate::Routing>(&routing)"),
+            "a data-carrying enum parameter must be deserialized from JSON, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&enum_from_string_fn_name("Routing")),
+            "must not call the unit-enum-only from-string helper, which is never emitted for a \
+             data-carrying enum, got:\n{out}"
+        );
+        assert!(
+            !out.contains("-> Result<"),
+            "a data-carrying enum parameter has no fallible from-string conversion to propagate, \
+             so the wrapper must keep the infallible signature the extern block declares, got:\n{out}"
+        );
+    }
+
+    /// Same defect, same fix, for the `Vec<Enum>` parameter shape: the vector branch also tested
+    /// the wrongly-supplied set and mapped every element through the unit-enum-only helper.
+    #[test]
+    fn data_carrying_enum_vec_method_param_bridges_each_element_through_json() {
+        let method = crate::core::ir::MethodDef {
+            name: "set_routes".to_string(),
+            params: vec![param(
+                "routes",
+                TypeRef::Vec(Box::new(TypeRef::Named("Routing".to_string()))),
+            )],
+            return_type: TypeRef::Unit,
+            receiver: Some(ReceiverKind::RefMut),
+            error_type: None,
+            ..Default::default()
+        };
+        let ty = opaque_type("Client", vec![method]);
+        let enum_names = HashSet::from(["Routing"]);
+        let unit_enum_names: HashSet<&str> = HashSet::new();
+        let handle_returned_types = HashSet::new();
+        let type_paths = HashMap::from([("Routing".to_string(), "sample_crate::Routing".to_string())]);
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &type_paths,
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+        );
+
+        assert!(
+            out.contains("routes: Vec<String>"),
+            "a Vec of enums crosses as Vec<String>, matching the extern declaration, got:\n{out}"
+        );
+        assert!(
+            out.contains("::serde_json::from_str::<sample_crate::Routing>(&s)"),
+            "each element must be deserialized from JSON, got:\n{out}"
+        );
+        assert!(
+            !out.contains(&enum_from_string_fn_name("Routing")),
+            "must not call the unit-enum-only from-string helper, got:\n{out}"
+        );
+        assert!(
+            !out.contains("-> Result<"),
+            "no fallible conversion is involved, so the infallible signature must be kept, got:\n{out}"
         );
     }
 }

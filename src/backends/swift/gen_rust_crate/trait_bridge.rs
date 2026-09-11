@@ -187,6 +187,10 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
 /// wrapper newtypes in the generated lib.rs. Named return types NOT in this set (e.g. excluded
 /// types like `InternalDocument`) are serialised to JSON rather than wrapped in a nonexistent
 /// struct or enum.
+///
+/// `enum_names` must be EVERY enum, not just the fieldless ones: it selects `{t}::from(..)` over
+/// the tuple-struct call `{t}(..)`, and `enums::emit_enum_wrapper` emits `impl From<core>` for a
+/// data-carrying enum too (its data variants are mirrored as fieldless ones).
 pub fn emit_trait_bridge_wrapper(
     trait_def: &TypeDef,
     source_crate: &str,

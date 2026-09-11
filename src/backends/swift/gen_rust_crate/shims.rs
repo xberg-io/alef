@@ -487,15 +487,21 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
                 TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Primitive(PrimitiveType::I64)
             ));
 
+    // `all_enum_names`, not `unit_enum_names`: the discriminator here is enum-vs-struct, not
+    // unit-vs-tagged. `enums::emit_enum_wrapper` emits `impl From<core> for {t}` for EVERY enum
+    // (a data-carrying variant is mirrored as a fieldless one and its payload dropped), while
+    // only a struct wrapper is the tuple struct `{t}(inner)` that a call `{t}(source)` needs.
+    // Testing unit-ness emitted a tuple-struct call against a tagged enum in return position --
+    // `E0423`. ~keep
     let wrap_named = |t: &str| -> String {
-        if unit_enum_names.contains(t) {
+        if all_enum_names.contains(t) {
             format!("{t}::from")
         } else {
             t.to_string()
         }
     };
     let wrap_named_direct = |t: &str, source: &str| -> String {
-        if unit_enum_names.contains(t) {
+        if all_enum_names.contains(t) {
             format!("{t}::from({source})")
         } else {
             format!("{t}({source})")
@@ -527,7 +533,10 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
             Some(WrapShape::OptMap(t)) => format!(".map(|v| v.map({}))", wrap_named(t)),
             Some(WrapShape::VecMap(t)) => {
                 if f.returns_ref {
-                    format!(".map(|v| v.iter().map(|x| {}(x.clone())).collect::<Vec<_>>())", t)
+                    format!(
+                        ".map(|v| v.iter().map(|x| {}).collect::<Vec<_>>())",
+                        wrap_named_direct(t, "x.clone()")
+                    )
                 } else {
                     format!(".map(|v| v.into_iter().map({}).collect::<Vec<_>>())", wrap_named(t))
                 }
@@ -558,7 +567,10 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
             Some(WrapShape::OptMap(t)) => format!("({source}).map({})", wrap_named(t)),
             Some(WrapShape::VecMap(t)) => {
                 if f.returns_ref {
-                    format!("({source}).iter().map(|x| {t}(x.clone())).collect::<Vec<_>>()")
+                    format!(
+                        "({source}).iter().map(|x| {}).collect::<Vec<_>>()",
+                        wrap_named_direct(t, "x.clone()")
+                    )
                 } else {
                     format!("({source}).into_iter().map({}).collect::<Vec<_>>()", wrap_named(t))
                 }
@@ -708,5 +720,7 @@ fn __alef_tokio_runtime() -> &'static ::tokio::runtime::Runtime {
 }
 "#;
 
+#[cfg(test)]
+mod enum_return_tests;
 #[cfg(test)]
 mod tests;

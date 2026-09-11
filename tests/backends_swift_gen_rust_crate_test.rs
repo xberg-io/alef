@@ -863,11 +863,11 @@ fn optional_vec_of_serde_struct_getter_on_opaque_parent_uses_json_bridge() {
                 TypeRef::Vec(Box::new(TypeRef::Named("Section".to_string()))),
             )
         };
-        // A Map field forces Article out of the first-class set, so it renders opaque. ~keep
-        let raw = make_field(
-            "raw",
-            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
-        );
+        // A `Bytes` field forces Article out of the first-class set, so it renders opaque. This
+        // used to be a `Map`, which stopped working the moment Swift `Dictionary` became a
+        // first-class stored property -- the test would have stayed GREEN while silently no longer
+        // exercising an opaque parent, which is the only thing it exists to check. ~keep
+        let raw = make_field("raw", TypeRef::Bytes);
         let mut t = make_type("Article", vec![sections, raw]);
         t.has_serde = true;
         t

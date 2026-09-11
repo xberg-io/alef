@@ -22,6 +22,8 @@ mod json_bridge;
 pub(crate) mod plugin_inbound;
 pub(crate) mod service_app_wrappers;
 pub(crate) mod shims;
+#[cfg(test)]
+mod tagged_enum_wiring_tests;
 pub mod trait_bridge;
 pub(crate) mod type_bridge;
 pub(crate) mod wrappers;
@@ -663,6 +665,7 @@ fn emit_lib_rs(
                 &type_paths,
                 &handle_returned_types,
                 &enum_names,
+                &unit_enum_names,
             ));
             out.push('\n');
         }
@@ -706,10 +709,14 @@ fn emit_lib_rs(
         out.push('\n');
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
+        // `enum_names` (ALL enums), not `unit_enum_names`: the trampoline uses this set purely to
+        // pick `{t}::from(..)` over the tuple-struct call `{t}(..)` for a `Named` return, and only
+        // a struct wrapper is a tuple struct. Handing it `unit_enum_names` made a data-carrying
+        // enum return emit a tuple-struct call against an enum type -- `E0423`. ~keep
         out.push_str(&trait_bridge::emit_trait_bridge_wrapper(
             trait_def,
             &source_crate,
-            &unit_enum_names,
+            &enum_names,
             &visible_type_names,
             &type_paths,
         ));

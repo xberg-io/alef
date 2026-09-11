@@ -33,8 +33,4 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         "enum_from_variant.jinja",
         include_str!("../templates/enum_from_variant.jinja"),
     ),
-    (
-        "enum_from_wildcard.jinja",
-        include_str!("../templates/enum_from_wildcard.jinja"),
-    ),
 ];

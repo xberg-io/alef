@@ -1,7 +1,14 @@
 //! Emits the swift-bridge mirror enum wrapper and its `From` conversion.
 //!
-//! Only unit variants are exposed in the bridge enum. Data variants are
-//! absorbed by a catch-all `Unknown` variant when present.
+//! Every declared variant is mirrored as a FIELDLESS variant, data-carrying or not: the
+//! `From<core>` conversion matches a data variant as `Variant(..)` / `Variant { .. }` and yields
+//! the bare mirror variant, dropping its payload. There is no catch-all `Unknown` variant; a
+//! variant the mirror does not declare is instead unreachable by construction (see
+//! [`declared_variants`]), and the conversion gains a `_ => unreachable!()` arm only when some
+//! core variant has no arm of its own.
+//!
+//! The reverse direction, `__alef_{enum}_from_swift_string`, is emitted only for enums whose
+//! variants are all fieldless — a discriminant-only wire string cannot reconstruct field data.
 
 use crate::backends::swift::gen_rust_crate::type_bridge::enum_from_string_fn_name;
 use crate::codegen::cfg::is_host_owned_rust_path;
