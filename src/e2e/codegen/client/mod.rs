@@ -169,7 +169,7 @@ pub fn is_skipped(fixture: &Fixture, language: &str) -> bool {
 /// `content-encoding`.
 ///
 /// `content-encoding` stays excluded, but no longer because the mock layer strips it --
-/// as of xberg-io/xberg#1598 the server encodes the body for real. It is excluded because
+/// the generated mock server now encodes the body for real. It is excluded because
 /// HTTP clients disagree about what survives transparent decompression: `fetch` decodes
 /// and leaves the header in place, while other clients remove it once the body is decoded.
 /// Asserting the value would therefore pass or fail on client behaviour rather than on

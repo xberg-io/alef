@@ -99,8 +99,8 @@ pub fn render_http_test<R: TestClientRenderer + ?Sized>(out: &mut String, render
     for name in header_names {
         let value = &http.expected_response.headers[name];
         if name.eq_ignore_ascii_case("content-encoding") {
-            // Not because the mock layer strips it -- as of xberg-io/xberg#1598 the
-            // server gzip-encodes the body for real. Clients disagree about what
+            // Not because the mock layer strips it -- the generated mock server
+            // gzip-encodes the body for real. Clients disagree about what
             // survives transparent decompression: `fetch` decodes and leaves the
             // header in place, others remove it once decoded. Asserting the value
             // would test the client's behaviour rather than ours. The decompression

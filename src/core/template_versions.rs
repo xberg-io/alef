@@ -202,8 +202,10 @@ pub mod cargo {
 
     // renovate: datasource=crate depName=walkdir
     pub const WALKDIR: &str = "2";
+
     /// gzip encoder for the generated mock server, so a fixture declaring
     /// `content-encoding: gzip` is served a genuinely encoded body. ~keep
+    // renovate: datasource=crate depName=flate2
     pub const FLATE2: &str = "1";
 
     /// brotli encoder for the generated mock server, so a fixture declaring

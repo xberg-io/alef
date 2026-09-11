@@ -350,12 +350,13 @@ fn bool_function_uses_widened_long_ffi_layout_and_boolean_wrapper_result() {
     );
     assert!(!native_lib.contains("ValueLayout.JAVA_BOOLEAN"));
     assert!(
-        main_class.contains("var primitiveResult = (long) NativeLib.TEST_IS_READY.invoke((enabled ? 1 : 0));"),
-        "wrapper must unbox the bool result as long, got:\n{main_class}"
+        main_class.contains("var primitiveResult = (int)(long) NativeLib.TEST_IS_READY.invoke((enabled ? 1 : 0));"),
+        "wrapper must unbox the bool result as long and narrow it to int before the != 0 test, \
+         because the native side returns int32_t under the widened JAVA_LONG layout, got:\n{main_class}"
     );
     assert!(
         main_class.contains("return primitiveResult != 0;"),
-        "safe wrapper must convert the long bool result to boolean, got:\n{main_class}"
+        "safe wrapper must convert the narrowed bool result to boolean, got:\n{main_class}"
     );
 }
 
