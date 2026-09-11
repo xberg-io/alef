@@ -271,12 +271,84 @@ fn from_json_deserializes_the_core_type_before_conversion() {
         "from_json must preserve the core serde contract before converting to the binding: {content}"
     );
     assert!(
-        content.contains("serde_json::from_str::<test_lib::config::BorrowedConfig<'static>>(&json_str)"),
+        content.contains("serde_json::from_str::<test_lib::config::BorrowedConfig<'_>>(&json_str)"),
         "from_json must specialize lifetime-bearing core DTOs before deserializing: {content}"
     );
     assert!(
         content.contains(".map(Into::into)"),
         "from_json must convert the deserialized core value into the pyo3 wrapper: {content}"
+    );
+}
+
+#[test]
+fn lifetime_from_json_compiles_for_a_borrowing_core_dto() {
+    use crate::core::ir::{ApiSurface, CoreWrapper, TypeDef};
+
+    let temporary_directory = tempfile::tempdir().unwrap();
+    let core_directory = temporary_directory.path().join("test-lib");
+    let binding_directory = temporary_directory.path().join("test-lib-py");
+    std::fs::create_dir_all(core_directory.join("src")).unwrap();
+    std::fs::create_dir_all(binding_directory.join("src")).unwrap();
+    std::fs::write(
+        core_directory.join("Cargo.toml"),
+        "[package]\nname = \"test-lib\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
+         [dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        core_directory.join("src/lib.rs"),
+        "use std::borrow::Cow;\n\
+         #[derive(Clone, serde::Deserialize)]\n\
+         pub struct BorrowedConfig<'a> {\n\
+             #[serde(borrow)]\n\
+             pub label: Cow<'a, str>,\n\
+         }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        binding_directory.join("Cargo.toml"),
+        "[package]\nname = \"test-lib-py\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\
+         [dependencies]\npyo3 = \"=0.29.2\"\nserde = { version = \"1\", features = [\"derive\"] }\n\
+         serde_json = \"1\"\ntest-lib = { path = \"../test-lib\" }\n",
+    )
+    .unwrap();
+
+    let mut config = python_config();
+    config.python.as_mut().unwrap().module_name = Some("_test_lib".to_string());
+    config
+        .output_paths
+        .insert("python".to_string(), binding_directory.join("src"));
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "BorrowedConfig".to_string(),
+            rust_path: "test-lib::BorrowedConfig".to_string(),
+            has_serde: true,
+            has_lifetime_params: true,
+            fields: vec![FieldDef {
+                name: "label".to_string(),
+                ty: TypeRef::String,
+                core_wrapper: CoreWrapper::Cow,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let generated = Pyo3Backend.generate_bindings(&api, &config).unwrap();
+    std::fs::write(binding_directory.join("src/lib.rs"), &generated[0].content).unwrap();
+
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--quiet", "--manifest-path"])
+        .arg(binding_directory.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", temporary_directory.path().join("target"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "generated borrowing DTO binding must compile:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

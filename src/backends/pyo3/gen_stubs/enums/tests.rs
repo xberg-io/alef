@@ -7,6 +7,37 @@ fn no_dtos() -> AHashSet<&'static str> {
     AHashSet::new()
 }
 
+#[test]
+fn builtin_named_factory_qualifies_sibling_factory_annotations() {
+    let enum_def = EnumDef {
+        name: "BinaryPayload".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Bytes".to_string(),
+                fields: vec![field("marker", TypeRef::Primitive(PrimitiveType::U8))],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Data".to_string(),
+                fields: vec![field("payload", TypeRef::Bytes)],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let stub = gen_enum_stub(&enum_def, false, &no_dtos(), true);
+
+    assert!(
+        stub.contains("def bytes("),
+        "fixture must emit the shadowing factory:\n{stub}"
+    );
+    assert!(
+        stub.contains("payload: builtins.bytes"),
+        "factory names shadow builtin annotations across the enum class:\n{stub}"
+    );
+}
+
 fn field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
         version: Default::default(),

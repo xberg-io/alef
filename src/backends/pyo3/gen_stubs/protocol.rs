@@ -1,4 +1,7 @@
-use super::{pyi_docstring, python_safe_name, qualify_parameter_type, substitute_capsule_type};
+use super::{
+    SHADOWABLE_BUILTIN_TYPES, pyi_docstring, python_safe_name, qualify_parameter_type, qualify_shadowed_builtin_types,
+    substitute_capsule_type,
+};
 use crate::backends::pyo3::type_map::{python_callback_return_type, python_type};
 use crate::codegen::shared::substitute_excluded_types;
 use crate::core::config::TraitBridgeConfig;
@@ -46,6 +49,15 @@ pub(super) fn gen_visitor_protocol_stub(
     let is_plugin_bridge = bridge.register_fn.is_some();
     let (required, optional): (Vec<&crate::core::ir::MethodDef>, Vec<&crate::core::ir::MethodDef>) =
         methods.iter().partition(|m| !(is_plugin_bridge && m.has_default_impl));
+    let shadowed: Vec<&str> = SHADOWABLE_BUILTIN_TYPES
+        .iter()
+        .copied()
+        .filter(|builtin| {
+            required
+                .iter()
+                .any(|method| !method.binding_excluded && python_safe_name(&method.name) == *builtin)
+        })
+        .collect();
 
     let excluded: std::collections::HashSet<&str> = api
         .excluded_type_paths
@@ -122,6 +134,7 @@ pub(super) fn gen_visitor_protocol_stub(
                 ),
             };
             let param_type = qualify_parameter_type(&p.name, &param_type);
+            let param_type = qualify_shadowed_builtin_types(&param_type, &shadowed);
             params.push(format!("{}: {}", p.name, param_type));
         }
         // Return position: the host produces this value and the bridge extracts it, so it takes
@@ -151,6 +164,7 @@ pub(super) fn gen_visitor_protocol_stub(
                 capsule_names,
             )
         };
+        let return_type = qualify_shadowed_builtin_types(&return_type, &shadowed);
         let safe_name = python_safe_name(&method.name);
         let signature = format!("    def {}({}) -> {}: ...", safe_name, params.join(", "), return_type);
         lines.push(signature);
@@ -167,7 +181,7 @@ pub(super) fn gen_visitor_protocol_stub(
 mod tests {
     use crate::codegen::visitor_context::test_support::neutral_visitor_fixture;
     use crate::core::config::TraitBridgeConfig;
-    use crate::core::ir::ApiSurface;
+    use crate::core::ir::{ApiSurface, MethodDef, ParamDef, TypeRef};
     use ahash::AHashSet;
 
     /// The neutral fixture's context type is `TypeDef::default()`-shaped, so `is_clone` is
@@ -280,6 +294,116 @@ mod tests {
         assert!(
             !stub.contains("dict[str, object]"),
             "a plugin bridge has no visitor context fallback to describe:\n{stub}"
+        );
+    }
+
+    #[test]
+    fn protocol_method_named_bytes_qualifies_sibling_annotations() {
+        let (mut api, _, bridge) = neutral_visitor_fixture();
+        let trait_def = api
+            .types
+            .iter_mut()
+            .find(|type_def| type_def.name == bridge.trait_name)
+            .expect("neutral visitor fixture should include its trait");
+        trait_def.methods = vec![
+            MethodDef {
+                name: "bytes".to_string(),
+                return_type: TypeRef::Unit,
+                ..Default::default()
+            },
+            MethodDef {
+                name: "consume".to_string(),
+                params: vec![ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Bytes,
+                    ..Default::default()
+                }],
+                return_type: TypeRef::Bytes,
+                ..Default::default()
+            },
+        ];
+
+        let stub = render(&api, &bridge, &AHashSet::new());
+
+        assert!(
+            stub.contains("def bytes("),
+            "fixture must emit the shadowing method:\n{stub}"
+        );
+        assert!(
+            stub.contains("def consume(self, payload: builtins.bytes) -> builtins.bytes"),
+            "protocol methods share their class annotation scope:\n{stub}"
+        );
+    }
+
+    #[test]
+    fn protocol_method_named_object_qualifies_sibling_annotations() {
+        let (mut api, bridge) = class_path_fixture();
+        let trait_def = api
+            .types
+            .iter_mut()
+            .find(|type_def| type_def.name == bridge.trait_name)
+            .expect("neutral visitor fixture should include its trait");
+        trait_def.methods.insert(
+            0,
+            MethodDef {
+                name: "object".to_string(),
+                return_type: TypeRef::Unit,
+                has_default_impl: true,
+                ..Default::default()
+            },
+        );
+
+        let absent: AHashSet<String> = ["TraversalState".to_string()].into_iter().collect();
+        let stub = render(&api, &bridge, &absent);
+
+        assert!(
+            stub.contains("def object("),
+            "fixture must emit the shadowing method:\n{stub}"
+        );
+        assert!(
+            stub.contains("dict[str, builtins.object]"),
+            "Protocol method names shadow object annotations throughout the class:\n{stub}"
+        );
+
+        let Ok(pyrefly) = which::which("pyrefly") else {
+            return;
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("protocol.pyi");
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            "[tool.pyrefly]\npreset = \"strict\"\nproject-includes = [\"*.pyi\"]\n",
+        )
+        .expect("write strict pyrefly config");
+        let source = format!("import builtins\nfrom typing import Protocol\nclass WalkOutcome: ...\n\n{stub}\n");
+        std::fs::write(&path, &source).expect("write generated Protocol stub");
+        let clean = std::process::Command::new(&pyrefly)
+            .arg("check")
+            .arg(dir.path())
+            .output()
+            .expect("run pyrefly on generated Protocol stub");
+        assert!(
+            clean.status.success(),
+            "qualified generated Protocol must pass pyrefly:\n{}{}",
+            String::from_utf8_lossy(&clean.stdout),
+            String::from_utf8_lossy(&clean.stderr)
+        );
+
+        std::fs::write(&path, source.replace("builtins.object", "object")).expect("write adversarial Protocol stub");
+        let broken = std::process::Command::new(pyrefly)
+            .arg("check")
+            .arg(dir.path())
+            .output()
+            .expect("run pyrefly negative control");
+        let diagnostics = format!(
+            "{}{}",
+            String::from_utf8_lossy(&broken.stdout),
+            String::from_utf8_lossy(&broken.stderr)
+        );
+        assert!(!broken.status.success(), "negative control must fail pyrefly");
+        assert!(
+            diagnostics.contains("[not-a-type]"),
+            "negative control must reproduce the object shadowing diagnostic:\n{diagnostics}"
         );
     }
 }

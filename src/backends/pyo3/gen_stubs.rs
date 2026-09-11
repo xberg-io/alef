@@ -110,6 +110,7 @@ const SHADOWABLE_BUILTIN_TYPES: &[&str] = &[
     "set",
     "tuple",
     "frozenset",
+    "object",
 ];
 
 pub(super) fn qualify_shadowed_builtin_types(annotation: &str, shadowed: &[&str]) -> String {
