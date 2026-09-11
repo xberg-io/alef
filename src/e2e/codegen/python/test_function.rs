@@ -161,17 +161,22 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
                 .get("python")
                 .and_then(|value| value.from_json_module.as_deref())
         });
+    // An explicitly selected native module has no public dataclass shadowing it, so neither the
+    // options type nor any argument type should be measured against the options-wrapped set. Compute
+    // it once and use the same answer for both decisions. ~keep
+    let shadowing_types = native_module
+        .filter(|candidate| *candidate != helpers::resolve_module(e2e_config))
+        .is_none()
+        .then_some(options_wrapped_types);
     let effective_options_via = helpers::effective_options_via_for_type(
         effective_options_via,
         effective_options_type,
         type_defs,
         convertible_types,
         crate_has_serde,
-        native_module
-            .filter(|candidate| *candidate != helpers::resolve_module(e2e_config))
-            .is_none()
-            .then_some(options_wrapped_types),
+        shadowing_types,
     );
+    static NO_SHADOWED_TYPES: std::sync::LazyLock<HashSet<String>> = std::sync::LazyLock::new(HashSet::new);
 
     let desc_with_period = if description.ends_with('.') {
         description.to_string()
@@ -223,6 +228,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         call_config,
         options_type: effective_options_type,
         options_via: effective_options_via,
+        from_json_unavailable_types: shadowing_types.unwrap_or(&NO_SHADOWED_TYPES),
         enum_fields,
         handle_nested_types,
         handle_dict_types,

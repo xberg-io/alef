@@ -23,6 +23,17 @@ pub(super) struct ArgSetupContext<'a> {
     pub call_config: &'a crate::e2e::config::CallConfig,
     pub options_type: Option<&'a str>,
     pub options_via: &'a str,
+    /// Type names whose public Python spelling is `options.py`'s method-less `@dataclass` mirror,
+    /// so `from_json` does not exist on them.
+    ///
+    /// `options_via` is resolved ONCE for the whole call, against the call's options type -- but it
+    /// is then applied to every argument, and a call can mix the two spellings. xberg's `extract`
+    /// does: its config resolves to the native `ExtractionConfig` (which has `from_json`) while its
+    /// input resolves to the public `ExtractInput` dataclass (which does not), and every generated
+    /// Python e2e test died on `AttributeError: type object 'ExtractInput' has no attribute
+    /// 'from_json'`. Consulted per argument so one argument's eligibility cannot decide another's.
+    /// ~keep
+    pub from_json_unavailable_types: &'a HashSet<String>,
     pub enum_fields: &'a HashMap<String, String>,
     pub handle_nested_types: &'a HashMap<String, String>,
     pub handle_dict_types: &'a HashSet<String>,
@@ -45,6 +56,7 @@ pub(super) fn build_args_and_setup(
         call_config,
         options_type,
         options_via,
+        from_json_unavailable_types,
         enum_fields,
         handle_nested_types,
         handle_dict_types,
@@ -199,9 +211,17 @@ pub(super) fn build_args_and_setup(
                 bindings: &mut arg_bindings,
                 kwarg_exprs: &mut kwarg_exprs,
             };
+            let arg_options_type = crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, value);
+            let arg_options_via = if options_via == "from_json"
+                && arg_options_type.is_some_and(|name| from_json_unavailable_types.contains(name))
+            {
+                "kwargs"
+            } else {
+                options_via
+            };
             let spec = ConstructorSpec {
-                options_type: crate::e2e::codegen::recipe::json_object_constructor_type(arg, options_type, value),
-                options_via,
+                options_type: arg_options_type,
+                options_via: arg_options_via,
                 element_type: &arg.element_type,
             };
             let mock = MockUrlInfo {
@@ -363,6 +383,7 @@ mod tests {
             call_config: &call_config,
             options_type: None,
             options_via: "kwargs",
+            from_json_unavailable_types: &HashSet::new(),
             enum_fields: &HashMap::new(),
             handle_nested_types: &HashMap::new(),
             handle_dict_types: &HashSet::new(),
@@ -373,5 +394,89 @@ mod tests {
         let (bindings, exprs, _teardown) = build_args_and_setup(&fixture, context);
         assert!(bindings.is_empty());
         assert!(exprs.is_empty());
+    }
+
+    fn json_object_fixture(field: &str) -> crate::e2e::fixture::Fixture {
+        use crate::e2e::fixture::Fixture;
+        Fixture {
+            docs: None,
+            requirements: Vec::new(),
+            id: "t".to_string(),
+            description: "d".to_string(),
+            input: serde_json::json!({ field: { "kind": "bytes" } }),
+            http: None,
+            asyncapi: None,
+            websocket: None,
+            preserve_input_urls: false,
+            assertions: Vec::new(),
+            call: None,
+            skip: None,
+            env: None,
+            setup: Vec::new(),
+            visitor: None,
+            args: vec![crate::e2e::config::ArgMapping {
+                name: "input".to_string(),
+                field: field.to_string(),
+                arg_type: "json_object".to_string(),
+                optional: false,
+                owned: false,
+                element_type: None,
+                go_type: None,
+                vec_inner_is_ref: false,
+                trait_name: None,
+            }],
+            assertion_recipes: vec![],
+            mock_response: None,
+            source: String::new(),
+            category: None,
+            tags: Vec::new(),
+        }
+    }
+
+    fn render_one_json_object_arg(unavailable: &HashSet<String>) -> Vec<String> {
+        let fixture = json_object_fixture("input");
+        let call_config = crate::e2e::config::CallConfig::default();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+        let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
+        let context = ArgSetupContext {
+            call_config: &call_config,
+            options_type: Some("ExtractInput"),
+            options_via: "from_json",
+            from_json_unavailable_types: unavailable,
+            enum_fields: &HashMap::new(),
+            handle_nested_types: &HashMap::new(),
+            handle_dict_types: &HashSet::new(),
+            config: &config,
+            type_defs: &type_defs,
+            enums: &enums,
+        };
+        build_args_and_setup(&fixture, context).0
+    }
+
+    /// `options_via` is resolved once per call, against the CALL's options type, then applied to
+    /// every argument. xberg's `extract` mixes the two spellings -- a native `ExtractionConfig`
+    /// that has `from_json` and a public `ExtractInput` dataclass that does not -- so every
+    /// generated Python e2e test raised `AttributeError: type object 'ExtractInput' has no
+    /// attribute 'from_json'`, and the whole suite was red.
+    #[test]
+    fn a_dataclass_mirrored_argument_does_not_get_a_from_json_constructor() {
+        let unavailable: HashSet<String> = ["ExtractInput".to_string()].into_iter().collect();
+        let bindings = render_one_json_object_arg(&unavailable);
+        assert!(
+            !bindings.iter().any(|line| line.contains("ExtractInput.from_json(")),
+            "got: {bindings:?}"
+        );
+    }
+
+    /// The other side of the same switch: a type the native module really does expose `from_json`
+    /// on must keep using it, or the downgrade is just a blanket removal.
+    #[test]
+    fn an_unwrapped_argument_keeps_its_from_json_constructor() {
+        let bindings = render_one_json_object_arg(&HashSet::new());
+        assert!(
+            bindings.iter().any(|line| line.contains("ExtractInput.from_json(")),
+            "got: {bindings:?}"
+        );
     }
 }
