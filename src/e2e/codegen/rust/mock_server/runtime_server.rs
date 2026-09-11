@@ -104,7 +104,7 @@ fn serve_route(route: &MockRoute) -> Response {
     // for every later test in the suite, not just the compression one. This server used to strip the header and serve plain bytes instead, which was
     // safe but left every client-side decompression branch unreachable in every suite --
     // so a compression regression in any binding's HTTP surface could not fail a single
-    // test (xberg-io/xberg#1598). An unsupported encoding is a hard error rather than a
+    // test. An unsupported encoding is a hard error rather than a
     // silent fallback to an unencoded body: serving plain bytes under a content-encoding
     // header is exactly the breakage the old strip existed to avoid, and a fixture asking
     // for an encoding this server cannot produce is a fixture bug that should be loud.

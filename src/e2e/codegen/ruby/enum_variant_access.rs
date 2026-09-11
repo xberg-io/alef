@@ -92,8 +92,8 @@ pub(super) fn classify(field_resolver: &FieldResolver, field: &str) -> RubyEnumA
 /// there unconditionally. Both of those need the hop.
 ///
 /// Emitting the wrong one of the three is a `KeyError` at runtime, in either direction — alef
-/// 0.85.11 taught the binding to flatten and left this generator emitting the `_0` hop, and xberg's
-/// Ruby suite was red from its 1.1.4 release onward. `union_variant_payload_is_tuple` and
+/// 0.85.11 taught the binding to flatten and left this generator emitting the `_0` hop, and a
+/// consumer's Ruby suite was red from its next release onward. `union_variant_payload_is_tuple` and
 /// `union_variant_payload` read the same IR the magnus backend reads, so the two cannot drift
 /// apart again without the flag itself changing meaning.
 ///

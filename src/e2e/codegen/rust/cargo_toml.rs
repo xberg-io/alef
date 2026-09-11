@@ -201,7 +201,7 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
         if needs_mock_server {
             // The mock server gzip-encodes a body whose fixture declares
             // `content-encoding: gzip`, so the client-side decompression paths are
-            // actually reachable (xberg-io/xberg#1598). ~keep
+            // actually reachable. ~keep
             dep_entries.push((
                 "flate2".to_string(),
                 format!("flate2 = \"{flate2}\"", flate2 = tv::cargo::FLATE2),

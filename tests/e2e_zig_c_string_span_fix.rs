@@ -130,7 +130,22 @@ result_is_json_struct = true
     );
 }
 
-/// Verify that _result_json is passed directly to allocPrint without std.mem.span.
+/// The `interact` function name, which used to be special-cased into a JSON wrapper.
+///
+/// `eb5cd0a98` deleted that special case: `render_test_fn` matched the *called function's name*
+/// against a hard-coded `"interact" => Some("interaction")` and, on a hit, emitted a
+/// `std.fmt.allocPrint` that re-wrapped the binding's own JSON under an invented `interaction`
+/// key before parsing it. The binding never produced that shape, so the accessor chain it
+/// existed to satisfy was addressing a key alef had just fabricated. `interaction.` is a virtual
+/// namespace label that every other backend strips; zig was alone in materialising it.
+///
+/// This test used to require that `allocPrint`, which is why it outlived the fix: it asserted the
+/// *span-free* spelling of the wrapper rather than the wrapper's existence, so deleting the
+/// wrapper left it demanding emitted text nothing emits any more. It now asserts what the
+/// surviving `interact` path must actually do, and the no-wrapper half is pinned in its own right
+/// by `e2e::codegen::zig::result_is_json_struct_ir_tests::
+/// json_result_is_not_wrapped_based_on_function_name`, which covers `process` and `interact`
+/// together so the name-based branch cannot come back for one name only. ~keep
 #[test]
 fn result_slice_passed_directly_in_format_string() {
     let toml = format!(
@@ -161,15 +176,16 @@ result_is_json_struct = true
 
     assert!(
         !rendered.contains("std.mem.span(_result_json)"),
-        "must NOT wrap _result_json with std.mem.span in format string. Rendered:\n{rendered}"
+        "must NOT wrap _result_json with std.mem.span on the interact path. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("allocPrint"),
-        "interact path should use allocPrint to build wrapped JSON. Rendered:\n{rendered}"
+        rendered.contains("parseFromSlice(std.json.Value, allocator, _result_json"),
+        "the interact path must parse the binding's own slice directly. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("allocPrint(allocator, \"") && rendered.contains("_result_json"),
-        "allocPrint should receive _result_json directly without std.mem.span. Rendered:\n{rendered}"
+        !rendered.contains("_wrapped_json"),
+        "`interact` must not be special-cased into an invented `interaction` JSON wrapper. \
+         Rendered:\n{rendered}"
     );
 }
 

@@ -336,7 +336,7 @@ pub struct IrEnumMap {
     /// predicate reads, so the Ruby e2e generator and the Ruby binding backend cannot disagree
     /// about which variants serde flattens. They did disagree once: alef 0.85.11 taught the
     /// binding to flatten and left the e2e generator emitting the `_0` hop, which turned every
-    /// tagged-enum payload assertion in xberg's Ruby suite into a `KeyError`. ~keep
+    /// tagged-enum payload assertion in a consumer's Ruby suite into a `KeyError`. ~keep
     pub variant_payload_tuple: HashMap<String, HashSet<String>>,
     /// `tagged_enum_wire[enum_name] -> (serde_tag, Rust variant -> serde wire value)`.
     /// Carries the exact discriminator spellings assertion generators need at runtime.
