@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.20] - 2026-09-12
+
+### Fixed
+
+- **A Swift `Dictionary` can now be a first-class stored property.** `first_class_field_supported`
+  rejected `Map`, so any struct holding one was emitted as a `typealias` to an opaque bridge class
+  whose fields are methods. The cost was not local: the predicate feeds `known_dto_names`, which
+  `all_variants_codable_safe` consults transitively, so one rejected field in one payload struct
+  collapsed an entire data-carrying enum to a payload-less typealias. Measured by regenerating a
+  consumer, 13 types become real `Codable` structs with stored properties. Keys stay restricted to
+  `String`: Swift's `Dictionary` `Encodable` conformance falls through to an *unkeyed* container for
+  any other key type, which would compile and then fail at runtime against the bridge's JSON object.
+
+- **An internally tagged newtype payload is now flattened, as serde writes it.** `Excel(ExcelMetadata)`
+  under `#[serde(tag = "format_type")]` serialises as `{"format_type":"excel","sheet_count":2}`, but
+  the emitter gave the payload a positional coding key and decoded `forKey: .field0`, so every such
+  variant decoded wrong. Variants with named fields keep the keyed form, and an optional payload keeps
+  it too. A variant's wire tag is now an explicit alias on a camelCased identifier rather than relying
+  on Swift's implicit raw value, which only happened to match; a hyphenated tag or a keyword would not
+  have. Struct-variant field names now honour `rename_all_fields`.
+
+- **Three latent breaks in the Swift rust-crate emitter.** Each emits Rust that does not compile the
+  moment a signature of the triggering shape appears: `emit_type_method_shims` received every enum
+  name as its `unit_enum_names` argument (E0425 and E0308 on a data-carrying enum parameter), a tagged
+  enum in return position emitted a tuple-struct call against an enum, and two further sites inlined
+  the same construction while bypassing both helpers. The JSON route that free-function parameters
+  always used is now implemented for type methods too.
+
+- **Generated Rust mock servers no longer trip `clippy::nonminimal_bool`.** The shared response-body
+  source emitted `!declared_length.is_some_and(|length| length > bytes.len() as u64)`; it is now the
+  equivalent `is_none_or` form. alef lints its own source, but the code it emits lives inside a string
+  literal that `cargo clippy` cannot see, so this surfaced only when a consumer ran clippy inside a
+  generated crate -- which no CI does. Behaviour is unchanged, and `is_none_or` (Rust 1.82) is below
+  the Rust 1.85 floor that generated crates already require through `edition = "2024"`.
+
 ## [0.85.19] - 2026-09-12
 
 ### Fixed
