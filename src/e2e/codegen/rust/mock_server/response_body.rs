@@ -4,7 +4,7 @@ pub(super) const RESPONSE_BODY_SOURCE: &str = r#"fn response_body_with_headers(h
     let declared_length = headers.iter()
         .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
         .and_then(|(_, value)| value.parse::<u64>().ok());
-    if !declared_length.is_some_and(|length| length > bytes.len() as u64) {
+    if declared_length.is_none_or(|length| length <= bytes.len() as u64) {
         return Body::from(bytes);
     }
 
