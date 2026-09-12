@@ -540,11 +540,10 @@ fn merge_managed_toml_core(
             // that used to hold it AND that table addresses the array as a literal key -- see
             // `locate_generated_array_slot`, which is what separates a withdrawn
             // `[per-file-ignores]` entry from a scoped run's unemitted `[lint.python.ruff]`.
-            if let Some((table_path, key)) = locate_generated_array_slot(generated_doc.as_table(), path) {
-                if let Some(existing_table) = table_at_path_mut(existing_doc.as_table_mut(), &table_path) {
+            if let Some((table_path, key)) = locate_generated_array_slot(generated_doc.as_table(), path)
+                && let Some(existing_table) = table_at_path_mut(existing_doc.as_table_mut(), &table_path) {
                     existing_table.remove(&key);
                 }
-            }
             continue;
         };
         let dropped: Vec<String> = previous_values
@@ -968,9 +967,7 @@ mod merge_managed_toml_tests {
     }
 
     fn per_file_ignores_of(merged: &str) -> toml_edit::Table {
-        merged
-            .parse::<toml_edit::DocumentMut>()
-            .expect("merged output parses")["per-file-ignores"]
+        merged.parse::<toml_edit::DocumentMut>().expect("merged output parses")["per-file-ignores"]
             .as_table()
             .expect("per-file-ignores table present")
             .clone()
@@ -984,7 +981,8 @@ mod merge_managed_toml_tests {
     /// unlinted and the entry could never be retired.
     #[test]
     fn merge_prunes_a_key_withdrawn_from_a_table_the_run_still_emits() {
-        let existing = "[per-file-ignores]\n\"paid/off.rs\" = [\"function-too-long\"]\n\"kept.rs\" = [\"function-too-long\"]\n";
+        let existing =
+            "[per-file-ignores]\n\"paid/off.rs\" = [\"function-too-long\"]\n\"kept.rs\" = [\"function-too-long\"]\n";
         let generated = "[per-file-ignores]\n\"kept.rs\" = [\"function-too-long\"]\n";
         let mut previous = std::collections::BTreeMap::new();
         previous.insert(
@@ -1008,7 +1006,8 @@ mod merge_managed_toml_tests {
     /// removal that splits the path looks for a nested table named `code` and silently no-ops.
     #[test]
     fn merge_prunes_dropped_values_from_a_key_whose_name_contains_dots() {
-        let existing = "[per-file-ignores]\n\"src/inline/code.rs\" = [\"function-too-long\", \"too-many-parameters\"]\n";
+        let existing =
+            "[per-file-ignores]\n\"src/inline/code.rs\" = [\"function-too-long\", \"too-many-parameters\"]\n";
         let generated = "[per-file-ignores]\n\"src/inline/code.rs\" = [\"too-many-parameters\"]\n";
         let mut previous = std::collections::BTreeMap::new();
         previous.insert(
