@@ -69,9 +69,13 @@ fn probe_segments() -> Vec<(String, String)> {
     segments
 }
 
+fn kotlin_compiler_command() -> Command {
+    alef::core::tool_command("kotlinc")
+}
+
 fn tool_available(tool: &str) -> bool {
     let version_flag = if tool == "kotlinc" { "-version" } else { "--version" };
-    Command::new(tool)
+    alef::core::tool_command(tool)
         .arg(version_flag)
         .output()
         .map(|output| output.status.success())
@@ -86,15 +90,19 @@ fn tool_available(tool: &str) -> bool {
 /// check here would leave the skip unreachable and fail the assertion below on every machine
 /// that has the shim but not a real kotlinc. ~keep
 fn kotlinc_is_genuinely_installed() -> bool {
-    Command::new("kotlinc")
-        .arg("-version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+    which::which("kotlinc")
+        .ok()
+        .and_then(|path| Command::new(path).arg("-version").output().ok())
+        .is_some_and(|output| output.status.success())
 }
 
 #[test]
 fn installed_kotlinc_is_detected_by_the_availability_probe() {
     if !kotlinc_is_genuinely_installed() {
+        assert!(
+            std::env::var_os("ALEF_REQUIRE_KOTLINC").is_none(),
+            "ALEF_REQUIRE_KOTLINC is set but kotlinc is unavailable"
+        );
         eprintln!("SKIPPED: kotlinc is not installed; its availability probe was not verified");
         return;
     }
@@ -340,7 +348,7 @@ fn kotlinc_agrees_with_validate_kotlin_package() {
         format!("package probe.{segment}\nclass {class}\n")
     });
 
-    let mut command = Command::new("kotlinc");
+    let mut command = kotlin_compiler_command();
     command.arg("-d").arg(dir.path().join("out")).current_dir(&sources);
     for (index, _) in probe_segments().iter().enumerate() {
         command.arg(format!("P{index:04}.kt"));
@@ -424,4 +432,100 @@ fn ci_installs_and_requires_kotlinc_for_runtime_regressions() {
     let workflow = include_str!("../.github/workflows/ci.yml");
     assert!(workflow.contains("uses: fwilhe2/setup-kotlin@"));
     assert!(workflow.contains("ALEF_REQUIRE_KOTLINC: \"1\""));
+}
+
+#[test]
+fn required_installed_kotlinc_probe_cannot_skip_when_the_launcher_is_missing() {
+    let empty_path = tempfile::tempdir().expect("create empty PATH");
+    let output = Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "installed_kotlinc_is_detected_by_the_availability_probe",
+            "--nocapture",
+        ])
+        .env("PATH", empty_path.path())
+        .env("ALEF_REQUIRE_KOTLINC", "1")
+        .output()
+        .expect("run required probe without kotlinc");
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "required probe silently skipped: {diagnostics}"
+    );
+    assert!(diagnostics.contains("ALEF_REQUIRE_KOTLINC is set"), "{diagnostics}");
+}
+
+#[test]
+fn kotlin_probe_and_compile_use_the_resolved_launcher_with_spaces() {
+    let directory = tempfile::Builder::new()
+        .prefix("alef Kotlin launcher ")
+        .tempdir()
+        .expect("create launcher directory with spaces");
+    let launcher = directory
+        .path()
+        .join(if cfg!(windows) { "kotlinc.bat" } else { "kotlinc" });
+    let script = if cfg!(windows) {
+        "@echo off\r\nif \"%~1\"==\"-version\" exit /b 0\r\necho %~1\r\necho %~2\r\necho %~3\r\n"
+    } else {
+        "#!/bin/sh\nif [ \"$1\" = -version ]; then exit 0; fi\nprintf '%s\\n' \"$@\"\n"
+    };
+    std::fs::write(&launcher, script).expect("write launcher");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).expect("executable launcher");
+    }
+    let mut paths = vec![directory.path().to_path_buf()];
+    paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()));
+    let output = Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--ignored",
+            "--exact",
+            "kotlin_launcher_subprocess_fixture",
+            "--nocapture",
+        ])
+        .env("PATH", std::env::join_paths(paths).expect("fixture PATH"))
+        .env("ALEF_KOTLIN_LAUNCHER_FIXTURE", &launcher)
+        .env("ALEF_REQUIRE_KOTLINC", "1")
+        .output()
+        .expect("run launcher fixture");
+    assert!(
+        output.status.success(),
+        "fixture failed: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+        "fixture must execute exactly one test"
+    );
+}
+
+#[test]
+#[ignore = "subprocess fixture with an isolated PATH; invoked by launcher regression"]
+fn kotlin_launcher_subprocess_fixture() {
+    let launcher = std::env::var_os("ALEF_KOTLIN_LAUNCHER_FIXTURE").expect("fixture launcher path");
+    let mut command = kotlin_compiler_command();
+    assert_eq!(
+        command.get_program(),
+        launcher,
+        "compile must use the resolved launcher"
+    );
+    assert!(
+        kotlinc_is_genuinely_installed(),
+        "independent probe must launch the resolved tool"
+    );
+    assert!(
+        require_tool("kotlinc", "ALEF_REQUIRE_KOTLINC", true),
+        "probe must launch the batch tool"
+    );
+    let output = command
+        .args(["-d", "output directory with spaces", "source file with spaces.kt"])
+        .output()
+        .expect("launch compiler with space-containing arguments");
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).lines().collect::<Vec<_>>(),
+        ["-d", "output directory with spaces", "source file with spaces.kt"]
+    );
 }

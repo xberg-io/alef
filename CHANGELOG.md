@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Resolve the Kotlin compiler launcher for identifier grammar probes and compilation on Windows,
+  and fail required-mode availability checks instead of silently skipping.
+
 ## [0.85.16] - 2026-09-11
 
 ### Fixed
