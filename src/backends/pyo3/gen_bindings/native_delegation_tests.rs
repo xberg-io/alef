@@ -43,8 +43,8 @@ fn gen_options_py_emits_from_json_delegating_to_native_class() {
     let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
 
     assert!(
-        options_py.contains("def from_json(json_str: str) -> \"Widget\":"),
-        "options.py must declare a from_json staticmethod on the Widget dataclass:\n{options_py}"
+        options_py.contains("def from_json(json_str: str) -> Widget:"),
+        "future annotations require an unquoted Widget return annotation:\n{options_py}"
     );
     assert!(
         options_py.contains(&format!(
@@ -56,6 +56,28 @@ fn gen_options_py_emits_from_json_delegating_to_native_class() {
     assert!(
         options_py.contains(&format!("from . import {MODULE_NAME}\n")),
         "the native module must be imported by name so from_json can reach {MODULE_NAME}.Widget:\n{options_py}"
+    );
+}
+
+#[test]
+fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
+    let mut api = widget_api(true);
+    api.types[0].name = "AccelerationConfig".to_owned();
+    api.types[0].rust_path = "sample_core::AccelerationConfig".to_owned();
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
+
+    assert!(
+        options_py.contains("Build an AccelerationConfig from a JSON string, via the native binding."),
+        "a vowel-starting class name must take the article an:\n{options_py}"
+    );
+    assert!(
+        options_py.contains("def from_json(json_str: str) -> AccelerationConfig:"),
+        "the generated return annotation must remain unquoted:\n{options_py}"
+    );
+    let consonant = gen_options_py(&widget_api(true), MODULE_NAME, &DtoConfig::default(), &[], true);
+    assert!(
+        consonant.contains("Build a Widget from a JSON string, via the native binding."),
+        "a consonant-starting class name must retain the article a:\n{consonant}"
     );
 }
 

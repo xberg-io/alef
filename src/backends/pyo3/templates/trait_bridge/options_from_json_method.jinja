@@ -1,5 +1,5 @@
     @staticmethod
-    def from_json(json_str: str) -> "{{ class_name }}":
-        """Build a `{{ class_name }}` from a JSON string, via the native binding."""
+    def from_json(json_str: str) -> {{ class_name }}:
+        """Build {{ "an" if class_name[0]|lower in "aeiou" else "a" }} {{ class_name }} from a JSON string, via the native binding."""
         return {{ from_native_fn }}({{ module_name }}.{{ class_name }}.from_json(json_str))
 
