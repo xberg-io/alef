@@ -455,7 +455,7 @@ mod tests {
     }
 
     /// `options_via` is resolved once per call, against the CALL's options type, then applied to
-    /// every argument. xberg's `extract` mixes the two spellings -- a native `ExtractionConfig`
+    /// every argument. A downstream call mixes the two spellings -- a native options type
     /// that has `from_json` and a public `ExtractInput` dataclass that does not -- so every
     /// generated Python e2e test raised `AttributeError: type object 'ExtractInput' has no
     /// attribute 'from_json'`, and the whole suite was red.

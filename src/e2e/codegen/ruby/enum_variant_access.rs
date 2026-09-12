@@ -396,7 +396,7 @@ mod tests {
     /// `#[serde(flatten)]` on a TUPLE variant's field when the enum is internally tagged, so the
     /// payload lands beside the discriminator and there is no wrapper Hash to hop through. Emitting
     /// the hop anyway raises `KeyError: key not found: :_0` against the real binding, which is what
-    /// xberg's Ruby suite did from its 1.1.4 release onward.
+    /// a downstream Ruby suite did with flattened tuple variants.
     #[test]
     fn render_assertion_omits_the_wrapper_hop_for_a_flattened_tuple_variant() {
         let out = render("summary.encoding.spreadsheet.sheet_count");
