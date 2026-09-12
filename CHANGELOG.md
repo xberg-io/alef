@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.19] - 2026-09-12
+
 ### Fixed
 
 - Resolve the Kotlin compiler launcher for identifier grammar probes and compilation on Windows,
   and fail required-mode availability checks instead of silently skipping.
+
+- Preserve authoritative Rust DTO deserialization and shadow-safe Python annotations.
+- Keep generated from_json return annotations unquoted and use correct docstring articles.
+- Launch the resolved Bash executable for publish-script tests across platforms.
+- Align Java, Zig and incremental FFI regression assertions with generated output.
 
 ## [0.85.16] - 2026-09-11
 
