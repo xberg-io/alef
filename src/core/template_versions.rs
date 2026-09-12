@@ -397,7 +397,7 @@ pub mod maven {
     pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.11.0";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:versions-maven-plugin
-    pub const VERSIONS_MAVEN_PLUGIN: &str = "2.21.0";
+    pub const VERSIONS_MAVEN_PLUGIN: &str = "2.22.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-enforcer-plugin
     pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
@@ -424,7 +424,7 @@ pub mod maven {
     pub const ASSERTJ: &str = "4.0.0-M1";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:build-helper-maven-plugin
-    pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.1";
+    pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.2";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
     pub const KOTLIN_JVM_PLUGIN: &str = "2.4.20";
