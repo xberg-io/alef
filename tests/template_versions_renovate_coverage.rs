@@ -81,7 +81,7 @@ fn the_custom_manager_regex_matches_the_bulk_of_the_version_table() {
 fn version_consts_whose_names_contain_digits_are_tracked() {
     let tracked = tracked_dependency_names(&custom_manager_pattern(), &template_versions_source());
 
-    for dependency in ["base64", "pyo3", "pyo3-async-runtimes"] {
+    for dependency in ["base64", "pyo3", "pyo3-async-runtimes", "flate2"] {
         assert!(
             tracked.contains(dependency),
             "`{dependency}` must be reachable by the customManager; a const name with a digit \
