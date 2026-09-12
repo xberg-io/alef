@@ -448,7 +448,7 @@ pub mod maven {
     // redirect to the current `io.github.ben-manes` artifact. Verified against the Portal's own
     // maven-metadata.xml for both coordinates, not assumed. ~keep
     // renovate: datasource=maven depName=io.github.ben-manes:gradle-versions-plugin
-    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.61.0";
+    pub const GRADLE_VERSIONS_PLUGIN: &str = "0.62.0";
 
     // renovate: datasource=maven depName=com.pinterest.ktlint:ktlint-cli
     pub const KTLINT: &str = "1.8.0";
