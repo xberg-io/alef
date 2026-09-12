@@ -105,7 +105,7 @@ impl BucketFixture {
 }
 
 fn run_commit_script(bucket_dir: &Path, manifest_path: &str, version: &str) -> Output {
-    Command::new("bash")
+    shell_diagnostics::bash_command()
         .arg(script_path())
         .env("BUCKET_DIR", bucket_dir)
         .env("MANIFEST_PATH", manifest_path)
