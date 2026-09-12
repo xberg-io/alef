@@ -541,9 +541,10 @@ fn merge_managed_toml_core(
             // `locate_generated_array_slot`, which is what separates a withdrawn
             // `[per-file-ignores]` entry from a scoped run's unemitted `[lint.python.ruff]`.
             if let Some((table_path, key)) = locate_generated_array_slot(generated_doc.as_table(), path)
-                && let Some(existing_table) = table_at_path_mut(existing_doc.as_table_mut(), &table_path) {
-                    existing_table.remove(&key);
-                }
+                && let Some(existing_table) = table_at_path_mut(existing_doc.as_table_mut(), &table_path)
+            {
+                existing_table.remove(&key);
+            }
             continue;
         };
         let dropped: Vec<String> = previous_values
