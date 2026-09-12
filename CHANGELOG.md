@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A consumer can now retire a `poly.toml` suppression.** Deleting an entry from
+  `[workspace.poly.per-file-ignores]` left it in the generated `poly.toml` forever, so the file
+  stayed unlinted and the entry could never be paid off -- the blocker under every "pay down the
+  quality-debt baseline" task. Two causes. The prune step skipped any recorded path this run did
+  not emit, which is right for a scoped run (`--lang java` omits `[lint.python.ruff]`, and pruning
+  on that absence leaves `select = []`, read by every linter as "check nothing" while exiting
+  green) but indistinguishable from a withdrawn key. Resolution now walks the emitted document to
+  recover where the table ends and the key begins, so a withdrawn key is pruned while an unemitted
+  nested table is still left alone. Separately, value-level pruning split the recorded path on `.`
+  while every `[per-file-ignores]` key *is* a dotted file path, so narrowing one file's rule list
+  silently did nothing; the whole key is now tried before any split.
+
 - **A Swift `Dictionary` can now be a first-class stored property.** `first_class_field_supported`
   rejected `Map`, so any struct holding one was emitted as a `typealias` to an opaque bridge class
   whose fields are methods. The cost was not local: the predicate feeds `known_dto_names`, which

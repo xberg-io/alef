@@ -536,6 +536,15 @@ fn merge_managed_toml_core(
         // reads as "check nothing" while still exiting green. Only a path this run DID emit can
         // testify that one of its values is gone. ~keep
         let Some(current_values) = current_generated_arrays.get(path) else {
+            // The array is gone entirely. That is only a withdrawal if this run emitted the table
+            // that used to hold it AND that table addresses the array as a literal key -- see
+            // `locate_generated_array_slot`, which is what separates a withdrawn
+            // `[per-file-ignores]` entry from a scoped run's unemitted `[lint.python.ruff]`.
+            if let Some((table_path, key)) = locate_generated_array_slot(generated_doc.as_table(), path) {
+                if let Some(existing_table) = table_at_path_mut(existing_doc.as_table_mut(), &table_path) {
+                    existing_table.remove(&key);
+                }
+            }
             continue;
         };
         let dropped: Vec<String> = previous_values
@@ -717,6 +726,46 @@ fn canonical_value_repr(value: &toml_edit::Value) -> String {
 /// `fmt`, `file_safety` members are inline tables each holding an `exclude`
 /// array) so every one of poly.toml's exclude blocks gets its own entry,
 /// tracked independently.
+/// Resolve where a dot-joined provenance path *would* live in `generated`, as (table path, key).
+///
+/// Returns `None` when this run did not emit a table that could hold the path at all.
+///
+/// ~keep This is the whole discriminator for pruning a vanished array, and it replaces reading a
+/// missing path as either "withdrawn" (which blanks a scoped run's config) or "unknown" (which
+/// strands a suppression forever). `collect_arrays_by_path` joins table segments and the key with
+/// `.`, and the key itself may contain dots -- every `[per-file-ignores]` key is a file path like
+/// `crates/.../inline/code.rs` -- so the string alone cannot say where the table ends and the key
+/// begins. Walking the emitted document recovers that boundary: descend through the deepest chain
+/// of emitted tables whose names prefix the path, and whatever remains is the literal key. A
+/// `--lang java` run that never emitted `[lint.python.ruff]` resolves `lint.python.ruff.select`
+/// only as far as `[lint]`, whose literal keys do not include `python.ruff.select`, so the caller
+/// finds nothing to remove and the consumer's selection survives.
+fn locate_generated_array_slot(table: &toml_edit::Table, path: &str) -> Option<(Vec<String>, String)> {
+    for (name, item) in table {
+        let toml_edit::Item::Table(nested) = item else {
+            continue;
+        };
+        let Some(rest) = path.strip_prefix(name).and_then(|rest| rest.strip_prefix('.')) else {
+            continue;
+        };
+        if let Some((mut deeper_path, key)) = locate_generated_array_slot(nested, rest) {
+            deeper_path.insert(0, name.to_owned());
+            return Some((deeper_path, key));
+        }
+        return Some((vec![name.to_owned()], rest.to_owned()));
+    }
+    None
+}
+
+/// Walk `table` down `path` (a list of table names), if every step exists and is a table.
+fn table_at_path_mut<'t>(table: &'t mut toml_edit::Table, path: &[String]) -> Option<&'t mut toml_edit::Table> {
+    let mut current = table;
+    for segment in path {
+        current = current.get_mut(segment)?.as_table_mut()?;
+    }
+    Some(current)
+}
+
 fn collect_arrays_by_path(
     table: &toml_edit::Table,
     prefix: &str,
@@ -756,6 +805,14 @@ fn collect_arrays_by_path(
 /// with -- is silently skipped: there is nothing to prune there, which is a
 /// normal, expected outcome, not an error.
 fn remove_values_at_path(table: &mut toml_edit::Table, path: &str, values_to_remove: &[String]) {
+    // ~keep Try the whole remaining path as one key before splitting on `.`: a `[per-file-ignores]`
+    // key is a file path containing dots, so the split below hunts for a nested table named `code`
+    // that never exists and the removal silently no-ops -- narrowing one file's rule list could
+    // never take effect.
+    if let Some(toml_edit::Item::Value(toml_edit::Value::Array(array))) = table.get_mut(path) {
+        remove_matching(array, values_to_remove);
+        return;
+    }
     let mut parts = path.splitn(2, '.');
     let Some(head) = parts.next() else { return };
     match (parts.next(), table.get_mut(head)) {
@@ -907,6 +964,119 @@ mod merge_managed_toml_tests {
         assert_eq!(
             current_generated_arrays.get("discovery.exclude"),
             Some(&vec!["kept/**".to_string()])
+        );
+    }
+
+    fn per_file_ignores_of(merged: &str) -> toml_edit::Table {
+        merged
+            .parse::<toml_edit::DocumentMut>()
+            .expect("merged output parses")["per-file-ignores"]
+            .as_table()
+            .expect("per-file-ignores table present")
+            .clone()
+    }
+
+    /// A key withdrawn from a table this run still emits must be pruned.
+    ///
+    /// Paying off one file in a consumer's quality-debt baseline means deleting its
+    /// `[workspace.poly.per-file-ignores]` entry, after which alef emits that key not at all.
+    /// Reading that as "unknown" left the suppression in `poly.toml` forever, so the file stayed
+    /// unlinted and the entry could never be retired.
+    #[test]
+    fn merge_prunes_a_key_withdrawn_from_a_table_the_run_still_emits() {
+        let existing = "[per-file-ignores]\n\"paid/off.rs\" = [\"function-too-long\"]\n\"kept.rs\" = [\"function-too-long\"]\n";
+        let generated = "[per-file-ignores]\n\"kept.rs\" = [\"function-too-long\"]\n";
+        let mut previous = std::collections::BTreeMap::new();
+        previous.insert(
+            "per-file-ignores.paid/off.rs".to_string(),
+            vec!["function-too-long".to_string()],
+        );
+
+        let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
+        let table = per_file_ignores_of(&merged);
+
+        assert!(
+            !table.contains_key("paid/off.rs"),
+            "a withdrawn key must be pruned; merged output was:\n{merged}"
+        );
+        assert!(table.contains_key("kept.rs"), "a key alef still emits must survive");
+    }
+
+    /// Narrowing one key's rule list must take effect even though the key contains dots.
+    ///
+    /// `collect_arrays_by_path` joins segments with `.` and these keys are file paths, so a
+    /// removal that splits the path looks for a nested table named `code` and silently no-ops.
+    #[test]
+    fn merge_prunes_dropped_values_from_a_key_whose_name_contains_dots() {
+        let existing = "[per-file-ignores]\n\"src/inline/code.rs\" = [\"function-too-long\", \"too-many-parameters\"]\n";
+        let generated = "[per-file-ignores]\n\"src/inline/code.rs\" = [\"too-many-parameters\"]\n";
+        let mut previous = std::collections::BTreeMap::new();
+        previous.insert(
+            "per-file-ignores.src/inline/code.rs".to_string(),
+            vec!["function-too-long".to_string(), "too-many-parameters".to_string()],
+        );
+
+        let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
+        let table = per_file_ignores_of(&merged);
+        let values: Vec<String> = table["src/inline/code.rs"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .map(|value| value.as_str().expect("string").to_owned())
+            .collect();
+
+        assert_eq!(
+            values,
+            vec!["too-many-parameters".to_string()],
+            "the rule alef stopped emitting must be pruned from a dotted key; got:\n{merged}"
+        );
+    }
+
+    /// The protection this must never regress, and the reason the generic guard existed: a scoped
+    /// run (`alef generate --lang java`) omits `[lint.python.ruff]` wholesale. Its absence says
+    /// nothing, and pruning on it would leave `select = []` -- which every linter reads as "check
+    /// nothing" while still exiting green. ~keep
+    #[test]
+    fn merge_keeps_a_scoped_runs_unemitted_nested_table_entries() {
+        let existing = "[lint.python.ruff]\nselect = [\"ANN\", \"D\"]\n";
+        let generated = "[lint.java.checkstyle]\nselect = [\"X\"]\n";
+        let mut previous = std::collections::BTreeMap::new();
+        previous.insert(
+            "lint.python.ruff.select".to_string(),
+            vec!["ANN".to_string(), "D".to_string()],
+        );
+
+        let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
+        let document = merged.parse::<toml_edit::DocumentMut>().expect("merged output parses");
+        let select: Vec<String> = document["lint"]["python"]["ruff"]["select"]
+            .as_array()
+            .expect("select survives")
+            .iter()
+            .map(|value| value.as_str().expect("string").to_owned())
+            .collect();
+
+        assert_eq!(
+            select,
+            vec!["ANN".to_string(), "D".to_string()],
+            "a run that never emitted [lint.python.ruff] must not prune it; got:\n{merged}"
+        );
+    }
+
+    /// `[lint]` emitted but `[lint.python.ruff]` not: resolution must stop at `[lint]`, whose
+    /// literal keys do not include `python.ruff.select`, so nothing is removed. ~keep
+    #[test]
+    fn merge_keeps_nested_entries_when_only_the_outer_table_was_emitted() {
+        let existing = "[lint]\nshared = [\"A\"]\n\n[lint.python.ruff]\nselect = [\"ANN\"]\n";
+        let generated = "[lint]\nshared = [\"A\"]\n";
+        let mut previous = std::collections::BTreeMap::new();
+        previous.insert("lint.python.ruff.select".to_string(), vec!["ANN".to_string()]);
+
+        let (merged, _) = merge_managed_toml_core(existing, generated, &previous).expect("merge succeeds");
+        let document = merged.parse::<toml_edit::DocumentMut>().expect("merged output parses");
+
+        assert!(
+            document["lint"]["python"]["ruff"]["select"].as_array().is_some(),
+            "resolution must not treat [lint]'s emission as testimony about a nested table; got:\n{merged}"
         );
     }
 
