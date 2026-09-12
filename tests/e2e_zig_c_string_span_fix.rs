@@ -5,7 +5,7 @@
 //! "invalid type given to std.mem.span: []u8"
 //!
 //! The wrapper always converts the FFI return value to []u8 before returning
-//! to the test, so e2e tests pass slices directly to parseFromSlice and allocPrint.
+//! to the test, so e2e tests pass slices directly to parseFromSlice.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -130,9 +130,9 @@ result_is_json_struct = true
     );
 }
 
-/// Verify that _result_json is passed directly to allocPrint without std.mem.span.
+/// Returned JSON preserves its shape and is parsed directly as an owned slice. ~keep
 #[test]
-fn result_slice_passed_directly_in_format_string() {
+fn result_slice_preserves_json_shape_for_interact() {
     let toml = format!(
         r#"{}
 [crates.e2e.call.overrides.zig]
@@ -161,15 +161,19 @@ result_is_json_struct = true
 
     assert!(
         !rendered.contains("std.mem.span(_result_json)"),
-        "must NOT wrap _result_json with std.mem.span in format string. Rendered:\n{rendered}"
+        "must NOT wrap the owned _result_json slice with std.mem.span. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("allocPrint"),
-        "interact path should use allocPrint to build wrapped JSON. Rendered:\n{rendered}"
+        rendered.contains("parseFromSlice(std.json.Value, allocator, _result_json, .{})")
+            && rendered.contains("defer std.heap.c_allocator.free(_result_json);"),
+        "interact must parse and release the returned slice directly. Rendered:\n{rendered}"
     );
     assert!(
-        rendered.contains("allocPrint(allocator, \"") && rendered.contains("_result_json"),
-        "allocPrint should receive _result_json directly without std.mem.span. Rendered:\n{rendered}"
+        !rendered.contains("_wrapped_json")
+            && !rendered.contains("allocPrint")
+            && rendered.contains("result.object.get(\"interaction\").?.object.get(\"action_results\").?")
+            && rendered.contains("try testing.expect(std.mem.indexOf(u8, _js, \"success\") != null);"),
+        "interact must preserve the returned JSON shape for nested assertions. Rendered:\n{rendered}"
     );
 }
 
