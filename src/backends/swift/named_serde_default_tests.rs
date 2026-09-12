@@ -28,7 +28,7 @@ fn decode_body(name: &str, ty: TypeRef, typed_default: DefaultValue) -> String {
         ..Default::default()
     };
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
     out
 }
 
@@ -120,7 +120,7 @@ fn a_named_field_defaulting_to_type_default_uses_the_zero_arg_initializer() {
     let zero_arg_constructible_names: HashSet<String> = ["NgramRange".to_string()].into_iter().collect();
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &zero_arg_constructible_names, &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &zero_arg_constructible_names, true, &mut out);
 
     assert_eq!(
         out,
@@ -149,7 +149,7 @@ fn an_enum_field_defaulting_to_type_default_stays_required() {
     };
 
     let mut out = String::new();
-    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+    emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
 
     assert!(
         out.contains("self.algorithm = try container.decode(KeywordAlgorithm.self, forKey: .algorithm)"),

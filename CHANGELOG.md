@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.85.21] - 2026-09-12
+
+### Fixed
+
+- **Swift DTOs no longer fail to decode a field the Rust source omits.** A field carrying
+  `#[serde(skip_serializing_if = "...")]` is dropped from the JSON payload entirely whenever its
+  predicate holds, but the emitted Swift struct fell back to the synthesized `Codable`
+  conformance, which requires every non-Optional key to be present. Decoding then threw
+  `DecodingError.keyNotFound`. The gate asked only whether the *type* implements `Default`, which
+  is a different question -- a type that derives no `Default` can still own a skippable field --
+  so `DocumentNode.children` and `.annotations` (`skip_serializing_if = "Vec::is_empty"`, and so
+  absent for every leaf node) took the synthesized path and broke 11 of 304 html-to-markdown
+  Swift e2e cases. The emitter already rendered `decodeIfPresent ?? []` for exactly these fields;
+  it was never reached. A hand-emitted decoder is now also produced when any emitted field is
+  skippable.
+- **A hand-emitted Swift decoder no longer loosens fields that cannot be absent.** The fallback
+  answers "what if this key is absent?", so it is now reached only for a field that can actually
+  be absent -- one covered by the `Default`-implementing-type convention, by
+  `skip_serializing_if`, or by a field-level `default`. Previously, routing a type through the
+  decoder for one skippable field silently made its required siblings lenient too, so a payload
+  missing `DocumentNode.id` -- which the source crate always writes -- decoded as `""` instead of
+  throwing.
+
 ## [0.85.20] - 2026-09-12
 
 ### Fixed

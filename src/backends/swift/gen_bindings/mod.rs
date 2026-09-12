@@ -15,6 +15,7 @@ mod adjacent_codable;
 pub(super) mod boxes;
 pub(crate) mod bridge_artifacts;
 mod client;
+mod decoder_gate;
 pub(crate) mod dto;
 mod enums;
 mod errors;

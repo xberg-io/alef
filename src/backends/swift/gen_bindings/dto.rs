@@ -224,8 +224,14 @@ pub(super) fn emit_first_class_struct(
     // Custom `init(from decoder:)` when the Rust source has `#[derive(Default)]` or
     // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
     let mut decoder_init = String::new();
-    if ty.has_default {
-        emit_decoder_init(mapper, &visible_fields, zero_arg_constructible_names, &mut decoder_init);
+    if super::decoder_gate::needs_decoder_init(ty) {
+        emit_decoder_init(
+            mapper,
+            &visible_fields,
+            zero_arg_constructible_names,
+            ty.has_default,
+            &mut decoder_init,
+        );
     }
 
     let mut ffi_init_assignments = String::new();
@@ -491,6 +497,7 @@ pub(crate) fn emit_decoder_init(
     mapper: &SwiftMapper,
     visible_fields: &[&FieldDef],
     zero_arg_constructible_names: &HashSet<String>,
+    every_field_may_be_absent: bool,
     out: &mut String,
 ) {
     out.push_str("    public init(from decoder: any Decoder) throws {\n");
@@ -528,32 +535,45 @@ pub(crate) fn emit_decoder_init(
             continue;
         }
 
-        let fallback = literal.or_else(|| {
-            // The type-based zero is only a legitimate stand-in when the Rust default *is* the
-            // type's own default. `FunctionCall`/`PublicFunctionCall` (a `#[serde(default =
-            // "path")]` whose body alef never sees), `EnumVariant` (whose enum path the
-            // extractor discards), `Unresolved` (an `impl Default` body alef could not
-            // constant-fold), and `TupleVariant`/`StructVariant` (a resolved enum-variant
-            // default this renderer has no per-argument Swift expression for) all mean "there is
-            // a default and it is not this zero"; answering them with `0`/`""`/`false` is a
-            // silent disagreement with the source crate. Emitting the plain required `decode`
-            // instead makes an absent key throw a `DecodingError` the caller can see. ~keep
-            if matches!(
-                field.typed_default,
-                Some(
-                    DefaultValue::FunctionCall(_)
-                        | DefaultValue::PublicFunctionCall(_)
-                        | DefaultValue::EnumVariant(_)
-                        | DefaultValue::Unresolved(_)
-                        | DefaultValue::TupleVariant(..)
-                        | DefaultValue::StructVariant(..)
-                )
-            ) {
-                return None;
-            }
-            zero_arg_named_default(&field.typed_default, &field.ty, &swift_ty, zero_arg_constructible_names)
-                .or_else(|| swift_type_based_default(&field.ty))
-        });
+        // ~keep A fallback answers the question "what if this key is absent?", so it is only
+        // reachable for a field that can actually be absent. `every_field_may_be_absent` carries
+        // the `has_default` convention (backends treat a `Default`-implementing type as
+        // all-fields-optional); beyond it, serde omits a key only for
+        // `skip_serializing_if` or a field-level `default`. Without this guard, routing a type
+        // here for one skippable field silently made its *required* siblings lenient too --
+        // `DocumentNode.id`, which the source crate always writes, decoded an absent key as `""`.
+        let may_be_absent =
+            every_field_may_be_absent || field.serde_skip_serializing_if || field.typed_default.is_some();
+        let fallback = may_be_absent
+            .then(|| {
+                literal.or_else(|| {
+                    // The type-based zero is only a legitimate stand-in when the Rust default *is* the
+                    // type's own default. `FunctionCall`/`PublicFunctionCall` (a `#[serde(default =
+                    // "path")]` whose body alef never sees), `EnumVariant` (whose enum path the
+                    // extractor discards), `Unresolved` (an `impl Default` body alef could not
+                    // constant-fold), and `TupleVariant`/`StructVariant` (a resolved enum-variant
+                    // default this renderer has no per-argument Swift expression for) all mean "there is
+                    // a default and it is not this zero"; answering them with `0`/`""`/`false` is a
+                    // silent disagreement with the source crate. Emitting the plain required `decode`
+                    // instead makes an absent key throw a `DecodingError` the caller can see. ~keep
+                    if matches!(
+                        field.typed_default,
+                        Some(
+                            DefaultValue::FunctionCall(_)
+                                | DefaultValue::PublicFunctionCall(_)
+                                | DefaultValue::EnumVariant(_)
+                                | DefaultValue::Unresolved(_)
+                                | DefaultValue::TupleVariant(..)
+                                | DefaultValue::StructVariant(..)
+                        )
+                    ) {
+                        return None;
+                    }
+                    zero_arg_named_default(&field.typed_default, &field.ty, &swift_ty, zero_arg_constructible_names)
+                        .or_else(|| swift_type_based_default(&field.ty))
+                })
+            })
+            .flatten();
 
         match fallback {
             Some(fb) => {
@@ -1112,7 +1132,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
 
         assert!(
             out.contains("try container.decode(UInt32.self, forKey: .maxArchiveDepth)"),
@@ -1137,7 +1157,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
 
         assert!(
             out.contains("?? 0"),
@@ -1160,7 +1180,7 @@ mod tests {
         };
 
         let mut out = String::new();
-        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), &mut out);
+        emit_decoder_init(&SwiftMapper, &[&field], &HashSet::new(), true, &mut out);
 
         assert!(
             out.contains("?? 30000"),
