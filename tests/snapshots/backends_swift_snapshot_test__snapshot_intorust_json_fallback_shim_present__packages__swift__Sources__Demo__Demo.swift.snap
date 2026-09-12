@@ -8,7 +8,32 @@ expression: "&file.content"
 import Foundation
 import RustBridge
 /// Generic metadata bag.
-public typealias Metadata = RustBridge.Metadata
+public struct Metadata: Codable, Sendable, Hashable {
+    public let kind: String
+    public let attrs: [String: String]
+    public init(kind: String, attrs: [String: String]) {
+        self.kind = kind
+        self.attrs = attrs
+    }
+}
+
+// MARK: - Internal FFI conversions for Metadata
+internal extension Metadata {
+    init(_ rb: RustBridge.MetadataRef) throws {
+        self.kind = rb.kind().toString()
+        self.attrs = try JSONDecoder().decode([String: String].self, from: ((rb.attrs().toString()).data(using: .utf8) ?? Data("null".utf8)))
+    }
+
+    func intoRust() throws -> RustBridge.Metadata {
+        let data = try JSONEncoder().encode(self)
+        let json = String(data: data, encoding: .utf8) ?? "{}"
+        return try RustBridge.metadataFromJson(json)
+    }
+}
+
+public typealias MetadataRef = RustBridge.MetadataRef
+
+public typealias MetadataRefMut = RustBridge.MetadataRefMut
 
 // MARK: - From-JSON Helpers
 // Public helpers that decode JSON into first-class Swift types.
@@ -16,7 +41,8 @@ public typealias Metadata = RustBridge.Metadata
 // Opaque RustBridge types forward to RustBridge.
 
 public func metadataFromJson(_ json: String) throws -> Metadata {
-    return try RustBridge.metadataFromJson(json)
+    let data = json.data(using: .utf8) ?? Data()
+    return try JSONDecoder().decode(Metadata.self, from: data)
 }
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
 extension RustBridge.Metadata: @unchecked Sendable {}

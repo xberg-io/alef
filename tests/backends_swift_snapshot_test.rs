@@ -1603,9 +1603,10 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
 /// keeps the binding side and the Rust crate side in lockstep: if the Swift host
 /// would ever JSON-encode the DTO at runtime, the matching Rust symbol exists.
 ///
-/// (Today's `can_emit_first_class_struct` gate keeps Map-bearing DTOs as
-/// RustBridge typealiases so `intoRust()` is not even emitted on the Swift side
-/// — but the shim is still pre-positioned so any future first-class emission Just Works.)
+/// That future arrived in 0.85.20: `first_class_field_supported` now accepts `Map`, so a
+/// Map-bearing DTO is emitted as a real `Codable` struct and `intoRust()` IS emitted — and it
+/// calls `RustBridge.metadataFromJson`. The two shim assertions below are load-bearing now
+/// rather than merely pre-positioned, and this test's snapshot is what caught the transition.
 #[test]
 fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
     let api = ApiSurface {
