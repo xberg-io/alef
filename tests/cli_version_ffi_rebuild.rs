@@ -201,9 +201,15 @@ fn changed_ffi_source_rebuilds_even_when_no_version_moves() {
         "a broken bridge was reported as a successful sync: {output:?}"
     );
     let diagnostics = String::from_utf8_lossy(&output.stderr);
+    let expected_command = format!(
+        "cargo build --manifest-path {}",
+        Path::new("packages/ffi").join("Cargo.toml").display()
+    );
     assert!(
-        diagnostics.contains("Rebuilding FFI to refresh C headers"),
-        "the bridge edit did not even trigger a rebuild attempt: {diagnostics}"
+        diagnostics.contains("broken bridge")
+            && diagnostics.contains("compile_error!")
+            && diagnostics.contains(&expected_command),
+        "the bridge edit did not trigger the expected failed compilation: {diagnostics}"
     );
 
     // And it must stay failed: a retry cannot resurrect the invalidated success.
@@ -228,12 +234,14 @@ fn unchanged_ffi_source_still_skips_the_rebuild() {
     .expect("FFI manifest");
     fs::write(root.join("packages/ffi/src/lib.rs"), "pub fn bridge() {}\n").expect("FFI source");
     assert!(run(root).status.success());
+    let artifact = root.join("target/debug/libcustom_bridge.rlib");
+    assert!(artifact.is_file(), "initial sync did not build the bridge");
+    fs::remove_file(&artifact).expect("remove only the compiled artifact");
 
     let second = run(root);
     assert!(second.status.success(), "{second:?}");
-    let diagnostics = String::from_utf8_lossy(&second.stderr);
     assert!(
-        !diagnostics.contains("Rebuilding FFI to refresh C headers"),
-        "an unchanged bridge was rebuilt anyway: {diagnostics}"
+        !artifact.exists(),
+        "an unchanged bridge was rebuilt despite its recorded source fingerprint"
     );
 }
