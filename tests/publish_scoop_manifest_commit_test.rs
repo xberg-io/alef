@@ -18,6 +18,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[path = "support/publish_shell_diagnostics.rs"]
+mod shell_diagnostics;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -123,7 +126,7 @@ fn first_publish_of_untracked_manifest_is_committed() {
     assert!(
         output.status.success(),
         "commit-scoop-manifest.sh failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        shell_diagnostics::describe(&output)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -152,14 +155,14 @@ fn no_op_retry_on_unchanged_manifest_makes_no_commit() {
     std::fs::write(bucket_dir.join("bucket/alef.json"), "{\"version\":\"1.0.0\"}\n").expect("write manifest");
 
     let first = run_commit_script(&bucket_dir, "bucket/alef.json", "1.0.0");
-    assert!(first.status.success());
+    assert!(first.status.success(), "{}", shell_diagnostics::describe(&first));
     let verify_after_first = fixture.reclone();
     let sha_after_first = run_git(&verify_after_first, &["rev-parse", "HEAD"]);
 
     // Re-render the identical content (as a real no-op retry would) and run again.
     std::fs::write(bucket_dir.join("bucket/alef.json"), "{\"version\":\"1.0.0\"}\n").expect("rewrite manifest");
     let second = run_commit_script(&bucket_dir, "bucket/alef.json", "1.0.0");
-    assert!(second.status.success());
+    assert!(second.status.success(), "{}", shell_diagnostics::describe(&second));
     let stdout = String::from_utf8_lossy(&second.stdout);
     assert!(
         stdout.trim_end().ends_with("skipped"),
@@ -181,11 +184,11 @@ fn real_version_bump_on_tracked_manifest_is_committed() {
     let bucket_dir = fixture.bucket_dir();
     std::fs::write(bucket_dir.join("bucket/alef.json"), "{\"version\":\"1.0.0\"}\n").expect("write manifest");
     let first = run_commit_script(&bucket_dir, "bucket/alef.json", "1.0.0");
-    assert!(first.status.success());
+    assert!(first.status.success(), "{}", shell_diagnostics::describe(&first));
 
     std::fs::write(bucket_dir.join("bucket/alef.json"), "{\"version\":\"1.0.1\"}\n").expect("bump manifest");
     let second = run_commit_script(&bucket_dir, "bucket/alef.json", "1.0.1");
-    assert!(second.status.success());
+    assert!(second.status.success(), "{}", shell_diagnostics::describe(&second));
     let stdout = String::from_utf8_lossy(&second.stdout);
     assert!(
         stdout.trim_end().ends_with("committed"),

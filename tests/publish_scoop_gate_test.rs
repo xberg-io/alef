@@ -7,6 +7,9 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+#[path = "support/publish_shell_diagnostics.rs"]
+mod shell_diagnostics;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -28,7 +31,7 @@ fn assert_gate(release_targets: &str, expected: &str) {
     assert!(
         output.status.success(),
         "compute-scoop-gate.sh exited non-zero for RELEASE_TARGETS={release_targets:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
+        shell_diagnostics::describe(&output)
     );
     let stdout = String::from_utf8(output.stdout).expect("stdout must be utf8");
     assert_eq!(

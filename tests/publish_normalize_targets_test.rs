@@ -8,6 +8,9 @@
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+#[path = "support/publish_shell_diagnostics.rs"]
+mod shell_diagnostics;
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -32,7 +35,7 @@ fn assert_normalized(raw_targets: Option<&str>, expected: &str) {
     assert!(
         output.status.success(),
         "normalize-release-targets.sh exited non-zero for RAW_TARGETS={raw_targets:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
+        shell_diagnostics::describe(&output)
     );
     let stdout = String::from_utf8(output.stdout).expect("stdout must be utf8");
     assert_eq!(
