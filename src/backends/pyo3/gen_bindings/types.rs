@@ -609,10 +609,20 @@ fn render_native_delegation_methods(
                 class_name => &typ.name,
                 module_name => module_name,
                 from_native_fn => from_native_converter_name(&typ.name),
+                article => indefinite_article(&typ.name),
             },
         ));
     }
     out
+}
+
+/// Picks `"a"` or `"an"` for a docstring introducing `name` -- a vowel-starting name (e.g.
+/// `AccelerationConfig`) reads "Build an AccelerationConfig", never "Build a AccelerationConfig".
+fn indefinite_article(name: &str) -> &'static str {
+    match name.chars().next() {
+        Some(c) if "AEIOUaeiou".contains(c) => "an",
+        _ => "a",
+    }
 }
 
 /// Emit `_from_native_<snake>(native)` module-level converters for every public `@dataclass`

@@ -119,6 +119,11 @@ pub(super) fn gen_opaque_type_stub(
         }
     }
 
+    // Opaque types emit no field attribute lines in the class body (see the loop above, which
+    // this function has none of), so no attribute name is ever in scope to shadow a method
+    // annotation here -- unlike `gen_type_stub`, there is no class-level shadow set to compute.
+    let no_shadowed_builtins: &[&str] = &[];
+
     for method in &typ.methods {
         if !method.is_static {
             lines.push(gen_method_stub(
@@ -127,6 +132,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                no_shadowed_builtins,
             ));
         }
     }
@@ -139,6 +145,7 @@ pub(super) fn gen_opaque_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                no_shadowed_builtins,
             ));
         }
     }
@@ -219,6 +226,7 @@ pub(super) fn gen_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &shadowed,
             ));
         }
     }
@@ -231,6 +239,7 @@ pub(super) fn gen_type_stub(
                 capsule_names,
                 Some(&typ.name),
                 streaming_return_types,
+                &shadowed,
             ));
         }
     }
@@ -361,12 +370,21 @@ fn cfg_present_for_pyo3_stub(cfg: &str) -> bool {
 }
 
 /// Generate a method stub.
+///
+/// `shadowed` is the OWNING CLASS's set of builtins shadowed by a class attribute (see
+/// `shadowed_builtins`), not anything derived from this method's own parameters. A class
+/// attribute is in scope for the whole class body, so a same-class method whose annotation
+/// bare-names that builtin -- on ANY parameter, or the return type, regardless of that
+/// parameter's own name -- resolves to the attribute instead of the type unless qualified.
+/// `gen_opaque_type_stub` has no attribute lines in its class body at all, so it always passes
+/// an empty slice here; only `gen_type_stub` computes a non-empty one. ~keep
 fn gen_method_stub(
     method: &MethodDef,
     is_static: bool,
     capsule_names: &std::collections::HashSet<&str>,
     owner_type: Option<&str>,
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
+    shadowed: &[&str],
 ) -> String {
     let (required, optional): (Vec<_>, Vec<_>) = method.params.iter().partition(|p| !p.optional);
 
@@ -374,6 +392,7 @@ fn gen_method_stub(
         .iter()
         .map(|p| {
             let param_type = substitute_capsule_type(&python_type(&p.ty), capsule_names);
+            let param_type = qualify_shadowed_builtins(&param_type, shadowed);
             format!("{}: {}", p.name, param_type)
         })
         .collect();
@@ -385,6 +404,7 @@ fn gen_method_stub(
         } else {
             type_str
         };
+        let param_type = qualify_shadowed_builtins(&param_type, shadowed);
         format!("{}: {} = None", p.name, param_type)
     }));
 
@@ -393,7 +413,8 @@ fn gen_method_stub(
     let return_type = if let Some(item_type) = streaming_return_types.get(&streaming_key) {
         format!("AsyncIterator[{item_type}]")
     } else {
-        substitute_capsule_type(&python_type(&method.return_type), capsule_names)
+        let return_type = substitute_capsule_type(&python_type(&method.return_type), capsule_names);
+        qualify_shadowed_builtins(&return_type, shadowed)
     };
     let indent = "    ";
     let safe_name = python_safe_name(&method.name);
@@ -494,6 +515,7 @@ fn gen_method_stub(
 mod tests {
     use super::*;
     use crate::core::ir::FieldDef;
+    use crate::core::ir::ParamDef;
     use crate::core::ir::PrimitiveType;
 
     fn streaming_method(name: &str) -> crate::core::ir::MethodDef {
@@ -544,6 +566,7 @@ mod tests {
             &std::collections::HashSet::new(),
             Some("DefaultClient"),
             &streaming_return_types,
+            &[],
         );
 
         assert!(
@@ -569,11 +592,175 @@ mod tests {
             &std::collections::HashSet::new(),
             Some("DefaultClient"),
             &std::collections::HashMap::new(),
+            &[],
         );
 
         assert!(
             stub.trim_start().starts_with("async def chat("),
             "a non-streaming async method must keep `async def`, got:\n{stub}"
+        );
+    }
+
+    fn from_bytes_method() -> MethodDef {
+        MethodDef {
+            name: "from_bytes".to_string(),
+            params: vec![
+                ParamDef {
+                    name: "bytes".to_string(),
+                    ty: TypeRef::Bytes,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "mime_type".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "filename".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Named("ExtractInput".to_string()),
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            cfg: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }
+    }
+
+    /// Reproduces the `ExtractInput.from_bytes` stub. The shadowing is NOT a parameter-name
+    /// collision: `ExtractInput` declares a `bytes` CLASS ATTRIBUTE (from its own `bytes: bytes
+    /// | None` field), which is in scope for the whole class body, so ANY same-class method
+    /// annotation that bare-names `bytes` resolves to the attribute instead of the type --
+    /// mypy names it explicitly (`Variable "ExtractInput.bytes" is not valid as a type`). The
+    /// caller (`gen_type_stub`) is responsible for computing that class-level `shadowed` set
+    /// from the type's fields via `shadowed_builtins` and passing it in here; this test supplies
+    /// it directly to isolate `gen_method_stub`'s own qualification behavior. The parameter NAME
+    /// must stay `bytes` (kwarg-call compatibility); only the annotation is qualified. ~keep
+    #[test]
+    fn method_stub_qualifies_a_class_shadowed_builtin_on_its_matching_named_param() {
+        let method = from_bytes_method();
+
+        let stub = gen_method_stub(
+            &method,
+            true,
+            &std::collections::HashSet::new(),
+            Some("ExtractInput"),
+            &std::collections::HashMap::new(),
+            &["bytes"],
+        );
+
+        assert!(
+            stub.contains("bytes: builtins.bytes,"),
+            "the `bytes` param's own annotation must be qualified as `builtins.bytes` so it \
+             does not resolve to the class attribute, got:\n{stub}"
+        );
+        assert!(
+            !stub.contains("bytes: bytes,"),
+            "the unqualified `bytes: bytes` shadowing must not remain, got:\n{stub}"
+        );
+    }
+
+    /// Proves the qualification is keyed on the CLASS's shadowed-builtin set, not on any
+    /// parameter's own name: an unrelated parameter named `data`, annotated `bytes`, is shadowed
+    /// by the same class attribute a `bytes`-named parameter would be -- a param-name-based fix
+    /// would silently miss this case, since no parameter here is named `bytes`.
+    #[test]
+    fn method_stub_qualifies_an_unrelated_param_whose_annotation_matches_a_class_shadowed_builtin() {
+        let method = MethodDef {
+            name: "with_extra".to_string(),
+            params: vec![ParamDef {
+                name: "data".to_string(),
+                ty: TypeRef::Bytes,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Named("ExtractInput".to_string()),
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            cfg: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+
+        let stub = gen_method_stub(
+            &method,
+            true,
+            &std::collections::HashSet::new(),
+            Some("ExtractInput"),
+            &std::collections::HashMap::new(),
+            &["bytes"],
+        );
+
+        assert!(
+            stub.contains("data: builtins.bytes"),
+            "an unrelated param named `data` annotated `bytes` is shadowed by the SAME class \
+             attribute, and must be qualified even though the param itself is not named \
+             `bytes`:\n{stub}"
+        );
+    }
+
+    /// End-to-end guard through the real caller: `gen_type_stub` must itself compute the
+    /// class's shadowed-builtin set from its fields and thread it into every method stub --
+    /// this is the actual defect site, not just `gen_method_stub` in isolation. Without this,
+    /// the two tests above could pass while the real `from_bytes` in `_xberg.pyi` stayed broken,
+    /// because `gen_type_stub` never forwarded `shadowed` at all. ~keep
+    #[test]
+    fn type_stub_threads_its_class_shadowed_builtins_into_static_methods() {
+        let typ = TypeDef {
+            name: "ExtractInput".to_string(),
+            fields: vec![FieldDef {
+                name: "bytes".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+                optional: true,
+                ..Default::default()
+            }],
+            has_default: true,
+            methods: vec![from_bytes_method()],
+            ..Default::default()
+        };
+
+        let stub = gen_type_stub(
+            &typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &std::collections::HashSet::new(),
+            &OptionsFieldBridges::default(),
+            false,
+            &std::collections::HashMap::new(),
+        );
+
+        assert!(
+            stub.contains("bytes: builtins.bytes,"),
+            "gen_type_stub must forward the class's shadowed-builtin set into its static method \
+             stubs, got:\n{stub}"
+        );
+        assert!(
+            !stub.contains("bytes: bytes,"),
+            "the unqualified `bytes: bytes` shadowing must not remain in the full class stub, \
+             got:\n{stub}"
         );
     }
 

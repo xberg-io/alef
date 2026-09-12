@@ -43,8 +43,10 @@ fn gen_options_py_emits_from_json_delegating_to_native_class() {
     let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
 
     assert!(
-        options_py.contains("def from_json(json_str: str) -> \"Widget\":"),
-        "options.py must declare a from_json staticmethod on the Widget dataclass:\n{options_py}"
+        options_py.contains("def from_json(json_str: str) -> Widget:"),
+        "options.py must declare a from_json staticmethod on the Widget dataclass, with an \
+         UNQUOTED return annotation -- the file unconditionally carries `from __future__ import \
+         annotations`, so the quotes are dead weight ruff's UP037 rejects as an error:\n{options_py}"
     );
     assert!(
         options_py.contains(&format!(
@@ -56,6 +58,34 @@ fn gen_options_py_emits_from_json_delegating_to_native_class() {
     assert!(
         options_py.contains(&format!("from . import {MODULE_NAME}\n")),
         "the native module must be imported by name so from_json can reach {MODULE_NAME}.Widget:\n{options_py}"
+    );
+}
+
+/// The `from_json` delegate's docstring picks the article that agrees with the class name --
+/// `an AccelerationConfig`, not `a AccelerationConfig` -- when the name starts with a vowel sound.
+#[test]
+fn gen_options_py_from_json_docstring_uses_an_before_a_vowel_class_name() {
+    const ACCELERATION_CONFIG: &str = "AccelerationConfig";
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: ACCELERATION_CONFIG.to_owned(),
+            rust_path: format!("sample_core::{ACCELERATION_CONFIG}"),
+            has_default: true,
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "label".to_owned(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let options_py = gen_options_py(&api, MODULE_NAME, &DtoConfig::default(), &[], true);
+
+    assert!(
+        options_py.contains("\"\"\"Build an AccelerationConfig from a JSON string, via the native binding.\"\"\""),
+        "a vowel-starting class name must take the article `an`, not `a`:\n{options_py}"
     );
 }
 
