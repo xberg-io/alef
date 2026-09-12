@@ -92,8 +92,8 @@ pub(super) fn classify(field_resolver: &FieldResolver, field: &str) -> RubyEnumA
 /// there unconditionally. Both of those need the hop.
 ///
 /// Emitting the wrong one of the three is a `KeyError` at runtime, in either direction — alef
-/// 0.85.11 taught the binding to flatten and left this generator emitting the `_0` hop, and xberg's
-/// Ruby suite was red from its 1.1.4 release onward. `union_variant_payload_is_tuple` and
+/// 0.85.11 taught the binding to flatten and left this generator emitting the `_0` hop, breaking a
+/// downstream Ruby suite. `union_variant_payload_is_tuple` and
 /// `union_variant_payload` read the same IR the magnus backend reads, so the two cannot drift
 /// apart again without the flag itself changing meaning.
 ///
@@ -396,7 +396,7 @@ mod tests {
     /// `#[serde(flatten)]` on a TUPLE variant's field when the enum is internally tagged, so the
     /// payload lands beside the discriminator and there is no wrapper Hash to hop through. Emitting
     /// the hop anyway raises `KeyError: key not found: :_0` against the real binding, which is what
-    /// xberg's Ruby suite did from its 1.1.4 release onward.
+    /// a downstream Ruby suite did with flattened tuple variants.
     #[test]
     fn render_assertion_omits_the_wrapper_hop_for_a_flattened_tuple_variant() {
         let out = render("summary.encoding.spreadsheet.sheet_count");
