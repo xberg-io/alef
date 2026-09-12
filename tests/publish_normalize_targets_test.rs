@@ -6,7 +6,7 @@
 //! "release everything" (see `parse_targets` in src/cli/commands/release_metadata.rs).
 
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 #[path = "support/publish_shell_diagnostics.rs"]
 mod shell_diagnostics;
@@ -20,7 +20,7 @@ fn script_path() -> PathBuf {
 }
 
 fn run_normalize(raw_targets: Option<&str>) -> Output {
-    let mut command = Command::new("bash");
+    let mut command = shell_diagnostics::bash_command();
     command.arg(script_path());
     if let Some(raw) = raw_targets {
         command.env("RAW_TARGETS", raw);
@@ -43,6 +43,14 @@ fn assert_normalized(raw_targets: Option<&str>, expected: &str) {
         expected,
         "RAW_TARGETS={raw_targets:?} must normalize to {expected:?}"
     );
+}
+
+#[test]
+fn shell_command_uses_the_absolute_path_resolved_from_path() {
+    let expected = which::which("bash").expect("bash must be installed for publish script tests");
+    assert!(expected.is_absolute(), "resolved bash must be absolute: {expected:?}");
+    let command = shell_diagnostics::bash_command();
+    assert_eq!(command.get_program(), expected.as_os_str());
 }
 
 #[test]

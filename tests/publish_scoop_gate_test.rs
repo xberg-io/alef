@@ -5,7 +5,7 @@
 //! and does not false-positive on a target name that merely contains "scoop" as a substring.
 
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::Output;
 
 #[path = "support/publish_shell_diagnostics.rs"]
 mod shell_diagnostics;
@@ -19,7 +19,7 @@ fn script_path() -> PathBuf {
 }
 
 fn run_gate(release_targets: &str) -> Output {
-    Command::new("bash")
+    shell_diagnostics::bash_command()
         .arg(script_path())
         .env("RELEASE_TARGETS", release_targets)
         .output()
