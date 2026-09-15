@@ -387,10 +387,10 @@ pub mod maven {
     pub const MAVEN_JAR_PLUGIN: &str = "3.5.1";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-install-plugin
-    pub const MAVEN_INSTALL_PLUGIN: &str = "3.1.4";
+    pub const MAVEN_INSTALL_PLUGIN: &str = "3.2.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-deploy-plugin
-    pub const MAVEN_DEPLOY_PLUGIN: &str = "3.1.4";
+    pub const MAVEN_DEPLOY_PLUGIN: &str = "3.2.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-site-plugin
     pub const MAVEN_SITE_PLUGIN: &str = "4.0.0-M16";
