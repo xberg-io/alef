@@ -82,7 +82,7 @@ jobs:
           # Matches `template_versions::toolchain::JAVA_JVM_TARGET`: alef's generated Java
           # service bindings use the `java.lang.foreign` FFM API, stable only from JDK 22. This
           # JDK is also `javac`, the oracle `ALEF_REQUIRE_JAVAC` below requires.
-          java-version: "25"
+          java-version: "25.0.4+101.0.LTS"
       - uses: xberg-io/actions/setup-maven@v1
       # Go is NOT preinstalled on every GitHub-hosted image. The arm64 macOS images carry none,
       # which is why `Test (macos-latest)` failed nine generated-Go fixtures on every run from
@@ -219,7 +219,7 @@ jobs:
         # repointed, so the SHA is the real supply-chain pin; `version: v0.24.0` in `with:` is
         # kept as the human-readable/functional pin the action itself resolves against. To bump
         # poly, update both the SHA below and `version:` together. ~keep
-        uses: Goldziher/poly@6d4e8bde997d506bc37aff62f703817a574d39a6 # v0.25.0
+        uses: Goldziher/poly@3f7297b5f2de8faa4e0f661c9a72ec245dd98e26 # v0.27.0
         with:
           version: v0.24.0
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
