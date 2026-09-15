@@ -219,7 +219,7 @@ jobs:
         # repointed, so the SHA is the real supply-chain pin; `version: v0.24.0` in `with:` is
         # kept as the human-readable/functional pin the action itself resolves against. To bump
         # poly, update both the SHA below and `version:` together. ~keep
-        uses: Goldziher/poly@2303580a69638d6887db17d2f4e9bbffe7c4218b # v0.24.0
+        uses: Goldziher/poly@6d4e8bde997d506bc37aff62f703817a574d39a6 # v0.25.0
         with:
           version: v0.24.0
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
