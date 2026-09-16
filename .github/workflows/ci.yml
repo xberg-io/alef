@@ -227,7 +227,7 @@ jobs:
         # output is version-sensitive and has differed between poly patch releases. Do not
         # assume the trailing `# vX.Y.Z` comment on the `uses:` line and `version:` agree.
         # `tests/ci_poly_pin_gate.rs` enforces the SHA *shape*, not a specific commit. ~keep
-        uses: Goldziher/poly@3f7297b5f2de8faa4e0f661c9a72ec245dd98e26 # v0.27.0
+        uses: Goldziher/poly@27da2cd18de12af901865b3096ad795302f60bc5 # v0.28.0
         with:
           version: v0.24.0
       # Both tools must be present *before* the lanes run. The lanes fail on a missing
