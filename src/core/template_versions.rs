@@ -433,7 +433,7 @@ pub mod maven {
 
     // Android Gradle plugin — hosted on Google's Maven repo, not Maven Central.
     // renovate: datasource=maven depName=com.android.tools.build:gradle
-    pub const ANDROID_GRADLE_PLUGIN: &str = "9.4.0";
+    pub const ANDROID_GRADLE_PLUGIN: &str = "9.4.1";
 
     // renovate: datasource=maven depName=org.jlleitschuh.gradle:ktlint-gradle
     pub const KTLINT_GRADLE_PLUGIN: &str = "14.2.0";
