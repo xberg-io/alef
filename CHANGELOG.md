@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep handwritten regeneration instructions unowned and unchanged during hash stamping; retain the explicit do-not-edit comment marker used by generated R entrypoints.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed

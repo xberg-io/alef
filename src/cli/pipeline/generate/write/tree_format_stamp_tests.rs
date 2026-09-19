@@ -18,6 +18,18 @@ const SOURCES_HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123
 
 const ALEF_TOML: &[u8] = b"[workspace]\nlanguages = [\"python\"]\n";
 
+#[test]
+fn tree_stamping_does_not_adopt_hand_written_regeneration_instructions() {
+    let tree = tree();
+    let document = tree.root.join("GENERATED_E2E.md");
+    let prose = "# Generated conformance suites\n\nRegenerate with `alef e2e generate`; edit the fixtures or generator, never the\ngenerated suites.\n";
+    std::fs::write(&document, prose).unwrap();
+    super::finalize_hashes_after_tree_format(&path_set(&[&tree.in_stamp_set]), &tree.root, SOURCES_HASH, ALEF_TOML)
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(document).unwrap(), prose);
+    assert!(stale_paths(&tree.root).is_empty());
+}
+
 /// Write an alef-marked Rust file, creating parents. Returns the absolute path.
 ///
 /// `relative` is joined one component at a time: `Path::join("a/b")` keeps the literal `/`
