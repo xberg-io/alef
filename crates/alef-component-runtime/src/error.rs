@@ -4,6 +4,8 @@ use std::path::PathBuf;
 pub enum ComponentError {
     #[error("component `{component_id}` has no artifact for target `{target}`")]
     ArtifactNotFound { component_id: String, target: String },
+    #[error("component `{component}` is bundled for this target and cannot be downloaded")]
+    BundledComponentNotLoadable { component: String },
     #[error("invalid SHA-256 digest `{0}`")]
     InvalidDigest(String),
     #[error("artifact digest mismatch: expected {expected}, got {actual}")]
