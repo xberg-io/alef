@@ -229,7 +229,7 @@ impl Backend for Pyo3Backend {
         }
 
         if !config.components.is_empty() {
-            builder.add_item(&components::gen_component_runtime(config));
+            builder.add_item(&components::gen_component_runtime(api, config)?);
         }
 
         for adapter in &config.adapters {

@@ -6,6 +6,8 @@ pub enum ComponentError {
     ArtifactNotFound { component_id: String, target: String },
     #[error("component `{component}` is bundled for this target and cannot be downloaded")]
     BundledComponentNotLoadable { component: String },
+    #[error("component `{component_id}` does not provide contract `{contract}`")]
+    ContractNotProvided { component_id: String, contract: String },
     #[error("invalid SHA-256 digest `{0}`")]
     InvalidDigest(String),
     #[error("artifact digest mismatch: expected {expected}, got {actual}")]
@@ -42,7 +44,7 @@ pub enum ComponentError {
     Download { url: String, message: String },
     #[error("failed to load component library `{path}`: {message}")]
     LibraryLoad { path: PathBuf, message: String },
-    #[error("component library does not export `alef_component_entry_v1`: {0}")]
+    #[error("component library does not export the requested entry point: {0}")]
     MissingEntrypoint(String),
     #[error("component entrypoint failed with status {0}")]
     EntrypointFailed(i32),

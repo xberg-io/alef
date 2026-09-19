@@ -23,7 +23,7 @@ pub(super) fn generate_type_stubs(
         crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config, &stubs_exclude_functions);
     if !config.components.is_empty() {
         content.push_str(
-            "\n\ndef component_load(component: str) -> None: ...\n\ndef component_prefetch(components: list[str] | None = None) -> list[str]: ...\n\ndef component_status(component: str) -> str: ...\n\ndef component_cache_path(component: str) -> str: ...\n",
+            "\n\ndef component_load(component: str) -> None: ...\n\ndef component_prefetch(components: list[str] | None = None) -> list[str]: ...\n\ndef component_status(component: str) -> str: ...\n\ndef component_cache_path(component: str) -> str: ...\n\ndef component_activate(component: str) -> None: ...\n",
         );
     }
 
@@ -136,6 +136,7 @@ pub(super) fn generate_public_api(
             "component_load",
             "component_prefetch",
             "component_status",
+            "component_activate",
         ];
         init_content.push_str("\nfrom .components import (\n");
         for name in component_names {
@@ -148,7 +149,7 @@ pub(super) fn generate_public_api(
         init_content.push_str("])\n");
 
         let component_content = format!(
-            "from .{module_name} import (\n    component_cache_path,\n    component_load,\n    component_prefetch,\n    component_status,\n)\n\n__all__ = [\n    \"component_cache_path\",\n    \"component_load\",\n    \"component_prefetch\",\n    \"component_status\",\n]\n"
+            "from .{module_name} import (\n    component_activate,\n    component_cache_path,\n    component_load,\n    component_prefetch,\n    component_status,\n)\n\n__all__ = [\n    \"component_activate\",\n    \"component_cache_path\",\n    \"component_load\",\n    \"component_prefetch\",\n    \"component_status\",\n]\n"
         );
         files.push(GeneratedFile {
             path: output_base.join("components.py"),

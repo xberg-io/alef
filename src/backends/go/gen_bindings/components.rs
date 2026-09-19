@@ -76,6 +76,18 @@ func ComponentCachePath(component string) (string, error) {{
 	return C.GoString(result), nil
 }}
 
+// ComponentActivate downloads, verifies, loads, and registers a component's
+// contracts so core-crate code that looks them up finds them. It is never
+// triggered automatically; call it explicitly before relying on a component.
+func ComponentActivate(component string) error {{
+	cComponent := C.CString(component)
+	defer C.free(unsafe.Pointer(cComponent))
+	if C.{ffi_prefix}_component_activate(cComponent) != 0 {{
+		return componentError("component activate")
+	}}
+	return nil
+}}
+
 func componentError(operation string) error {{
 	if err := lastError(); err != nil {{
 		return fmt.Errorf("%s: %w", operation, err)
@@ -99,5 +111,7 @@ mod tests {
         assert!(generated.contains("C.demo_component_status(cComponent)"));
         assert!(generated.contains("C.demo_component_cache_path(cComponent)"));
         assert!(generated.contains("C.demo_free_string(result)"));
+        assert!(generated.contains("func ComponentActivate(component string) error"));
+        assert!(generated.contains("C.demo_component_activate(cComponent)"));
     }
 }

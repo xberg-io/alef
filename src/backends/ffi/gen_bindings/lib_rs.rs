@@ -186,7 +186,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     builder.add_item(&gen_version(prefix));
 
     if !config.components.is_empty() {
-        builder.add_item(&super::components::gen_component_manager(prefix, config));
+        builder.add_item(&super::components::gen_component_manager(api, prefix, config)?);
     }
 
     let adapter_bodies: AdapterBodies =

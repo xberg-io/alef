@@ -52,6 +52,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
             "component_prefetch",
             "component_status",
             "component_cache_path",
+            "component_activate",
         ] {
             lines.push(format!("    m.add_function(wrap_pyfunction!({function}, m)?)?;"));
         }
