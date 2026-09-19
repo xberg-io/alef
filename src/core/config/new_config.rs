@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use base64::Engine as _;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -933,19 +932,16 @@ fn validate_component_distribution(krate: &RawCrateConfig) -> Result<(), Resolve
 
     for (key_id, encoded_key) in &distribution.public_keys {
         validate_component_name(&krate.name, "component distribution public key", key_id)?;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded_key)
-            .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(encoded_key))
-            .map_err(|_| {
-                ResolveError::InvalidConfig(format!(
-                    "crate `{}`: component distribution public key `{key_id}` must be base64-encoded Ed25519 key bytes",
-                    krate.name
-                ))
-            })?;
-        if decoded.len() != 32 {
+        // Shared with `alef-component-runtime`'s loader and `alef`'s artifact verification
+        // so a key that validates here is guaranteed to also decode when the lock is
+        // loaded -- see `alef_component_runtime::decode_public_key`.
+        if alef_component_runtime::decode_public_key(encoded_key).is_err() {
             return invalid_component_config(
                 &krate.name,
-                format!("component distribution public key `{key_id}` must decode to 32 Ed25519 key bytes"),
+                format!(
+                    "component distribution public key `{key_id}` must be a PEM or base64-encoded \
+                     (standard or unpadded) DER/raw 32-byte Ed25519 public key"
+                ),
             );
         }
     }

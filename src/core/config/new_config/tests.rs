@@ -1,6 +1,7 @@
 use super::*;
 use crate::core::config::dto;
 use crate::core::config::extras::Language;
+use base64::Engine as _;
 
 fn two_crate_config() -> NewAlefConfig {
     toml::from_str(
@@ -985,7 +986,7 @@ fn resolve_rejects_invalid_component_public_keys() {
         .public_keys
         .insert("release".to_string(), "not-base64".to_string());
     let error = invalid_key.resolve().unwrap_err().to_string();
-    assert!(error.contains("base64-encoded Ed25519"), "{error}");
+    assert!(error.contains("must be a PEM or base64-encoded"), "{error}");
 
     let mut wrong_length = component_config("");
     wrong_length.crates[0]
@@ -995,7 +996,34 @@ fn resolve_rejects_invalid_component_public_keys() {
         .public_keys
         .insert("release".to_string(), "YQ==".to_string());
     let error = wrong_length.resolve().unwrap_err().to_string();
-    assert!(error.contains("decode to 32 Ed25519 key bytes"), "{error}");
+    assert!(error.contains("must be a PEM or base64-encoded"), "{error}");
+}
+
+/// Regression: this validation used to accept `base64::STANDARD` or
+/// `base64::STANDARD_NO_PAD`, but `alef-component-runtime`'s loader and `alef`'s artifact
+/// verification accepted only `base64::STANDARD`, so an unpadded key would validate here
+/// and then fail to load or verify. All three now share one decoder.
+#[test]
+fn resolve_accepts_unpadded_base64_component_public_key() {
+    let mut config = component_config("");
+    config.crates[0]
+        .component_distribution
+        .as_mut()
+        .unwrap()
+        .public_keys
+        .insert(
+            "release-unpadded".to_string(),
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode([0u8; 32]),
+        );
+
+    let resolved = config.resolve().unwrap().remove(0);
+    assert!(
+        resolved
+            .component_distribution
+            .unwrap()
+            .public_keys
+            .contains_key("release-unpadded")
+    );
 }
 
 #[test]
