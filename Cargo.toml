@@ -39,7 +39,7 @@ dylib-loader = ["dep:libloading"]
 
 [dependencies]
 ahash = "0.8"
-alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.58.1" }
+alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.93.1" }
 anyhow = "1"
 base64 = "0.23"
 blake3 = "1"

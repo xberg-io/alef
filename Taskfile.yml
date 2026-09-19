@@ -132,6 +132,18 @@ tasks:
         fi
         sed -i.bak "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
         rm -f Cargo.toml.bak
+        # The two component crates ship in lockstep with the root `alef` crate (one
+        # release, one `cargo publish` per crate, all at the same version) — see
+        # tests/component_crate_versions_test.rs. Their own `[package] version` and the
+        # dependency pins that reference them all move together here.
+        sed -i.bak "s/^version = \".*\"/version = \"$version\"/" crates/alef-component-abi/Cargo.toml
+        rm -f crates/alef-component-abi/Cargo.toml.bak
+        sed -i.bak "s/^version = \".*\"/version = \"$version\"/" crates/alef-component-runtime/Cargo.toml
+        rm -f crates/alef-component-runtime/Cargo.toml.bak
+        sed -i.bak -E "s#(alef-component-abi = \{ path = \"[^\"]*\", version = \")[^\"]*(\" \})#\1$version\2#" crates/alef-component-runtime/Cargo.toml
+        rm -f crates/alef-component-runtime/Cargo.toml.bak
+        sed -i.bak -E "s#(alef-component-(abi|runtime) = \{ path = \"[^\"]*\", version = \")[^\"]*(\" \})#\1$version\3#" Cargo.toml
+        rm -f Cargo.toml.bak
         sed -i.bak "s/^alef_version = \".*\"/alef_version = \"$version\"/" alef.toml
         rm -f alef.toml.bak
         sed -i.bak -E "s|pub const ALEF_REV: &str = \"v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z._-]+)?\";|pub const ALEF_REV: \&str = \"v$version\";|" src/core/template_versions.rs

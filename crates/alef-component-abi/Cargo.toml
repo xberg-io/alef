@@ -1,6 +1,6 @@
 [package]
 name = "alef-component-abi"
-version = "0.58.1"
+version = "0.93.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
