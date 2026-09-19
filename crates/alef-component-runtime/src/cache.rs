@@ -1,8 +1,8 @@
+use crate::keys::decode_public_key;
 use crate::manifest::{COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA};
 use crate::{ComponentError, ComponentLockEntry, ComponentManifest, ComponentSignature};
 use base64::Engine as _;
-use ed25519_dalek::pkcs8::DecodePublicKey as _;
-use ed25519_dalek::{Signature, Verifier as _, VerifyingKey};
+use ed25519_dalek::{Signature, Verifier as _};
 use flate2::read::GzDecoder;
 use fs2::FileExt as _;
 use sha2::{Digest as _, Sha256};
@@ -233,19 +233,6 @@ impl ArtifactCache {
     }
 }
 
-fn decode_public_key(value: &str) -> Result<VerifyingKey, ComponentError> {
-    if value.trim_start().starts_with("-----BEGIN") {
-        return VerifyingKey::from_public_key_pem(value).map_err(|_| ComponentError::InvalidPublicKey);
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(value.trim())
-        .map_err(|_| ComponentError::InvalidPublicKey)?;
-    if let Ok(raw) = <[u8; 32]>::try_from(bytes.as_slice()) {
-        return VerifyingKey::from_bytes(&raw).map_err(|_| ComponentError::InvalidPublicKey);
-    }
-    VerifyingKey::from_public_key_der(&bytes).map_err(|_| ComponentError::InvalidPublicKey)
-}
-
 fn decode_digest(value: &str) -> Result<[u8; 32], ComponentError> {
     let bytes = hex::decode(value).map_err(|_| ComponentError::InvalidDigest(value.to_owned()))?;
     bytes
@@ -370,6 +357,25 @@ mod tests {
         let keys = BTreeMap::from([(
             "release".into(),
             base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        )]);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));
+        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+        assert_eq!(fs::read(installed.library).unwrap(), b"native");
+        assert_eq!(installed.manifest.identity, entry.identity);
+    }
+
+    /// Regression for the padding disagreement between this loader, `alef`'s config
+    /// validation, and `alef`'s artifact verification: config accepted unpadded base64
+    /// keys while the loader accepted only standard-padded base64, so a key that passed
+    /// config validation and was baked into the lock would fail every load here.
+    #[test]
+    fn installs_and_verifies_full_trust_chain_with_unpadded_base64_key() {
+        let signing = SigningKey::from_bytes(&[7; 32]);
+        let (bytes, entry) = package(Some((&signing, "release")));
+        let keys = BTreeMap::from([(
+            "release".into(),
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing.verifying_key().to_bytes()),
         )]);
         let dir = tempfile::tempdir().unwrap();
         let cache = ArtifactCache::new(dir.path(), TrustPolicy::EmbeddedKeys(keys));

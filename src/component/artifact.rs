@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
@@ -403,7 +403,14 @@ pub fn verify_manifest_signature(
     let signature_bytes = base64::engine::general_purpose::STANDARD
         .decode(&signature.signature)
         .context("component signature is not valid base64")?;
-    let (key_bytes, key_format) = decode_public_key(public_key)?;
+    // Shared with `alef-component-runtime`'s loader and `alef`'s config validation so all
+    // three agree on accepted key forms (PEM, or base64 standard/unpadded DER or raw
+    // 32-byte bytes) -- see `alef_component_runtime::decode_public_key`.
+    let key = alef_component_runtime::decode_public_key(public_key).map_err(|_| {
+        anyhow!("public key must be PEM or base64-encoded (standard or unpadded) DER/raw Ed25519 bytes")
+    })?;
+    let key_bytes =
+        alef_component_runtime::encode_public_key_der(&key).context("failed to re-encode Ed25519 public key as DER")?;
     let temp_dir = tempfile::tempdir().context("failed to create verification workspace")?;
     let payload_path = temp_dir.path().join("component.json");
     let signature_path = temp_dir.path().join("component.sig");
@@ -412,13 +419,10 @@ pub fn verify_manifest_signature(
     fs::write(&signature_path, signature_bytes)?;
     fs::write(&key_path, key_bytes)?;
 
-    let mut command = Command::new("openssl");
-    command.args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"]);
-    command.arg(&key_path);
-    if let Some(format) = key_format {
-        command.args(["-keyform", format]);
-    }
-    let output = command
+    let output = Command::new("openssl")
+        .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
+        .arg(&key_path)
+        .args(["-keyform", "DER"])
         .arg("-in")
         .arg(&payload_path)
         .arg("-sigfile")
@@ -432,22 +436,6 @@ pub fn verify_manifest_signature(
         );
     }
     Ok(())
-}
-
-fn decode_public_key(value: &str) -> Result<(Vec<u8>, Option<&'static str>)> {
-    if value.trim_start().starts_with("-----BEGIN") {
-        return Ok((value.as_bytes().to_vec(), None));
-    }
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(value.trim())
-        .context("public key must be PEM or base64-encoded DER/raw Ed25519 bytes")?;
-    if decoded.len() == 32 {
-        // RFC 8410 SubjectPublicKeyInfo prefix for a raw 32-byte Ed25519 key.
-        let mut der = vec![0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
-        der.extend_from_slice(&decoded);
-        return Ok((der, Some("DER")));
-    }
-    Ok((decoded, Some("DER")))
 }
 
 fn append_tar_file(tar: &mut Vec<u8>, name: &str, content: &[u8], mode: u32) -> Result<()> {
@@ -700,6 +688,64 @@ mod tests {
         let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
         let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
         let keys = BTreeMap::from([("release".into(), fs::read_to_string(public_key).unwrap())]);
+        verify_record(&record.record_path(temp.path()), &keys).unwrap();
+    }
+
+    /// Regression: config validation accepted unpadded base64 public keys
+    /// (`base64::STANDARD_NO_PAD`) while this module's decoder previously accepted only
+    /// `base64::STANDARD`, so a key config validation let through could fail verification
+    /// on every load. Both must now go through the same shared decoder.
+    #[test]
+    fn verifies_signature_with_unpadded_base64_public_key() {
+        if Command::new("openssl").arg("version").output().is_err() {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let private_key = temp.path().join("release-private.pem");
+        let public_key_der = temp.path().join("release-public.der");
+        let generated = Command::new("openssl")
+            .args(["genpkey", "-algorithm", "ED25519", "-out"])
+            .arg(&private_key)
+            .status()
+            .unwrap();
+        assert!(generated.success());
+        let exported = Command::new("openssl")
+            .args(["pkey", "-in"])
+            .arg(&private_key)
+            .args(["-pubout", "-outform", "DER", "-out"])
+            .arg(&public_key_der)
+            .status()
+            .unwrap();
+        assert!(exported.success());
+        let der_bytes = fs::read(&public_key_der).unwrap();
+        let raw_key = &der_bytes[der_bytes.len() - 32..];
+        let unpadded_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(raw_key);
+
+        let library = temp.path().join("libsample_core.so");
+        fs::write(&library, b"signed-native-library-unpadded").unwrap();
+        let features = vec!["fast".to_string()];
+        let feature_hash = feature_hash(&features, false);
+        let contract_hash = "b".repeat(64);
+        let manifest = create_manifest(
+            &library,
+            PackageInput {
+                crate_name: "sample-core",
+                component: "fast",
+                version: "1.2.3",
+                target: "x86_64-unknown-linux-gnu",
+                contract: "engine",
+                contract_version: 1,
+                contract_hash: &contract_hash,
+                implementation: "sample_core::FastEngine",
+                features: &features,
+                default_features: false,
+                feature_hash: &feature_hash,
+            },
+        )
+        .unwrap();
+        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
+        let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
+        let keys = BTreeMap::from([("release".into(), unpadded_key)]);
         verify_record(&record.record_path(temp.path()), &keys).unwrap();
     }
 
