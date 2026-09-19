@@ -244,9 +244,11 @@ fn zero_wire_value(ty: &WireType) -> String {
 fn output_conversion(ty: &WireType, value: &str) -> String {
     match ty {
         WireType::Utf8 => {
-            format!("String::from_utf8_lossy(&alef_component_runtime::take_owned_bytes({value})).into_owned()")
+            format!(
+                "String::from_utf8_lossy(&unsafe {{ alef_component_runtime::take_owned_bytes({value}) }}).into_owned()"
+            )
         }
-        WireType::Bytes => format!("alef_component_runtime::take_owned_bytes({value})"),
+        WireType::Bytes => format!("unsafe {{ alef_component_runtime::take_owned_bytes({value}) }}"),
         WireType::Bool => format!("{value} != 0"),
         _ => value.to_string(),
     }
