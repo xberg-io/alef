@@ -64,17 +64,34 @@ impl ComponentManager {
         })
     }
 
-    pub fn ensure(&self, component_id: &str) -> Result<Arc<LoadedComponent>, ComponentError> {
+    /// Load one contract a component provides.
+    ///
+    /// `entry_symbol` is that contract's NUL-terminated producer entry-point
+    /// symbol (`alef::codegen::component::entry_point_symbol`); the caller
+    /// supplies it because computing it requires the same identifier-casing
+    /// logic the producer used, which this crate does not depend on.
+    pub fn ensure_contract(
+        &self,
+        component_id: &str,
+        contract_name: &str,
+        entry_symbol: &[u8],
+    ) -> Result<Arc<LoadedComponent>, ComponentError> {
+        let cache_key = loaded_cache_key(component_id, contract_name);
         let mut loaded = self.loaded.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(component) = loaded.get(component_id) {
+        if let Some(component) = loaded.get(&cache_key) {
             return Ok(Arc::clone(component));
         }
         let entry = self.entry(component_id)?;
-        let requirements = requirements(entry)?;
+        let requirements = contract_requirements(entry, contract_name)?;
         let cached = self.cache.install(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
-        let component = Arc::new(LoadedComponent::load(cached.library, &requirements, self.host)?);
-        loaded.insert(component_id.to_owned(), Arc::clone(&component));
+        let component = Arc::new(LoadedComponent::load(
+            cached.library,
+            entry_symbol,
+            &requirements,
+            self.host,
+        )?);
+        loaded.insert(cache_key, Arc::clone(&component));
         Ok(component)
     }
 
@@ -87,11 +104,13 @@ impl ComponentManager {
 
     pub fn status(&self, component_id: &str) -> Result<ComponentStatus, ComponentError> {
         let root = self.cache.object_path(self.entry(component_id)?)?;
+        let loaded_prefix = format!("{component_id}::");
         if self
             .loaded
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .contains_key(component_id)
+            .keys()
+            .any(|key| key.starts_with(&loaded_prefix))
         {
             return Ok(ComponentStatus::Loaded(root));
         }
@@ -138,10 +157,26 @@ impl ComponentManager {
     }
 }
 
-fn requirements(entry: &ComponentLockEntry) -> Result<ComponentRequirements, ComponentError> {
+fn loaded_cache_key(component_id: &str, contract_name: &str) -> String {
+    format!("{component_id}::{contract_name}")
+}
+
+fn contract_requirements(
+    entry: &ComponentLockEntry,
+    contract_name: &str,
+) -> Result<ComponentRequirements, ComponentError> {
+    let provided = entry
+        .provides
+        .iter()
+        .find(|provided| provided.contract == contract_name)
+        .ok_or_else(|| ComponentError::ContractNotProvided {
+            component_id: entry.identity.component.clone(),
+            contract: contract_name.to_owned(),
+        })?;
     Ok(ComponentRequirements {
         component_id: entry.identity.component.clone(),
-        contract_hash: decode_hash(&entry.identity.contract_hash)?,
+        contract_name: contract_name.to_owned(),
+        contract_hash: decode_hash(&provided.contract_hash)?,
         feature_set_hash: Some(decode_hash(&entry.identity.feature_hash)?),
     })
 }
@@ -231,6 +266,36 @@ mod tests {
     }
 
     #[test]
+    fn ensure_contract_rejects_a_contract_the_component_does_not_provide() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+        assert!(matches!(
+            manager.ensure_contract("demo", "missing-contract", b"irrelevant\0"),
+            Err(ComponentError::ContractNotProvided { .. })
+        ));
+    }
+
+    #[test]
+    fn ensure_contract_reaches_the_download_step_for_a_provided_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut two_contracts = lock("target-a");
+        two_contracts.artifacts[0].provides.push(crate::ComponentProvidedContract {
+            contract: "second".into(),
+            interface_version: 1,
+            contract_hash: hex::encode([9; 32]),
+            implementation: "demo::Second".into(),
+        });
+        let manager = ComponentManager::from_lock(two_contracts, dir.path(), "target-a", host()).unwrap();
+        // Fails to find the library at the fake `file://` URL -- proving contract resolution
+        // for "second" succeeded and the manager reached the download step, not that the
+        // download itself succeeded.
+        assert!(matches!(
+            manager.ensure_contract("demo", "second", b"alef_component_entry_v1_second\0"),
+            Err(ComponentError::Io(_))
+        ));
+    }
+
+    #[test]
     fn bundled_component_is_rejected_before_touching_the_cache() {
         let dir = tempfile::tempdir().unwrap();
         let manager = ComponentManager::from_lock(
@@ -242,7 +307,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            manager.ensure("demo"),
+            manager.ensure_contract("demo", "engine", b"alef_component_entry_v1_engine\0"),
             Err(ComponentError::BundledComponentNotLoadable { .. })
         ));
         assert!(matches!(

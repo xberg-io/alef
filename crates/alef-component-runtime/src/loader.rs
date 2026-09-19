@@ -4,7 +4,6 @@ use crate::{
 };
 use alef_component_abi::{
     ABI_MAJOR_V1, ABI_MINOR_V1, AlefComponentEntryV1, AlefComponentV1, AlefContract, AlefHostApiV1, AlefOwnedBuffer,
-    COMPONENT_ENTRYPOINT_V1,
 };
 use libloading::Library;
 use std::ffi::c_void;
@@ -14,9 +13,18 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 const MAX_DESCRIPTOR_STRING: usize = 16 * 1024;
 
+/// What a loaded component's descriptor must match.
+///
+/// `contract_name` identifies which of a component's `provides` entries this
+/// is for; `contract_hash` is that specific contract's hash, not the
+/// component-wide legacy `ComponentIdentity::contract_hash`. A component that
+/// provides several contracts is loaded once per contract, each through its
+/// own entry point (see [`crate::ComponentManager::ensure_contract`]), so each
+/// load only ever validates one contract's requirements.
 #[derive(Clone, Debug)]
 pub struct ComponentRequirements {
     pub component_id: String,
+    pub contract_name: String,
     pub contract_hash: [u8; 32],
     pub feature_set_hash: Option<[u8; 32]>,
 }
@@ -34,12 +42,13 @@ impl Runtime {
     pub fn install_and_load(
         &self,
         entry: &ComponentLockEntry,
+        entry_symbol: &[u8],
         requirements: &ComponentRequirements,
         host: AlefHostApiV1,
     ) -> Result<LoadedComponent, ComponentError> {
         let cached = self.cache.install(entry)?;
         validate_manifest(&cached.manifest, requirements)?;
-        LoadedComponent::load(cached.library, requirements, host)
+        LoadedComponent::load(cached.library, entry_symbol, requirements, host)
     }
 }
 
@@ -67,9 +76,28 @@ pub struct ComponentInstance<T: AlefContract> {
 unsafe impl Send for LoadedComponent {}
 unsafe impl Sync for LoadedComponent {}
 
+// SAFETY: the C ABI requires every contract method to take `&self` (see
+// `component::map_method`) and calls it through a plain function pointer, so the
+// component's own implementation is the only thing that can make concurrent access
+// unsound; the ABI async wrapper already calls back into an instance from a spawned
+// worker thread, so components are contractually required to tolerate this. The
+// instance handle itself is owned exclusively by this `ComponentInstance` for its
+// lifetime, with no interior aliasing on the host side. ~keep
+unsafe impl<T: AlefContract> Send for ComponentInstance<T> {}
+unsafe impl<T: AlefContract> Sync for ComponentInstance<T> {}
+
 impl LoadedComponent {
+    /// Load one contract's descriptor from a component's shared library.
+    ///
+    /// A component that provides several contracts exports one entry point
+    /// per contract (`alef_component_entry_v1_<contract>`, see
+    /// `alef::codegen::component::entry_point_symbol`); `entry_symbol` is that
+    /// NUL-terminated symbol name, so this loads exactly one contract's
+    /// descriptor per call even when the underlying `.so`/`.dylib`/`.dll` is
+    /// shared across several `LoadedComponent`s.
     pub fn load(
         path: impl Into<std::path::PathBuf>,
+        entry_symbol: &[u8],
         requirements: &ComponentRequirements,
         mut host: AlefHostApiV1,
     ) -> Result<Self, ComponentError> {
@@ -87,7 +115,7 @@ impl LoadedComponent {
         );
         let descriptor = unsafe {
             let entry: libloading::Symbol<'_, AlefComponentEntryV1> = library
-                .get(COMPONENT_ENTRYPOINT_V1)
+                .get(entry_symbol)
                 .map_err(|error| ComponentError::MissingEntrypoint(error.to_string()))?;
             let mut raw = core::ptr::null();
             let status = entry(ABI_MAJOR_V1, host.as_ref(), &mut raw);
@@ -296,7 +324,15 @@ pub(crate) fn validate_manifest(
             actual: manifest.identity.component.clone(),
         });
     }
-    if decode_hash(&manifest.identity.contract_hash)? != requirements.contract_hash {
+    let provided = manifest
+        .provides
+        .iter()
+        .find(|provided| provided.contract == requirements.contract_name)
+        .ok_or_else(|| ComponentError::ContractNotProvided {
+            component_id: requirements.component_id.clone(),
+            contract: requirements.contract_name.clone(),
+        })?;
+    if decode_hash(&provided.contract_hash)? != requirements.contract_hash {
         return Err(ComponentError::ContractHashMismatch);
     }
     if let Some(expected) = requirements.feature_set_hash
@@ -414,6 +450,7 @@ mod tests {
     fn requirements() -> ComponentRequirements {
         ComponentRequirements {
             component_id: "demo".into(),
+            contract_name: "engine".into(),
             contract_hash: [7; 32],
             feature_set_hash: Some([8; 32]),
         }
