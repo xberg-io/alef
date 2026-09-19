@@ -43,18 +43,21 @@ pub fn component_cache_path(_component: String) -> Result<String, wasm_bindgen::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::ComponentProfileConfig;
+    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
 
     #[test]
     fn emits_explicit_unsupported_component_surface() {
         let config = ResolvedCrateConfig {
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo_core::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo_core::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             }],
             ..ResolvedCrateConfig::default()
         };

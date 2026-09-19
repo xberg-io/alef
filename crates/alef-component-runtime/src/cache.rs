@@ -296,12 +296,15 @@ mod tests {
             contract_hash: hex::encode([2; 32]),
         };
         let manifest = ComponentManifest {
-            schema_version: 1,
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
             abi_version: 1,
             identity: identity.clone(),
-            contract: "engine".into(),
-            contract_version: 1,
-            implementation: "demo::Fast".into(),
+            provides: vec![crate::ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: hex::encode([2; 32]),
+                implementation: "demo::Fast".into(),
+            }],
             features: vec!["fast".into()],
             default_features: false,
             library: ComponentLibrary {
@@ -333,6 +336,8 @@ mod tests {
         }
         let entry = ComponentLockEntry {
             identity,
+            provides: manifest.provides.clone(),
+            mode: crate::ComponentDeliveryMode::Download,
             url: "unused".into(),
             sha256: hex::encode(sha256(&compressed)),
             size: compressed.len() as u64,

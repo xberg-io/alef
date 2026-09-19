@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn manifest_validation_checks_feature_identity() {
         let manifest = ComponentManifest {
-            schema_version: 1,
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
             abi_version: 1,
             identity: crate::ComponentIdentity {
                 crate_name: "demo-core".into(),
@@ -414,9 +414,12 @@ mod tests {
                 feature_hash: hex::encode([9; 32]),
                 contract_hash: hex::encode([7; 32]),
             },
-            contract: "engine".into(),
-            contract_version: 1,
-            implementation: "demo::Engine".into(),
+            provides: vec![crate::ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: hex::encode([7; 32]),
+                implementation: "demo::Engine".into(),
+            }],
             features: Vec::new(),
             default_features: false,
             library: crate::ComponentLibrary {

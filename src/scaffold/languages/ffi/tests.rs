@@ -722,7 +722,7 @@ unset(_FFI_PREFIX)
 
 #[test]
 fn component_manager_dependencies_require_ci_staged_lock() {
-    use crate::core::config::{ComponentContractConfig, ComponentProfileConfig};
+    use crate::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig};
 
     let api = ApiSurface {
         crate_name: "demo-core".into(),
@@ -736,13 +736,16 @@ fn component_manager_dependencies_require_ci_staged_lock() {
             trait_path: "demo_core::Engine".into(),
             interface_version: 1,
         }],
-        components: vec![ComponentProfileConfig {
+        components: vec![ComponentConfig {
             name: "fast".into(),
-            contract: "engine".into(),
-            implementation: "demo_core::FastEngine".into(),
+            provides: vec![ComponentProvidesConfig {
+                contract: "engine".into(),
+                implementation: "demo_core::FastEngine".into(),
+            }],
             features: vec!["fast".into()],
             default_features: false,
-            targets: vec!["x86_64-unknown-linux-gnu".into()],
+            targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+            bundled_on: Vec::new(),
         }],
         ..ResolvedCrateConfig::default()
     };
@@ -781,8 +784,7 @@ interface_version = 1
 
 [[crates.components]]
 name = "fast"
-contract = "engine"
-implementation = "demo_core::FastEngine"
+provides = [{ contract = "engine", implementation = "demo_core::FastEngine" }]
 features = ["fast"]
 targets = ["x86_64-unknown-linux-gnu"]
 "#,

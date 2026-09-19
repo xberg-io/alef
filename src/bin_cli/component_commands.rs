@@ -6,12 +6,13 @@ use std::process::Command;
 use anyhow::{Context, Result, bail, ensure};
 
 use crate::cli::{dispatch, pipeline};
-use crate::codegen::component::{ResolvedComponentContract, resolve_component_contracts};
+use crate::codegen::component::{ResolvedComponent, resolve_component_targets, resolve_components};
 use crate::component::artifact::{
-    ComponentArtifactRecord, ComponentLock, PackageInput, build_lock, canonical_json, create_manifest,
-    dynamic_library_name, feature_hash, read_record, sign_manifest, verify_record, write_lock, write_package,
+    ComponentArtifactRecord, ComponentLock, PackageInput, ProvidedContractInput, build_lock, canonical_json,
+    create_manifest, dynamic_library_name, feature_hash, read_record, sign_manifest, verify_record, write_lock,
+    write_package,
 };
-use crate::core::config::{ComponentProfileConfig, Language, ResolvedCrateConfig};
+use crate::core::config::{ComponentConfig, Language, ResolvedCrateConfig};
 
 use super::args::{Commands, ComponentAction};
 use super::dispatch::DispatchContext;
@@ -35,15 +36,17 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             for config in &crates {
                 let contracts = extract_contracts(config, &context.config_path)?;
                 for profile in select_profiles(config, &component)? {
-                    let resolved_contract = contracts
+                    let resolved_component = contracts
                         .get(profile.name.as_str())
                         .with_context(|| format!("component `{}` has no resolved contract", profile.name))?;
-                    ensure!(
-                        resolved_contract.contract_hash == resolved_contract.contract.hash()?,
-                        "component contract hash changed during build planning"
-                    );
-                    for rust_target in select_targets(profile, &target)? {
-                        build_component(config, profile, rust_target, debug, dry_run)?;
+                    for provided in &resolved_component.provides {
+                        ensure!(
+                            provided.contract_hash == provided.contract.hash()?,
+                            "component contract hash changed during build planning"
+                        );
+                    }
+                    for rust_target in select_targets(config, profile, &target)? {
+                        build_component(config, profile, &rust_target, debug, dry_run)?;
                     }
                 }
             }
@@ -68,7 +71,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         .map(|profiles| {
                             profiles
                                 .into_iter()
-                                .map(|profile| select_targets(profile, &target).map(|targets| targets.len()))
+                                .map(|profile| select_targets(config, profile, &target).map(|targets| targets.len()))
                                 .collect::<Result<Vec<_>>>()
                                 .map(|counts| counts.into_iter().sum::<usize>())
                         })
@@ -106,26 +109,38 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 for profile in select_profiles(config, &component)? {
-                    let resolved_contract = contracts
+                    let resolved_component = contracts
                         .get(profile.name.as_str())
                         .with_context(|| format!("component `{}` has no resolved contract", profile.name))?;
-                    let contract_hash = resolved_contract.contract.hash_hex()?;
+                    let contract_hashes = resolved_component
+                        .provides
+                        .iter()
+                        .map(|provided| provided.contract.hash_hex())
+                        .collect::<Result<Vec<_>>>()?;
+                    let provides = resolved_component
+                        .provides
+                        .iter()
+                        .zip(&contract_hashes)
+                        .map(|(provided, contract_hash)| ProvidedContractInput {
+                            contract: &provided.contract.name,
+                            interface_version: provided.contract.interface_version,
+                            contract_hash,
+                            implementation: &provided.implementation,
+                        })
+                        .collect::<Vec<_>>();
                     let profile_feature_hash = feature_hash(&profile.features, profile.default_features);
-                    for rust_target in select_targets(profile, &target)? {
+                    for rust_target in select_targets(config, profile, &target)? {
                         let library_path = library
                             .clone()
-                            .unwrap_or_else(|| built_library_path(config, &profile.name, rust_target, false));
+                            .unwrap_or_else(|| built_library_path(config, &profile.name, &rust_target, false));
                         let manifest = create_manifest(
                             &library_path,
                             PackageInput {
                                 crate_name: &config.name,
                                 component: &profile.name,
                                 version: &resolved_version,
-                                target: rust_target,
-                                contract: &resolved_contract.contract.name,
-                                contract_version: resolved_contract.contract.interface_version,
-                                contract_hash: &contract_hash,
-                                implementation: &profile.implementation,
+                                target: &rust_target,
+                                provides: &provides,
                                 features: &profile.features,
                                 default_features: profile.default_features,
                                 feature_hash: &profile_feature_hash,
@@ -256,10 +271,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
     }
 }
 
-fn extract_contracts(
-    config: &ResolvedCrateConfig,
-    config_path: &Path,
-) -> Result<HashMap<String, ResolvedComponentContract>> {
+fn extract_contracts(config: &ResolvedCrateConfig, config_path: &Path) -> Result<HashMap<String, ResolvedComponent>> {
     ensure!(
         !config.components.is_empty(),
         "crate `{}` has no configured components",
@@ -267,9 +279,9 @@ fn extract_contracts(
     );
     let extraction_config = component_extraction_config(config);
     let api = pipeline::extract(&extraction_config, config_path, false)?;
-    Ok(resolve_component_contracts(&api, config)?
+    Ok(resolve_components(&api, config)?
         .into_iter()
-        .map(|contract| (contract.component_name.clone(), contract))
+        .map(|component| (component.component_name.clone(), component))
         .collect())
 }
 
@@ -283,10 +295,7 @@ fn component_extraction_config(config: &ResolvedCrateConfig) -> ResolvedCrateCon
     extraction_config
 }
 
-fn select_profiles<'a>(
-    config: &'a ResolvedCrateConfig,
-    requested: &[String],
-) -> Result<Vec<&'a ComponentProfileConfig>> {
+fn select_profiles<'a>(config: &'a ResolvedCrateConfig, requested: &[String]) -> Result<Vec<&'a ComponentConfig>> {
     if requested.is_empty() {
         return Ok(config.components.iter().collect());
     }
@@ -310,17 +319,22 @@ fn select_profiles<'a>(
     Ok(selected)
 }
 
-fn select_targets<'a>(profile: &'a ComponentProfileConfig, requested: &'a [String]) -> Result<Vec<&'a str>> {
+fn select_targets(
+    config: &ResolvedCrateConfig,
+    profile: &ComponentConfig,
+    requested: &[String],
+) -> Result<Vec<String>> {
+    let configured = resolve_component_targets(config, profile);
     if requested.is_empty() {
-        return Ok(profile.targets.iter().map(String::as_str).collect());
+        return Ok(configured);
     }
-    let configured = profile.targets.iter().map(String::as_str).collect::<HashSet<_>>();
+    let configured_set = configured.iter().map(String::as_str).collect::<HashSet<_>>();
     let selected = requested
         .iter()
-        .filter(|target| configured.contains(target.as_str()))
-        .map(String::as_str)
+        .filter(|target| configured_set.contains(target.as_str()))
+        .cloned()
         .collect::<Vec<_>>();
-    let found = selected.iter().copied().collect::<HashSet<_>>();
+    let found = selected.iter().map(String::as_str).collect::<HashSet<_>>();
     let missing = requested
         .iter()
         .map(String::as_str)
@@ -337,7 +351,7 @@ fn select_targets<'a>(profile: &'a ComponentProfileConfig, requested: &'a [Strin
 
 fn build_component(
     config: &ResolvedCrateConfig,
-    profile: &ComponentProfileConfig,
+    profile: &ComponentConfig,
     rust_target: &str,
     debug: bool,
     dry_run: bool,
@@ -608,10 +622,10 @@ fn ensure_configured_matrix_present(
     records: &[&(PathBuf, ComponentArtifactRecord)],
 ) -> Result<()> {
     for profile in &config.components {
-        for target in &profile.targets {
+        for target in resolve_component_targets(config, profile) {
             ensure!(
                 records.iter().any(|(_, record)| {
-                    record.manifest.identity.component == profile.name && record.manifest.identity.target == *target
+                    record.manifest.identity.component == profile.name && record.manifest.identity.target == target
                 }),
                 "component lock input is missing `{}` for target `{target}`",
                 profile.name
@@ -634,7 +648,7 @@ fn ensure_unique_lock_entries(entries: &[crate::component::artifact::ComponentLo
 fn verify_against_config(
     record: &ComponentArtifactRecord,
     config: &ResolvedCrateConfig,
-    contracts: &HashMap<String, ResolvedComponentContract>,
+    contracts: &HashMap<String, ResolvedComponent>,
 ) -> Result<()> {
     let profile = config
         .components
@@ -647,7 +661,7 @@ fn verify_against_config(
             )
         })?;
     ensure!(
-        profile.targets.contains(&record.manifest.identity.target),
+        resolve_component_targets(config, profile).contains(&record.manifest.identity.target),
         "artifact target is not configured for component"
     );
     ensure!(
@@ -659,28 +673,57 @@ fn verify_against_config(
         "artifact default-feature policy differs from config"
     );
     ensure!(
-        record.manifest.implementation == profile.implementation,
-        "artifact implementation differs from config"
-    );
-    ensure!(
         record.manifest.identity.feature_hash == feature_hash(&profile.features, profile.default_features),
         "artifact feature hash differs from config"
     );
-    let contract = contracts
+    let resolved_component = contracts
         .get(&profile.name)
         .with_context(|| format!("component `{}` has no resolved contract", profile.name))?;
+    verify_provides_against_config(record, profile, resolved_component)
+}
+
+fn verify_provides_against_config(
+    record: &ComponentArtifactRecord,
+    profile: &ComponentConfig,
+    resolved_component: &ResolvedComponent,
+) -> Result<()> {
     ensure!(
-        record.manifest.identity.contract_hash == contract.contract.hash_hex()?,
-        "artifact contract hash differs from source"
+        record.manifest.provides.len() == profile.provides.len(),
+        "artifact provides a different number of contracts than configured"
     );
-    ensure!(
-        record.manifest.contract == contract.contract.name,
-        "artifact contract name differs from source"
-    );
-    ensure!(
-        record.manifest.contract_version == contract.contract.interface_version,
-        "artifact contract version differs from source"
-    );
+    for provided_config in &profile.provides {
+        let recorded = record
+            .manifest
+            .provides
+            .iter()
+            .find(|provided| provided.contract == provided_config.contract)
+            .with_context(|| {
+                format!(
+                    "artifact does not provide configured contract `{}`",
+                    provided_config.contract
+                )
+            })?;
+        ensure!(
+            recorded.implementation == provided_config.implementation,
+            "artifact implementation for contract `{}` differs from config",
+            provided_config.contract
+        );
+        let resolved = resolved_component
+            .provides
+            .iter()
+            .find(|provided| provided.contract.name == provided_config.contract)
+            .with_context(|| format!("component has no resolved contract `{}`", provided_config.contract))?;
+        ensure!(
+            recorded.contract_hash == resolved.contract.hash_hex()?,
+            "artifact contract hash for `{}` differs from source",
+            provided_config.contract
+        );
+        ensure!(
+            recorded.interface_version == resolved.contract.interface_version,
+            "artifact contract version for `{}` differs from source",
+            provided_config.contract
+        );
+    }
     Ok(())
 }
 
@@ -694,21 +737,29 @@ fn sorted_features(features: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::component::artifact::{ComponentIdentity, ComponentLockEntry};
-    use crate::core::config::ComponentProfileConfig;
+    use crate::component::artifact::{ComponentDeliveryMode, ComponentIdentity, ComponentLockEntry};
+    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
+
+    fn provides(contract: &str, implementation: &str) -> Vec<ComponentProvidesConfig> {
+        vec![ComponentProvidesConfig {
+            contract: contract.into(),
+            implementation: implementation.into(),
+        }]
+    }
 
     #[test]
     fn target_filter_must_be_declared_by_profile() {
-        let profile = ComponentProfileConfig {
+        let config = ResolvedCrateConfig::default();
+        let profile = ComponentConfig {
             name: "fast".into(),
-            contract: "engine".into(),
-            implementation: "demo::Fast".into(),
+            provides: provides("engine", "demo::Fast"),
             features: vec!["fast".into()],
             default_features: false,
-            targets: vec!["aarch64-apple-darwin".into()],
+            targets: Some(vec!["aarch64-apple-darwin".into()]),
+            bundled_on: Vec::new(),
         };
         let requested = vec!["x86_64-unknown-linux-gnu".to_string()];
-        assert!(select_targets(&profile, &requested).is_err());
+        assert!(select_targets(&config, &profile, &requested).is_err());
     }
 
     #[test]
@@ -716,21 +767,21 @@ mod tests {
         let config = ResolvedCrateConfig {
             features: vec!["base".into()],
             components: vec![
-                ComponentProfileConfig {
+                ComponentConfig {
                     name: "fast".into(),
-                    contract: "engine".into(),
-                    implementation: "demo::Fast".into(),
+                    provides: provides("engine", "demo::Fast"),
                     features: vec!["simd".into(), "base".into()],
                     default_features: false,
-                    targets: vec!["aarch64-apple-darwin".into()],
+                    targets: Some(vec!["aarch64-apple-darwin".into()]),
+                    bundled_on: Vec::new(),
                 },
-                ComponentProfileConfig {
+                ComponentConfig {
                     name: "gpu".into(),
-                    contract: "engine".into(),
-                    implementation: "demo::Gpu".into(),
+                    provides: provides("engine", "demo::Gpu"),
                     features: vec!["cuda".into()],
                     default_features: false,
-                    targets: vec!["x86_64-unknown-linux-gnu".into()],
+                    targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                    bundled_on: Vec::new(),
                 },
             ],
             ..ResolvedCrateConfig::default()
@@ -808,6 +859,8 @@ mod tests {
                 feature_hash: "01".repeat(32),
                 contract_hash: "02".repeat(32),
             },
+            provides: Vec::new(),
+            mode: ComponentDeliveryMode::Download,
             url: "https://example.invalid/component.tar.gz".into(),
             sha256: "03".repeat(32),
             size: 10,

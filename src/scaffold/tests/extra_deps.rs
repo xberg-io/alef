@@ -148,13 +148,16 @@ fn test_scaffold_r_cargo_extra_deps() {
 #[test]
 fn component_scaffolds_preserve_configured_dependency_overrides_without_duplicates() {
     let mut config = test_config();
-    config.components.push(crate::core::config::ComponentProfileConfig {
+    config.components.push(crate::core::config::ComponentConfig {
         name: "fast".to_string(),
-        contract: "engine".to_string(),
-        implementation: "my_lib::FastEngine".to_string(),
+        provides: vec![crate::core::config::ComponentProvidesConfig {
+            contract: "engine".to_string(),
+            implementation: "my_lib::FastEngine".to_string(),
+        }],
         features: vec!["fast".to_string()],
         default_features: false,
-        targets: vec!["x86_64-unknown-linux-gnu".to_string()],
+        targets: Some(vec!["x86_64-unknown-linux-gnu".to_string()]),
+        bundled_on: Vec::new(),
     });
     config
         .extra_dependencies

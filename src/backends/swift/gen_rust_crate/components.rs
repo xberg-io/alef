@@ -50,18 +50,21 @@ pub fn component_cache_path(component: String) -> String {{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::ComponentProfileConfig;
+    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
 
     fn config() -> ResolvedCrateConfig {
         ResolvedCrateConfig {
             name: "demo-core".into(),
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo_core::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo_core::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["aarch64-apple-darwin".into()],
+                targets: Some(vec!["aarch64-apple-darwin".into()]),
+                bundled_on: Vec::new(),
             }],
             ..ResolvedCrateConfig::default()
         }

@@ -1,4 +1,5 @@
 use crate::loader::{decode_hash, validate_manifest};
+use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
 use crate::{
     ArtifactCache, CachedArtifact, ComponentError, ComponentLock, ComponentLockEntry, ComponentRequirements,
     LoadedComponent, TrustPolicy,
@@ -36,7 +37,7 @@ impl ComponentManager {
         target: impl Into<String>,
         host: AlefHostApiV1,
     ) -> Result<Self, ComponentError> {
-        if lock.schema_version != 1 {
+        if lock.schema_version != COMPONENT_MANIFEST_SCHEMA {
             return Err(ComponentError::UnsupportedLockSchema(lock.schema_version));
         }
         let target = target.into();
@@ -152,7 +153,7 @@ mod tests {
 
     fn lock(target: &str) -> ComponentLock {
         ComponentLock {
-            schema_version: 1,
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
             public_keys: BTreeMap::new(),
             artifacts: vec![ComponentLockEntry {
                 identity: ComponentIdentity {
@@ -163,6 +164,13 @@ mod tests {
                     feature_hash: hex::encode([2; 32]),
                     contract_hash: hex::encode([1; 32]),
                 },
+                provides: vec![crate::ComponentProvidedContract {
+                    contract: "engine".into(),
+                    interface_version: 1,
+                    contract_hash: hex::encode([1; 32]),
+                    implementation: "demo::Demo".into(),
+                }],
+                mode: crate::ComponentDeliveryMode::Download,
                 url: "file:///does/not/exist".into(),
                 sha256: hex::encode([3; 32]),
                 size: 0,

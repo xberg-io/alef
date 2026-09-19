@@ -527,7 +527,7 @@ open-unpacking = false
 #[cfg(test)]
 mod tests {
     use super::{canonicalize_pep440_specifier, canonicalize_pep440_version, scaffold_python_cargo};
-    use crate::core::config::ComponentProfileConfig;
+    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
     use crate::core::ir::ApiSurface;
 
     /// `pyproject-fmt` strips redundant trailing `.0` release segments from a
@@ -562,13 +562,16 @@ mod tests {
         };
         let config = crate::core::config::ResolvedCrateConfig {
             name: "demo".into(),
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             }],
             ..Default::default()
         };
@@ -583,13 +586,16 @@ mod tests {
         let api = ApiSurface::default();
         let config = crate::core::config::ResolvedCrateConfig {
             name: "demo".into(),
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             }],
             extra_dependencies: std::collections::HashMap::from([
                 ("alef-component-abi".into(), toml::Value::String("0.58.1".into())),

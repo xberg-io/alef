@@ -1,37 +1,44 @@
 //! Producer-crate generation for downloadable native components.
 
-use crate::codegen::component::{ComponentContractIr, ComponentMethodIr, ResolvedComponentContract, WireType};
+use crate::codegen::component::{
+    ComponentContractIr, ComponentMethodIr, ResolvedComponent, ResolvedProvidedContract, WireType, entry_point_symbol,
+};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
 use anyhow::{Result, bail};
-use heck::{ToSnakeCase, ToUpperCamelCase};
+use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
 use sha2::{Digest as _, Sha256};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-/// Generate one isolated producer crate per configured component profile.
+/// Generate one isolated producer crate per configured component, exporting one
+/// entrypoint and function table per contract it provides.
 pub fn generate_component_producers(api: &ApiSurface, config: &ResolvedCrateConfig) -> Result<Vec<GeneratedFile>> {
-    let profiles = crate::codegen::component::resolve_component_contracts(api, config)?;
-    let mut files = Vec::with_capacity(profiles.len() * 3);
-    for profile in profiles {
-        validate_producer_types(&profile.contract)?;
-        let crate_dir = component_crate_dir(config, &profile.component_name);
+    let components = crate::codegen::component::resolve_components(api, config)?;
+    let mut files = Vec::with_capacity(components.len() * 3);
+    for component in components {
+        for provided in &component.provides {
+            validate_producer_types(&provided.contract)?;
+        }
+        let crate_dir = component_crate_dir(config, &component.component_name);
         files.push(GeneratedFile {
             path: crate_dir.join("Cargo.toml"),
-            content: producer_manifest(api, config, &profile),
+            content: producer_manifest(api, config, &component),
             generated_header: true,
         });
         files.push(GeneratedFile {
             path: crate_dir.join("src/lib.rs"),
-            content: producer_source(api, config, &profile)?,
+            content: producer_source(api, &component)?,
             generated_header: true,
         });
-        files.push(GeneratedFile {
-            path: crate_dir.join(format!("include/{}.h", profile.contract.name.to_snake_case())),
-            content: profile.contract.c_header(),
-            generated_header: true,
-        });
+        for provided in &component.provides {
+            files.push(GeneratedFile {
+                path: crate_dir.join(format!("include/{}.h", provided.contract.name.to_snake_case())),
+                content: provided.contract.c_header(),
+                generated_header: true,
+            });
+        }
     }
     Ok(files)
 }
@@ -44,15 +51,15 @@ fn component_crate_dir(config: &ResolvedCrateConfig, component: &str) -> PathBuf
     ))
 }
 
-fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, profile: &ResolvedComponentContract) -> String {
+fn producer_manifest(api: &ApiSurface, config: &ResolvedCrateConfig, component: &ResolvedComponent) -> String {
     let package = format!(
         "{}-{}-component",
         config.core_crate_dir(),
-        profile.component_name.replace('_', "-")
+        component.component_name.replace('_', "-")
     );
     let core_package = &config.name;
     let core_path = format!("../{}", config.core_crate_dir());
-    let features = profile
+    let features = component
         .features
         .iter()
         .map(|feature| format!("\"{feature}\""))
@@ -75,30 +82,21 @@ futures = "0.3"
 "#,
         version = api.version,
         alef_version = env!("CARGO_PKG_VERSION"),
-        default_features = profile.default_features,
+        default_features = component.default_features,
     )
 }
 
-fn producer_source(
-    api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-    profile: &ResolvedComponentContract,
-) -> Result<String> {
-    let contract_cfg = config
-        .component_contracts
+/// Emit the producer crate's `src/lib.rs`: shared buffer/panic helpers once,
+/// then one self-contained block per provided contract (its own implementation
+/// type alias, function table, descriptor, and entry point).
+fn producer_source(api: &ApiSurface, component: &ResolvedComponent) -> Result<String> {
+    let has_async = component
+        .provides
         .iter()
-        .find(|contract| contract.name == profile.contract.name)
-        .expect("resolved contract must have config");
-    let trait_path = &contract_cfg.trait_path;
-    let implementation = &profile.implementation;
-    let contract_name = profile.contract.name.to_upper_camel_case();
-    let api_name = format!("{contract_name}ApiV{}", profile.contract.interface_version);
-    let feature_hash = byte_array(&feature_set_hash(&profile.features, profile.default_features));
-    let contract_hash = byte_array(&profile.contract_hash);
+        .any(|provided| provided.contract.methods.iter().any(|method| method.is_async));
     let mut out = String::new();
     writeln!(out, "// This file is auto-generated by alef. DO NOT EDIT.")?;
     out.push_str("#![allow(clippy::missing_safety_doc)]\n\n");
-    let has_async = profile.contract.methods.iter().any(|method| method.is_async);
     out.push_str("use alef_component_abi::{AlefComponentV1, AlefHostApiV1, AlefOwnedBuffer, AlefStatus, AlefStr");
     if has_async {
         out.push_str(", AlefTaskV1");
@@ -111,41 +109,170 @@ fn producer_source(
         out.push_str("use std::sync::atomic::{AtomicBool, Ordering};\n");
     }
     out.push('\n');
-    writeln!(out, "type ComponentImplementation = {implementation};\n")?;
+    writeln!(out, "const COMPONENT_ID: &[u8] = b\"{}\";", component.component_name)?;
+    writeln!(out, "const COMPONENT_VERSION: &[u8] = b\"{}\";", api.version)?;
+    out.push('\n');
     out.push_str(PRODUCER_SUPPORT);
     if has_async {
         out.push_str(ASYNC_PRODUCER_SUPPORT);
     }
 
-    for method in profile.contract.methods.iter().filter(|method| method.is_async) {
-        emit_async_callback_alias(&mut out, &contract_name, method)?;
+    let feature_hash = byte_array(&feature_set_hash(&component.features, component.default_features));
+    for provided in &component.provides {
+        emit_contract_block(&mut out, provided, &feature_hash)?;
     }
-    writeln!(out, "\n#[repr(C)]\nstruct {api_name} {{")?;
+    Ok(out)
+}
+
+/// Per-contract identifier names shared by every emitter for one contract block.
+struct ContractNames {
+    prefix: String,
+    screaming_prefix: String,
+    implementation_alias: String,
+    contract_name: String,
+    api_name: String,
+}
+
+impl ContractNames {
+    fn new(contract: &ComponentContractIr) -> Self {
+        let contract_name = contract.name.to_upper_camel_case();
+        Self {
+            prefix: contract.name.to_snake_case(),
+            screaming_prefix: contract.name.to_shouty_snake_case(),
+            implementation_alias: format!("{contract_name}ComponentImplementation"),
+            api_name: format!("{contract_name}ApiV{}", contract.interface_version),
+            contract_name,
+        }
+    }
+}
+
+fn emit_contract_block(out: &mut String, provided: &ResolvedProvidedContract, feature_hash: &str) -> Result<()> {
+    let names = ContractNames::new(&provided.contract);
+    emit_lifecycle_functions(out, &names, &provided.implementation)?;
+    emit_contract_table_and_entry(out, &names, provided, feature_hash)
+}
+
+/// Emit the implementation type alias and the `create`/`destroy`/`component_ref`
+/// functions the descriptor's function pointers below point back into.
+fn emit_lifecycle_functions(out: &mut String, names: &ContractNames, implementation: &str) -> Result<()> {
+    let ContractNames {
+        prefix,
+        implementation_alias,
+        ..
+    } = names;
+    writeln!(out, "type {implementation_alias} = {implementation};\n")?;
+    writeln!(
+        out,
+        "unsafe fn {prefix}_component_ref<'a>(instance: *mut c_void) -> Option<&'a Arc<{implementation_alias}>> {{"
+    )?;
+    out.push_str("    // SAFETY: the host supplies the handle returned by create_component.\n");
+    writeln!(
+        out,
+        "    unsafe {{ instance.cast::<Arc<{implementation_alias}>>().as_ref() }}"
+    )?;
+    out.push_str("}\n\n");
+    writeln!(
+        out,
+        "unsafe extern \"C\" fn {prefix}_create_component(_host: *const AlefHostApiV1, out_instance: *mut *mut c_void, out_error: *mut AlefOwnedBuffer) -> AlefStatus {{"
+    )?;
+    out.push_str("    if out_instance.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
+    writeln!(
+        out,
+        "    match catch_unwind(AssertUnwindSafe(|| Arc::new({implementation_alias}::default()))) {{"
+    )?;
+    out.push_str("        Ok(instance) => {\n");
+    out.push_str("            // SAFETY: out_instance is non-null.\n");
+    out.push_str("            unsafe { *out_instance = Box::into_raw(Box::new(instance)).cast() };\n");
+    out.push_str("            AlefStatus::OK\n        }\n");
+    out.push_str("        Err(_) => {\n");
+    out.push_str("            if !out_error.is_null() {\n");
+    out.push_str("                // SAFETY: out_error is non-null.\n");
+    out.push_str("                unsafe { *out_error = error_buffer(\"component constructor panicked\") };\n");
+    out.push_str("            }\n            AlefStatus::INTERNAL_ERROR\n        }\n    }\n}\n\n");
+    writeln!(
+        out,
+        "unsafe extern \"C\" fn {prefix}_destroy_component(instance: *mut c_void) {{"
+    )?;
+    out.push_str("    if !instance.is_null() {\n        let _ = catch_unwind(AssertUnwindSafe(|| {\n");
+    out.push_str("            // SAFETY: the handle was allocated by create_component.\n");
+    writeln!(
+        out,
+        "            drop(unsafe {{ Box::from_raw(instance.cast::<Arc<{implementation_alias}>>()) }});"
+    )?;
+    out.push_str("        }));\n    }\n}\n\n");
+    Ok(())
+}
+
+/// Emit the method table struct, its method wrappers, the static descriptor, and
+/// the `#[no_mangle]` entry point that hands the descriptor to the host.
+fn emit_contract_table_and_entry(
+    out: &mut String,
+    names: &ContractNames,
+    provided: &ResolvedProvidedContract,
+    feature_hash: &str,
+) -> Result<()> {
+    let ContractNames {
+        prefix,
+        contract_name,
+        api_name,
+        ..
+    } = names;
+    let contract = &provided.contract;
+
+    for method in contract.methods.iter().filter(|method| method.is_async) {
+        emit_async_callback_alias(out, contract_name, method)?;
+    }
+    writeln!(out, "#[repr(C)]\nstruct {api_name} {{")?;
     out.push_str("    struct_size: usize,\n");
-    for method in &profile.contract.methods {
+    for method in &contract.methods {
         writeln!(
             out,
             "    {}: Option<{}>,",
             method.name.to_snake_case(),
-            rust_function_type(&contract_name, method)
+            rust_function_type(contract_name, method)
         )?;
     }
     out.push_str("}\n\n");
 
-    for method in &profile.contract.methods {
-        emit_method_wrapper(&mut out, trait_path, &contract_name, method)?;
+    for method in &contract.methods {
+        emit_method_wrapper(out, &contract.trait_path, prefix, contract_name, method)?;
     }
 
-    writeln!(out, "static mut CONTRACT_API: {api_name} = {api_name} {{")?;
+    writeln!(
+        out,
+        "static mut {screaming_prefix}_CONTRACT_API: {api_name} = {api_name} {{",
+        screaming_prefix = names.screaming_prefix,
+    )?;
     writeln!(out, "    struct_size: std::mem::size_of::<{api_name}>(),")?;
-    for method in &profile.contract.methods {
+    for method in &contract.methods {
         let method_name = method.name.to_snake_case();
-        writeln!(out, "    {method_name}: Some(component_{method_name}),")?;
+        writeln!(out, "    {method_name}: Some({prefix}_component_{method_name}),")?;
     }
     out.push_str("};\n\n");
-    writeln!(out, "const COMPONENT_ID: &[u8] = b\"{}\";", profile.component_name)?;
-    writeln!(out, "const COMPONENT_VERSION: &[u8] = b\"{}\";", api.version)?;
-    out.push_str("static mut COMPONENT: AlefComponentV1 = AlefComponentV1 {\n");
+
+    emit_descriptor_and_entrypoint(out, names, provided, feature_hash)
+}
+
+/// Emit the static `AlefComponentV1` descriptor and the `#[no_mangle]` entry
+/// point the host calls to obtain a pointer to it.
+fn emit_descriptor_and_entrypoint(
+    out: &mut String,
+    names: &ContractNames,
+    provided: &ResolvedProvidedContract,
+    feature_hash: &str,
+) -> Result<()> {
+    let ContractNames {
+        prefix,
+        screaming_prefix,
+        api_name,
+        ..
+    } = names;
+    let contract_hash = byte_array(&provided.contract_hash);
+
+    writeln!(
+        out,
+        "static mut {screaming_prefix}_COMPONENT: AlefComponentV1 = AlefComponentV1 {{"
+    )?;
     out.push_str("    struct_size: std::mem::size_of::<AlefComponentV1>(),\n");
     out.push_str("    abi_major: 1,\n    abi_minor: 0,\n");
     out.push_str(
@@ -156,11 +283,34 @@ fn producer_source(
     );
     writeln!(out, "    contract_hash: {contract_hash},")?;
     writeln!(out, "    feature_set_hash: {feature_hash},")?;
-    out.push_str("    contract: (&raw const CONTRACT_API).cast::<c_void>(),\n");
+    writeln!(
+        out,
+        "    contract: (&raw const {screaming_prefix}_CONTRACT_API).cast::<c_void>(),"
+    )?;
     writeln!(out, "    contract_size: std::mem::size_of::<{api_name}>(),")?;
-    out.push_str("    create: Some(create_component),\n    destroy: Some(destroy_component),\n};\n\n");
-    out.push_str(ENTRYPOINT);
-    Ok(out)
+    writeln!(
+        out,
+        "    create: Some({prefix}_create_component),\n    destroy: Some({prefix}_destroy_component),\n}};\n"
+    )?;
+    writeln!(out, "#[unsafe(no_mangle)]")?;
+    writeln!(
+        out,
+        "pub unsafe extern \"C\" fn {}(requested_abi_major: u32, _host: *const AlefHostApiV1, out_component: *mut *const AlefComponentV1) -> AlefStatus {{",
+        entry_point_symbol(&provided.contract.name)
+    )?;
+    out.push_str(
+        "    if requested_abi_major != 1 || out_component.is_null() { return AlefStatus::INCOMPATIBLE_ABI; }\n",
+    );
+    writeln!(
+        out,
+        "    // SAFETY: out_component is non-null and {screaming_prefix}_COMPONENT has process lifetime."
+    )?;
+    writeln!(
+        out,
+        "    unsafe {{ *out_component = &raw const {screaming_prefix}_COMPONENT }};"
+    )?;
+    out.push_str("    AlefStatus::OK\n}\n\n");
+    Ok(())
 }
 
 const PRODUCER_SUPPORT: &str = r#"unsafe extern "C" fn free_buffer(
@@ -191,44 +341,6 @@ fn error_buffer(message: impl ToString) -> AlefOwnedBuffer {
     owned_buffer(message.to_string().into_bytes())
 }
 
-unsafe fn component_ref<'a>(instance: *mut c_void) -> Option<&'a Arc<ComponentImplementation>> {
-    // SAFETY: the host supplies the handle returned by create_component.
-    unsafe { instance.cast::<Arc<ComponentImplementation>>().as_ref() }
-}
-
-unsafe extern "C" fn create_component(
-    _host: *const AlefHostApiV1,
-    out_instance: *mut *mut c_void,
-    out_error: *mut AlefOwnedBuffer,
-) -> AlefStatus {
-    if out_instance.is_null() {
-        return AlefStatus::INVALID_ARGUMENT;
-    }
-    match catch_unwind(AssertUnwindSafe(|| Arc::new(ComponentImplementation::default()))) {
-        Ok(instance) => {
-            // SAFETY: out_instance is non-null.
-            unsafe { *out_instance = Box::into_raw(Box::new(instance)).cast() };
-            AlefStatus::OK
-        }
-        Err(_) => {
-            if !out_error.is_null() {
-                // SAFETY: out_error is non-null.
-                unsafe { *out_error = error_buffer("component constructor panicked") };
-            }
-            AlefStatus::INTERNAL_ERROR
-        }
-    }
-}
-
-unsafe extern "C" fn destroy_component(instance: *mut c_void) {
-    if !instance.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            // SAFETY: the handle was allocated by create_component.
-            drop(unsafe { Box::from_raw(instance.cast::<Arc<ComponentImplementation>>()) });
-        }));
-    }
-}
-
 "#;
 
 const ASYNC_PRODUCER_SUPPORT: &str = r#"
@@ -248,21 +360,6 @@ unsafe extern "C" fn free_task(context: *mut c_void) {
     }
 }
 
-"#;
-
-const ENTRYPOINT: &str = r#"#[unsafe(no_mangle)]
-pub unsafe extern "C" fn alef_component_entry_v1(
-    requested_abi_major: u32,
-    _host: *const AlefHostApiV1,
-    out_component: *mut *const AlefComponentV1,
-) -> AlefStatus {
-    if requested_abi_major != 1 || out_component.is_null() {
-        return AlefStatus::INCOMPATIBLE_ABI;
-    }
-    // SAFETY: out_component is non-null and COMPONENT has process lifetime.
-    unsafe { *out_component = &raw const COMPONENT };
-    AlefStatus::OK
-}
 "#;
 
 fn validate_producer_types(contract: &ComponentContractIr) -> Result<()> {
@@ -357,11 +454,17 @@ fn emit_async_callback_alias(out: &mut String, contract: &str, method: &Componen
     Ok(())
 }
 
-fn emit_method_wrapper(out: &mut String, trait_path: &str, contract: &str, method: &ComponentMethodIr) -> Result<()> {
+fn emit_method_wrapper(
+    out: &mut String,
+    trait_path: &str,
+    prefix: &str,
+    contract: &str,
+    method: &ComponentMethodIr,
+) -> Result<()> {
     let method_name = method.name.to_snake_case();
     write!(
         out,
-        "unsafe extern \"C\" fn component_{method_name}(instance: *mut c_void"
+        "unsafe extern \"C\" fn {prefix}_component_{method_name}(instance: *mut c_void"
     )?;
     for param in &method.params {
         write!(
@@ -384,9 +487,10 @@ fn emit_method_wrapper(out: &mut String, trait_path: &str, contract: &str, metho
         out.push_str(", out_error: *mut AlefOwnedBuffer");
     }
     out.push_str(") -> AlefStatus {\n");
-    out.push_str(
-        "    let Some(instance) = (unsafe { component_ref(instance) }) else { return AlefStatus::INVALID_ARGUMENT; };\n",
-    );
+    writeln!(
+        out,
+        "    let Some(instance) = (unsafe {{ {prefix}_component_ref(instance) }}) else {{ return AlefStatus::INVALID_ARGUMENT; }};"
+    )?;
     if !method.is_async && method.result != WireType::Unit {
         out.push_str("    if out_result.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     }
@@ -600,41 +704,45 @@ fn byte_array(bytes: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::{ComponentContractConfig, ComponentProfileConfig};
+    use crate::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig};
     use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+
+    fn extractor_type() -> TypeDef {
+        TypeDef {
+            name: "Extractor".into(),
+            rust_path: "demo::Extractor".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![
+                MethodDef {
+                    name: "extract".into(),
+                    params: vec![ParamDef {
+                        name: "input".into(),
+                        ty: TypeRef::Bytes,
+                        is_ref: true,
+                        ..ParamDef::default()
+                    }],
+                    return_type: TypeRef::Bytes,
+                    receiver: Some(ReceiverKind::Ref),
+                    error_type: Some("Error".into()),
+                    ..MethodDef::default()
+                },
+                MethodDef {
+                    name: "warm".into(),
+                    is_async: true,
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        }
+    }
 
     fn fixture() -> (ApiSurface, ResolvedCrateConfig) {
         let api = ApiSurface {
             crate_name: "demo".into(),
             version: "1.2.3".into(),
-            types: vec![TypeDef {
-                name: "Extractor".into(),
-                rust_path: "demo::Extractor".into(),
-                is_trait: true,
-                is_opaque: true,
-                methods: vec![
-                    MethodDef {
-                        name: "extract".into(),
-                        params: vec![ParamDef {
-                            name: "input".into(),
-                            ty: TypeRef::Bytes,
-                            is_ref: true,
-                            ..ParamDef::default()
-                        }],
-                        return_type: TypeRef::Bytes,
-                        receiver: Some(ReceiverKind::Ref),
-                        error_type: Some("Error".into()),
-                        ..MethodDef::default()
-                    },
-                    MethodDef {
-                        name: "warm".into(),
-                        is_async: true,
-                        receiver: Some(ReceiverKind::Ref),
-                        ..MethodDef::default()
-                    },
-                ],
-                ..TypeDef::default()
-            }],
+            types: vec![extractor_type()],
             ..ApiSurface::default()
         };
         let config = ResolvedCrateConfig {
@@ -644,13 +752,16 @@ mod tests {
                 trait_path: "demo::Extractor".into(),
                 interface_version: 1,
             }],
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "pdf".into(),
-                contract: "extractor".into(),
-                implementation: "demo::PdfExtractor".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "extractor".into(),
+                    implementation: "demo::PdfExtractor".into(),
+                }],
                 features: vec!["pdf".into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             }],
             ..ResolvedCrateConfig::default()
         };
@@ -663,12 +774,78 @@ mod tests {
         let files = generate_component_producers(&api, &config).unwrap();
         assert_eq!(files.len(), 3);
         let source = files.iter().find(|file| file.path.ends_with("src/lib.rs")).unwrap();
-        assert!(source.content.contains("alef_component_entry_v1"));
-        assert!(source.content.contains("component_extract"));
+        assert!(source.content.contains("alef_component_entry_v1_extractor"));
+        assert!(source.content.contains("extractor_component_extract"));
         assert!(source.content.contains("std::thread::spawn"));
         syn::parse_file(&source.content).expect("generated component producer must be valid Rust syntax");
         let manifest = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
         assert!(manifest.content.contains("features = [\"pdf\"]"));
         assert!(manifest.content.contains("crate-type = [\"cdylib\"]"));
+    }
+
+    #[test]
+    fn a_component_providing_two_contracts_emits_two_entry_points() {
+        let mut api = ApiSurface {
+            crate_name: "demo".into(),
+            version: "1.2.3".into(),
+            types: vec![extractor_type()],
+            ..ApiSurface::default()
+        };
+        api.types.push(TypeDef {
+            name: "Coder".into(),
+            rust_path: "demo::Coder".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "encode".into(),
+                return_type: TypeRef::Bytes,
+                receiver: Some(ReceiverKind::Ref),
+                ..MethodDef::default()
+            }],
+            ..TypeDef::default()
+        });
+        let config = ResolvedCrateConfig {
+            name: "demo".into(),
+            component_contracts: vec![
+                ComponentContractConfig {
+                    name: "extractor".into(),
+                    trait_path: "demo::Extractor".into(),
+                    interface_version: 1,
+                },
+                ComponentContractConfig {
+                    name: "coder".into(),
+                    trait_path: "demo::Coder".into(),
+                    interface_version: 1,
+                },
+            ],
+            components: vec![ComponentConfig {
+                name: "bundle".into(),
+                provides: vec![
+                    ComponentProvidesConfig {
+                        contract: "extractor".into(),
+                        implementation: "demo::BundleExtractor".into(),
+                    },
+                    ComponentProvidesConfig {
+                        contract: "coder".into(),
+                        implementation: "demo::BundleCoder".into(),
+                    },
+                ],
+                features: vec!["bundle".into()],
+                default_features: false,
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+
+        let files = generate_component_producers(&api, &config).unwrap();
+        // Cargo.toml, src/lib.rs, and one header per provided contract.
+        assert_eq!(files.len(), 4);
+        let source = files.iter().find(|file| file.path.ends_with("src/lib.rs")).unwrap();
+        assert!(source.content.contains("alef_component_entry_v1_extractor"));
+        assert!(source.content.contains("alef_component_entry_v1_coder"));
+        assert!(source.content.contains("extractor_component_extract"));
+        assert!(source.content.contains("coder_component_encode"));
+        syn::parse_file(&source.content).expect("multi-contract component producer must be valid Rust syntax");
     }
 }

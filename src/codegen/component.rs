@@ -1,6 +1,9 @@
 //! Stable component-contract IR and C header generation.
 
-use crate::core::config::ResolvedCrateConfig;
+pub use alef_component_runtime::ComponentDeliveryMode;
+
+use crate::core::config::component::SUPPORTED_COMPONENT_TARGETS;
+use crate::core::config::{ComponentConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, MethodDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 use anyhow::{Context as _, Result, bail};
 use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
@@ -16,6 +19,7 @@ pub struct ComponentContractIr {
     pub trait_path: String,
     pub methods: Vec<ComponentMethodIr>,
     pub records: Vec<ComponentRecordIr>,
+    pub enums: Vec<ComponentEnumIr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,6 +43,19 @@ pub struct ComponentParamIr {
 pub struct ComponentRecordIr {
     pub name: String,
     pub fields: Vec<ComponentParamIr>,
+}
+
+/// A data-free enum referenced by a contract's methods or records.
+///
+/// Variant *names* (and their declaration order) are hashed alongside the
+/// contract: the wire representation is just the discriminant, so adding,
+/// removing, or reordering a variant changes what a peer that skipped the
+/// rebuild would decode, even though [`WireType::Enum`] itself only carries
+/// the enum's name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ComponentEnumIr {
+    pub name: String,
+    pub variants: Vec<String>,
 }
 
 /// Layout-independent values allowed across a component boundary.
@@ -68,22 +85,61 @@ pub enum WireType {
     Opaque(String),
 }
 
+/// One contract a resolved component provides: its canonical IR, the hash
+/// derived from it, and the Rust type implementing it.
 #[derive(Debug, Clone)]
-pub struct ResolvedComponentContract {
-    pub component_name: String,
+pub struct ResolvedProvidedContract {
     pub implementation: String,
-    pub features: Vec<String>,
-    pub default_features: bool,
-    pub targets: Vec<String>,
     pub contract: ComponentContractIr,
     pub contract_hash: [u8; 32],
 }
 
-/// Resolve every configured profile and reject feature-dependent ABI drift.
-pub fn resolve_component_contracts(
-    api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-) -> Result<Vec<ResolvedComponentContract>> {
+/// A configured component after feature-gated extraction and ABI-drift checks.
+#[derive(Debug, Clone)]
+pub struct ResolvedComponent {
+    pub component_name: String,
+    pub features: Vec<String>,
+    pub default_features: bool,
+    /// Targets this component is downloaded for; excludes anything in `bundled_on`.
+    pub targets: Vec<String>,
+    pub bundled_on: Vec<String>,
+    pub provides: Vec<ResolvedProvidedContract>,
+}
+
+impl ResolvedComponent {
+    /// Whether `target` downloads this component or must link it into the binding.
+    ///
+    /// No backend switches on this yet -- it exists so the future host-linking
+    /// work has a typed hook to read instead of re-deriving `bundled_on` membership.
+    #[must_use]
+    pub fn delivery_mode(&self, target: &str) -> ComponentDeliveryMode {
+        if self.bundled_on.iter().any(|bundled| bundled == target) {
+            ComponentDeliveryMode::Bundled
+        } else {
+            ComponentDeliveryMode::Download
+        }
+    }
+}
+
+/// The concrete download targets for a component: its explicit `targets` list, or
+/// every [`SUPPORTED_COMPONENT_TARGETS`] target enabled by the crate's `[targets]`
+/// table and not listed in `bundled_on`.
+#[must_use]
+pub fn resolve_component_targets(config: &ResolvedCrateConfig, component: &ComponentConfig) -> Vec<String> {
+    match &component.targets {
+        Some(explicit) => explicit.clone(),
+        None => SUPPORTED_COMPONENT_TARGETS
+            .iter()
+            .copied()
+            .filter(|triple| crate::publish::platform::target_triple_enabled(&config.targets, triple))
+            .filter(|triple| !component.bundled_on.iter().any(|bundled| bundled == triple))
+            .map(str::to_string)
+            .collect(),
+    }
+}
+
+/// Resolve every configured component and reject feature-dependent ABI drift.
+pub fn resolve_components(api: &ApiSurface, config: &ResolvedCrateConfig) -> Result<Vec<ResolvedComponent>> {
     let contracts = config
         .component_contracts
         .iter()
@@ -93,41 +149,51 @@ pub fn resolve_component_contracts(
     let mut resolved = Vec::with_capacity(config.components.len());
 
     for component in &config.components {
-        let contract_config = contracts
-            .get(component.contract.as_str())
-            .with_context(|| format!("component `{}` references a missing contract", component.name))?;
         let enabled = component
             .features
             .iter()
             .map(String::as_str)
             .collect::<std::collections::HashSet<_>>();
-        let profile_api = api.with_cfg_filtered_deep(&enabled);
-        let contract = ComponentContractIr::from_trait(
-            &profile_api,
-            &contract_config.name,
-            &contract_config.trait_path,
-            contract_config.interface_version,
-        )?;
-        let hash = contract.hash()?;
-        if let Some(expected) = expected_hashes.get(component.contract.as_str()) {
-            if expected != &hash {
-                bail!(
-                    "component `{}` changes contract `{}` under its feature set; component features may change implementations, not ABI signatures",
-                    component.name,
-                    component.contract
-                );
+        let component_api = api.with_cfg_filtered_deep(&enabled);
+        let mut provides = Vec::with_capacity(component.provides.len());
+        for entry in &component.provides {
+            let contract_config = contracts.get(entry.contract.as_str()).with_context(|| {
+                format!(
+                    "component `{}` references a missing contract `{}`",
+                    component.name, entry.contract
+                )
+            })?;
+            let contract = ComponentContractIr::from_trait(
+                &component_api,
+                &contract_config.name,
+                &contract_config.trait_path,
+                contract_config.interface_version,
+            )?;
+            let hash = contract.hash()?;
+            if let Some(expected) = expected_hashes.get(entry.contract.as_str()) {
+                if expected != &hash {
+                    bail!(
+                        "component `{}` changes contract `{}` under its feature set; component features may change implementations, not ABI signatures",
+                        component.name,
+                        entry.contract
+                    );
+                }
+            } else {
+                expected_hashes.insert(entry.contract.as_str(), hash);
             }
-        } else {
-            expected_hashes.insert(component.contract.as_str(), hash);
+            provides.push(ResolvedProvidedContract {
+                implementation: entry.implementation.clone(),
+                contract,
+                contract_hash: hash,
+            });
         }
-        resolved.push(ResolvedComponentContract {
+        resolved.push(ResolvedComponent {
             component_name: component.name.clone(),
-            implementation: component.implementation.clone(),
             features: component.features.clone(),
             default_features: component.default_features,
-            targets: component.targets.clone(),
-            contract,
-            contract_hash: hash,
+            targets: resolve_component_targets(config, component),
+            bundled_on: component.bundled_on.clone(),
+            provides,
         });
     }
 
@@ -139,10 +205,11 @@ impl ComponentContractIr {
     pub fn from_trait(api: &ApiSurface, name: &str, trait_path: &str, interface_version: u32) -> Result<Self> {
         let trait_def = find_trait(api, trait_path)?;
         let mut records = BTreeMap::new();
+        let mut enums = BTreeMap::new();
         let methods = trait_def
             .methods
             .iter()
-            .map(|method| map_method(api, method, &mut records))
+            .map(|method| map_method(api, method, &mut records, &mut enums))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self {
@@ -151,6 +218,7 @@ impl ComponentContractIr {
             trait_path: trait_def.rust_path.clone(),
             methods,
             records: records.into_values().collect(),
+            enums: enums.into_values().collect(),
         })
     }
 
@@ -225,10 +293,24 @@ impl ComponentContractIr {
             let _ = writeln!(out, "    {};", method_pointer(&contract, method));
         }
         let _ = writeln!(out, "}} {contract}ApiV{};\n", self.interface_version);
-        out.push_str("AlefComponentStatus alef_component_entry_v1(uint32_t, const AlefComponentHostApiV1 *, const AlefComponentV1 **);\n\n");
+        let _ = writeln!(
+            out,
+            "AlefComponentStatus {}(uint32_t, const AlefComponentHostApiV1 *, const AlefComponentV1 **);\n",
+            entry_point_symbol(&self.name)
+        );
         let _ = writeln!(out, "#endif /* {guard} */");
         out
     }
+}
+
+/// The C symbol a contract's producer entry point is exported under.
+///
+/// A component that provides more than one contract exports one such symbol
+/// per contract from the same producer cdylib, since the shared `AlefComponentV1`
+/// descriptor carries exactly one contract's function table.
+#[must_use]
+pub fn entry_point_symbol(contract_name: &str) -> String {
+    format!("alef_component_entry_v1_{}", contract_name.to_snake_case())
 }
 
 fn find_trait<'a>(api: &'a ApiSurface, trait_path: &str) -> Result<&'a TypeDef> {
@@ -249,6 +331,7 @@ fn map_method(
     api: &ApiSurface,
     method: &MethodDef,
     records: &mut BTreeMap<String, ComponentRecordIr>,
+    enums: &mut BTreeMap<String, ComponentEnumIr>,
 ) -> Result<ComponentMethodIr> {
     if method.is_static || method.receiver != Some(ReceiverKind::Ref) {
         bail!(
@@ -268,7 +351,7 @@ fn map_method(
             }
             Ok(ComponentParamIr {
                 name: param.name.clone(),
-                ty: map_type(api, &param.ty, records)?,
+                ty: map_type(api, &param.ty, records, enums)?,
                 borrowed: param.is_ref,
             })
         })
@@ -277,12 +360,17 @@ fn map_method(
         name: method.name.clone(),
         is_async: method.is_async,
         params,
-        result: map_type(api, &method.return_type, records)?,
+        result: map_type(api, &method.return_type, records, enums)?,
         fallible: method.error_type.is_some(),
     })
 }
 
-fn map_type(api: &ApiSurface, ty: &TypeRef, records: &mut BTreeMap<String, ComponentRecordIr>) -> Result<WireType> {
+fn map_type(
+    api: &ApiSurface,
+    ty: &TypeRef,
+    records: &mut BTreeMap<String, ComponentRecordIr>,
+    enums: &mut BTreeMap<String, ComponentEnumIr>,
+) -> Result<WireType> {
     let mapped = match ty {
         TypeRef::Unit => WireType::Unit,
         TypeRef::Primitive(primitive) => map_primitive(primitive)?,
@@ -291,11 +379,11 @@ fn map_type(api: &ApiSurface, ty: &TypeRef, records: &mut BTreeMap<String, Compo
         TypeRef::Path => WireType::Path,
         TypeRef::Bytes => WireType::Bytes,
         TypeRef::Duration => WireType::U64,
-        TypeRef::Optional(inner) => WireType::Optional(Box::new(map_type(api, inner, records)?)),
-        TypeRef::Vec(inner) => WireType::Slice(Box::new(map_type(api, inner, records)?)),
+        TypeRef::Optional(inner) => WireType::Optional(Box::new(map_type(api, inner, records, enums)?)),
+        TypeRef::Vec(inner) => WireType::Slice(Box::new(map_type(api, inner, records, enums)?)),
         TypeRef::Map(_, _) => bail!("maps require an explicit component wire adapter"),
         TypeRef::Json => bail!("JSON requires an explicit component wire adapter"),
-        TypeRef::Named(name) => map_named(api, name, records)?,
+        TypeRef::Named(name) => map_named(api, name, records, enums)?,
     };
     Ok(mapped)
 }
@@ -319,11 +407,20 @@ fn map_primitive(primitive: &PrimitiveType) -> Result<WireType> {
     })
 }
 
-fn map_named(api: &ApiSurface, name: &str, records: &mut BTreeMap<String, ComponentRecordIr>) -> Result<WireType> {
+fn map_named(
+    api: &ApiSurface,
+    name: &str,
+    records: &mut BTreeMap<String, ComponentRecordIr>,
+    enums: &mut BTreeMap<String, ComponentEnumIr>,
+) -> Result<WireType> {
     if let Some(enum_def) = api.enums.iter().find(|candidate| candidate.name == name) {
         if enum_def.variants.iter().any(|variant| !variant.fields.is_empty()) {
             bail!("data enum `{name}` requires an explicit component wire adapter");
         }
+        enums.entry(name.to_string()).or_insert_with(|| ComponentEnumIr {
+            name: name.to_string(),
+            variants: enum_def.variants.iter().map(|variant| variant.name.clone()).collect(),
+        });
         return Ok(WireType::Enum(name.to_string()));
     }
     let Some(typ) = api.types.iter().find(|candidate| candidate.name == name) else {
@@ -349,7 +446,7 @@ fn map_named(api: &ApiSurface, name: &str, records: &mut BTreeMap<String, Compon
                 }
                 Ok(ComponentParamIr {
                     name: field.name.clone(),
-                    ty: map_type(api, &field.ty, records)?,
+                    ty: map_type(api, &field.ty, records, enums)?,
                     borrowed: false,
                 })
             })
@@ -466,8 +563,8 @@ fn c_output_type(ty: &WireType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::{ComponentContractConfig, ComponentProfileConfig};
-    use crate::core::ir::{FieldDef, ParamDef};
+    use crate::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig};
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, ParamDef};
 
     fn sample_api() -> ApiSurface {
         ApiSurface {
@@ -542,8 +639,55 @@ mod tests {
         assert!(error.to_string().contains("target-dependent"));
     }
 
+    fn sample_enum_api(variants: &[&str]) -> ApiSurface {
+        ApiSurface {
+            types: vec![TypeDef {
+                name: "Coder".into(),
+                rust_path: "demo::Coder".into(),
+                is_trait: true,
+                is_opaque: true,
+                methods: vec![MethodDef {
+                    name: "encode".into(),
+                    params: vec![ParamDef {
+                        name: "format".into(),
+                        ty: TypeRef::Named("Format".into()),
+                        ..ParamDef::default()
+                    }],
+                    return_type: TypeRef::Unit,
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                }],
+                ..TypeDef::default()
+            }],
+            enums: vec![EnumDef {
+                name: "Format".into(),
+                rust_path: "demo::Format".into(),
+                variants: variants
+                    .iter()
+                    .map(|name| EnumVariant {
+                        name: (*name).to_string(),
+                        ..EnumVariant::default()
+                    })
+                    .collect(),
+                ..EnumDef::default()
+            }],
+            ..ApiSurface::default()
+        }
+    }
+
     #[test]
-    fn resolves_profiles_against_one_contract_hash() {
+    fn adding_an_enum_variant_changes_the_contract_hash() {
+        let before =
+            ComponentContractIr::from_trait(&sample_enum_api(&["json", "yaml"]), "coder", "demo::Coder", 1).unwrap();
+        let after =
+            ComponentContractIr::from_trait(&sample_enum_api(&["json", "yaml", "toml"]), "coder", "demo::Coder", 1)
+                .unwrap();
+        assert_eq!(before.enums[0].variants, vec!["json", "yaml"]);
+        assert_ne!(before.hash().unwrap(), after.hash().unwrap());
+    }
+
+    #[test]
+    fn resolves_components_against_one_contract_hash() {
         let mut config = ResolvedCrateConfig {
             component_contracts: vec![ComponentContractConfig {
                 name: "extractor".into(),
@@ -553,17 +697,104 @@ mod tests {
             ..ResolvedCrateConfig::default()
         };
         for (name, feature) in [("pdf", "pdf"), ("office", "office")] {
-            config.components.push(ComponentProfileConfig {
+            config.components.push(ComponentConfig {
                 name: name.into(),
-                contract: "extractor".into(),
-                implementation: format!("demo::{}Extractor", name.to_upper_camel_case()),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "extractor".into(),
+                    implementation: format!("demo::{}Extractor", name.to_upper_camel_case()),
+                }],
                 features: vec![feature.into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             });
         }
-        let profiles = resolve_component_contracts(&sample_api(), &config).unwrap();
-        assert_eq!(profiles.len(), 2);
-        assert_eq!(profiles[0].contract_hash, profiles[1].contract_hash);
+        let components = resolve_components(&sample_api(), &config).unwrap();
+        assert_eq!(components.len(), 2);
+        assert_eq!(
+            components[0].provides[0].contract_hash,
+            components[1].provides[0].contract_hash
+        );
+    }
+
+    #[test]
+    fn component_can_provide_more_than_one_contract() {
+        let mut config = ResolvedCrateConfig {
+            component_contracts: vec![
+                ComponentContractConfig {
+                    name: "extractor".into(),
+                    trait_path: "demo::Extractor".into(),
+                    interface_version: 1,
+                },
+                ComponentContractConfig {
+                    name: "coder".into(),
+                    trait_path: "demo::Coder".into(),
+                    interface_version: 1,
+                },
+            ],
+            ..ResolvedCrateConfig::default()
+        };
+        let mut api = sample_api();
+        api.types.push(TypeDef {
+            name: "Coder".into(),
+            rust_path: "demo::Coder".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "encode".into(),
+                return_type: TypeRef::Bytes,
+                receiver: Some(ReceiverKind::Ref),
+                ..MethodDef::default()
+            }],
+            ..TypeDef::default()
+        });
+        config.components.push(ComponentConfig {
+            name: "bundle".into(),
+            provides: vec![
+                ComponentProvidesConfig {
+                    contract: "extractor".into(),
+                    implementation: "demo::BundleExtractor".into(),
+                },
+                ComponentProvidesConfig {
+                    contract: "coder".into(),
+                    implementation: "demo::BundleCoder".into(),
+                },
+            ],
+            features: vec!["bundle".into()],
+            default_features: false,
+            targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+            bundled_on: vec!["wasm32-unknown-unknown".into()],
+        });
+
+        let components = resolve_components(&api, &config).unwrap();
+        assert_eq!(components.len(), 1);
+        assert_eq!(components[0].provides.len(), 2);
+        assert_eq!(
+            components[0].delivery_mode("wasm32-unknown-unknown"),
+            ComponentDeliveryMode::Bundled
+        );
+        assert_eq!(
+            components[0].delivery_mode("x86_64-unknown-linux-gnu"),
+            ComponentDeliveryMode::Download
+        );
+    }
+
+    #[test]
+    fn default_targets_come_from_supported_targets_minus_bundled_on() {
+        let config = ResolvedCrateConfig::default();
+        let component = ComponentConfig {
+            name: "fast".into(),
+            provides: vec![ComponentProvidesConfig {
+                contract: "extractor".into(),
+                implementation: "demo::FastExtractor".into(),
+            }],
+            features: vec!["fast".into()],
+            default_features: false,
+            targets: None,
+            bundled_on: vec!["aarch64-apple-darwin".into()],
+        };
+        let targets = resolve_component_targets(&config, &component);
+        assert_eq!(targets.len(), SUPPORTED_COMPONENT_TARGETS.len() - 1);
+        assert!(!targets.iter().any(|target| target == "aarch64-apple-darwin"));
     }
 }

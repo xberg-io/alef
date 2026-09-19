@@ -8,9 +8,19 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 
 pub use alef_component_runtime::{
-    COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentArtifactRecord, ComponentIdentity, ComponentLibrary,
-    ComponentLock, ComponentLockEntry, ComponentManifest, ComponentSignature, canonical_json,
+    COMPONENT_ABI_VERSION, COMPONENT_MANIFEST_SCHEMA, ComponentArtifactRecord, ComponentDeliveryMode,
+    ComponentIdentity, ComponentLibrary, ComponentLock, ComponentLockEntry, ComponentManifest,
+    ComponentProvidedContract, ComponentSignature, canonical_json,
 };
+
+/// One contract a packaged component provides, as supplied to [`create_manifest`].
+#[derive(Debug, Clone)]
+pub struct ProvidedContractInput<'a> {
+    pub contract: &'a str,
+    pub interface_version: u32,
+    pub contract_hash: &'a str,
+    pub implementation: &'a str,
+}
 
 #[derive(Debug, Clone)]
 pub struct PackageInput<'a> {
@@ -18,10 +28,7 @@ pub struct PackageInput<'a> {
     pub component: &'a str,
     pub version: &'a str,
     pub target: &'a str,
-    pub contract: &'a str,
-    pub contract_version: u32,
-    pub contract_hash: &'a str,
-    pub implementation: &'a str,
+    pub provides: &'a [ProvidedContractInput<'a>],
     pub features: &'a [String],
     pub default_features: bool,
     pub feature_hash: &'a str,
@@ -100,6 +107,10 @@ pub fn dynamic_library_name(crate_name: &str, target: &str) -> String {
 }
 
 pub fn create_manifest(library_path: &Path, input: PackageInput<'_>) -> Result<ComponentManifest> {
+    ensure!(
+        !input.provides.is_empty(),
+        "component manifest must provide at least one contract"
+    );
     let library_bytes = fs::read(library_path)
         .with_context(|| format!("failed to read component library {}", library_path.display()))?;
     let library_file = library_path
@@ -112,21 +123,39 @@ pub fn create_manifest(library_path: &Path, input: PackageInput<'_>) -> Result<C
     let mut features = input.features.to_vec();
     features.sort();
     features.dedup();
+
+    let mut provides = Vec::with_capacity(input.provides.len());
+    let mut seen_contracts = std::collections::HashSet::new();
+    for entry in input.provides {
+        validate_name("contract", entry.contract)?;
+        ensure!(
+            seen_contracts.insert(entry.contract),
+            "component manifest provides contract `{}` more than once",
+            entry.contract
+        );
+        provides.push(ComponentProvidedContract {
+            contract: entry.contract.to_string(),
+            interface_version: entry.interface_version,
+            contract_hash: entry.contract_hash.to_string(),
+            implementation: entry.implementation.to_string(),
+        });
+    }
+    provides.sort_by(|left, right| left.contract.cmp(&right.contract));
+    let primary_contract_hash = provides[0].contract_hash.clone();
+
     let identity = ComponentIdentity {
         crate_name: input.crate_name.to_string(),
         component: input.component.to_string(),
         version: input.version.to_string(),
         target: input.target.to_string(),
         feature_hash: input.feature_hash.to_string(),
-        contract_hash: input.contract_hash.to_string(),
+        contract_hash: primary_contract_hash,
     };
     Ok(ComponentManifest {
         schema_version: COMPONENT_MANIFEST_SCHEMA,
         abi_version: COMPONENT_ABI_VERSION,
         identity,
-        contract: input.contract.to_string(),
-        contract_version: input.contract_version,
-        implementation: input.implementation.to_string(),
+        provides,
         features,
         default_features: input.default_features,
         library: ComponentLibrary {
@@ -230,6 +259,10 @@ pub fn build_lock(
         let url = expand_url(url_template, identity, &record.archive)?;
         artifacts.push(ComponentLockEntry {
             identity: identity.clone(),
+            provides: record.manifest.provides.clone(),
+            // No backend builds or locks a bundled artifact yet -- every artifact
+            // this command packages and locks today is downloaded on demand.
+            mode: ComponentDeliveryMode::Download,
             url,
             sha256: record.archive_sha256.clone(),
             size: record.archive_size,
@@ -611,15 +644,18 @@ mod tests {
         let features = vec!["simd".to_string(), "fast".to_string()];
         let feature_hash = "a".repeat(64);
         let contract_hash = "b".repeat(64);
+        let provides = [ProvidedContractInput {
+            contract: "engine",
+            interface_version: 1,
+            contract_hash: &contract_hash,
+            implementation: "sample_core::FastEngine",
+        }];
         let input = || PackageInput {
             crate_name: "sample-core",
             component: "fast",
             version: "1.2.3",
             target: "x86_64-unknown-linux-gnu",
-            contract: "engine",
-            contract_version: 1,
-            contract_hash: &contract_hash,
-            implementation: "sample_core::FastEngine",
+            provides: &provides,
             features: &features,
             default_features: false,
             feature_hash: &feature_hash,
@@ -668,6 +704,12 @@ mod tests {
         let features = vec!["fast".to_string()];
         let feature_hash = feature_hash(&features, false);
         let contract_hash = "b".repeat(64);
+        let provides = [ProvidedContractInput {
+            contract: "engine",
+            interface_version: 1,
+            contract_hash: &contract_hash,
+            implementation: "sample_core::FastEngine",
+        }];
         let manifest = create_manifest(
             &library,
             PackageInput {
@@ -675,10 +717,7 @@ mod tests {
                 component: "fast",
                 version: "1.2.3",
                 target: "x86_64-unknown-linux-gnu",
-                contract: "engine",
-                contract_version: 1,
-                contract_hash: &contract_hash,
-                implementation: "sample_core::FastEngine",
+                provides: &provides,
                 features: &features,
                 default_features: false,
                 feature_hash: &feature_hash,
@@ -726,6 +765,12 @@ mod tests {
         let features = vec!["fast".to_string()];
         let feature_hash = feature_hash(&features, false);
         let contract_hash = "b".repeat(64);
+        let provides = [ProvidedContractInput {
+            contract: "engine",
+            interface_version: 1,
+            contract_hash: &contract_hash,
+            implementation: "sample_core::FastEngine",
+        }];
         let manifest = create_manifest(
             &library,
             PackageInput {
@@ -733,10 +778,7 @@ mod tests {
                 component: "fast",
                 version: "1.2.3",
                 target: "x86_64-unknown-linux-gnu",
-                contract: "engine",
-                contract_version: 1,
-                contract_hash: &contract_hash,
-                implementation: "sample_core::FastEngine",
+                provides: &provides,
                 features: &features,
                 default_features: false,
                 feature_hash: &feature_hash,
@@ -763,9 +805,12 @@ mod tests {
                     feature_hash: "a".repeat(64),
                     contract_hash: "b".repeat(64),
                 },
-                contract: "engine".into(),
-                contract_version: 1,
-                implementation: "core::Engine".into(),
+                provides: vec![ComponentProvidedContract {
+                    contract: "engine".into(),
+                    interface_version: 1,
+                    contract_hash: "b".repeat(64),
+                    implementation: "core::Engine".into(),
+                }],
                 features: vec![],
                 default_features: false,
                 library: ComponentLibrary {
@@ -793,5 +838,90 @@ mod tests {
         .unwrap();
         assert_eq!(lock.artifacts[0].identity.component, "alpha");
         assert!(lock.artifacts[0].url.ends_with("/alpha.tar.gz"));
+        assert_eq!(lock.artifacts[0].mode, ComponentDeliveryMode::Download);
+        assert_eq!(lock.artifacts[0].provides[0].contract, "engine");
+    }
+
+    #[test]
+    fn manifest_records_every_provided_contract_sorted_by_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("libsample_core.so");
+        fs::write(&library, b"native-library").unwrap();
+        let features = vec!["fast".to_string()];
+        let feature_hash = feature_hash(&features, false);
+        let zeta_hash = "b".repeat(64);
+        let alpha_hash = "c".repeat(64);
+        let provides = [
+            ProvidedContractInput {
+                contract: "zeta",
+                interface_version: 1,
+                contract_hash: &zeta_hash,
+                implementation: "sample_core::Zeta",
+            },
+            ProvidedContractInput {
+                contract: "alpha",
+                interface_version: 2,
+                contract_hash: &alpha_hash,
+                implementation: "sample_core::Alpha",
+            },
+        ];
+        let manifest = create_manifest(
+            &library,
+            PackageInput {
+                crate_name: "sample-core",
+                component: "bundle",
+                version: "1.2.3",
+                target: "x86_64-unknown-linux-gnu",
+                provides: &provides,
+                features: &features,
+                default_features: false,
+                feature_hash: &feature_hash,
+            },
+        )
+        .unwrap();
+        assert_eq!(manifest.provides.len(), 2);
+        assert_eq!(manifest.provides[0].contract, "alpha");
+        assert_eq!(manifest.provides[1].contract, "zeta");
+        // Identity carries the first (lexicographically) contract's real hash.
+        assert_eq!(manifest.identity.contract_hash, alpha_hash);
+    }
+
+    #[test]
+    fn manifest_rejects_a_contract_provided_more_than_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let library = temp.path().join("libsample_core.so");
+        fs::write(&library, b"native-library").unwrap();
+        let features: Vec<String> = Vec::new();
+        let feature_hash = feature_hash(&features, false);
+        let hash = "b".repeat(64);
+        let provides = [
+            ProvidedContractInput {
+                contract: "engine",
+                interface_version: 1,
+                contract_hash: &hash,
+                implementation: "sample_core::One",
+            },
+            ProvidedContractInput {
+                contract: "engine",
+                interface_version: 1,
+                contract_hash: &hash,
+                implementation: "sample_core::Two",
+            },
+        ];
+        let error = create_manifest(
+            &library,
+            PackageInput {
+                crate_name: "sample-core",
+                component: "bundle",
+                version: "1.2.3",
+                target: "x86_64-unknown-linux-gnu",
+                provides: &provides,
+                features: &features,
+                default_features: false,
+                feature_hash: &feature_hash,
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("more than once"));
     }
 }
