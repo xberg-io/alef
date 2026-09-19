@@ -713,8 +713,62 @@ pub(super) fn render_php_with_getters(
     getter_map: &PhpGetterMap,
     optional_fields: &HashSet<String>,
 ) -> String {
+    render_php_with_getters_from_owner(
+        segments,
+        result_var,
+        getter_map,
+        optional_fields,
+        getter_map.root_type.clone(),
+    )
+}
+
+/// [`render_php_with_getters`], but for a path that is already relative to a bound collection
+/// element (the closure/loop variable a wildcard fixture path expands to) rather than to the
+/// call's result variable -- `owner_type` is the IR type of THAT element, resolved by
+/// [`php_element_owner_type`], not `getter_map.root_type`. Mirrors
+/// `render_python_element_with_optionals` for the getter-vs-property classification: a result
+/// envelope and its collection elements can classify independently (a scalar `#[php(prop)]` on
+/// one, a `#[php(getter)]`-only field of the same name on the other), so starting the element
+/// cursor at the result root answers the wrong owner's question.
+pub(super) fn render_php_element_with_getters(
+    segments: &[PathSegment],
+    element_var: &str,
+    getter_map: &PhpGetterMap,
+    optional_fields: &HashSet<String>,
+    owner_type: Option<String>,
+) -> String {
+    render_php_with_getters_from_owner(segments, element_var, getter_map, optional_fields, owner_type)
+}
+
+/// The IR type that owns the ELEMENTS of `array_segments` -- e.g. `"StructureItem"` for a
+/// `structure: Vec<StructureItem>` field -- walking `getter_map.field_types` from
+/// `getter_map.root_type` through every segment of the array field's own path, exactly the way
+/// `render_php_with_getters`'s cursor advances. Mirrors `python_element_owner_type`; PHP has no
+/// map-value-edges structure to consult because `PhpGetterMap::advance` already looks up the next
+/// owner by field name alone regardless of segment kind, so a `map[key]` hop advances the same way
+/// a plain field does.
+pub(super) fn php_element_owner_type(array_segments: &[PathSegment], getter_map: &PhpGetterMap) -> Option<String> {
+    let mut current_type = getter_map.root_type.clone();
+    for segment in array_segments {
+        let field_name = match segment {
+            PathSegment::Field(name) | PathSegment::ArrayField { name, .. } => name.as_str(),
+            PathSegment::MapAccess { field, .. } => field.as_str(),
+            PathSegment::Length => continue,
+        };
+        current_type = getter_map.advance(current_type.as_deref(), field_name);
+    }
+    current_type
+}
+
+fn render_php_with_getters_from_owner(
+    segments: &[PathSegment],
+    result_var: &str,
+    getter_map: &PhpGetterMap,
+    optional_fields: &HashSet<String>,
+    owner_type: Option<String>,
+) -> String {
     let mut out = result_var.to_string();
-    let mut current_type: Option<String> = getter_map.root_type.clone();
+    let mut current_type: Option<String> = owner_type;
     let mut path_so_far = String::new();
     // Sticky, same convention as `render_php`: once any segment in the chain is optional,
     // every following access must null-safe-navigate off it.

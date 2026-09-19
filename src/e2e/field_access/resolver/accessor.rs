@@ -1,9 +1,9 @@
 use super::super::ir_enum::enum_type_at_path_from;
 use super::super::optional_renderers::{
-    TypescriptMapAccess, push_key_field_name, push_key_index_suffix, render_csharp_with_optionals,
-    render_dart_with_optionals, render_java_with_optionals, render_kotlin_android_with_optionals,
-    render_kotlin_with_optionals, render_php_with_getters, render_rust_with_optionals,
-    render_typescript_with_optionals, render_zig_with_optionals,
+    TypescriptMapAccess, php_element_owner_type, push_key_field_name, push_key_index_suffix,
+    render_csharp_with_optionals, render_dart_with_optionals, render_java_with_optionals,
+    render_kotlin_android_with_optionals, render_kotlin_with_optionals, render_php_element_with_getters,
+    render_php_with_getters, render_rust_with_optionals, render_typescript_with_optionals, render_zig_with_optionals,
 };
 use super::super::parse::parse_path;
 use super::super::python_renderer::{
@@ -104,6 +104,39 @@ impl FieldResolver {
             &self.optional_fields,
             &self.python_typeddict_map,
             &self.python_map_value_edges,
+            owner_type,
+        )
+    }
+
+    /// PHP-only counterpart to [`Self::element_accessor`], carrying one extra fact
+    /// `render_relative_to`'s php branch has no way to reach: `array_path`, the container
+    /// field a wildcard (`container[].field`) fixture path iterates.
+    ///
+    /// `element_accessor`'s shared `render_relative_to` always renders PHP through
+    /// `render_php_with_getters`, whose getter-vs-property owner cursor starts at
+    /// `self.php_getter_map.root_type` -- the call's RESULT type. That is correct for a
+    /// result-anchored path, but an element-anchored path is owned by the collection's ELEMENT
+    /// type, which can classify differently: a field that is a scalar `#[php(prop)]` on the
+    /// result type can be a `#[php(getter)]`-only field of the same name on the element type (or
+    /// vice versa), and starting the element cursor at the result root rendered a plain property
+    /// access for a field the generated binding only exposes as a getter method --
+    /// `Undefined property` at runtime. This resolves the element owner type by walking
+    /// `array_path` through `php_getter_map.field_types` (via [`php_element_owner_type`]) and
+    /// starts the cursor there instead. Mirrors [`Self::python_element_accessor`] exactly; see its
+    /// doc for why both halves must be derived from the same `array_path`.
+    pub fn php_element_accessor(&self, element_path: &str, array_path: &str, element_var: &str) -> String {
+        let array_effective = self.result_relative_path(array_path);
+        let array_segments = parse_path(&array_effective);
+        let owner_type = php_element_owner_type(&array_segments, &self.php_getter_map);
+
+        let effective = self.resolve(element_path);
+        let segments = parse_path(effective);
+        let segments = self.inject_array_indexing(segments);
+        render_php_element_with_getters(
+            &segments,
+            element_var,
+            &self.php_getter_map,
+            &self.optional_fields,
             owner_type,
         )
     }

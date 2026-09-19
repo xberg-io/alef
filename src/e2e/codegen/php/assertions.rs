@@ -302,9 +302,14 @@ pub(super) fn render_assertion(
         } else {
             raw_array_accessor
         };
-        // `element_accessor`, not `accessor`: the path is already element-relative, so the
-        // result-anchoring `accessor` applies would re-prefix it with the container. ~keep
-        let elem_accessor = field_resolver.element_accessor(&elem_part, "php", "$e");
+        // `php_element_accessor`, not `accessor`: the path is already element-relative, so the
+        // result-anchoring `accessor` applies would re-prefix it with the container. It also
+        // isn't the generic cross-language `element_accessor`: that anchors PHP's
+        // getter-vs-property owner cursor at the call's RESULT type, which answers a different
+        // question than "is the ELEMENT type's field a getter" whenever a result envelope and its
+        // collection elements classify differently -- `php_element_accessor` takes `array_part` so
+        // it can resolve the actual element owner type instead. ~keep
+        let elem_accessor = field_resolver.php_element_accessor(&elem_part, &array_part, "$e");
         match assertion.assertion_type.as_str() {
             "contains" | "contains_all" | "not_contains" => {
                 let assert_fn = if assertion.assertion_type == "not_contains" {

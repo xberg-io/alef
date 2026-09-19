@@ -390,6 +390,8 @@ pub use stubs::{emit_test_backend, emit_test_backend_with_ns};
 #[cfg(test)]
 mod assertion_wildcard_element_tests;
 #[cfg(test)]
+mod assertion_wildcard_getter_tests;
+#[cfg(test)]
 mod composer_autoload_tests;
 #[cfg(all(test, unix))]
 mod install_sh_execution_tests;

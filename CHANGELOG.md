@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Trait bridge lookup now prefers a matching type alias over a shared parameter name for each function parameter. Configuration order no longer routes a typed callback to another trait; name-only fallback, parameter order, and options-field exclusions remain unchanged.
 - Magnus: generated tagged-enum Data payload readers now read the stored member instead of calling a nonexistent superclass method. Newtype and named fields retain their payloads, including false and nil. A non-ignored regression executes generated classes with Ruby and sorbet-runtime, both installed in the CI test matrix.
+- PHP e2e: a wildcard (`container[].field`) assertion's element half now resolves getter-vs-property classification against the collection's element type instead of the call's result type. A field that is a `#[php(getter)]`-only method on the element type but does not exist (or is scalar) on the result type rendered as a plain property access and failed at runtime with `Undefined property`.
 
 ## [0.92.1] - 2026-09-18
 
