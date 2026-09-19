@@ -200,6 +200,50 @@ impl<T: AlefContract> Drop for ComponentInstance<T> {
     }
 }
 
+/// Copy an owned buffer's bytes into a `Vec<u8>` and release the original
+/// allocation through its own `free` callback.
+///
+/// Generated contract proxies use this to convert a component's
+/// `AlefOwnedBuffer` results into owned Rust values without re-implementing
+/// buffer ownership handling in every generated snippet.
+///
+/// # Safety
+///
+/// `buffer` must be a valid `AlefOwnedBuffer`: `ptr` must be non-null and
+/// valid for `len` bytes whenever `len > 0`, and `free` (if present) must be
+/// safe to call with this buffer's own `context`, `ptr`, `len`, and
+/// `capacity`.
+#[must_use]
+pub unsafe fn take_owned_bytes(buffer: AlefOwnedBuffer) -> Vec<u8> {
+    let bytes = if buffer.ptr.is_null() || buffer.len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: upheld by this function's caller contract.
+        unsafe { core::slice::from_raw_parts(buffer.ptr, buffer.len) }.to_vec()
+    };
+    if let Some(free) = buffer.free {
+        // SAFETY: upheld by this function's caller contract.
+        unsafe { free(buffer.context, buffer.ptr, buffer.len, buffer.capacity) };
+    }
+    bytes
+}
+
+/// Like [`take_owned_bytes`], but lossily decodes the bytes as UTF-8.
+///
+/// Generated proxies use this to turn a component's error buffer into a
+/// `String` for constructing the contract's error type; a component that
+/// returns non-UTF-8 error text gets a replacement-character message instead
+/// of a panic or a dropped allocation.
+///
+/// # Safety
+///
+/// Same obligations as [`take_owned_bytes`].
+#[must_use]
+pub unsafe fn take_owned_text(buffer: AlefOwnedBuffer) -> String {
+    // SAFETY: upheld by this function's caller contract.
+    String::from_utf8_lossy(&unsafe { take_owned_bytes(buffer) }).into_owned()
+}
+
 unsafe fn take_owned_buffer(buffer: AlefOwnedBuffer) -> String {
     let message = if buffer.ptr.is_null() {
         if buffer.len == 0 {
