@@ -2,6 +2,8 @@
 
 #![no_std]
 
+extern crate alloc;
+
 use core::ffi::{c_char, c_void};
 
 pub const ABI_MAJOR_V1: u32 = 1;
@@ -144,6 +146,9 @@ pub type AlefComponentEntryV1 = unsafe extern "C" fn(
 pub unsafe trait AlefContract {
     const CONTRACT_HASH: [u8; 32];
 }
+
+mod registry;
+pub use registry::{ContractRegistry, provider, register_provider};
 
 #[cfg(test)]
 mod tests {
