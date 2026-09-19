@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 use crate::core::config::GenerateConfig;
 use crate::core::config::SourceCrate;
 use crate::core::config::cargo_lints::CargoLintsConfig;
-use crate::core::config::component::{ComponentContractConfig, ComponentDistributionConfig, ComponentProfileConfig};
+use crate::core::config::component::{ComponentConfig, ComponentContractConfig, ComponentDistributionConfig};
 use crate::core::config::dto::DtoConfig;
 use crate::core::config::e2e::E2eConfig;
 use crate::core::config::extras::{AdapterConfig, Language};
@@ -90,7 +90,7 @@ pub struct ResolvedCrateConfig {
     pub error_constructor: Option<String>,
     pub features: Vec<String>,
     pub component_contracts: Vec<ComponentContractConfig>,
-    pub components: Vec<ComponentProfileConfig>,
+    pub components: Vec<ComponentConfig>,
     pub component_distribution: Option<ComponentDistributionConfig>,
     pub path_mappings: HashMap<String, String>,
     pub extra_dependencies: HashMap<String, toml::Value>,

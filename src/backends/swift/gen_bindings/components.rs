@@ -93,18 +93,21 @@ public func componentCachePath(_ component: String) throws -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::ComponentProfileConfig;
+    use crate::core::config::{ComponentConfig, ComponentProvidesConfig};
 
     #[test]
     fn emits_public_swift_api_with_explicit_mobile_exclusion() {
         let config = ResolvedCrateConfig {
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo_core::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo_core::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["aarch64-apple-darwin".into()],
+                targets: Some(vec!["aarch64-apple-darwin".into()]),
+                bundled_on: Vec::new(),
             }],
             ..ResolvedCrateConfig::default()
         };

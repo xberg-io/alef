@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::abi_grammar;
+use super::component::{ComponentConfig, ComponentDistributionConfig};
 use super::extras::{Language, is_known_language};
 use super::languages::FfiConfig;
 use super::output::{GeneratedHeaderConfig, ScaffoldConfig, validate_output_path, validate_output_segment};
@@ -77,6 +78,11 @@ pub struct NewAlefConfig {
     /// Workspace-level shared defaults.
     #[serde(default)]
     pub workspace: WorkspaceConfig,
+    /// Default download and signature-verification settings for downloadable native
+    /// components, shared by every crate unless overridden by `[crates.component_distribution]`.
+    /// See [`ComponentDistributionConfig::merge`] for the per-field override rule.
+    #[serde(default)]
+    pub component_distribution: Option<ComponentDistributionConfig>,
     /// One entry per independently published binding package.
     pub crates: Vec<RawCrateConfig>,
     /// Opaque per-extension configuration tables. alef does not interpret these;
@@ -315,7 +321,11 @@ impl NewAlefConfig {
             .map(|raw| validate_crate_attribute(&krate.name, raw))
             .collect::<Result<Vec<String>, ResolveError>>()?;
 
-        validate_components(krate)?;
+        let component_distribution = ComponentDistributionConfig::merge(
+            self.component_distribution.as_ref(),
+            krate.component_distribution.as_ref(),
+        );
+        validate_components(krate, component_distribution.as_ref())?;
 
         // Deliberately NOT resolved here: rebasing a `from_registry = true` entry shells out to
         // `cargo metadata`, and `resolve()` runs for every subcommand, including ones (e.g.
@@ -358,7 +368,7 @@ impl NewAlefConfig {
             features: krate.features.clone(),
             component_contracts: krate.component_contracts.clone(),
             components: krate.components.clone(),
-            component_distribution: krate.component_distribution.clone(),
+            component_distribution,
             path_mappings: krate.path_mappings.clone(),
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
@@ -805,7 +815,10 @@ fn validate_package_like_field(crate_name: &str, value: Option<&str>, label: &st
         .map_err(|detail| ResolveError::InvalidConfig(format!("crate `{crate_name}`: invalid {label}: {detail}")))
 }
 
-fn validate_components(krate: &RawCrateConfig) -> Result<(), ResolveError> {
+fn validate_components(
+    krate: &RawCrateConfig,
+    component_distribution: Option<&ComponentDistributionConfig>,
+) -> Result<(), ResolveError> {
     let mut contract_names = std::collections::HashSet::new();
     for contract in &krate.component_contracts {
         validate_component_name(&krate.name, "contract", &contract.name)?;
@@ -828,31 +841,77 @@ fn validate_components(krate: &RawCrateConfig) -> Result<(), ResolveError> {
     for component in &krate.components {
         validate_component_name(&krate.name, "component", &component.name)?;
         if !component_names.insert(component.name.as_str()) {
-            return invalid_component_config(&krate.name, format!("duplicate component profile `{}`", component.name));
+            return invalid_component_config(&krate.name, format!("duplicate component `{}`", component.name));
         }
-        if !contract_names.contains(component.contract.as_str()) {
+        validate_component_provides(&krate.name, component, &contract_names)?;
+        validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
+        validate_component_targets(&krate.name, component)?;
+    }
+
+    validate_component_distribution(&krate.name, component_distribution)
+}
+
+fn validate_component_provides(
+    crate_name: &str,
+    component: &ComponentConfig,
+    contract_names: &std::collections::HashSet<&str>,
+) -> Result<(), ResolveError> {
+    if component.provides.is_empty() {
+        return invalid_component_config(
+            crate_name,
+            format!(
+                "component `{}` must declare at least one entry in `provides`",
+                component.name
+            ),
+        );
+    }
+    let mut provided = std::collections::HashSet::new();
+    for entry in &component.provides {
+        if !contract_names.contains(entry.contract.as_str()) {
             return invalid_component_config(
-                &krate.name,
+                crate_name,
                 format!(
                     "component `{}` references unknown contract `{}`",
-                    component.name, component.contract
+                    component.name, entry.contract
                 ),
             );
         }
-        validate_rust_item_path(&krate.name, "component implementation", &component.implementation)?;
-        validate_nonempty_values(&krate.name, &component.name, "features", &component.features)?;
-        validate_nonempty_values(&krate.name, &component.name, "targets", &component.targets)?;
-        for target in &component.targets {
-            if !crate::core::config::component::SUPPORTED_COMPONENT_TARGETS.contains(&target.as_str()) {
-                return invalid_component_config(
-                    &krate.name,
-                    format!("component `{}` uses unsupported v1 target `{target}`", component.name),
-                );
-            }
+        if !provided.insert(entry.contract.as_str()) {
+            return invalid_component_config(
+                crate_name,
+                format!(
+                    "component `{}` provides contract `{}` more than once",
+                    component.name, entry.contract
+                ),
+            );
+        }
+        validate_rust_item_path(crate_name, "component implementation", &entry.implementation)?;
+    }
+    Ok(())
+}
+
+fn validate_component_targets(crate_name: &str, component: &ComponentConfig) -> Result<(), ResolveError> {
+    let Some(targets) = component.targets.as_ref() else {
+        return Ok(());
+    };
+    for target in targets {
+        if !crate::core::config::component::SUPPORTED_COMPONENT_TARGETS.contains(&target.as_str()) {
+            return invalid_component_config(
+                crate_name,
+                format!("component `{}` uses unsupported v1 target `{target}`", component.name),
+            );
+        }
+        if component.bundled_on.iter().any(|bundled| bundled == target) {
+            return invalid_component_config(
+                crate_name,
+                format!(
+                    "component `{}` target `{target}` is listed in both `targets` and `bundled_on`",
+                    component.name
+                ),
+            );
         }
     }
-
-    validate_component_distribution(krate)
+    Ok(())
 }
 
 fn validate_component_name(crate_name: &str, kind: &str, name: &str) -> Result<(), ResolveError> {
@@ -904,8 +963,11 @@ fn validate_nonempty_values(
     )
 }
 
-fn validate_component_distribution(krate: &RawCrateConfig) -> Result<(), ResolveError> {
-    let Some(distribution) = krate.component_distribution.as_ref() else {
+fn validate_component_distribution(
+    crate_name: &str,
+    distribution: Option<&ComponentDistributionConfig>,
+) -> Result<(), ResolveError> {
+    let Some(distribution) = distribution else {
         return Ok(());
     };
     let url_template = distribution.url_template.trim();
@@ -913,31 +975,31 @@ fn validate_component_distribution(krate: &RawCrateConfig) -> Result<(), Resolve
         .strip_prefix("https://")
         .and_then(|remainder| remainder.split('/').next());
     if authority.is_none_or(|value| value.is_empty() || value.chars().any(char::is_whitespace)) {
-        return invalid_component_config(&krate.name, "component distribution url_template must use HTTPS");
+        return invalid_component_config(crate_name, "component distribution url_template must use HTTPS");
     }
     for placeholder in ["component", "version", "target", "artifact"] {
         if !url_template.contains(&format!("{{{placeholder}}}")) {
             return invalid_component_config(
-                &krate.name,
+                crate_name,
                 format!("component distribution url_template must contain `{{{placeholder}}}`"),
             );
         }
     }
     if distribution.public_keys.is_empty() {
         return invalid_component_config(
-            &krate.name,
+            crate_name,
             "component distribution must declare at least one public key",
         );
     }
 
     for (key_id, encoded_key) in &distribution.public_keys {
-        validate_component_name(&krate.name, "component distribution public key", key_id)?;
+        validate_component_name(crate_name, "component distribution public key", key_id)?;
         // Shared with `alef-component-runtime`'s loader and `alef`'s artifact verification
         // so a key that validates here is guaranteed to also decode when the lock is
         // loaded -- see `alef_component_runtime::decode_public_key`.
         if alef_component_runtime::decode_public_key(encoded_key).is_err() {
             return invalid_component_config(
-                &krate.name,
+                crate_name,
                 format!(
                     "component distribution public key `{key_id}` must be a PEM or base64-encoded \
                      (standard or unpadded) DER/raw 32-byte Ed25519 public key"

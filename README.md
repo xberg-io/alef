@@ -173,11 +173,14 @@ README and API doc files are owned by `alef readme` and `alef docs`.
 ## Downloadable Native Components
 
 Alef can split fixed Cargo feature profiles into signed native components instead of putting every
-feature combination in every wheel. A contract is an explicitly selected Rust trait; Alef generates a
-versioned C function table for it, a producer `cdylib`, and a host runtime. Component implementation
-types currently construct through `Default`. Only C-compatible scalar,
-UTF-8, byte-buffer, and opaque-handle representations cross the dynamic-library boundary—never Rust
-trait objects or Rust-owned layouts.
+feature combination in every wheel. A component is the deployable unit -- one Cargo feature set
+built into one signed prebuilt artifact per target -- modelled on Python extras but
+language-neutral; it *provides* one or more contracts. A contract is an explicitly selected Rust
+trait; Alef generates a versioned C function table for it, one producer entrypoint per contract in
+the component's `cdylib`, and a host runtime. Component implementation types currently construct
+through `Default`. Only C-compatible scalar, UTF-8, byte-buffer, and opaque-handle representations
+cross the dynamic-library boundary—never Rust trait objects or Rust-owned layouts. A component's
+version always tracks the core crate's version; components are not versioned independently.
 
 ```toml
 [[crates.component_contracts]]
@@ -187,18 +190,28 @@ interface_version = 1
 
 [[crates.components]]
 name = "cuda"
-contract = "engine"
-implementation = "my_core::CudaEngine"
+provides = [{ contract = "engine", implementation = "my_core::CudaEngine" }]
 features = ["cuda"]
 default_features = false
+# Optional: defaults to every supported target enabled by [targets], minus bundled_on.
 targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+# Optional: targets/platforms where downloading is unsupported and the component must
+# instead be linked into the binding (not yet implemented by any backend).
+bundled_on = []
 
-[crates.component_distribution]
+[component_distribution]
 url_template = "https://downloads.example.com/{component}/{version}/{target}/{artifact}"
 
-[crates.component_distribution.public_keys]
+[component_distribution.public_keys]
 release-2026 = "BASE64_ENCODED_32_BYTE_ED25519_PUBLIC_KEY"
 ```
+
+`[component_distribution]` may also be set per crate as `[crates.component_distribution]`, which
+overrides the workspace default field by field (a crate-level `url_template` replaces the workspace
+one; a crate-level public key overrides a workspace key with the same ID, and workspace-only keys
+are kept). A component may provide more than one contract; a component provides each contract at
+most once, though the same contract may be provided by more than one component under different
+feature sets.
 
 Generate/scaffold first, then build and sign each configured target in CI:
 

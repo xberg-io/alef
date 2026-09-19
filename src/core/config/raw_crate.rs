@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use super::SourceCrate;
 use super::cargo_lints::CargoLintsConfig;
-use super::component::{ComponentContractConfig, ComponentDistributionConfig, ComponentProfileConfig};
+use super::component::{ComponentConfig, ComponentContractConfig, ComponentDistributionConfig};
 use super::e2e::E2eConfig;
 use super::extras::{AdapterConfig, Language};
 use super::languages::{
@@ -89,9 +89,11 @@ pub struct RawCrateConfig {
 
     /// Feature-set-specific downloadable component builds.
     #[serde(default)]
-    pub components: Vec<ComponentProfileConfig>,
+    pub components: Vec<ComponentConfig>,
 
-    /// Shared download and signature-verification settings for components.
+    /// Download and signature-verification settings for this crate's components,
+    /// merged field by field over `[workspace] component_distribution` -- see
+    /// [`ComponentDistributionConfig::merge`].
     #[serde(default)]
     pub component_distribution: Option<ComponentDistributionConfig>,
 

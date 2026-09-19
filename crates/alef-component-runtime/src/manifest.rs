@@ -2,8 +2,33 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-pub const COMPONENT_MANIFEST_SCHEMA: u32 = 1;
+pub const COMPONENT_MANIFEST_SCHEMA: u32 = 2;
 pub const COMPONENT_ABI_VERSION: u32 = 1;
+
+/// One contract a component provides, alongside the Rust type implementing it.
+///
+/// A component may provide more than one contract (one producer entrypoint per
+/// contract); each entry keeps its own `contract_hash` so a change to any single
+/// contract's ABI is independently detectable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComponentProvidedContract {
+    pub contract: String,
+    pub interface_version: u32,
+    pub contract_hash: String,
+    pub implementation: String,
+}
+
+/// Whether a component is downloaded on demand or must be linked into the binding
+/// ahead of time. `alef`'s config-resolution code (`alef::codegen::component`) re-exports
+/// this type and exposes it on the resolved component config as a forward-looking
+/// hook; no loader or backend acts on `Bundled` yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComponentDeliveryMode {
+    Download,
+    Bundled,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13,6 +38,11 @@ pub struct ComponentIdentity {
     pub version: String,
     pub target: String,
     pub feature_hash: String,
+    /// Hash of the first (lexicographically, by contract name) contract this
+    /// component provides. For a component providing exactly one contract --
+    /// the only shape the v1 loader fully validates today -- this is that
+    /// contract's real hash. See [`ComponentManifest::provides`] for the
+    /// complete, per-contract list.
     pub contract_hash: String,
 }
 
@@ -30,9 +60,8 @@ pub struct ComponentManifest {
     pub schema_version: u32,
     pub abi_version: u32,
     pub identity: ComponentIdentity,
-    pub contract: String,
-    pub contract_version: u32,
-    pub implementation: String,
+    /// Every contract this component provides, sorted by contract name.
+    pub provides: Vec<ComponentProvidedContract>,
     pub features: Vec<String>,
     pub default_features: bool,
     pub library: ComponentLibrary,
@@ -83,6 +112,13 @@ pub struct ComponentLock {
 #[serde(deny_unknown_fields)]
 pub struct ComponentLockEntry {
     pub identity: ComponentIdentity,
+    /// Every contract this component provides, mirrored from the manifest so
+    /// a consumer can inspect them without downloading and parsing the archive.
+    pub provides: Vec<ComponentProvidedContract>,
+    /// Whether `identity.target` downloads this artifact or must link it into the
+    /// binding. Every entry produced by `alef component lock` today is `Download`;
+    /// no backend builds or locks a `Bundled` artifact yet.
+    pub mode: ComponentDeliveryMode,
     pub url: String,
     pub sha256: String,
     pub size: u64,

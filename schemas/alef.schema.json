@@ -1226,6 +1226,60 @@
       ],
       "type": "object"
     },
+    "ComponentConfig": {
+      "additionalProperties": false,
+      "description": "One deployable unit: a fixed Cargo feature set built into a single signed\nprebuilt artifact per target, providing one or more [`ComponentContractConfig`]s.\n\nModelled on Python extras but language-neutral: the core crate ships small,\nand a component is the thing a consumer opts into downloading.",
+      "properties": {
+        "bundled_on": {
+          "default": [],
+          "description": "Targets/platforms for which downloading component code is unsupported\n(e.g. mobile/wasm hosts) and the component must instead be linked\ndirectly into the binding. Not implemented by any backend yet -- this\nonly shapes config, validation, and the lock file's per-target\n`mode` so backends have a typed switch to read later.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_features": {
+          "default": false,
+          "description": "Whether the core crate's default Cargo features are also enabled.",
+          "type": "boolean"
+        },
+        "features": {
+          "description": "Exact Cargo feature set enabled for this component.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Stable component name used in manifests and release assets.",
+          "type": "string"
+        },
+        "provides": {
+          "description": "Contracts this component implements. Must declare at least one entry;\na component provides each contract at most once, though the same\ncontract may be provided by more than one component under different\nfeature sets.",
+          "items": {
+            "$ref": "#/$defs/ComponentProvidesConfig"
+          },
+          "type": "array"
+        },
+        "targets": {
+          "default": null,
+          "description": "Rust target triples for which this component is built and published.\n\nDefaults to every target in [`SUPPORTED_COMPONENT_TARGETS`] enabled by\nthe crate's `[targets]` table, minus anything listed in `bundled_on`.\nAn explicit list must be a subset of [`SUPPORTED_COMPONENT_TARGETS`]\nand must not overlap `bundled_on`.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "provides",
+        "features"
+      ],
+      "type": "object"
+    },
     "ComponentContractConfig": {
       "additionalProperties": false,
       "description": "A stable component interface authored as a Rust trait.",
@@ -1238,7 +1292,7 @@
           "type": "integer"
         },
         "name": {
-          "description": "Stable name referenced by component profiles.",
+          "description": "Stable name referenced by components.",
           "type": "string"
         },
         "trait_path": {
@@ -1254,68 +1308,40 @@
     },
     "ComponentDistributionConfig": {
       "additionalProperties": false,
-      "description": "Distribution settings shared by every component profile in a crate.",
+      "description": "Distribution settings shared by every component in a crate.\n\nMay be declared at the workspace level (`[component_distribution]`), the\ncrate level (`[crates.component_distribution]`), or both; see [`Self::merge`].",
       "properties": {
         "public_keys": {
           "additionalProperties": {
             "type": "string"
           },
+          "default": {},
           "description": "Trusted public keys accepted when verifying component manifests.",
           "type": "object"
         },
         "url_template": {
+          "default": "",
           "description": "URL template used to locate a component artifact or release manifest.",
           "type": "string"
         }
       },
-      "required": [
-        "url_template",
-        "public_keys"
-      ],
       "type": "object"
     },
-    "ComponentProfileConfig": {
+    "ComponentProvidesConfig": {
       "additionalProperties": false,
-      "description": "One feature-set-specific native component build.",
+      "description": "One contract a component implements, and the Rust type that implements it.",
       "properties": {
         "contract": {
           "description": "Name of an entry in `component_contracts`.",
           "type": "string"
         },
-        "default_features": {
-          "default": false,
-          "description": "Whether the core crate's default Cargo features are also enabled.",
-          "type": "boolean"
-        },
-        "features": {
-          "description": "Exact Cargo feature set enabled for this component.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "implementation": {
           "description": "Fully-qualified Rust path to the type implementing the contract trait.",
           "type": "string"
-        },
-        "name": {
-          "description": "Stable component name used in manifests and release assets.",
-          "type": "string"
-        },
-        "targets": {
-          "description": "Rust target triples for which this component is built and published.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         }
       },
       "required": [
-        "name",
         "contract",
-        "implementation",
-        "features",
-        "targets"
+        "implementation"
       ],
       "type": "object"
     },
@@ -5549,13 +5575,13 @@
             }
           ],
           "default": null,
-          "description": "Shared download and signature-verification settings for components."
+          "description": "Download and signature-verification settings for this crate's components,\nmerged field by field over `[workspace] component_distribution` -- see\n[`ComponentDistributionConfig::merge`]."
         },
         "components": {
           "default": [],
           "description": "Feature-set-specific downloadable component builds.",
           "items": {
-            "$ref": "#/$defs/ComponentProfileConfig"
+            "$ref": "#/$defs/ComponentConfig"
           },
           "type": "array"
         },
@@ -8383,6 +8409,18 @@
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
   "properties": {
+    "component_distribution": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ComponentDistributionConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default download and signature-verification settings for downloadable native\ncomponents, shared by every crate unless overridden by `[crates.component_distribution]`.\nSee [`ComponentDistributionConfig::merge`] for the per-field override rule."
+    },
     "crates": {
       "description": "One entry per independently published binding package.",
       "items": {

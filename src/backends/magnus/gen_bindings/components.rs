@@ -34,7 +34,7 @@ fn component_cache_path(component: String) -> Result<String, magnus::Error> {{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::{ComponentContractConfig, ComponentProfileConfig};
+    use crate::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig};
 
     #[test]
     fn exposes_ruby_component_operations_from_package_root_lock() {
@@ -45,13 +45,16 @@ mod tests {
                 trait_path: "demo_core::Engine".into(),
                 interface_version: 1,
             }],
-            components: vec![ComponentProfileConfig {
+            components: vec![ComponentConfig {
                 name: "fast".into(),
-                contract: "engine".into(),
-                implementation: "demo_core::FastEngine".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "engine".into(),
+                    implementation: "demo_core::FastEngine".into(),
+                }],
                 features: vec!["fast".into()],
                 default_features: false,
-                targets: vec!["x86_64-unknown-linux-gnu".into()],
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
             }],
             ..ResolvedCrateConfig::default()
         };
