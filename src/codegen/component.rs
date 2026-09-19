@@ -29,6 +29,12 @@ pub struct ComponentMethodIr {
     pub params: Vec<ComponentParamIr>,
     pub result: WireType,
     pub fallible: bool,
+    /// The trait method's declared error type name (e.g. `"Error"`), when `fallible`.
+    ///
+    /// The producer only needs `fallible` to decide whether to emit an error slot; a
+    /// host-side proxy additionally needs this name to construct a typed error from the
+    /// message a component returns on failure.
+    pub error_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -362,6 +368,7 @@ fn map_method(
         params,
         result: map_type(api, &method.return_type, records, enums)?,
         fallible: method.error_type.is_some(),
+        error_type: method.error_type.clone(),
     })
 }
 
