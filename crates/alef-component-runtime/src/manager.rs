@@ -1,8 +1,8 @@
 use crate::loader::{decode_hash, validate_manifest};
 use crate::manifest::COMPONENT_MANIFEST_SCHEMA;
 use crate::{
-    ArtifactCache, CachedArtifact, ComponentError, ComponentLock, ComponentLockEntry, ComponentRequirements,
-    LoadedComponent, TrustPolicy,
+    ArtifactCache, CachedArtifact, ComponentDeliveryMode, ComponentError, ComponentLock, ComponentLockEntry,
+    ComponentRequirements, LoadedComponent, TrustPolicy,
 };
 use alef_component_abi::AlefHostApiV1;
 use std::collections::HashMap;
@@ -116,13 +116,25 @@ impl ComponentManager {
         &self.target
     }
 
+    /// Look up a component's lock entry for this manager's target.
+    ///
+    /// Every caller (`ensure`, `prefetch`, `status`, `cache_path`) reaches the
+    /// cache only through this method, so a `Bundled` entry -- one this manager
+    /// cannot download -- is rejected here, before any cache I/O runs.
     fn entry(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
-        self.entries
+        let entry = self
+            .entries
             .get(component_id)
             .ok_or_else(|| ComponentError::ArtifactNotFound {
                 component_id: component_id.to_owned(),
                 target: self.target.clone(),
-            })
+            })?;
+        if entry.mode == ComponentDeliveryMode::Bundled {
+            return Err(ComponentError::BundledComponentNotLoadable {
+                component: component_id.to_owned(),
+            });
+        }
+        Ok(entry)
     }
 }
 
@@ -152,6 +164,10 @@ mod tests {
     }
 
     fn lock(target: &str) -> ComponentLock {
+        lock_with_mode(target, ComponentDeliveryMode::Download)
+    }
+
+    fn lock_with_mode(target: &str, mode: ComponentDeliveryMode) -> ComponentLock {
         ComponentLock {
             schema_version: COMPONENT_MANIFEST_SCHEMA,
             public_keys: BTreeMap::new(),
@@ -170,7 +186,7 @@ mod tests {
                     contract_hash: hex::encode([1; 32]),
                     implementation: "demo::Demo".into(),
                 }],
-                mode: crate::ComponentDeliveryMode::Download,
+                mode,
                 url: "file:///does/not/exist".into(),
                 sha256: hex::encode([3; 32]),
                 size: 0,
@@ -212,5 +228,38 @@ mod tests {
             ComponentManager::from_lock(lock, dir.path(), "target-a", host()),
             Err(ComponentError::DuplicateLockEntry { .. })
         ));
+    }
+
+    #[test]
+    fn bundled_component_is_rejected_before_touching_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(
+            lock_with_mode("target-a", ComponentDeliveryMode::Bundled),
+            dir.path(),
+            "target-a",
+            host(),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            manager.ensure("demo"),
+            Err(ComponentError::BundledComponentNotLoadable { .. })
+        ));
+        assert!(matches!(
+            manager.status("demo"),
+            Err(ComponentError::BundledComponentNotLoadable { .. })
+        ));
+        assert!(matches!(
+            manager.prefetch(&["demo"]),
+            Err(ComponentError::BundledComponentNotLoadable { .. })
+        ));
+        assert!(matches!(
+            manager.cache_path("demo"),
+            Err(ComponentError::BundledComponentNotLoadable { .. })
+        ));
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "a bundled component must never touch the cache directory"
+        );
     }
 }
