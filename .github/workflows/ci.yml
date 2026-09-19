@@ -109,7 +109,7 @@ jobs:
       - name: Set up Ruby for generated Data regression
         uses: ruby/setup-ruby@a0102e0972be65f351c307e2d64b9314a57c8073 # v1.324.0
         with:
-          ruby-version: "3.4"
+          ruby-version: "4.0"
       - name: Install generated Ruby runtime dependency
         run: gem install sorbet-runtime --version 0.6.13506 --no-document
       - name: Install generated Python type checker
