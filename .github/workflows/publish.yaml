@@ -688,7 +688,7 @@ jobs:
       - name: Publish to crates.io
         uses: xberg-io/actions/publish-crates@v1
         with:
-          crates: alef
+          crates: alef-component-abi alef-component-runtime alef
           version: ${{ needs.prepare.outputs.version }}
           dry-run: ${{ needs.prepare.outputs.dry_run }}
 

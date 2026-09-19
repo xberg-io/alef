@@ -1,13 +1,13 @@
 [package]
 name = "alef-component-runtime"
-version = "0.58.1"
+version = "0.93.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 description = "Verified downloader and dynamic loader for Alef native components"
 
 [dependencies]
-alef-component-abi = { path = "../alef-component-abi", version = "0.58.1" }
+alef-component-abi = { path = "../alef-component-abi", version = "0.93.1" }
 base64 = "0.23"
 ed25519-dalek = { version = "2", features = ["pem", "pkcs8"] }
 flate2 = "1"
