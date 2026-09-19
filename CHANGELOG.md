@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve explicit null assertion values when loading and round-tripping e2e fixtures, while keeping omitted expected values absent.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed
