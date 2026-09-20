@@ -83,6 +83,14 @@ pub(crate) fn run(
             continue;
         }
         let module_path = call_config.module.replace('-', "_");
+        // Calls may deliberately target a binding-side fixture helper (for example
+        // `native_merge_fixture`) rather than the extracted Rust crate. Only the
+        // crate's own module is represented by `ApiSurface`; validating an external
+        // helper against it rejects valid e2e configurations before generation starts.
+        let owned_module = resolved_cfg.name.replace('-', "_");
+        if module_path != owned_module {
+            continue;
+        }
         let function_name = &call_config.function;
         match crate::extract::validate_call_export(api, &module_path, function_name) {
             crate::extract::ExportValidation::Ok => {}

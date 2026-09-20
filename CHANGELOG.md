@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PyO3 trait bridges now support fallible `Arc<dyn Trait>` parameters.** Callback-only DTOs seed reverse-conversion discovery, and generated optional or required bridges construct the host with `PyResult`-safe error handling without introducing an unnecessary mutex.
 
+- **E2E call validation now ignores binding-side fixture helpers outside the crate's owned API surface.**
+  Calls targeting a configured external helper remain available to generated test applications without
+  being rejected as missing exports from the extracted crate API.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed
