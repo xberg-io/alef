@@ -40,7 +40,9 @@ use alef::codegen::component_proxy::generate_component_proxies;
 use alef::component::artifact::{PackageInput, ProvidedContractInput, create_manifest, feature_hash, write_package};
 use alef::core::backend::Backend;
 use alef::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use alef::core::ir::{
+    ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,6 +65,7 @@ alef-component-abi = {{ path = {abi:?} }}
 const CORE_SOURCE: &str = r#"
 pub trait Codec: Send + Sync {
     fn transform(&self, input: &[u8]) -> Result<Vec<u8>, Error>;
+    fn describe(&self, request: Request, extra: Vec<u8>) -> Response;
 }
 
 #[derive(Debug)]
@@ -82,12 +85,41 @@ impl std::fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// A record with an optional field, so the wire format's `Option<T>`
+/// encoding is exercised inside a `Record` rather than as a bare param.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Request {
+    pub label: String,
+    pub weight: Option<u32>,
+}
+
+/// A record returned by value, with a fieldless-enum field so `describe`
+/// exercises the `Record` and `Enum` wire encodings on the result side too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Response {
+    pub label: String,
+    pub total_len: u32,
+    pub kind: Kind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Empty,
+    NonEmpty,
+}
+
 /// Core-crate code that never sees a `LoadedComponent`: it only knows the contract trait and
 /// looks up whatever the host activated for it.
 pub fn transform(input: &[u8]) -> Result<Vec<u8>, Error> {
     alef_component_abi::provider::<dyn Codec>("codec")
         .ok_or_else(|| Error("codec component is not activated".to_string()))?
         .transform(input)
+}
+
+pub fn describe(request: Request, extra: Vec<u8>) -> Result<Response, String> {
+    Ok(alef_component_abi::provider::<dyn Codec>("codec")
+        .ok_or_else(|| "codec component is not activated".to_string())?
+        .describe(request, extra))
 }
 "#;
 
@@ -102,6 +134,12 @@ struct ReverseCodec;
 impl demo_core::Codec for ReverseCodec {
     fn transform(&self, input: &[u8]) -> Result<Vec<u8>, demo_core::Error> {
         Ok(input.iter().rev().copied().collect())
+    }
+
+    fn describe(&self, request: demo_core::Request, extra: Vec<u8>) -> demo_core::Response {
+        let total_len = request.label.len() as u32 + request.weight.unwrap_or(0) + extra.len() as u32;
+        let kind = if extra.is_empty() { demo_core::Kind::Empty } else { demo_core::Kind::NonEmpty };
+        demo_core::Response { label: request.label, total_len, kind }
     }
 }
 "#;
@@ -132,25 +170,101 @@ fn codec_api_surface() -> ApiSurface {
     ApiSurface {
         crate_name: "demo_core".into(),
         version: "1.0.0".into(),
-        types: vec![TypeDef {
-            name: "Codec".into(),
-            rust_path: "demo_core::Codec".into(),
-            is_trait: true,
-            is_opaque: true,
-            methods: vec![MethodDef {
-                name: "transform".into(),
-                params: vec![ParamDef {
-                    name: "input".into(),
-                    ty: TypeRef::Bytes,
-                    is_ref: true,
-                    ..ParamDef::default()
-                }],
-                return_type: TypeRef::Bytes,
-                receiver: Some(ReceiverKind::Ref),
-                error_type: Some("Error".into()),
-                ..MethodDef::default()
-            }],
-            ..TypeDef::default()
+        types: vec![
+            TypeDef {
+                name: "Codec".into(),
+                rust_path: "demo_core::Codec".into(),
+                is_trait: true,
+                is_opaque: true,
+                methods: vec![
+                    MethodDef {
+                        name: "transform".into(),
+                        params: vec![ParamDef {
+                            name: "input".into(),
+                            ty: TypeRef::Bytes,
+                            is_ref: true,
+                            ..ParamDef::default()
+                        }],
+                        return_type: TypeRef::Bytes,
+                        receiver: Some(ReceiverKind::Ref),
+                        error_type: Some("Error".into()),
+                        ..MethodDef::default()
+                    },
+                    MethodDef {
+                        name: "describe".into(),
+                        params: vec![
+                            ParamDef {
+                                name: "request".into(),
+                                ty: TypeRef::Named("Request".into()),
+                                ..ParamDef::default()
+                            },
+                            ParamDef {
+                                name: "extra".into(),
+                                ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+                                ..ParamDef::default()
+                            },
+                        ],
+                        return_type: TypeRef::Named("Response".into()),
+                        receiver: Some(ReceiverKind::Ref),
+                        ..MethodDef::default()
+                    },
+                ],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "Request".into(),
+                rust_path: "demo_core::Request".into(),
+                fields: vec![
+                    FieldDef {
+                        name: "label".into(),
+                        ty: TypeRef::String,
+                        ..FieldDef::default()
+                    },
+                    FieldDef {
+                        name: "weight".into(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+                        ..FieldDef::default()
+                    },
+                ],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "Response".into(),
+                rust_path: "demo_core::Response".into(),
+                fields: vec![
+                    FieldDef {
+                        name: "label".into(),
+                        ty: TypeRef::String,
+                        ..FieldDef::default()
+                    },
+                    FieldDef {
+                        name: "total_len".into(),
+                        ty: TypeRef::Primitive(PrimitiveType::U32),
+                        ..FieldDef::default()
+                    },
+                    FieldDef {
+                        name: "kind".into(),
+                        ty: TypeRef::Named("Kind".into()),
+                        ..FieldDef::default()
+                    },
+                ],
+                ..TypeDef::default()
+            },
+        ],
+        enums: vec![EnumDef {
+            name: "Kind".into(),
+            rust_path: "demo_core::Kind".into(),
+            variants: vec![
+                EnumVariant {
+                    name: "Empty".into(),
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "NonEmpty".into(),
+                    ..EnumVariant::default()
+                },
+            ],
+            ..EnumDef::default()
         }],
         ..ApiSurface::default()
     }
@@ -376,13 +490,33 @@ fn host_api() -> alef_component_abi::AlefHostApiV1 {{
     }}
 }}
 
-pub fn activate_and_call(input: &[u8]) -> Result<Vec<u8>, String> {{
+fn activate() -> Result<(), String> {{
     let loaded = manager()
         .ensure_contract("reverse", "codec", b"{entry_symbol}\0")
         .map_err(|error| error.to_string())?;
     let proxy = std::sync::Arc::new(CodecProxy::new(&loaded)?);
     alef_component_abi::register_provider::<dyn demo_core::Codec>("codec", proxy);
+    Ok(())
+}}
+
+pub fn activate_and_call(input: &[u8]) -> Result<Vec<u8>, String> {{
+    activate()?;
     demo_core::transform(input).map_err(|error| error.to_string())
+}}
+
+/// Round-trips a record with an optional field plus a `Vec<u8>` slice
+/// parameter through the real compiled `CodecProxy`, returning a record with
+/// a nested fieldless-enum field -- proof that `Record`, `Optional`,
+/// `Slice`, and `Enum` all marshal correctly end to end, not just scalars
+/// and `Bytes`/`Utf8`.
+pub fn activate_and_describe(label: &str, weight: Option<u32>, extra: Vec<u8>) -> Result<(String, u32, bool), String> {{
+    activate()?;
+    let request = demo_core::Request {{
+        label: label.to_string(),
+        weight,
+    }};
+    let response = demo_core::describe(request, extra)?;
+    Ok((response.label, response.total_len, response.kind == demo_core::Kind::NonEmpty))
 }}
 
 pub fn call_without_activation(input: &[u8]) -> Result<Vec<u8>, String> {{
@@ -399,6 +533,19 @@ pub fn call_without_activation(input: &[u8]) -> Result<Vec<u8>, String> {{
     let result = harness::activate_and_call(b"abc").expect("activated component call must succeed");
     assert_eq!(result, b"cba");
     println!("HARNESS_POSITIVE_OK");
+
+    let (label, total_len, non_empty) = harness::activate_and_describe("widget", Some(3), vec![1, 2, 3, 4])
+        .expect("activated describe call must succeed");
+    assert_eq!(label, "widget");
+    assert_eq!(total_len, "widget".len() as u32 + 3 + 4);
+    assert!(non_empty);
+
+    let (empty_label, empty_total_len, empty_non_empty) = harness::activate_and_describe("solo", None, Vec::new())
+        .expect("activated describe call with no optional weight must succeed");
+    assert_eq!(empty_label, "solo");
+    assert_eq!(empty_total_len, "solo".len() as u32);
+    assert!(!empty_non_empty);
+    println!("HARNESS_DESCRIBE_OK");
 }
 "#,
     )
@@ -465,6 +612,10 @@ fn bytes_contract_round_trips_through_a_real_downloaded_component() {
         positive_output.contains("HARNESS_POSITIVE_OK"),
         "positive harness did not report success:\n{positive_output}"
     );
+    assert!(
+        positive_output.contains("HARNESS_DESCRIBE_OK"),
+        "positive harness did not report a successful record/optional/slice/enum round trip:\n{positive_output}"
+    );
 
     let (negative_passed, negative_output) = run(&negative_bin.display().to_string(), &[], &harness_dir);
     assert!(negative_passed, "negative harness run failed:\n{negative_output}");
@@ -512,3 +663,4 @@ fn pyo3_and_go_backends_expose_component_activate() {
         "no generated go file exposes ComponentActivate"
     );
 }
+
