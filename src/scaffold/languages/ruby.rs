@@ -252,7 +252,23 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let license_ruby = meta
         .license
         .as_deref()
-        .map(|license| format!("  spec.license       = \"{license}\"\n"))
+        .map(|license| {
+            let licenses: Vec<&str> = license
+                .split(" OR ")
+                .map(str::trim)
+                .filter(|license| !license.is_empty())
+                .collect();
+            if licenses.len() > 1 {
+                let values = licenses
+                    .iter()
+                    .map(|license| format!("\"{license}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("  spec.licenses      = [{values}]\n")
+            } else {
+                format!("  spec.license       = \"{license}\"\n")
+            }
+        })
         .unwrap_or_default();
 
     let content = format!(
@@ -269,7 +285,8 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = "{required_ruby_version}"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
-  candidate_files    = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
+  # Keep sibling packages and retained legacy inputs out of this gem's archive.
+  candidate_files    = Dir.glob(%W[README* LICENSE* lib/{gem_name_snake}.rb lib/{gem_name_snake}/**/* ext/{ext_name}/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
   spec.files         = candidate_files.grep_v(%r{{/(?:target|tmp)/|\.(?:bundle|so|dylib|dll|o|a|log)\z|\.dSYM/}})
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/{ext_name}/native/extconf.rb"]

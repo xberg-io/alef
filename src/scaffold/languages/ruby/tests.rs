@@ -602,6 +602,38 @@ fn gemspec_files_filter_never_reintroduces_the_select_by_regexp_anti_pattern() {
     );
 }
 
+#[test]
+fn gemspec_is_scoped_to_this_package_and_supports_dual_spdx_licenses() {
+    let config = resolve_config(
+        r#"
+[workspace]
+languages = ["ruby"]
+
+[[crates]]
+name = "my-lib"
+sources = []
+
+[crates.scaffold]
+license = "AGPL-3.0-only OR PolyForm-Small-Business-1.0.0"
+"#,
+    );
+    let files = scaffold_ruby(&ApiSurface::default(), &config).expect("scaffold");
+    let gemspec = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".gemspec"))
+        .expect("a gemspec must be emitted");
+
+    assert!(
+        gemspec
+            .content
+            .contains("spec.licenses      = [\"AGPL-3.0-only\", \"PolyForm-Small-Business-1.0.0\"]")
+    );
+    assert!(gemspec.content.contains("lib/my_lib.rb"));
+    assert!(gemspec.content.contains("lib/my_lib/**/*"));
+    assert!(gemspec.content.contains("ext/my_lib_rb/**/*"));
+    assert!(!gemspec.content.contains("lib/**/* ext/**/*"));
+}
+
 /// Scans for `.select { |x| <expr>.match?(%r{...}) }` or `.reject { |x| <expr>.match?(%r{...}) }`
 /// without pulling in a full regex engine dependency for one test: a hand-rolled scanner over
 /// the small, fixed set of generated files is enough to catch the specific shape RuboCop's

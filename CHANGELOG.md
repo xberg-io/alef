@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The special Rust path keywords `self`, `Self`, `crate`, and `super` cannot be written as
   `r#...`; generated getter methods now use legal trailing-underscore names instead.
 
+- **Ruby gem archives now exclude sibling and retained legacy package files, and dual SPDX
+  licenses are emitted through RubyGems' plural metadata.** The generated gemspec scopes its file
+  glob to the current gem's namespace and extension, preventing retained prototype inputs from
+  entering the published core gem while preserving both license identifiers.
+
 - **An explicit `"value": null` in a fixture assertion is no longer read as "no expected value".**
   Serde's `Option` visitor collapsed a present `null` and a missing `value` key to `None`, so
   `{"type":"equals","field":"output","value":null}` reached every backend without an expectation
