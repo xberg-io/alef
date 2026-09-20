@@ -22,6 +22,8 @@ pub struct Pyo3BridgeGenerator {
     /// the host method, instead of serializing the param to a JSON string. Enums, opaque/handle
     /// types, and excluded/unknown `Named` params are absent and keep their prior representation.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Clone, read-only opaque wrappers eligible for owned synchronous callback arguments.
+    pub opaque_param_types: std::collections::HashSet<String>,
     /// Callback-RETURN type names that get NATIVE-object marshalling — known serde structs returned
     /// directly by a method (per the shared `native_marshalled_struct_returns` rule). For such a
     /// return the bridge first tries to extract the host's native Python object and convert it via
@@ -485,6 +487,9 @@ impl Pyo3BridgeGenerator {
             .map(|p| match (&p.ty, p.is_ref) {
                 (TypeRef::Bytes, true) => format!("pyo3::types::PyBytes::new(py, {})", p.name),
                 (TypeRef::Path, true) => format!("{}.to_str().unwrap_or_default()", p.name),
+                (TypeRef::Named(n), false) if !p.is_mut && self.opaque_param_types.contains(n) => {
+                    format!("{n} {{ inner: std::sync::Arc::new({}.clone()) }}", p.name)
+                }
                 // (`{Binding}::from(core_value)`). PyO3 auto-converts the `#[pyclass]` to a Python
                 (TypeRef::Named(n), true) if self.is_native_struct_param(n) => {
                     self.options_lift_expr(n, format!("{}::from((*{}).clone())", n, p.name))
@@ -559,5 +564,37 @@ impl Pyo3BridgeGenerator {
             TypeRef::Named(n) if self.struct_return_types.contains(n) => Some(n.as_str()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod opaque_tests {
+    use super::*;
+
+    #[test]
+    fn owned_opaque_callback_argument_is_native_not_serialized() {
+        let generator = Pyo3BridgeGenerator {
+            core_import: "sample_core".into(),
+            type_paths: HashMap::new(),
+            error_type: "Error".into(),
+            struct_param_types: Default::default(),
+            struct_return_types: Default::default(),
+            opaque_param_types: std::collections::HashSet::from(["Control".into()]),
+            forwardable_defaulted: Default::default(),
+            options_dataclass_types: Default::default(),
+            unit_enum_return_types: Default::default(),
+        };
+        let method = MethodDef {
+            params: vec![crate::core::ir::ParamDef {
+                name: "control".into(),
+                ty: TypeRef::Named("Control".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            generator.sync_py_args(&method),
+            "Control { inner: std::sync::Arc::new(control.clone()) },"
+        );
     }
 }

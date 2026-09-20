@@ -80,6 +80,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Explicit opaque Python constructors remain lint-clean without an invented `Default` contract.**
   The allowance is scoped to wrappers that actually require it.
 
+- **Clone read-only opaque handles cross Ruby and Python callbacks as native objects.** They are
+  no longer serialized or exposed as raw Rust values.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed

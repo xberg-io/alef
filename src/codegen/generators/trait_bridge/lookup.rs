@@ -165,6 +165,24 @@ pub fn find_bridge_field<'a>(
     None
 }
 
+/// Names of Clone opaque types represented by read-only native Arc wrappers.
+pub fn native_marshalled_opaque_params(api: &ApiSurface) -> std::collections::HashSet<String> {
+    // Read-only Arc wrappers can carry Clone handles without a serde round trip.
+    // Mutex-backed, excluded, lifetime-bearing and trait wrappers need different conversions.
+    api.types
+        .iter()
+        .filter(|t| {
+            t.is_opaque
+                && t.is_clone
+                && !t.is_trait
+                && !t.binding_excluded
+                && !t.has_lifetime_params
+                && !crate::codegen::generators::type_needs_mutex(t)
+        })
+        .map(|t| t.name.clone())
+        .collect()
+}
+
 /// Decide whether a trait-callback parameter type should be marshalled to the host as the
 /// binding's NATIVE object (constructed through the binding's Rust→host conversion) rather
 /// than as a serialized string.

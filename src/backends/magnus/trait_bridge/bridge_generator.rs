@@ -84,6 +84,7 @@ pub fn gen_trait_bridge(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
             struct_param_types,
+            opaque_param_types: crate::codegen::generators::trait_bridge::native_marshalled_opaque_params(api),
             struct_return_types,
             forwardable_defaulted,
             plugin_version_is_fallible,
@@ -144,6 +145,8 @@ struct MagnusBridgeGenerator {
     /// string. Enums, opaque/handle types, and excluded/unknown `Named` params are absent and keep
     /// their prior JSON-string representation.
     struct_param_types: std::collections::HashSet<String>,
+    /// Clone, read-only opaque native wrappers, never serialized as JSON.
+    opaque_param_types: std::collections::HashSet<String>,
     /// Callback-RETURN type names that get NATIVE-object marshalling — known serde structs returned
     /// directly by a method (per the shared `native_marshalled_struct_returns` rule). For such a
     /// return the bridge routes the value through the binding struct's `TryConvert` (which accepts
@@ -680,6 +683,11 @@ impl MagnusBridgeGenerator {
             TypeRef::Named(n) if self.is_native_struct_param(n) => {
                 format!("{{ use magnus::IntoValue; {n}::from({var}.clone()).into_value_with(&ruby) }}")
             }
+            TypeRef::Named(n) if self.opaque_param_types.contains(n) => {
+                format!(
+                    "{{ use magnus::IntoValue; {n} {{ inner: std::sync::Arc::new({var}.clone()) }}.into_value_with(&ruby) }}"
+                )
+            }
             TypeRef::Named(_) | TypeRef::Json => format!(
                 "serde_json::to_string(&{var}).ok().map(|s| ruby.str_new(s.as_str()).as_value()).unwrap_or_else(|| ruby.qnil().as_value())"
             ),
@@ -705,6 +713,7 @@ mod forwarding_tests {
             error_type: "SampleError".to_string(),
             error_constructor: "SampleError::Message { message: {msg} }".to_string(),
             struct_param_types: std::collections::HashSet::new(),
+            opaque_param_types: std::collections::HashSet::new(),
             struct_return_types: std::collections::HashSet::new(),
             forwardable_defaulted: std::collections::HashSet::new(),
             plugin_version_is_fallible: false,
@@ -736,6 +745,21 @@ mod forwarding_tests {
             ],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn opaque_callback_argument_uses_native_arc_wrapper() {
+        let mut generator = make_generator();
+        generator.opaque_param_types.insert("Control".into());
+        let expression = generator.ruby_arg_expr_custom(&TypeRef::Named("Control".into()), "control");
+        assert!(expression.contains("Control { inner: std::sync::Arc::new(control.clone()) }"));
+        assert!(expression.contains("into_value_with(&ruby)"));
+        assert!(!expression.contains("serde_json"));
+        assert!(
+            generator
+                .ruby_arg_expr_custom(&TypeRef::Named("Unknown".into()), "unknown")
+                .contains("serde_json")
+        );
     }
 
     #[test]

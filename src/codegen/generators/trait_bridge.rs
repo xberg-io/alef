@@ -24,8 +24,8 @@ pub use lookup::{
     BridgeFieldMatch, active_bridge_trait_def, bridge_handle_path, bridge_register_symbol, bridge_targets_language,
     bridge_wrapper_name, find_bridge_field, find_bridge_param, find_trait_def, forwardable_defaulted_method_names,
     is_bridge_handle_type_ref, is_native_marshalled_struct, is_trait_bridge_managed_fn,
-    method_signature_references_trait, native_marshalled_struct_params, native_marshalled_struct_returns,
-    type_references_trait,
+    method_signature_references_trait, native_marshalled_opaque_params, native_marshalled_struct_params,
+    native_marshalled_struct_returns, type_references_trait,
 };
 pub use registration::{
     gen_bridge_clear_fn, gen_bridge_registration_fn, gen_bridge_unregistration_fn, host_function_path,

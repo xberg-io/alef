@@ -337,6 +337,59 @@ fn make_struct_def(name: &str, has_serde: bool, is_opaque: bool, binding_exclude
 }
 
 #[test]
+fn opaque_params_require_clone_read_only_exported_handle() {
+    let handle = TypeDef {
+        name: "Control".into(),
+        is_opaque: true,
+        is_clone: true,
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        types: vec![
+            handle.clone(),
+            TypeDef {
+                name: "NoClone".into(),
+                is_clone: false,
+                ..handle.clone()
+            },
+            TypeDef {
+                name: "Hidden".into(),
+                binding_excluded: true,
+                ..handle.clone()
+            },
+            TypeDef {
+                name: "Trait".into(),
+                is_trait: true,
+                ..handle.clone()
+            },
+            TypeDef {
+                name: "Lifetime".into(),
+                has_lifetime_params: true,
+                ..handle.clone()
+            },
+            TypeDef {
+                name: "Value".into(),
+                is_opaque: false,
+                ..handle.clone()
+            },
+            TypeDef {
+                name: "Mutable".into(),
+                methods: vec![MethodDef {
+                    receiver: Some(ReceiverKind::RefMut),
+                    ..Default::default()
+                }],
+                ..handle
+            },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(
+        native_marshalled_opaque_params(&api),
+        std::collections::HashSet::from(["Control".into()])
+    );
+}
+
+#[test]
 fn native_marshalled_struct_params_allowlists_only_known_serde_structs() {
     let greet = MethodDef {
         name: "greet".to_string(),

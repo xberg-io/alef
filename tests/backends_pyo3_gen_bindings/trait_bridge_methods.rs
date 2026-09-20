@@ -244,6 +244,7 @@ fn make_struct_aware_generator(core_import: &str, struct_params: &[&str]) -> Pyo
         type_paths: HashMap::new(),
         error_type: "Error".to_string(),
         struct_param_types: struct_params.iter().map(|s| s.to_string()).collect(),
+        opaque_param_types: std::collections::HashSet::new(),
         struct_return_types: std::collections::HashSet::new(),
         forwardable_defaulted: std::collections::HashSet::new(),
         options_dataclass_types: std::collections::HashSet::new(),
