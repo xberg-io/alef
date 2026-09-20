@@ -569,13 +569,18 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig, configured_features
     )
 }
 
-/// Rust keywords that cannot be used as bare identifiers in function names.
-const RUST_KEYWORDS: &[&str] = &[
-    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "crate", "do", "dyn", "else",
-    "enum", "extern", "false", "final", "fn", "for", "if", "impl", "in", "let", "loop", "macro", "match", "mod",
-    "move", "mut", "override", "priv", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
-    "true", "try", "type", "typeof", "unsafe", "unsized", "use", "virtual", "where", "while", "yield",
-];
+/// Resolve a PyO3 getter's Rust method name without emitting raw identifiers Rust rejects.
+///
+/// `r#self`, `r#Self`, `r#crate`, and `r#super` are rejected by rustc even though those words
+/// appear in the general keyword table. A trailing underscore is the only legal Rust spelling
+/// for these getter methods; PyO3 then exposes that spelling to Python. All other Rust keywords
+/// use the ordinary raw-identifier form (`r#type`, for example). ~keep
+fn pyo3_getter_fn_name(name: &str) -> String {
+    match name {
+        "crate" | "self" | "Self" | "super" => format!("{name}_"),
+        _ => crate::core::keywords::rust_raw_ident(name),
+    }
+}
 
 /// A variant eligible for a typed PyO3 `#[getter]` accessor: a single-field tuple variant
 /// wrapping a `TypeRef::Named` type. Shared between the runtime `#[getter]` emitter
@@ -631,11 +636,7 @@ pub(crate) fn collect_variant_accessors(enum_def: &EnumDef) -> Vec<VariantAccess
 pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef, core_path: &str, is_host_enum: bool) {
     for variant in &enum_def.variants {
         let variant_name_lower = crate::codegen::naming::pascal_to_snake(&variant.name);
-        let fn_name = if RUST_KEYWORDS.contains(&variant_name_lower.as_str()) {
-            format!("r#{}", variant_name_lower)
-        } else {
-            variant_name_lower.clone()
-        };
+        let fn_name = pyo3_getter_fn_name(&variant_name_lower);
 
         if let Some(accessor) = variant_accessor(variant) {
             let inner_type_name = accessor.inner_type_name;
@@ -817,11 +818,7 @@ fn write_pyo3_untagged_variant_accessor(
 }
 
 pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
-    let fn_name = if RUST_KEYWORDS.contains(&tag_field) {
-        format!("r#{tag_field}")
-    } else {
-        tag_field.to_string()
-    };
+    let fn_name = pyo3_getter_fn_name(tag_field);
     out.push('\n');
     out.push_str("    #[getter]\n");
     out.push_str(&crate::codegen::template_env::render(

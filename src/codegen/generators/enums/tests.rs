@@ -133,6 +133,35 @@ fn untagged_variant_getter_drops_foreign_cfg_gated_arm() {
 }
 
 #[test]
+fn pyo3_variant_getters_do_not_emit_rejected_rust_raw_identifiers() {
+    let mut payload = field("_0");
+    payload.ty = TypeRef::Named("Payload".to_string());
+    let generated = gen_pyo3_data_enum(&enum_def("OutputFormat", vec![variant("Self", vec![payload])]), "core");
+
+    assert!(generated.contains("fn self_(&self)"), "{generated}");
+    assert!(!generated.contains("fn r#self(&self)"), "{generated}");
+}
+
+#[test]
+fn pyo3_getter_name_escaper_handles_all_non_raw_keywords() {
+    for name in ["crate", "self", "Self", "super"] {
+        assert_eq!(pyo3_getter_fn_name(name), format!("{name}_"));
+    }
+    assert_eq!(pyo3_getter_fn_name("type"), "r#type");
+    assert_eq!(pyo3_getter_fn_name("payload"), "payload");
+}
+
+#[test]
+fn pyo3_tag_getters_do_not_emit_rejected_rust_raw_identifiers() {
+    let mut def = enum_def("OutputFormat", vec![variant("Custom", vec![field("value")])]);
+    def.serde_tag = Some("self".to_string());
+    let generated = gen_pyo3_data_enum(&def, "core");
+
+    assert!(generated.contains("fn self_(&self)"), "{generated}");
+    assert!(!generated.contains("fn r#self(&self)"), "{generated}");
+}
+
+#[test]
 fn gen_pyo3_data_enum_emits_default_when_core_derives_default() {
     // `#[default]` (`is_default = true`). The wrapper must keep its delegating `Default`.
     let mut default_variant = variant("Pending", vec![]);
