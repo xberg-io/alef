@@ -2,6 +2,7 @@
 mod cfg_field_e2e_tests;
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
+mod components;
 mod enum_cfg;
 mod functions;
 mod helpers;

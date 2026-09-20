@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use crate::backends::zig::trait_bridge::emit_trait_bridge;
 
+mod components;
 mod errors;
 mod functions;
 mod helpers;
@@ -260,6 +261,11 @@ impl Backend for ZigBackend {
 
         emit_helpers(&prefix, &api.errors, &mut content);
         content.push('\n');
+
+        if !config.components.is_empty() {
+            components::emit(&prefix, &mut content);
+            content.push('\n');
+        }
 
         for bridge in &config.trait_bridges {
             if bridge.exclude_languages.iter().any(|lang| lang == "zig") {

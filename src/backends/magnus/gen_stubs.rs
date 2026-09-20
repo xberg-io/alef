@@ -110,6 +110,19 @@ pub fn gen_stubs(
             lines.push("".to_string());
         }
     }
+
+    if !config.components.is_empty() {
+        lines.extend([
+            "  def self.component_load: (String component) -> nil".to_string(),
+            "".to_string(),
+            "  def self.component_prefetch: ((Array[String] | nil) components) -> Array[String]".to_string(),
+            "".to_string(),
+            "  def self.component_status: (String component) -> String".to_string(),
+            "".to_string(),
+            "  def self.component_cache_path: (String component) -> String".to_string(),
+            "".to_string(),
+        ]);
+    }
     let declared_function_names: std::collections::HashSet<&str> =
         api.functions.iter().map(|f| f.name.as_str()).collect();
     for bridge in trait_bridges {

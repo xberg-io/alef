@@ -72,6 +72,13 @@ pub(crate) fn handle_generate(
     for resolved_cfg in &crates_to_process {
         let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
         pipeline::warn_missing_formatters(&languages);
+        // A generated binding crate `include_str!`s `components.lock.json` at compile time
+        // (`alef::backends::native_components::generate`), so a crate with components
+        // configured but no `alef component lock` run yet would otherwise fail its very first
+        // `cargo build` before there is even an artifact to lock. Bootstrapping an empty,
+        // schema-valid lock here -- never overwriting a real one -- turns that into a normal,
+        // buildable "no components locked yet" state instead. ~keep
+        crate::bin_cli::component_commands::bootstrap_missing_component_locks(resolved_cfg, &base_dir)?;
         if multi {
             tracing::info!(
                 "[{}] Generating bindings for: {}",

@@ -22,6 +22,10 @@ pkg-fmt = "zip"
 
 [package.metadata.cargo-machete]
 ignored = ["tracing"]
+
+[workspace]
+resolver = "3"
+members = ["crates/alef-component-abi", "crates/alef-component-runtime"]
 [lib]
 name = "alef"
 path = "src/lib.rs"
@@ -35,12 +39,15 @@ dylib-loader = ["dep:libloading"]
 
 [dependencies]
 ahash = "0.8"
+alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.93.1" }
 anyhow = "1"
 base64 = "0.23"
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 convert_case = "0.12"
+ed25519-dalek = { version = "2", features = ["pem", "pkcs8"] }
+flate2 = "1"
 glob = "0.3"
 heck = "0.5"
 # Exactly pinned, not caret: `codegen::coordinates` publishes the pinned Unicode version these
@@ -62,6 +69,7 @@ serde_json = "1"
 sha2 = "0.11"
 similar = "3"
 syn = { version = "3", features = ["full", "parsing", "visit"] }
+tar = "0.4"
 tempfile = "3"
 thiserror = "2"
 toml = "1.1"

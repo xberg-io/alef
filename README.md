@@ -170,6 +170,82 @@ Generated binding files carry Alef hashes and are overwritten by generation comm
 package files are generated once unless the command explicitly opts into overwrite behavior; generated
 README and API doc files are owned by `alef readme` and `alef docs`.
 
+## Downloadable Native Components
+
+Alef can split fixed Cargo feature profiles into signed native components instead of putting every
+feature combination in every wheel. A component is the deployable unit -- one Cargo feature set
+built into one signed prebuilt artifact per target -- modelled on Python extras but
+language-neutral; it *provides* one or more contracts. A contract is an explicitly selected Rust
+trait; Alef generates a versioned C function table for it, one producer entrypoint per contract in
+the component's `cdylib`, and a host runtime. Component implementation types currently construct
+through `Default`. Only C-compatible scalar, UTF-8, byte-buffer, and opaque-handle representations
+cross the dynamic-library boundary—never Rust trait objects or Rust-owned layouts. A component's
+version always tracks the core crate's version; components are not versioned independently.
+
+```toml
+[[crates.component_contracts]]
+name = "engine"
+trait_path = "my_core::Engine"
+interface_version = 1
+
+[[crates.components]]
+name = "cuda"
+provides = [{ contract = "engine", implementation = "my_core::CudaEngine" }]
+features = ["cuda"]
+default_features = false
+# Optional: defaults to every supported target enabled by [targets], minus bundled_on.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+# Optional: targets/platforms where downloading is unsupported and the component must
+# instead be linked into the binding (not yet implemented by any backend).
+bundled_on = []
+
+[component_distribution]
+url_template = "https://downloads.example.com/{component}/{version}/{target}/{artifact}"
+
+[component_distribution.public_keys]
+release-2026 = "BASE64_ENCODED_32_BYTE_ED25519_PUBLIC_KEY"
+```
+
+`[component_distribution]` may also be set per crate as `[crates.component_distribution]`, which
+overrides the workspace default field by field (a crate-level `url_template` replaces the workspace
+one; a crate-level public key overrides a workspace key with the same ID, and workspace-only keys
+are kept). A component may provide more than one contract; a component provides each contract at
+most once, though the same contract may be provided by more than one component under different
+feature sets.
+
+Generate/scaffold first, then build and sign each configured target in CI:
+
+```console
+alef scaffold
+alef component build
+alef component package --signing-key "$CI_ED25519_PRIVATE_KEY_FILE" --key-id release-2026
+alef component verify
+alef component lock
+```
+
+The private Ed25519 key stays in protected CI secret storage. It signs canonical component manifests;
+it does not encrypt the binary. Generated native binding packages compile in the contents of
+`components.lock.json`, including the public verification keys, but do not contain the component
+libraries. Each supported binding exposes idiomatic `load`, `prefetch`, `status`, and `cache path`
+operations. The runtime selects the exact target, downloads on demand, verifies the pinned size,
+SHA-256 digest, and Ed25519 signature, installs under a cache lock, validates the
+ABI/contract/feature identity, and keeps the library loaded for the process lifetime.
+
+| Component host surface | Bindings |
+| ---------------------- | -------- |
+| Direct native runtime | Python, Node.js, Ruby, PHP, Elixir, R, Dart/FRB, Swift |
+| Shared generated C manager | C FFI, Go, Java, Kotlin/JVM, C#, Zig, Dart/FFI |
+| Rustler manager | Gleam |
+| Explicitly unsupported | WebAssembly, Kotlin Android, Android JNI, Apple mobile targets |
+
+Unsupported bindings still generate the four management operations, but each operation returns a
+clear platform error instead of silently omitting the API. Rust callers can use
+`alef-component-runtime::ComponentManager` directly.
+
+The initial loader supports x86-64 and ARM64 Linux GNU, x86-64 and ARM64 macOS, and x86-64 Windows
+MSVC. Mobile and WebAssembly targets are intentionally excluded because they do not provide the same
+dynamic-loading model.
+
 ## Extending Alef
 
 Alef is opinionated about codegen and neutral about domain. The `Extension` trait lets you ship domain-specific generation logic (HTTP service APIs, plugin registries, custom bindings) without bloat in alef.

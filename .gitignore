@@ -1,6 +1,8 @@
 target/
 .alef/
-crates/
+crates/*
+!crates/alef-component-abi/
+!crates/alef-component-runtime/
 *.swp
 *.swo
 *~
