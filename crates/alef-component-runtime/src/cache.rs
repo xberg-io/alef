@@ -284,23 +284,149 @@ fn safe_relative_path(value: &str) -> Result<PathBuf, ComponentError> {
     }
 }
 
+/// Generous ceiling for the manifest and signature entries: both are small JSON documents,
+/// orders of magnitude smaller than any native component library, so a declared size above
+/// this already means the archive is not one `alef component package` produced.
+const METADATA_ENTRY_SIZE_CEILING: u64 = 64 * 1024;
+/// Headroom added to the manifest's declared library size before an oversized decompressed
+/// library entry is rejected, covering tar block padding around the real content.
+const LIBRARY_SIZE_HEADROOM: u64 = 4096;
+/// `alef component package` always writes at most three archive entries: the manifest, an
+/// optional signature, and the library. Anything else is not an archive this loader made.
+const MAX_ARCHIVE_ENTRIES: usize = 3;
+
+/// Extract a downloaded component archive, bounding how much a corrupted or malicious
+/// archive can force this to decompress, and rejecting anything that is not exactly the
+/// shape `alef component package` produces.
+///
+/// The manifest must be the first entry (`component.json`) because its declared
+/// `library.size` is what bounds the decompressed size of the library entry that follows --
+/// without reading it first there is nothing to size the library entry's ceiling against,
+/// and an attacker-supplied archive could otherwise reorder entries to smuggle an oversized
+/// library past a check performed too late. Every entry must be a regular file at a safe
+/// relative path (no absolute paths, `..`, or symlinks/hardlinks), and the total entry count
+/// is capped so a maliciously padded archive cannot force unbounded header parsing either.
 fn extract_safely(reader: impl Read, destination: &Path) -> Result<(), ComponentError> {
     let decoder = GzDecoder::new(reader);
     let mut archive = tar::Archive::new(decoder);
-    for entry in archive.entries()? {
+    let mut entries = archive.entries()?;
+
+    let mut first = entries
+        .next()
+        .ok_or_else(|| ComponentError::UnsafeArchiveEntry("archive is empty".to_owned()))??;
+    let first_path = first.path()?.into_owned();
+    if first_path != Path::new("component.json") || !first.header().entry_type().is_file() {
+        return Err(ComponentError::UnsafeArchiveEntry(first_path.display().to_string()));
+    }
+    let manifest_bytes = read_bounded_entry(&mut first, METADATA_ENTRY_SIZE_CEILING)?;
+    fs::write(destination.join("component.json"), &manifest_bytes)?;
+    let manifest: ComponentManifest = serde_json::from_slice(&manifest_bytes)?;
+    let library_relative = safe_relative_path(&manifest.library.file)?;
+    let library_ceiling = manifest.library.size.saturating_add(LIBRARY_SIZE_HEADROOM);
+
+    let mut seen_library = false;
+    let mut entry_count = 1_usize;
+    for entry in entries {
+        entry_count += 1;
+        if entry_count > MAX_ARCHIVE_ENTRIES {
+            return Err(ComponentError::TooManyArchiveEntries {
+                max: MAX_ARCHIVE_ENTRIES,
+                actual: entry_count,
+            });
+        }
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
-        if path.as_os_str().is_empty()
-            || !path
+        let is_safe_relative = !path.as_os_str().is_empty()
+            && path
                 .components()
-                .all(|component| matches!(component, Component::Normal(_)))
-            || !(entry.header().entry_type().is_file() || entry.header().entry_type().is_dir())
-        {
+                .all(|component| matches!(component, Component::Normal(_)));
+        if !is_safe_relative || !entry.header().entry_type().is_file() {
             return Err(ComponentError::UnsafeArchiveEntry(path.display().to_string()));
         }
-        if !entry.unpack_in(destination)? {
+        if path == Path::new("component.sig") {
+            let bytes = read_bounded_entry(&mut entry, METADATA_ENTRY_SIZE_CEILING)?;
+            fs::write(destination.join("component.sig"), bytes)?;
+        } else if path == library_relative && !seen_library {
+            seen_library = true;
+            stream_library_entry(&mut entry, destination, &library_relative, library_ceiling, &manifest)?;
+        } else {
             return Err(ComponentError::UnsafeArchiveEntry(path.display().to_string()));
         }
+    }
+    if !seen_library {
+        return Err(ComponentError::MissingLibrary(destination.join(&library_relative)));
+    }
+    Ok(())
+}
+
+/// Read a small, fully-buffered entry (the manifest or its signature), rejecting it before
+/// any bytes are copied if its declared size already exceeds `ceiling`.
+fn read_bounded_entry<R: Read>(entry: &mut tar::Entry<'_, R>, ceiling: u64) -> Result<Vec<u8>, ComponentError> {
+    let declared = entry.header().size()?;
+    if declared > ceiling {
+        return Err(ComponentError::ExtractedSizeExceeded {
+            limit: ceiling,
+            actual: declared,
+        });
+    }
+    let mut buffer = Vec::new();
+    entry.read_to_end(&mut buffer)?;
+    Ok(buffer)
+}
+
+/// Stream the library entry straight to disk in fixed-size chunks -- rather than buffering
+/// the whole (potentially large) decompressed library in memory -- hashing it as it is
+/// written so the digest is verified in the same pass instead of a second read from disk.
+fn stream_library_entry<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    relative: &Path,
+    ceiling: u64,
+    manifest: &ComponentManifest,
+) -> Result<(), ComponentError> {
+    let declared = entry.header().size()?;
+    if declared > ceiling {
+        return Err(ComponentError::ExtractedSizeExceeded {
+            limit: ceiling,
+            actual: declared,
+        });
+    }
+    let target = destination.join(relative);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = File::create(&target)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut copied = 0_u64;
+    loop {
+        let count = entry.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        copied += count as u64;
+        if copied > ceiling {
+            return Err(ComponentError::ExtractedSizeExceeded {
+                limit: ceiling,
+                actual: copied,
+            });
+        }
+        hasher.update(&buffer[..count]);
+        file.write_all(&buffer[..count])?;
+    }
+    if copied != manifest.library.size {
+        return Err(ComponentError::SizeMismatch {
+            expected: manifest.library.size,
+            actual: copied,
+        });
+    }
+    let actual: [u8; 32] = hasher.finalize().into();
+    let expected = decode_digest(&manifest.library.sha256)?;
+    if actual != expected {
+        return Err(ComponentError::DigestMismatch {
+            expected: manifest.library.sha256.clone(),
+            actual: hex::encode(actual),
+        });
     }
     Ok(())
 }
@@ -557,5 +683,119 @@ mod tests {
             Err(ComponentError::UnsafeArchiveEntry(path)) if path == "../evil"
         ));
         assert!(!dir.path().parent().unwrap().join("evil").exists());
+    }
+
+    fn manifest_declaring_library_size(size: u64) -> ComponentManifest {
+        ComponentManifest {
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
+            abi_version: 1,
+            identity: ComponentIdentity {
+                crate_name: "demo-core".into(),
+                component: "fast".into(),
+                version: "1.0.0".into(),
+                target: "test-target".into(),
+                feature_hash: hex::encode([1; 32]),
+                contract_hash: hex::encode([2; 32]),
+            },
+            provides: vec![crate::ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: hex::encode([2; 32]),
+                implementation: "demo::Fast".into(),
+            }],
+            features: vec!["fast".into()],
+            default_features: false,
+            library: ComponentLibrary {
+                file: "libdemo.so".into(),
+                sha256: hex::encode(sha256(b"native")),
+                size,
+            },
+        }
+    }
+
+    /// A component archive can only ever grow to the size the manifest itself declares (plus
+    /// a small fixed headroom): a library entry that decompresses to far more than that is
+    /// rejected before the whole thing is buffered or written to disk, bounding how much a
+    /// crafted or corrupted archive can force this loader to decompress.
+    #[test]
+    fn rejects_library_entry_exceeding_the_manifest_declared_size() {
+        let manifest = manifest_declaring_library_size(6);
+        let manifest_bytes = manifest.canonical_bytes().unwrap();
+        let oversized_library = vec![b'x'; (LIBRARY_SIZE_HEADROOM + 4096) as usize];
+
+        let mut compressed = Vec::new();
+        {
+            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            append(&mut builder, "component.json", &manifest_bytes);
+            append(&mut builder, "libdemo.so", &oversized_library);
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_safely(Cursor::new(compressed), dir.path()),
+            Err(ComponentError::ExtractedSizeExceeded { .. })
+        ));
+        assert!(!dir.path().join("libdemo.so").exists());
+    }
+
+    /// The library entry must be a regular file: a symlink (which could point anywhere on
+    /// the filesystem once `dlopen`ed) is rejected outright, never followed or written.
+    #[test]
+    fn rejects_symlink_library_entry() {
+        let manifest = manifest_declaring_library_size(6);
+        let manifest_bytes = manifest.canonical_bytes().unwrap();
+
+        let mut compressed = Vec::new();
+        {
+            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            append(&mut builder, "component.json", &manifest_bytes);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_link_name("/etc/passwd").unwrap();
+            header.set_path("libdemo.so").unwrap();
+            header.set_cksum();
+            builder.append(&header, Cursor::new(&[][..])).unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_safely(Cursor::new(compressed), dir.path()),
+            Err(ComponentError::UnsafeArchiveEntry(path)) if path == "libdemo.so"
+        ));
+        assert!(!dir.path().join("libdemo.so").exists());
+    }
+
+    /// A packaged component archive never has more than three entries (manifest, optional
+    /// signature, library); a fourth is not an archive this loader made.
+    #[test]
+    fn rejects_archive_with_too_many_entries() {
+        let manifest = manifest_declaring_library_size(6);
+        let manifest_bytes = manifest.canonical_bytes().unwrap();
+
+        let mut compressed = Vec::new();
+        {
+            let encoder = flate2::write::GzEncoder::new(&mut compressed, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            append(&mut builder, "component.json", &manifest_bytes);
+            append(&mut builder, "component.sig", b"{}");
+            append(&mut builder, "libdemo.so", b"native");
+            append(&mut builder, "unexpected.txt", b"extra");
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            extract_safely(Cursor::new(compressed), dir.path()),
+            Err(ComponentError::TooManyArchiveEntries {
+                max: MAX_ARCHIVE_ENTRIES,
+                ..
+            })
+        ));
     }
 }

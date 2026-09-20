@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use base64::Engine;
 use ed25519_dalek::pkcs8::DecodePrivateKey as _;
 use ed25519_dalek::{Signature, Signer as _, SigningKey};
+use flate2::{Compression, GzBuilder};
 use sha2::{Digest, Sha256};
 
 pub use alef_component_runtime::{
@@ -38,12 +40,29 @@ pub struct PackageInput<'a> {
 pub fn sha256_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+    hex_encode(&hasher.finalize())
 }
 
+/// Hash a file in fixed-size chunks instead of reading it whole, so a large component
+/// library never needs to be fully resident in memory just to be digested.
 pub fn sha256_file(path: &Path) -> Result<String> {
-    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    Ok(sha256_bytes(&bytes))
+    let mut file = fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(hex_encode(&hasher.finalize()))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub fn feature_hash(features: &[String], default_features: bool) -> String {
@@ -93,6 +112,12 @@ fn validate_name(kind: &str, value: &str) -> Result<()> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')),
         "{kind} `{value}` contains characters that are unsafe in an artifact name"
     );
+    // The charset check above allows a run of only `.` characters through, so `.` and `..`
+    // -- otherwise-valid-looking path traversal components -- need an explicit reject.
+    ensure!(
+        value != "." && value != "..",
+        "{kind} `{value}` is not a safe relative path component"
+    );
     Ok(())
 }
 
@@ -112,8 +137,10 @@ pub fn create_manifest(library_path: &Path, input: PackageInput<'_>) -> Result<C
         !input.provides.is_empty(),
         "component manifest must provide at least one contract"
     );
-    let library_bytes = fs::read(library_path)
-        .with_context(|| format!("failed to read component library {}", library_path.display()))?;
+    let library_size = fs::metadata(library_path)
+        .with_context(|| format!("failed to stat component library {}", library_path.display()))?
+        .len();
+    let library_sha256 = sha256_file(library_path)?;
     let library_file = library_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -161,8 +188,8 @@ pub fn create_manifest(library_path: &Path, input: PackageInput<'_>) -> Result<C
         default_features: input.default_features,
         library: ComponentLibrary {
             file: library_file.clone(),
-            sha256: sha256_bytes(&library_bytes),
-            size: library_bytes.len() as u64,
+            sha256: library_sha256,
+            size: library_size,
         },
     })
 }
@@ -173,16 +200,6 @@ pub fn write_package(
     manifest: ComponentManifest,
     signature: Option<ComponentSignature>,
 ) -> Result<ComponentArtifactRecord> {
-    let library_bytes = fs::read(library_path)
-        .with_context(|| format!("failed to read component library {}", library_path.display()))?;
-    ensure!(
-        manifest.library.size == library_bytes.len() as u64,
-        "component library size changed while packaging"
-    );
-    ensure!(
-        manifest.library.sha256 == sha256_bytes(&library_bytes),
-        "component library changed while packaging"
-    );
     let library_file = library_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -191,9 +208,6 @@ pub fn write_package(
         manifest.library.file == library_file,
         "component library filename changed while packaging"
     );
-    let archive = artifact_name(&manifest.identity)?;
-    let manifest_bytes = manifest.canonical_bytes()?;
-    let manifest_sha256 = sha256_bytes(&manifest_bytes);
     if let Some(signature) = &signature {
         ensure!(
             signature.algorithm == "ed25519",
@@ -201,35 +215,173 @@ pub fn write_package(
             signature.algorithm
         );
     }
+    let archive = artifact_name(&manifest.identity)?;
+    let manifest_bytes = manifest.canonical_bytes()?;
+    let manifest_sha256 = sha256_bytes(&manifest_bytes);
     let signature_bytes = signature.as_ref().map(canonical_json).transpose()?;
-
-    let mut tar = Vec::new();
-    append_tar_file(&mut tar, "component.json", &manifest_bytes, 0o644)?;
-    if let Some(bytes) = &signature_bytes {
-        append_tar_file(&mut tar, "component.sig", bytes, 0o644)?;
-    }
-    append_tar_file(&mut tar, library_file, &library_bytes, 0o755)?;
-    tar.extend_from_slice(&[0_u8; 1024]);
-    let archive_bytes = gzip_stored(&tar);
 
     fs::create_dir_all(output_dir)
         .with_context(|| format!("failed to create component output directory {}", output_dir.display()))?;
     let archive_path = output_dir.join(&archive);
-    fs::write(&archive_path, &archive_bytes)
-        .with_context(|| format!("failed to write component archive {}", archive_path.display()))?;
+    let (archive_size, archive_sha256) = write_archive(
+        &archive_path,
+        &manifest_bytes,
+        signature_bytes.as_deref(),
+        library_path,
+        library_file,
+        &manifest.library,
+    )?;
 
     let record = ComponentArtifactRecord {
         manifest,
         manifest_sha256,
         archive,
-        archive_sha256: sha256_bytes(&archive_bytes),
-        archive_size: archive_bytes.len() as u64,
+        archive_sha256,
+        archive_size,
         signature,
     };
     let record_path = record.record_path(output_dir);
     fs::write(&record_path, canonical_json(&record)?)
         .with_context(|| format!("failed to write component record {}", record_path.display()))?;
     Ok(record)
+}
+
+/// Write `component.json` [+ `component.sig`] and the component library as a gzip-compressed
+/// tar archive, streaming the (potentially large) library through the writer in fixed-size
+/// chunks instead of buffering it in memory, and hashing the compressed output as it is
+/// written instead of reading the archive back afterward. The gzip header pins `mtime` to 0
+/// (and lets the encoder's already-deterministic default `OS = unknown` stand) so that
+/// packaging the same inputs twice produces byte-identical archives.
+fn write_archive(
+    archive_path: &Path,
+    manifest_bytes: &[u8],
+    signature_bytes: Option<&[u8]>,
+    library_path: &Path,
+    library_file: &str,
+    library: &ComponentLibrary,
+) -> Result<(u64, String)> {
+    let archive_file = fs::File::create(archive_path)
+        .with_context(|| format!("failed to create component archive {}", archive_path.display()))?;
+    let hashing_output = HashingWriter::new(archive_file);
+    let gzip = GzBuilder::new().mtime(0).write(hashing_output, Compression::default());
+    let mut tar = tar::Builder::new(gzip);
+
+    append_tar_bytes(&mut tar, "component.json", manifest_bytes, 0o644)?;
+    if let Some(bytes) = signature_bytes {
+        append_tar_bytes(&mut tar, "component.sig", bytes, 0o644)?;
+    }
+
+    let mut library_handle = fs::File::open(library_path)
+        .with_context(|| format!("failed to open component library {}", library_path.display()))?;
+    let library_len = library_handle
+        .metadata()
+        .with_context(|| format!("failed to stat component library {}", library_path.display()))?
+        .len();
+    ensure!(
+        library.size == library_len,
+        "component library size changed while packaging"
+    );
+    let mut hashing_library = HashingReader::new(&mut library_handle);
+    let mut header = tar::Header::new_gnu();
+    header.set_mode(0o755);
+    header.set_mtime(0);
+    header.set_size(library_len);
+    tar.append_data(&mut header, library_file, &mut hashing_library)
+        .with_context(|| format!("failed to append component library `{library_file}` to the archive"))?;
+    let (library_bytes_streamed, library_sha256) = hashing_library.finish();
+    ensure!(
+        library_bytes_streamed == library.size,
+        "component library changed size while streaming into the archive"
+    );
+    ensure!(
+        library_sha256 == library.sha256,
+        "component library changed while streaming into the archive"
+    );
+
+    let gzip = tar
+        .into_inner()
+        .context("failed to finalize the component archive's tar stream")?;
+    let hashing_output = gzip
+        .finish()
+        .context("failed to finalize the component archive's gzip stream")?;
+    Ok(hashing_output.finish())
+}
+
+fn append_tar_bytes(builder: &mut tar::Builder<impl Write>, name: &str, content: &[u8], mode: u32) -> Result<()> {
+    validate_name("tar entry", name)?;
+    let mut header = tar::Header::new_gnu();
+    header.set_mode(mode);
+    header.set_mtime(0);
+    header.set_size(content.len() as u64);
+    builder
+        .append_data(&mut header, name, content)
+        .with_context(|| format!("failed to append `{name}` to the component archive"))
+}
+
+/// A [`Read`] wrapper that hashes bytes as they pass through, so a source (here, a component
+/// library on disk) only needs to be streamed once to be both archived and digest-verified.
+struct HashingReader<R> {
+    inner: R,
+    hasher: Sha256,
+    bytes_read: u64,
+}
+
+impl<R: Read> HashingReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            hasher: Sha256::new(),
+            bytes_read: 0,
+        }
+    }
+
+    fn finish(self) -> (u64, String) {
+        (self.bytes_read, hex_encode(&self.hasher.finalize()))
+    }
+}
+
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.inner.read(buffer)?;
+        self.hasher.update(&buffer[..count]);
+        self.bytes_read += count as u64;
+        Ok(count)
+    }
+}
+
+/// A [`Write`] wrapper that hashes and counts bytes as they are written, so the archive this
+/// module produces is digested once while it is written instead of being read back afterward.
+struct HashingWriter<W> {
+    inner: W,
+    hasher: Sha256,
+    bytes_written: u64,
+}
+
+impl<W> HashingWriter<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            hasher: Sha256::new(),
+            bytes_written: 0,
+        }
+    }
+
+    fn finish(self) -> (u64, String) {
+        (self.bytes_written, hex_encode(&self.hasher.finalize()))
+    }
+}
+
+impl<W: Write> Write for HashingWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let count = self.inner.write(buffer)?;
+        self.hasher.update(&buffer[..count]);
+        self.bytes_written += count as u64;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 pub fn read_record(path: &Path) -> Result<ComponentArtifactRecord> {
@@ -307,6 +459,14 @@ pub fn write_lock(path: &Path, lock: &ComponentLock) -> Result<()> {
     fs::write(path, canonical_json(lock)?).with_context(|| format!("failed to write component lock {}", path.display()))
 }
 
+/// `write_package` always produces at most three archive entries: the manifest, an optional
+/// signature, and the library. Anything else is not an archive this crate wrote.
+const MAX_ARCHIVE_ENTRIES: usize = 3;
+/// Generous ceiling for the manifest/signature entries -- both are small JSON documents,
+/// orders of magnitude smaller than any native component library, so a declared size above
+/// this is already a sign the archive is not what it claims to be.
+const METADATA_ENTRY_SIZE_CEILING: u64 = 64 * 1024;
+
 pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>) -> Result<()> {
     let record = read_record(record_path)?;
     ensure!(
@@ -330,14 +490,12 @@ pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>)
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(&record.archive);
-    let archive_bytes = fs::read(&archive_path)
-        .with_context(|| format!("failed to read component archive {}", archive_path.display()))?;
+    let archive_size = fs::metadata(&archive_path)
+        .with_context(|| format!("failed to stat component archive {}", archive_path.display()))?
+        .len();
+    ensure!(archive_size == record.archive_size, "component archive size mismatch");
     ensure!(
-        archive_bytes.len() as u64 == record.archive_size,
-        "component archive size mismatch"
-    );
-    ensure!(
-        sha256_bytes(&archive_bytes) == record.archive_sha256,
+        sha256_file(&archive_path)? == record.archive_sha256,
         "component archive hash mismatch"
     );
 
@@ -347,30 +505,98 @@ pub fn verify_record(record_path: &Path, public_keys: &BTreeMap<String, String>)
         .with_context(|| format!("component artifact uses unknown signing key `{}`", signature.key_id))?;
     verify_manifest_signature(&record.manifest, signature, public_key)?;
 
-    let tar = decode_stored_gzip(&archive_bytes)?;
-    let embedded_manifest =
-        find_tar_entry(&tar, "component.json")?.context("archive does not contain component.json")?;
+    let (embedded_manifest, embedded_signature, embedded_library) =
+        read_component_archive(&archive_path, &record.manifest)?;
     ensure!(
         embedded_manifest == record.manifest.canonical_bytes()?,
         "archive manifest differs from record manifest"
     );
-    let embedded_signature =
-        find_tar_entry(&tar, "component.sig")?.context("archive does not contain component.sig")?;
     ensure!(
         embedded_signature == canonical_json(signature)?,
         "archive signature differs from record signature"
     );
-    let library = find_tar_entry(&tar, &record.manifest.library.file)?
-        .with_context(|| format!("archive does not contain {}", record.manifest.library.file))?;
     ensure!(
-        library.len() as u64 == record.manifest.library.size,
+        embedded_library.len() as u64 == record.manifest.library.size,
         "component library size mismatch"
     );
     ensure!(
-        sha256_bytes(&library) == record.manifest.library.sha256,
+        sha256_bytes(&embedded_library) == record.manifest.library.sha256,
         "component library hash mismatch"
     );
     Ok(())
+}
+
+/// Read `component.json`, `component.sig`, and the declared library out of a packaged
+/// archive, rejecting anything that does not look like an archive `write_package` made:
+/// more than [`MAX_ARCHIVE_ENTRIES`] entries, an entry that is not a regular file, an
+/// unexpected entry name, or an entry whose declared size exceeds the expected ceiling for
+/// its kind (bounding how much a corrupted or hand-crafted archive can force this to
+/// decompress and hold in memory).
+fn read_component_archive(archive_path: &Path, manifest: &ComponentManifest) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>)> {
+    let archive_file = fs::File::open(archive_path)
+        .with_context(|| format!("failed to read component archive {}", archive_path.display()))?;
+    let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+
+    let mut manifest_bytes = None;
+    let mut signature_bytes = None;
+    let mut library_bytes = None;
+    let mut entry_count = 0_usize;
+    for entry in tar.entries().context("failed to read component archive")? {
+        entry_count += 1;
+        ensure!(
+            entry_count <= MAX_ARCHIVE_ENTRIES,
+            "component archive has more than {MAX_ARCHIVE_ENTRIES} entries"
+        );
+        let entry = entry.context("failed to read a component archive entry")?;
+        let path = entry
+            .path()
+            .context("component archive entry has an invalid path")?
+            .into_owned();
+        ensure!(
+            entry.header().entry_type().is_file(),
+            "component archive entry `{}` is not a regular file",
+            path.display()
+        );
+        let name = path
+            .to_str()
+            .context("component archive entry name is not valid UTF-8")?
+            .to_string();
+        let ceiling = if name == manifest.library.file {
+            manifest.library.size
+        } else {
+            METADATA_ENTRY_SIZE_CEILING
+        };
+        let declared_size = entry
+            .header()
+            .size()
+            .with_context(|| format!("component archive entry `{name}` has an invalid size header"))?;
+        ensure!(
+            declared_size <= ceiling,
+            "component archive entry `{name}` declares {declared_size} bytes, exceeding the {ceiling}-byte limit"
+        );
+        let mut buffer = Vec::new();
+        entry
+            .take(ceiling)
+            .read_to_end(&mut buffer)
+            .with_context(|| format!("failed to read component archive entry `{name}`"))?;
+        let slot = if name == "component.json" {
+            &mut manifest_bytes
+        } else if name == "component.sig" {
+            &mut signature_bytes
+        } else if name == manifest.library.file {
+            &mut library_bytes
+        } else {
+            bail!("component archive contains an unexpected entry `{name}`");
+        };
+        ensure!(slot.is_none(), "component archive contains a duplicate entry `{name}`");
+        *slot = Some(buffer);
+    }
+
+    Ok((
+        manifest_bytes.context("archive does not contain component.json")?,
+        signature_bytes.context("archive does not contain component.sig")?,
+        library_bytes.with_context(|| format!("archive does not contain {}", manifest.library.file))?,
+    ))
 }
 
 fn expand_url(template: &str, identity: &ComponentIdentity, artifact: &str) -> Result<String> {
@@ -458,555 +684,5 @@ pub fn verify_manifest_signature(
         .map_err(|_| anyhow!("component signature verification failed"))
 }
 
-fn append_tar_file(tar: &mut Vec<u8>, name: &str, content: &[u8], mode: u32) -> Result<()> {
-    ensure!(name.len() <= 100, "tar entry name `{name}` is longer than 100 bytes");
-    validate_name("tar entry", name)?;
-    let mut header = [0_u8; 512];
-    write_field(&mut header[0..100], name.as_bytes())?;
-    write_octal(&mut header[100..108], u64::from(mode))?;
-    write_octal(&mut header[108..116], 0)?;
-    write_octal(&mut header[116..124], 0)?;
-    write_octal(&mut header[124..136], content.len() as u64)?;
-    write_octal(&mut header[136..148], 0)?;
-    header[148..156].fill(b' ');
-    header[156] = b'0';
-    header[257..263].copy_from_slice(b"ustar\0");
-    header[263..265].copy_from_slice(b"00");
-    let checksum: u64 = header.iter().map(|byte| u64::from(*byte)).sum();
-    write_checksum(&mut header[148..156], checksum)?;
-    tar.extend_from_slice(&header);
-    tar.extend_from_slice(content);
-    let padding = (512 - (content.len() % 512)) % 512;
-    tar.resize(tar.len() + padding, 0);
-    Ok(())
-}
-
-fn write_field(field: &mut [u8], value: &[u8]) -> Result<()> {
-    ensure!(value.len() < field.len(), "tar field is too long");
-    field[..value.len()].copy_from_slice(value);
-    Ok(())
-}
-
-fn write_octal(field: &mut [u8], value: u64) -> Result<()> {
-    let rendered = format!("{:0width$o}\0", value, width = field.len() - 1);
-    ensure!(rendered.len() == field.len(), "tar numeric field overflow");
-    field.copy_from_slice(rendered.as_bytes());
-    Ok(())
-}
-
-fn write_checksum(field: &mut [u8], value: u64) -> Result<()> {
-    let rendered = format!("{:06o}\0 ", value);
-    ensure!(rendered.len() == field.len(), "tar checksum overflow");
-    field.copy_from_slice(rendered.as_bytes());
-    Ok(())
-}
-
-fn gzip_stored(input: &[u8]) -> Vec<u8> {
-    let mut output = vec![0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xff];
-    if input.is_empty() {
-        output.extend_from_slice(&[1, 0, 0, 0xff, 0xff]);
-    } else {
-        let chunks = input.chunks(u16::MAX as usize);
-        let chunk_count = chunks.len();
-        for (index, chunk) in chunks.enumerate() {
-            output.push(u8::from(index + 1 == chunk_count));
-            let len = chunk.len() as u16;
-            output.extend_from_slice(&len.to_le_bytes());
-            output.extend_from_slice(&(!len).to_le_bytes());
-            output.extend_from_slice(chunk);
-        }
-    }
-    output.extend_from_slice(&crc32(input).to_le_bytes());
-    output.extend_from_slice(&(input.len() as u32).to_le_bytes());
-    output
-}
-
-fn decode_stored_gzip(input: &[u8]) -> Result<Vec<u8>> {
-    ensure!(input.len() >= 18, "component archive is not a valid gzip stream");
-    ensure!(
-        input[..4] == [0x1f, 0x8b, 0x08, 0x00],
-        "component archive has an unsupported gzip header"
-    );
-    let trailer_at = input.len() - 8;
-    let mut cursor = 10;
-    let mut output = Vec::new();
-    loop {
-        ensure!(cursor + 5 <= trailer_at, "truncated deflate block");
-        let header = input[cursor];
-        cursor += 1;
-        ensure!(
-            header & 0b110 == 0,
-            "component archive uses unsupported compressed deflate blocks"
-        );
-        let final_block = header & 1 == 1;
-        let len = u16::from_le_bytes([input[cursor], input[cursor + 1]]);
-        let inverse = u16::from_le_bytes([input[cursor + 2], input[cursor + 3]]);
-        cursor += 4;
-        ensure!(len == !inverse, "invalid deflate stored-block length");
-        let end = cursor + usize::from(len);
-        ensure!(end <= trailer_at, "truncated deflate stored block");
-        output.extend_from_slice(&input[cursor..end]);
-        cursor = end;
-        if final_block {
-            break;
-        }
-    }
-    ensure!(cursor == trailer_at, "unexpected bytes after final deflate block");
-    let expected_crc = u32::from_le_bytes(input[trailer_at..trailer_at + 4].try_into().unwrap());
-    let expected_size = u32::from_le_bytes(input[trailer_at + 4..].try_into().unwrap());
-    ensure!(crc32(&output) == expected_crc, "gzip checksum mismatch");
-    ensure!(output.len() as u32 == expected_size, "gzip size mismatch");
-    Ok(output)
-}
-
-fn find_tar_entry(tar: &[u8], wanted: &str) -> Result<Option<Vec<u8>>> {
-    let mut cursor = 0;
-    while cursor + 512 <= tar.len() {
-        let header = &tar[cursor..cursor + 512];
-        if header.iter().all(|byte| *byte == 0) {
-            return Ok(None);
-        }
-        let name_end = header[..100].iter().position(|byte| *byte == 0).unwrap_or(100);
-        let name = std::str::from_utf8(&header[..name_end]).context("tar entry name is not valid UTF-8")?;
-        let size_field = std::str::from_utf8(&header[124..136]).context("tar size is not valid ASCII")?;
-        let size = usize::from_str_radix(size_field.trim_matches(['\0', ' ']), 8)
-            .context("tar entry size is not valid octal")?;
-        let content_start = cursor + 512;
-        let content_end = content_start.checked_add(size).context("tar entry size overflow")?;
-        ensure!(content_end <= tar.len(), "truncated tar entry `{name}`");
-        if name == wanted {
-            return Ok(Some(tar[content_start..content_end].to_vec()));
-        }
-        cursor = content_start + size.div_ceil(512) * 512;
-    }
-    bail!("truncated tar archive")
-}
-
-fn crc32(input: &[u8]) -> u32 {
-    let mut crc = !0_u32;
-    for byte in input {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            let mask = (crc & 1).wrapping_neg();
-            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
-        }
-    }
-    !crc
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ed25519_dalek::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _};
-
-    /// Wrap DER bytes as PEM without depending on `pkcs8`'s PEM feature, which pulls in
-    /// its own line-ending type; a fixed-width base64 wrap is all PEM actually is.
-    fn pem_wrap(label: &str, der: &[u8]) -> String {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(der);
-        let mut pem = format!("-----BEGIN {label}-----\n");
-        for chunk in encoded.as_bytes().chunks(64) {
-            pem.push_str(std::str::from_utf8(chunk).unwrap());
-            pem.push('\n');
-        }
-        pem.push_str(&format!("-----END {label}-----\n"));
-        pem
-    }
-
-    #[test]
-    fn hashes_feature_sets_independent_of_order_and_duplicates() {
-        assert_eq!(
-            feature_hash(&["b".into(), "a".into(), "a".into()], false),
-            feature_hash(&["a".into(), "b".into()], false)
-        );
-        assert_ne!(feature_hash(&["a".into()], false), feature_hash(&["a".into()], true));
-    }
-
-    #[test]
-    fn artifact_name_contains_both_short_hashes() {
-        let identity = ComponentIdentity {
-            crate_name: "sample-core".into(),
-            component: "fast".into(),
-            version: "1.2.3".into(),
-            target: "aarch64-apple-darwin".into(),
-            feature_hash: "a".repeat(64),
-            contract_hash: "b".repeat(64),
-        };
-        assert_eq!(
-            artifact_name(&identity).unwrap(),
-            "sample-core-fast-1.2.3-aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-aarch64-apple-darwin.tar.gz"
-        );
-    }
-
-    #[test]
-    fn deterministic_package_bytes_and_record() {
-        let temp = tempfile::tempdir().unwrap();
-        let library = temp.path().join("libsample_core.so");
-        fs::write(&library, b"native-library").unwrap();
-        let features = vec!["simd".to_string(), "fast".to_string()];
-        let feature_hash = "a".repeat(64);
-        let contract_hash = "b".repeat(64);
-        let provides = [ProvidedContractInput {
-            contract: "engine",
-            interface_version: 1,
-            contract_hash: &contract_hash,
-            implementation: "sample_core::FastEngine",
-        }];
-        let input = || PackageInput {
-            crate_name: "sample-core",
-            component: "fast",
-            version: "1.2.3",
-            target: "x86_64-unknown-linux-gnu",
-            provides: &provides,
-            features: &features,
-            default_features: false,
-            feature_hash: &feature_hash,
-        };
-        let first_manifest = create_manifest(&library, input()).unwrap();
-        let first = write_package(&library, temp.path(), first_manifest, None).unwrap();
-        let first_bytes = fs::read(temp.path().join(&first.archive)).unwrap();
-        let second_manifest = create_manifest(&library, input()).unwrap();
-        let second = write_package(&library, temp.path(), second_manifest, None).unwrap();
-        let second_bytes = fs::read(temp.path().join(&second.archive)).unwrap();
-        assert_eq!(first, second);
-        assert_eq!(first_bytes, second_bytes);
-        assert_eq!(&first_bytes[..10], &[0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff]);
-        let tar = decode_stored_gzip(&first_bytes).unwrap();
-        assert_eq!(
-            find_tar_entry(&tar, "libsample_core.so").unwrap().unwrap(),
-            b"native-library"
-        );
-    }
-
-    #[test]
-    fn signs_packages_and_verifies_the_complete_archive() {
-        let temp = tempfile::tempdir().unwrap();
-        let signing_key = SigningKey::from_bytes(&[3; 32]);
-        let private_key = temp.path().join("release-private.pem");
-        let public_key = temp.path().join("release-public.pem");
-        fs::write(
-            &private_key,
-            pem_wrap("PRIVATE KEY", signing_key.to_pkcs8_der().unwrap().as_bytes()),
-        )
-        .unwrap();
-        fs::write(
-            &public_key,
-            pem_wrap(
-                "PUBLIC KEY",
-                signing_key.verifying_key().to_public_key_der().unwrap().as_bytes(),
-            ),
-        )
-        .unwrap();
-
-        let library = temp.path().join("libsample_core.so");
-        fs::write(&library, b"signed-native-library").unwrap();
-        let features = vec!["fast".to_string()];
-        let feature_hash = feature_hash(&features, false);
-        let contract_hash = "b".repeat(64);
-        let provides = [ProvidedContractInput {
-            contract: "engine",
-            interface_version: 1,
-            contract_hash: &contract_hash,
-            implementation: "sample_core::FastEngine",
-        }];
-        let manifest = create_manifest(
-            &library,
-            PackageInput {
-                crate_name: "sample-core",
-                component: "fast",
-                version: "1.2.3",
-                target: "x86_64-unknown-linux-gnu",
-                provides: &provides,
-                features: &features,
-                default_features: false,
-                feature_hash: &feature_hash,
-            },
-        )
-        .unwrap();
-        // Exercise the PKCS#8 PEM loading path (`openssl genpkey -algorithm ED25519` output).
-        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
-        let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
-        let keys = BTreeMap::from([("release".into(), fs::read_to_string(public_key).unwrap())]);
-        verify_record(&record.record_path(temp.path()), &keys).unwrap();
-    }
-
-    #[test]
-    fn signs_with_a_pkcs8_der_private_key() {
-        let temp = tempfile::tempdir().unwrap();
-        let signing_key = SigningKey::from_bytes(&[4; 32]);
-        let private_key = temp.path().join("release-private.der");
-        fs::write(&private_key, signing_key.to_pkcs8_der().unwrap().as_bytes()).unwrap();
-
-        let manifest = manifest_fixture(&temp, "signed-native-library-der");
-        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
-        let public_key = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes());
-        verify_manifest_signature(&manifest, &signature, &public_key).unwrap();
-    }
-
-    #[test]
-    fn signs_with_a_raw_seed_private_key() {
-        let temp = tempfile::tempdir().unwrap();
-        let signing_key = SigningKey::from_bytes(&[5; 32]);
-        let private_key = temp.path().join("release-private.seed");
-        fs::write(&private_key, signing_key.to_bytes()).unwrap();
-
-        let manifest = manifest_fixture(&temp, "signed-native-library-seed");
-        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
-        let public_key = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes());
-        verify_manifest_signature(&manifest, &signature, &public_key).unwrap();
-    }
-
-    fn manifest_fixture(temp: &tempfile::TempDir, library_contents: &str) -> ComponentManifest {
-        let library = temp.path().join(format!("lib{library_contents}.so"));
-        fs::write(&library, library_contents.as_bytes()).unwrap();
-        let features = vec!["fast".to_string()];
-        let feature_hash = feature_hash(&features, false);
-        let contract_hash = "b".repeat(64);
-        let provides = [ProvidedContractInput {
-            contract: "engine",
-            interface_version: 1,
-            contract_hash: &contract_hash,
-            implementation: "sample_core::FastEngine",
-        }];
-        create_manifest(
-            &library,
-            PackageInput {
-                crate_name: "sample-core",
-                component: "fast",
-                version: "1.2.3",
-                target: "x86_64-unknown-linux-gnu",
-                provides: &provides,
-                features: &features,
-                default_features: false,
-                feature_hash: &feature_hash,
-            },
-        )
-        .unwrap()
-    }
-
-    /// Regression: config validation accepted unpadded base64 public keys
-    /// (`base64::STANDARD_NO_PAD`) while this module's decoder previously accepted only
-    /// `base64::STANDARD`, so a key config validation let through could fail verification
-    /// on every load. Both must now go through the same shared decoder.
-    #[test]
-    fn verifies_signature_with_unpadded_base64_public_key() {
-        let temp = tempfile::tempdir().unwrap();
-        let signing_key = SigningKey::from_bytes(&[6; 32]);
-        let private_key = temp.path().join("release-private.pem");
-        fs::write(
-            &private_key,
-            pem_wrap("PRIVATE KEY", signing_key.to_pkcs8_der().unwrap().as_bytes()),
-        )
-        .unwrap();
-        let unpadded_key =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.verifying_key().to_bytes());
-
-        let library = temp.path().join("libsample_core.so");
-        fs::write(&library, b"signed-native-library-unpadded").unwrap();
-        let features = vec!["fast".to_string()];
-        let feature_hash = feature_hash(&features, false);
-        let contract_hash = "b".repeat(64);
-        let provides = [ProvidedContractInput {
-            contract: "engine",
-            interface_version: 1,
-            contract_hash: &contract_hash,
-            implementation: "sample_core::FastEngine",
-        }];
-        let manifest = create_manifest(
-            &library,
-            PackageInput {
-                crate_name: "sample-core",
-                component: "fast",
-                version: "1.2.3",
-                target: "x86_64-unknown-linux-gnu",
-                provides: &provides,
-                features: &features,
-                default_features: false,
-                feature_hash: &feature_hash,
-            },
-        )
-        .unwrap();
-        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
-        let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
-        let keys = BTreeMap::from([("release".into(), unpadded_key)]);
-        verify_record(&record.record_path(temp.path()), &keys).unwrap();
-    }
-
-    /// A manifest signed by the previous `openssl pkeyutl -rawin -sign` shell-out must keep
-    /// verifying under the in-process `ed25519-dalek` verifier: the signed payload (the
-    /// manifest's canonical bytes) and the wire format (base64-encoded raw 64-byte Ed25519
-    /// signature) are unchanged, only the signer/verifier implementation moved in-process.
-    /// Fixture generated once with a fixed Ed25519 seed:
-    /// `openssl pkeyutl -sign -rawin -inkey <PKCS8 DER of seed [7; 32]> -in <canonical bytes>`.
-    #[test]
-    fn verifies_a_signature_produced_by_the_legacy_openssl_signer() {
-        const FIXTURE_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=\n-----END PUBLIC KEY-----\n";
-        const FIXTURE_SIGNATURE_BASE64: &str =
-            "LZMsYA525OsThf1/QrGg3rzSV+8SOWXGmo8WqFvywQ2mrXpJuR8RTiFSaDCgmZsgoC1u4kVlnyNx1r6VlexpDg==";
-
-        let manifest = ComponentManifest {
-            schema_version: COMPONENT_MANIFEST_SCHEMA,
-            abi_version: COMPONENT_ABI_VERSION,
-            identity: ComponentIdentity {
-                crate_name: "sample-core".into(),
-                component: "fast".into(),
-                version: "1.2.3".into(),
-                target: "x86_64-unknown-linux-gnu".into(),
-                feature_hash: feature_hash(&["fast".to_string()], false),
-                contract_hash: "b".repeat(64),
-            },
-            provides: vec![ComponentProvidedContract {
-                contract: "engine".into(),
-                interface_version: 1,
-                contract_hash: "b".repeat(64),
-                implementation: "sample_core::FastEngine".into(),
-            }],
-            features: vec!["fast".into()],
-            default_features: false,
-            library: ComponentLibrary {
-                file: "libsample_core.so".into(),
-                sha256: sha256_bytes(b"fixture-signed-library"),
-                size: b"fixture-signed-library".len() as u64,
-            },
-        };
-        let signature = ComponentSignature {
-            algorithm: "ed25519".into(),
-            key_id: "release".into(),
-            signature: FIXTURE_SIGNATURE_BASE64.to_string(),
-        };
-        verify_manifest_signature(&manifest, &signature, FIXTURE_PUBLIC_KEY_PEM).unwrap();
-    }
-
-    #[test]
-    fn lock_is_sorted_and_expands_urls() {
-        let make_record = |component: &str| ComponentArtifactRecord {
-            manifest: ComponentManifest {
-                schema_version: 1,
-                abi_version: 1,
-                identity: ComponentIdentity {
-                    crate_name: "core".into(),
-                    component: component.into(),
-                    version: "1.0.0".into(),
-                    target: "x86_64-unknown-linux-gnu".into(),
-                    feature_hash: "a".repeat(64),
-                    contract_hash: "b".repeat(64),
-                },
-                provides: vec![ComponentProvidedContract {
-                    contract: "engine".into(),
-                    interface_version: 1,
-                    contract_hash: "b".repeat(64),
-                    implementation: "core::Engine".into(),
-                }],
-                features: vec![],
-                default_features: false,
-                library: ComponentLibrary {
-                    file: "libcore.so".into(),
-                    sha256: "c".repeat(64),
-                    size: 1,
-                },
-            },
-            manifest_sha256: "d".repeat(64),
-            archive: format!("{component}.tar.gz"),
-            archive_sha256: "e".repeat(64),
-            archive_size: 2,
-            signature: Some(ComponentSignature {
-                algorithm: "ed25519".into(),
-                key_id: "release".into(),
-                signature: "AA==".into(),
-            }),
-        };
-        let keys = BTreeMap::from([("release".into(), "key".into())]);
-        let lock = build_lock(
-            &[make_record("zeta"), make_record("alpha")],
-            "https://example.invalid/{version}/{target}/{artifact}",
-            &keys,
-        )
-        .unwrap();
-        assert_eq!(lock.artifacts[0].identity.component, "alpha");
-        assert!(lock.artifacts[0].url.ends_with("/alpha.tar.gz"));
-        assert_eq!(lock.artifacts[0].mode, ComponentDeliveryMode::Download);
-        assert_eq!(lock.artifacts[0].provides[0].contract, "engine");
-    }
-
-    #[test]
-    fn manifest_records_every_provided_contract_sorted_by_name() {
-        let temp = tempfile::tempdir().unwrap();
-        let library = temp.path().join("libsample_core.so");
-        fs::write(&library, b"native-library").unwrap();
-        let features = vec!["fast".to_string()];
-        let feature_hash = feature_hash(&features, false);
-        let zeta_hash = "b".repeat(64);
-        let alpha_hash = "c".repeat(64);
-        let provides = [
-            ProvidedContractInput {
-                contract: "zeta",
-                interface_version: 1,
-                contract_hash: &zeta_hash,
-                implementation: "sample_core::Zeta",
-            },
-            ProvidedContractInput {
-                contract: "alpha",
-                interface_version: 2,
-                contract_hash: &alpha_hash,
-                implementation: "sample_core::Alpha",
-            },
-        ];
-        let manifest = create_manifest(
-            &library,
-            PackageInput {
-                crate_name: "sample-core",
-                component: "bundle",
-                version: "1.2.3",
-                target: "x86_64-unknown-linux-gnu",
-                provides: &provides,
-                features: &features,
-                default_features: false,
-                feature_hash: &feature_hash,
-            },
-        )
-        .unwrap();
-        assert_eq!(manifest.provides.len(), 2);
-        assert_eq!(manifest.provides[0].contract, "alpha");
-        assert_eq!(manifest.provides[1].contract, "zeta");
-        // Identity carries the first (lexicographically) contract's real hash.
-        assert_eq!(manifest.identity.contract_hash, alpha_hash);
-    }
-
-    #[test]
-    fn manifest_rejects_a_contract_provided_more_than_once() {
-        let temp = tempfile::tempdir().unwrap();
-        let library = temp.path().join("libsample_core.so");
-        fs::write(&library, b"native-library").unwrap();
-        let features: Vec<String> = Vec::new();
-        let feature_hash = feature_hash(&features, false);
-        let hash = "b".repeat(64);
-        let provides = [
-            ProvidedContractInput {
-                contract: "engine",
-                interface_version: 1,
-                contract_hash: &hash,
-                implementation: "sample_core::One",
-            },
-            ProvidedContractInput {
-                contract: "engine",
-                interface_version: 1,
-                contract_hash: &hash,
-                implementation: "sample_core::Two",
-            },
-        ];
-        let error = create_manifest(
-            &library,
-            PackageInput {
-                crate_name: "sample-core",
-                component: "bundle",
-                version: "1.2.3",
-                target: "x86_64-unknown-linux-gnu",
-                provides: &provides,
-                features: &features,
-                default_features: false,
-                feature_hash: &feature_hash,
-            },
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("more than once"));
-    }
-}
+mod tests;
