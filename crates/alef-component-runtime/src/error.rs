@@ -42,6 +42,10 @@ pub enum ComponentError {
     SignatureKeyMismatch,
     #[error("unsafe archive entry `{0}`")]
     UnsafeArchiveEntry(String),
+    #[error("component archive has more than {max} entries (found at least {actual})")]
+    TooManyArchiveEntries { max: usize, actual: usize },
+    #[error("extracted component archive entry exceeds the {limit}-byte size limit ({actual} bytes)")]
+    ExtractedSizeExceeded { limit: u64, actual: u64 },
     #[error("artifact library path `{0}` is not a safe relative path")]
     UnsafeLibraryPath(String),
     #[error("component library is missing at `{0}`")]
