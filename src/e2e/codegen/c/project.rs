@@ -630,7 +630,11 @@ mod tests {
     fn makefile_rejects_fragment_that_gnu_make_would_execute() {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("make-injection");
-        let header = format!("$(shell touch {})", marker.display());
+        // GNU Make is invoked through the Git-for-Windows shell in the hosted Windows job;
+        // feed that shell a forward-slash path and quote it so a drive letter or temp-path
+        // whitespace cannot turn the control probe into a different command. ~keep
+        let marker_for_shell = marker.to_string_lossy().replace('\\', "/");
+        let header = format!("$(shell touch \"{marker_for_shell}\")");
         let result = render_makefile(
             &[],
             &header,
@@ -666,7 +670,7 @@ mod tests {
         let control = format!("PROBE := {header}\nall:\n\t@true\n");
         std::fs::write(dir.path().join("Makefile"), control).unwrap();
         let status = std::process::Command::new("make")
-            .args(["-n", "-f", "Makefile"])
+            .args(["-f", "Makefile", "all"])
             .current_dir(dir.path())
             .status()
             .unwrap();
