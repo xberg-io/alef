@@ -5,7 +5,7 @@
 //! is the one decoder all of them call now.
 
 use base64::Engine as _;
-use ed25519_dalek::pkcs8::{DecodePublicKey as _, EncodePublicKey as _};
+use ed25519_dalek::pkcs8::DecodePublicKey as _;
 use ed25519_dalek::VerifyingKey;
 
 use crate::ComponentError;
@@ -30,17 +30,6 @@ pub fn decode_public_key(value: &str) -> Result<VerifyingKey, ComponentError> {
         return VerifyingKey::from_bytes(&raw).map_err(|_| ComponentError::InvalidPublicKey);
     }
     VerifyingKey::from_public_key_der(&bytes).map_err(|_| ComponentError::InvalidPublicKey)
-}
-
-/// Re-encode a decoded key as DER `SubjectPublicKeyInfo` bytes.
-///
-/// Callers that hand a public key to an external tool (`alef`'s artifact verification
-/// shells out to `openssl pkeyutl`) need bytes in a single, unambiguous format regardless
-/// of which form [`decode_public_key`] accepted it in.
-pub fn encode_public_key_der(key: &VerifyingKey) -> Result<Vec<u8>, ComponentError> {
-    key.to_public_key_der()
-        .map(|document| document.as_bytes().to_vec())
-        .map_err(|_| ComponentError::InvalidPublicKey)
 }
 
 #[cfg(test)]
@@ -77,13 +66,6 @@ mod tests {
     fn decodes_pem() {
         let expected = VerifyingKey::from_bytes(&FIXTURE_RAW).unwrap();
         assert_eq!(decode_public_key(FIXTURE_PEM).unwrap(), expected);
-    }
-
-    #[test]
-    fn encodes_der_that_round_trips_through_decode() {
-        let der = encode_public_key_der(&key()).unwrap();
-        let decoded = VerifyingKey::from_public_key_der(&der).unwrap();
-        assert_eq!(decoded, key());
     }
 
     #[test]
