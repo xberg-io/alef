@@ -1,6 +1,7 @@
 //! Magnus (Ruby) backend for alef: orchestrates struct, enum, and function code generation.
 
 mod classes;
+pub(crate) use classes::is_native_payload_enum;
 pub mod functions;
 mod method_result_wrap;
 pub mod service_api;
@@ -437,11 +438,12 @@ impl Backend for MagnusBackend {
 
         for enum_def in &api.enums {
             if !is_reserved_enum(&enum_def.name) && !exclude_types.contains(enum_def.name.as_str()) {
-                builder.add_item(&classes::gen_enum(
+                builder.add_item(&classes::gen_enum_with_module(
                     enum_def,
                     &core_import,
                     Some(enabled_features.as_slice()),
                     &api.types,
+                    &module_name,
                 ));
                 if enum_def.serde_tag.is_none() {
                     let constructors = classes::gen_data_enum_variant_constructors(
@@ -602,6 +604,7 @@ impl Backend for MagnusBackend {
         let magnus_conv_config = crate::codegen::conversions::ConversionConfig {
             binding_enums_have_data: true,
             binding_tuple_form_for_variants: true,
+            binding_enum_fields_are_boxed: true,
             // Enum data-variant `Map` fields are collapsed to a JSON `String` DTO field by ~keep
             // `classes::gen_enum::field_type_for_serde_inner`, so their conversions must round-trip ~keep
             // via serde_json rather than `HashMap::into_iter`. Struct `Map` fields keep their native ~keep
@@ -865,7 +868,10 @@ impl Backend for MagnusBackend {
         );
 
         for enum_def in &api.enums {
-            if enum_def.serde_tag.is_some() && enum_def.variants.iter().any(|v| !v.fields.is_empty()) {
+            if enum_def.serde_tag.is_some()
+                && enum_def.variants.iter().any(|v| !v.fields.is_empty())
+                && !is_native_payload_enum(enum_def)
+            {
                 native_content.push('\n');
                 native_content.push_str(&gen_tagged_enum_ruby_classes(enum_def, &module_name, &api.types));
             }

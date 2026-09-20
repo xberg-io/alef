@@ -224,6 +224,55 @@ fn enum_struct_variant_boxes_named_field_after_conversion() {
 }
 
 #[test]
+fn enum_struct_variant_dereferences_boxed_named_fields_when_binding_is_boxed() {
+    let mut enum_def = simple_enum();
+    enum_def.variants = vec![EnumVariant {
+        name: "Remote".into(),
+        fields: vec![
+            FieldDef {
+                name: "settings".into(),
+                ty: TypeRef::Named("RemoteSettings".into()),
+                is_boxed: true,
+                ..FieldDef::default()
+            },
+            FieldDef {
+                name: "fallback".into(),
+                ty: TypeRef::Named("RemoteSettings".into()),
+                optional: true,
+                is_boxed: true,
+                ..FieldDef::default()
+            },
+        ],
+        ..EnumVariant::default()
+    }];
+    let config = ConversionConfig {
+        binding_enums_have_data: true,
+        binding_enum_fields_are_boxed: true,
+        ..ConversionConfig::default()
+    };
+
+    let binding_to_core = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+    assert!(
+        binding_to_core.contains("settings: Box::new((*settings).into())"),
+        "{binding_to_core}"
+    );
+    assert!(
+        binding_to_core.contains("fallback: fallback.map(|v| Box::new((*v).into()))"),
+        "{binding_to_core}"
+    );
+
+    let core_to_binding = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
+    assert!(
+        core_to_binding.contains("settings: Box::new((*settings).into())"),
+        "{core_to_binding}"
+    );
+    assert!(
+        core_to_binding.contains("fallback: fallback.map(|v| Box::new((*v).into()))"),
+        "{core_to_binding}"
+    );
+}
+
+#[test]
 fn test_enum_from_core_to_binding() {
     let enum_def = simple_enum();
     let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");

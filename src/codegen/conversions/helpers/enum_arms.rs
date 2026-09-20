@@ -98,6 +98,18 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 } else {
                     conv
                 };
+                let expr = if config.binding_enum_fields_are_boxed && f.is_boxed && matches!(&f.ty, TypeRef::Named(_)) {
+                    if f.optional {
+                        expr.replace(
+                            &format!("{name}.map(Into::into)"),
+                            &format!("{name}.map(|v| (*v).into())"),
+                        )
+                    } else {
+                        expr.replace(&format!("{name}.into()"), &format!("(*{name}).into()"))
+                    }
+                } else {
+                    expr
+                };
                 if f.is_boxed { format!("Box::new({expr})") } else { expr }
             })
             .collect();
@@ -184,7 +196,21 @@ pub fn core_to_binding_match_arm_ext_cfg(
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
                     let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     if f.is_boxed {
-                        expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
+                        if config.binding_enum_fields_are_boxed {
+                            if f.optional {
+                                expr = expr.replace(
+                                    &format!("{}.map(Into::into)", f.name),
+                                    &format!("{}.map(|v| Box::new((*v).into()))", f.name),
+                                );
+                            } else {
+                                expr = expr.replace(
+                                    &format!("{}.into()", f.name),
+                                    &format!("Box::new((*{}).into())", f.name),
+                                );
+                            }
+                        } else {
+                            expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
+                        }
                     }
                     if binding_uses_tuple_form {
                         let string_move = format!("{}.to_string()", f.name);
@@ -222,7 +248,21 @@ pub fn core_to_binding_match_arm_ext_cfg(
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
                     let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
                     if f.is_boxed {
-                        expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
+                        if config.binding_enum_fields_are_boxed {
+                            if f.optional {
+                                expr = expr.replace(
+                                    &format!("{}.map(Into::into)", f.name),
+                                    &format!("{}.map(|v| Box::new((*v).into()))", f.name),
+                                );
+                            } else {
+                                expr = expr.replace(
+                                    &format!("{}.into()", f.name),
+                                    &format!("Box::new((*{}).into())", f.name),
+                                );
+                            }
+                        } else {
+                            expr = expr.replace(&format!("{}.into()", f.name), &format!("(*{}).into()", f.name));
+                        }
                     }
                     field_init(&f.name, &expr)
                 } else {

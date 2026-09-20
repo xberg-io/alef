@@ -1,6 +1,8 @@
 {# Data enum definition with IntoValue/TryConvert via JSON #}
 {% if has_data %}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+{% if native_payload %}#[magnus::wrap(class = "{{ module_name }}::{{ enum_name }}")]
+{% endif %}
 {% if serde_tag %}#[serde(tag = "{{ serde_tag }}"{% if serde_content %}, content = "{{ serde_content }}"{% endif %})]
 {% endif %}{% if serde_untagged %}#[serde(untagged)]
 {% endif %}{% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
@@ -19,7 +21,7 @@
 }
 {% endif %}
 
-impl magnus::IntoValue for {{ enum_name }} {
+{% if not native_payload %}impl magnus::IntoValue for {{ enum_name }} {
     fn into_value_with(self, handle: &Ruby) -> magnus::Value {
         match serde_json::to_value(&self) {
             Ok(v) => json_to_ruby(handle, v),
@@ -27,9 +29,25 @@ impl magnus::IntoValue for {{ enum_name }} {
         }
     }
 }
+{% endif %}
 
 impl magnus::TryConvert for {{ enum_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
+{% if native_payload %}
+        <&Self as magnus::TryConvert>::try_convert(val).cloned()
+{% else %}
+{%- if serde_tag %}
+        // Generated Data variants carry native DTOs, not JSON-compatible display strings.
+        let class_name: Option<String> = val.class().funcall("name", ())?;
+{%- for variant in variants %}
+{%- if variant.typed_newtype %}
+        if class_name.as_deref() == Some("{{ module_name }}::{{ enum_name }}{{ variant.name }}") {
+            let payload: {{ variant.payload_type }} = val.funcall("value", ())?;
+            return Ok(Self::{{ variant.name }}{% if variant.emits_as_tuple %}({% if variant.payload_boxed %}Box::new(payload){% else %}payload{% endif %}){% else %} { _0: {% if variant.payload_boxed %}Box::new(payload){% else %}payload{% endif %} }{% endif %});
+        }
+{%- endif %}
+{%- endfor %}
+{%- endif %}
         // For data enums with fields (e.g., PageAction), try to deserialize from JSON first.
         // For unit enums or when passed as a string, fall back to string-based conversion.
         let json_str: String = if let Ok(s) = <String as magnus::TryConvert>::try_convert(val) {
@@ -57,22 +75,39 @@ impl magnus::TryConvert for {{ enum_name }} {
                 }
             })
             .map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))
+{% endif %}
     }
 }
 
 unsafe impl IntoValueFromNative for {{ enum_name }} {}
 unsafe impl TryConvertOwned for {{ enum_name }} {}
 
+{% if native_payload %}
+impl {{ enum_name }} {
+{% for variant in variants %}
+    pub fn from_{{ variant.snake_name }}(value: {{ variant.payload_type }}) -> Self {
+        Self::{{ variant.name }}({% if variant.payload_boxed %}Box::new(value){% else %}value{% endif %})
+    }
+    pub fn {{ variant.snake_name }}(&self) -> Option<{{ variant.payload_type }}> {
+        match self {
+            Self::{{ variant.name }}(value) => Some({% if variant.payload_boxed %}(**value).clone(){% else %}value.clone(){% endif %}),
+            _ => None,
+        }
+    }
+{% endfor %}
+}
+{% endif %}
+
 {%- if has_data %}
 {# Variant accessor methods for internally-tagged data enums #}
-{%- if serde_tag %}
+{%- if serde_tag and not native_payload %}
 impl {{ enum_name }} {
 {%- for variant in variants %}
 {%- if variant.fields | length == 1 and variant.fields[0].name == "_0" %}
-    pub fn {{ variant.snake_name }}(&self) -> Option<&{{ variant.fields[0].field_type }}> {
+    pub fn {{ variant.snake_name }}(&self) -> Option<&{{ variant.payload_type }}> {
         match self {
-{% if variant.emits_as_tuple %}            Self::{{ variant.name }}(_0) => Some(_0),
-{% else %}            Self::{{ variant.name }} { _0 } => Some(_0),
+{% if variant.emits_as_tuple %}            Self::{{ variant.name }}(_0) => Some({% if variant.payload_boxed %}&**_0{% else %}_0{% endif %}),
+{% else %}            Self::{{ variant.name }} { _0 } => Some({% if variant.payload_boxed %}&**_0{% else %}_0{% endif %}),
 {% endif %}
             _ => None,
         }
@@ -108,7 +143,14 @@ impl magnus::IntoValue for {{ enum_name }} {
 
 impl magnus::TryConvert for {{ enum_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
-        let s: String = magnus::TryConvert::try_convert(val)?;
+        // IntoValue emits Symbols, including when this enum is a Hash key.
+        // Accept that exact representation as well as String inputs; do not
+        // coerce arbitrary objects through to_s.
+        let s: String = if let Some(symbol) = magnus::Symbol::from_value(val) {
+            symbol.name()?.into_owned()
+        } else {
+            magnus::TryConvert::try_convert(val)?
+        };
         // Accept the real serde wire value, the legacy always-snake_case symbol Magnus used to
         // emit unconditionally, and the verbatim PascalCase Rust variant name, so fixtures and
         // existing consumer code written in any of those styles keep working.

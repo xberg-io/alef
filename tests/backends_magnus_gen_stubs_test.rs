@@ -289,11 +289,7 @@ fn test_basic_rbs_stubs() {
         "Should have process function stub with correct signature"
     );
 
-    assert!(content.contains("class Backend"), "Should contain Backend enum class");
-    assert!(
-        content.contains("type value = :Tesseract | :PaddleOcr"),
-        "no rename_all declared, so the stub's symbol union must be verbatim wire values"
-    );
+    assert!(content.contains("type enum_Backend = :Tesseract | :PaddleOcr"));
 
     assert!(content.contains("end"), "Should have module closing");
 }
@@ -504,16 +500,11 @@ fn test_enum_stubs() {
         .unwrap();
     let content = &rbs_file.content;
 
-    assert!(content.contains("class Status"), "Should contain Status enum class");
+    assert!(content.contains("type enum_Status = :Pending | :Processing | :Complete | :Failed"));
 
     assert!(
         content.contains("# Processing status"),
         "Should include enum documentation"
-    );
-
-    assert!(
-        content.contains("type value = :Pending | :Processing | :Complete | :Failed"),
-        "no rename_all declared, so the stub's symbol union must be verbatim wire values, in order"
     );
 }
 

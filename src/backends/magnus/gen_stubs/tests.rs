@@ -174,9 +174,41 @@ fn unit_enum_stub_type_value_matches_the_verbatim_wire_symbol_without_rename_all
     );
     let stub = gen_enum_stub(&def, false, true, &std::collections::HashSet::new());
     assert!(
-        stub.contains("type value = :KeyValue | :Sequence"),
+        stub.contains("type enum_DataNodeKind = :KeyValue | :Sequence"),
         "no rename_all declared, so the stub's symbol union must be verbatim: {stub}"
     );
+    assert!(!stub.contains("class DataNodeKind"), "{stub}");
+}
+
+#[test]
+fn unit_enum_references_are_projected_recursively_without_changing_rust_surface() {
+    use crate::core::ir::{ApiSurface, FunctionDef, TypeDef};
+    let role = TypeRef::Named("SourceRole".into());
+    let values = TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(role.clone()))));
+    let api = ApiSurface {
+        enums: vec![enum_def("SourceRole", vec![variant("Ours", vec![])])],
+        types: vec![TypeDef {
+            name: "Source".into(),
+            fields: vec![field("roles", TypeRef::Map(Box::new(role.clone()), Box::new(values)))],
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "role".into(),
+            return_type: role.clone(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let projected = super::symbol_enum_surface(&api);
+    assert_eq!(
+        projected.functions[0].return_type,
+        TypeRef::Named("enum_SourceRole".into())
+    );
+    assert_eq!(
+        super::rbs_type(&projected.types[0].fields[0].ty),
+        "Hash[enum_SourceRole, Array[enum_SourceRole?]]"
+    );
+    assert_eq!(api.functions[0].return_type, role);
 }
 
 #[test]

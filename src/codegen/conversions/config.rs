@@ -85,6 +85,9 @@ pub struct ConversionConfig<'a> {
     /// When true, binding enums include data variant fields (Magnus).
     /// When false (default), binding enums are unit-only and data is lost in conversion.
     pub binding_enums_have_data: bool,
+    /// When true, Magnus data-enum fields preserve the core `Box<T>` shape in the binding enum.
+    /// The enum declaration and both conversion directions must agree on this representation.
+    pub binding_enum_fields_are_boxed: bool,
     /// Type names excluded from the binding layer. Fields referencing these types
     /// are skipped in the binding struct and defaulted in From conversions.
     /// Used by WASM to handle types excluded due to native dependency requirements.

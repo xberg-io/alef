@@ -236,7 +236,26 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         {
             continue;
         }
-        if enum_def.serde_tag.is_some() {
+        if enum_def.serde_tag.is_some() && !classes::is_native_payload_enum(enum_def) {
+            continue;
+        }
+        if classes::is_native_payload_enum(enum_def) {
+            lines.push(format!(
+                "    let class = module.define_class(\"{}\", ruby.class_object())?;",
+                enum_def.name
+            ));
+            lines.push("    class.undef_default_alloc_func();".into());
+            for variant in &enum_def.variants {
+                let name = crate::codegen::naming::pascal_to_snake(&variant.name);
+                lines.push(format!(
+                    "    class.define_singleton_method(\"from_{name}\", function!({}::from_{name}, 1))?;",
+                    enum_def.name
+                ));
+                lines.push(format!(
+                    "    class.define_method(\"{name}\", method!({}::{name}, 0))?;",
+                    enum_def.name
+                ));
+            }
             continue;
         }
         let registrations = classes::data_enum_variant_constructor_registrations(

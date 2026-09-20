@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python unit enums provide integer-consistent hashing and typed tuple-variant factories.**
   Generated stubs and DTO coercion discovery match the runtime constructors and hash behavior.
 
+- **BREAKING (Magnus/Ruby): eligible tagged and untagged single-named-payload enums now use one
+  native payload class.** The per-variant `Data.define` subclasses and `.value` readers are
+  replaced by typed `from_<variant>` factories and `<variant>()` readers.
+
+- **BREAKING (Magnus/Ruby): unit-enum RBS declarations now use `enum_<Name>` symbol aliases.**
+  The former `class <Name>` declarations and references are removed.
+
 ### Fixed
 
 - **PyO3 enum variant and tag getters no longer emit Rust-rejected raw identifiers.**
@@ -94,6 +101,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Ruby trait dispatchers process VM shutdown interrupts while idle.** Protected Magnus checks
   prevent shutdown from waiting indefinitely for live registry senders.
+
+- **Ruby tagged newtype variants with native DTO payloads remain native Magnus objects.** They are
+  no longer stringified during conversion.
+
+- **Ruby Data variant fields are read from stored members.** Generated readers no longer call a
+  nonexistent superclass accessor.
+
+- **Ruby unit-enum Symbols are accepted on input and in enum-keyed Hash round trips.** String
+  support remains, while arbitrary object coercion is rejected.
+
+- **Boxed Ruby enum payloads preserve their declared ownership in both conversion directions.**
+  Named boxed fields are dereferenced before conversion and reboxed for the binding shape.
 
 ## [0.93.1] - 2026-09-19
 

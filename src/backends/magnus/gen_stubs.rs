@@ -6,6 +6,66 @@ use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 
+fn unit_enum_alias(name: &str) -> String {
+    // Preserve case after a lowercase prefix: distinct Rust names must not
+    // collide merely because snake_case normalization produces the same word.
+    format!("enum_{name}")
+}
+
+/// RBS-only projection. Unit enums are Ruby symbols, not runtime classes.
+/// Rewrite typed references recursively before rendering, never generated text.
+fn symbol_enum_surface(api: &ApiSurface) -> ApiSurface {
+    let names: std::collections::HashSet<&str> = api
+        .enums
+        .iter()
+        .filter(|item| item.variants.iter().all(|variant| variant.fields.is_empty()))
+        .map(|item| item.name.as_str())
+        .collect();
+    fn rewrite(ty: &mut TypeRef, names: &std::collections::HashSet<&str>) {
+        match ty {
+            TypeRef::Named(name) if names.contains(name.as_str()) => *name = unit_enum_alias(name),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => rewrite(inner, names),
+            TypeRef::Map(key, value) => {
+                rewrite(key, names);
+                rewrite(value, names);
+            }
+            _ => {}
+        }
+    }
+    fn method(item: &mut MethodDef, names: &std::collections::HashSet<&str>) {
+        for parameter in &mut item.params {
+            rewrite(&mut parameter.ty, names);
+        }
+        rewrite(&mut item.return_type, names);
+    }
+    let mut projected = api.clone();
+    for item in &mut projected.types {
+        for field in &mut item.fields {
+            rewrite(&mut field.ty, &names);
+        }
+        for member in &mut item.methods {
+            method(member, &names);
+        }
+    }
+    for item in &mut projected.enums {
+        for variant in &mut item.variants {
+            for field in &mut variant.fields {
+                rewrite(&mut field.ty, &names);
+            }
+        }
+        for member in &mut item.methods {
+            method(member, &names);
+        }
+    }
+    for item in &mut projected.functions {
+        for parameter in &mut item.params {
+            rewrite(&mut parameter.ty, &names);
+        }
+        rewrite(&mut item.return_type, &names);
+    }
+    projected
+}
+
 pub fn gen_stubs(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -15,6 +75,8 @@ pub fn gen_stubs(
     trait_bridges: &[TraitBridgeConfig],
     client_constructor_types: &std::collections::HashSet<&str>,
 ) -> String {
+    let projected = symbol_enum_surface(api);
+    let api = &projected;
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
     lines.push("".to_string());
@@ -580,7 +642,30 @@ fn gen_enum_stub(
                 crate::backends::magnus::ruby_symbol_literal(&wire_name)
             })
             .collect();
-        lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
+        // There is no corresponding Ruby class for a unit enum. A standalone
+        // alias describes its actual symbol values without inventing a constant.
+        let alias = format!(
+            "  type {} = {}",
+            unit_enum_alias(&enum_def.name),
+            symbol_variants.join(" | ")
+        );
+        if emit_docstrings && !enum_def.doc.is_empty() {
+            let doc_lines: Vec<String> = enum_def.doc.lines().map(ToString::to_string).collect();
+            let docs =
+                crate::backends::magnus::template_env::render("rbs_doc_block.jinja", minijinja::context! { doc_lines });
+            return format!("{docs}{alias}");
+        }
+        return alias;
+    } else if crate::backends::magnus::gen_bindings::is_native_payload_enum(enum_def) {
+        for variant in &enum_def.variants {
+            let name = crate::codegen::naming::pascal_to_snake(&variant.name);
+            let payload = rbs_type(&variant.fields[0].ty);
+            lines.push(format!(
+                "    def self.from_{name}: ({payload} value) -> {}",
+                enum_def.name
+            ));
+            lines.push(format!("    def {name}: () -> {payload}?"));
+        }
     } else if enum_def.serde_tag.is_none() {
         gen_data_enum_variant_constructor_stubs(&mut lines, enum_def, is_host_enum, configured_features);
     }

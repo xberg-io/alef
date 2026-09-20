@@ -1,6 +1,130 @@
 use super::*;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
+#[test]
+fn untagged_record_enum_retains_native_identity_and_typed_factories() {
+    let def = EnumDef {
+        name: "Record".into(),
+        serde_untagged: true,
+        variants: vec![
+            EnumVariant {
+                name: "Canonical".into(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::Named("Payload".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Migration".into(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::Named("Legacy".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let code = gen_enum_with_module(&def, "core", None, &[], "Example");
+    assert!(code.contains("#[magnus::wrap(class = \"Example::Record\")]"), "{code}");
+    assert!(code.contains("pub fn from_canonical(value: Payload) -> Self"), "{code}");
+    assert!(code.contains("pub fn migration(&self) -> Option<Legacy>"), "{code}");
+    assert!(
+        !code.contains("json_to_ruby"),
+        "records must not degrade into hashes: {code}"
+    );
+    assert!(
+        !code.contains("serde_json::from_str"),
+        "records must not guess a variant from a hash: {code}"
+    );
+    syn::parse_file(&code).expect("native enum Rust must parse");
+}
+
+#[test]
+fn boxed_native_payload_enum_preserves_boxed_variants_and_unboxed_accessors() {
+    let def = EnumDef {
+        name: "Record".into(),
+        serde_untagged: true,
+        variants: vec![EnumVariant {
+            name: "Canonical".into(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                name: "_0".into(),
+                ty: TypeRef::Named("Payload".into()),
+                is_boxed: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let code = gen_enum_with_module(&def, "core", None, &[], "Example");
+    assert!(code.contains("Canonical(Box<Payload>)"), "{code}");
+    assert!(code.contains("from_canonical(value: Payload)"), "{code}");
+    assert!(code.contains("Self::Canonical(Box::new(value))"), "{code}");
+    assert!(code.contains("Some((**value).clone())"), "{code}");
+    syn::parse_file(&code).expect("boxed native enum Rust must parse");
+}
+
+#[test]
+fn typed_tagged_newtypes_extract_native_payloads_before_json_fallback() {
+    let mut def = EnumDef {
+        name: "Policy".into(),
+        serde_tag: Some("operation".into()),
+        serde_content: Some("policy".into()),
+        variants: vec![EnumVariant {
+            name: "Analyze".into(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                name: "_0".into(),
+                ty: TypeRef::Named("AnalyzePolicy".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let types = vec![TypeDef {
+        name: "AnalyzePolicy".into(),
+        ..Default::default()
+    }];
+    let native_code = gen_enum_with_module(&def, "core", None, &types, "CustomModule");
+    assert!(
+        native_code.contains("#[magnus::wrap(class = \"CustomModule::Policy\")]"),
+        "{native_code}"
+    );
+    assert!(
+        native_code.contains("pub fn from_analyze(value: AnalyzePolicy) -> Self"),
+        "{native_code}"
+    );
+    assert!(
+        native_code.contains("pub fn analyze(&self) -> Option<AnalyzePolicy>"),
+        "{native_code}"
+    );
+    assert!(!native_code.contains("json_to_ruby"), "{native_code}");
+    syn::parse_file(&native_code).expect("tagged payloads must use valid native enum Rust");
+    // Mixed unit/payload enums retain the legacy representation and input adapter.
+    def.variants.push(EnumVariant {
+        name: "None".into(),
+        ..Default::default()
+    });
+    let code = gen_enum_with_module(&def, "core", None, &types, "CustomModule");
+    assert!(code.contains("Some(\"CustomModule::PolicyAnalyze\")"), "{code}");
+    assert!(
+        code.contains("let payload: AnalyzePolicy = val.funcall(\"value\", ())?;"),
+        "{code}"
+    );
+    assert!(code.contains("return Ok(Self::Analyze(payload));"), "{code}");
+    assert!(code.find("let payload:").unwrap() < code.find("let json_str:").unwrap());
+    syn::parse_file(&code).expect("native ingress conversion must be valid Rust");
+}
+
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         version: Default::default(),
@@ -275,6 +399,9 @@ fn gen_enum_unit_variant_try_convert_still_accepts_the_legacy_snake_case_spellin
         ..Default::default()
     };
     let code = gen_enum(&enum_def, "test_lib", None, &[]);
+    assert!(code.contains("magnus::Symbol::from_value(val)"));
+    assert!(code.contains("symbol.name()?.into_owned()"));
+    assert!(!code.contains("funcall(\"to_s\""));
     assert!(
         code.contains("\"key_value\""),
         "existing consumer code passing the old snake_case symbol must keep working:\n{code}"
