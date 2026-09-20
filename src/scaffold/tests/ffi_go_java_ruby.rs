@@ -550,9 +550,8 @@ fn test_scaffold_ruby_production_features() {
     assert!(content.contains("spec.extensions"));
     assert!(content.contains("README*"));
     assert!(content.contains("LICENSE*"));
-    assert!(content.contains("lib/**/*"));
-    assert!(content.contains("ext/**/*"));
-    assert!(content.contains("sig/**/*"));
+    assert!(content.contains("lib/my_lib.rb lib/my_lib/**/* ext/my_lib_rb/**/* sig/**/*"));
+    assert!(!content.contains("lib/**/* ext/**/*"));
     assert!(content.contains("spec.metadata[\"keywords\"]"));
     assert!(content.contains("frozen_string_literal: true"));
     assert!(content.contains("spec.metadata[\"rubygems_mfa_required\"] = \"true\""));
