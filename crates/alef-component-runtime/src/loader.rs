@@ -125,6 +125,11 @@ impl LoadedComponent {
             NonNull::new(raw.cast_mut()).ok_or(ComponentError::InvalidDescriptor("null descriptor"))?
         };
 
+        // Reject a too-small descriptor before a `&AlefComponentV1` reference is ever formed
+        // over it: forming that reference asserts the pointee is valid for
+        // `size_of::<AlefComponentV1>()` bytes, which is undefined behavior when the
+        // component actually returned a shorter, older-ABI struct.
+        unsafe { reject_undersized_descriptor(descriptor)? };
         let validated = unsafe { validate_descriptor(descriptor.as_ref(), requirements)? };
         pin_for_process(Arc::clone(&library));
         Ok(Self {
@@ -343,6 +348,32 @@ pub(crate) fn validate_manifest(
     Ok(())
 }
 
+// `struct_size` must be a descriptor's first field: only that guarantees a raw read of it
+// never touches memory beyond what the component actually allocated, even when the
+// allocation is shorter than `size_of::<AlefComponentV1>()`. If this ever fails, the raw
+// read in `reject_undersized_descriptor` is no longer sound and must be revisited.
+const _: () = assert!(core::mem::offset_of!(AlefComponentV1, struct_size) == 0);
+
+/// Read a just-returned descriptor's `struct_size` and reject it while it is still smaller
+/// than the current ABI, before a `&AlefComponentV1` reference is formed over it.
+///
+/// # Safety
+///
+/// `descriptor` must be non-null and point to memory valid for reads of at least
+/// `size_of::<usize>()` bytes at `AlefComponentV1`'s alignment; no wider reference to it may
+/// have been formed yet. Both are upheld by [`LoadedComponent::load`]'s caller contract: a
+/// component's entry point must return a pointer to at least a valid `struct_size` field.
+unsafe fn reject_undersized_descriptor(descriptor: NonNull<AlefComponentV1>) -> Result<(), ComponentError> {
+    // SAFETY: upheld by this function's caller contract; `struct_size` sits at offset 0
+    // (asserted above), so this read never reaches past the caller-guaranteed
+    // `size_of::<usize>()` bytes regardless of how large the real descriptor is.
+    let struct_size = unsafe { descriptor.as_ptr().cast::<usize>().read_unaligned() };
+    if struct_size < core::mem::size_of::<AlefComponentV1>() {
+        return Err(ComponentError::InvalidDescriptor("descriptor is smaller than ABI v1"));
+    }
+    Ok(())
+}
+
 unsafe fn validate_descriptor(
     descriptor: &AlefComponentV1,
     requirements: &ComponentRequirements,
@@ -480,6 +511,35 @@ mod tests {
             unsafe { validate_descriptor(&descriptor, &requirements()) },
             Err(ComponentError::InvalidDescriptor(_))
         ));
+    }
+
+    /// Regression for forming a `&AlefComponentV1` over memory that only actually holds a
+    /// `struct_size` field. The backing allocation below is deliberately sized for nothing
+    /// more than that one `usize`, so `reject_undersized_descriptor`'s raw pointer read must
+    /// be the only access that happens -- ever forming a full `&AlefComponentV1` reference
+    /// over it would read past the allocation.
+    #[test]
+    fn rejects_a_descriptor_backed_by_memory_too_small_to_hold_the_full_struct() {
+        let layout = std::alloc::Layout::from_size_align(
+            core::mem::size_of::<usize>(),
+            core::mem::align_of::<AlefComponentV1>(),
+        )
+        .unwrap();
+        // SAFETY: `layout` has non-zero size.
+        let raw = unsafe { std::alloc::alloc(layout) };
+        assert!(!raw.is_null(), "test allocation failed");
+        // SAFETY: `raw` is valid for `size_of::<usize>()` bytes per `layout` and is
+        // sufficiently aligned for a `usize` write.
+        unsafe { raw.cast::<usize>().write_unaligned(8) };
+        let descriptor = NonNull::new(raw).unwrap().cast::<AlefComponentV1>();
+
+        // SAFETY: `descriptor` points to `size_of::<usize>()` valid bytes, matching this
+        // function's caller contract; no wider reference is formed here.
+        let result = unsafe { reject_undersized_descriptor(descriptor) };
+
+        // SAFETY: `raw`/`layout` match the earlier allocation exactly.
+        unsafe { std::alloc::dealloc(raw, layout) };
+        assert!(matches!(result, Err(ComponentError::InvalidDescriptor(_))));
     }
 
     #[test]
