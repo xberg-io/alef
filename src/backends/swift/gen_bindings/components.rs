@@ -67,7 +67,7 @@ public func componentPrefetch(_ component: String? = nil) throws -> [String] {
     )
 }
 
-/// Return `missing`, `cached:<path>`, or `loaded:<path>` for a component.
+/// Return `ready`, `cached`, `not_downloaded`, `bundled`, or `unsupported:<reason>` for a component.
 public func componentStatus(_ component: String) throws -> String {
     try alefEnsureComponentPlatform()
     return try alefDecodeComponentResponse(

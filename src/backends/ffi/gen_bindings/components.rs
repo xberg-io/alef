@@ -77,8 +77,9 @@ pub unsafe extern "C" fn {prefix}_component_prefetch(component: *const c_char) -
     }}
 }}
 
-/// Return `missing`, `cached:<path>`, or `loaded:<path>` for a configured component.
-/// The returned string is owned and must be freed with `{prefix}_free_string`.
+/// Return `ready`, `cached`, `not_downloaded`, `bundled`, or `unsupported:<reason>` for a
+/// configured component. The returned string is owned and must be freed with
+/// `{prefix}_free_string`. See `{prefix}_component_status_code` for the matching numeric code.
 /// # Safety
 /// `component` must point to a valid, NUL-terminated UTF-8 string.
 #[unsafe(no_mangle)]
@@ -94,6 +95,27 @@ pub unsafe extern "C" fn {prefix}_component_status(component: *const c_char) -> 
         Err(error) => {{
             set_last_error(99, &error);
             std::ptr::null_mut()
+        }}
+    }}
+}}
+
+/// The numeric counterpart to `{prefix}_component_status`, stable across releases. Returns
+/// -1 and sets the last error on failure.
+/// # Safety
+/// `component` must point to a valid, NUL-terminated UTF-8 string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {prefix}_component_status_code(component: *const c_char) -> i32 {{
+    clear_last_error();
+    let result = (|| {{
+        // SAFETY: upheld by this function's caller contract.
+        let component = unsafe {{ alef_component_id(component) }}?;
+        alef_component_status_code(component)
+    }})();
+    match result {{
+        Ok(code) => code,
+        Err(error) => {{
+            set_last_error(99, &error);
+            -1
         }}
     }}
 }}
@@ -199,6 +221,7 @@ mod tests {
         assert!(generated.contains("fn demo_component_load"));
         assert!(generated.contains("fn demo_component_prefetch"));
         assert!(generated.contains("fn demo_component_status"));
+        assert!(generated.contains("fn demo_component_status_code"));
         assert!(generated.contains("fn demo_component_cache_path"));
         assert!(generated.contains("fn demo_component_activate"));
         assert!(generated.contains("vec![\"fast\"]"));
@@ -227,6 +250,7 @@ mod tests {
         assert!(header.contains("int32_t demo_component_load(const char *component);"));
         assert!(header.contains("char *demo_component_prefetch(const char *component);"));
         assert!(header.contains("char *demo_component_status(const char *component);"));
+        assert!(header.contains("int32_t demo_component_status_code(const char *component);"));
         assert!(header.contains("char *demo_component_cache_path(const char *component);"));
         assert!(header.contains("int32_t demo_component_activate(const char *component);"));
         assert!(header.contains("freed with `demo_free_string`"));

@@ -54,7 +54,7 @@ public static class Components
         }}
     }}
 
-    /// <summary>Returns missing, cached:&lt;path&gt;, or loaded:&lt;path&gt;.</summary>
+    /// <summary>Returns ready, cached, not_downloaded, bundled, or unsupported:&lt;reason&gt;.</summary>
     public static string ComponentStatus(string component) => CallNativeString(component, NativeComponentStatus);
 
     /// <summary>Returns the content-addressed cache path for a configured component.</summary>

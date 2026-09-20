@@ -44,7 +44,7 @@ public final class Components {{
         }}
     }}
 
-    /** Returns missing, cached:&lt;path&gt;, or loaded:&lt;path&gt;. */
+    /** Returns ready, cached, not_downloaded, bundled, or unsupported:&lt;reason&gt;. */
     public static String componentStatus(final String component) throws {main_class}Exception {{
         return callString(NativeLib.{prefix_upper}_COMPONENT_STATUS, component, "component status");
     }}
