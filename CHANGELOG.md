@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glob to the current gem's namespace and extension, preventing retained prototype inputs from
   entering the published core gem while preserving both license identifiers.
 
+- **The mock-server path test no longer exports `CARGO_TARGET_DIR` process-wide.** A concurrent
+  test spawning `napi build` inherited the tempdir and lost it mid-link (the macOS `Test` leg flake).
+  The target dir is now injected into the child commands only.
+
 - **An explicit `"value": null` in a fixture assertion is no longer read as "no expected value".**
   Serde's `Option` visitor collapsed a present `null` and a missing `value` key to `None`, so
   `{"type":"equals","field":"output","value":null}` reached every backend without an expectation
