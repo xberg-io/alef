@@ -10,7 +10,7 @@ pub(super) fn binding_config(core_import: &str, has_serde: bool) -> RustBindingC
         static_attr: Some("staticmethod"),
         function_attr: "#[pyfunction]",
         enum_attrs: &["pyclass(eq, eq_int, from_py_object)"],
-        enum_derives: &["Clone", "PartialEq"],
+        enum_derives: &["Clone", "PartialEq", "Eq", "Hash"],
         needs_signature: true,
         signature_prefix: "    #[pyo3(signature = (",
         signature_suffix: "))]",

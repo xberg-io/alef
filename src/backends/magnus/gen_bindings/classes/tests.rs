@@ -228,6 +228,10 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
     };
     let code = gen_enum(&enum_def, "test_lib", None, &[]);
     assert!(code.contains("enum Status"), "must emit enum definition");
+    assert!(
+        code.contains("PartialEq, Eq, Hash"),
+        "unit enums must support Rust map keys: {code}"
+    );
     assert!(code.contains("to_symbol"), "unit enums use Ruby symbols");
     assert!(
         code.contains("Status::Pending => \"Pending\","),
@@ -345,6 +349,10 @@ fn gen_enum_keeps_bare_string_for_externally_tagged_enum() {
     // An externally-tagged data enum (no `#[serde(tag)]`) must not gain the tag-wrap branch.
     let code = gen_enum(&make_data_enum("ExternallyTagged", None), "test_lib", None, &[]);
     assert!(
+        !code.contains("impl Default"),
+        "required data enums must not get invented defaults: {code}"
+    );
+    assert!(
         !code.contains("serde_json::from_value(serde_json::json!({"),
         "externally-tagged enum must not wrap the string in a tag object: {code}"
     );
@@ -373,6 +381,7 @@ fn gen_enum_emits_adjacent_serde_representation() {
 #[test]
 fn adjacent_tuple_default_uses_tuple_constructor_syntax() {
     let mut enum_def = make_data_enum("OperationResult", Some("type"));
+    enum_def.has_default = true;
     enum_def.serde_content = Some("output".to_string());
     enum_def.variants[1].is_tuple = true;
     enum_def.variants[1].is_default = true;

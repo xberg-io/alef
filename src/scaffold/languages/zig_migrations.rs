@@ -276,7 +276,7 @@ sources = []
         super::super::zig::scaffold_zig(&ApiSurface::default(), &resolved)
             .expect("scaffold")
             .into_iter()
-            .find(|file| file.path == *"packages/zig/build.zig")
+            .find(|file| file.path == std::path::Path::new("packages/zig/build.zig"))
             .expect("build.zig must be scaffolded")
             .content
     }

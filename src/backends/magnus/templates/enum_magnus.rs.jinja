@@ -14,9 +14,10 @@
 {% else %}    {{ variant.name }},
 {% endif %}{% endfor %}}
 
-impl Default for {{ enum_name }} {
+{% if has_default %}impl Default for {{ enum_name }} {
     fn default() -> Self { Self::{{ default_variant }}{{ first_variant_default }} }
 }
+{% endif %}
 
 impl magnus::IntoValue for {{ enum_name }} {
     fn into_value_with(self, handle: &Ruby) -> magnus::Value {
@@ -84,7 +85,7 @@ impl {{ enum_name }} {
 
 {# Unit enum definition with Symbol-based conversion #}
 {% else %}
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 {% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
 {% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}

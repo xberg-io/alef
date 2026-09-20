@@ -265,16 +265,33 @@ pub fn field_conversion_from_core(
                 format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v.to_vec().into())).collect()")
             }
         }
-        TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
-            if optional {
-                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+        TypeRef::Map(k, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
+            let key = if matches!(k.as_ref(), TypeRef::Named(_)) {
+                "k.into()"
             } else {
-                format!("{name}: val.{name}.into_iter().map(|(k, v)| (k, v.into())).collect()")
+                "k"
+            };
+            if optional {
+                format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({key}, v.into())).collect())")
+            } else {
+                format!("{name}: val.{name}.into_iter().map(|(k, v)| ({key}, v.into())).collect()")
             }
         }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_))) =>
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Map(_k, v) if matches!(v.as_ref(), TypeRef::Named(_))) => {
+            field_conversion_from_core(name, inner, true, false, opaque_types)
+        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Map(k, v) if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::Json)) =>
         {
-            format!("{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| (k, v.into())).collect())")
+            let converted =
+                "items.into_iter().map(|m| m.into_iter().map(|(k, v)| (k, v.to_string())).collect()).collect()";
+            if optional {
+                format!("{name}: val.{name}.map(|items| {converted})")
+            } else {
+                format!("{name}: {}", converted.replacen("items", &format!("val.{name}"), 1))
+            }
+        }
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(v) if matches!(v.as_ref(), TypeRef::Map(k, value) if matches!(k.as_ref(), TypeRef::String) && matches!(value.as_ref(), TypeRef::Json))) => {
+            field_conversion_from_core(name, inner, true, false, opaque_types)
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
             if optional {

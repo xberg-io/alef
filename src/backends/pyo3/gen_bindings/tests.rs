@@ -342,6 +342,57 @@ fn from_json_deserializes_the_core_type_before_conversion() {
 }
 
 #[test]
+fn nested_data_enum_records_are_not_skipped_as_opaque() {
+    use crate::core::ir::{ApiSurface, TypeDef};
+    let record = |name: &str, field: &str, ty: TypeRef| TypeDef {
+        name: name.into(),
+        rust_path: format!("test_lib::{name}"),
+        has_serde: true,
+        fields: vec![FieldDef {
+            name: field.into(),
+            ty,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        crate_name: "test-lib".into(),
+        version: "0.1.0".into(),
+        enums: vec![EnumDef {
+            name: "Policy".into(),
+            rust_path: "test_lib::Policy".into(),
+            has_serde: true,
+            variants: vec![EnumVariant {
+                name: "Analyze".into(),
+                fields: vec![FieldDef {
+                    name: "label".into(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        types: vec![
+            record("Request", "policy", TypeRef::Named("Policy".into())),
+            record("Prepared", "request", TypeRef::Named("Request".into())),
+            record(
+                "Batch",
+                "items",
+                TypeRef::Vec(Box::new(TypeRef::Named("Prepared".into()))),
+            ),
+        ],
+        ..Default::default()
+    };
+    let files = Pyo3Backend.generate_bindings(&api, &python_config()).unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("pub request: Request"));
+    assert!(content.contains("pub items: Vec<Prepared>"));
+    assert!(!content.contains("#[serde(skip)]"), "{content}");
+    syn::parse_file(content).unwrap();
+}
+
+#[test]
 fn lifetime_from_json_compiles_for_a_borrowing_core_dto() {
     use crate::core::ir::{ApiSurface, CoreWrapper, TypeDef};
 

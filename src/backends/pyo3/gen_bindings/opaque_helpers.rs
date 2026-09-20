@@ -1,5 +1,36 @@
 use crate::backends::pyo3::type_map::Pyo3Mapper;
 
+/// Preserve explicit construction when the core type has no Default contract.
+pub(super) fn add_opaque_items(
+    builder: &mut crate::codegen::builder::RustFileBuilder,
+    typ: &crate::core::ir::TypeDef,
+    struct_code: &str,
+    mut impl_block: String,
+    default_required: &ahash::AHashSet<&str>,
+) {
+    let emit_default = should_emit_default_impl(typ, &impl_block, default_required);
+    let explicit_constructor = typ.methods.iter().any(|method| {
+        method.name == "new"
+            && method.receiver.is_none()
+            && method.params.is_empty()
+            && !method.is_async
+            && method.error_type.is_none()
+            && matches!(&method.return_type, crate::core::ir::TypeRef::Named(name) if name == &typ.name)
+    });
+    builder.add_item(struct_code);
+    if !impl_block.is_empty() {
+        if !emit_default && explicit_constructor {
+            // A binding must not invent Default just to satisfy a style lint.
+            // Scope the allowance to this wrapper, never the generated module.
+            impl_block.insert_str(0, "#[allow(clippy::new_without_default)]\n");
+        }
+        builder.add_item(&impl_block);
+    }
+    if emit_default {
+        builder.add_item(&emit_default_impl(typ));
+    }
+}
+
 /// For a wrapper type referenced by registration variants (i.e. one whose
 /// `is_variant_wrapper` flag is set by the extractor), produce a `#[new]
 /// pub fn py_new(...) -> Self { Self::new(...) }` method body suitable for

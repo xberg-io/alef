@@ -136,6 +136,7 @@ pub fn gen_enum(
         minijinja::context! {
             enum_name => &enum_def.name,
             has_data => has_data,
+            has_default => enum_def.has_default,
             serde_tag => &enum_def.serde_tag,
             serde_content => &enum_def.serde_content,
             serde_untagged => enum_def.serde_untagged,

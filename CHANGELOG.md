@@ -68,6 +68,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python generated fixture assertions no longer infer enum types from index-zero access.** Unknown
   and plain-string fields retain exact equality while declared enum fields retain wire coercion.
 
+- **Generated field conversions preserve named map keys and nested JSON metadata maps.** Optional
+  fields receive the same conversion treatment instead of losing their nested shape.
+
+- **Ruby and Python unit enums are hashable map keys without invented required-field defaults.**
+  Required Python structs and Ruby data enums retain their native construction contracts.
+
+- **Serializable nested Python request DTOs containing data enums remain discoverable.** They are
+  no longer incorrectly skipped as opaque fields during conversion discovery.
+
+- **Explicit opaque Python constructors remain lint-clean without an invented `Default` contract.**
+  The allowance is scoped to wrappers that actually require it.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed

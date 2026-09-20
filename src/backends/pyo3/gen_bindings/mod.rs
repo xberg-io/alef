@@ -367,13 +367,7 @@ impl Backend for Pyo3Backend {
                 {
                     impl_block = opaque_helpers::inject_into_impl_block(&impl_block, &ctor_body);
                 }
-                builder.add_item(&struct_code);
-                if !impl_block.is_empty() {
-                    builder.add_item(&impl_block);
-                }
-                if opaque_helpers::should_emit_default_impl(typ, &impl_block, &default_required_types) {
-                    builder.add_item(&opaque_helpers::emit_default_impl(typ));
-                }
+                opaque_helpers::add_opaque_items(&mut builder, typ, &struct_code, impl_block, &default_required_types);
                 // Client constructor — emit a separate #[pymethods] impl with #[new]
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
                     let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[new]");

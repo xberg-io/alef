@@ -1161,4 +1161,5 @@ fn test_enum_map_field_without_flatten_flag_keeps_iterator_template() {
 }
 
 mod boxed_fields;
+mod nested_maps;
 mod vec_element_preservation;

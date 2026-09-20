@@ -632,7 +632,9 @@ fn scaffold_zig_emits_no_test_step_for_an_empty_api_surface() {
 
     assert_eq!(files.len(), 7, "the test seed must be absent, leaving 7 files");
     assert!(
-        !files.iter().any(|f| f.path == *"packages/zig/test/my_lib_test.zig"),
+        !files
+            .iter()
+            .any(|f| f.path == std::path::Path::new("packages/zig/test/my_lib_test.zig")),
         "no seed may be written when there is nothing to assert against"
     );
     let build_zig = &files[0];

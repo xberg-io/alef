@@ -331,7 +331,10 @@ pub fn gen_struct_with_per_field_attrs(
             .emit_delegating_default_for_types
             .is_none_or(|s| s.contains(&typ.name));
     let suppress_default_derive = delegating_eligible;
-    if !suppress_default_derive {
+    // Python mirrors must not invent Default for required request/record fields.
+    // In particular, a required data enum may deliberately have no default variant.
+    let is_pyo3 = cfg.struct_attrs.iter().any(|attr| attr.starts_with("pyclass"));
+    if !suppress_default_derive && (!is_pyo3 || typ.has_default) {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");
@@ -449,7 +452,8 @@ pub fn gen_struct_with_rename(
             .emit_delegating_default_for_types
             .is_none_or(|s| s.contains(&typ.name));
     let suppress_default_derive = delegating_eligible;
-    if !suppress_default_derive {
+    let is_pyo3 = cfg.struct_attrs.iter().any(|attr| attr.starts_with("pyclass"));
+    if !suppress_default_derive && (!is_pyo3 || typ.has_default) {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");
@@ -562,7 +566,8 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
             .emit_delegating_default_for_types
             .is_none_or(|s| s.contains(&typ.name));
     let suppress_default_derive = delegating_eligible;
-    if !suppress_default_derive {
+    let is_pyo3 = cfg.struct_attrs.iter().any(|attr| attr.starts_with("pyclass"));
+    if !suppress_default_derive && (!is_pyo3 || typ.has_default) {
         sb.add_derive("Default");
     }
     sb.add_derive("serde::Serialize");

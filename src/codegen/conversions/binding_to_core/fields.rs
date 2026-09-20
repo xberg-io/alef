@@ -161,12 +161,21 @@ pub fn field_conversion_to_core(name: &str, ty: &TypeRef, optional: bool) -> Str
                     "{name}: val.{name}.map(|m| m.into_iter().map(|(k, v)| ({k_expr}, serde_json::from_str(&v).unwrap_or_default())).collect())"
                 )
             }
-            TypeRef::Vec(_) => {
-                format!("{name}: val.{name}.map(|v| v.into_iter().collect())")
+            TypeRef::Map(_, v) if matches!(v.as_ref(), TypeRef::Named(_)) => {
+                field_conversion_to_core(name, inner, true)
             }
+            TypeRef::Vec(_) => field_conversion_to_core(name, inner, true),
             _ => format!("{name}: val.{name}"),
         },
         TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Map(k, v) if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::Json) => {
+                let converted = "items.into_iter().map(|m| m.into_iter().map(|(k, v)| (k, serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)))).collect()).collect()";
+                if optional {
+                    format!("{name}: val.{name}.map(|items| {converted})")
+                } else {
+                    format!("{name}: {}", converted.replacen("items", &format!("val.{name}"), 1))
+                }
+            }
             TypeRef::Json => {
                 // `.map(...).collect()`, not `.filter_map(...).collect()`: filter_map would
                 // silently shrink the Vec on any element that fails to parse, shifting every
