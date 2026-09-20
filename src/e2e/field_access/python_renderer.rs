@@ -227,9 +227,11 @@ fn render_python_accessor_from_owner(
                 current_type = map.advance(current_type.as_deref(), f);
             }
             PathSegment::ArrayField { name, index } => {
-                push_field_access(&mut out, name, current_type.as_deref(), map);
+                if !name.is_empty() {
+                    push_field_access(&mut out, name, current_type.as_deref(), map);
+                    current_type = map.advance(current_type.as_deref(), name);
+                }
                 out.push_str(&format!("[{index}]"));
-                current_type = map.advance(current_type.as_deref(), name);
             }
             PathSegment::MapAccess { field, key } => {
                 push_field_access(&mut out, field, current_type.as_deref(), map);

@@ -235,8 +235,10 @@ pub(super) fn render_dot_access(segments: &[PathSegment], result_var: &str, lang
                     let current = std::mem::take(&mut out);
                     out = format!("Enum.at({current}.{name}, {index})");
                 } else {
-                    out.push('.');
-                    out.push_str(name);
+                    if !name.is_empty() {
+                        out.push('.');
+                        out.push_str(name);
+                    }
                     out.push_str(&format!("[{index}]"));
                 }
             }

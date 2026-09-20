@@ -431,8 +431,10 @@ pub(super) fn render_rust_with_optionals(
             }
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
-                out.push('.');
-                out.push_str(&name.to_snake_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_snake_case());
+                }
                 // Option<Vec<T>>: must unwrap the Option before indexing.
                 // Check both "name" (bare) and "name[0]" (indexed) forms since the
                 // optional_fields registry may use either convention.

@@ -2,7 +2,7 @@
 
    Context variables:
    - header: file header comment
-   - pip_name: pip package name to import (e.g., "sample_pkg")
+   - import_name: public Python package to import (e.g., "sample_pkg")
 #}
 {{ header }}"""Smoke test: import the published package."""
 
@@ -10,5 +10,5 @@ import importlib
 
 
 def test_imports_published_package() -> None:
-    module = importlib.import_module("{{ pip_name }}")
+    module = importlib.import_module("{{ import_name }}")
     assert module is not None

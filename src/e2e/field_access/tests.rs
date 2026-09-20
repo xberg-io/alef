@@ -38,6 +38,25 @@ fn test_resolve_passthrough() {
 }
 
 #[test]
+fn root_array_indices_do_not_emit_an_empty_field() {
+    let resolver = make_resolver();
+    for language in ["ruby", "python", "rust"] {
+        for index in [0, 1, 12] {
+            let path = format!("[{index}].id");
+            assert_eq!(
+                resolver.accessor(&path, language, "result"),
+                format!("result[{index}].id"),
+                "{language}"
+            );
+        }
+        assert_eq!(
+            resolver.accessor("items[1].id", language, "result"),
+            "result.items[1].id"
+        );
+    }
+}
+
+#[test]
 fn test_is_optional() {
     let r = make_resolver();
     assert!(r.is_optional("metadata.document.title"));

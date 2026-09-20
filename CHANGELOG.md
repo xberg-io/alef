@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PyO3 trait bridges now support fallible `Arc<dyn Trait>` parameters.** Callback-only DTOs seed reverse-conversion discovery, and generated optional or required bridges construct the host with `PyResult`-safe error handling without introducing an unnecessary mutex.
 
+- **Root-array e2e paths no longer render an empty field.** Renderers now preserve an index such as
+  `[0].id` instead of emitting a spurious `.id` path segment.
+
+- **Generated Python registry smoke tests import the normalized package name.** A distribution name
+  such as `structuredmerge-core` is now imported as `structuredmerge_core`.
+
 - **E2E call validation now ignores binding-side fixture helpers outside the crate's owned API surface.**
   Calls targeting a configured external helper remain available to generated test applications without
   being rejected as missing exports from the extracted crate API.
@@ -576,7 +582,6 @@ moving it is a wider surface change than this fix.
   whose only unusual field is a `Map<String, String>` -- and asserts full first-class-set equality,
   so a future one-sided change to either classifier fails loudly instead of regenerating silently.
 
-
 - **`serde_flattens_newtype_payload` is now resolution-aware.** It claimed any single-tuple variant
   of an internally tagged enum, including one whose payload is a primitive or absent from the
   binding surface. Backends that emit runtime conversion code against the payload's real Rust type
@@ -651,7 +656,6 @@ moving it is a wider surface change than this fix.
   `record.image`, which internal tagging never emits, and silently fell back to returning the
   variant name instead of the format. It now reads the flattened field directly, deliberately with
   no nested fallback so a binding that regresses fails the assertion loudly.
-
 
 ## [0.85.21] - 2026-09-12
 
@@ -1184,7 +1188,6 @@ a version missing one of the three contributions.
   failure". The orphan scan now honours the declaration at both call sites (`verify` and
   `diff`); undeclared orphans are still reported.
 
-
 ## [0.85.6] - 2026-09-08
 
 ### Fixed
@@ -1357,7 +1360,6 @@ a version missing one of the three contributions.
   allocator entries keep their `=` requirement — that operator is the mechanism that holds the
   tree on brotli 8.0.x's allocators, and a no-op `[patch.crates-io]` is not a substitute — but
   their versions moved to the table like every other crate.
-
 
 ## [0.85.2] - 2026-09-07
 
@@ -2930,8 +2932,6 @@ the last 200, and the Go compile fixtures had been failing on macOS since the da
   at all, or one whose PSR-4 target named a directory no stage writes, validated clean. The
   package-local PSR-4 and metadata-sync checks now run only when that manifest is actually present.
 
-
-
 - **Rust e2e:** bind an indexed array leaf as the element it is, not as the slice it came from.
   `is_array` answers through `segment_name`, which returns the bare field name for a
   `PathSegment::ArrayField` and so cannot tell `detected_languages` from `detected_languages[0]`;
@@ -2940,7 +2940,6 @@ the last 200, and the Go compile fixtures had been failing on macOS since the da
   `Option<Vec<T>>` wrapper (`render_rust_with_optionals` emits `.as_ref().unwrap()[0]`), so the
   optional-scalar branch's `.as_ref().map(..)` is an ambiguous `AsRef` on a `String` that does not
   even infer a type. An already-indexed leaf now binds directly through `Display`.
-
 
 ## [0.79.4] - 2026-08-31
 
@@ -3636,7 +3635,6 @@ the last 200, and the Go compile fixtures had been failing on macOS since the da
   node and wasm docs snippets and e2e tests compile under `noImplicitAny` (`const urls = [];`
   previously failed with TS7034/TS7005).
 
-
 ## [0.74.0] - 2026-08-29
 
 ### Fixed
@@ -3660,8 +3658,6 @@ the last 200, and the Go compile fixtures had been failing on macOS since the da
 - `classify_alef_config_schema` and `SchemaDrift`, the one classifier behind both policies. `alef schema --check` stays byte-exact with its existing message (any drift is stale); `alef verify` applies the looser rule. One implementation, two policies, rather than two derivations of "has this schema drifted".
 - `alef all --skip-compile` and `alef generate --skip-compile` write and post-process source without invoking a compiler. Generation's post-build pass holds two steps that shell out to cargo -- Swift's swift-bridge `cargo check` (still a whole-dependency-graph compile, measured at over 17 minutes on a consumer workspace) and the cbindgen header refresh's `-ffi` build. The flag drops exactly those two and nothing else. It is off by default, so a workflow that relies on `alef all` producing those artifacts keeps getting them; when passed, every skipped step names itself in the log along with the `alef build` that will refresh what it derives. It suppresses the header *rebuild*, never the header check: a missing header is still a warning and a stale one still fails the run, since a stale header describes an ABI the generated source no longer has.
 - `SnippetValidator::missing_session_artifacts`, the per-language hook the snippet preflight reads. The default is "nothing missing", so a validator that builds its snippets from source, or one whose requirement cannot be read off a manifest, validates exactly as before. Implemented for TypeScript (the `types`/`typings` declaration a `package.json` session publishes), Zig (the FFI library a scaffolded `build.zig` links, on neither the release nor the debug search path), and Go (a `${SRCDIR}`-relative cgo `-L` directory that does not exist).
-
-
 
 ## [0.73.0] - 2026-08-28
 
@@ -5228,7 +5224,6 @@ as `AdjacentSupport::Correct`; only Swift and Go were correct before.
   `kotlin`, `php`, `ruby`, `elixir`, `python` and `rust` e2e generators, which previously had no
   access to the free-function registry when rendering a docs snippet.
 
-
 ### Added
 
 - Golden vectors pinning the `alef:hash:` recipe (`compute_inputs_hash` / `compute_file_hash`) to
@@ -5263,7 +5258,6 @@ as `AdjacentSupport::Correct`; only Swift and Go were correct before.
   for two shapes it does not support: a newtype variant of an internally tagged enum (which serde
   itself cannot serialize) and a multi-field tuple variant of an adjacently tagged enum (whose
   content serde writes as a JSON array).
-
 
 ## [0.67.2] - 2026-08-23
 
@@ -6076,7 +6070,6 @@ review the diff before releasing a consumer package.
   that the output was left unformatted. Both the `alef all` and the standalone-stage
   reporters now share one implementation, so the two can no longer classify the same
   deferral list differently.
-
 
 ## [0.63.1] - 2026-08-22
 
