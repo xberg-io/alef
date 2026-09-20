@@ -45,6 +45,7 @@ dependencies = [
  "clap",
  "convert_case",
  "criterion",
+ "ed25519-dalek",
  "glob",
  "heck",
  "icu_casemap",

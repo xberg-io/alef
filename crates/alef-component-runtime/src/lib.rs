@@ -9,7 +9,7 @@ mod manifest;
 
 pub use cache::{ArtifactCache, CachedArtifact, TrustPolicy};
 pub use error::ComponentError;
-pub use keys::{decode_public_key, encode_public_key_der};
+pub use keys::decode_public_key;
 pub use loader::{
     ComponentInstance, ComponentRequirements, LoadedComponent, Runtime, take_owned_bytes, take_owned_text,
 };

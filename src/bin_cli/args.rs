@@ -639,7 +639,8 @@ pub(crate) enum ComponentAction {
         /// Component version (default: resolved from version_from).
         #[arg(long)]
         version: Option<String>,
-        /// Ed25519 private key accepted by `openssl pkeyutl` (PEM or DER).
+        /// Ed25519 private key: PKCS#8 PEM or DER (e.g. `openssl genpkey -algorithm ED25519`),
+        /// or a raw 32-byte seed.
         #[arg(long, requires = "key_id", conflicts_with = "unsigned")]
         signing_key: Option<PathBuf>,
         /// Stable ID of the public key embedded in generated binding packages.

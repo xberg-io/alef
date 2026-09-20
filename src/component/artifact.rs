@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use base64::Engine;
+use ed25519_dalek::pkcs8::DecodePrivateKey as _;
+use ed25519_dalek::{Signature, Signer as _, SigningKey};
 use sha2::{Digest, Sha256};
 
 pub use alef_component_runtime::{
@@ -388,41 +389,50 @@ fn expand_url(template: &str, identity: &ComponentIdentity, artifact: &str) -> R
     Ok(url)
 }
 
+/// Sign a component manifest's canonical bytes with an in-process Ed25519 key, replacing
+/// the previous `openssl pkeyutl -rawin` shell-out so signing no longer depends on the
+/// system OpenSSL build supporting Ed25519.
 pub fn sign_manifest(manifest: &ComponentManifest, private_key: &Path, key_id: &str) -> Result<ComponentSignature> {
     ensure!(!key_id.trim().is_empty(), "signing key ID must not be empty");
     let payload = manifest.canonical_bytes()?;
-    let temp_dir = tempfile::tempdir().context("failed to create signing workspace")?;
-    let payload_path = temp_dir.path().join("component.json");
-    let signature_path = temp_dir.path().join("component.sig");
-    fs::write(&payload_path, payload)?;
-    let private_key_bytes = fs::read(private_key)
-        .with_context(|| format!("failed to read Ed25519 private key {}", private_key.display()))?;
-    let mut command = Command::new("openssl");
-    command.args(["pkeyutl", "-sign", "-rawin", "-inkey"]).arg(private_key);
-    if !private_key_bytes.starts_with(b"-----BEGIN") {
-        command.args(["-keyform", "DER"]);
-    }
-    let output = command
-        .arg("-in")
-        .arg(&payload_path)
-        .arg("-out")
-        .arg(&signature_path)
-        .output()
-        .context("failed to execute openssl for Ed25519 signing")?;
-    if !output.status.success() {
-        bail!(
-            "openssl Ed25519 signing failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let signature = fs::read(&signature_path).context("openssl did not produce a signature")?;
+    let signing_key = load_signing_key(private_key)?;
+    let signature = signing_key.sign(&payload);
     Ok(ComponentSignature {
         algorithm: "ed25519".to_string(),
         key_id: key_id.to_string(),
-        signature: base64::engine::general_purpose::STANDARD.encode(signature),
+        signature: base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
     })
 }
 
+/// Load an Ed25519 signing key from every form `openssl genpkey -algorithm ED25519`
+/// (and `-outform DER`) produces -- PKCS#8 PEM or DER -- plus a raw 32-byte seed, so keys
+/// minted for the previous `openssl`-based signer keep working unchanged.
+fn load_signing_key(path: &Path) -> Result<SigningKey> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read Ed25519 private key {}", path.display()))?;
+    if let Ok(text) = std::str::from_utf8(&bytes)
+        && text.trim_start().starts_with("-----BEGIN")
+    {
+        return SigningKey::from_pkcs8_pem(text).map_err(|error| {
+            anyhow!(
+                "failed to parse Ed25519 private key {} as PKCS#8 PEM: {error}",
+                path.display()
+            )
+        });
+    }
+    if let Ok(key) = SigningKey::from_pkcs8_der(&bytes) {
+        return Ok(key);
+    }
+    let seed: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        anyhow!(
+            "Ed25519 private key {} is not PKCS#8 PEM/DER or a raw 32-byte seed",
+            path.display()
+        )
+    })?;
+    Ok(SigningKey::from_bytes(&seed))
+}
+
+/// Verify a component manifest's Ed25519 signature in-process via [`VerifyingKey::verify_strict`],
+/// replacing the previous `openssl pkeyutl -rawin -pubin` shell-out.
 pub fn verify_manifest_signature(
     manifest: &ComponentManifest,
     signature: &ComponentSignature,
@@ -436,39 +446,16 @@ pub fn verify_manifest_signature(
     let signature_bytes = base64::engine::general_purpose::STANDARD
         .decode(&signature.signature)
         .context("component signature is not valid base64")?;
+    let raw_signature =
+        Signature::from_slice(&signature_bytes).context("component signature is not a valid Ed25519 signature")?;
     // Shared with `alef-component-runtime`'s loader and `alef`'s config validation so all
     // three agree on accepted key forms (PEM, or base64 standard/unpadded DER or raw
     // 32-byte bytes) -- see `alef_component_runtime::decode_public_key`.
     let key = alef_component_runtime::decode_public_key(public_key).map_err(|_| {
         anyhow!("public key must be PEM or base64-encoded (standard or unpadded) DER/raw Ed25519 bytes")
     })?;
-    let key_bytes =
-        alef_component_runtime::encode_public_key_der(&key).context("failed to re-encode Ed25519 public key as DER")?;
-    let temp_dir = tempfile::tempdir().context("failed to create verification workspace")?;
-    let payload_path = temp_dir.path().join("component.json");
-    let signature_path = temp_dir.path().join("component.sig");
-    let key_path = temp_dir.path().join("component.pub");
-    fs::write(&payload_path, manifest.canonical_bytes()?)?;
-    fs::write(&signature_path, signature_bytes)?;
-    fs::write(&key_path, key_bytes)?;
-
-    let output = Command::new("openssl")
-        .args(["pkeyutl", "-verify", "-rawin", "-pubin", "-inkey"])
-        .arg(&key_path)
-        .args(["-keyform", "DER"])
-        .arg("-in")
-        .arg(&payload_path)
-        .arg("-sigfile")
-        .arg(&signature_path)
-        .output()
-        .context("failed to execute openssl for Ed25519 verification")?;
-    if !output.status.success() {
-        bail!(
-            "component signature verification failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(())
+    key.verify_strict(&manifest.canonical_bytes()?, &raw_signature)
+        .map_err(|_| anyhow!("component signature verification failed"))
 }
 
 fn append_tar_file(tar: &mut Vec<u8>, name: &str, content: &[u8], mode: u32) -> Result<()> {
@@ -610,6 +597,20 @@ fn crc32(input: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _};
+
+    /// Wrap DER bytes as PEM without depending on `pkcs8`'s PEM feature, which pulls in
+    /// its own line-ending type; a fixed-width base64 wrap is all PEM actually is.
+    fn pem_wrap(label: &str, der: &[u8]) -> String {
+        let encoded = base64::engine::general_purpose::STANDARD.encode(der);
+        let mut pem = format!("-----BEGIN {label}-----\n");
+        for chunk in encoded.as_bytes().chunks(64) {
+            pem.push_str(std::str::from_utf8(chunk).unwrap());
+            pem.push('\n');
+        }
+        pem.push_str(&format!("-----END {label}-----\n"));
+        pem
+    }
 
     #[test]
     fn hashes_feature_sets_independent_of_order_and_duplicates() {
@@ -678,26 +679,23 @@ mod tests {
 
     #[test]
     fn signs_packages_and_verifies_the_complete_archive() {
-        if Command::new("openssl").arg("version").output().is_err() {
-            return;
-        }
         let temp = tempfile::tempdir().unwrap();
+        let signing_key = SigningKey::from_bytes(&[3; 32]);
         let private_key = temp.path().join("release-private.pem");
         let public_key = temp.path().join("release-public.pem");
-        let generated = Command::new("openssl")
-            .args(["genpkey", "-algorithm", "ED25519", "-out"])
-            .arg(&private_key)
-            .status()
-            .unwrap();
-        assert!(generated.success());
-        let exported = Command::new("openssl")
-            .args(["pkey", "-in"])
-            .arg(&private_key)
-            .args(["-pubout", "-out"])
-            .arg(&public_key)
-            .status()
-            .unwrap();
-        assert!(exported.success());
+        fs::write(
+            &private_key,
+            pem_wrap("PRIVATE KEY", signing_key.to_pkcs8_der().unwrap().as_bytes()),
+        )
+        .unwrap();
+        fs::write(
+            &public_key,
+            pem_wrap(
+                "PUBLIC KEY",
+                signing_key.verifying_key().to_public_key_der().unwrap().as_bytes(),
+            ),
+        )
+        .unwrap();
 
         let library = temp.path().join("libsample_core.so");
         fs::write(&library, b"signed-native-library").unwrap();
@@ -724,10 +722,65 @@ mod tests {
             },
         )
         .unwrap();
+        // Exercise the PKCS#8 PEM loading path (`openssl genpkey -algorithm ED25519` output).
         let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
         let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
         let keys = BTreeMap::from([("release".into(), fs::read_to_string(public_key).unwrap())]);
         verify_record(&record.record_path(temp.path()), &keys).unwrap();
+    }
+
+    #[test]
+    fn signs_with_a_pkcs8_der_private_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let signing_key = SigningKey::from_bytes(&[4; 32]);
+        let private_key = temp.path().join("release-private.der");
+        fs::write(&private_key, signing_key.to_pkcs8_der().unwrap().as_bytes()).unwrap();
+
+        let manifest = manifest_fixture(&temp, "signed-native-library-der");
+        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
+        let public_key = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes());
+        verify_manifest_signature(&manifest, &signature, &public_key).unwrap();
+    }
+
+    #[test]
+    fn signs_with_a_raw_seed_private_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let signing_key = SigningKey::from_bytes(&[5; 32]);
+        let private_key = temp.path().join("release-private.seed");
+        fs::write(&private_key, signing_key.to_bytes()).unwrap();
+
+        let manifest = manifest_fixture(&temp, "signed-native-library-seed");
+        let signature = sign_manifest(&manifest, &private_key, "release").unwrap();
+        let public_key = base64::engine::general_purpose::STANDARD.encode(signing_key.verifying_key().to_bytes());
+        verify_manifest_signature(&manifest, &signature, &public_key).unwrap();
+    }
+
+    fn manifest_fixture(temp: &tempfile::TempDir, library_contents: &str) -> ComponentManifest {
+        let library = temp.path().join(format!("lib{library_contents}.so"));
+        fs::write(&library, library_contents.as_bytes()).unwrap();
+        let features = vec!["fast".to_string()];
+        let feature_hash = feature_hash(&features, false);
+        let contract_hash = "b".repeat(64);
+        let provides = [ProvidedContractInput {
+            contract: "engine",
+            interface_version: 1,
+            contract_hash: &contract_hash,
+            implementation: "sample_core::FastEngine",
+        }];
+        create_manifest(
+            &library,
+            PackageInput {
+                crate_name: "sample-core",
+                component: "fast",
+                version: "1.2.3",
+                target: "x86_64-unknown-linux-gnu",
+                provides: &provides,
+                features: &features,
+                default_features: false,
+                feature_hash: &feature_hash,
+            },
+        )
+        .unwrap()
     }
 
     /// Regression: config validation accepted unpadded base64 public keys
@@ -736,29 +789,16 @@ mod tests {
     /// on every load. Both must now go through the same shared decoder.
     #[test]
     fn verifies_signature_with_unpadded_base64_public_key() {
-        if Command::new("openssl").arg("version").output().is_err() {
-            return;
-        }
         let temp = tempfile::tempdir().unwrap();
+        let signing_key = SigningKey::from_bytes(&[6; 32]);
         let private_key = temp.path().join("release-private.pem");
-        let public_key_der = temp.path().join("release-public.der");
-        let generated = Command::new("openssl")
-            .args(["genpkey", "-algorithm", "ED25519", "-out"])
-            .arg(&private_key)
-            .status()
-            .unwrap();
-        assert!(generated.success());
-        let exported = Command::new("openssl")
-            .args(["pkey", "-in"])
-            .arg(&private_key)
-            .args(["-pubout", "-outform", "DER", "-out"])
-            .arg(&public_key_der)
-            .status()
-            .unwrap();
-        assert!(exported.success());
-        let der_bytes = fs::read(&public_key_der).unwrap();
-        let raw_key = &der_bytes[der_bytes.len() - 32..];
-        let unpadded_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(raw_key);
+        fs::write(
+            &private_key,
+            pem_wrap("PRIVATE KEY", signing_key.to_pkcs8_der().unwrap().as_bytes()),
+        )
+        .unwrap();
+        let unpadded_key =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.verifying_key().to_bytes());
 
         let library = temp.path().join("libsample_core.so");
         fs::write(&library, b"signed-native-library-unpadded").unwrap();
@@ -789,6 +829,51 @@ mod tests {
         let record = write_package(&library, temp.path(), manifest, Some(signature)).unwrap();
         let keys = BTreeMap::from([("release".into(), unpadded_key)]);
         verify_record(&record.record_path(temp.path()), &keys).unwrap();
+    }
+
+    /// A manifest signed by the previous `openssl pkeyutl -rawin -sign` shell-out must keep
+    /// verifying under the in-process `ed25519-dalek` verifier: the signed payload (the
+    /// manifest's canonical bytes) and the wire format (base64-encoded raw 64-byte Ed25519
+    /// signature) are unchanged, only the signer/verifier implementation moved in-process.
+    /// Fixture generated once with a fixed Ed25519 seed:
+    /// `openssl pkeyutl -sign -rawin -inkey <PKCS8 DER of seed [7; 32]> -in <canonical bytes>`.
+    #[test]
+    fn verifies_a_signature_produced_by_the_legacy_openssl_signer() {
+        const FIXTURE_PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=\n-----END PUBLIC KEY-----\n";
+        const FIXTURE_SIGNATURE_BASE64: &str =
+            "LZMsYA525OsThf1/QrGg3rzSV+8SOWXGmo8WqFvywQ2mrXpJuR8RTiFSaDCgmZsgoC1u4kVlnyNx1r6VlexpDg==";
+
+        let manifest = ComponentManifest {
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
+            abi_version: COMPONENT_ABI_VERSION,
+            identity: ComponentIdentity {
+                crate_name: "sample-core".into(),
+                component: "fast".into(),
+                version: "1.2.3".into(),
+                target: "x86_64-unknown-linux-gnu".into(),
+                feature_hash: feature_hash(&["fast".to_string()], false),
+                contract_hash: "b".repeat(64),
+            },
+            provides: vec![ComponentProvidedContract {
+                contract: "engine".into(),
+                interface_version: 1,
+                contract_hash: "b".repeat(64),
+                implementation: "sample_core::FastEngine".into(),
+            }],
+            features: vec!["fast".into()],
+            default_features: false,
+            library: ComponentLibrary {
+                file: "libsample_core.so".into(),
+                sha256: sha256_bytes(b"fixture-signed-library"),
+                size: b"fixture-signed-library".len() as u64,
+            },
+        };
+        let signature = ComponentSignature {
+            algorithm: "ed25519".into(),
+            key_id: "release".into(),
+            signature: FIXTURE_SIGNATURE_BASE64.to_string(),
+        };
+        verify_manifest_signature(&manifest, &signature, FIXTURE_PUBLIC_KEY_PEM).unwrap();
     }
 
     #[test]
