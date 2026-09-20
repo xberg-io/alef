@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (the Zig `expectEqual(.null, …)` branch was unreachable), and serializing an assertion with no
   value wrote `"value": null` back. A present value now deserializes as-is, including `null`, and
   an absent one stays absent on round-trip. (#406)
+- **Handwritten prose that says "regenerate with `alef …`" is no longer claimed as alef-owned.**
+  The tree-wide stamping pass after a whole-tree format sweeps every file under the root, so a
+  handwritten Markdown document with that phrase in its first ten lines got an `alef:hash:` line
+  injected and was then reported stale by `alef verify` after any edit. The regeneration spelling
+  now counts only on a comment line that also says "do not edit", which the generated R entrypoint
+  already does. A document stamped by an earlier release keeps its stale hash line; remove it by
+  hand.
 
 - **Required arguments after a required Python `Arc<dyn Trait>` parameter remain required.** The
   generated bridge preserves the native call signature and Rust argument type instead of making
