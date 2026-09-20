@@ -1,1 +1,1 @@
-Self { inner: {{ core_path }}::{{ variant_name }} { {{ field_inits | join(", ") }} } }
+Self { inner: {{ core_path }}::{{ variant_name }}{% if is_tuple %}({{ field_inits | join(", ") }}){% else %} { {{ field_inits | join(", ") }} }{% endif %} }

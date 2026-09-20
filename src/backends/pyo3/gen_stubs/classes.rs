@@ -251,7 +251,7 @@ fn gen_type_init_stub(
     let mut params: Vec<String> = required
         .iter()
         .map(|f| {
-            let param_type = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty, api), &shadowed);
+            let param_type = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty), &shadowed);
             let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
                 &f.name,
                 f.serde_rename.as_ref(),
@@ -263,8 +263,11 @@ fn gen_type_init_stub(
         .collect();
 
     params.extend(optional.iter().map(|f| {
-        let type_str = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty, api), &shadowed);
-        let param_type = if !type_str.ends_with("| None") {
+        let type_str = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty), &shadowed);
+        let accepts_none = f.optional
+            || matches!(f.ty, TypeRef::Optional(_) | TypeRef::Duration)
+            || crate::backends::pyo3::gen_bindings::constructors::should_option_for_nested_default(typ, f, api);
+        let param_type = if accepts_none && !type_str.ends_with("| None") {
             format!("{} | None", type_str)
         } else {
             type_str
@@ -275,7 +278,10 @@ fn gen_type_init_stub(
             renames_ref,
         );
         let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
-        format!("{param_name}: {param_type} = None")
+        // Rust Default expressions are evaluated natively; PyO3 describes
+        // them as ellipsis. Omission is allowed, but None is not a valid value.
+        let default = if accepts_none { "None" } else { "..." };
+        format!("{param_name}: {param_type} = {default}")
     }));
 
     // the PyO3 `#[new]` constructor accepts an additional `{kwarg_name}: {trait_name} = None`
@@ -799,8 +805,10 @@ mod tests {
             &OptionsFieldBridges::default(),
         );
 
-        assert!(stub.contains("mode: UrlExtractionMode | None = None"), "{stub}");
-        assert!(stub.contains("crawl: CrawlConfig | None = None"), "{stub}");
+        // Neither field is Option-backed in the generated constructor; the
+        // parent's Default makes omission valid, not an explicit None value.
+        assert!(stub.contains("mode: UrlExtractionMode = ..."), "{stub}");
+        assert!(stub.contains("crawl: CrawlConfig = ..."), "{stub}");
     }
 
     #[test]

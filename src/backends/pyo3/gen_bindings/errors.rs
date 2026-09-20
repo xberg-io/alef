@@ -32,7 +32,7 @@ pub(crate) fn is_dataclass_backed_config(
     output_style: PythonDtoStyle,
     reexported_names: &AHashSet<&str>,
 ) -> bool {
-    if typ.is_trait || typ.binding_excluded {
+    if typ.is_trait || typ.binding_excluded || reexported_names.contains(typ.name.as_str()) {
         return false;
     }
     if typ.name.ends_with("Builder") || typ.name.ends_with("Update") {

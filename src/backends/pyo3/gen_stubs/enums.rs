@@ -66,6 +66,7 @@ pub(super) fn gen_enum_stub(
             }
         }
         lines.push("    def __init__(self, value: int | str) -> None: ...".to_string());
+        lines.push("    def __hash__(self) -> int: ...".to_string());
     }
 
     lines.join("\n")
@@ -272,7 +273,7 @@ fn gen_data_enum_variant_accessor_stubs(lines: &mut Vec<String>, enum_def: &Enum
 /// The runtime binding declares these under the bare snake_case host name (via
 /// `#[pyo3(name = "<snake>")]`), so the stub declares the same public name. Each param type maps
 /// through [`python_type`] — the same mapper the surrounding stub uses for fields — and the return
-/// type is the enum itself. `collect_all_variant_constructors` owns the skip rules (unit / tuple /
+/// type is the enum itself. `collect_pyo3_variant_constructors` owns the skip rules (unit / tuple /
 /// `binding_excluded` / sanitized-field variants) so the stub and runtime binding stay aligned —
 /// including for a variant whose snake_case name collides with a hand-written `impl EnumType { .. }`
 /// method, since the runtime binding never forwards that method either (see its doc comment).
@@ -287,9 +288,9 @@ fn gen_data_enum_variant_constructor_stubs(
     coercible_dtos: &AHashSet<&str>,
     is_host_enum: bool,
 ) {
-    use crate::codegen::generators::{collect_all_variant_constructors, variant_constructor_is_reachable};
+    use crate::codegen::generators::{collect_pyo3_variant_constructors, variant_constructor_is_reachable};
 
-    let ctors: Vec<_> = collect_all_variant_constructors(enum_def)
+    let ctors: Vec<_> = collect_pyo3_variant_constructors(enum_def)
         .into_iter()
         .filter(|ctor| {
             enum_def

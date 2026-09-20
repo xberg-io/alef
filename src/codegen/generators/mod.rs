@@ -174,7 +174,8 @@ pub use dto_coercion::{
     pyo3_wire_schema_const_name,
 };
 pub(crate) use enums::{
-    collect_all_variant_constructors, collect_variant_accessors, variant_constructor_is_reachable, variant_field_init,
+    collect_all_variant_constructors, collect_pyo3_variant_constructors, collect_variant_accessors,
+    variant_constructor_is_reachable, variant_field_init,
 };
 pub use enums::{
     enum_has_data_variants, enum_has_sanitized_fields, gen_enum, gen_pyo3_data_enum, gen_pyo3_data_enum_with_coercion,

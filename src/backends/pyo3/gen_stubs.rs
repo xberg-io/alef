@@ -173,32 +173,11 @@ pub(super) fn constructor_rust_type_to_python(rust_type: &str) -> &str {
     }
 }
 
-/// For constructor parameters, use the enum type name for enum fields.
-/// The enum stub has `__init__(self, value: int | str)` so callers can pass
-/// either a raw string/int or an enum instance.
-/// Data enum fields accept a `dict`.
-pub(super) fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
-    use crate::codegen::generators::enum_has_data_variants;
-    let enum_names: std::collections::HashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
-    let data_enum_names: std::collections::HashSet<String> = api
-        .enums
-        .iter()
-        .filter(|e| enum_has_data_variants(e))
-        .map(|e| e.name.clone())
-        .collect();
-
-    match ty {
-        TypeRef::Named(name) if data_enum_names.contains(name) => name.clone(),
-        TypeRef::Named(name) if enum_names.contains(name) => format!("{} | str", name),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(name) if data_enum_names.contains(name) => {
-                format!("{} | None", name)
-            }
-            TypeRef::Named(name) if enum_names.contains(name) => format!("{} | str | None", name),
-            _ => python_type(ty),
-        },
-        _ => python_type(ty),
-    }
+/// Struct constructors use typed PyO3 extraction, including enum fields.
+/// An enum's own `Enum(value)` constructor accepting str/int does not make
+/// extraction of that enum from a containing constructor coerce raw values.
+pub(super) fn constructor_param_type(ty: &TypeRef) -> String {
+    python_type(ty)
 }
 
 /// Return `typ` unchanged, or a clone carrying a synthetic `from_json` static method entry when
@@ -586,6 +565,52 @@ mod tests {
     use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
     #[test]
+    fn struct_enum_constructor_annotations_require_enum_instances() {
+        use crate::core::ir::{EnumDef, EnumVariant};
+        let enum_ty = TypeRef::Named("Mode".into());
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "Mode".into(),
+                variants: vec![EnumVariant {
+                    name: "Fast".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            types: vec![TypeDef {
+                name: "Request".into(),
+                fields: vec![
+                    FieldDef {
+                        name: "mode".into(),
+                        ty: enum_ty.clone(),
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "maybe".into(),
+                        ty: TypeRef::Optional(Box::new(enum_ty.clone())),
+                        optional: true,
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "modes".into(),
+                        ty: TypeRef::Vec(Box::new(enum_ty)),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let stub = gen_stubs(&api, &[], &python_config(), &ahash::AHashSet::default());
+        assert!(stub.contains("mode: Mode,"), "{stub}");
+        assert!(stub.contains("maybe: Mode | None = None"), "{stub}");
+        assert!(stub.contains("modes: list[Mode],"), "{stub}");
+        assert!(!stub.contains("Mode | str"), "{stub}");
+        // Explicit enum construction is a separate supported conversion.
+        assert!(stub.contains("def __init__(self, value: int | str)"), "{stub}");
+    }
+
+    #[test]
     fn parameter_annotations_qualify_every_shadowable_builtin_type() {
         let cases = [
             ("bytes", "bytes | None", "builtins.bytes | None"),
@@ -668,6 +693,35 @@ module_name = "test_lib"
             methods, 0,
             "the same-named method stub must be dropped, found {methods}:\n{stub}"
         );
+    }
+
+    #[test]
+    fn rust_default_constructor_fields_do_not_claim_none_is_accepted() {
+        let api = ApiSurface {
+            types: vec![TypeDef {
+                name: "Defaults".into(),
+                has_default: true,
+                fields: vec![
+                    FieldDef {
+                        name: "label".into(),
+                        ty: TypeRef::String,
+                        ..Default::default()
+                    },
+                    FieldDef {
+                        name: "optional".into(),
+                        ty: TypeRef::String,
+                        optional: true,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let stub = gen_stubs(&api, &[], &python_config(), &ahash::AHashSet::default());
+        assert!(stub.contains("label: str = ..."), "{stub}");
+        assert!(!stub.contains("label: str | None"), "{stub}");
+        assert!(stub.contains("optional: str | None = None"), "{stub}");
     }
 
     fn widget_request() -> TypeDef {

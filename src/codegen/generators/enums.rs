@@ -124,6 +124,7 @@ pub fn gen_pyo3_data_enum_with_coercion(
 /// the pyo3 and magnus emitters both consume it. `params` are the variant's named fields turned into
 /// `ParamDef`s so the shared param/signature machinery applies unchanged.
 pub(crate) struct VariantConstructor<'a> {
+    pub(crate) is_tuple: bool,
     /// Rust PascalCase variant name (used in the `<Variant> { .. }` literal).
     pub(crate) variant_name: &'a str,
     /// snake_case constructor name exposed to the host language.
@@ -148,6 +149,15 @@ pub(crate) struct VariantConstructor<'a> {
 /// the derived factory is a strict improvement: it is reachable, even where its struct-literal
 /// signature is less ergonomic than the hand-written inherent method would have been.
 pub(crate) fn collect_all_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_>> {
+    collect_variant_constructors(enum_def, false)
+}
+
+/// Python tuple factories use `from_<variant>` to retain the existing payload getters.
+pub(crate) fn collect_pyo3_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_>> {
+    collect_variant_constructors(enum_def, true)
+}
+
+fn collect_variant_constructors(enum_def: &EnumDef, include_tuples: bool) -> Vec<VariantConstructor<'_>> {
     use crate::codegen::naming::pascal_to_snake;
     use crate::core::ir::ParamDef;
 
@@ -156,17 +166,30 @@ pub(crate) fn collect_all_variant_constructors(enum_def: &EnumDef) -> Vec<Varian
         .iter()
         .filter(|v| {
             !v.fields.is_empty()
-                && !v.is_tuple
+                && (include_tuples || !v.is_tuple)
                 && !v.binding_excluded
                 && !v.fields.iter().any(|f| f.sanitized || f.binding_excluded)
         })
         .map(|v| {
-            let snake_name = pascal_to_snake(&v.name);
+            let snake_name = if v.is_tuple {
+                format!("from_{}", pascal_to_snake(&v.name))
+            } else {
+                pascal_to_snake(&v.name)
+            };
             let params = v
                 .fields
                 .iter()
-                .map(|f| ParamDef {
-                    name: f.name.clone(),
+                .enumerate()
+                .map(|(index, f)| ParamDef {
+                    name: if v.is_tuple {
+                        if v.fields.len() == 1 {
+                            "value".into()
+                        } else {
+                            format!("value_{index}")
+                        }
+                    } else {
+                        f.name.clone()
+                    },
                     ty: f.ty.clone(),
                     optional: f.optional,
                     default: f.default.clone(),
@@ -180,6 +203,7 @@ pub(crate) fn collect_all_variant_constructors(enum_def: &EnumDef) -> Vec<Varian
                 .collect();
             let boxed = v.fields.iter().map(|f| f.is_boxed).collect();
             VariantConstructor {
+                is_tuple: v.is_tuple,
                 variant_name: &v.name,
                 snake_name,
                 params,
@@ -337,7 +361,7 @@ fn gen_pyo3_enum_variant_constructors_content(
 ) -> String {
     use crate::codegen::shared::{function_params, function_sig_defaults, is_promoted_optional};
 
-    let constructors = collect_all_variant_constructors(enum_def);
+    let constructors = collect_pyo3_variant_constructors(enum_def);
     if constructors.is_empty() {
         return String::new();
     }
@@ -403,7 +427,11 @@ fn gen_pyo3_enum_variant_constructors_content(
                 } else {
                     variant_field_init(p, promoted, false, false, ctor.boxed[idx])
                 };
-                crate::codegen::field_init::struct_field_init(&p.name, &expr)
+                if ctor.is_tuple {
+                    expr
+                } else {
+                    crate::codegen::field_init::struct_field_init(&p.name, &expr)
+                }
             })
             .collect();
 
@@ -414,6 +442,7 @@ fn gen_pyo3_enum_variant_constructors_content(
                     core_path => core_path,
                     variant_name => ctor.variant_name,
                     field_inits => field_inits,
+                    is_tuple => ctor.is_tuple,
                 },
             )
             .trim_end()

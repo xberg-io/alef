@@ -73,8 +73,7 @@ pub(super) fn render_assertion(
 
     // A `foo[].bar` fixture path means EVERY element of `foo`. The shared accessor lowers
     // `[]` to `[0]`, so the wildcard must be expanded into an `any(..)` comprehension
-    // before the accessor is built. Returning here also keeps the wildcard away from the
-    // `contains("[0]")` enum heuristic below, which only classifies explicit-index paths. ~keep
+    // before the accessor is built. ~keep
     if !result_is_simple
         && let Some(f) = assertion.field.as_deref()
         && !f.is_empty()
@@ -112,10 +111,9 @@ pub(super) fn render_assertion(
         // dynamically-typed default of "compare as a plain string" — which asserts the wire
         // value against the Python enum's `repr`/member name instead of coercing it first.
         // This is purely additive: it only turns a `false` into a `true`. ~keep
-        if field_resolver.is_enum(f) {
-            return true;
-        }
-        field_resolver.accessor(f, "python", result_var).contains("[0]")
+        // An indexed accessor says nothing about its element type. Unknown helper return
+        // types must retain exact comparisons unless config explicitly declares an enum.
+        field_resolver.is_enum(f)
     });
 
     let field_is_optional = match &assertion.field {

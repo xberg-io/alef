@@ -7,6 +7,67 @@ use crate::core::backend::Backend;
 use crate::core::config::Language;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeRef};
 
+#[test]
+fn unit_enum_supports_map_keys_and_required_record_has_no_invented_default() {
+    let cfg = super::config::binding_config("core", true);
+    let role = EnumDef {
+        name: "Role".into(),
+        variants: vec![EnumVariant {
+            name: "Source".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let generated = crate::codegen::generators::gen_enum(&role, &cfg, None);
+    // PyO3's `eq_int` support needs PartialEq, while the Python-facing hash is
+    // supplied by the generated __hash__ method below; Rust Eq/Hash derives are
+    // neither required nor emitted for this wrapper.
+    assert!(generated.contains("PartialEq"), "{generated}");
+    assert!(generated.contains("fn __hash__(&self) -> isize"), "{generated}");
+    assert!(generated.contains("self.clone() as isize"), "{generated}");
+    let request = crate::core::ir::TypeDef {
+        name: "Request".into(),
+        fields: vec![FieldDef {
+            name: "policy".into(),
+            ty: TypeRef::Named("RequiredPolicy".into()),
+            ..Default::default()
+        }],
+        has_default: false,
+        ..Default::default()
+    };
+    let generated = crate::codegen::generators::gen_struct(&request, &Pyo3Mapper::new(), &cfg);
+    assert!(!generated.contains("Default"), "{generated}");
+}
+
+#[test]
+fn tuple_variant_factory_accepts_typed_payload_without_shadowing_getter() {
+    let def = EnumDef {
+        name: "Policy".into(),
+        rust_path: "core::Policy".into(),
+        serde_tag: Some("operation".into()),
+        serde_content: Some("policy".into()),
+        variants: vec![EnumVariant {
+            name: "Analyze".into(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                name: "_0".into(),
+                ty: TypeRef::Named("AnalyzePolicy".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&Pyo3Mapper::new()));
+    assert!(
+        generated.contains("_factory_from_analyze(value: AnalyzePolicy)"),
+        "{generated}"
+    );
+    assert!(generated.contains("Policy::Analyze(value.into())"), "{generated}");
+    assert!(generated.contains("fn analyze(&self)"), "{generated}");
+    syn::parse_file(&generated).expect("factory and accessor must form valid Rust");
+}
+
 /// The production pyo3 data-enum path emits one `#[staticmethod]` constructor per data-carrying
 /// struct variant, mapped through the real `Pyo3Mapper`. Proves the wiring at `gen_bindings/mod.rs`,
 /// not just the generator helper.

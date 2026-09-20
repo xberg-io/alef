@@ -165,6 +165,49 @@ struct Case {
     expect_enum_branch: bool,
 }
 
+#[test]
+fn indexed_fields_require_enum_type_evidence() {
+    let (mut types, enums, mut functions) = table_ir();
+    types.push(TypeDef {
+        name: "Inventory".to_string(),
+        fields: vec![FieldDef {
+            name: "items".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Named("ProcessResult".to_string()))),
+            ..FieldDef::default()
+        }],
+        ..TypeDef::default()
+    });
+    functions.push(FunctionDef {
+        name: "inventory".to_string(),
+        return_type: TypeRef::Named("Inventory".to_string()),
+        ..FunctionDef::default()
+    });
+    for index in [0, 1] {
+        let field = format!("items[{index}].kind");
+        for (call, explicit, expected_enum) in [
+            ("inventory", false, true),
+            ("unknown_helper", false, false),
+            ("unknown_helper", true, true),
+        ] {
+            let mut config = e2e_config_for(call);
+            if explicit {
+                config.fields_enum.insert(field.clone());
+            }
+            let mut fixture = fixture_calling(call);
+            fixture.assertions[0].field = Some(field.clone());
+            let out = render(&fixture, &config, &types, &enums, &functions);
+            assert_eq!(out.contains(ENUM_MARKER), expected_enum, "{call}: {out}");
+            if !expected_enum {
+                assert!(
+                    out.contains(&format!("assert result.{field} == \"key_value\"")),
+                    "{out}"
+                );
+                assert!(!out.contains(".lower()"), "{out}");
+            }
+        }
+    }
+}
+
 const CASES: &[Case] = &[
     Case {
         name: "an enum-typed field with no fields_enum config is classified as enum via the IR",

@@ -154,6 +154,8 @@ fn every_generated_python_file_defines_the_helpers_it_calls() {
 
     let mut e2e_config = crate::e2e::config::E2eConfig::default();
     e2e_config.fields_array.insert("structure".to_string());
+    // The fixture's enum type must be explicit when this test supplies no IR.
+    e2e_config.fields_enum.insert("structure[0].kind".to_string());
     let config = crate::core::config::ResolvedCrateConfig::default();
 
     let suite: Vec<(&str, String)> = [

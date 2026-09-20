@@ -23,6 +23,11 @@ pub enum {{ enum_name }} {
 
 #[pymethods]
 impl {{ enum_name }} {
+    // eq_int compares the discriminant, so Python hashing must use the same integer.
+    fn __hash__(&self) -> isize {
+        self.clone() as isize
+    }
+
     #[new]
     fn __new__(value: pyo3::Bound<'_, pyo3::PyAny>) -> pyo3::PyResult<Self> {
         use pyo3::prelude::*;

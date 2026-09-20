@@ -32,6 +32,11 @@ pub(in crate::backends::pyo3) fn resolve_param_ident<'a>(
         .or_else(|| config_renames.and_then(|r| r.get(field_name)).map(|s| s.as_str()))
         .unwrap_or(field_name);
     if is_valid_rust_ident_chars(wire_name) {
+        // These path/self keywords cannot be raw identifiers in Rust. Keep
+        // the serde wire key but use a legal constructor/stub parameter.
+        if matches!(wire_name, "crate" | "self" | "Self" | "super") {
+            return format!("{wire_name}_");
+        }
         // The Rust escape wins when both apply. This is a RUST parameter identifier, and pyo3
         // strips the `r#` when deriving the Python-visible name -- so `r#type` satisfies both
         // sides, while `type_` satisfies neither the Rust parser nor a caller passing the wire
@@ -48,6 +53,29 @@ pub(in crate::backends::pyo3) fn resolve_param_ident<'a>(
     } else {
         python_ident(field_name)
     }
+}
+
+/// Whether a nested default is exposed as a None-able constructor argument.
+/// Shared with stubs so omission is not confused with accepting Python None.
+pub(in crate::backends::pyo3) fn should_option_for_nested_default(
+    typ: &TypeDef,
+    field: &FieldDef,
+    api: &ApiSurface,
+) -> bool {
+    if !typ.has_default || field.optional || matches!(&field.ty, TypeRef::Optional(_)) {
+        return false;
+    }
+    let TypeRef::Named(ref type_name) = field.ty else {
+        return false;
+    };
+    if api.types.iter().any(|t| t.name == *type_name && t.has_default) {
+        return true;
+    }
+    field.default.as_deref() == Some("/* serde(default) */")
+        && api
+            .enums
+            .iter()
+            .any(|e| e.name == *type_name && crate::codegen::generators::enum_has_data_variants(e))
 }
 
 /// Replace the constructor in an impl block with one that honors serde_rename.
@@ -71,30 +99,6 @@ pub(super) fn replace_constructor_with_serde_rename(
     let has_explicit_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
     if has_explicit_new {
         return impl_block.to_string();
-    }
-
-    /// Check if a field should be emitted as Option<T> to accept None for BLK-5 fix.
-    /// This applies when:
-    /// - The parent type has_default=true
-    /// - The field is non-optional (!f.optional && not already Optional)
-    /// - The field type is a Named type
-    /// - The referenced type has has_default=true
-    fn should_option_for_nested_default(typ: &TypeDef, field: &FieldDef, api: &ApiSurface) -> bool {
-        if !typ.has_default || field.optional || matches!(&field.ty, TypeRef::Optional(_)) {
-            return false;
-        }
-        let TypeRef::Named(ref type_name) = field.ty else {
-            return false;
-        };
-        if api.types.iter().any(|t| t.name == *type_name && t.has_default) {
-            return true;
-        }
-        // default. Such a field is None-able in the public surface, so its `#[new]` param is `Option<T>`
-        field.default.as_deref() == Some("/* serde(default) */")
-            && api
-                .enums
-                .iter()
-                .any(|e| e.name == *type_name && crate::codegen::generators::enum_has_data_variants(e))
     }
 
     let bridge_field_name = trait_bridges

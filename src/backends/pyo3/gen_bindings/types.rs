@@ -214,6 +214,9 @@ pub(super) fn gen_options_py(
 
     let mut referenced_types: AHashSet<String> = AHashSet::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        if reexported_types.contains(&typ.name) {
+            continue;
+        }
         if (typ.has_default || dataclass_names.contains(&typ.name)) && !typ.name.ends_with("Update") {
             let is_emitted = !typ.is_return_type || output_style == PythonDtoStyle::TypedDict;
             if !is_emitted {
@@ -263,7 +266,7 @@ pub(super) fn gen_options_py(
     let local_type_names: AHashSet<&str> = {
         let mut local = AHashSet::new();
         for typ in api.types.iter().filter(|t| !t.is_trait) {
-            if typ.name.ends_with("Update") || typ.fields.is_empty() {
+            if typ.name.ends_with("Update") || typ.fields.is_empty() || reexported_types.contains(&typ.name) {
                 continue;
             }
             if (typ.has_default || dataclass_names.contains(&typ.name)) && !typ.is_return_type {
@@ -417,6 +420,9 @@ pub(super) fn gen_options_py(
     }
 
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        if reexported_types.contains(&typ.name) {
+            continue;
+        }
         if !typ.has_default && !dataclass_names.contains(&typ.name) {
             continue;
         }

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Python constructor stubs distinguish omitted Rust-default values from nullable arguments.**
+  A defaulted field is now optional only when omitted, while an explicit `None` remains governed by
+  the native constructor contract.
+
+- **Python unit enums provide integer-consistent hashing and typed tuple-variant factories.**
+  Generated stubs and DTO coercion discovery match the runtime constructors and hash behavior.
+
 ### Fixed
 
 - **PyO3 enum variant and tag getters no longer emit Rust-rejected raw identifiers.**
@@ -46,6 +55,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python stubs no longer invent discriminator `TypedDict`s for untagged or externally tagged
   payload enums.** Their generated annotations now match the actual serde wire shape while
   retaining native enum accessors and factories.
+
+- **Python native reexports are preserved for defaultable input DTOs.** Public constructors no
+  longer shadow native classes with incompatible dataclasses.
+
+- **Python constructors escape crate, self, `Self`, and super wire names safely.** Reserved Rust
+  names no longer produce invalid raw identifiers.
+
+- **Python struct constructor annotations match typed PyO3 enum extraction.** Explicit enum
+  construction and optional `None` remain supported without implicit string coercion.
+
+- **Python generated fixture assertions no longer infer enum types from index-zero access.** Unknown
+  and plain-string fields retain exact equality while declared enum fields retain wire coercion.
 
 ## [0.93.1] - 2026-09-19
 

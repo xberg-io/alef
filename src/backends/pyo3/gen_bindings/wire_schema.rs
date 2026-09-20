@@ -12,7 +12,7 @@
 use super::errors::is_dataclass_backed_config;
 use crate::codegen::cfg::is_host_owned_rust_path;
 use crate::codegen::generators::{
-    PYO3_DTO_COERCE_HELPER, coercible_payload, collect_all_variant_constructors, data_enum_needs_dto_coercion,
+    PYO3_DTO_COERCE_HELPER, coercible_payload, collect_pyo3_variant_constructors, data_enum_needs_dto_coercion,
     enum_has_data_variants, pyo3_wire_schema_const_name, variant_constructor_is_reachable,
 };
 use crate::codegen::naming::wire_field_name;
@@ -107,7 +107,7 @@ pub(super) fn gen_wire_schema_consts(
             continue;
         }
         let is_host_enum = is_host_owned_rust_path(core_import, &e.rust_path);
-        let reachable_ctors = collect_all_variant_constructors(e).into_iter().filter(|ctor| {
+        let reachable_ctors = collect_pyo3_variant_constructors(e).into_iter().filter(|ctor| {
             e.variants
                 .iter()
                 .find(|v| v.name == ctor.variant_name)
