@@ -136,6 +136,51 @@ fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
         content.contains("def self.register_greeter: (_Greeter backend, String name) -> nil"),
         "register fn must type its backend param against the interface:\n{content}"
     );
+
+    // Direct Arc<dyn Trait> arguments also require the interface even when
+    // the consumer owns registration and no generated registry is configured.
+    config.trait_bridges[0].register_fn = None;
+    let direct = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+    assert!(direct.contains("interface _Greeter"));
+    assert!(direct.contains("def process: (Opts opts) -> Doc"));
+    assert!(!direct.contains("def self.register_greeter:"));
+}
+
+#[test]
+fn test_rbs_plugin_interface_respects_ruby_exclusion() {
+    let backend = MagnusBackend;
+    let mut config = make_config_with_stubs();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "Greeter".to_string(),
+        exclude_languages: vec!["ruby".to_string()],
+        ..Default::default()
+    }];
+    let greeter = TypeDef {
+        name: "Greeter".to_string(),
+        rust_path: "test_lib::Greeter".to_string(),
+        is_trait: true,
+        is_opaque: true,
+        methods: vec![MethodDef {
+            name: "process".to_string(),
+            return_type: TypeRef::String,
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        }],
+        ..TypeDef::default()
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![greeter],
+        ..Default::default()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        !content.contains("interface _Greeter"),
+        "an excluded Ruby bridge must not emit an RBS interface:\n{content}"
+    );
 }
 
 #[test]

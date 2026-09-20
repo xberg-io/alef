@@ -40,15 +40,15 @@ pub fn gen_stubs(
         .chain(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()))
         .collect();
 
-    // Trait names exposed as a host-implementable RBS `interface _Name` (trait-bridge traits with a ~keep
-    // `register_fn` whose methods are non-empty and whose trait type exists in the API surface — the ~keep
+    // Trait names exposed as a host-implementable RBS `interface _Name` (trait-bridge traits ~keep
+    // whose methods are non-empty and whose trait type exists in the API surface — the ~keep
     // same condition `gen_plugin_interface_stub` uses to decide whether it emits the interface). Any ~keep
     // function/method param or return referencing one of these bare trait names must be substituted ~keep
     // to `_Name` via `substitute_trait_interfaces`, otherwise steep fails with `RBS::UnknownTypeName` ~keep
     // (the bare trait name is never declared — only the `_Name` interface is). ~keep
     let trait_interfaces: std::collections::HashSet<&str> = trait_bridges
         .iter()
-        .filter(|bridge| bridge.register_fn.is_some())
+        .filter(|bridge| crate::backends::magnus::trait_bridge::active_bridge_trait(bridge, api).is_some())
         .filter(|bridge| !bridge.resolve_methods(api).is_empty())
         .filter(|bridge| api.types.iter().any(|t| t.name == bridge.trait_name))
         .map(|bridge| bridge.trait_name.as_str())
@@ -102,7 +102,7 @@ pub fn gen_stubs(
         lines.push("".to_string());
     }
     for bridge in trait_bridges {
-        if bridge.register_fn.is_none() {
+        if crate::backends::magnus::trait_bridge::active_bridge_trait(bridge, api).is_none() {
             continue;
         }
         if let Some(stub) = gen_plugin_interface_stub(bridge, api) {

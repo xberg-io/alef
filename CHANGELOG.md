@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Clone read-only opaque handles cross Ruby and Python callbacks as native objects.** They are
   no longer serialized or exposed as raw Rust values.
 
+- **Magnus RBS interfaces cover direct typed trait arguments.** Trait bridges emit their
+  host-implementable interface whenever methods are present, even when no generated registration
+  function is configured, so direct `Arc<dyn Trait>` arguments have a declared RBS type.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed
