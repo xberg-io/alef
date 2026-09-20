@@ -1,7 +1,22 @@
 pub(super) fn emit(prefix: &str, out: &mut String) {
     out.push_str(&format!(
-        r#"/// Errors reported by the verified downloadable-component manager.
+        r#"/// Errors reported by the verified downloadable-component manager. Use
+/// `componentLastErrorCode` after catching one of these for the stable failure code --
+/// "offline", "signature_invalid", "unsupported_host", and so on -- instead of matching on
+/// `_last_error()`'s free-form message.
 pub const ComponentError = error{{ComponentOperationFailed}};
+
+/// The stable failure code of the most recent failing component operation on this thread
+/// ("offline", "signature_invalid", "unsupported_host", ...), or null if the last operation
+/// succeeded or the native layer did not prefix its message with one. The native layer
+/// prefixes every component failure message with "<code>: " (see
+/// alef_component_error_message in alef::backends::native_components); this splits that
+/// prefix back out of `_last_error()` rather than exposing a second native accessor.
+pub fn componentLastErrorCode() ?[]const u8 {{
+    const message = _last_error() orelse return null;
+    const separator = std.mem.indexOf(u8, message, ": ") orelse return null;
+    return message[0..separator];
+}}
 
 /// Download, verify, dynamically load, and pin a configured component.
 pub fn componentLoad(allocator: std.mem.Allocator, component: []const u8) (ComponentError || std.mem.Allocator.Error)!void {{
@@ -22,7 +37,8 @@ pub fn componentPrefetch(
     return takeComponentString(allocator, raw);
 }}
 
-/// Return missing, cached:<path>, or loaded:<path> for a configured component.
+/// Return ready, cached, not_downloaded, bundled, or unsupported:<reason> for a configured
+/// component. See `componentStatusCode` for the matching numeric code.
 pub fn componentStatus(
     allocator: std.mem.Allocator,
     component: []const u8,
@@ -30,6 +46,19 @@ pub fn componentStatus(
     const component_z = try allocator.dupeZ(u8, component);
     defer allocator.free(component_z);
     return takeComponentString(allocator, c.{prefix}_component_status(component_z.ptr));
+}}
+
+/// The numeric counterpart to `componentStatus`, stable across releases: 0 ready, 1 cached,
+/// 2 not_downloaded, 3 bundled, 4 unsupported.
+pub fn componentStatusCode(
+    allocator: std.mem.Allocator,
+    component: []const u8,
+) (ComponentError || std.mem.Allocator.Error)!i32 {{
+    const component_z = try allocator.dupeZ(u8, component);
+    defer allocator.free(component_z);
+    const result = c.{prefix}_component_status_code(component_z.ptr);
+    if (result < 0) return ComponentError.ComponentOperationFailed;
+    return result;
 }}
 
 /// Return the content-addressed cache path for a configured component.
@@ -65,6 +94,9 @@ mod tests {
         assert!(generated.contains("pub fn componentLoad"));
         assert!(generated.contains("pub fn componentPrefetch"));
         assert!(generated.contains("c.demo_component_status(component_z.ptr)"));
+        assert!(generated.contains("pub fn componentStatusCode"));
+        assert!(generated.contains("c.demo_component_status_code(component_z.ptr)"));
+        assert!(generated.contains("pub fn componentLastErrorCode"));
         assert!(generated.contains("c.demo_component_cache_path(component_z.ptr)"));
         assert!(generated.contains("defer c.demo_free_string(raw)"));
     }

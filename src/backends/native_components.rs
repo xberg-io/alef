@@ -2,10 +2,10 @@
 
 use crate::codegen::component::{ResolvedComponent, entry_point_symbol, resolve_components};
 use crate::codegen::component_proxy::generate_component_proxies;
+use crate::codegen::naming::{to_class_name, to_constant_name};
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
 use anyhow::{Context as _, Result};
-use heck::{ToShoutySnakeCase, ToUpperCamelCase};
 use std::fmt::Write as _;
 
 /// Generate backend-neutral helpers around `alef-component-runtime`.
@@ -15,8 +15,8 @@ use std::fmt::Write as _;
 /// `concat!`.
 pub(crate) fn generate(config: &ResolvedCrateConfig, lock_manifest_path: &str) -> String {
     debug_assert!(lock_manifest_path.starts_with('/'));
-    let cache_env = format!("{}_COMPONENT_CACHE", config.name.to_shouty_snake_case());
-    let offline_env = format!("{}_COMPONENT_OFFLINE", config.name.to_shouty_snake_case());
+    let cache_env = format!("{}_COMPONENT_CACHE", to_constant_name(&config.name));
+    let offline_env = format!("{}_COMPONENT_OFFLINE", to_constant_name(&config.name));
     let cache_namespace = config.name.replace('-', "_");
     let component_ids = config
         .components
@@ -57,6 +57,13 @@ fn alef_component_cache_root() -> std::path::PathBuf {{
     base.join("{cache_namespace}").join("components")
 }}
 
+/// Prefix a `ComponentError`'s message with its stable `code()` (`"{{code}}: {{message}}"`),
+/// so a caller in any host language can recover the failure kind -- offline, an invalid
+/// signature, an unsupported host, and so on -- without depending on the human-readable text.
+fn alef_component_error_message(error: alef_component_runtime::ComponentError) -> String {{
+    format!("{{}}: {{error}}", error.code())
+}}
+
 fn alef_component_manager() -> Result<&'static alef_component_runtime::ComponentManager, String> {{
     ALEF_COMPONENT_MANAGER
         .get_or_init(|| {{
@@ -72,14 +79,10 @@ fn alef_component_manager() -> Result<&'static alef_component_runtime::Component
                 context: std::ptr::null_mut(),
                 log: None,
             }};
-            alef_component_runtime::ComponentManager::from_lock(
-                lock,
-                alef_component_cache_root(),
-                alef_component_target()?,
-                host,
-            )
-            .map(|manager| manager.offline(std::env::var_os("{offline_env}").is_some()))
-            .map_err(|error| error.to_string())
+            let target = alef_component_target().map_err(|reason| format!("unsupported_host: {{reason}}"))?;
+            alef_component_runtime::ComponentManager::from_lock(lock, alef_component_cache_root(), target, host)
+                .map(|manager| manager.offline(std::env::var_os("{offline_env}").is_some()))
+                .map_err(alef_component_error_message)
         }})
         .as_ref()
         .map_err(Clone::clone)
@@ -95,7 +98,7 @@ fn alef_component_load(component: &str) -> Result<(), String> {{
     alef_component_manager()?
         .prefetch(&[component])
         .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(alef_component_error_message)
 }}
 
 fn alef_component_prefetch(components: Option<Vec<String>>) -> Result<Vec<String>, String> {{
@@ -114,25 +117,66 @@ fn alef_component_prefetch(components: Option<Vec<String>>) -> Result<Vec<String
                 .map(|artifact| artifact.root.display().to_string())
                 .collect()
         }})
-        .map_err(|error| error.to_string())
+        .map_err(alef_component_error_message)
 }}
 
+/// `component`'s status, typed. An unsupported host reports `Unsupported` here rather than
+/// failing outright, unlike every other component operation: a status query should always be
+/// answerable, even when nothing else can run.
+fn alef_component_status_typed(component: &str) -> Result<alef_component_runtime::ComponentStatus, String> {{
+    match alef_component_target() {{
+        Err(reason) => Ok(alef_component_runtime::ComponentStatus::Unsupported {{ reason }}),
+        Ok(_) => alef_component_manager()?
+            .status(component)
+            .map_err(alef_component_error_message),
+    }}
+}}
+
+/// The stable string tag for a status, independent of its payload. See
+/// `alef_component_status_numeric_code` for the matching number.
+fn alef_component_status_tag(status: &alef_component_runtime::ComponentStatus) -> &'static str {{
+    match status {{
+        alef_component_runtime::ComponentStatus::Ready => "ready",
+        alef_component_runtime::ComponentStatus::Cached => "cached",
+        alef_component_runtime::ComponentStatus::NotDownloaded => "not_downloaded",
+        alef_component_runtime::ComponentStatus::Bundled => "bundled",
+        alef_component_runtime::ComponentStatus::Unsupported {{ .. }} => "unsupported",
+    }}
+}}
+
+/// The stable numeric code for a status, for bindings that would rather branch on an integer
+/// than a string. Kept in lockstep with `alef_component_status_tag` by construction: both
+/// match the same five-variant enum, so the compiler flags either falling behind the other.
+fn alef_component_status_numeric_code(status: &alef_component_runtime::ComponentStatus) -> i32 {{
+    match status {{
+        alef_component_runtime::ComponentStatus::Ready => 0,
+        alef_component_runtime::ComponentStatus::Cached => 1,
+        alef_component_runtime::ComponentStatus::NotDownloaded => 2,
+        alef_component_runtime::ComponentStatus::Bundled => 3,
+        alef_component_runtime::ComponentStatus::Unsupported {{ .. }} => 4,
+    }}
+}}
+
+/// Return `ready`, `cached`, `not_downloaded`, `bundled`, or `unsupported:<reason>` for a
+/// configured component. `alef_component_status_code` returns the matching numeric code.
 fn alef_component_status(component: &str) -> Result<String, String> {{
-    let status = alef_component_manager()?
-        .status(component)
-        .map_err(|error| error.to_string())?;
-    Ok(match status {{
-        alef_component_runtime::ComponentStatus::Missing => "missing".to_string(),
-        alef_component_runtime::ComponentStatus::Cached(path) => format!("cached:{{}}", path.display()),
-        alef_component_runtime::ComponentStatus::Loaded(path) => format!("loaded:{{}}", path.display()),
+    let status = alef_component_status_typed(component)?;
+    Ok(match &status {{
+        alef_component_runtime::ComponentStatus::Unsupported {{ reason }} => format!("unsupported:{{reason}}"),
+        other => alef_component_status_tag(other).to_string(),
     }})
+}}
+
+/// The numeric counterpart to `alef_component_status`, stable across releases.
+fn alef_component_status_code(component: &str) -> Result<i32, String> {{
+    alef_component_status_typed(component).map(|status| alef_component_status_numeric_code(&status))
 }}
 
 fn alef_component_cache_path(component: &str) -> Result<String, String> {{
     alef_component_manager()?
         .cache_path(component)
         .map(|path| path.display().to_string())
-        .map_err(|error| error.to_string())
+        .map_err(alef_component_error_message)
 }}"#,
     )
 }
@@ -185,11 +229,11 @@ fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedCompone
                         provided.contract.name
                     )
                 })?;
-            let proxy_name = format!("{}Proxy", provided.contract.name.to_upper_camel_case());
+            let proxy_name = format!("{}Proxy", to_class_name(&provided.contract.name));
             let entry_symbol = entry_point_symbol(&provided.contract.name);
             writeln!(
                 out,
-                "            let loaded = manager.ensure_contract({component:?}, {contract:?}, b\"{entry_symbol}\\0\").map_err(|error| error.to_string())?;",
+                "            let loaded = manager.ensure_contract({component:?}, {contract:?}, b\"{entry_symbol}\\0\").map_err(alef_component_error_message)?;",
                 component = component.component_name,
                 contract = provided.contract.name,
             )?;

@@ -24,7 +24,7 @@ object Components {{
     @JvmStatic
     fun componentPrefetch(component: String): List<String> = JavaComponents.componentPrefetch(component)
 
-    /** Returns missing, cached:<path>, or loaded:<path>. */
+    /** Returns ready, cached, not_downloaded, bundled, or unsupported:<reason>. */
     @JvmStatic
     fun componentStatus(component: String): String = JavaComponents.componentStatus(component)
 

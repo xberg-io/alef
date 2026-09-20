@@ -9,11 +9,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+/// Where a configured component currently stands, independent of its on-disk location (see
+/// [`ComponentManager::cache_path`] for that). Generated bindings expose this as both a
+/// stable string tag and a numeric code (`alef_component_status`/`alef_component_status_code`
+/// in `alef::backends::native_components`) so callers in any host language can branch on it
+/// without parsing free-form text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComponentStatus {
-    Missing,
-    Cached(PathBuf),
-    Loaded(PathBuf),
+    /// Loaded and its contracts activated in this process.
+    Ready,
+    /// Downloaded and verified on disk, but not yet loaded in this process.
+    Cached,
+    /// Not yet present in the on-disk cache.
+    NotDownloaded,
+    /// Linked into the binding ahead of time for this target; never downloaded or loaded
+    /// through this manager.
+    Bundled,
+    /// This host/target does not support downloading native components at all.
+    Unsupported { reason: String },
 }
 
 pub struct ComponentManager {
@@ -188,22 +201,30 @@ impl ComponentManager {
         Ok(cached)
     }
 
+    /// Report where `component_id` currently stands. Unlike [`Self::ensure_contract`],
+    /// [`Self::prefetch`], and [`Self::cache_path`], a `Bundled` entry is a legitimate answer
+    /// here rather than a failure: it is this manager's way of saying "linked in ahead of
+    /// time, never downloaded or loaded through me", not an error.
     pub fn status(&self, component_id: &str) -> Result<ComponentStatus, ComponentError> {
-        let root = self.cache.object_path(self.entry(component_id)?)?;
+        let entry = self.lookup(component_id)?;
+        if entry.mode == ComponentDeliveryMode::Bundled {
+            return Ok(ComponentStatus::Bundled);
+        }
         let loaded_prefix = format!("{component_id}::");
         if self
             .loaded
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(PoisonError::into_inner)
             .keys()
             .any(|key| key.starts_with(&loaded_prefix))
         {
-            return Ok(ComponentStatus::Loaded(root));
+            return Ok(ComponentStatus::Ready);
         }
+        let root = self.cache.object_path(entry)?;
         if root.join("component.json").is_file() {
-            Ok(ComponentStatus::Cached(root))
+            Ok(ComponentStatus::Cached)
         } else {
-            Ok(ComponentStatus::Missing)
+            Ok(ComponentStatus::NotDownloaded)
         }
     }
 
@@ -221,19 +242,24 @@ impl ComponentManager {
         &self.target
     }
 
-    /// Look up a component's lock entry for this manager's target.
-    ///
-    /// Every caller (`ensure`, `prefetch`, `status`, `cache_path`) reaches the
-    /// cache only through this method, so a `Bundled` entry -- one this manager
-    /// cannot download -- is rejected here, before any cache I/O runs.
-    fn entry(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
-        let entry = self
-            .entries
+    /// Look up a component's lock entry for this manager's target, with no restriction on
+    /// its delivery mode. [`Self::status`] uses this directly since a `Bundled` entry is a
+    /// legitimate status to report, not a failure.
+    fn lookup(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
+        self.entries
             .get(component_id)
             .ok_or_else(|| ComponentError::ArtifactNotFound {
                 component_id: component_id.to_owned(),
                 target: self.target.clone(),
-            })?;
+            })
+    }
+
+    /// Like [`Self::lookup`], but additionally rejects a `Bundled` entry -- one this manager
+    /// cannot download -- before any cache I/O runs. Every caller that actually needs to
+    /// touch the cache (`ensure_contract`, `prefetch`, `cache_path`) reaches it only through
+    /// this method.
+    fn entry(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
+        let entry = self.lookup(component_id)?;
         if entry.mode == ComponentDeliveryMode::Bundled {
             return Err(ComponentError::BundledComponentNotLoadable {
                 component: component_id.to_owned(),
@@ -331,7 +357,7 @@ mod tests {
     fn manager_reports_content_address_before_download() {
         let dir = tempfile::tempdir().unwrap();
         let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
-        assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Missing);
+        assert_eq!(manager.status("demo").unwrap(), ComponentStatus::NotDownloaded);
         assert!(
             manager
                 .cache_path("demo")
@@ -398,10 +424,10 @@ mod tests {
             manager.ensure_contract("demo", "engine", b"alef_component_entry_v1_engine\0"),
             Err(ComponentError::BundledComponentNotLoadable { .. })
         ));
-        assert!(matches!(
-            manager.status("demo"),
-            Err(ComponentError::BundledComponentNotLoadable { .. })
-        ));
+        // Unlike `ensure_contract`/`prefetch`/`cache_path`, `status` reports `Bundled` as a
+        // legitimate answer rather than failing: this manager genuinely cannot download or
+        // load the component, and that is exactly what the status says.
+        assert_eq!(manager.status("demo").unwrap(), ComponentStatus::Bundled);
         assert!(matches!(
             manager.prefetch(&["demo"]),
             Err(ComponentError::BundledComponentNotLoadable { .. })
