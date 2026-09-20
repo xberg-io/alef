@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.94.0] - 2026-09-20
+
 ### Changed
 
 - **Python constructor stubs distinguish omitted Rust-default values from nullable arguments.**
