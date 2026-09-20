@@ -1,7 +1,8 @@
 //! Producer-crate generation for downloadable native components.
 
 use crate::codegen::component::{
-    ComponentContractIr, ComponentMethodIr, ResolvedComponent, ResolvedProvidedContract, WireType, entry_point_symbol,
+    ComponentContractIr, ComponentEnumIr, ComponentMethodIr, ComponentParamIr, ComponentRecordIr, ResolvedComponent,
+    ResolvedProvidedContract, WireType, entry_point_symbol,
 };
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
@@ -149,6 +150,7 @@ impl ContractNames {
 fn emit_contract_block(out: &mut String, provided: &ResolvedProvidedContract, feature_hash: &str) -> Result<()> {
     let names = ContractNames::new(&provided.contract);
     emit_lifecycle_functions(out, &names, &provided.implementation)?;
+    emit_wire_helpers(out, &provided.contract)?;
     emit_contract_table_and_entry(out, &names, provided, feature_hash)
 }
 
@@ -235,7 +237,7 @@ fn emit_contract_table_and_entry(
     out.push_str("}\n\n");
 
     for method in &contract.methods {
-        emit_method_wrapper(out, &contract.trait_path, prefix, contract_name, method)?;
+        emit_method_wrapper(out, contract, prefix, contract_name, method)?;
     }
 
     writeln!(
@@ -363,28 +365,9 @@ unsafe extern "C" fn free_task(context: *mut c_void) {
 "#;
 
 fn validate_producer_types(contract: &ComponentContractIr) -> Result<()> {
-    fn supported(ty: &WireType) -> bool {
-        matches!(
-            ty,
-            WireType::Unit
-                | WireType::Bool
-                | WireType::U8
-                | WireType::U16
-                | WireType::U32
-                | WireType::U64
-                | WireType::I8
-                | WireType::I16
-                | WireType::I32
-                | WireType::I64
-                | WireType::F32
-                | WireType::F64
-                | WireType::Utf8
-                | WireType::Bytes
-        )
-    }
     for method in &contract.methods {
         for param in &method.params {
-            if !supported(&param.ty) {
+            if !producer_supports(contract, &param.ty) {
                 bail!(
                     "component producer does not yet support {:?} in parameter {}::{}",
                     param.ty,
@@ -393,7 +376,7 @@ fn validate_producer_types(contract: &ComponentContractIr) -> Result<()> {
                 );
             }
         }
-        if !supported(&method.result) {
+        if !producer_supports(contract, &method.result) {
             bail!(
                 "component producer does not yet support {:?} as result of {}",
                 method.result,
@@ -402,6 +385,38 @@ fn validate_producer_types(contract: &ComponentContractIr) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Wire types the producer can marshal, recursing into `Optional`/`Slice`
+/// element types and a `Record`'s own field types so an unsupported type
+/// nested inside a compound one is rejected here rather than surfacing as a
+/// codegen panic later. Mirrors `component_proxy`'s identical check; see
+/// `rust_wire_type`'s doc comment for why the two copies aren't shared.
+fn producer_supports(contract: &ComponentContractIr, ty: &WireType) -> bool {
+    match ty {
+        WireType::Unit
+        | WireType::Bool
+        | WireType::U8
+        | WireType::U16
+        | WireType::U32
+        | WireType::U64
+        | WireType::I8
+        | WireType::I16
+        | WireType::I32
+        | WireType::I64
+        | WireType::F32
+        | WireType::F64
+        | WireType::Utf8
+        | WireType::Bytes
+        | WireType::Enum(_) => true,
+        WireType::Optional(inner) | WireType::Slice(inner) => producer_supports(contract, inner),
+        WireType::Record(name) => contract
+            .records
+            .iter()
+            .find(|record| record.name == *name)
+            .is_some_and(|record| record.fields.iter().all(|field| producer_supports(contract, &field.ty))),
+        WireType::Char | WireType::Path | WireType::Opaque(_) => false,
+    }
 }
 
 fn rust_abi_type(ty: &WireType, output: bool) -> String {
@@ -420,6 +435,8 @@ fn rust_abi_type(ty: &WireType, output: bool) -> String {
         WireType::Utf8 | WireType::Char | WireType::Path | WireType::Bytes if output => "AlefOwnedBuffer".into(),
         WireType::Utf8 | WireType::Char | WireType::Path => "AlefStr".into(),
         WireType::Bytes => "alef_component_abi::AlefSlice".into(),
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) if output => "AlefOwnedBuffer".into(),
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => "alef_component_abi::AlefSlice".into(),
         other => panic!("unsupported producer wire type: {other:?}"),
     }
 }
@@ -456,11 +473,12 @@ fn emit_async_callback_alias(out: &mut String, contract: &str, method: &Componen
 
 fn emit_method_wrapper(
     out: &mut String,
-    trait_path: &str,
+    contract: &ComponentContractIr,
     prefix: &str,
-    contract: &str,
+    contract_name: &str,
     method: &ComponentMethodIr,
 ) -> Result<()> {
+    let trait_path = &contract.trait_path;
     let method_name = method.name.to_snake_case();
     write!(
         out,
@@ -477,7 +495,7 @@ fn emit_method_wrapper(
     if method.is_async {
         write!(
             out,
-            ", completion: {contract}{}Completion, completion_context: *mut c_void, out_task: *mut AlefTaskV1",
+            ", completion: {contract_name}{}Completion, completion_context: *mut c_void, out_task: *mut AlefTaskV1",
             method.name.to_upper_camel_case()
         )?;
     } else {
@@ -495,34 +513,49 @@ fn emit_method_wrapper(
         out.push_str("    if out_result.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     }
     for param in &method.params {
-        emit_input_conversion(out, param)?;
+        emit_input_conversion(out, contract, param)?;
     }
-    let args = method
-        .params
-        .iter()
-        .map(|param| format!("{}_value", param.name.to_snake_case()))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let args = method.params.iter().map(call_argument).collect::<Vec<_>>().join(", ");
     if method.is_async {
-        emit_async_body(out, trait_path, &method_name, &args, method)?;
+        emit_async_body(out, contract, &method_name, &args, method)?;
     } else {
         writeln!(
             out,
             "    let call = catch_unwind(AssertUnwindSafe(|| {trait_path}::{method_name}(&**instance, {args})));"
         )?;
-        emit_sync_match(out, method)?;
+        emit_sync_match(out, contract, method)?;
         out.push_str("}\n\n");
     }
     Ok(())
 }
 
+/// The expression passed for one parameter at the trait call site.
+///
+/// Scalars and `Utf8`/`Bytes` already decode into a value of the exact type
+/// the trait signature wants (see [`emit_input_conversion`]), so the decoded
+/// binding is passed as-is. A compound type always decodes into an owned
+/// value regardless of `borrowed` (there is no zero-copy view into a
+/// self-describing encoded buffer), so a borrowed compound parameter needs
+/// an explicit `&` here to match a trait signature that takes it by
+/// reference.
+fn call_argument(param: &ComponentParamIr) -> String {
+    let name = param.name.to_snake_case();
+    match &param.ty {
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) | WireType::Enum(_) if param.borrowed => {
+            format!("&{name}_value")
+        }
+        _ => format!("{name}_value"),
+    }
+}
+
 fn emit_async_body(
     out: &mut String,
-    trait_path: &str,
+    contract: &ComponentContractIr,
     method_name: &str,
     args: &str,
     method: &ComponentMethodIr,
 ) -> Result<()> {
+    let trait_path = &contract.trait_path;
     out.push_str("    if out_task.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     out.push_str("    let instance = Arc::clone(instance);\n");
     out.push_str("    let cancelled = Arc::new(AtomicBool::new(false));\n");
@@ -531,18 +564,18 @@ fn emit_async_body(
     out.push_str("    unsafe { *out_task = AlefTaskV1 { struct_size: std::mem::size_of::<AlefTaskV1>(), context: task_context, start: None, cancel: Some(cancel_task), drop: Some(free_task) } };\n");
     out.push_str("    std::thread::spawn(move || {\n");
     out.push_str("        if cancelled.load(Ordering::Acquire) {\n");
-    emit_completion(out, method, "AlefStatus::CANCELLED", None, 12)?;
+    emit_completion(out, contract, method, "AlefStatus::CANCELLED", None, 12)?;
     out.push_str("            return;\n        }\n");
     writeln!(
         out,
         "        let call = catch_unwind(AssertUnwindSafe(|| futures::executor::block_on({trait_path}::{method_name}(&*instance, {args}))));"
     )?;
-    emit_async_match(out, method)?;
+    emit_async_match(out, contract, method)?;
     out.push_str("    });\n    AlefStatus::PENDING\n}\n\n");
     Ok(())
 }
 
-fn emit_input_conversion(out: &mut String, param: &crate::codegen::component::ComponentParamIr) -> Result<()> {
+fn emit_input_conversion(out: &mut String, contract: &ComponentContractIr, param: &ComponentParamIr) -> Result<()> {
     let name = param.name.to_snake_case();
     match &param.ty {
         WireType::Utf8 => {
@@ -578,22 +611,76 @@ fn emit_input_conversion(out: &mut String, param: &crate::codegen::component::Co
         }
         WireType::Bool => writeln!(out, "    let {name}_value = {name} != 0;")?,
         WireType::Unit => writeln!(out, "    let {name}_value = ();")?,
-        _ => writeln!(out, "    let {name}_value = {name};")?,
+        WireType::Enum(enum_name) => {
+            let decode_fn = enum_decode_fn(contract, enum_name);
+            writeln!(
+                out,
+                "    let Ok({name}_value) = {decode_fn}({name}) else {{ return AlefStatus::INVALID_ARGUMENT; }};"
+            )?;
+        }
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => {
+            emit_compound_input_conversion(out, contract, &name, &param.ty)?;
+        }
+        WireType::Opaque(_) => unreachable!("validated as unsupported by producer"),
+        WireType::U8
+        | WireType::U16
+        | WireType::U32
+        | WireType::U64
+        | WireType::I8
+        | WireType::I16
+        | WireType::I32
+        | WireType::I64
+        | WireType::F32
+        | WireType::F64 => writeln!(out, "    let {name}_value = {name};")?,
     }
     Ok(())
 }
 
-fn emit_sync_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
+/// Decode a compound-typed (`Record`/`Optional`/`Slice`) parameter out of its
+/// incoming `AlefSlice`, into an owned value of type `rust_wire_type(ty)`.
+///
+/// The closure takes ownership of a fresh `WireReader` over the incoming
+/// bytes (rather than capturing an outer mutable binding) purely so this
+/// stays a single self-contained statement; `?` inside it propagates a
+/// decode failure without needing the enclosing `AlefStatus`-returning
+/// function to itself return a `Result`.
+fn emit_compound_input_conversion(
+    out: &mut String,
+    contract: &ComponentContractIr,
+    name: &str,
+    ty: &WireType,
+) -> Result<()> {
+    writeln!(
+        out,
+        "    if {name}.ptr.is_null() && {name}.len != 0 {{ return AlefStatus::INVALID_ARGUMENT; }}"
+    )?;
+    writeln!(
+        out,
+        "    let {name}_bytes: &[u8] = if {name}.len == 0 {{ &[] }} else {{ unsafe {{ std::slice::from_raw_parts({name}.ptr, {name}.len) }} }};"
+    )?;
+    // `reader` is bound to an owned `WireReader`, not `&mut WireReader`, so any
+    // record/enum decode call (plain function-call syntax, unlike the method
+    // calls the scalar/Optional/Slice arms use) needs an explicit reborrow.
+    let read_expr = emit_wire_read(contract, ty, "(&mut reader)");
+    let rust_type = rust_wire_type(contract, ty);
+    writeln!(
+        out,
+        "    let Ok({name}_value) = (|mut reader: alef_component_abi::wire::WireReader<'_>| -> Result<{rust_type}, alef_component_abi::wire::WireError> {{ let value = {read_expr}; reader.finish()?; Ok(value) }})(alef_component_abi::wire::WireReader::new({name}_bytes)) else {{ return AlefStatus::INVALID_ARGUMENT; }};"
+    )?;
+    Ok(())
+}
+
+fn emit_sync_match(out: &mut String, contract: &ComponentContractIr, method: &ComponentMethodIr) -> Result<()> {
     out.push_str("    match call {\n");
     if method.fallible {
         out.push_str("        Ok(Ok(value)) => {\n");
-        emit_sync_success(out, method)?;
+        emit_sync_success(out, contract, method)?;
         out.push_str("        }\n        Ok(Err(error)) => {\n");
         out.push_str("            if !out_error.is_null() { unsafe { *out_error = error_buffer(error) }; }\n");
         out.push_str("            AlefStatus::INTERNAL_ERROR\n        }\n");
     } else {
         out.push_str("        Ok(value) => {\n");
-        emit_sync_success(out, method)?;
+        emit_sync_success(out, contract, method)?;
         out.push_str("        }\n");
     }
     out.push_str("        Err(_) => {\n");
@@ -602,34 +689,35 @@ fn emit_sync_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
     Ok(())
 }
 
-fn emit_sync_success(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
+fn emit_sync_success(out: &mut String, contract: &ComponentContractIr, method: &ComponentMethodIr) -> Result<()> {
     if method.result != WireType::Unit {
         writeln!(
             out,
             "            unsafe {{ *out_result = {} }};",
-            output_conversion(&method.result, "value")
+            output_conversion(contract, &method.result, "value")
         )?;
     }
     out.push_str("            AlefStatus::OK\n");
     Ok(())
 }
 
-fn emit_async_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> {
+fn emit_async_match(out: &mut String, contract: &ComponentContractIr, method: &ComponentMethodIr) -> Result<()> {
     out.push_str("        match call {\n");
     if method.fallible {
         out.push_str("            Ok(Ok(value)) => {\n");
-        emit_completion(out, method, "AlefStatus::OK", None, 16)?;
+        emit_completion(out, contract, method, "AlefStatus::OK", None, 16)?;
         out.push_str("            }\n            Ok(Err(error)) => {\n");
-        emit_completion(out, method, "AlefStatus::INTERNAL_ERROR", Some("error"), 16)?;
+        emit_completion(out, contract, method, "AlefStatus::INTERNAL_ERROR", Some("error"), 16)?;
         out.push_str("            }\n");
     } else {
         out.push_str("            Ok(value) => {\n");
-        emit_completion(out, method, "AlefStatus::OK", None, 16)?;
+        emit_completion(out, contract, method, "AlefStatus::OK", None, 16)?;
         out.push_str("            }\n");
     }
     out.push_str("            Err(_) => {\n");
     emit_completion(
         out,
+        contract,
         method,
         "AlefStatus::INTERNAL_ERROR",
         Some("\"component method panicked\""),
@@ -641,6 +729,7 @@ fn emit_async_match(out: &mut String, method: &ComponentMethodIr) -> Result<()> 
 
 fn emit_completion(
     out: &mut String,
+    contract: &ComponentContractIr,
     method: &ComponentMethodIr,
     status: &str,
     error: Option<&str>,
@@ -650,7 +739,7 @@ fn emit_completion(
     let result = if method.result == WireType::Unit {
         String::new()
     } else if status == "AlefStatus::OK" {
-        format!(", {}", output_conversion(&method.result, "value"))
+        format!(", {}", output_conversion(contract, &method.result, "value"))
     } else {
         format!(", {}", zero_value(&method.result))
     };
@@ -665,12 +754,22 @@ fn emit_completion(
     Ok(())
 }
 
-fn output_conversion(ty: &WireType, value: &str) -> String {
+fn output_conversion(contract: &ComponentContractIr, ty: &WireType, value: &str) -> String {
     match ty {
         WireType::Utf8 => format!("owned_buffer({value}.into_bytes())"),
         WireType::Bytes => format!("owned_buffer({value})"),
         WireType::Bool => format!("u8::from({value})"),
         WireType::Unit => "()".into(),
+        WireType::Enum(name) => format!("{}(&{value})", enum_encode_fn(contract, name)),
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => {
+            // `writer` is an owned `WireWriter`, so a record/enum encode call
+            // (plain function-call syntax) needs an explicit reborrow; method
+            // calls (scalar/Optional/Slice) auto-ref an owned mutable local.
+            let write_stmt = emit_wire_write(contract, ty, "(&mut writer)", &format!("&{value}"));
+            format!(
+                "{{ let mut writer = alef_component_abi::wire::WireWriter::new(); {write_stmt} owned_buffer(writer.into_bytes()) }}"
+            )
+        }
         _ => value.into(),
     }
 }
@@ -678,6 +777,7 @@ fn output_conversion(ty: &WireType, value: &str) -> String {
 fn zero_value(ty: &WireType) -> String {
     match ty {
         WireType::Utf8 | WireType::Char | WireType::Path | WireType::Bytes => "AlefOwnedBuffer::EMPTY".into(),
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => "AlefOwnedBuffer::EMPTY".into(),
         WireType::F32 | WireType::F64 => "0.0".into(),
         WireType::Unit => "()".into(),
         _ => "0".into(),
@@ -701,11 +801,233 @@ fn byte_array(bytes: &[u8; 32]) -> String {
     format!("[{}]", bytes.iter().map(u8::to_string).collect::<Vec<_>>().join(", "))
 }
 
+/// The concrete Rust type a wire value has once decoded (or before it is
+/// encoded): the real record/enum type for `Record`/`Enum`, recursing for
+/// `Optional`/`Slice`. Mirrors `component_proxy`'s identical helper; it is
+/// duplicated rather than shared because the two modules generate separate
+/// compiled crates and, like `rust_abi_type` above, must not depend on each
+/// other's private items.
+fn rust_wire_type(contract: &ComponentContractIr, ty: &WireType) -> String {
+    match ty {
+        WireType::Unit => "()".into(),
+        WireType::Bool => "bool".into(),
+        WireType::U8 => "u8".into(),
+        WireType::U16 => "u16".into(),
+        WireType::U32 => "u32".into(),
+        WireType::U64 => "u64".into(),
+        WireType::I8 => "i8".into(),
+        WireType::I16 => "i16".into(),
+        WireType::I32 => "i32".into(),
+        WireType::I64 => "i64".into(),
+        WireType::F32 => "f32".into(),
+        WireType::F64 => "f64".into(),
+        WireType::Utf8 => "String".into(),
+        WireType::Bytes => "Vec<u8>".into(),
+        WireType::Record(name) => record_rust_path(contract, name),
+        WireType::Enum(name) => enum_rust_path(contract, name),
+        WireType::Optional(inner) => format!("Option<{}>", rust_wire_type(contract, inner)),
+        WireType::Slice(inner) => format!("Vec<{}>", rust_wire_type(contract, inner)),
+        WireType::Char | WireType::Path | WireType::Opaque(_) => {
+            unreachable!("validated as unsupported by the producer")
+        }
+    }
+}
+
+fn record_rust_path(contract: &ComponentContractIr, name: &str) -> String {
+    contract
+        .records
+        .iter()
+        .find(|record| record.name == name)
+        .map_or_else(|| name.to_string(), |record| record.rust_path.clone())
+}
+
+fn enum_rust_path(contract: &ComponentContractIr, name: &str) -> String {
+    contract
+        .enums
+        .iter()
+        .find(|enum_ir| enum_ir.name == name)
+        .map_or_else(|| name.to_string(), |enum_ir| enum_ir.rust_path.clone())
+}
+
+fn record_decode_fn(contract: &ComponentContractIr, name: &str) -> String {
+    format!("{}_decode_record_{}", contract.name.to_snake_case(), name.to_snake_case())
+}
+
+fn record_encode_fn(contract: &ComponentContractIr, name: &str) -> String {
+    format!("{}_encode_record_{}", contract.name.to_snake_case(), name.to_snake_case())
+}
+
+fn enum_decode_fn(contract: &ComponentContractIr, name: &str) -> String {
+    format!("{}_decode_enum_{}", contract.name.to_snake_case(), name.to_snake_case())
+}
+
+fn enum_encode_fn(contract: &ComponentContractIr, name: &str) -> String {
+    format!("{}_encode_enum_{}", contract.name.to_snake_case(), name.to_snake_case())
+}
+
+/// A Rust *expression* that reads one `ty`-shaped value out of `reader` (an
+/// in-scope `&mut alef_component_abi::wire::WireReader<'_>`), propagating a
+/// decode failure with `?`. The caller embeds this inside a block whose
+/// return type is `Result<_, alef_component_abi::wire::WireError>`.
+fn emit_wire_read(contract: &ComponentContractIr, ty: &WireType, reader: &str) -> String {
+    match ty {
+        WireType::Unit => "()".to_string(),
+        WireType::Bool => format!("{reader}.read_bool()?"),
+        WireType::U8 => format!("{reader}.read_u8()?"),
+        WireType::U16 => format!("{reader}.read_u16()?"),
+        WireType::U32 => format!("{reader}.read_u32()?"),
+        WireType::U64 => format!("{reader}.read_u64()?"),
+        WireType::I8 => format!("{reader}.read_i8()?"),
+        WireType::I16 => format!("{reader}.read_i16()?"),
+        WireType::I32 => format!("{reader}.read_i32()?"),
+        WireType::I64 => format!("{reader}.read_i64()?"),
+        WireType::F32 => format!("{reader}.read_f32()?"),
+        WireType::F64 => format!("{reader}.read_f64()?"),
+        WireType::Utf8 => format!("{reader}.read_str()?.to_owned()"),
+        WireType::Bytes => format!("{reader}.read_bytes()?.to_vec()"),
+        WireType::Record(name) => format!("{}({reader})?", record_decode_fn(contract, name)),
+        WireType::Enum(name) => format!("{}({reader}.read_i32()?)?", enum_decode_fn(contract, name)),
+        WireType::Optional(inner) => {
+            let element_ty = rust_wire_type(contract, inner);
+            let inner_expr = emit_wire_read(contract, inner, "inner_reader");
+            format!(
+                "{reader}.read_option(|inner_reader| -> Result<{element_ty}, alef_component_abi::wire::WireError> {{ Ok({inner_expr}) }})?"
+            )
+        }
+        WireType::Slice(inner) => {
+            let element_ty = rust_wire_type(contract, inner);
+            let inner_expr = emit_wire_read(contract, inner, "inner_reader");
+            format!(
+                "{reader}.read_slice(|inner_reader| -> Result<{element_ty}, alef_component_abi::wire::WireError> {{ Ok({inner_expr}) }})?"
+            )
+        }
+        WireType::Char | WireType::Path | WireType::Opaque(_) => {
+            unreachable!("validated as unsupported by the producer")
+        }
+    }
+}
+
+/// A Rust *statement* that writes `value_ref` (an expression of type `&T`,
+/// where `T` is `ty`'s [`rust_wire_type`]) into `writer` (an in-scope
+/// `&mut alef_component_abi::wire::WireWriter`).
+fn emit_wire_write(contract: &ComponentContractIr, ty: &WireType, writer: &str, value_ref: &str) -> String {
+    match ty {
+        WireType::Unit => String::new(),
+        WireType::Bool => format!("{writer}.write_bool(*{value_ref});"),
+        WireType::U8 => format!("{writer}.write_u8(*{value_ref});"),
+        WireType::U16 => format!("{writer}.write_u16(*{value_ref});"),
+        WireType::U32 => format!("{writer}.write_u32(*{value_ref});"),
+        WireType::U64 => format!("{writer}.write_u64(*{value_ref});"),
+        WireType::I8 => format!("{writer}.write_i8(*{value_ref});"),
+        WireType::I16 => format!("{writer}.write_i16(*{value_ref});"),
+        WireType::I32 => format!("{writer}.write_i32(*{value_ref});"),
+        WireType::I64 => format!("{writer}.write_i64(*{value_ref});"),
+        WireType::F32 => format!("{writer}.write_f32(*{value_ref});"),
+        WireType::F64 => format!("{writer}.write_f64(*{value_ref});"),
+        WireType::Utf8 => format!("{writer}.write_str({value_ref});"),
+        WireType::Bytes => format!("{writer}.write_bytes({value_ref});"),
+        WireType::Record(name) => format!("{}({writer}, {value_ref});", record_encode_fn(contract, name)),
+        WireType::Enum(name) => format!("{writer}.write_i32({}({value_ref}));", enum_encode_fn(contract, name)),
+        WireType::Optional(inner) => {
+            let inner_stmt = emit_wire_write(contract, inner, "writer", "value");
+            format!("{writer}.write_option(({value_ref}).as_ref(), |writer, value| {{ {inner_stmt} }});")
+        }
+        WireType::Slice(inner) => {
+            let inner_stmt = emit_wire_write(contract, inner, "writer", "value");
+            format!("{writer}.write_slice(({value_ref}).as_slice(), |writer, value| {{ {inner_stmt} }});")
+        }
+        WireType::Char | WireType::Path | WireType::Opaque(_) => {
+            unreachable!("validated as unsupported by the producer")
+        }
+    }
+}
+
+/// Emit the `{contract}_{encode,decode}_{record,enum}_*` free functions this
+/// contract's records and enums need, so its method wrappers below can
+/// convert between the real core-crate type and the wire encoding
+/// (`component::ComponentContractIr`'s `## Wire format` documentation).
+fn emit_wire_helpers(out: &mut String, contract: &ComponentContractIr) -> Result<()> {
+    for record in &contract.records {
+        emit_record_decode(out, contract, record)?;
+        emit_record_encode(out, contract, record)?;
+    }
+    for enum_ir in &contract.enums {
+        emit_enum_decode(out, contract, enum_ir)?;
+        emit_enum_encode(out, contract, enum_ir)?;
+    }
+    Ok(())
+}
+
+fn emit_record_decode(out: &mut String, contract: &ComponentContractIr, record: &ComponentRecordIr) -> Result<()> {
+    writeln!(
+        out,
+        "fn {}(reader: &mut alef_component_abi::wire::WireReader<'_>) -> Result<{}, alef_component_abi::wire::WireError> {{",
+        record_decode_fn(contract, &record.name),
+        record.rust_path
+    )?;
+    writeln!(out, "    Ok({} {{", record.rust_path)?;
+    for field in &record.fields {
+        let read_expr = emit_wire_read(contract, &field.ty, "reader");
+        writeln!(out, "        {}: {read_expr},", field.name.to_snake_case())?;
+    }
+    out.push_str("    })\n}\n\n");
+    Ok(())
+}
+
+fn emit_record_encode(out: &mut String, contract: &ComponentContractIr, record: &ComponentRecordIr) -> Result<()> {
+    writeln!(
+        out,
+        "fn {}(writer: &mut alef_component_abi::wire::WireWriter, value: &{}) {{",
+        record_encode_fn(contract, &record.name),
+        record.rust_path
+    )?;
+    for field in &record.fields {
+        let field_name = field.name.to_snake_case();
+        let write_stmt = emit_wire_write(contract, &field.ty, "writer", &format!("&value.{field_name}"));
+        writeln!(out, "    {write_stmt}")?;
+    }
+    out.push_str("}\n\n");
+    Ok(())
+}
+
+fn emit_enum_decode(out: &mut String, contract: &ComponentContractIr, enum_ir: &ComponentEnumIr) -> Result<()> {
+    writeln!(
+        out,
+        "fn {}(value: i32) -> Result<{}, alef_component_abi::wire::WireError> {{",
+        enum_decode_fn(contract, &enum_ir.name),
+        enum_ir.rust_path
+    )?;
+    out.push_str("    match value {\n");
+    for (index, variant) in enum_ir.variants.iter().enumerate() {
+        writeln!(out, "        {index} => Ok({}::{variant}),", enum_ir.rust_path)?;
+    }
+    out.push_str("        other => Err(alef_component_abi::wire::WireError::InvalidVariant(other as u32)),\n");
+    out.push_str("    }\n}\n\n");
+    Ok(())
+}
+
+fn emit_enum_encode(out: &mut String, contract: &ComponentContractIr, enum_ir: &ComponentEnumIr) -> Result<()> {
+    writeln!(
+        out,
+        "fn {}(value: &{}) -> i32 {{",
+        enum_encode_fn(contract, &enum_ir.name),
+        enum_ir.rust_path
+    )?;
+    out.push_str("    match value {\n");
+    for (index, variant) in enum_ir.variants.iter().enumerate() {
+        writeln!(out, "        {}::{variant} => {index},", enum_ir.rust_path)?;
+    }
+    out.push_str("    }\n}\n\n");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::config::{ComponentConfig, ComponentContractConfig, ComponentProvidesConfig};
-    use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+    use crate::core::ir::{
+        EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    };
 
     fn extractor_type() -> TypeDef {
         TypeDef {
@@ -847,5 +1169,161 @@ mod tests {
         assert!(source.content.contains("extractor_component_extract"));
         assert!(source.content.contains("coder_component_encode"));
         syn::parse_file(&source.content).expect("multi-contract component producer must be valid Rust syntax");
+    }
+
+    /// A contract exercising every compound wire type at once: `Request`
+    /// (a record with a plain field and an `Optional` field), a bare
+    /// `Slice<u8>` parameter (distinct from the dedicated `Bytes` fast
+    /// path), a `Response` record returned by value, and a fieldless
+    /// `Kind` enum nested inside that record's own fields.
+    fn compound_type_fixture() -> (ApiSurface, ResolvedCrateConfig) {
+        let api = ApiSurface {
+            crate_name: "demo".into(),
+            version: "1.2.3".into(),
+            types: vec![
+                TypeDef {
+                    name: "Coder".into(),
+                    rust_path: "demo::Coder".into(),
+                    is_trait: true,
+                    is_opaque: true,
+                    methods: vec![MethodDef {
+                        name: "encode".into(),
+                        params: vec![
+                            ParamDef {
+                                name: "request".into(),
+                                ty: TypeRef::Named("Request".into()),
+                                ..ParamDef::default()
+                            },
+                            ParamDef {
+                                name: "extra".into(),
+                                ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+                                ..ParamDef::default()
+                            },
+                        ],
+                        return_type: TypeRef::Named("Response".into()),
+                        receiver: Some(ReceiverKind::Ref),
+                        ..MethodDef::default()
+                    }],
+                    ..TypeDef::default()
+                },
+                TypeDef {
+                    name: "Request".into(),
+                    rust_path: "demo::Request".into(),
+                    fields: vec![
+                        FieldDef {
+                            name: "label".into(),
+                            ty: TypeRef::String,
+                            ..FieldDef::default()
+                        },
+                        FieldDef {
+                            name: "weight".into(),
+                            ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+                            ..FieldDef::default()
+                        },
+                    ],
+                    ..TypeDef::default()
+                },
+                TypeDef {
+                    name: "Response".into(),
+                    rust_path: "demo::Response".into(),
+                    fields: vec![
+                        FieldDef {
+                            name: "kind".into(),
+                            ty: TypeRef::Named("Kind".into()),
+                            ..FieldDef::default()
+                        },
+                        FieldDef {
+                            name: "tags".into(),
+                            ty: TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+                            ..FieldDef::default()
+                        },
+                    ],
+                    ..TypeDef::default()
+                },
+            ],
+            enums: vec![EnumDef {
+                name: "Kind".into(),
+                rust_path: "demo::Kind".into(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Empty".into(),
+                        ..EnumVariant::default()
+                    },
+                    EnumVariant {
+                        name: "NonEmpty".into(),
+                        ..EnumVariant::default()
+                    },
+                ],
+                ..EnumDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "demo".into(),
+            component_contracts: vec![ComponentContractConfig {
+                name: "coder".into(),
+                trait_path: "demo::Coder".into(),
+                interface_version: 1,
+            }],
+            components: vec![ComponentConfig {
+                name: "compound".into(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "coder".into(),
+                    implementation: "demo::CompoundCoder".into(),
+                }],
+                features: vec!["compound".into()],
+                default_features: false,
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
+            }],
+            ..ResolvedCrateConfig::default()
+        };
+        (api, config)
+    }
+
+    #[test]
+    fn marshals_records_options_slices_and_enums() {
+        let (api, config) = compound_type_fixture();
+        let files = generate_component_producers(&api, &config).unwrap();
+        let source = files.iter().find(|file| file.path.ends_with("src/lib.rs")).unwrap();
+        let text = &source.content;
+        assert!(text.contains("fn coder_decode_record_request"), "{text}");
+        assert!(text.contains("fn coder_encode_record_request"), "{text}");
+        assert!(text.contains("fn coder_decode_record_response"), "{text}");
+        assert!(text.contains("fn coder_encode_record_response"), "{text}");
+        assert!(text.contains("fn coder_decode_enum_kind"), "{text}");
+        assert!(text.contains("fn coder_encode_enum_kind"), "{text}");
+        assert!(text.contains("demo::Kind::Empty => 0"), "{text}");
+        assert!(text.contains("1 => Ok(demo::Kind::NonEmpty)"), "{text}");
+        // Not `reader.read_option(`/`writer.write_slice(`: the top-level compound
+        // param/result conversions call through an explicit `(&mut reader)`/
+        // `(&mut writer)` reborrow (see `emit_compound_input_conversion` and
+        // `output_conversion`), so only a nested (record-field) call keeps the
+        // bare receiver name.
+        assert!(text.contains("read_option(|inner_reader|"), "{text}");
+        assert!(text.contains("read_slice(|inner_reader|"), "{text}");
+        assert!(text.contains("write_option("), "{text}");
+        assert!(text.contains("write_slice("), "{text}");
+        syn::parse_file(text).expect("generated component producer with compound types must be valid Rust syntax");
+    }
+
+    #[test]
+    fn rejects_a_record_with_an_opaque_field() {
+        let (mut api, config) = compound_type_fixture();
+        api.types.push(TypeDef {
+            name: "Handle".into(),
+            rust_path: "demo::Handle".into(),
+            is_trait: true,
+            is_opaque: true,
+            ..TypeDef::default()
+        });
+        let response_index = api.types.iter().position(|typ| typ.name == "Response").unwrap();
+        api.types[response_index].fields.push(FieldDef {
+            name: "handle".into(),
+            ty: TypeRef::Named("Handle".into()),
+            ..FieldDef::default()
+        });
+        let error = generate_component_producers(&api, &config).unwrap_err();
+        assert!(error.to_string().contains("does not yet support"), "{error}");
     }
 }

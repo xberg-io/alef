@@ -1,4 +1,39 @@
 //! Stable component-contract IR and C header generation.
+//!
+//! ## Wire format
+//!
+//! A scalar (`Bool`..`F64`) crosses the component boundary as its direct
+//! `#[repr(C)]` value; `Utf8`/`Bytes` cross as a borrowed [`AlefSlice`] on the
+//! way in and an owned [`AlefOwnedBuffer`] on the way out (`AlefComponentStr`/
+//! `AlefComponentSlice`/`AlefComponentOwnedBuffer` in the C header); a
+//! fieldless `Enum` crosses as its `i32` variant index, in declaration order.
+//! `[AlefSlice]`/`[AlefOwnedBuffer]` refer to `alef_component_abi::{AlefSlice,
+//! AlefOwnedBuffer}`.
+//!
+//! `Record`, `Optional<T>`, and `Slice<T>` (the "compound" types) are instead
+//! carried as an encoded byte buffer in that same borrowed `AlefSlice` (input)
+//! / owned `AlefOwnedBuffer` (output) pair -- `AlefComponentSlice`/
+//! `AlefComponentOwnedBuffer` in the C header -- rather than growing the
+//! `#[repr(C)]` function table a new struct per compound type. The encoding
+//! (implemented once, in `alef_component_abi::wire`, and driven by matching
+//! generated code on both sides -- see `codegen::component_producer` and
+//! `codegen::component_proxy`) is:
+//!
+//! - a scalar field is its direct little-endian bytes;
+//! - `Utf8`/`Bytes` are a `u32` length prefix followed by the bytes;
+//! - `Optional<T>` is a one-byte presence flag (`0`/`1`), followed by `T`'s
+//!   encoding when present;
+//! - `Slice<T>` is a `u32` element count, followed by each element's `T`
+//!   encoding in order;
+//! - `Enum` is a little-endian `i32` variant index, exactly as it is
+//!   top-level;
+//! - `Record` is the concatenation of its fields' encodings, in the IR's
+//!   declaration order, with no extra framing -- a record's shape is static,
+//!   so the generated decoder (which knows that shape) needs no length
+//!   prefix to know where one field ends and the next begins.
+//!
+//! Opaque types are rejected before reaching either producer or proxy
+//! codegen; see [`map_named`].
 
 pub use alef_component_runtime::ComponentDeliveryMode;
 
@@ -49,6 +84,11 @@ pub struct ComponentParamIr {
 pub struct ComponentRecordIr {
     pub name: String,
     pub fields: Vec<ComponentParamIr>,
+    /// The record's full Rust path (e.g. `"demo::Request"`), so generated
+    /// producer/proxy code can name the real type it encodes and decodes.
+    /// Not part of the contract hash: renaming or moving the type is not a
+    /// wire change.
+    pub rust_path: String,
 }
 
 /// A data-free enum referenced by a contract's methods or records.
@@ -62,6 +102,9 @@ pub struct ComponentRecordIr {
 pub struct ComponentEnumIr {
     pub name: String,
     pub variants: Vec<String>,
+    /// The enum's full Rust path, for the same reason as
+    /// [`ComponentRecordIr::rust_path`]; excluded from the contract hash.
+    pub rust_path: String,
 }
 
 /// Layout-independent values allowed across a component boundary.
@@ -427,6 +470,7 @@ fn map_named(
         enums.entry(name.to_string()).or_insert_with(|| ComponentEnumIr {
             name: name.to_string(),
             variants: enum_def.variants.iter().map(|variant| variant.name.clone()).collect(),
+            rust_path: enum_def.rust_path.clone(),
         });
         return Ok(WireType::Enum(name.to_string()));
     }
@@ -442,6 +486,7 @@ fn map_named(
             ComponentRecordIr {
                 name: name.to_string(),
                 fields: Vec::new(),
+                rust_path: typ.rust_path.clone(),
             },
         );
         let fields = typ
@@ -537,7 +582,7 @@ fn method_pointer(contract: &str, method: &ComponentMethodIr) -> String {
         method
             .params
             .iter()
-            .map(|param| format!("{} {}", c_type(&param.ty), param.name.to_snake_case())),
+            .map(|param| format!("{} {}", c_param_type(&param.ty), param.name.to_snake_case())),
     );
     if method.is_async {
         params.push(format!(
@@ -563,6 +608,19 @@ fn method_pointer(contract: &str, method: &ComponentMethodIr) -> String {
 fn c_output_type(ty: &WireType) -> String {
     match ty {
         WireType::Utf8 | WireType::Char | WireType::Path | WireType::Bytes => "AlefComponentOwnedBuffer".to_string(),
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => "AlefComponentOwnedBuffer".to_string(),
+        other => c_type(other),
+    }
+}
+
+/// The C parameter type for a value crossing the boundary as input.
+///
+/// Mirrors [`c_output_type`]: a compound type (`Record`/`Optional`/`Slice`)
+/// is a wire-encoded buffer, not the field-by-field struct declared for
+/// documentation below -- see the `## Wire format` section above.
+fn c_param_type(ty: &WireType) -> String {
+    match ty {
+        WireType::Record(_) | WireType::Optional(_) | WireType::Slice(_) => "AlefComponentSlice".to_string(),
         other => c_type(other),
     }
 }
