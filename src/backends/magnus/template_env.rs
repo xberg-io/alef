@@ -89,6 +89,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge_return_conversion.rs.jinja"),
     ),
     (
+        "trait_bridge_owned_binding.rs.jinja",
+        include_str!("templates/trait_bridge_owned_binding.rs.jinja"),
+    ),
+    (
         "function_scan_args_call.rs.jinja",
         include_str!("templates/function_scan_args_call.rs.jinja"),
     ),

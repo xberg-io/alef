@@ -1965,6 +1965,13 @@ mod trait_bridge {
             "queue must be bounded:\n{code}"
         );
         assert!(
+            code.contains("recv_timeout(std::time::Duration::from_millis(50))")
+                && code.contains("rb_sys::rb_thread_call_without_gvl2(")
+                && code.contains("ruby.thread_check_ints().is_err()")
+                && !code.contains("state.receiver.recv()"),
+            "idle dispatcher must service VM interrupts without unwinding through Rust:\n{code}"
+        );
+        assert!(
             code.contains("ruby.thread_create_from_fn")
                 && code.contains("rb_sys::rb_thread_call_without_gvl")
                 && code.contains("__alef_trait_bridge_host"),

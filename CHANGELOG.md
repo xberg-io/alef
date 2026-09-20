@@ -92,6 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   host-implementable interface whenever methods are present, even when no generated registration
   function is configured, so direct `Arc<dyn Trait>` arguments have a declared RBS type.
 
+- **Ruby trait dispatchers process VM shutdown interrupts while idle.** Protected Magnus checks
+  prevent shutdown from waiting indefinitely for live registry senders.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed

@@ -6,6 +6,7 @@
 mod bridge_functions;
 mod bridge_generator;
 mod options_field;
+mod owned_params;
 mod visitor_bridge;
 
 pub use crate::codegen::generators::trait_bridge::find_bridge_param;

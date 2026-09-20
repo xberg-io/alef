@@ -1,4 +1,6 @@
+use super::owned_params;
 use super::visitor_bridge::gen_visitor_bridge;
+
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
@@ -248,7 +250,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         // Unlike the async body, the sync callback is not itself moved into a further
         // `spawn_blocking` closure, so the owned binding can reuse the parameter's own name
         // instead of a `_owned` suffix. ~keep
-        let conversion_bindings = self.owned_param_bindings(method, "");
+        let conversion_bindings = owned_params::owned_param_bindings(method, "");
 
         let args: Vec<String> = method
             .params
@@ -331,7 +333,7 @@ impl TraitBridgeGenerator for MagnusBridgeGenerator {
         // Unlike the sync body, this callback is moved again into a further `spawn_blocking`
         // closure below, so its owned bindings keep the `_owned` suffix distinguishing them
         // from the by-ref parameters of the enclosing trait method. ~keep
-        let conversion_bindings = self.owned_param_bindings(method, "_owned");
+        let conversion_bindings = owned_params::owned_param_bindings(method, "_owned");
 
         let args: Vec<String> = method
             .params
@@ -519,26 +521,6 @@ impl MagnusBridgeGenerator {
             Some(_) => format!("std::result::Result<{value}, {}>", self.error_path()),
             None => value,
         }
-    }
-
-    fn owned_param_bindings(&self, method: &MethodDef, suffix: &str) -> String {
-        method
-            .params
-            .iter()
-            .map(|param| {
-                let conversion = if !param.is_ref {
-                    param.name.clone()
-                } else {
-                    match &param.ty {
-                        TypeRef::String => format!("{}.to_string()", param.name),
-                        TypeRef::Bytes => format!("{}.to_vec()", param.name),
-                        TypeRef::Path => format!("{}.to_path_buf()", param.name),
-                        _ => format!("{}.clone()", param.name),
-                    }
-                };
-                format!("let {}{suffix} = {conversion};\n", param.name)
-            })
-            .collect()
     }
 
     /// The fully-qualified Rust return type as it appears in the trait method

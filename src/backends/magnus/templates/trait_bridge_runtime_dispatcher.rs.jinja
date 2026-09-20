@@ -14,7 +14,7 @@ impl {{ dispatcher_name }} {
         let (sender, receiver) = std::sync::mpsc::sync_channel(Self::QUEUE_CAPACITY);
         let inner = magnus::value::Opaque::from(rb_obj);
         let thread = ruby.thread_create_from_fn(move |ruby| {
-            while let Ok(job) = Self::recv_without_gvl(&receiver) {
+            while let Ok(job) = Self::recv_without_gvl(ruby, &receiver) {
                 let value = inner.get_inner_with(ruby);
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     job(ruby, value);
@@ -47,37 +47,46 @@ impl {{ dispatcher_name }} {
     }
 
     fn recv_without_gvl(
+        ruby: &magnus::Ruby,
         receiver: &std::sync::mpsc::Receiver<{{ job_name }}>,
     ) -> Result<{{ job_name }}, std::sync::mpsc::RecvError> {
         struct ReceiveState<'a> {
             receiver: &'a std::sync::mpsc::Receiver<{{ job_name }}>,
-            result: Option<Result<{{ job_name }}, std::sync::mpsc::RecvError>>,
+            result: Option<Result<{{ job_name }}, std::sync::mpsc::RecvTimeoutError>>,
         }
 
         unsafe extern "C" fn receive(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
             // SAFETY: the state pointer remains valid until Ruby returns from the
             // without-GVL callback on this same Ruby-created thread.
             let state = unsafe { &mut *(data as *mut ReceiveState<'_>) };
-            state.result = Some(state.receiver.recv());
+            state.result = Some(state.receiver.recv_timeout(std::time::Duration::from_millis(50)));
             std::ptr::null_mut()
         }
 
-        let mut state = ReceiveState {
-            receiver,
-            result: None,
-        };
-        // SAFETY: this runs on the dedicated Ruby-created dispatcher thread. The
-        // callback touches only Rust channel state and the sender disconnect wakes it.
-        unsafe {
-            rb_sys::rb_thread_call_without_gvl(
-                Some(receive),
-                &mut state as *mut ReceiveState<'_> as *mut std::ffi::c_void,
-                None,
-                std::ptr::null_mut(),
-            );
+        loop {
+            let mut state = ReceiveState { receiver, result: None };
+            // SAFETY: the callback only touches Rust channel state, and returns
+            // within 50ms even if a registered sender survives interpreter exit.
+            // The gvl2 API defers interrupts: process them through Magnus below
+            // so a Ruby non-local exit cannot skip Rust stack destructors here.
+            unsafe {
+                rb_sys::rb_thread_call_without_gvl2(
+                    Some(receive),
+                    &mut state as *mut ReceiveState<'_> as *mut std::ffi::c_void,
+                    None,
+                    std::ptr::null_mut(),
+                );
+            }
+            if ruby.thread_check_ints().is_err() {
+                return Err(std::sync::mpsc::RecvError);
+            }
+            match state.result {
+                Some(Ok(job)) => return Ok(job),
+                Some(Err(std::sync::mpsc::RecvTimeoutError::Disconnected)) => {
+                    return Err(std::sync::mpsc::RecvError);
+                }
+                Some(Err(std::sync::mpsc::RecvTimeoutError::Timeout)) | None => continue,
+            }
         }
-        state
-            .result
-            .unwrap_or_else(|| Err(std::sync::mpsc::RecvError))
     }
 }
