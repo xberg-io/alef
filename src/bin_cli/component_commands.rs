@@ -450,7 +450,46 @@ fn python_component_lock_path(config: &ResolvedCrateConfig) -> PathBuf {
         .join("components.lock.json")
 }
 
-fn binding_component_lock_paths(config: &ResolvedCrateConfig) -> BTreeSet<PathBuf> {
+/// Write an empty, schema-valid `components.lock.json` at every path a binding for `config`
+/// expects to `include_str!`, for any that does not exist yet.
+///
+/// Generated crates embed this file at compile time (see
+/// `alef::backends::native_components::generate`), so a crate with `[[crates.components]]`
+/// configured but no `alef component lock` run yet would otherwise fail its very first `cargo
+/// build` -- before there is even an artifact to lock -- with an unhelpful "file not found"
+/// from `include_str!`. `ComponentManager::from_lock`/`ensure_contract` treat this exact empty
+/// shape as "no components locked yet" and report a typed error naming the command to run,
+/// rather than a build failure with no actionable message.
+///
+/// Never overwrites an existing lock: a real one from a prior `alef component lock` run is
+/// left untouched.
+pub(crate) fn bootstrap_missing_component_locks(config: &ResolvedCrateConfig, base_dir: &Path) -> Result<()> {
+    if config.components.is_empty() {
+        return Ok(());
+    }
+    let empty_lock = ComponentLock {
+        schema_version: crate::component::artifact::COMPONENT_MANIFEST_SCHEMA,
+        public_keys: BTreeMap::new(),
+        artifacts: Vec::new(),
+    };
+    let lock_bytes = canonical_json(&empty_lock)?;
+    for relative_path in binding_component_lock_paths(config) {
+        let path = base_dir.join(&relative_path);
+        if path.is_file() {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create component lock directory {}", parent.display()))?;
+        }
+        fs::write(&path, &lock_bytes)
+            .with_context(|| format!("failed to bootstrap empty component lock {}", path.display()))?;
+        tracing::info!("Bootstrapped empty component lock {}", path.display());
+    }
+    Ok(())
+}
+
+pub(crate) fn binding_component_lock_paths(config: &ResolvedCrateConfig) -> BTreeSet<PathBuf> {
     let mut paths = BTreeSet::new();
     for language in &config.languages {
         match language {
@@ -886,5 +925,67 @@ mod tests {
             scoped.public_keys,
             BTreeMap::from([("alpha-key".into(), "alpha-public-key".into())])
         );
+    }
+
+    fn one_component_config() -> ResolvedCrateConfig {
+        ResolvedCrateConfig {
+            name: "demo-core".into(),
+            languages: vec![crate::core::config::Language::Ffi],
+            components: vec![ComponentConfig {
+                name: "fast".into(),
+                provides: provides("engine", "demo::Fast"),
+                features: vec!["fast".into()],
+                default_features: false,
+                targets: Some(vec!["x86_64-unknown-linux-gnu".into()]),
+                bundled_on: Vec::new(),
+            }],
+            ..ResolvedCrateConfig::default()
+        }
+    }
+
+    #[test]
+    fn bootstrap_writes_a_schema_valid_empty_lock_when_none_exists() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let config = one_component_config();
+
+        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
+
+        let path = base_dir.path().join(ffi_component_lock_path(&config));
+        let written = fs::read_to_string(&path).unwrap();
+        assert_eq!(written, "{\"schema_version\":2,\"public_keys\":{},\"artifacts\":[]}\n");
+        // Must parse back into the exact type `ComponentManager::from_lock` consumes, not just
+        // be well-formed JSON.
+        let parsed: ComponentLock = serde_json::from_str(&written).unwrap();
+        assert!(parsed.artifacts.is_empty());
+    }
+
+    #[test]
+    fn bootstrap_never_overwrites_an_existing_lock() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let config = one_component_config();
+        let path = base_dir.path().join(ffi_component_lock_path(&config));
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "not a lock, but must survive untouched").unwrap();
+
+        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "not a lock, but must survive untouched"
+        );
+    }
+
+    #[test]
+    fn bootstrap_is_a_noop_for_a_crate_with_no_configured_components() {
+        let base_dir = tempfile::tempdir().unwrap();
+        let config = ResolvedCrateConfig {
+            name: "demo-core".into(),
+            languages: vec![crate::core::config::Language::Ffi],
+            ..ResolvedCrateConfig::default()
+        };
+
+        bootstrap_missing_component_locks(&config, base_dir.path()).unwrap();
+
+        assert!(fs::read_dir(base_dir.path()).unwrap().next().is_none());
     }
 }

@@ -46,6 +46,13 @@ pub struct ComponentManager {
     /// with an artifact after this process has verified it once is out of scope: entries here
     /// are trusted for the rest of the process, not re-checked against the disk.
     verified_artifacts: Mutex<HashMap<String, CachedArtifact>>,
+    /// Whether the lock this manager was built from had zero artifacts *before* target
+    /// filtering -- the shape `alef generate` bootstraps when a crate declares components but
+    /// `alef component lock` has never run (see
+    /// `alef::bin_cli::component_commands::bootstrap_missing_component_locks`). Distinguished
+    /// from "no artifact for this particular target", which is a normal, populated lock that
+    /// simply was not built for the requested target.
+    lock_is_empty: bool,
     host: AlefHostApiV1,
 }
 
@@ -65,6 +72,7 @@ impl ComponentManager {
         if lock.schema_version != COMPONENT_MANIFEST_SCHEMA {
             return Err(ComponentError::UnsupportedLockSchema(lock.schema_version));
         }
+        let lock_is_empty = lock.artifacts.is_empty();
         let target = target.into();
         let mut entries = HashMap::new();
         for artifact in lock
@@ -87,6 +95,7 @@ impl ComponentManager {
             loaded: Mutex::new(HashMap::new()),
             key_locks: Mutex::new(HashMap::new()),
             verified_artifacts: Mutex::new(HashMap::new()),
+            lock_is_empty,
             host,
         })
     }
@@ -245,13 +254,24 @@ impl ComponentManager {
     /// Look up a component's lock entry for this manager's target, with no restriction on
     /// its delivery mode. [`Self::status`] uses this directly since a `Bundled` entry is a
     /// legitimate status to report, not a failure.
+    ///
+    /// A miss against a lock that was empty before target filtering reports
+    /// [`ComponentError::ComponentsNotLocked`] instead of the generic
+    /// [`ComponentError::ArtifactNotFound`]: `alef component lock` has never populated it, so
+    /// naming the fix is more useful than reporting a missing target.
     fn lookup(&self, component_id: &str) -> Result<&ComponentLockEntry, ComponentError> {
-        self.entries
-            .get(component_id)
-            .ok_or_else(|| ComponentError::ArtifactNotFound {
-                component_id: component_id.to_owned(),
-                target: self.target.clone(),
-            })
+        self.entries.get(component_id).ok_or_else(|| {
+            if self.lock_is_empty {
+                ComponentError::ComponentsNotLocked {
+                    component_id: component_id.to_owned(),
+                }
+            } else {
+                ComponentError::ArtifactNotFound {
+                    component_id: component_id.to_owned(),
+                    target: self.target.clone(),
+                }
+            }
+        })
     }
 
     /// Like [`Self::lookup`], but additionally rejects a `Bundled` entry -- one this manager
@@ -341,6 +361,34 @@ mod tests {
                 key_id: String::new(),
             }],
         }
+    }
+
+    #[test]
+    fn bootstrap_empty_lock_reports_components_not_locked_instead_of_artifact_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = ComponentLock {
+            schema_version: COMPONENT_MANIFEST_SCHEMA,
+            public_keys: BTreeMap::new(),
+            artifacts: Vec::new(),
+        };
+        let manager = ComponentManager::from_lock(empty, dir.path(), "target-a", host()).unwrap();
+
+        assert!(matches!(
+            manager.status("demo"),
+            Err(ComponentError::ComponentsNotLocked { .. })
+        ));
+        assert!(matches!(
+            manager.ensure_contract("demo", "engine", b"irrelevant\0"),
+            Err(ComponentError::ComponentsNotLocked { .. })
+        ));
+        assert!(matches!(
+            manager.prefetch(&["demo"]),
+            Err(ComponentError::ComponentsNotLocked { .. })
+        ));
+        assert!(matches!(
+            manager.cache_path("demo"),
+            Err(ComponentError::ComponentsNotLocked { .. })
+        ));
     }
 
     #[test]
