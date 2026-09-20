@@ -42,6 +42,8 @@ pub enum ComponentError {
     MissingLibrary(PathBuf),
     #[error("failed to download `{url}`: {message}")]
     Download { url: String, message: String },
+    #[error("component `{component}` is not cached and network access is disabled (would fetch `{url}`)")]
+    Offline { component: String, url: String },
     #[error("failed to load component library `{path}`: {message}")]
     LibraryLoad { path: PathBuf, message: String },
     #[error("component library does not export the requested entry point: {0}")]

@@ -7,7 +7,7 @@ use crate::{
 use alef_component_abi::AlefHostApiV1;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComponentStatus {
@@ -21,6 +21,18 @@ pub struct ComponentManager {
     target: String,
     entries: HashMap<String, ComponentLockEntry>,
     loaded: Mutex<HashMap<String, Arc<LoadedComponent>>>,
+    /// One lock per (component, contract) key, used to coalesce concurrent `ensure_contract`
+    /// calls for the same key onto a single download-and-load instead of racing duplicates;
+    /// a call for a different key gets its own lock and proceeds independently. See
+    /// [`Self::contract_lock`].
+    key_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Artifacts this process has already installed and verified, keyed by the lock entry's
+    /// own content-addressed `sha256` digest. A component that provides more than one
+    /// contract shares one artifact across several `ensure_contract` calls; without this, each
+    /// call would re-read and re-hash the same (potentially large) dylib. On-disk tampering
+    /// with an artifact after this process has verified it once is out of scope: entries here
+    /// are trusted for the rest of the process, not re-checked against the disk.
+    verified_artifacts: Mutex<HashMap<String, CachedArtifact>>,
     host: AlefHostApiV1,
 }
 
@@ -60,8 +72,20 @@ impl ComponentManager {
             target,
             entries,
             loaded: Mutex::new(HashMap::new()),
+            key_locks: Mutex::new(HashMap::new()),
+            verified_artifacts: Mutex::new(HashMap::new()),
             host,
         })
+    }
+
+    /// Disable network downloads: [`Self::ensure_contract`] and [`Self::prefetch`] fail a
+    /// missing artifact with [`ComponentError::Offline`] instead of attempting a request. An
+    /// artifact already cached on disk is unaffected. Generated bindings call this when the
+    /// crate-specific `{CRATE}_COMPONENT_OFFLINE` environment variable is set.
+    #[must_use]
+    pub fn offline(mut self, offline: bool) -> Self {
+        self.cache = self.cache.offline(offline);
+        self
     }
 
     /// Load one contract a component provides.
@@ -70,6 +94,12 @@ impl ComponentManager {
     /// symbol (`alef::codegen::component::entry_point_symbol`); the caller
     /// supplies it because computing it requires the same identifier-casing
     /// logic the producer used, which this crate does not depend on.
+    ///
+    /// Concurrent calls for the *same* `(component_id, contract_name)` coalesce onto one
+    /// download-and-load: a second caller waits behind the first instead of racing a
+    /// duplicate download or `dlopen`. A call for a different key is unaffected and proceeds
+    /// immediately -- the mutex guarding the loaded-component map is only ever held for a
+    /// map lookup or insert, never across I/O.
     pub fn ensure_contract(
         &self,
         component_id: &str,
@@ -77,13 +107,21 @@ impl ComponentManager {
         entry_symbol: &[u8],
     ) -> Result<Arc<LoadedComponent>, ComponentError> {
         let cache_key = loaded_cache_key(component_id, contract_name);
-        let mut loaded = self.loaded.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(component) = loaded.get(&cache_key) {
-            return Ok(Arc::clone(component));
+        if let Some(component) = self.loaded_component(&cache_key) {
+            return Ok(component);
         }
+
+        let key_lock = self.contract_lock(cache_key.clone());
+        let _guard = key_lock.lock().unwrap_or_else(PoisonError::into_inner);
+        // Re-check now that this call holds the per-key lock: a concurrent caller for the
+        // same key may have finished the work while this call was waiting for it.
+        if let Some(component) = self.loaded_component(&cache_key) {
+            return Ok(component);
+        }
+
         let entry = self.entry(component_id)?;
         let requirements = contract_requirements(entry, contract_name)?;
-        let cached = self.cache.install(entry)?;
+        let cached = self.cached_artifact(entry)?;
         validate_manifest(&cached.manifest, &requirements)?;
         let component = Arc::new(LoadedComponent::load(
             cached.library,
@@ -91,15 +129,63 @@ impl ComponentManager {
             &requirements,
             self.host,
         )?);
-        loaded.insert(cache_key, Arc::clone(&component));
+        self.insert_loaded(cache_key, Arc::clone(&component));
         Ok(component)
     }
 
     pub fn prefetch(&self, component_ids: &[&str]) -> Result<Vec<CachedArtifact>, ComponentError> {
         component_ids
             .iter()
-            .map(|component_id| self.cache.install(self.entry(component_id)?))
+            .map(|component_id| self.cached_artifact(self.entry(component_id)?))
             .collect()
+    }
+
+    fn loaded_component(&self, cache_key: &str) -> Option<Arc<LoadedComponent>> {
+        self.loaded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(cache_key)
+            .cloned()
+    }
+
+    fn insert_loaded(&self, cache_key: String, component: Arc<LoadedComponent>) {
+        self.loaded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(cache_key, component);
+    }
+
+    /// The per-`cache_key` lock used to coalesce concurrent [`Self::ensure_contract`] calls.
+    /// The outer `key_locks` mutex is only ever held for the lookup-or-insert below, never
+    /// across the download/load work the returned lock guards.
+    fn contract_lock(&self, cache_key: String) -> Arc<Mutex<()>> {
+        Arc::clone(
+            self.key_locks
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(cache_key)
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
+    /// Install `entry`'s artifact, reusing an in-process-verified copy when this process has
+    /// already installed it (see [`Self::verified_artifacts`]).
+    fn cached_artifact(&self, entry: &ComponentLockEntry) -> Result<CachedArtifact, ComponentError> {
+        if let Some(cached) = self
+            .verified_artifacts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&entry.sha256)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+        let cached = self.cache.install(entry)?;
+        self.verified_artifacts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(entry.sha256.clone(), cached.clone());
+        Ok(cached)
     }
 
     pub fn status(&self, component_id: &str) -> Result<ComponentStatus, ComponentError> {
@@ -279,12 +365,14 @@ mod tests {
     fn ensure_contract_reaches_the_download_step_for_a_provided_contract() {
         let dir = tempfile::tempdir().unwrap();
         let mut two_contracts = lock("target-a");
-        two_contracts.artifacts[0].provides.push(crate::ComponentProvidedContract {
-            contract: "second".into(),
-            interface_version: 1,
-            contract_hash: hex::encode([9; 32]),
-            implementation: "demo::Second".into(),
-        });
+        two_contracts.artifacts[0]
+            .provides
+            .push(crate::ComponentProvidedContract {
+                contract: "second".into(),
+                interface_version: 1,
+                contract_hash: hex::encode([9; 32]),
+                implementation: "demo::Second".into(),
+            });
         let manager = ComponentManager::from_lock(two_contracts, dir.path(), "target-a", host()).unwrap();
         // Fails to find the library at the fake `file://` URL -- proving contract resolution
         // for "second" succeeded and the manager reached the download step, not that the
@@ -326,5 +414,101 @@ mod tests {
             std::fs::read_dir(dir.path()).unwrap().next().is_none(),
             "a bundled component must never touch the cache directory"
         );
+    }
+
+    #[test]
+    fn prefetch_reuses_an_already_verified_artifact_without_reinstalling() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+        let entry = manager.entries.get("demo").unwrap().clone();
+
+        let fake = CachedArtifact {
+            root: dir.path().join("fake-root"),
+            library: dir.path().join("fake-root/libdemo.so"),
+            manifest: crate::ComponentManifest {
+                schema_version: COMPONENT_MANIFEST_SCHEMA,
+                abi_version: 1,
+                identity: entry.identity.clone(),
+                provides: entry.provides.clone(),
+                features: Vec::new(),
+                default_features: false,
+                library: crate::ComponentLibrary {
+                    file: "libdemo.so".into(),
+                    sha256: hex::encode([0; 32]),
+                    size: 0,
+                },
+            },
+        };
+        manager
+            .verified_artifacts
+            .lock()
+            .unwrap()
+            .insert(entry.sha256.clone(), fake.clone());
+
+        // The lock entry's URL points nowhere real (`file:///does/not/exist`, see `lock()`),
+        // so this call would fail if it attempted to actually install/verify the artifact;
+        // succeeding proves it reused the in-process cache instead.
+        let prefetched = manager.prefetch(&["demo"]).unwrap();
+        assert_eq!(prefetched, vec![fake]);
+    }
+
+    #[test]
+    fn contract_lock_coalesces_the_same_key_and_separates_different_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap();
+
+        let first = manager.contract_lock("demo::engine".to_string());
+        let second = manager.contract_lock("demo::engine".to_string());
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "the same (component, contract) key must coalesce onto one lock"
+        );
+
+        let unrelated = manager.contract_lock("other::engine".to_string());
+        assert!(
+            !Arc::ptr_eq(&first, &unrelated),
+            "an unrelated key must get its own lock so it is never blocked by a different key"
+        );
+    }
+
+    #[test]
+    fn concurrent_calls_for_the_same_key_serialize_on_the_coalescing_lock() {
+        use std::sync::Barrier;
+        use std::thread;
+
+        let dir = tempfile::tempdir().unwrap();
+        let manager = Arc::new(ComponentManager::from_lock(lock("target-a"), dir.path(), "target-a", host()).unwrap());
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let ready = Arc::new(Barrier::new(2));
+
+        // Hold the coalescing lock as a stand-in for an in-progress download, then prove a
+        // concurrent request for the *same* key really does wait for it: `order` only ever
+        // records the second entry-point-symbol lookup after the first thread has both run
+        // and released the lock, never interleaved with it.
+        let held = manager.contract_lock("demo::engine".to_string());
+        let guard = held.lock().unwrap();
+
+        let waiter = {
+            let manager = Arc::clone(&manager);
+            let order = Arc::clone(&order);
+            let ready = Arc::clone(&ready);
+            thread::spawn(move || {
+                ready.wait();
+                let _ = manager.ensure_contract("demo", "engine", b"alef_component_entry_v1_engine\0");
+                order.lock().unwrap().push("waiter");
+            })
+        };
+
+        ready.wait();
+        thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            order.lock().unwrap().is_empty(),
+            "a concurrent call for the same key must not proceed while the lock is held"
+        );
+        order.lock().unwrap().push("holder");
+        drop(guard);
+
+        waiter.join().unwrap();
+        assert_eq!(*order.lock().unwrap(), vec!["holder", "waiter"]);
     }
 }
