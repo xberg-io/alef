@@ -17,12 +17,12 @@ pub fn component_prefetch(components: Option<Vec<String>>) -> Result<Vec<String>
     alef_component_prefetch(components)
 }}
 
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyIo")]
 pub fn component_status(component: String) -> Result<String, String> {{
     alef_component_status(&component)
 }}
 
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyIo")]
 pub fn component_cache_path(component: String) -> Result<String, String> {{
     alef_component_cache_path(&component)
 }}"#,
@@ -59,7 +59,10 @@ mod tests {
 
         let generated = generate(&config);
         assert!(generated.contains("/../../components.lock.json"));
-        assert_eq!(generated.matches("schedule = \"DirtyIo\"").count(), 2);
+        // `component_status` and `component_cache_path` stat the on-disk cache the same way
+        // `component_load` and `component_prefetch` download into it, so all four NIFs must
+        // run off the BEAM scheduler.
+        assert_eq!(generated.matches("schedule = \"DirtyIo\"").count(), 4);
         assert!(generated.contains("pub fn component_load"));
         assert!(generated.contains("pub fn component_prefetch"));
         assert!(generated.contains("pub fn component_status"));

@@ -16,6 +16,7 @@ use std::fmt::Write as _;
 pub(crate) fn generate(config: &ResolvedCrateConfig, lock_manifest_path: &str) -> String {
     debug_assert!(lock_manifest_path.starts_with('/'));
     let cache_env = format!("{}_COMPONENT_CACHE", config.name.to_shouty_snake_case());
+    let offline_env = format!("{}_COMPONENT_OFFLINE", config.name.to_shouty_snake_case());
     let cache_namespace = config.name.replace('-', "_");
     let component_ids = config
         .components
@@ -77,6 +78,7 @@ fn alef_component_manager() -> Result<&'static alef_component_runtime::Component
                 alef_component_target()?,
                 host,
             )
+            .map(|manager| manager.offline(std::env::var_os("{offline_env}").is_some()))
             .map_err(|error| error.to_string())
         }})
         .as_ref()
@@ -353,5 +355,18 @@ mod tests {
         assert!(generated.contains("vec![\"fast\"]"));
         assert!(generated.contains("fn alef_component_target() -> Result<&'static str, String>"));
         assert!(generated.contains("downloadable native components are unsupported"));
+    }
+
+    #[test]
+    fn generated_manager_honors_the_crate_specific_offline_env_var() {
+        let config = ResolvedCrateConfig {
+            name: "demo-core".into(),
+            ..ResolvedCrateConfig::default()
+        };
+        let generated = generate(&config, "/components.lock.json");
+        assert!(
+            generated.contains(r#"manager.offline(std::env::var_os("DEMO_CORE_COMPONENT_OFFLINE").is_some())"#),
+            "{generated}"
+        );
     }
 }

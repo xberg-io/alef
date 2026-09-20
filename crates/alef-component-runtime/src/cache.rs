@@ -10,6 +10,12 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek as _, SeekFrom, Write as _};
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
+
+/// Maximum time allowed to establish a connection to a component's download URL.
+const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Maximum time allowed for an entire component download, connection included.
+const DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Debug)]
 pub enum TrustPolicy {
@@ -21,6 +27,7 @@ pub enum TrustPolicy {
 pub struct ArtifactCache {
     root: PathBuf,
     trust: TrustPolicy,
+    offline: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,7 +42,17 @@ impl ArtifactCache {
         Self {
             root: root.into(),
             trust,
+            offline: false,
         }
+    }
+
+    /// Disable network downloads: [`Self::install`] fails a missing artifact with
+    /// [`ComponentError::Offline`] instead of attempting a request. An artifact already
+    /// verified on disk (or served via a `file://` URL) is unaffected.
+    #[must_use]
+    pub fn offline(mut self, offline: bool) -> Self {
+        self.offline = offline;
+        self
     }
 
     #[must_use]
@@ -58,7 +75,17 @@ impl ArtifactCache {
         if let Some(path) = entry.url.strip_prefix("file://") {
             return self.install_from_reader(entry, File::open(path)?);
         }
+        if self.offline {
+            return Err(ComponentError::Offline {
+                component: entry.identity.component.clone(),
+                url: entry.url.clone(),
+            });
+        }
         let response = ureq::get(&entry.url)
+            .config()
+            .timeout_connect(Some(DOWNLOAD_CONNECT_TIMEOUT))
+            .timeout_global(Some(DOWNLOAD_TOTAL_TIMEOUT))
+            .build()
             .header(
                 "User-Agent",
                 concat!("alef-component-runtime/", env!("CARGO_PKG_VERSION")),
@@ -460,6 +487,49 @@ mod tests {
             Err(ComponentError::SignatureVerification)
         ));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn offline_mode_rejects_a_missing_artifact_without_a_network_attempt() {
+        let (_bytes, mut entry) = package(None);
+        entry.url = "https://example.invalid/component.tar.gz".into();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).offline(true);
+
+        let error = cache.install(&entry).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ComponentError::Offline { ref component, ref url }
+                if component == "fast" && url == "https://example.invalid/component.tar.gz"
+        ));
+    }
+
+    #[test]
+    fn offline_mode_still_reuses_an_already_verified_cache_entry() {
+        let (bytes, entry) = package(None);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly);
+        let installed = cache.install_from_reader(&entry, Cursor::new(bytes)).unwrap();
+
+        let offline_cache = ArtifactCache::new(dir.path(), TrustPolicy::DigestOnly).offline(true);
+        let reused = offline_cache.install(&entry).unwrap();
+
+        assert_eq!(reused, installed);
+    }
+
+    #[test]
+    fn offline_mode_does_not_block_a_file_url() {
+        let (bytes, mut entry) = package(None);
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.tar.gz");
+        fs::write(&source, &bytes).unwrap();
+        entry.url = format!("file://{}", source.display());
+
+        let cache_root = tempfile::tempdir().unwrap();
+        let cache = ArtifactCache::new(cache_root.path(), TrustPolicy::DigestOnly).offline(true);
+
+        assert!(cache.install(&entry).is_ok());
     }
 
     #[test]
