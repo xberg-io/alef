@@ -150,6 +150,8 @@ pub unsafe trait AlefContract {
 mod registry;
 pub use registry::{ContractRegistry, provider, register_provider};
 
+pub mod wire;
+
 #[cfg(test)]
 mod tests {
     use super::*;
