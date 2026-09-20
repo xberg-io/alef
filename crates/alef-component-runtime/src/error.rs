@@ -4,6 +4,12 @@ use std::path::PathBuf;
 pub enum ComponentError {
     #[error("component `{component_id}` has no artifact for target `{target}`")]
     ArtifactNotFound { component_id: String, target: String },
+    #[error(
+        "component `{component_id}` is not locked; the embedded components.lock.json is still \
+         the empty bootstrap lock `alef generate` writes before any artifact exists -- run \
+         `alef component lock` to populate it"
+    )]
+    ComponentsNotLocked { component_id: String },
     #[error("component `{component}` is bundled for this target and cannot be downloaded")]
     BundledComponentNotLoadable { component: String },
     #[error("component `{component_id}` does not provide contract `{contract}`")]
@@ -104,6 +110,7 @@ impl ComponentError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::ArtifactNotFound { .. } => "artifact_not_found",
+            Self::ComponentsNotLocked { .. } => "components_not_locked",
             Self::BundledComponentNotLoadable { .. } => "bundled_component_not_loadable",
             Self::ContractNotProvided { .. } => "contract_not_provided",
             Self::InvalidDigest(_) => "invalid_digest",
