@@ -131,6 +131,8 @@ impl ComponentError {
             Self::UnknownSignatureKey(_) => "unknown_signature_key",
             Self::SignatureKeyMismatch => "signature_key_mismatch",
             Self::UnsafeArchiveEntry(_) => "unsafe_archive_entry",
+            Self::TooManyArchiveEntries { .. } => "too_many_archive_entries",
+            Self::ExtractedSizeExceeded { .. } => "extracted_size_exceeded",
             Self::UnsafeLibraryPath(_) => "unsafe_library_path",
             Self::MissingLibrary(_) => "missing_library",
             Self::Download { .. } => "download_failed",
