@@ -139,7 +139,16 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 } else {
                     conv.strip_prefix(&format!("{}: ", f.name)).unwrap_or(&conv).to_string()
                 };
-                let expr = if f.is_boxed {
+                let binding_field_is_boxed =
+                    config.binding_enum_fields_are_boxed && f.is_boxed && matches!(&f.ty, TypeRef::Named(_));
+                let expr = if binding_field_is_boxed {
+                    // The binding field is already a `Box<T>`: unbox, convert, and rebox.
+                    if f.optional {
+                        format!("{}.map(|v| Box::new((*v).into()))", f.name)
+                    } else {
+                        format!("Box::new((*{}).into())", f.name)
+                    }
+                } else if f.is_boxed {
                     if f.optional {
                         format!("{expr}.map(Box::new)")
                     } else {
