@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Calls targeting a configured external helper remain available to generated test applications without
   being rejected as missing exports from the extracted crate API.
 
+- **Python stubs no longer invent discriminator `TypedDict`s for untagged or externally tagged
+  payload enums.** Their generated annotations now match the actual serde wire shape while
+  retaining native enum accessors and factories.
+
 ## [0.93.1] - 2026-09-19
 
 ### Fixed

@@ -124,7 +124,7 @@ fn flattened_payload_fields<'a>(variant: &EnumVariant, api_types: &'a [TypeDef])
         .map(|typ| typ.fields.as_slice())
 }
 
-/// Generate TypedDicts for each variant of a data enum, plus a Union type alias.
+/// Generate the native enum class and wire-shape helpers for explicitly tagged variants.
 fn gen_data_enum_typeddicts(
     lines: &mut Vec<String>,
     enum_def: &EnumDef,
@@ -136,11 +136,10 @@ fn gen_data_enum_typeddicts(
     let tag_field = repr.tag().unwrap_or(DEFAULT_TAG_FIELD);
     let rename_all = enum_def.serde_rename_all.as_deref();
 
-    let mut variant_class_names = vec![];
-
-    for variant in &enum_def.variants {
+    // Untagged payloads and externally tagged variants have no discriminator field.
+    // Do not invent `type: Literal[...]` wire dictionaries for those representations.
+    for variant in enum_def.variants.iter().filter(|_| repr.tag().is_some()) {
         let class_name = format!("{}{}Variant", enum_def.name, variant.name);
-        variant_class_names.push(class_name.clone());
 
         let tag_value =
             crate::codegen::naming::wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all);

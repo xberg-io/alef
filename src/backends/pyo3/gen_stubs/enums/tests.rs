@@ -8,6 +8,28 @@ fn no_dtos() -> AHashSet<&'static str> {
 }
 
 #[test]
+fn untagged_and_external_payloads_do_not_invent_discriminator_dictionaries() {
+    for untagged in [true, false] {
+        let def = EnumDef {
+            name: "Record".into(),
+            serde_untagged: untagged,
+            variants: vec![EnumVariant {
+                name: "Canonical".into(),
+                is_tuple: true,
+                fields: vec![field("_0", TypeRef::Named("Payload".into()))],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let stub = gen_enum_stub(&def, false, &no_dtos(), true, &[]);
+        assert!(!stub.contains("CanonicalVariant(TypedDict)"), "{stub}");
+        assert!(!stub.contains("Literal["), "{stub}");
+        assert!(stub.contains("canonical: Payload | None"), "{stub}");
+        assert!(stub.contains("def from_canonical(value: Payload) -> Record"), "{stub}");
+    }
+}
+
+#[test]
 fn builtin_named_factory_qualifies_sibling_factory_annotations() {
     let enum_def = EnumDef {
         name: "BinaryPayload".to_string(),
