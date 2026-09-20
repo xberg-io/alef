@@ -1358,10 +1358,13 @@ if ($loadedVersion !== '1.2.3') {
         // declare unrelated real extensions there, which would otherwise fail to load from the
         // overridden `extension_dir` below and spew startup warnings onto stdout, polluting the
         // very output this assertion reads. `-d extension_dir=...` still applies under `-n`.
+        // PHP's Windows CLI parser treats backslashes in an `-d` value as escapes; use the
+        // forward-slash spelling accepted by PHP on every supported host. ~keep
+        let ext_dir_for_php = ext_dir.to_string_lossy().replace('\\', "/");
         let output = std::process::Command::new(php)
             .arg("-n")
             .arg("-d")
-            .arg(format!("extension_dir={}", ext_dir.display()))
+            .arg(format!("extension_dir={ext_dir_for_php}"))
             .arg(&script_path)
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
@@ -1376,7 +1379,7 @@ if ($loadedVersion !== '1.2.3') {
         let resolved = String::from_utf8_lossy(&output.stdout).into_owned();
         assert_eq!(
             resolved,
-            format!("{}/{extension_name}.so", ext_dir.display()),
+            format!("{ext_dir_for_php}/{extension_name}.so"),
             "the snippet must resolve the PIE-installed .so via ini_get('extension_dir') alone, \
              with PIE_INSTALLED_EXTENSION_PATH unset and no local build artifact present"
         );
