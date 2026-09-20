@@ -249,6 +249,75 @@ pub fn resolve_components(api: &ApiSurface, config: &ResolvedCrateConfig) -> Res
     Ok(resolved)
 }
 
+/// The wire-relevant projection of a [`ComponentContractIr`] that
+/// [`ComponentContractIr::hash`] hashes; see that method's documentation for
+/// exactly what is kept and what is deliberately dropped.
+#[derive(Serialize)]
+struct CanonicalContract<'a> {
+    name: &'a str,
+    interface_version: u32,
+    methods: Vec<CanonicalMethod<'a>>,
+    records: Vec<CanonicalRecord<'a>>,
+    enums: Vec<CanonicalEnum<'a>>,
+}
+
+#[derive(Serialize)]
+struct CanonicalMethod<'a> {
+    name: &'a str,
+    is_async: bool,
+    params: Vec<&'a WireType>,
+    result: &'a WireType,
+    fallible: bool,
+}
+
+#[derive(Serialize)]
+struct CanonicalRecord<'a> {
+    name: &'a str,
+    fields: Vec<&'a WireType>,
+}
+
+#[derive(Serialize)]
+struct CanonicalEnum<'a> {
+    name: &'a str,
+    variants: &'a [String],
+}
+
+impl<'a> From<&'a ComponentContractIr> for CanonicalContract<'a> {
+    fn from(contract: &'a ComponentContractIr) -> Self {
+        Self {
+            name: &contract.name,
+            interface_version: contract.interface_version,
+            methods: contract
+                .methods
+                .iter()
+                .map(|method| CanonicalMethod {
+                    name: &method.name,
+                    is_async: method.is_async,
+                    params: method.params.iter().map(|param| &param.ty).collect(),
+                    result: &method.result,
+                    fallible: method.fallible,
+                })
+                .collect(),
+            records: contract
+                .records
+                .iter()
+                .map(|record| CanonicalRecord {
+                    name: &record.name,
+                    fields: record.fields.iter().map(|field| &field.ty).collect(),
+                })
+                .collect(),
+            enums: contract
+                .enums
+                .iter()
+                .map(|enum_ir| CanonicalEnum {
+                    name: &enum_ir.name,
+                    variants: &enum_ir.variants,
+                })
+                .collect(),
+        }
+    }
+}
+
 impl ComponentContractIr {
     /// Build a contract from an extracted trait path or short trait name.
     pub fn from_trait(api: &ApiSurface, name: &str, trait_path: &str, interface_version: u32) -> Result<Self> {
@@ -271,9 +340,23 @@ impl ComponentContractIr {
         })
     }
 
-    /// BLAKE3 hash of the canonical JSON representation.
+    /// BLAKE3 hash of the parts of this contract that affect the wire.
+    ///
+    /// Covers the contract name, interface version, method order and names,
+    /// each method's parameter wire types (in order) and result wire type,
+    /// whether it is async, and whether it is fallible; and, for every
+    /// record and enum it references, its name plus its field wire types (in
+    /// declaration order) or variant names (in declaration order).
+    ///
+    /// Deliberately excludes the trait's Rust path, parameter names,
+    /// whether a parameter is borrowed, a record's or enum's Rust path, and
+    /// a fallible method's error type name -- none of these change a single
+    /// byte that crosses the component boundary, so hashing them would
+    /// invalidate a published component over a refactor that never touched
+    /// its ABI.
     pub fn hash(&self) -> Result<[u8; 32]> {
-        let encoded = serde_json::to_vec(self).context("serializing canonical component contract")?;
+        let canonical = CanonicalContract::from(self);
+        let encoded = serde_json::to_vec(&canonical).context("serializing canonical component contract")?;
         Ok(*blake3::hash(&encoded).as_bytes())
     }
 
@@ -684,6 +767,42 @@ mod tests {
         let second = ComponentContractIr::from_trait(&sample_api(), "extractor", "Extractor", 1).unwrap();
         assert_eq!(first.hash().unwrap(), second.hash().unwrap());
         assert_eq!(first.records[0].name, "Request");
+    }
+
+    #[test]
+    fn renaming_a_param_does_not_change_the_contract_hash() {
+        let mut renamed = sample_api();
+        renamed.types[1].methods[0].params[0].name = "renamed_request".into();
+        let original = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 1).unwrap();
+        let renamed = ComponentContractIr::from_trait(&renamed, "extractor", "demo::Extractor", 1).unwrap();
+        assert_eq!(original.hash().unwrap(), renamed.hash().unwrap());
+    }
+
+    #[test]
+    fn reordering_params_changes_the_contract_hash() {
+        let mut reordered = sample_api();
+        reordered.types[1].methods[0].params.push(ParamDef {
+            name: "flag".into(),
+            ty: TypeRef::Primitive(PrimitiveType::Bool),
+            is_ref: true,
+            ..ParamDef::default()
+        });
+        let mut swapped = reordered.clone();
+        swapped.types[1].methods[0].params.swap(0, 1);
+
+        let before = ComponentContractIr::from_trait(&reordered, "extractor", "demo::Extractor", 1).unwrap();
+        let after = ComponentContractIr::from_trait(&swapped, "extractor", "demo::Extractor", 1).unwrap();
+        assert_ne!(before.hash().unwrap(), after.hash().unwrap());
+    }
+
+    #[test]
+    fn renaming_the_trait_path_does_not_change_the_contract_hash() {
+        let mut renamed = sample_api();
+        renamed.types[1].rust_path = "elsewhere::Extractor".into();
+        let original = ComponentContractIr::from_trait(&sample_api(), "extractor", "demo::Extractor", 1).unwrap();
+        let renamed = ComponentContractIr::from_trait(&renamed, "extractor", "Extractor", 1).unwrap();
+        assert_ne!(original.trait_path, renamed.trait_path);
+        assert_eq!(original.hash().unwrap(), renamed.hash().unwrap());
     }
 
     #[test]
