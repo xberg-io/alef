@@ -107,7 +107,7 @@ fn producer_source(api: &ApiSurface, component: &ResolvedComponent) -> Result<St
     out.push_str("use std::panic::{AssertUnwindSafe, catch_unwind};\n");
     out.push_str("use std::sync::Arc;\n");
     if has_async {
-        out.push_str("use std::sync::atomic::{AtomicBool, Ordering};\n");
+        out.push_str("use std::sync::Mutex;\n");
     }
     out.push('\n');
     writeln!(out, "const COMPONENT_ID: &[u8] = b\"{}\";", component.component_name)?;
@@ -346,19 +346,114 @@ fn error_buffer(message: impl ToString) -> AlefOwnedBuffer {
 "#;
 
 const ASYNC_PRODUCER_SUPPORT: &str = r#"
+/// Number of persistent worker threads that run every async component call
+/// in this producer. Fixed and small: a component method is expected to be
+/// a single I/O- or CPU-bound operation, not a high-fanout workload that
+/// needs its own tunable pool.
+const ASYNC_WORKER_THREADS: usize = 2;
+
+type AsyncJob = Box<dyn FnOnce() + Send + 'static>;
+
+/// A small, lazily started thread pool shared by every async method this
+/// producer exports, so an async call reuses a persistent worker thread
+/// instead of spawning (and tearing down) a fresh OS thread per call.
+struct AsyncWorkerPool {
+    sender: std::sync::mpsc::Sender<AsyncJob>,
+}
+
+impl AsyncWorkerPool {
+    fn new() -> Self {
+        let (sender, receiver) = std::sync::mpsc::channel::<AsyncJob>();
+        let receiver = Arc::new(Mutex::new(receiver));
+        for _ in 0..ASYNC_WORKER_THREADS {
+            let receiver = Arc::clone(&receiver);
+            std::thread::spawn(move || loop {
+                let job = receiver
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .recv();
+                match job {
+                    Ok(job) => job(),
+                    Err(_) => break,
+                }
+            });
+        }
+        Self { sender }
+    }
+
+    fn submit(&self, job: AsyncJob) {
+        // This pool's worker threads never exit while the process is alive, so a
+        // send failure here only happens during process teardown.
+        let _ = self.sender.send(job);
+    }
+}
+
+fn async_worker_pool() -> &'static AsyncWorkerPool {
+    static POOL: std::sync::OnceLock<AsyncWorkerPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(AsyncWorkerPool::new)
+}
+
+/// A completion-context pointer captured for a call from a worker thread.
+///
+/// The host contract already requires this context to tolerate being used
+/// off the calling thread (see `ComponentInstance`'s `Send`/`Sync` impls in
+/// `alef_component_runtime`); this wrapper exists only so the compiler can
+/// see that the job closure carrying it is itself `Send`.
+struct SendPtr(*mut c_void);
+// SAFETY: see the type's own doc comment; the host already promises this.
+unsafe impl Send for SendPtr {}
+
+/// One async call's not-yet-started work, plus its cancellation signal.
+///
+/// `AlefTaskV1::start` takes `job` and hands it to the shared worker pool;
+/// `AlefTaskV1::cancel` sends on `cancel`. A `futures` oneshot channel
+/// buffers one value, so a cancellation sent before the job starts running
+/// is not lost -- the job's own `select` (built into it by the method
+/// wrapper) still observes it the moment it starts polling.
+struct AsyncTaskState {
+    job: Mutex<Option<AsyncJob>>,
+    cancel: Mutex<Option<futures::channel::oneshot::Sender<()>>>,
+}
+
+unsafe extern "C" fn start_task(
+    context: *mut c_void,
+    _callback: alef_component_abi::AlefTaskCallback,
+    _user_data: *mut c_void,
+) -> AlefStatus {
+    if context.is_null() {
+        return AlefStatus::INVALID_ARGUMENT;
+    }
+    // SAFETY: async method wrappers store Box<AsyncTaskState> as task context.
+    let state = unsafe { &*context.cast::<AsyncTaskState>() };
+    let job = state.job.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+    let Some(job) = job else {
+        return AlefStatus::INVALID_ARGUMENT;
+    };
+    async_worker_pool().submit(job);
+    AlefStatus::OK
+}
+
 unsafe extern "C" fn cancel_task(context: *mut c_void) -> AlefStatus {
     if context.is_null() {
         return AlefStatus::INVALID_ARGUMENT;
     }
-    // SAFETY: async wrappers store Box<Arc<AtomicBool>> as task context.
-    unsafe { &*context.cast::<Arc<AtomicBool>>() }.store(true, Ordering::Release);
+    // SAFETY: async method wrappers store Box<AsyncTaskState> as task context.
+    let state = unsafe { &*context.cast::<AsyncTaskState>() };
+    if let Some(sender) = state
+        .cancel
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+    {
+        let _ = sender.send(());
+    }
     AlefStatus::OK
 }
 
 unsafe extern "C" fn free_task(context: *mut c_void) {
     if !context.is_null() {
         // SAFETY: context was created with Box::into_raw.
-        drop(unsafe { Box::from_raw(context.cast::<Arc<AtomicBool>>()) });
+        drop(unsafe { Box::from_raw(context.cast::<AsyncTaskState>()) });
     }
 }
 
@@ -558,20 +653,26 @@ fn emit_async_body(
     let trait_path = &contract.trait_path;
     out.push_str("    if out_task.is_null() { return AlefStatus::INVALID_ARGUMENT; }\n");
     out.push_str("    let instance = Arc::clone(instance);\n");
-    out.push_str("    let cancelled = Arc::new(AtomicBool::new(false));\n");
-    out.push_str("    let task_context = Box::into_raw(Box::new(Arc::clone(&cancelled))).cast::<c_void>();\n");
-    out.push_str("    // SAFETY: out_task is non-null.\n");
-    out.push_str("    unsafe { *out_task = AlefTaskV1 { struct_size: std::mem::size_of::<AlefTaskV1>(), context: task_context, start: None, cancel: Some(cancel_task), drop: Some(free_task) } };\n");
-    out.push_str("    std::thread::spawn(move || {\n");
-    out.push_str("        if cancelled.load(Ordering::Acquire) {\n");
-    emit_completion(out, contract, method, "AlefStatus::CANCELLED", None, 12)?;
-    out.push_str("            return;\n        }\n");
+    out.push_str("    let (cancel_sender, cancel_receiver) = futures::channel::oneshot::channel::<()>();\n");
+    out.push_str("    let completion_context = SendPtr(completion_context);\n");
+    out.push_str("    let job: AsyncJob = Box::new(move || {\n");
+    // Capture the whole `SendPtr` first: Rust 2021's disjoint closure captures would otherwise
+    // capture only the `.0` field access below directly, as a bare `*mut c_void` that bypasses
+    // `SendPtr`'s `unsafe impl Send` entirely and makes the closure not `Send`.
+    out.push_str("        let completion_context = completion_context;\n");
+    out.push_str("        let completion_context = completion_context.0;\n");
     writeln!(
         out,
-        "        let call = catch_unwind(AssertUnwindSafe(|| futures::executor::block_on({trait_path}::{method_name}(&*instance, {args}))));"
+        "        let call = catch_unwind(AssertUnwindSafe(|| futures::executor::block_on(futures::future::select(Box::pin({trait_path}::{method_name}(&*instance, {args})), cancel_receiver))));"
     )?;
     emit_async_match(out, contract, method)?;
-    out.push_str("    });\n    AlefStatus::PENDING\n}\n\n");
+    out.push_str("    });\n");
+    out.push_str(
+        "    let state = Box::new(AsyncTaskState { job: Mutex::new(Some(job)), cancel: Mutex::new(Some(cancel_sender)) });\n",
+    );
+    out.push_str("    // SAFETY: out_task is non-null.\n");
+    out.push_str("    unsafe { *out_task = AlefTaskV1 { struct_size: std::mem::size_of::<AlefTaskV1>(), context: Box::into_raw(state).cast::<c_void>(), start: Some(start_task), cancel: Some(cancel_task), drop: Some(free_task) } };\n");
+    out.push_str("    AlefStatus::PENDING\n}\n\n");
     Ok(())
 }
 
@@ -701,19 +802,28 @@ fn emit_sync_success(out: &mut String, contract: &ComponentContractIr, method: &
     Ok(())
 }
 
+/// Emit the match over `call`'s three possible outcomes: the trait future
+/// completed first (`Either::Left`), the cancellation signal fired first and
+/// the still-pending trait future was dropped with it (`Either::Right`), or
+/// the whole `select` panicked.
 fn emit_async_match(out: &mut String, contract: &ComponentContractIr, method: &ComponentMethodIr) -> Result<()> {
     out.push_str("        match call {\n");
+    out.push_str("            Ok(futures::future::Either::Left((value_result, _cancel_receiver))) => {\n");
     if method.fallible {
-        out.push_str("            Ok(Ok(value)) => {\n");
-        emit_completion(out, contract, method, "AlefStatus::OK", None, 16)?;
-        out.push_str("            }\n            Ok(Err(error)) => {\n");
-        emit_completion(out, contract, method, "AlefStatus::INTERNAL_ERROR", Some("error"), 16)?;
-        out.push_str("            }\n");
+        out.push_str("                match value_result {\n");
+        out.push_str("                    Ok(value) => {\n");
+        emit_completion(out, contract, method, "AlefStatus::OK", None, 24)?;
+        out.push_str("                    }\n                    Err(error) => {\n");
+        emit_completion(out, contract, method, "AlefStatus::INTERNAL_ERROR", Some("error"), 24)?;
+        out.push_str("                    }\n                }\n");
     } else {
-        out.push_str("            Ok(value) => {\n");
+        out.push_str("                let value = value_result;\n");
         emit_completion(out, contract, method, "AlefStatus::OK", None, 16)?;
-        out.push_str("            }\n");
     }
+    out.push_str("            }\n");
+    out.push_str("            Ok(futures::future::Either::Right((_cancel_result, _pending))) => {\n");
+    emit_completion(out, contract, method, "AlefStatus::CANCELLED", None, 16)?;
+    out.push_str("            }\n");
     out.push_str("            Err(_) => {\n");
     emit_completion(
         out,
@@ -1098,11 +1208,44 @@ mod tests {
         let source = files.iter().find(|file| file.path.ends_with("src/lib.rs")).unwrap();
         assert!(source.content.contains("alef_component_entry_v1_extractor"));
         assert!(source.content.contains("extractor_component_extract"));
+        // The shared worker pool's persistent threads (created once, lazily), not a
+        // thread spawned per call.
+        assert!(source.content.contains("struct AsyncWorkerPool"));
         assert!(source.content.contains("std::thread::spawn"));
+        assert!(source.content.contains("fn async_worker_pool()"));
         syn::parse_file(&source.content).expect("generated component producer must be valid Rust syntax");
         let manifest = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
         assert!(manifest.content.contains("features = [\"pdf\"]"));
         assert!(manifest.content.contains("crate-type = [\"cdylib\"]"));
+    }
+
+    #[test]
+    fn async_wrapper_defers_work_to_a_real_start_and_races_cancellation() {
+        let (api, config) = fixture();
+        let files = generate_component_producers(&api, &config).unwrap();
+        let source = files.iter().find(|file| file.path.ends_with("src/lib.rs")).unwrap();
+        let text = &source.content;
+
+        // `start` is a real function, not `None`: work is deferred until the host calls it.
+        assert!(text.contains("start: Some(start_task)"), "{text}");
+        assert!(!text.contains("start: None"), "{text}");
+        assert!(text.contains("struct AsyncTaskState"), "{text}");
+        assert!(text.contains("fn start_task("), "{text}");
+        assert!(text.contains("fn cancel_task("), "{text}");
+        assert!(text.contains("fn free_task("), "{text}");
+
+        // Cancellation races the real trait call instead of only being checked once, up front,
+        // before anything starts: `select` drops whichever side does not win.
+        assert!(text.contains("futures::channel::oneshot::channel::<()>()"), "{text}");
+        assert!(
+            text.contains("futures::future::select(Box::pin(demo::Extractor::warm(&*instance, "),
+            "{text}"
+        );
+        assert!(text.contains("futures::future::Either::Left"), "{text}");
+        assert!(text.contains("futures::future::Either::Right"), "{text}");
+        assert!(text.contains("AlefStatus::CANCELLED"), "{text}");
+
+        syn::parse_file(text).expect("generated async component producer must be valid Rust syntax");
     }
 
     #[test]

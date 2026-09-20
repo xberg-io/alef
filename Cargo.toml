@@ -99,6 +99,12 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+# Only the component ABI's raw C types (AlefHostApiV1, AlefTaskV1, ...): the async producer
+# e2e test in tests/e2e_component_bytes_contract_test.rs calls a generated producer's exported
+# function pointers directly, bypassing the generated proxy (which does not support async
+# methods yet), so it needs these types itself rather than only through
+# `alef-component-runtime` (already a regular dependency, but it does not re-export them).
+alef-component-abi = { path = "crates/alef-component-abi", version = "0.93.1" }
 # Pinned to the same minor line generated FFI crates depend on (see e.g.
 # `crates/*-ffi/Cargo.toml` in consumer repos), so the regression test that
 # feeds alef's own generated `cbindgen.toml` through a real cbindgen run

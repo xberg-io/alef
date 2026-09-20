@@ -324,7 +324,10 @@ fn patch_unpublished_deps(manifest: &str) -> String {
 }
 
 /// Generate, patch, and build the real producer cdylib for `profile`.
-fn build_producer_library(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig) -> PathBuf {
+///
+/// `impl_source` is appended to the generated `src/lib.rs` verbatim: it supplies whatever
+/// concrete implementation type the config's `provides.implementation` names.
+fn build_producer_library(root: &Path, api: &ApiSurface, config: &ResolvedCrateConfig, impl_source: &str) -> PathBuf {
     let mut files = generate_component_producers(api, config).expect("generate the producer crate");
     assert_eq!(files.len(), 3, "expected Cargo.toml, src/lib.rs, and the C header");
 
@@ -334,7 +337,7 @@ fn build_producer_library(root: &Path, api: &ApiSurface, config: &ResolvedCrateC
             file.content = patch_unpublished_deps(&file.content);
         }
         if file.path.ends_with("src/lib.rs") {
-            file.content.push_str(COMPONENT_IMPL_SOURCE);
+            file.content.push_str(impl_source);
         }
         let destination = root.join(&file.path);
         fs::create_dir_all(destination.parent().expect("generated file has a parent"))
@@ -586,7 +589,7 @@ fn bytes_contract_round_trips_through_a_real_downloaded_component() {
     let api = codec_api_surface();
     let config = codec_config();
 
-    let library_path = build_producer_library(&root, &api, &config);
+    let library_path = build_producer_library(&root, &api, &config, COMPONENT_IMPL_SOURCE);
 
     let resolved = resolve_components(&api, &config).expect("resolve the codec contract");
     let component = &resolved[0];
@@ -662,5 +665,250 @@ fn pyo3_and_go_backends_expose_component_activate() {
             .any(|file| file.content.contains("func ComponentActivate(component string) error")),
         "no generated go file exposes ComponentActivate"
     );
+}
+
+// --- Async producer proof -------------------------------------------------
+//
+// The component proxy does not support async methods yet (`component_proxy`'s own
+// `validate_proxy_methods` rejects them; widening it is a separate follow-up), so this cannot
+// reuse `write_harness`/`ComponentManager` the way the bytes contract above does. Instead it
+// loads the real producer cdylib through `alef_component_runtime::LoadedComponent` directly (the
+// same public building block a generated proxy would use) and calls its async function pointer
+// by hand, matching the `#[repr(C)]` shape `component_producer::rust_function_type` generates for
+// an async method exactly. This proves the worker-pool `start`/`cancel`/`drop` wiring end to end:
+// `AlefTaskV1::start` is genuinely populated (not `None`), calling it is what makes the shared
+// worker pool actually run the call, and the typed completion callback fires with the real result.
+
+const ASYNC_CORE_SOURCE: &str = r#"
+pub trait Counter: Send + Sync {
+    async fn increment(&self, amount: u32) -> u32;
+}
+"#;
+
+const ASYNC_COMPONENT_IMPL_SOURCE: &str = r#"
+#[derive(Default)]
+struct AddOneCounter;
+
+impl demo_async::Counter for AddOneCounter {
+    async fn increment(&self, amount: u32) -> u32 {
+        amount + 1
+    }
+}
+"#;
+
+fn counter_api_surface() -> ApiSurface {
+    ApiSurface {
+        crate_name: "demo_async".into(),
+        version: "1.0.0".into(),
+        types: vec![TypeDef {
+            name: "Counter".into(),
+            rust_path: "demo_async::Counter".into(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "increment".into(),
+                params: vec![ParamDef {
+                    name: "amount".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Primitive(PrimitiveType::U32),
+                receiver: Some(ReceiverKind::Ref),
+                is_async: true,
+                ..MethodDef::default()
+            }],
+            ..TypeDef::default()
+        }],
+        ..ApiSurface::default()
+    }
+}
+
+fn counter_config() -> ResolvedCrateConfig {
+    ResolvedCrateConfig {
+        name: "demo-async".into(),
+        component_contracts: vec![ComponentContractConfig {
+            name: "counter".into(),
+            trait_path: "demo_async::Counter".into(),
+            interface_version: 1,
+        }],
+        components: vec![ComponentConfig {
+            name: "adder".into(),
+            provides: vec![ComponentProvidesConfig {
+                contract: "counter".into(),
+                implementation: "AddOneCounter".into(),
+            }],
+            features: vec![],
+            default_features: true,
+            targets: Some(vec!["test-target".into()]),
+            bundled_on: Vec::new(),
+        }],
+        ..ResolvedCrateConfig::default()
+    }
+}
+
+/// Mirrors the `#[repr(C)]` shape `component_producer::rust_function_type` generates for an
+/// infallible async method whose result is a direct (non-buffer) scalar: `u32`, not
+/// `AlefOwnedBuffer`, since `increment`'s result is a plain integer.
+type CounterIncrementCompletion =
+    unsafe extern "C" fn(*mut std::ffi::c_void, alef_component_abi::AlefStatus, u32, alef_component_abi::AlefOwnedBuffer);
+type IncrementFn = unsafe extern "C" fn(
+    *mut std::ffi::c_void,
+    u32,
+    CounterIncrementCompletion,
+    *mut std::ffi::c_void,
+    *mut alef_component_abi::AlefTaskV1,
+) -> alef_component_abi::AlefStatus;
+
+#[repr(C)]
+struct CounterApiV1 {
+    struct_size: usize,
+    increment: Option<IncrementFn>,
+}
+
+unsafe extern "C" fn record_completion(
+    context: *mut std::ffi::c_void,
+    status: alef_component_abi::AlefStatus,
+    result: u32,
+    error: alef_component_abi::AlefOwnedBuffer,
+) {
+    // SAFETY: `context` was set to this sender's address just below, and the send happens
+    // before the sender is dropped (the test blocks on `recv_timeout` first).
+    let sender = unsafe { &*context.cast::<std::sync::mpsc::Sender<(i32, u32)>>() };
+    let _ = sender.send((status.0, result));
+    if !error.ptr.is_null() {
+        // SAFETY: `error` is a real `AlefOwnedBuffer` the producer just handed us.
+        drop(unsafe { alef_component_runtime::take_owned_bytes(error) });
+    }
+}
+
+unsafe extern "C" fn ignore_generic_task_callback(
+    _context: *mut std::ffi::c_void,
+    _status: alef_component_abi::AlefStatus,
+    _result: alef_component_abi::AlefOwnedBuffer,
+    _error: alef_component_abi::AlefOwnedBuffer,
+) {
+    // `AlefTaskV1::start`'s generic callback is unused by this producer: the async wrapper
+    // already captured the typed `record_completion` above at call time. `start` still requires
+    // some `AlefTaskCallback` value to satisfy its C signature.
+}
+
+#[test]
+#[ignore = "builds and runs a real cdylib against the host toolchain; run via \
+            `cargo test --test e2e_component_bytes_contract_test -- --ignored`"]
+fn async_task_round_trips_through_the_shared_worker_pool() {
+    let workspace = tempfile::tempdir().expect("create fixture workspace");
+    let root = workspace
+        .path()
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.path().to_path_buf());
+
+    fs::create_dir_all(root.join("crates/demo-async/src")).expect("create async core crate directories");
+    fs::write(
+        root.join("crates/demo-async/Cargo.toml"),
+        format!(
+            r#"[package]
+name = "demo-async"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+alef-component-abi = {{ path = {abi:?} }}
+"#,
+            abi = repo_root().join("crates/alef-component-abi"),
+        ),
+    )
+    .expect("write async core Cargo.toml");
+    fs::write(root.join("crates/demo-async/src/lib.rs"), ASYNC_CORE_SOURCE).expect("write async core source");
+
+    let api = counter_api_surface();
+    let config = counter_config();
+    let library_path = build_producer_library(&root, &api, &config, ASYNC_COMPONENT_IMPL_SOURCE);
+
+    let resolved = resolve_components(&api, &config).expect("resolve the counter contract");
+    let provided = &resolved[0].provides[0];
+    let entry_symbol = entry_point_symbol("counter");
+
+    let requirements = alef_component_runtime::ComponentRequirements {
+        component_id: "adder".to_string(),
+        contract_name: "counter".to_string(),
+        contract_hash: provided.contract_hash,
+        feature_set_hash: None,
+    };
+    let host = alef_component_abi::AlefHostApiV1 {
+        struct_size: 0,
+        abi_major: 0,
+        abi_minor: 0,
+        context: std::ptr::null_mut(),
+        log: None,
+    };
+    let loaded = alef_component_runtime::LoadedComponent::load(
+        &library_path,
+        format!("{entry_symbol}\0").as_bytes(),
+        &requirements,
+        host,
+    )
+    .expect("load the real counter producer library");
+
+    assert!(
+        loaded.contract_size() >= std::mem::size_of::<CounterApiV1>(),
+        "producer's contract table is smaller than the expected CounterApiV1 shape"
+    );
+    // SAFETY: `contract_size` was just checked against `CounterApiV1`'s own size, and the
+    // producer's table shape is `component_producer::rust_function_type`'s output for one
+    // infallible async `u32`-returning method, which `CounterApiV1` mirrors exactly.
+    let table = unsafe { &*loaded.contract().cast::<CounterApiV1>() };
+    let increment = table.increment.expect("generated table exposes `increment`");
+
+    let create = loaded.descriptor().create.expect("descriptor exposes create");
+    let destroy = loaded.descriptor().destroy.expect("descriptor exposes destroy");
+    let mut instance = std::ptr::null_mut();
+    let mut create_error = alef_component_abi::AlefOwnedBuffer::EMPTY;
+    // SAFETY: `create` is the producer's real create function; `instance`/`create_error` are
+    // valid out-parameters.
+    let status = unsafe { create(loaded.host_api(), &mut instance, &mut create_error) };
+    assert!(status.is_ok(), "creating the counter instance failed");
+
+    let (sender, receiver) = std::sync::mpsc::channel::<(i32, u32)>();
+    let mut out_task = std::mem::MaybeUninit::<alef_component_abi::AlefTaskV1>::uninit();
+    // SAFETY: `instance` was just created above; `out_task` is a valid out-parameter; `sender`
+    // outlives this call (it is not dropped until after `receiver.recv_timeout` returns below).
+    let status = unsafe {
+        increment(
+            instance,
+            41,
+            record_completion,
+            std::ptr::addr_of!(sender).cast_mut().cast(),
+            out_task.as_mut_ptr(),
+        )
+    };
+    assert_eq!(
+        status,
+        alef_component_abi::AlefStatus::PENDING,
+        "increment must return PENDING and defer work to AlefTaskV1::start"
+    );
+    // SAFETY: `increment` returned PENDING, so it filled in `out_task`.
+    let out_task = unsafe { out_task.assume_init() };
+    assert!(
+        out_task.start.is_some(),
+        "AlefTaskV1::start must be populated by the shared-worker producer, not None"
+    );
+
+    // SAFETY: `out_task.context`/`start` were just produced by `increment`, above.
+    let start_status =
+        unsafe { (out_task.start.expect("checked above"))(out_task.context, ignore_generic_task_callback, std::ptr::null_mut()) };
+    assert!(start_status.is_ok(), "starting the async task on the shared worker pool failed");
+
+    let (status, result) = receiver
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the shared worker pool must deliver a completion");
+    assert_eq!(status, alef_component_abi::AlefStatus::OK.0, "completion reported a non-OK status");
+    assert_eq!(result, 42, "increment(41) must complete with 42");
+
+    // SAFETY: `out_task.drop`/`destroy` are real function pointers from the same producer;
+    // `out_task.context`/`instance` are each freed exactly once, here.
+    unsafe {
+        (out_task.drop.expect("drop is populated"))(out_task.context);
+        destroy(instance);
+    }
 }
 

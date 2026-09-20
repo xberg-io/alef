@@ -36,6 +36,7 @@ name = "alef"
 version = "0.93.1"
 dependencies = [
  "ahash",
+ "alef-component-abi",
  "alef-component-runtime",
  "anyhow",
  "base64",
