@@ -5,9 +5,18 @@ use crate::codegen::conversions::{VariantDeclaration, enum_variant_declaration};
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 use std::collections::HashSet;
 
-/// Preserve payload and variant identity for tagged policies and untagged records.
+/// Preserve untagged record identity as a native enum instead of guessing from a Hash.
+///
+/// Tagged representations (internal, adjacent, external) are deliberately excluded even when
+/// every variant has the same single-named-payload shape: their discriminator key makes Hash
+/// reconstruction unambiguous, and `gen_tagged_enum_ruby_classes` (`mod.rs`) already generates a
+/// `from_hash` marker module for exactly that case. A native `#[magnus::wrap]` class shares the
+/// enum's own name with that marker module, so emitting both is a hard Ruby `TypeError` at
+/// require time, and `TryConvert` for a native class accepts only an already-wrapped instance --
+/// no Hash fallback -- which silently drops any caller that only has a JSON-decoded Hash. ~keep
 pub(crate) fn is_native_payload_enum(def: &EnumDef) -> bool {
-    (def.serde_untagged || def.serde_tag.is_some())
+    def.serde_untagged
+        && def.serde_tag.is_none()
         && def.cfg.is_none()
         && !def.variants.is_empty()
         && def.variants.iter().all(|v| {

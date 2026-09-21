@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix(e2e): guard the root-array `ArrayField { name: "" }` case in every remaining backend renderer. #411 fixed `[0].id` rendering for Ruby, Python and Rust; the same unconditional `.` + name emission still produced non-compiling accessors (`result.[0].id`, `result.().get(0).id()`, `result.()[0].id()`, and a PHP `result->[0]->id` that used `->` before a numeric index) for TypeScript/Node/wasm, Java, Kotlin (+Android), C#, Zig, Swift, Dart, PHP, Go and R.
+- fix(ruby): scope the native-payload enum shape back to untagged records. 0.94.0's "BREAKING
+  (Magnus/Ruby): eligible tagged and untagged single-named-payload enums now use one native
+  payload class" also switched *tagged* enums (internal, adjacent, external) that happen to have
+  a single named-payload tuple in every variant. A tagged enum's discriminator key already makes
+  `gen_tagged_enum_ruby_classes` (`mod.rs`) generate an unambiguous `from_hash` marker module for
+  that exact shape, sharing the enum's own name with the would-be native `#[magnus::wrap]` class
+  — defining both crashes Ruby at require time (`TypeError: ... is not a module`) — and a native
+  class's `TryConvert` has no Hash fallback, so any caller holding a JSON-decoded Hash instead of
+  an already-wrapped instance is silently rejected. `is_native_payload_enum` is untagged-only
+  again; untagged records keep the native representation this feature intended.
 
 ## [0.94.0] - 2026-09-20
 
