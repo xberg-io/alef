@@ -150,6 +150,11 @@ pub(crate) fn handle_generate(
         }
         let mut changed_languages: std::collections::HashSet<crate::core::config::Language> =
             std::collections::HashSet::new();
+        // Workspace-root scaffold files (`.cargo/config.toml`) that no single language's
+        // `package_dir`/`output_for`/crate-root owns -- see `changed_languages`'s scaffold-only
+        // extension below for why `changed_languages` alone is not enough scope for the format
+        // pass. ~keep
+        let mut extra_format_paths: Vec<std::path::PathBuf> = Vec::new();
 
         // The grand total this loop reports (`grand_total_generated`) counts actual
         // writes only, matching every per-phase "Generated N ... files" line below --
@@ -381,6 +386,16 @@ pub(crate) fn handle_generate(
                 &languages,
                 &report.changed_paths,
             ));
+            // The complement: a scaffold write no language directory covers at all (see
+            // `unowned_changed_paths`'s doc) needs its own path handed to the formatter
+            // directly, since no `format_scope` -- however wide -- would ever reach it through
+            // `poly_paths`' per-language scoping. ~keep
+            extra_format_paths.extend(pipeline::unowned_changed_paths(
+                resolved_cfg,
+                &base_dir,
+                &languages,
+                &report.changed_paths,
+            ));
         }
         // `reconcile_managed_scaffold_manifests` silently drops a manifest it cannot
         // prove alef owns; this repair runs regardless, since a missing forwarded feature
@@ -476,7 +491,12 @@ pub(crate) fn handle_generate(
             changed_languages.extend(post_build_languages);
         }
 
-        let any_output_changed = any_written && !changed_languages.is_empty();
+        // `extra_format_paths` alone (an unowned scaffold write with every language's binding
+        // output cache-hit this run) must count as "output changed" in its own right -- relying
+        // solely on `generated_tree_needs_formatting`'s whole-tree fallback below would still
+        // reach the file, but only by accident of that check also existing, not because this is
+        // the gate that is actually true. ~keep
+        let any_output_changed = any_written && (!changed_languages.is_empty() || !extra_format_paths.is_empty());
         // `any_output_changed` alone is the wrong gate for a tree an EARLIER run (a
         // pre-fix `alef generate`, or a standalone `alef scaffold`/`alef stubs` that
         // stamps its own output) left stamped and never formatted: nothing was written
@@ -511,8 +531,18 @@ pub(crate) fn handle_generate(
             // `strict`, not `false`: this pass formats `packages/<lang>` -- the SHIPPED
             // bindings -- and used to swallow every missing-formatter skip in a `warn!`
             // the caller never saw, so `--strict` guarded only the e2e formatter while
-            // the more important surface went unguarded. ~keep
-            pipeline::format_generated_reporting(resolved_cfg, &base_dir, Some(&format_scope), strict)?;
+            // the more important surface went unguarded.
+            //
+            // `extra_format_paths` rides along regardless of which `format_scope` branch fired
+            // above: a workspace-root scaffold file no language owns is not reachable through
+            // `format_scope` no matter how it is widened, so it is handed to poly directly. ~keep
+            pipeline::format_generated_reporting_with_extra_paths(
+                resolved_cfg,
+                &base_dir,
+                Some(&format_scope),
+                &extra_format_paths,
+                strict,
+            )?;
         }
         // Final stamp, after post-build AND formatting have both settled every byte this
         // run will ship -- see the ordering comment above `complete_generated_artifacts`

@@ -61,8 +61,12 @@ fn generate_threads_strict_into_the_package_formatting_pass() {
     // `core_commands/generate.rs`, split out of `core_commands.rs` for the file-modularization
     // cap. ~keep
     let source = include_str!("generate.rs");
+    // Matches both `format_generated_reporting(` and its `_with_extra_paths` sibling (the one
+    // `alef generate` actually calls, so a workspace-root scaffold file no language owns still
+    // reaches the formatter -- see `unowned_changed_paths`) -- either is "the reporting entry
+    // point", as opposed to the discarding `format_generated` the assertion below rules out.
     let call = source
-        .find("pipeline::format_generated_reporting(")
+        .find("pipeline::format_generated_reporting")
         .expect("`alef generate` must format through the reporting entry point, not the discarding one");
     let call_site = &source[call..];
     let end = call_site.find(");").expect("terminated call");

@@ -1,9 +1,11 @@
+mod scope;
 mod stamp_gate;
 
+pub(crate) use scope::{languages_owning_changed_paths, poly_paths, unowned_changed_paths};
 pub(crate) use stamp_gate::generated_tree_needs_formatting;
 pub use stamp_gate::unstamp_before_formatting;
 
-use crate::core::config::{Language, OutputLayout, ResolvedCrateConfig};
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::e2e::format::DeferredFormatting;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -180,7 +182,7 @@ pub fn warn_missing_formatters(languages: &[Language]) {
 /// this entry point discards the skip records, which is exactly how the shipped bindings
 /// ended up being the one formatting surface `--strict` did not guard.
 pub fn format_generated(config: &ResolvedCrateConfig, base_dir: &Path, only_languages: Option<&HashSet<Language>>) {
-    let skipped = run_format_pass(config, base_dir, only_languages, &is_tool_available);
+    let skipped = run_format_pass(config, base_dir, only_languages, &[], &is_tool_available);
     crate::e2e::format::warn_deferred(&skipped);
 }
 
@@ -203,6 +205,22 @@ pub fn format_generated_reporting(
     format_generated_reporting_with(config, base_dir, only_languages, strict, &is_tool_available)
 }
 
+/// [`format_generated_reporting`], additionally handing poly `extra_paths` directly -- files a
+/// partial regen wrote that [`poly_paths`]' per-language scoping cannot reach on its own (see
+/// [`unowned_changed_paths`]). A no-op when `extra_paths` is empty, so this is safe to call with
+/// the same arguments [`format_generated_reporting`] would have received. ~keep
+pub(crate) fn format_generated_reporting_with_extra_paths(
+    config: &ResolvedCrateConfig,
+    base_dir: &Path,
+    only_languages: Option<&HashSet<Language>>,
+    extra_paths: &[PathBuf],
+    strict: bool,
+) -> anyhow::Result<Vec<DeferredFormatting>> {
+    let skipped = run_format_pass(config, base_dir, only_languages, extra_paths, &is_tool_available);
+    crate::e2e::format::warn_deferred(&skipped);
+    escalate_missing_toolchains(skipped, strict)
+}
+
 /// Testable seam for [`format_generated_reporting`]: resolves executable presence through
 /// `is_available` instead of PATH, so the `--strict` escalation is provable without
 /// depending on which formatters the host running the suite happens to have. ~keep
@@ -213,7 +231,7 @@ pub(crate) fn format_generated_reporting_with(
     strict: bool,
     is_available: &dyn Fn(&str) -> bool,
 ) -> anyhow::Result<Vec<DeferredFormatting>> {
-    let skipped = run_format_pass(config, base_dir, only_languages, is_available);
+    let skipped = run_format_pass(config, base_dir, only_languages, &[], is_available);
     crate::e2e::format::warn_deferred(&skipped);
     escalate_missing_toolchains(skipped, strict)
 }
@@ -245,6 +263,7 @@ fn run_format_pass(
     config: &ResolvedCrateConfig,
     base_dir: &Path,
     only_languages: Option<&HashSet<Language>>,
+    extra_paths: &[PathBuf],
     is_available: &dyn Fn(&str) -> bool,
 ) -> Vec<DeferredFormatting> {
     let mut pass = FormatPass::new(is_available);
@@ -270,10 +289,15 @@ fn run_format_pass(
         // usefully. ~keep
         Some(only) => {
             let poly_langs: Vec<Language> = only.iter().copied().collect();
-            if poly_langs.is_empty() {
+            // `extra_paths` (workspace-root scaffold files no language owns, see
+            // `unowned_changed_paths`) must still reach poly even when `poly_langs` is empty --
+            // a scaffold-only write can leave `changed_languages` empty while still needing a
+            // format pass, so this can't early-return before appending them. ~keep
+            if poly_langs.is_empty() && extra_paths.is_empty() {
                 return pass.skipped;
             }
-            let paths = poly_paths(config, base_dir, only_languages, &poly_langs);
+            let mut paths = poly_paths(config, base_dir, only_languages, &poly_langs);
+            paths.extend(extra_paths.iter().filter(|path| path.exists()).cloned());
             poly_format_pass(&paths, base_dir, &mut pass);
             for &lang in &poly_langs {
                 let lang_str = lang.to_string().to_lowercase();
@@ -459,115 +483,6 @@ pub(crate) fn poly_lint_with(base_dir: &Path, is_available: &dyn Fn(&str) -> boo
         }
         Err(e) => Err(anyhow::anyhow!("poly lint failed: {e}")),
     }
-}
-
-/// Paths to hand to poly. Full regen → the repo root (one pass). Partial regen →
-/// every directory each changed language generates into (existing dirs only, deduped,
-/// with nested entries collapsed into their enclosing directory).
-///
-/// `package_dir(lang)`, `output_for(lang)`, *and* the binding crate root implied by
-/// `output_for(lang)`, deliberately: this is the same span `generate_sweep_roots` reclaims
-/// orphans across and the same span `finalize_hashes` stamps, and a formatting scope narrower
-/// than the stamping scope means alef stamps bytes it never canonicalised. For most languages
-/// all three coincide or nest -- but `package_dir(Python)` is the wheel at `packages/python`
-/// while the PyO3 glue crate is generated into `crates/<name>-py/src`, so `alef generate --lang
-/// python` used to stamp a Rust file no formatter had touched, and the next whole-tree pass
-/// immediately made that stamp stale.
-///
-/// `output_for(lang)` alone is not enough either: it names the *source* directory
-/// (`crates/<name>-py/src`), one level below the crate root that actually holds the binding
-/// crate's own `Cargo.toml`. Any language whose default output template is
-/// `<crate-root>/src` (see [`crate::core::config::resolve_helpers::default_binding_crate_root`]
-/// -- today python, ffi, and php, alongside node/wasm whose `package_dir` already resolves to
-/// the same crate root) generates a manifest that lived outside every formatting pass on a
-/// partial regen: `poly fmt` never saw it, so it shipped non-canonical from generation, and
-/// `alef verify` only caught the drift the first time something else reformatted the file.
-/// [`crate::core::config::OutputLayout::from_output_dir`] is the same root-vs-src split the FFI
-/// and Wasm backends already use to locate their own manifests, so recovering the crate root
-/// through it here (rather than hard-coding which languages have a `<root>/src` shape) keeps
-/// this generic across every current and future binding-crate language. Format scope must
-/// equal stamp scope. ~keep
-fn poly_paths(
-    config: &ResolvedCrateConfig,
-    base_dir: &Path,
-    only_languages: Option<&HashSet<Language>>,
-    poly_langs: &[Language],
-) -> Vec<PathBuf> {
-    match only_languages {
-        None => vec![base_dir.to_path_buf()],
-        Some(_) => {
-            let mut seen = HashSet::new();
-            let mut dirs = Vec::new();
-            for &lang in poly_langs {
-                let package_dir = base_dir.join(config.package_dir(lang));
-                let output_path = config.output_for(&lang.to_string());
-                let output_dir = output_path.map(|out| base_dir.join(out));
-                let crate_root = output_path
-                    .map(|out| OutputLayout::from_output_dir(&out.to_string_lossy()).root)
-                    .map(|root| base_dir.join(root));
-                for dir in std::iter::once(package_dir).chain(output_dir).chain(crate_root) {
-                    if seen.insert(dir.clone()) && dir.exists() {
-                        dirs.push(dir);
-                    }
-                }
-            }
-            collapse_nested_paths(dirs)
-        }
-    }
-}
-
-/// Which of `languages` own any path in `changed_paths`, using the exact same
-/// package_dir/output_for/crate_root directories [`poly_paths`] hands to poly for a partial
-/// regen.
-///
-/// A scaffold-managed manifest (`packages/java/pom.xml`, `crates/<name>-ffi/cmake/*.cmake`,
-/// `packages/python/pyproject.toml`) can change with no corresponding write in the
-/// bindings/service-api/public-api/stubs phases -- e.g. a `package_metadata.license` edit
-/// rewrites every language's manifest but touches no generated source at all. Those phases
-/// are the only places `Commands::Generate` (`bin_cli/core_commands.rs`) inserts into
-/// `changed_languages`, so a scaffold-only write used to leave that language out of
-/// `format_scope` entirely: `reconcile_managed_scaffold_manifests`'s write reached disk
-/// unformatted, and no later pass in a partial `alef generate` run ever saw it. `alef all`'s
-/// full-tree convergence pass (`converge_full_regen`, `only_languages = None`) covers every
-/// byte under `base_dir` regardless of which phase wrote it, which is why the identical
-/// license edit through `alef all` never reproduced this. ~keep
-pub(crate) fn languages_owning_changed_paths(
-    config: &ResolvedCrateConfig,
-    base_dir: &Path,
-    languages: &[Language],
-    changed_paths: &HashSet<PathBuf>,
-) -> HashSet<Language> {
-    if changed_paths.is_empty() {
-        return HashSet::new();
-    }
-    let mut owners = HashSet::new();
-    for &lang in languages {
-        let single = HashSet::from([lang]);
-        let dirs = poly_paths(config, base_dir, Some(&single), &[lang]);
-        if changed_paths
-            .iter()
-            .any(|path| dirs.iter().any(|dir| path.starts_with(dir)))
-        {
-            owners.insert(lang);
-        }
-    }
-    owners
-}
-
-/// Drop every path that lies inside another path in the list. poly walks each root it is
-/// given recursively, so handing it both `crates/x-node` and `crates/x-node/src` would
-/// format the same subtree twice -- and a formatter run twice in one pass is how
-/// non-idempotent engines produce output that differs from what a single `--check` expects.
-fn collapse_nested_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
-    paths
-        .iter()
-        .filter(|candidate| {
-            !paths
-                .iter()
-                .any(|other| other != *candidate && candidate.starts_with(other))
-        })
-        .cloned()
-        .collect()
 }
 
 /// Glob patterns excluded from every poly `fmt` invocation, `--fix` and `--check`

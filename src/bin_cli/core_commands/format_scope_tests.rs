@@ -143,6 +143,101 @@ package = "com.example.testlib"
 package_name = "test-lib"
 "#;
 
+/// A crate configuring `[crates.scaffold.cargo]`, so `alef generate` writes the workspace-root
+/// `.cargo/config.toml` -- a scaffold file `package_dir`/`output_for`/crate-root ties to no
+/// single language at all, unlike `pom.xml` above (which at least belongs to `packages/java`).
+const CARGO_CONFIG_FIXTURE_ALEF_TOML: &str = r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+version_from = "Cargo.toml"
+
+[crates.python]
+module_name = "test_lib"
+
+[crates.python.stubs]
+output = "packages/python/test_lib"
+
+[crates.scaffold]
+description = "Test library"
+license = "MIT"
+repository = "https://github.com/test/test-lib"
+authors = ["Test Author"]
+keywords = ["test"]
+
+[crates.scaffold.cargo]
+"#;
+
+/// `alef generate` must leave `.cargo/config.toml` poly-canonical, the same as every other
+/// scaffold file it writes -- not just the ones that happen to live under a language's own
+/// `package_dir`/`output_for`/crate root.
+///
+/// Before the fix, `poly_paths`' partial-regen scope is built entirely from
+/// `package_dir(lang)`/`output_for(lang)`/crate-root directories (see its own doc comment), so a
+/// workspace-root scaffold file with no single-language owner -- `.cargo/config.toml`, rendered
+/// by `scaffold::render_cargo_config` -- is never handed to poly on an `alef generate` run,
+/// regardless of which languages `format_scope` names. The raw template emits the
+/// `wasm32-unknown-unknown` target's `rustflags` as one unwrapped line; only poly's own TOML
+/// formatter reflows a long array like that one across lines, so a file that never reaches poly
+/// ships exactly as the raw template wrote it. `alef all`'s whole-tree convergence pass
+/// (`only_languages = None`) always covers it, which is why the same fixture through `alef all`
+/// never reproduces this. ~keep
+#[test]
+fn generate_formats_a_workspace_root_scaffold_file_no_language_owns() {
+    if !crate::cli::pipeline::is_tool_available("poly") {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    write_fixture_workspace(&root);
+    std::fs::write(root.join("alef.toml"), CARGO_CONFIG_FIXTURE_ALEF_TOML).expect("write fixture alef.toml");
+
+    let _cwd = crate::test_support::CwdGuard::enter(&root);
+
+    let context = DispatchContext {
+        config_path: root.join("alef.toml"),
+        crate_filter: Vec::new(),
+    };
+    super::handle(
+        Commands::Generate {
+            lang: None,
+            clean: false,
+            skip_frb: false,
+            strict: false,
+            skip_compile: false,
+        },
+        &context,
+    )
+    .expect("alef generate must succeed against the fixture");
+
+    let cargo_config_path = root.join(".cargo/config.toml");
+    assert!(
+        cargo_config_path.exists(),
+        "sanity: `alef generate` must have written .cargo/config.toml, or the canonical-form \
+         assertion below proves nothing"
+    );
+
+    let check = std::process::Command::new("poly")
+        .args(["fmt", "--check", "--fix-generated", ".cargo/config.toml"])
+        .current_dir(&root)
+        .output()
+        .expect("run poly fmt --check");
+    let check_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&check.stdout),
+        String::from_utf8_lossy(&check.stderr)
+    );
+    assert!(
+        check.status.success(),
+        "`poly fmt --check --fix-generated .cargo/config.toml` must report the file clean after \
+         `alef generate` -- a workspace-root scaffold file with no owning language must still \
+         reach the formatter. Output:\n{check_output}"
+    );
+}
+
 fn write_java_fixture_workspace(root: &Path, alef_toml: &str) {
     std::fs::create_dir_all(root.join("src")).expect("create fixture src directory");
     std::fs::write(root.join("src/lib.rs"), FIXTURE_SOURCE).expect("write fixture source");
