@@ -16,6 +16,14 @@ pub(super) fn default_fixtures_dir() -> String {
     "fixtures".to_string()
 }
 
+/// Default wall-clock timeout, in seconds, for a generated e2e test runner's whole test
+/// task/process (today: the kotlin_android Gradle `Test` task's `timeout.set(...)`). 1800
+/// (30 minutes) matches the `timeout_seconds` convention `[setup.*]`/`[build_commands.*]`
+/// already use elsewhere in this schema for external-tool wall-clock limits.
+pub(super) fn default_e2e_test_timeout_seconds() -> u64 {
+    1800
+}
+
 pub(super) fn default_output_dir() -> String {
     "e2e".to_string()
 }

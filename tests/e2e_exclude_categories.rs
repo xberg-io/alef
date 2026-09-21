@@ -69,6 +69,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         harness: Default::default(),
         harness_extras: Default::default(),
         extra_system_libs: Default::default(),
+        timeout_seconds: 1800,
     }
 }
 

@@ -12,6 +12,8 @@ pub(super) struct KotlinAndroidBuildGradleInputs<'a> {
     pub(super) e2e_env: &'a std::collections::BTreeMap<String, String>,
     pub(super) capsule_types: &'a std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     pub(super) test_documents_path: &'a str,
+    /// `[crates.e2e].timeout_seconds` -- the whole Gradle `Test` task's wall-clock budget.
+    pub(super) timeout_seconds: u64,
 }
 
 /// Render build.gradle.kts for the kotlin_android e2e project.
@@ -34,6 +36,7 @@ pub(super) fn render_build_gradle_kotlin_android(inputs: &KotlinAndroidBuildGrad
     let e2e_env = inputs.e2e_env;
     let capsule_types = inputs.capsule_types;
     let test_documents_path = inputs.test_documents_path;
+    let timeout_seconds = inputs.timeout_seconds;
 
     // Forward `[crates.e2e.env]` vars into the Gradle test worker's *process*
     // environment via `environment(...)`. The worker is a forked JVM, and the
@@ -244,6 +247,14 @@ tasks.register("copyHostJni", Copy::class) {{
 
 tasks.withType<Test> {{
     useJUnitPlatform(){test_env_block}
+    testLogging {{
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+        exceptionFormat = TestExceptionFormat.FULL
+    }}
+    // A hung native call otherwise blocks this whole task with no attribution beyond an
+    // eventual, much later CI-level job kill -- see `[crates.e2e].timeout_seconds`. ~keep
+    timeout.set(Duration.ofSeconds({timeout_seconds}))
     dependsOn("verifyAarPublished")
     if (project.properties["alef.skipHostJni"] != "true") {{
         val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
@@ -270,6 +281,7 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
             jni_crate_path = jni_crate_path,
             jni_lib_name = jni_lib_name,
             test_env_block = test_env_block,
+            timeout_seconds = timeout_seconds,
         )
     } else {
         // Resolve fixture paths (e.g. "docx/fake.docx") against the configured
@@ -335,6 +347,14 @@ tasks.register("copyHostJni", Copy::class) {{
 
 tasks.withType<Test> {{
     useJUnitPlatform(){test_env_block}
+    testLogging {{
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+        exceptionFormat = TestExceptionFormat.FULL
+    }}
+    // A hung native call otherwise blocks this whole task with no attribution beyond an
+    // eventual, much later CI-level job kill -- see `[crates.e2e].timeout_seconds`. ~keep
+    timeout.set(Duration.ofSeconds({timeout_seconds}))
 
     // Resolve the native library location (e.g., ../../target/release)
     val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
@@ -366,6 +386,7 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
             jni_lib_name = jni_lib_name,
             test_env_block = test_env_block,
             guarded_working_dir = guarded_working_dir,
+            timeout_seconds = timeout_seconds,
         )
     };
 
@@ -431,7 +452,9 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
     format!(
         r#"import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Duration
 import java.util.zip.ZipFile
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{

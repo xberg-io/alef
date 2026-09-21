@@ -26,6 +26,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             output.contains("jackson-module-kotlin"),
@@ -52,6 +53,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         let annotations_line = output
             .lines()
@@ -91,6 +93,7 @@ mod tests {
                 e2e_env: &env,
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
+                timeout_seconds: 1800,
             });
             assert!(
                 output.contains(r#"environment("MY_SERVICE_ALLOW_PRIVATE_NETWORK", "true")"#),
@@ -121,6 +124,7 @@ mod tests {
                 e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
+                timeout_seconds: 1800,
             });
             assert!(
                 output.contains(r#"testImplementation("org.junit.platform:junit-platform-launcher:"#),
@@ -163,6 +167,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &capsule_types,
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             output.contains(r#"testImplementation("io.github.tree-sitter:ktreesitter:0.25.0")"#),
@@ -198,6 +203,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &capsule_types,
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             !output.contains("io.github.tree-sitter:ktreesitter"),
@@ -222,6 +228,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             output.contains(r#"implementation("dev.sample_crate:sample_crate-android:5.0.0-rc.1")"#),
@@ -293,6 +300,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             output.contains("verifyAarPublished"),
@@ -332,6 +340,7 @@ mod tests {
                 e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
+                timeout_seconds: 1800,
             });
             assert!(
                 output.contains("jvmToolchain(17)"),
@@ -353,6 +362,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
         assert!(
             !output.contains("verifyAarPublished"),
@@ -378,6 +388,7 @@ mod tests {
                 e2e_env: &std::collections::BTreeMap::new(),
                 capsule_types: &std::collections::HashMap::new(),
                 test_documents_path: "../../test_documents",
+                timeout_seconds: 1800,
             });
 
             assert!(
@@ -412,6 +423,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
 
         assert!(
@@ -437,6 +449,7 @@ mod tests {
             e2e_env: &std::collections::BTreeMap::new(),
             capsule_types: &std::collections::HashMap::new(),
             test_documents_path: "../../test_documents",
+            timeout_seconds: 1800,
         });
 
         assert!(
@@ -451,5 +464,53 @@ mod tests {
             output.contains("libsample_crate_jni.so"),
             "copyHostJni must emit Linux library name with parameterized JNI lib name, got:\n{output}"
         );
+    }
+
+    /// Regression: a hung native call in a kotlin_android e2e test must produce an
+    /// attributable failure instead of a silent, multi-hour CI hang -- `tasks.withType<Test>`
+    /// must configure `testLogging` (so CI output names which test was running) and a
+    /// wall-clock `timeout` derived from `[crates.e2e].timeout_seconds` (so the task itself
+    /// fails well inside any outer CI job timeout), in BOTH dependency modes -- the two
+    /// branches render entirely separate `tasks.withType<Test>` blocks. ~keep
+    #[test]
+    fn build_gradle_kotlin_android_emits_test_logging_and_a_task_timeout_in_both_dep_modes() {
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(&KotlinAndroidBuildGradleInputs {
+                kotlin_pkg_id: "dev.sample_crate",
+                maven_coordinate: "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                jni_lib_name: "sample_crate_jni",
+                jni_crate_path: "../../crates/sample_crate-jni",
+                e2e_env: &std::collections::BTreeMap::new(),
+                capsule_types: &std::collections::HashMap::new(),
+                test_documents_path: "../../test_documents",
+                timeout_seconds: 900,
+            });
+
+            assert!(
+                output.contains("import java.time.Duration"),
+                "build.gradle.kts ({dep_mode:?}) must import java.time.Duration, got:\n{output}"
+            );
+            assert!(
+                output.contains("import org.gradle.api.tasks.testing.logging.TestExceptionFormat"),
+                "build.gradle.kts ({dep_mode:?}) must import TestExceptionFormat, got:\n{output}"
+            );
+            assert!(
+                output.contains(
+                    "    testLogging {\n        events(\"passed\", \"skipped\", \"failed\")\n        \
+                     showStandardStreams = true\n        exceptionFormat = TestExceptionFormat.FULL\n    }"
+                ),
+                "build.gradle.kts ({dep_mode:?}) must configure testLogging with passed/skipped/failed \
+                 events, standard-stream output, and the FULL exception format, got:\n{output}"
+            );
+            assert!(
+                output.contains("timeout.set(Duration.ofSeconds(900))"),
+                "build.gradle.kts ({dep_mode:?}) must set a Test task timeout derived from the \
+                 configured timeout_seconds (900), got:\n{output}"
+            );
+        }
     }
 }

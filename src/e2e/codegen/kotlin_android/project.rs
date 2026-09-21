@@ -171,6 +171,7 @@ pub(super) fn generate(
             e2e_env: &e2e_config.env,
             capsule_types: &capsule_types,
             test_documents_path: &e2e_config.test_documents_relative_from(0),
+            timeout_seconds: e2e_config.timeout_seconds,
         }),
         generated_header: false,
     });

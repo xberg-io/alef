@@ -251,6 +251,17 @@ pub struct E2eConfig {
     /// Optional fixture-driven documentation snippet output.
     #[serde(default)]
     pub snippets: Option<SnippetConfig>,
+    /// Wall-clock timeout, in seconds, for a generated e2e test runner's whole test
+    /// task/process. Default: 1800 (30 minutes), the same convention
+    /// `[setup.*].timeout_seconds`/`[build_commands.*].timeout_seconds` already use
+    /// elsewhere in this schema.
+    ///
+    /// Consumed today by the kotlin_android Gradle emitter, which sets
+    /// `timeout.set(Duration.ofSeconds(...))` on `tasks.withType<Test>` -- without it, a
+    /// hung native call blocks the whole `gradle test` invocation with no attribution
+    /// beyond an eventual, much later CI-level kill.
+    #[serde(default = "default_e2e_test_timeout_seconds")]
+    pub timeout_seconds: u64,
 }
 
 impl E2eConfig {
@@ -490,6 +501,7 @@ impl Default for E2eConfig {
             dep_mode: DependencyMode::default(),
             registry: RegistryConfig::default(),
             snippets: None,
+            timeout_seconds: default_e2e_test_timeout_seconds(),
         }
     }
 }
