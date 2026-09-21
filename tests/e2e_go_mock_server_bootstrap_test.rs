@@ -138,6 +138,36 @@ fn test_go_main_test_with_mock_server_fixture() {
     );
 }
 
+/// Regression for #405: the standalone-mode `mockBin` join hard-coded
+/// `../rust/target/release/mock-server`, which breaks under `CARGO_TARGET_DIR`/a
+/// `.cargo/config.toml` `build.target-dir` override. The runner (`alef test-apps run`) now
+/// exports the resolved absolute path as `ALEF_E2E_MOCK_SERVER`; TestMain must read it before
+/// falling back to the historical `filepath.Join`.
+#[test]
+fn test_go_main_test_mock_bin_prefers_alef_e2e_mock_server_env_var() {
+    let (e2e_config, resolved_config) = build_config();
+    let groups = vec![make_mock_server_fixture()];
+
+    let files = GoCodegen
+        .generate(&groups, &e2e_config, &resolved_config, &[], &[], &[], &[])
+        .expect("generation succeeds");
+
+    let main_test_file = files
+        .iter()
+        .find(|f| f.path.ends_with("main_test.go"))
+        .expect("main_test.go is generated");
+    let content = &main_test_file.content;
+
+    assert!(
+        content.contains("os.Getenv(\"ALEF_E2E_MOCK_SERVER\")"),
+        "TestMain should read ALEF_E2E_MOCK_SERVER before falling back. Rendered:\n{content}"
+    );
+    assert!(
+        content.contains("filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"),
+        "TestMain should still fall back to the historical filepath.Join. Rendered:\n{content}"
+    );
+}
+
 #[test]
 fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
     let (e2e_config, resolved_config) = build_config();

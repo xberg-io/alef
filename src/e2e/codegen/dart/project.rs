@@ -113,8 +113,15 @@ Future<MockServerHandle> startMockServer() async {
   }
 
   final repoRoot = _findRepoRoot();
+  // The runner (`alef test-apps run`) resolves the binary via `cargo metadata` (following
+  // CARGO_TARGET_DIR/.cargo/config.toml overrides) and exports its absolute path as
+  // ALEF_E2E_MOCK_SERVER; the repoRoot-joined path is the fallback for running dart test
+  // directly, outside the runner.
+  final envMockServer = Platform.environment['ALEF_E2E_MOCK_SERVER'];
   final mockServer = File(
-    '${repoRoot.path}/e2e/rust/target/release/mock-server',
+    (envMockServer != null && envMockServer.isNotEmpty)
+        ? envMockServer
+        : '${repoRoot.path}/e2e/rust/target/release/mock-server',
   );
   if (!mockServer.existsSync()) {
     final manifestPath = '${repoRoot.path}/e2e/rust/Cargo.toml';
@@ -320,5 +327,23 @@ mod tests {
     fn render_pubspec_local_uses_path_dependency() {
         let out = render_pubspec("my_pkg", "../my_pkg", "1.2.3", DependencyMode::Local);
         assert!(out.contains("my_pkg:\n    path: ../my_pkg"), "got: {out}");
+    }
+
+    /// Regression for #405: the standalone-mode mock-server spawn hard-coded
+    /// `../rust/target/release/mock-server`, resolved relative to the repo root, which breaks
+    /// under `CARGO_TARGET_DIR`/a `.cargo/config.toml` `build.target-dir` override. The runner
+    /// (`alef test-apps run`) now exports the resolved absolute path as `ALEF_E2E_MOCK_SERVER`;
+    /// this asserts the shared helper reads it before falling back to the historical join.
+    #[test]
+    fn e2e_helpers_prefers_alef_e2e_mock_server_env_var_over_the_repo_root_join() {
+        let out = render_e2e_helpers();
+        assert!(
+            out.contains("Platform.environment['ALEF_E2E_MOCK_SERVER']"),
+            "startMockServer must read ALEF_E2E_MOCK_SERVER, got: {out}"
+        );
+        assert!(
+            out.contains("'${repoRoot.path}/e2e/rust/target/release/mock-server'"),
+            "startMockServer must still fall back to the repo-root-relative join, got: {out}"
+        );
     }
 }

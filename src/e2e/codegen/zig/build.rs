@@ -609,7 +609,12 @@ fn render_zig_mock_server_spawn() -> &'static str {
     var mock_servers_json: ?[]const u8 = null;
     var mock_servers_map = std.StringHashMap([]const u8).init(_alloc);
     if (mock_server_url == null) {
-        const _bin = b.pathFromRoot("../rust/target/release/mock-server");
+        // The runner resolves the binary via `cargo metadata` (following
+        // CARGO_TARGET_DIR/.cargo/config.toml overrides) and exports its absolute path as
+        // ALEF_E2E_MOCK_SERVER; the pathFromRoot join is the fallback for running `zig build`
+        // directly, outside the runner. ~keep
+        const _bin = b.graph.environ_map.get("ALEF_E2E_MOCK_SERVER") orelse
+            b.pathFromRoot("../rust/target/release/mock-server");
         const _fixtures = b.pathFromRoot("../../fixtures");
         var _threaded = std.Io.Threaded.init(_alloc, .{});
         const _io = _threaded.io();

@@ -315,44 +315,70 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         }
     });
 
-    let mut env_vars: Vec<(String, String)> = vec![("MOCK_SERVER_URL".to_string(), url)];
-    if let Some(servers) = servers {
-        match serde_json::from_str::<std::collections::HashMap<String, String>>(&servers) {
-            Ok(map) => {
-                for (fixture_id, server_url) in &map {
-                    let key = format!("MOCK_SERVER_{}", fixture_id.to_ascii_uppercase());
-                    // `fixture_id` is a fixture author's free-form JSON `"id"` field, not a
-                    // value alef controls -- unlike `[crates.e2e.env]` (validated once, at
-                    // config resolution, see `core::config::validation::validate_e2e_env_keys`),
-                    // there is no single upstream gate for it. Skip (rather than reject the
-                    // whole run for) a derived key that isn't a valid env-var name: this
-                    // mirrors the JSON-parse-failure handling directly below, which is also a
-                    // warn-and-fall-back-to-MOCK_SERVER_URL, never an abort. ~keep
-                    if crate::core::config::validation::is_valid_env_var_name(&key) {
-                        env_vars.push((key, server_url.clone()));
-                    } else {
-                        warn!(
-                            "skipping MOCK_SERVER_<FIXTURE_ID> env var derived from fixture id \
-                             {fixture_id:?}: {key:?} is not a valid environment variable name"
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "failed to parse MOCK_SERVERS JSON: {e} -- no MOCK_SERVER_<FIXTURE_ID> env vars derived, \
-                     test apps fall back to MOCK_SERVER_URL"
-                );
-            }
-        }
-        env_vars.push(("MOCK_SERVERS".to_string(), servers));
-    }
+    let env_vars = build_mock_server_env_vars(url, &bin_path, servers);
 
     Ok(Some(MockServerHandle {
         child,
         tracked,
         env_vars,
     }))
+}
+
+/// Build the env vars a `MockServerHandle` carries for injection into every test-app
+/// `run`/`before` command: `MOCK_SERVER_URL`, `ALEF_E2E_MOCK_SERVER` (the resolved binary path),
+/// then optionally `MOCK_SERVERS` plus derived `MOCK_SERVER_<FIXTURE_ID>` vars for any
+/// host-root fixture named in `servers`' JSON.
+///
+/// `ALEF_E2E_MOCK_SERVER` lets a generated harness's own standalone-mode bootstrap (used when
+/// the harness runs directly -- e.g. `alef test --e2e`, or `go test`/`pytest`/`zig build
+/// test`/`dart test`/`run_tests.sh` invoked by hand -- rather than under `alef test-apps run`)
+/// find the already-built binary without re-deriving `mock_server_binary_path`'s `cargo
+/// metadata` resolution itself. Each of the five generated-harness emitters falls back to their
+/// historical hard-coded relative path when this is unset. See #405. ~keep
+///
+/// Extracted from `start_mock_server` so the vars a live mock-server produces can be asserted
+/// directly, without spawning a real process.
+fn build_mock_server_env_vars(url: String, bin_path: &Path, servers: Option<String>) -> Vec<(String, String)> {
+    let mut env_vars: Vec<(String, String)> = vec![
+        ("MOCK_SERVER_URL".to_string(), url),
+        (
+            "ALEF_E2E_MOCK_SERVER".to_string(),
+            bin_path.to_string_lossy().into_owned(),
+        ),
+    ];
+    let Some(servers) = servers else {
+        return env_vars;
+    };
+    match serde_json::from_str::<std::collections::HashMap<String, String>>(&servers) {
+        Ok(map) => {
+            for (fixture_id, server_url) in &map {
+                let key = format!("MOCK_SERVER_{}", fixture_id.to_ascii_uppercase());
+                // `fixture_id` is a fixture author's free-form JSON `"id"` field, not a
+                // value alef controls -- unlike `[crates.e2e.env]` (validated once, at
+                // config resolution, see `core::config::validation::validate_e2e_env_keys`),
+                // there is no single upstream gate for it. Skip (rather than reject the
+                // whole run for) a derived key that isn't a valid env-var name: this
+                // mirrors the JSON-parse-failure handling directly below, which is also a
+                // warn-and-fall-back-to-MOCK_SERVER_URL, never an abort. ~keep
+                if crate::core::config::validation::is_valid_env_var_name(&key) {
+                    env_vars.push((key, server_url.clone()));
+                } else {
+                    warn!(
+                        "skipping MOCK_SERVER_<FIXTURE_ID> env var derived from fixture id \
+                         {fixture_id:?}: {key:?} is not a valid environment variable name"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            warn!(
+                "failed to parse MOCK_SERVERS JSON: {e} -- no MOCK_SERVER_<FIXTURE_ID> env vars derived, \
+                 test apps fall back to MOCK_SERVER_URL"
+            );
+        }
+    }
+    env_vars.push(("MOCK_SERVERS".to_string(), servers));
+    env_vars
 }
 
 /// Run the registry-mode test app for each language.
@@ -912,6 +938,59 @@ mod mock_server_binary_path_tests {
             resolved.exists(),
             "resolved path {} does not exist after cargo build",
             resolved.display()
+        );
+    }
+}
+
+#[cfg(test)]
+mod build_mock_server_env_vars_tests {
+    use super::*;
+
+    /// Regression for #405: the generated per-language harnesses hard-coded
+    /// `../rust/target/release/mock-server`, which breaks under `CARGO_TARGET_DIR` or a
+    /// `.cargo/config.toml` `build.target-dir` override. The fix threads the runner's
+    /// already-resolved binary path through `ALEF_E2E_MOCK_SERVER` so each harness's own
+    /// standalone-mode fallback never has to re-derive it.
+    #[test]
+    fn exports_alef_e2e_mock_server_with_the_resolved_binary_path() {
+        let bin_path = Path::new("/var/tmp/some-external-target/release/mock-server");
+        let env_vars = build_mock_server_env_vars("http://127.0.0.1:12345".to_string(), bin_path, None);
+
+        assert_eq!(
+            env_vars,
+            vec![
+                ("MOCK_SERVER_URL".to_string(), "http://127.0.0.1:12345".to_string()),
+                (
+                    "ALEF_E2E_MOCK_SERVER".to_string(),
+                    "/var/tmp/some-external-target/release/mock-server".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn exports_alef_e2e_mock_server_alongside_derived_fixture_vars() {
+        let bin_path = Path::new("/custom/target/release/mock-server");
+        let servers = r#"{"robots": "http://127.0.0.1:12345/robots.namespaced"}"#.to_string();
+        let env_vars = build_mock_server_env_vars("http://127.0.0.1:12345".to_string(), bin_path, Some(servers));
+
+        assert_eq!(
+            env_vars,
+            vec![
+                ("MOCK_SERVER_URL".to_string(), "http://127.0.0.1:12345".to_string()),
+                (
+                    "ALEF_E2E_MOCK_SERVER".to_string(),
+                    "/custom/target/release/mock-server".to_string()
+                ),
+                (
+                    "MOCK_SERVER_ROBOTS".to_string(),
+                    "http://127.0.0.1:12345/robots.namespaced".to_string()
+                ),
+                (
+                    "MOCK_SERVERS".to_string(),
+                    r#"{"robots": "http://127.0.0.1:12345/robots.namespaced"}"#.to_string()
+                ),
+            ]
         );
     }
 }

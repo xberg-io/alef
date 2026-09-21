@@ -62,9 +62,13 @@ pub(super) fn render_run_tests(categories: &[String], env: &BTreeMap<String, Str
         "# above because nothing else in the smoke task spawns a mock-server."
     );
     let _ = writeln!(out, "if [ -z \"${{MOCK_SERVER_URL:-}}\" ]; then");
+    // ALEF_E2E_MOCK_SERVER is the runner's resolved path (via `cargo metadata`, following
+    // CARGO_TARGET_DIR/.cargo/config.toml overrides); MOCK_SERVER_BIN remains a manual
+    // override for running this script directly, outside the runner; the literal join is
+    // the last-resort fallback when neither is set. ~keep
     let _ = writeln!(
         out,
-        "  MOCK_SERVER_BIN=\"${{MOCK_SERVER_BIN:-../rust/target/release/mock-server}}\""
+        "  MOCK_SERVER_BIN=\"${{MOCK_SERVER_BIN:-${{ALEF_E2E_MOCK_SERVER:-../rust/target/release/mock-server}}}}\""
     );
     let _ = writeln!(
         out,

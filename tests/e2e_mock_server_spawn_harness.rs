@@ -167,6 +167,29 @@ fn zig_http_fixture_build_spawns_mock_server() {
     );
 }
 
+/// Regression for #405: the standalone-mode `_bin` join hard-coded
+/// `../rust/target/release/mock-server` via `b.pathFromRoot`, which breaks under
+/// `CARGO_TARGET_DIR`/a `.cargo/config.toml` `build.target-dir` override. The runner
+/// (`alef test-apps run`) now exports the resolved absolute path as `ALEF_E2E_MOCK_SERVER`;
+/// `build.zig` must read it before falling back to the historical `pathFromRoot` join.
+#[test]
+fn zig_build_mock_server_bin_prefers_alef_e2e_mock_server_env_var() {
+    let files = generate(&ZigE2eCodegen, "zig");
+    let build_zig = files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig"))
+        .expect("build.zig is emitted");
+    let content = &build_zig.content;
+    assert!(
+        content.contains("b.graph.environ_map.get(\"ALEF_E2E_MOCK_SERVER\")"),
+        "build.zig should read ALEF_E2E_MOCK_SERVER before falling back. Rendered:\n{content}"
+    );
+    assert!(
+        content.contains("b.pathFromRoot(\"../rust/target/release/mock-server\")"),
+        "build.zig should still fall back to the historical pathFromRoot join. Rendered:\n{content}"
+    );
+}
+
 #[test]
 fn elixir_http_fixture_forces_http1_on_req() {
     let files = generate(&ElixirCodegen, "elixir");

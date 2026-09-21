@@ -342,6 +342,36 @@ fn python_conftest_emits_mock_servers_parsing() {
     );
 }
 
+/// Regression for #405: `_MOCK_SERVER_BIN` hard-coded
+/// `_E2E_DIR / "rust" / "target" / "release" / "mock-server"`, which breaks under
+/// `CARGO_TARGET_DIR`/a `.cargo/config.toml` `build.target-dir` override. The runner
+/// (`alef test-apps run`) now exports the resolved absolute path as `ALEF_E2E_MOCK_SERVER`;
+/// conftest.py must read it before falling back to the historical join.
+#[test]
+fn python_conftest_mock_server_bin_prefers_alef_e2e_mock_server_env_var() {
+    let files = generate_all(
+        &PythonE2eCodegen,
+        "python",
+        vec![make_host_root_fixture("robots_disallow_path")],
+    );
+    let conftest = files
+        .iter()
+        .find(|f| f.path.ends_with("conftest.py"))
+        .expect("conftest.py not found");
+    assert!(
+        conftest.content.contains(r#"os.environ.get("ALEF_E2E_MOCK_SERVER")"#),
+        "conftest.py should read ALEF_E2E_MOCK_SERVER before falling back:\n{}",
+        conftest.content
+    );
+    assert!(
+        conftest
+            .content
+            .contains(r#"_E2E_DIR / "rust" / "target" / "release" / "mock-server""#),
+        "conftest.py should still fall back to the historical join:\n{}",
+        conftest.content
+    );
+}
+
 #[test]
 fn typescript_host_root_fixture_url_uses_mock_server_env_key() {
     let files = generate_all(

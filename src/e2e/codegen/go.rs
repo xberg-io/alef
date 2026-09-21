@@ -584,10 +584,17 @@ fn render_main_test_go(
         let _ = writeln!(out, "\t\tos.Exit(m.Run())");
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out);
+        // The runner (`alef test-apps run`) resolves the binary via `cargo metadata` (so
+        // `CARGO_TARGET_DIR`/`.cargo/config.toml` overrides are followed) and exports its
+        // absolute path as `ALEF_E2E_MOCK_SERVER`; this literal join is the fallback for
+        // running the harness directly, outside the runner. ~keep
+        let _ = writeln!(out, "\tmockBin := os.Getenv(\"ALEF_E2E_MOCK_SERVER\")");
+        let _ = writeln!(out, "\tif mockBin == \"\" {{");
         let _ = writeln!(
             out,
-            "\tmockBin := filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"
+            "\t\tmockBin = filepath.Join(dir, \"..\", \"rust\", \"target\", \"release\", \"mock-server\")"
         );
+        let _ = writeln!(out, "\t}}");
         let _ = writeln!(
             out,
             "\tmockManifest := filepath.Join(dir, \"..\", \"rust\", \"Cargo.toml\")"

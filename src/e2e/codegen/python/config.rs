@@ -397,7 +397,14 @@ import pytest
 
 _HERE = Path(__file__).parent
 _E2E_DIR = _HERE.parent
-_MOCK_SERVER_BIN = _E2E_DIR / "rust" / "target" / "release" / "mock-server"
+# The runner (`alef test-apps run`) resolves the binary via `cargo metadata` (following
+# CARGO_TARGET_DIR/.cargo/config.toml overrides) and exports its absolute path as
+# ALEF_E2E_MOCK_SERVER; the joined path below is the fallback for running pytest directly,
+# outside the runner.
+_env_mock_server_bin = os.environ.get("ALEF_E2E_MOCK_SERVER")
+_MOCK_SERVER_BIN = (
+    Path(_env_mock_server_bin) if _env_mock_server_bin else _E2E_DIR / "rust" / "target" / "release" / "mock-server"
+)
 _FIXTURES_DIR = _E2E_DIR.parent / "fixtures"
 {file_fixtures_chdir}
 
