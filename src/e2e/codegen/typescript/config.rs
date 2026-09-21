@@ -100,7 +100,7 @@ pub(super) fn render_tsconfig() -> String {
 }
 
 pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     crate::e2e::template_env::render(
         "typescript/vitest.config.ts.jinja",
@@ -113,7 +113,7 @@ pub(super) fn render_vitest_config(with_global_setup: bool, with_file_setup: boo
 }
 
 pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     crate::e2e::template_env::render(
         "typescript/setup.ts.jinja",
@@ -125,7 +125,7 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
 }
 
 pub fn render_global_setup(use_server_pattern: bool) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     let template = if use_server_pattern {
         "typescript/globalSetup_server.ts.jinja"

@@ -202,7 +202,7 @@ fn render_run_tests(
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(
         out,
         "# Tests the Homebrew CLI formula{}.",
@@ -360,7 +360,7 @@ fn sanitize_var_name(name: &str) -> String {
 fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str, _ffi_formula: &str) -> String {
     let mut out = String::new();
     let version_fn = format!("{ffi_prefix}_version");
-    out.push_str(&hash::header(CommentStyle::Block));
+    out.push_str(&hash::e2e_header(CommentStyle::Block));
     let _ = writeln!(out, "#include <{ffi_header}>");
     let _ = writeln!(out, "#include <stdio.h>");
     let _ = writeln!(out, "#include <stdlib.h>");

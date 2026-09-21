@@ -46,7 +46,7 @@ pub(super) fn render_test_file(
     errors: &[crate::core::ir::ErrorDef],
     uses_harness: bool,
 ) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
 
     // If the class_name is fully qualified (contains '.'), import it and use

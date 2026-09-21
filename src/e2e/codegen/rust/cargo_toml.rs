@@ -164,7 +164,7 @@ pub fn render_cargo_toml(inputs: &CargoTomlInputs<'_>) -> String {
     // doesn't rewrite the generated file on every prek run. Fall back to "0.1.0" only
     // when no consumer version is known (test fixtures, etc.).
     let pkg_version = version.unwrap_or("0.1.0");
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
 
     // Collect all dependency entries into a sortable Vec so the emitted
     // [dependencies] block is alphabetically ordered.  cargo-sort rewrites any

@@ -243,7 +243,7 @@ pub(super) fn render_spec_file(
         }
     }
 
-    let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
+    let header = crate::core::hash::e2e_header(crate::core::hash::CommentStyle::Hash);
     crate::e2e::template_env::render(
         "ruby/test_file.jinja",
         minijinja::context! {

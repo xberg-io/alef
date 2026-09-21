@@ -27,7 +27,9 @@ pub fn render_test_file(
     snippet_expects_error: bool,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&crate::core::hash::header(crate::core::hash::CommentStyle::DoubleSlash));
+    out.push_str(&crate::core::hash::e2e_header(
+        crate::core::hash::CommentStyle::DoubleSlash,
+    ));
     let _ = writeln!(out, "//! E2e tests for category: {category}");
     let _ = writeln!(out);
 

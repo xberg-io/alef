@@ -147,7 +147,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
 
     // Derive Ruby-namespaced class names from imports[0] when explicit values are not configured.
     // E.g. imports[0] = "my_pkg" → module prefix "MyPkg::" → "MyPkg::Method", "MyPkg::App", etc.
@@ -233,7 +233,7 @@ pub(super) fn render_spec_helper(
     _harness_port: u16,
     env: &BTreeMap<String, String>,
 ) -> String {
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
     let _module_name = super::values::ruby_module_name(module_path);

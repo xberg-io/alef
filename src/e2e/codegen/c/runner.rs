@@ -42,7 +42,7 @@ pub(super) fn render_test_runner_header(
     visitor_fixtures: &[&Fixture],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Block));
+    out.push_str(&hash::e2e_header(CommentStyle::Block));
     let _ = writeln!(out, "#ifndef TEST_RUNNER_H");
     let _ = writeln!(out, "#define TEST_RUNNER_H");
     let _ = writeln!(out);
@@ -381,7 +381,7 @@ pub(super) fn render_main_c(
     env: &BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Block));
+    out.push_str(&hash::e2e_header(CommentStyle::Block));
     let _ = writeln!(out, "#include <stdio.h>");
     let _ = writeln!(out, "#include \"test_runner.h\"");
     let _ = writeln!(out);

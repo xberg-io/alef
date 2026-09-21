@@ -143,7 +143,7 @@ fn stub_readme() -> String {
 fn render_run_tests(pkg_name: &str, version: &str, extension_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# Installs the PIE PHP native extension and runs main.php.");
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
@@ -249,7 +249,7 @@ fn resolve_smoke_call(
 /// Render `main.php`.
 fn render_main_php(extension_name: &str, smoke_call: Option<&PhpExtSmokeCall>) -> String {
     let mut out = String::new();
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     out.push_str("<?php\n\n");
     out.push_str(&header);
     let _ = writeln!(out);

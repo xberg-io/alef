@@ -935,7 +935,7 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
         .unwrap_or_default();
 
     // Prepend the generated-file header.
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = hash::e2e_header(CommentStyle::DoubleSlash);
     out.push_str(&output);
     out
 }

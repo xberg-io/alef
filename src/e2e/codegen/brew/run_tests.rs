@@ -28,7 +28,7 @@ pub(super) fn render_env_block(env: &BTreeMap<String, String>) -> String {
 pub(super) fn render_run_tests(categories: &[String], env: &BTreeMap<String, String>, binary_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# shellcheck disable=SC1091");
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);

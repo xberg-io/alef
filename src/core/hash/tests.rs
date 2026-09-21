@@ -10,6 +10,16 @@ fn test_header_double_slash() {
 }
 
 #[test]
+fn test_e2e_header_names_the_e2e_regenerate_command() {
+    // alef generate's own summary line states it "never generates docs or e2e/test-app
+    // output" -- an e2e-generated file whose header tells the reader to run plain
+    // `alef generate` is pointing at a command that structurally cannot regenerate it.
+    let h = e2e_header(CommentStyle::DoubleSlash);
+    assert!(h.contains("// To regenerate: alef e2e generate"));
+    assert!(!h.contains("// To regenerate: alef generate\n"));
+}
+
+#[test]
 fn test_header_for_config_omits_issues_url_when_unconfigured() {
     let cfg: crate::core::config::NewAlefConfig = toml::from_str(
         r#"

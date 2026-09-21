@@ -202,7 +202,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
 fn render_python_smoke_test(pip_name: &str) -> String {
     use crate::core::hash::{self, CommentStyle};
 
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
 
     let ctx = minijinja::context! {
         header => header,

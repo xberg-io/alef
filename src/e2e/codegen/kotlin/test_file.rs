@@ -225,7 +225,7 @@ pub(super) fn render_test_file_inner(
     functions: &[crate::core::ir::FunctionDef],
 ) -> anyhow::Result<String> {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
 
     // If the class_name is fully qualified (contains '.'), import it and use

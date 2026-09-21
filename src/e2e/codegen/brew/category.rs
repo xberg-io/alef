@@ -21,7 +21,7 @@ pub(super) fn render_category_file(
     let safe_category = sanitize_filename(category);
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# E2e tests for category: {category}");
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);

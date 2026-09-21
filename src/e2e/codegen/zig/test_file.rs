@@ -136,7 +136,7 @@ pub(super) fn render_test_file(
     enums: &[crate::core::ir::EnumDef],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "const std = @import(\"std\");");
     let _ = writeln!(out, "const testing = std.testing;");
     let _ = writeln!(out, "const {module_name} = @import(\"{module_name}\");");

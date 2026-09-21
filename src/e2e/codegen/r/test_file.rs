@@ -20,7 +20,7 @@ pub(super) fn render_test_file(
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# E2e tests for category: {category}");
     let _ = writeln!(out);
 

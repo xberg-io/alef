@@ -23,7 +23,7 @@ pub(super) fn render_test_file(
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     let _ = writeln!(out, "import gleeunit");
     let _ = writeln!(out, "import gleeunit/should");
 

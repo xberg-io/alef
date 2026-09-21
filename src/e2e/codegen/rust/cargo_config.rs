@@ -24,7 +24,7 @@ pub fn render_cargo_config(env: &BTreeMap<String, String>) -> Option<String> {
         return None;
     }
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out);
     let _ = writeln!(out, "# Suite-level environment defaults from [e2e.env].");
     let _ = writeln!(

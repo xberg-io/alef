@@ -646,7 +646,7 @@ pub fn render_test_file(
     let env_setup = render_env_setup(&e2e_config.env);
 
     let ctx = minijinja::context! {
-        header => hash::header(CommentStyle::DoubleSlash),
+        header => hash::e2e_header(CommentStyle::DoubleSlash),
         import_vitest => import_vitest,
         import_modules => import_modules,
         import_node_fs => import_node_fs,

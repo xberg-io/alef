@@ -57,7 +57,7 @@ Config/testthat/edition: 3
 
 pub(super) fn render_setup_fixtures(test_documents_path: &str, env: &BTreeMap<String, String>) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out);
     let env_block = render_env_block(env);
     if !env_block.is_empty() {
@@ -130,7 +130,7 @@ pub(super) fn render_test_runner(
     dep_mode: crate::e2e::config::DependencyMode,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "library(testthat)");
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -167,7 +167,7 @@ pub(super) fn render_install_r(pkg_name: &str, pkg_version: &str, github_repo: &
     // rendered content itself -- so the marker must come from the shared authority
     // (`hash::header`) rather than a hand-spelled "alef-generated" line that guard doesn't
     // recognize, which would strand the file unowned forever. ~keep
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# Installs the configured R package from GitHub releases.");
     let _ = writeln!(out, "# Requires `R` on PATH.");
     let _ = writeln!(out);

@@ -16,7 +16,7 @@ pub fn render_mock_server_module() -> String {
     // `cargo test`/`cargo clippy`. The crate-level `#![allow(dead_code)]`
     // mirrors the pattern used by other generated helper modules
     // (e.g. `tests/common.rs`).
-    hash::header(CommentStyle::DoubleSlash)
+    hash::e2e_header(CommentStyle::DoubleSlash)
         + r#"//
 // Minimal axum-based mock HTTP server for e2e tests.
 

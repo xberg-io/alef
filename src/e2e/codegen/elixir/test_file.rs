@@ -32,7 +32,7 @@ pub(super) fn render_test_file(
     functions: &[crate::core::ir::FunctionDef],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "# E2e tests for category: {category}");
 
     // First pass: collect all trait-bridge module definitions from fixtures.

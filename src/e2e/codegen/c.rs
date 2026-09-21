@@ -1101,7 +1101,7 @@ fn render_test_file(
     ir: CallIr<'_>,
 ) -> anyhow::Result<String> {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Block));
+    out.push_str(&hash::e2e_header(CommentStyle::Block));
     let _ = writeln!(out, "/* E2e tests for category: {category} */");
     let _ = writeln!(out);
     let _ = writeln!(out, "#include <assert.h>");

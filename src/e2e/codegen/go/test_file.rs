@@ -55,7 +55,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     let emits_executable_test =
         |fixture: &Fixture| fixture.is_http_test() || fixture_has_go_callable(fixture, e2e_config);
 
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     let _ = writeln!(out);
 
     let needs_pkg = fixtures

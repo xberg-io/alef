@@ -21,7 +21,7 @@ pub(super) const SWIFT_FORMAT_IGNORE_DIRECTIVE: &str = "// swift-format-ignore-f
 /// `RustString` so error messages from bridge throws print their actual Rust
 /// content instead of the bare class name.
 pub(super) fn render_test_helpers_swift() -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let ignore = SWIFT_FORMAT_IGNORE_DIRECTIVE;
     format!(
         r#"{header}{ignore}import Foundation
@@ -172,7 +172,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let method_enum = &e2e_config.harness.method_enum;
     let run_method = e2e_config.harness.run_method_for_lang("swift");
 
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     // Build imports: include harness.imports config plus the binding module_name.
     // Get language-specific imports for swift with fallback to global imports.

@@ -42,7 +42,7 @@ pub(super) fn render_test_file(
     });
 
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     out.push_str(SWIFT_FORMAT_IGNORE_DIRECTIVE);
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import Foundation");

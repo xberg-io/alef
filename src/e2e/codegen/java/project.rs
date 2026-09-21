@@ -214,7 +214,7 @@ pub(super) fn render_harness_main(
 // dead-code sweep so the migration diff stays minimal.
 #[allow(dead_code)]
 pub(super) fn render_fixture_loader(java_group_id: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
     out.push_str("import com.fasterxml.jackson.databind.JsonNode;\n");
@@ -274,7 +274,7 @@ pub(super) fn render_fixture_loader(java_group_id: &str) -> String {
 
 /// Render MockServerListener.java from jinja template.
 pub(super) fn render_mock_server_listener(java_group_id: &str) -> String {
-    let header_comment = hash::header(CommentStyle::DoubleSlash);
+    let header_comment = hash::e2e_header(CommentStyle::DoubleSlash);
     let ctx = minijinja::context! {
         java_group_id => java_group_id,
         header_comment => header_comment,
@@ -291,7 +291,7 @@ pub(super) fn render_sealed_display(
     java_group_id: &str,
 ) -> String {
     let helper_class = format!("{type_name}Display");
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str(&format!("package {java_group_id}.e2e;\n\n"));
     out.push_str(&format!("import {java_group_id}.{type_name};\n"));

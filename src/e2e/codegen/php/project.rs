@@ -150,7 +150,7 @@ pub(super) fn render_install_sh(pkg_name: &str, extension_name: &str, pkg_versio
     // rendered content itself -- so the marker line must come from the shared authority
     // (`hash::header`) rather than a hand-spelled "alef-generated" line that guard doesn't
     // recognize, which would strand the file unowned forever. ~keep
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
     format!(
         r#"#!/usr/bin/env bash
 {header}# Installs the configured extension via PIE before `composer install` runs.
@@ -337,7 +337,7 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     // Derive route_builder_import from imports[0] → PHP namespace.
     // E.g. imports[0] = "my_pkg" → namespace MyPkg\Php
@@ -427,7 +427,7 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
         harness_host,
         harness_port,
     } = options;
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let env_setup = render_env_setup_block(e2e_config);
     crate::e2e::template_env::render(
         "php/bootstrap.php.jinja",
@@ -497,7 +497,7 @@ pub(super) fn render_run_tests_php(
     } else {
         "false"
     };
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     // Cargo names the cdylib `lib` + the package name with hyphens replaced by underscores.
     // Deriving it from the same `cargo_package_name` the build hint below prints keeps the path
     // the guard reports missing and the command it tells you to run from naming two different

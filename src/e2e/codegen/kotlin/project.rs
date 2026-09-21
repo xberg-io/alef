@@ -147,7 +147,7 @@ tasks.test {{
 /// listener also honours to skip spawning when the caller already has the
 /// server running).
 pub(crate) fn render_mock_server_listener_kt(kotlin_pkg_id: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     format!(
         r#"{header}package {kotlin_pkg_id}.e2e
 
@@ -308,7 +308,7 @@ class MockServerListener : LauncherSessionListener {{
 
 /// Render SutServerSetup.kt with JUnit 5 @BeforeAll fixture to set SUT_URL.
 pub(super) fn render_sut_server_setup_kt(kotlin_pkg_id: &str) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     let mut out = String::new();
     let _ = writeln!(out, "{}", header);

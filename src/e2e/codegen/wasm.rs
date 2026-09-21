@@ -503,7 +503,7 @@ describe("smoke", () => {{
 /// case carrying its exclusion reason, so the omission is visible in test
 /// output and reports instead of the category disappearing without a trace.
 fn render_wasm_excluded_category(category: &str, reasons: &[(String, String)]) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str("import { describe, it } from \"vitest\";\n\n");
     let _ = writeln!(out, "describe({category:?}, () => {{");
@@ -548,7 +548,7 @@ fn render_package_json(
 }
 
 fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     crate::e2e::template_env::render(
         "wasm/vitest.config.ts.jinja",
         minijinja::context! {
@@ -576,7 +576,7 @@ fn render_setup(
     pkg_name: &str,
     env: &std::collections::BTreeMap<String, String>,
 ) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let mut out = header;
 
     // Consolidated import block for both wasm init and file setup.

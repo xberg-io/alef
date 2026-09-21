@@ -406,7 +406,7 @@ fn render_test_file(
     }
 
     let ctx = minijinja::context! {
-        header => hash::header(CommentStyle::DoubleSlash),
+        header => hash::e2e_header(CommentStyle::DoubleSlash),
         using_imports => using_imports,
         category => category,
         namespace => namespace,

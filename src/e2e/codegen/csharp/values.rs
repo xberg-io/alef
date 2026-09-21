@@ -30,7 +30,7 @@ pub(super) fn render_sealed_display(
     type_defs: &[crate::core::ir::TypeDef],
     namespace: &str,
 ) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
     let mut out = header;
     out.push_str(&format!("namespace {namespace}.E2e;\n\n"));
     out.push_str(&format!(

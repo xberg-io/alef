@@ -26,7 +26,7 @@ pub fn render_common_module() -> String {
     // would otherwise trip `-D dead_code` under `cargo test`/`cargo clippy`.
     // The crate-level `#![allow(dead_code)]` mirrors the pattern used in
     // `tests/mock_server.rs`.
-    hash::header(CommentStyle::DoubleSlash)
+    hash::e2e_header(CommentStyle::DoubleSlash)
         + r#"//
 // Auto-spawned mock server setup for e2e tests.
 // This module is auto-generated and should not be edited manually.

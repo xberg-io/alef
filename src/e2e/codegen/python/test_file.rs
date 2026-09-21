@@ -480,7 +480,7 @@ pub(super) fn render_test_file(
 
     // Render using template
     let ctx = minijinja::context! {
-        header => hash::header(CommentStyle::Hash),
+        header => hash::e2e_header(CommentStyle::Hash),
         docstring => format!("E2e tests for category: {category}."),
         stdlib_imports => stdlib_imports,
         thirdparty_bare => thirdparty_bare,

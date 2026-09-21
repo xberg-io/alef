@@ -263,7 +263,7 @@ pub(super) fn render_app_harness(
     let host = &e2e_config.harness.host;
     let port = e2e_config.harness.port;
 
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
 
     let route_builder_import = if !imports.is_empty() {
         let module_leaf = imports[0].rsplit('.').next().unwrap_or(&imports[0]).replace('-', "_");
@@ -350,7 +350,7 @@ pub(super) fn render_conftest(
         file_input_scan.fixture_uses_test_documents(f, cc)
     });
 
-    let header = hash::header(CommentStyle::Hash);
+    let header = hash::e2e_header(CommentStyle::Hash);
     let env_setup = render_env_setup_block(e2e_config);
 
     // NOTE: when uses_harness is true (server-pattern), the conftest.py is emitted

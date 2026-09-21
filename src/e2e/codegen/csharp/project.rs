@@ -101,7 +101,7 @@ pub(super) fn render_test_setup(
     env: &BTreeMap<String, String>,
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     out.push_str("using System;\n");
     out.push_str("using System.IO;\n");
     if needs_mock_server {

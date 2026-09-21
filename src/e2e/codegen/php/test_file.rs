@@ -29,7 +29,7 @@ pub(super) fn render_test_file(
     config: &ResolvedCrateConfig,
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
-    let header = hash::header(CommentStyle::DoubleSlash);
+    let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     // Determine if any fixture is an HTTP test (needs GuzzleHttp).
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());

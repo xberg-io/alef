@@ -421,7 +421,7 @@ fn serve_test_document(request_path: &str) -> Option<Response> {
 /// This binary is intended for cross-language e2e suites (WASM, Node) that
 /// spawn it as a child process and read the URL from its stdout.
 pub fn render_mock_server_binary() -> String {
-    let mut out = hash::header(CommentStyle::DoubleSlash);
+    let mut out = hash::e2e_header(CommentStyle::DoubleSlash);
     out.push_str(BINARY_INTRO_SOURCE);
     out.push_str(&crate::e2e::template_env::render(
         "rust/mock_server_fixture.rs.jinja",

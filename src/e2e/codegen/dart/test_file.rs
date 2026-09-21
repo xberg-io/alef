@@ -23,7 +23,7 @@ pub(super) fn render_test_file(
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::DoubleSlash));
+    out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
     // Suppress unused_local_variable: `final result = await api.method(...)` is
     // emitted for every test case; tests that only check for absence of errors
     // do not consume `result`, triggering this dart-analyze warning.

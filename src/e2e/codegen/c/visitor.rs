@@ -37,7 +37,7 @@ pub(super) fn render_visitor_test_file(
     use crate::e2e::fixture::CallbackAction;
 
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Block));
+    out.push_str(&hash::e2e_header(CommentStyle::Block));
     let _ = writeln!(out, "/* E2e tests for category: visitor */");
     let _ = writeln!(out);
     let _ = writeln!(out, "#include <assert.h>");

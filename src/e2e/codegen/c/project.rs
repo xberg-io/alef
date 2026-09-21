@@ -44,7 +44,7 @@ pub(super) fn render_makefile(
 ) -> Result<String> {
     validate_makefile_inputs(header_name, ffi_crate_path, lib_name)?;
     let mut out = String::new();
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "CC = gcc");
     let _ = writeln!(out, "FFI_DIR = ffi");
     let _ = writeln!(out);
@@ -266,7 +266,7 @@ pub(super) fn render_gitignore() -> String {
 pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
-    out.push_str(&hash::header(CommentStyle::Hash));
+    out.push_str(&hash::e2e_header(CommentStyle::Hash));
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
     let quote = crate::core::config::shell::quote_word;
