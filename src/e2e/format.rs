@@ -180,23 +180,18 @@ fn format_language(
     if let Some(custom) = e2e_config.format.get(lang) {
         let cmd = custom.replace("{dir}", &shell_single_quote(&dir));
         tracing::debug!("Formatting {lang}: {cmd}");
+        // An override IS the formatting step for `lang`, not a dependency resolver -- the
+        // same contract `resolve_shell_failure` already enforces for `mix format` and (at
+        // its own call site) `go mod tidy`. `dep_mode` is therefore irrelevant here: only a
+        // missing executable is ever survived, in every mode. A version-of-this-line that
+        // deferred ANY override failure under registry mode used to treat a formatter that
+        // ran and rejected the code exactly like a resolver that cannot run pre-publish,
+        // which is how a real `dart = "cd {dir} && dart format ."` override's rejection went
+        // unreported (#408): the run "succeeded" while `test_apps/dart` stayed unformatted,
+        // and `alef verify` had already hashed that unformatted output. ~keep
         return match run_shell(&cmd, lang) {
             Ok(()) => Ok(()),
-            // A missing executable is an environment gap in every mode, so it is
-            // resolved first — deferring it as an unpublished-version problem would
-            // record a reason that is simply untrue. ~keep
-            Err(failure) if failure.executable_missing => resolve_shell_failure(failure, lang, &cmd, strict, deferred),
-            Err(failure) if defer_resolution => {
-                let error = failure.error;
-                warn!("deferring {lang} format override until after publish: {error}");
-                deferred.push(DeferredFormatting {
-                    language: lang.to_owned(),
-                    step: cmd,
-                    reason: format!("{UNPUBLISHED_VERSION_REASON} (failed with: {error})"),
-                });
-                Ok(())
-            }
-            Err(failure) => Err(failure.error),
+            Err(failure) => resolve_shell_failure(failure, lang, &cmd, strict, deferred),
         };
     }
 

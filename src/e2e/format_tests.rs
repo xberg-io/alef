@@ -284,25 +284,26 @@ fn a_format_override_failure_quotes_the_formatters_own_stderr() {
     );
 }
 
-/// The defect: a registry-mode resolver failure aborted the run, which took
-/// finalisation and docs down with it. It must now be reported and survived.
+/// #408: a format override is the formatting step for that language, not a dependency
+/// resolver -- registry mode must fail loudly on its rejection exactly like local mode
+/// does above, and only a missing executable (`resolve_shell_failure`'s own distinction)
+/// may be survived. This used to be deferred unconditionally whenever `dep_mode` was
+/// `Registry`, which is how a real `dart = "cd {dir} && dart format ."` override's
+/// rejection went unreported: the run "succeeded" while `test_apps/dart` was left
+/// unformatted, and `alef verify` had already hashed that unformatted output. ~keep
 #[test]
-fn registry_mode_defers_a_failing_format_override_instead_of_aborting() {
+fn registry_mode_also_aborts_when_a_format_override_fails() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("e2e-out");
-    std::fs::create_dir_all(out.join("python")).unwrap();
-    let config = config_with_override(&out, "python", "exit 3", DependencyMode::Registry);
+    std::fs::create_dir_all(out.join("dart")).unwrap();
+    let config = config_with_override(&out, "dart", "exit 3", DependencyMode::Registry);
 
-    let deferred = run_formatters(&one_file_in(&out, "python", "main.py"), &config, false)
-        .expect("registry mode must not abort when a resolver cannot run pre-publish");
+    let error = run_formatters(&one_file_in(&out, "dart", "main.dart"), &config, false)
+        .expect_err("registry mode must not silently swallow a formatter rejection");
 
-    assert_eq!(deferred.len(), 1, "expected exactly one deferred step: {deferred:?}");
-    assert_eq!(deferred[0].language, "python");
-    assert_eq!(deferred[0].step, "exit 3");
     assert!(
-        deferred[0].reason.contains("not published yet"),
-        "reason must name the unpublished pin, got: {}",
-        deferred[0].reason
+        error.to_string().contains("formatter for dart exited"),
+        "expected the formatter failure to propagate, got: {error}"
     );
 }
 
