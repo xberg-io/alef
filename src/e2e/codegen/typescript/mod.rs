@@ -379,18 +379,28 @@ pub fn emit_test_backend(
 
     let _ = writeln!(setup, "class {stub_name} {{");
 
-    // name() from Plugin super-trait, if configured.
+    // name()/version()/initialize()/shutdown() from the Plugin super-trait, if configured.
+    // The napi-rs trait bridge builds a `ThreadsafeFunction` for all three synthetic
+    // lifecycle methods unconditionally in its constructor (see
+    // `NapiBridgeGenerator::tsfn_methods`/`plugin_lifecycle_methods`), so a stub missing
+    // any of them throws `Object property '<name>' type mismatch ... received Undefined`
+    // the moment `register_<trait>` is called, before the fixture's own methods run. ~keep
     if trait_bridge.super_trait.is_some() {
         let escaped = escape_js(&backend_name);
         let _ = writeln!(setup, "  name(): string {{ return \"{escaped}\"; }}");
+        let _ = writeln!(setup, "  version(): string {{ return \"0.0.0\"; }}");
+        let _ = writeln!(setup, "  initialize(): void {{ return undefined; }}");
+        let _ = writeln!(setup, "  shutdown(): void {{ return undefined; }}");
     }
 
     // Emit all methods the high-level binding interface may call. Methods with
     // Rust default impls are optional in user code, but generated e2e stubs
     // provide no-op/default implementations for lifecycle probes.
     for method in methods {
-        // Skip Plugin::name if we already emitted it.
-        if trait_bridge.super_trait.is_some() && method.name == "name" {
+        // Skip Plugin lifecycle methods if we already emitted them above.
+        if trait_bridge.super_trait.is_some()
+            && matches!(method.name.as_str(), "name" | "version" | "initialize" | "shutdown")
+        {
             continue;
         }
         emit_ts_stub_method(

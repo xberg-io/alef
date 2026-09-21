@@ -310,3 +310,43 @@ fn emit_test_backend_ts_emits_default_impl_noops() {
         "default-impl method should be emitted as a no-op stub"
     );
 }
+
+/// The napi trait bridge builds a `ThreadsafeFunction` for every `Plugin` lifecycle method in its
+/// constructor, so a stub that only defines `name()` throws
+/// `Object property 'version' type mismatch ... received Undefined` at `register_<trait>` time.
+/// The stub must define all four before the trait's own methods are reached. ~keep
+#[test]
+fn emit_test_backend_ts_emits_every_plugin_lifecycle_method_for_a_super_trait() {
+    use crate::core::config::TraitBridgeConfig;
+    use crate::core::ir::TypeRef;
+
+    let bridge = TraitBridgeConfig {
+        trait_name: "EmbeddingBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        ..Default::default()
+    };
+    let embed = test_method("embed", TypeRef::String, false, false);
+    let methods = [&embed];
+    let fixture = make_fixture("lifecycle_fixture", serde_json::json!({ "name": "lifecycle-backend" }));
+
+    let emission = emit_test_backend(&bridge, &methods, &fixture, &[], "");
+
+    for method in [
+        "name(): string",
+        "version(): string",
+        "initialize(): void",
+        "shutdown(): void",
+    ] {
+        assert!(
+            emission.setup_block.contains(method),
+            "stub must define `{method}`, got: {}",
+            emission.setup_block
+        );
+    }
+    assert_eq!(
+        emission.setup_block.matches("version()").count(),
+        1,
+        "version() must be emitted exactly once, got: {}",
+        emission.setup_block
+    );
+}
