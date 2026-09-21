@@ -211,6 +211,22 @@ fn generate_e2e_with_extensions(
     };
     fixture::validate_skip_languages(&fixtures, &configured_languages)?;
 
+    // An explicit `--lang` filter must name a language this project actually configured
+    // for e2e generation (`[e2e.languages]`, or its scaffolded-bindings default), exactly
+    // like the non-e2e `alef generate --lang` path enforces via
+    // `bin_cli::helpers::resolve_languages_inner`. Without this, a name that happens to
+    // match a *registered generator* but not this project's configuration (e.g. `kotlin`
+    // when only `kotlin_android` is configured) reaches `codegen::generators_for`
+    // unchecked and dispatches into a generator with no support for this project's
+    // fixtures, which can panic deep in codegen instead of failing cleanly here. ~keep
+    if let Some(langs) = languages {
+        for lang in langs {
+            if !configured_languages.iter().any(|configured| configured == lang) {
+                bail!("Language '{lang}' not in config languages list");
+            }
+        }
+    }
+
     // Resolution order for which language generators to run:
     //   1. Explicit `--lang` filter from the CLI (highest priority).
     //   2. `[e2e].languages` from alef.toml when set.

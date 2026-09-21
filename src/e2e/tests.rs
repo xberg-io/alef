@@ -178,6 +178,37 @@ fn generation_does_not_write_fixture_schema() {
     assert!(!directory.path().join("schema.json").exists());
 }
 
+/// `--lang kotlin` against a project configured only for `kotlin_android` (xberg's real
+/// shape) must fail cleanly with the same "not in config languages list" error
+/// `resolve_languages_inner` (`bin_cli::helpers`) gives the non-e2e `alef generate --lang`
+/// path, not reach a per-language generator that then panics on an unsupported fixture
+/// (see `codegen::kotlin::stubs::emit_test_backend`). ~keep
+#[test]
+fn generate_e2e_rejects_a_lang_filter_not_in_the_configured_language_list() {
+    let directory = tempfile::tempdir().expect("temporary fixture directory");
+    let e2e_config = E2eConfig {
+        fixtures: directory.path().display().to_string(),
+        languages: vec!["kotlin_android".to_string()],
+        ..E2eConfig::default()
+    };
+
+    let error = generate_e2e(
+        &ResolvedCrateConfig::default(),
+        &e2e_config,
+        Some(&["kotlin".to_string()]),
+        &[],
+        &[],
+        &[],
+        &[],
+    )
+    .expect_err("a --lang filter absent from [e2e.languages] must fail generation cleanly");
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("Language 'kotlin' not in config languages list"),
+        "{message}"
+    );
+}
+
 fn write_docs_only_fixture(directory: &Path, filename: &str, references: serde_json::Value) {
     std::fs::write(
         directory.join(filename),
@@ -553,6 +584,7 @@ fn two_distinct_java_module_warnings() -> E2eConfig {
     };
 
     E2eConfig {
+        languages: vec!["java".to_string()],
         call: java_class_module("io.sample.Alpha"),
         calls: std::collections::BTreeMap::from([("beta".to_string(), java_class_module("io.sample.Beta"))]),
         ..E2eConfig::default()
