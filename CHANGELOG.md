@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.95.0] - 2026-09-21
+
+### Added
+
+- **`[crates.e2e] timeout_seconds`** (default 1800): the kotlin_android e2e Gradle `Test` tasks now emit a
+  `testLogging` block (passed/skipped/failed events, standard streams, full exception format) and a
+  `timeout` on the task, so a hung native call fails with attribution instead of running until the CI
+  job cap.
 
 ### Fixed
 
@@ -20,6 +27,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   class's `TryConvert` has no Hash fallback, so any caller holding a JSON-decoded Hash instead of
   an already-wrapped instance is silently rejected. `is_native_payload_enum` is untagged-only
   again; untagged records keep the native representation this feature intended.
+- fix(e2e): a `[crates.e2e.format]` override that exits non-zero now aborts the run in registry mode too.
+  The override branch treated any failure under `dep_mode = Registry` (the mode `test-apps generate`
+  runs in) as "the pinned dependency is not published yet" and deferred it, so a genuine formatter
+  rejection was recorded as deferred formatting and `verify` hashed the unformatted output. Only a
+  missing executable is deferred now. (#408)
+- fix(e2e): generated go, zig, python, dart and brew harnesses read the mock-server path from
+  `ALEF_E2E_MOCK_SERVER`, which `alef test-apps run` now exports from its `cargo metadata` resolution,
+  falling back to the historical `../rust/target/release/mock-server` join only when unset. The
+  literal broke under `CARGO_TARGET_DIR` or a `.cargo/config.toml` `build.target-dir`. (#405)
+- fix(e2e): the TypeScript/Node (and wasm) trait-bridge test stubs define `version()`, `initialize()`
+  and `shutdown()` alongside `name()` for a `Plugin` super-trait. 0.94.0's napi bridge builds a
+  `ThreadsafeFunction` for every lifecycle method in its constructor, so the old `name()`-only stub
+  threw `Object property 'version' type mismatch ... received Undefined` at `register_<trait>` time
+  and every generated plugin-registration test failed.
+- fix(e2e): every e2e-generated file now names `alef e2e generate` as its regenerate command instead of
+  `alef generate`, which never produces e2e output.
+- fix(e2e): `alef e2e generate --lang <name>` and `alef test-apps generate --lang <name>` reject a
+  language the config does not enable with the same error `alef generate` gives, instead of dispatching
+  to an unimplemented generator and panicking (`kotlin` on a kotlin_android-only consumer).
+- fix(generate): `alef generate` now formats workspace-root scaffold files no language owns
+  (`.cargo/config.toml`), so it is a byte-identical fixed point with `alef all` rather than re-stamping
+  the file with a collapsed `rustflags` array.
 
 ## [0.94.0] - 2026-09-20
 
