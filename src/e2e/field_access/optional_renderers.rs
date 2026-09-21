@@ -89,11 +89,13 @@ pub(super) fn render_typescript_with_optionals(
             }
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, segment);
-                out.push_str(if previous_optional { "?." } else { "." });
-                out.push_str(&name.to_lower_camel_case());
                 let optional = optional_fields.contains(&path_so_far);
-                if optional {
-                    out.push_str("?.");
+                if !name.is_empty() {
+                    out.push_str(if previous_optional { "?." } else { "." });
+                    out.push_str(&name.to_lower_camel_case());
+                    if optional {
+                        out.push_str("?.");
+                    }
                 }
                 out.push_str(&format!("[{index}]"));
                 push_key_index_suffix(&mut path_so_far, segment);
@@ -160,9 +162,13 @@ pub(super) fn render_java_with_optionals(
                     path_so_far.push('.');
                 }
                 path_so_far.push_str(name);
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
-                out.push_str(&format!("().get({index})"));
+                if name.is_empty() {
+                    out.push_str(&format!(".get({index})"));
+                } else {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                    out.push_str(&format!("().get({index})"));
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
@@ -234,13 +240,23 @@ pub(super) fn render_kotlin_with_optionals(
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
                 let is_optional = optional_fields.contains(&path_so_far);
-                out.push_str(nav);
-                out.push_str(&kotlin_getter(name));
                 let safe = if prev_was_nullable || is_optional { "?" } else { "" };
-                if *index == 0 {
-                    out.push_str(&format!("(){safe}.first()"));
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no getter to call —
+                // `result_var` IS the list. ~keep
+                if name.is_empty() {
+                    if *index == 0 {
+                        out.push_str(&format!("{safe}.first()"));
+                    } else {
+                        out.push_str(&format!("{safe}.get({index})"));
+                    }
                 } else {
-                    out.push_str(&format!("(){safe}.get({index})"));
+                    out.push_str(nav);
+                    out.push_str(&kotlin_getter(name));
+                    if *index == 0 {
+                        out.push_str(&format!("(){safe}.first()"));
+                    } else {
+                        out.push_str(&format!("(){safe}.get({index})"));
+                    }
                 }
                 // Record the "[0]" suffix so subsequent optional-field checks against
                 // paths like "choices[0].message.tool_calls" continue to match when the
@@ -312,9 +328,13 @@ pub(super) fn render_kotlin_android_with_optionals(
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
                 let is_optional = optional_fields.contains(&path_so_far);
-                out.push_str(nav);
-                // Property access — no () suffix on the collection itself.
-                out.push_str(&kotlin_getter(name));
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no property to
+                // navigate to — `result_var` IS the collection. ~keep
+                if !name.is_empty() {
+                    out.push_str(nav);
+                    // Property access — no () suffix on the collection itself.
+                    out.push_str(&kotlin_getter(name));
+                }
                 let safe = if prev_was_nullable || is_optional { "?" } else { "" };
                 if *index == 0 {
                     out.push_str(&format!("{safe}.first()"));
@@ -368,8 +388,10 @@ pub(super) fn render_kotlin_android(segments: &[PathSegment], result_var: &str) 
                 // No () — property access.
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&kotlin_getter(name));
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&kotlin_getter(name));
+                }
                 if *index == 0 {
                     out.push_str(".first()");
                 } else {
@@ -516,9 +538,11 @@ pub(super) fn render_zig_with_optionals(
             }
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
-                out.push('.');
-                out.push_str(name);
-                zig_append_call_and_unwrap(&mut out, &path_so_far, optional_fields, method_calls, result_fields);
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(name);
+                    zig_append_call_and_unwrap(&mut out, &path_so_far, optional_fields, method_calls, result_fields);
+                }
                 out.push_str(&format!("[{index}]"));
                 push_key_index_suffix(&mut path_so_far, seg);
             }
@@ -573,8 +597,10 @@ pub(super) fn render_pascal_dot(segments: &[PathSegment], result_var: &str) -> S
                 out.push_str(&f.to_pascal_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_pascal_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_pascal_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -627,16 +653,20 @@ pub(super) fn render_csharp_with_optionals(
             }
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
-                out.push('.');
-                out.push_str(&name.to_pascal_case());
-                // Indexing a nullable collection dereferences it exactly as reading `.Count`
-                // does, so this arm has to ask `optional_fields` the same question the `Field`
-                // arm above asks — and without the `!is_leaf` guard, because the dereference
-                // happens whether or not another segment follows. Skipping it let one emitted
-                // snippet contradict itself: `result.Metadata.Headings!.Count` on one line and
-                // `result.Metadata.Headings[0].Level` (a CS8602) on the next. ~keep
-                if optional_fields.contains(&path_so_far) {
-                    out.push('!');
+                // A root-array segment (`name` empty, e.g. `[0].Id`) has no member to name or
+                // dereference — `result_var` IS the collection. ~keep
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_pascal_case());
+                    // Indexing a nullable collection dereferences it exactly as reading `.Count`
+                    // does, so this arm has to ask `optional_fields` the same question the `Field`
+                    // arm above asks — and without the `!is_leaf` guard, because the dereference
+                    // happens whether or not another segment follows. Skipping it let one emitted
+                    // snippet contradict itself: `result.Metadata.Headings!.Count` on one line and
+                    // `result.Metadata.Headings[0].Level` (a CS8602) on the next. ~keep
+                    if optional_fields.contains(&path_so_far) {
+                        out.push('!');
+                    }
                 }
                 out.push_str(&format!("[{index}]"));
                 // Normalise the tracked key so a Field segment further down the
@@ -674,8 +704,10 @@ pub(super) fn render_php(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push_str("->");
-                out.push_str(&name.to_lower_camel_case());
+                if !name.is_empty() {
+                    out.push_str("->");
+                    out.push_str(&name.to_lower_camel_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -799,18 +831,23 @@ fn render_php_with_getters_from_owner(
             }
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
-                let camel = name.to_lower_camel_case();
-                if getter_map.needs_getter(current_type.as_deref(), name.as_str()) {
-                    let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
-                    out.push_str(arrow);
-                    out.push_str(&getter);
-                    out.push_str("()");
-                } else {
-                    out.push_str(arrow);
-                    out.push_str(&camel);
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no getter/property to
+                // resolve — `result_var` IS the array — and `current_type` does not advance
+                // past it. ~keep
+                if !name.is_empty() {
+                    let camel = name.to_lower_camel_case();
+                    if getter_map.needs_getter(current_type.as_deref(), name.as_str()) {
+                        let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
+                        out.push_str(arrow);
+                        out.push_str(&getter);
+                        out.push_str("()");
+                    } else {
+                        out.push_str(arrow);
+                        out.push_str(&camel);
+                    }
+                    current_type = getter_map.advance(current_type.as_deref(), name.as_str());
                 }
                 out.push_str(&format!("[{index}]"));
-                current_type = getter_map.advance(current_type.as_deref(), name.as_str());
                 push_key_index_suffix(&mut path_so_far, seg);
                 prev_was_nullable = prev_was_nullable || optional_fields.contains(&path_so_far);
             }
@@ -849,8 +886,10 @@ pub(super) fn render_r(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(f);
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('$');
-                out.push_str(name);
+                if !name.is_empty() {
+                    out.push('$');
+                    out.push_str(name);
+                }
                 // R uses 1-based indexing.
                 out.push_str(&format!("[[{}]]", index + 1));
             }
@@ -912,8 +951,10 @@ pub(super) fn render_dart(segments: &[PathSegment], result_var: &str) -> String 
                 out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -971,13 +1012,17 @@ pub(super) fn render_dart_with_optionals(
                 push_key_field_name(&mut path_so_far, seg);
                 push_key_field_name(&mut path_with_indices, seg);
                 let optional = is_optional(&path_so_far, &path_with_indices);
-                out.push_str(nav);
-                out.push_str(&name.to_lower_camel_case());
-                // FRB models `Option<Vec<T>>` as `List<T>?` — force-unwrap when the field
-                // is registered as optional. Adding `!` to a non-nullable receiver is a Dart
-                // compile-time error ("unnecessary non-null assertion").
-                if optional {
-                    out.push('!');
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no property to
+                // navigate to — `result_var` IS the list. ~keep
+                if !name.is_empty() {
+                    out.push_str(nav);
+                    out.push_str(&name.to_lower_camel_case());
+                    // FRB models `Option<Vec<T>>` as `List<T>?` — force-unwrap when the field
+                    // is registered as optional. Adding `!` to a non-nullable receiver is a Dart
+                    // compile-time error ("unnecessary non-null assertion").
+                    if optional {
+                        out.push('!');
+                    }
                 }
                 out.push_str(&format!("[{index}]"));
                 // Normalise to a literal "[0]" suffix (matching

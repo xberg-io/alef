@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(e2e): guard the root-array `ArrayField { name: "" }` case in every remaining backend renderer. #411 fixed `[0].id` rendering for Ruby, Python and Rust; the same unconditional `.` + name emission still produced non-compiling accessors (`result.[0].id`, `result.().get(0).id()`, `result.()[0].id()`, and a PHP `result->[0]->id` that used `->` before a numeric index) for TypeScript/Node/wasm, Java, Kotlin (+Android), C#, Zig, Swift, Dart, PHP, Go and R.
+
 ## [0.94.0] - 2026-09-20
 
 ### Changed

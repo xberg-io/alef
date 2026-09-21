@@ -74,8 +74,10 @@ pub(super) fn render_swift(segments: &[PathSegment], result_var: &str) -> String
                 out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -152,9 +154,14 @@ pub(super) fn render_swift_with_first_class_map(
             PathSegment::ArrayField { name, index } => {
                 push_key_field_name(&mut path_so_far, seg);
                 let is_optional = optional_fields.contains(&path_so_far);
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
-                let access = if property_syntax { "" } else { "()" };
+                // A root-array segment (`name` empty — the path itself starts with `[N]`,
+                // e.g. `[0].id`) has nothing to name: `result_var` IS the array, so there is
+                // no field/getter to emit before the index. ~keep
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                }
+                let access = if property_syntax || name.is_empty() { "" } else { "()" };
                 if is_optional {
                     out.push_str(&format!("{access}?[{index}]"));
                 } else {
@@ -167,7 +174,7 @@ pub(super) fn render_swift_with_first_class_map(
                 // type is first-class, the array IS a Swift `[T]` and indexing yields
                 // the first-class `T` directly (also a Codable struct → property access).
                 current_type = map.advance(current_type.as_deref(), name);
-                if !property_syntax {
+                if !property_syntax && !name.is_empty() {
                     via_rust_vec = true;
                 }
             }
@@ -291,8 +298,10 @@ pub(super) fn render_typescript(segments: &[PathSegment], result_var: &str) -> S
                 out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -323,8 +332,10 @@ pub(super) fn render_wasm(segments: &[PathSegment], result_var: &str) -> String 
                 out.push_str(&f.to_lower_camel_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -349,8 +360,10 @@ pub(super) fn render_go(segments: &[PathSegment], result_var: &str) -> String {
                 out.push_str(&to_go_name(f));
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&to_go_name(name));
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&to_go_name(name));
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -381,9 +394,13 @@ pub(super) fn render_java(segments: &[PathSegment], result_var: &str) -> String 
                 out.push_str("()");
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
-                out.push_str(&format!("().get({index})"));
+                if name.is_empty() {
+                    out.push_str(&format!(".get({index})"));
+                } else {
+                    out.push('.');
+                    out.push_str(&name.to_lower_camel_case());
+                    out.push_str(&format!("().get({index})"));
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 out.push('.');
@@ -428,12 +445,20 @@ pub(super) fn render_kotlin(segments: &[PathSegment], result_var: &str) -> Strin
                 out.push_str("()");
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&kotlin_getter(name));
-                if *index == 0 {
-                    out.push_str("().first()");
+                if name.is_empty() {
+                    if *index == 0 {
+                        out.push_str(".first()");
+                    } else {
+                        out.push_str(&format!(".get({index})"));
+                    }
                 } else {
-                    out.push_str(&format!("().get({index})"));
+                    out.push('.');
+                    out.push_str(&kotlin_getter(name));
+                    if *index == 0 {
+                        out.push_str("().first()");
+                    } else {
+                        out.push_str(&format!("().get({index})"));
+                    }
                 }
             }
             PathSegment::MapAccess { field, key } => {
