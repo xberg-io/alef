@@ -414,13 +414,13 @@ pub mod maven {
     pub const JSPECIFY: &str = "1.0.1";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON: &str = "2.22.2";
+    pub const JACKSON: &str = "2.22.3";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations
     pub const JACKSON_ANNOTATIONS: &str = "2.22";
 
     // renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind
-    pub const JACKSON_E2E: &str = "2.22.2";
+    pub const JACKSON_E2E: &str = "2.22.3";
 
     // renovate: datasource=maven depName=org.assertj:assertj-core
     pub const ASSERTJ: &str = "4.0.0-M1";
