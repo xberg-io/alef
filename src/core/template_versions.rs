@@ -86,7 +86,7 @@ pub mod cargo {
     pub const PYO3_ASYNC_RUNTIMES: &str = "0.29";
 
     // renovate: datasource=crate depName=magnus
-    pub const MAGNUS: &str = "0.8";
+    pub const MAGNUS: &str = "0.9";
 
     // ~keep The FLOOR is the guard, not a ceiling. 0.9.128 shipped a mingw sysroot bug, and the
     // constraint used to cap BELOW it (`>=0.9, <0.9.128`), which also locked every consumer out
