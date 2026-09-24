@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.0] - 2026-09-24
+
+Three generator fixes, all found by a consumer whose bindings were shipping broken.
+
+### Fixed
+
+- **wasm: opaque handle parameters are taken by reference.** Every generated free function took
+  its handle by value, and wasm-bindgen's glue for a by-value exported struct calls
+  `__destroy_into_raw()` on it, nulling the JS object's pointer. The handle was therefore dead
+  after one call and every later use threw `null pointer passed to rust` -- in crawlberg, a second
+  `scrape()` on the same engine always failed, and `batchScrape` was no better since it consumes
+  the handle identically. The core APIs already took a reference and the binding body immediately
+  re-borrowed, so the move bought nothing; the NAPI backend has always emitted `&Handle` from the
+  same IR. Exported `async fn`s accept `&T` fine -- wasm-bindgen routes it through
+  `LongRefFromWasmAbi`, which needs neither `Clone` nor a borrow held across the await -- and the
+  emitted `.d.ts` is byte-identical, so no JavaScript or TypeScript caller needs editing.
+  `Option<opaque>` is deliberately left by value: `Option<&T>` is not a confirmed wasm-bindgen
+  argument shape and no consumer uses it. Methods have the same latent defect and no consumer to
+  verify a fix against; tracked in #429. (xberg-io/crawlberg#56)
+
+- **kotlin: tagged sealed classes use declarative Jackson polymorphism.** A generated sealed class
+  put a custom serializer on the base and then cancelled it on every subclass with
+  `JsonSerialize(using = None)`. Jackson resolves an element serializer by runtime class, so the
+  cancellation won and the only code that wrote the `type` discriminator never ran: a
+  `List<PageAction>` serialized as `[{"selector":"#submit"}]`, which a Rust `deny_unknown_fields`
+  internally tagged enum rejects. Internally tagged enums with no newtype variant now carry
+  `JsonTypeInfo` + `JsonSubTypes`, matching the Java emitter; class annotations are inherited by
+  subclasses rather than suppressed, so runtime dispatch works. Adjacent, untagged, external and
+  newtype-bearing enums keep the hand-written codecs. Two Kotlin-specific hazards are handled:
+  unit variants are `object` rather than an empty record, so each gets a small `StdDeserializer`
+  returning the singleton (jackson-module-kotlin's `SingletonSupport` is disabled by default and
+  deprecated), and declarative enums are excluded from the set receiving
+  `JsonSerialize(as = Sealed)` on fields, which would otherwise route through an abstract base with
+  no properties.
+
+- **kotlin: generated enums override `toString()` with the wire value.** `LinkType.ANCHOR.toString()`
+  returned `"ANCHOR"` while generated assertions compare against `"anchor"`.
+
+- **kotlin: a `List<Dto>` argument is serialized through a writer pinned to its element type.**
+  The `JsonTypeInfo` change above was necessary but not sufficient: a bare
+  `mapper.writeValueAsString(list)` erases the element type to `Object`, so Jackson resolves each
+  element's serializer from its runtime class with no base-type context and the discriminator is
+  still never written. The Java emitter has always pinned the declared element type via
+  `constructCollectionType`; this is the Kotlin equivalent. Applied to every `List<Dto>`, since
+  pinning a declared type is correct regardless and a per-type carve-out would miss the next
+  polymorphic DTO. Measured against the consumer: annotations alone took crawlberg's
+  kotlin_android e2e from 23 failures to 11; with this it is 265 passed, 0 failed, 0 skipped.
+
+- **e2e (kotlin_android): stream requests are built from the mock server URL.** The renderer
+  deserialized the fixture's raw `input` object into the request DTO, so a stream test read
+  `batch_urls` and `mock_responses` into a DTO declaring only `urls` and threw
+  `UnrecognizedPropertyException`; the mock server URL was not used at all. Fixing only that would
+  have converted those failures into skips, because the renderer emitted no runnable streaming
+  assertions -- `has_page_event` and `has_complete_event` resolved to `None` for want of an item
+  type, and `greater_than_or_equal` had no match arm, so `event_count_min` fell to the catch-all
+  skip. `CrawlEvent` was also never imported, so the emitted `it is CrawlEvent.Page` would not have
+  compiled. Across crawlberg this is 28 skipped assertions over 10 fixtures down to 1.
+
+- **`unsupported_in` is validated against the configured language set,** not the `--lang`-narrowed
+  one, so a single-language run no longer logs an ERROR about a marker that is not stale.
+
+### Changed
+
+- Generated Kotlin DTOs carry `JsonIgnoreProperties(ignoreUnknown = true)`, which every generated
+  Java DTO already had, and the kotlin_android stream mapper disables
+  `FAIL_ON_UNKNOWN_PROPERTIES`. Both are why Java survived payload drift where Kotlin did not.
+
+- The three Kotlin changes above sit in the shared enum and DTO emitters, so the plain `kotlin`
+  (MPP) backend receives them too. This is deliberate -- it is the same latent bug there -- and no
+  consumer repo currently enables that backend. Note the `toString()` change is observable for any
+  future one.
+
 ## [0.95.0] - 2026-09-21
 
 ### Added
