@@ -1286,6 +1286,11 @@ target = "jvm"
     );
 }
 
+/// ~keep Every generated DTO carries this, matching the generated Java DTOs, so that a payload
+/// gaining a field does not break older clients. The two wrapping tests below assert exact output,
+/// so they have to account for it; they are about single-line vs multi-line bodies, not annotations.
+const DTO_IGNORE_UNKNOWN: &str = "@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n";
+
 /// A data class with a single short field fits within 100 chars → ktfmt
 /// collapses it to a single line. The emitter must produce the same output without a post-processing step.
 #[test]
@@ -1298,7 +1303,8 @@ fn short_data_class_emits_single_line() {
     let mut imports = std::collections::BTreeSet::new();
     emit_type_pub(&ty, &mut out, &mut imports);
     assert_eq!(
-        out, "data class Point(val x: Int)\n",
+        out,
+        format!("{DTO_IGNORE_UNKNOWN}data class Point(val x: Int)\n"),
         "short data class must be single-line: {out:?}"
     );
 }
@@ -1319,7 +1325,7 @@ fn long_data_class_emits_multi_line() {
     let mut imports = std::collections::BTreeSet::new();
     emit_type_pub(&ty, &mut out, &mut imports);
     assert!(
-        out.starts_with("data class BatchRequestCounts(\n"),
+        out.starts_with(&format!("{DTO_IGNORE_UNKNOWN}data class BatchRequestCounts(\n")),
         "long data class must be multi-line: {out:?}"
     );
     assert!(

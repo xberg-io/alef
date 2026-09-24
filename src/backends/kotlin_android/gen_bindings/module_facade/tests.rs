@@ -275,3 +275,57 @@ fn every_android_dto_mapper_encodes_kotlin_duration_as_milliseconds() {
         );
     }
 }
+
+fn list_param(name: &str, element: &str) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named(element.to_string()))),
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+        map_is_btree: false,
+        core_wrapper: crate::core::ir::CoreWrapper::None,
+    }
+}
+
+#[test]
+fn a_list_of_dtos_is_serialized_through_a_writer_pinned_to_the_element_type() {
+    let opaque = HashSet::new();
+    let rendered = facade_types::bridge_arg(&list_param("actions", "PageAction"), &opaque);
+
+    // ~keep A bare mapper.writeValueAsString(list) erases the element type to Object, and Jackson
+    // ~keep then resolves each element's serializer from its runtime class with no base-type
+    // ~keep context -- so the @JsonTypeInfo discriminator on a sealed base is never written and
+    // ~keep the native side rejects the payload with "missing field `type`". Pinning the declared
+    // ~keep element type is what makes polymorphic serialization fire, and it is what the Java
+    // ~keep emitter has always done.
+    assert!(
+        rendered.contains("constructCollectionType"),
+        "a List<Dto> argument must be written through a type-pinned writer, got: {rendered}"
+    );
+    assert!(
+        rendered.contains("PageAction::class.java"),
+        "the writer must name the element type, got: {rendered}"
+    );
+}
+
+#[test]
+fn a_list_of_strings_is_serialized_without_a_type_pinned_writer() {
+    let opaque = HashSet::new();
+    let mut param = list_param("urls", "unused");
+    param.ty = TypeRef::Vec(Box::new(TypeRef::String));
+    let rendered = facade_types::bridge_arg(&param, &opaque);
+
+    assert_eq!(
+        rendered, "mapper.writeValueAsString(urls)",
+        "a list of scalars has no polymorphism to preserve and should stay plain"
+    );
+}

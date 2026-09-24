@@ -44,6 +44,8 @@ enum class Status {
             INACTIVE -> "Inactive"
         }
 
+    override fun toString(): String = toWire()
+
     companion object {
         @com.fasterxml.jackson.annotation.JsonCreator
         @JvmStatic
