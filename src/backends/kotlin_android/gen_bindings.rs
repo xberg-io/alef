@@ -100,6 +100,9 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         .enums
         .iter()
         .filter(|en| en.serde_tag.is_some() || en.serde_untagged)
+        // A declaratively polymorphic sealed class has no custom serializer to pin a field's
+        // declared type at, so annotating the field would route it through the abstract base.
+        .filter(|en| !crate::backends::kotlin::enum_uses_declarative_polymorphism_pub(en))
         .map(|en| en.name.clone())
         .collect();
 

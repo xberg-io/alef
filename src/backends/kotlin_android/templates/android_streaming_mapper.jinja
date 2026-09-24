@@ -4,3 +4,4 @@
 {{ duration_millis_module }}
         .findAndRegisterModules()
         .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
+        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)

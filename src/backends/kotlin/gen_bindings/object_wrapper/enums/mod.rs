@@ -91,6 +91,12 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
         }
         out.push_str("        }\n");
 
+        // A generated enum stands for a serde wire value, so that is what it must render as.
+        // The Kotlin default prints the constant name (`ANCHOR`), which no consumer comparing
+        // against the wire form (`anchor`) can match — case-sensitively it never will. Mirrors
+        // `toString()` on the Java emitter's enums. ~keep
+        out.push_str("\n    override fun toString(): String = toWire()\n");
+
         out.push_str("\n    companion object {\n");
         out.push_str("        @com.fasterxml.jackson.annotation.JsonCreator\n");
         out.push_str("        @JvmStatic\n");
@@ -138,13 +144,20 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
         let has_data_variant = en.variants.iter().any(|v| !v.fields.is_empty());
         let needs_heterogeneous_default =
             has_unit_variant && has_data_variant && en.serde_tag.is_none() && !en.serde_untagged;
-        let needs_deserializer = en.serde_tag.is_some() || en.serde_untagged || needs_heterogeneous_default;
+        let repr = crate::codegen::serde_enum_repr::serde_enum_repr(en);
+        let declarative = uses_declarative_polymorphism(en, &repr);
+        if declarative {
+            push_declarative_polymorphism_annotations(out, en, repr.tag().unwrap_or_default());
+        }
+        let needs_deserializer =
+            !declarative && (en.serde_tag.is_some() || en.serde_untagged || needs_heterogeneous_default);
         if needs_deserializer {
             out.push_str("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = ");
             out.push_str(&en.name);
             out.push_str("Deserializer::class)\n");
         }
-        let needs_serializer = en.serde_tag.is_some() || en.serde_untagged || needs_heterogeneous_default;
+        let needs_serializer =
+            !declarative && (en.serde_tag.is_some() || en.serde_untagged || needs_heterogeneous_default);
         if needs_serializer {
             out.push_str("@com.fasterxml.jackson.databind.annotation.JsonSerialize(using = ");
             out.push_str(&en.name);
@@ -162,6 +175,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
         for variant in &en.variants {
             emit_cleaned_kdoc(out, &variant.doc, "    ");
             if variant.fields.is_empty() {
+                if declarative {
+                    out.push_str("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = ");
+                    out.push_str(&singleton_deserializer_name(&en.name, &variant.name));
+                    out.push_str("::class)\n");
+                }
                 out.push_str(&crate::backends::kotlin::template_env::render(
                     "sealed_object_variant.jinja",
                     minijinja::context! {
@@ -240,7 +258,14 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
 
         out.push_str("}\n");
 
-        let tagged_repr = match crate::codegen::serde_enum_repr::serde_enum_repr(en) {
+        if declarative {
+            for variant in en.variants.iter().filter(|v| v.fields.is_empty()) {
+                push_singleton_variant_deserializer(out, &en.name, &variant.name);
+            }
+            return;
+        }
+
+        let tagged_repr = match repr {
             repr @ (SerdeEnumRepr::Internal { .. } | SerdeEnumRepr::Adjacent { .. }) => Some(repr),
             SerdeEnumRepr::External | SerdeEnumRepr::Untagged => None,
         };
@@ -261,6 +286,96 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str, text_type
             emit_kotlin_heterogeneous_default_serializer(out, en);
         }
     }
+}
+
+/// True when Jackson's declarative polymorphism — `@JsonTypeInfo` + `@JsonSubTypes` — expresses
+/// this enum's wire form, which is the model the Java emitter uses.
+///
+/// The declarative form matters because Jackson resolves a serializer by the value's *runtime*
+/// class. A custom serializer on the sealed base has to be cancelled on every subclass
+/// (`using = JsonSerializer.None::class`) or it recurses through `valueToTree`, and that reset is
+/// exactly what a `List<Base>` erased to `Object` finds — so the tag-writing code never runs.
+/// `@JsonTypeInfo` is inherited by the subclasses instead of suppressed, so it fires on runtime
+/// dispatch.
+///
+/// `@JsonTypeInfo(Id.NAME, property = tag)` writes the tag *beside* the payload's fields, which is
+/// serde's *internal* tagging and nothing else; and a newtype variant's payload is not a bean with
+/// fields to sit beside. Both stay on the hand-written codecs. Same predicate as the Java
+/// backend's `needs_unwrapped`. ~keep
+fn uses_declarative_polymorphism(en: &EnumDef, repr: &SerdeEnumRepr) -> bool {
+    matches!(repr, SerdeEnumRepr::Internal { .. })
+        && !en
+            .variants
+            .iter()
+            .any(|v| v.fields.len() == 1 && is_tuple_field_name(&v.fields[0].name))
+}
+
+/// [`uses_declarative_polymorphism`] for callers that hold only the enum.
+///
+/// Lets the DTO emitter skip the `@field:JsonSerialize(`as`/`contentAs` = Sealed::class)`
+/// annotation for these types. That annotation exists to pin the *declared* type so the custom
+/// base serializer is reached; a declarative type has none, so pinning it would ask Jackson to
+/// serialize the field through the abstract base — which has no properties of its own. Java
+/// annotates no field this way for the same reason. ~keep
+pub(crate) fn enum_uses_declarative_polymorphism(en: &EnumDef) -> bool {
+    uses_declarative_polymorphism(en, &crate::codegen::serde_enum_repr::serde_enum_repr(en))
+}
+
+fn push_declarative_polymorphism_annotations(out: &mut String, en: &EnumDef, tag: &str) {
+    out.push_str("@com.fasterxml.jackson.annotation.JsonTypeInfo(use = ");
+    out.push_str("com.fasterxml.jackson.annotation.JsonTypeInfo.Id.NAME, property = \"");
+    out.push_str(&escape_kotlin_string(tag));
+    out.push_str("\", visible = false)\n");
+
+    let subtypes: Vec<String> = en
+        .variants
+        .iter()
+        .map(|variant| {
+            let discriminator = wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
+            format!(
+                "    com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = {}.{}::class, name = \"{}\")",
+                en.name,
+                variant.name,
+                escape_kotlin_string(&discriminator)
+            )
+        })
+        .collect();
+    out.push_str("@com.fasterxml.jackson.annotation.JsonSubTypes(\n");
+    out.push_str(&subtypes.join(",\n"));
+    out.push_str("\n)\n");
+
+    out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
+}
+
+fn singleton_deserializer_name(enum_name: &str, variant_name: &str) -> String {
+    format!("{enum_name}{variant_name}Deserializer")
+}
+
+/// Emit a deserializer that returns a unit variant's singleton rather than a fresh instance.
+///
+/// A unit variant is a Kotlin `object`, whose equality is identity. Jackson's bean path reaches
+/// the private constructor and builds a *second* instance, so `decoded == Enum.Variant` stops
+/// holding — a regression against the hand-written codec this path replaces, and one the Java
+/// emitter never has because its unit variants are value-equal empty records. ~keep
+fn push_singleton_variant_deserializer(out: &mut String, enum_name: &str, variant_name: &str) {
+    let class_name = singleton_deserializer_name(enum_name, variant_name);
+    out.push_str(&format!(
+        "\nprivate class {class_name} : \
+         com.fasterxml.jackson.databind.deser.std.StdDeserializer<{enum_name}.{variant_name}>\
+         ({enum_name}.{variant_name}::class.java) {{\n\
+         \x20   override fun deserialize(\n\
+         \x20       parser: com.fasterxml.jackson.core.JsonParser,\n\
+         \x20       ctx: com.fasterxml.jackson.databind.DeserializationContext,\n\
+         \x20   ): {enum_name}.{variant_name} {{\n\
+         \x20       parser.skipChildren()\n\
+         \x20       return {enum_name}.{variant_name}\n\
+         \x20   }}\n\
+         }}\n"
+    ));
 }
 
 /// True when a field's name is a tuple-field index (e.g. `"0"`, `"_0"`).

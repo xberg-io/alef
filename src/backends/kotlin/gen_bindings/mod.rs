@@ -122,6 +122,16 @@ pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str, text_types: 
     object_wrapper::emit_enum(en, out, package, text_types)
 }
 
+/// Whether the emitted sealed class carries Jackson's declarative polymorphism
+/// (`@JsonTypeInfo` + `@JsonSubTypes`) rather than a hand-written serializer pair.
+///
+/// Callers building the `sealed_class_names` set for [`emit_type_pub_with_enum_defaults_and_sealed_classes`]
+/// must leave these out: the set exists only to pin a field's declared type at the custom
+/// serializer, and a declarative type has none to pin.
+pub fn enum_uses_declarative_polymorphism_pub(en: &EnumDef) -> bool {
+    object_wrapper::enum_uses_declarative_polymorphism(en)
+}
+
 pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
     object_wrapper::emit_error_type_with_imports(error, out, imports)
 }

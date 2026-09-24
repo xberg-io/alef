@@ -130,9 +130,11 @@ pub(crate) fn emit_type_with_imports(
         && !has_instance_methods
         && fits_single_line("", &prefix, &field_strings, "");
 
-    if has_flatten_field {
-        out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
-    }
+    // Unconditional, not just for `#[serde(flatten)]`: a generated DTO trails the Rust struct it
+    // mirrors, so any field the core adds before a consumer upgrades its binding arrives as an
+    // unknown property. Every Java DTO carries this and survives that drift; the Kotlin ones did
+    // not and threw. ~keep
+    out.push_str("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
 
     if use_single_line {
         out.push_str(&crate::backends::kotlin::template_env::render(

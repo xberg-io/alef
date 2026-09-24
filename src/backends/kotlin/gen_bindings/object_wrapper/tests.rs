@@ -190,6 +190,9 @@ fn tagged_deserializer_named_field_variant_no_double_wrap() {
         false,
         Some("snake_case"),
         vec![
+            // A newtype variant keeps this enum on the hand-written codecs rather than the
+            // declarative `@JsonTypeInfo` path, which is what this regression covers.
+            make_variant("Raw", Some("raw"), vec![make_field("_0", TypeRef::String)]),
             make_variant("Url", Some("url"), vec![make_field("url", TypeRef::String)]),
             make_variant(
                 "Base64",
@@ -434,6 +437,9 @@ fn sealed_class_variant_data_classes_get_json_deserialize_reset_annotation() {
         false,
         Some("snake_case"),
         vec![
+            // A newtype variant keeps this enum on the hand-written codecs rather than the
+            // declarative `@JsonTypeInfo` path, which is what this regression covers.
+            make_variant("Raw", Some("raw"), vec![make_field("_0", TypeRef::String)]),
             make_variant("Url", Some("document_url"), vec![make_field("url", TypeRef::String)]),
             make_variant(
                 "Base64",
@@ -545,11 +551,12 @@ fn tagged_serializer_named_field_variant_casts_to_concrete_type() {
         Some("type"),
         false,
         Some("snake_case"),
-        vec![make_variant(
-            "Url",
-            Some("document_url"),
-            vec![make_field("url", TypeRef::String)],
-        )],
+        vec![
+            // A newtype variant keeps this enum on the hand-written codecs rather than the
+            // declarative `@JsonTypeInfo` path, which is what this regression covers.
+            make_variant("Raw", Some("raw"), vec![make_field("_0", TypeRef::String)]),
+            make_variant("Url", Some("document_url"), vec![make_field("url", TypeRef::String)]),
+        ],
     );
     let mut out = String::new();
     emit_enum(&en, &mut out, "", &[]);
@@ -1141,4 +1148,102 @@ fn empty_and_unresolved_render_differently_for_the_same_shapes() {
             "`Unresolved` on `{label}` must leave the parameter required: got `{unresolved}`"
         );
     }
+}
+
+/// Regression (A4): an internally tagged enum whose variants are all struct or unit variants
+/// must carry Jackson's *declarative* polymorphism — `@JsonTypeInfo` + `@JsonSubTypes` — the
+/// same model the Java emitter uses.
+///
+/// The previous shape put a custom `@JsonSerialize(using = …Serializer::class)` on the sealed
+/// base and cancelled it on every subclass with `using = JsonSerializer.None::class`. Jackson
+/// resolves a serializer by *runtime* class, so passing `List<PageAction>` as `Object` reached
+/// the subclass, whose `None` reset suppressed the inherited base serializer: the only code
+/// that wrote the `type` tag never ran and the payload went out untagged.
+#[test]
+fn internally_tagged_sealed_class_uses_declarative_jackson_polymorphism() {
+    let en = make_enum(
+        "PageAction",
+        Some("type"),
+        false,
+        Some("camelCase"),
+        vec![
+            make_variant("Click", None, vec![make_field("selector", TypeRef::String)]),
+            make_variant(
+                "ExecuteJs",
+                Some("executeJs"),
+                vec![make_field("script", TypeRef::String)],
+            ),
+            make_variant("Scrape", None, vec![]),
+        ],
+    );
+    let mut out = String::new();
+    emit_enum(&en, &mut out, "", &[]);
+
+    assert!(
+        out.contains(
+            "@com.fasterxml.jackson.annotation.JsonTypeInfo(use = com.fasterxml.jackson.annotation.JsonTypeInfo.Id.NAME, property = \"type\", visible = false)"
+        ),
+        "internally tagged sealed class must declare @JsonTypeInfo with the serde tag; got:\n{out}",
+    );
+    assert!(
+        out.contains(
+            "com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = PageAction.Click::class, name = \"click\")"
+        ),
+        "every variant needs a @JsonSubTypes.Type mapping its wire name; got:\n{out}",
+    );
+    assert!(
+        out.contains(
+            "com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = PageAction.ExecuteJs::class, name = \"executeJs\")"
+        ),
+        "a `#[serde(rename)]`d variant must map to its renamed wire name; got:\n{out}",
+    );
+    assert!(
+        out.contains(
+            "com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = PageAction.Scrape::class, name = \"scrape\")"
+        ),
+        "unit variants need a @JsonSubTypes.Type too; got:\n{out}",
+    );
+    assert!(
+        !out.contains("com.fasterxml.jackson.databind.JsonSerializer.None::class"),
+        "no variant may cancel the base serializer — that is the defect; got:\n{out}",
+    );
+    assert!(
+        !out.contains("PageActionSerializer"),
+        "the custom base serializer must be gone once polymorphism is declarative; got:\n{out}",
+    );
+    assert!(
+        out.contains("@com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)"),
+        "the sealed base must tolerate payload drift like its Java counterpart; got:\n{out}",
+    );
+    assert!(
+        out.contains("private class PageActionScrapeDeserializer"),
+        "a unit variant is a Kotlin `object`; without a singleton deserializer Jackson builds a \
+         second instance through the private constructor and `==` stops holding; got:\n{out}",
+    );
+}
+
+/// Regression (A5): a plain unit-only enum must render as its wire value.
+///
+/// Without the override `LinkType.ANCHOR.toString()` is `"ANCHOR"`, so any assertion or log
+/// line comparing against the serde wire form (`"anchor"`) silently fails. The Java emitter
+/// already returns the wire value from `toString()`.
+#[test]
+fn unit_only_enum_to_string_returns_the_wire_value() {
+    let en = make_enum(
+        "LinkType",
+        None,
+        false,
+        Some("snake_case"),
+        vec![
+            make_variant("Internal", None, vec![]),
+            make_variant("Anchor", None, vec![]),
+        ],
+    );
+    let mut out = String::new();
+    emit_enum(&en, &mut out, "", &[]);
+
+    assert!(
+        out.contains("override fun toString(): String = toWire()"),
+        "a generated enum must render as its wire value, not its Kotlin constant name; got:\n{out}",
+    );
 }
