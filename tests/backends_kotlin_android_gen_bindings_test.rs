@@ -1898,9 +1898,15 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
         "must use TypeReference<List<DemoResult>> for deserialization, got:\n{content}"
     );
 
+    // ~keep The writer is pinned to the declared element type rather than left as a bare
+    // ~keep writeValueAsString: an erased List<Object> makes Jackson resolve each element from its
+    // ~keep runtime class with no base-type context, which drops the @JsonTypeInfo discriminator on
+    // ~keep a sealed base entirely (xberg-io/crawlberg#56).
     assert!(
-        content.contains("mapper.writeValueAsString(items)"),
-        "must serialize items via Jackson, got:\n{content}"
+        content.contains(
+            "mapper.writerFor(mapper.typeFactory.constructCollectionType(List::class.java, DemoItem::class.java)).writeValueAsString(items)"
+        ),
+        "must serialize items through a writer pinned to the element type, got:\n{content}"
     );
 
     assert!(

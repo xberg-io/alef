@@ -95,12 +95,12 @@ fn dto_list_element(ty: &TypeRef) -> Option<&str> {
 /// ~keep A bare `mapper.writeValueAsString(list)` erases the element type to `Object`. Jackson
 /// then picks each element's serializer from its runtime class with no base-type context, so the
 /// `@JsonTypeInfo` discriminator declared on a sealed base is never written and a strict native
-/// deserializer rejects the payload with "missing field `type`". That is exactly how every
-/// kotlin_android `interact` call failed (xberg-io/crawlberg#56): the annotations were correct,
-/// but nothing told Jackson what the declared element type was. The Java emitter has always
-/// pinned it via `constructCollectionType`; this is the Kotlin equivalent. Applied to every
-/// `List<Dto>`, not just sealed ones, because pinning a declared type is correct regardless and
-/// a per-type carve-out would silently miss the next polymorphic DTO.
+/// deserializer rejects the payload with "missing field `type`". The annotations on the sealed
+/// base are not enough on their own: nothing else tells Jackson what the declared element type
+/// is, and a consumer whose native side is strict rejects every such call. The Java emitter pins
+/// it via `constructCollectionType`; this is the Kotlin equivalent. Applied to every `List<Dto>`,
+/// not just sealed ones, because pinning a declared type is correct regardless and a per-type
+/// carve-out would silently miss the next polymorphic DTO.
 fn typed_list_bridge_arg(name: &str, element: &str, optional: bool) -> String {
     let writer = format!(
         "mapper.writerFor(mapper.typeFactory.constructCollectionType(List::class.java, {element}::class.java))"

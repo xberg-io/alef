@@ -72,7 +72,7 @@ pub(super) fn wasm_serde_recovery_call_args(
 /// wasm-bindgen's JS glue for a by-value exported-struct argument calls
 /// `arg.__destroy_into_raw()`, which nulls the JS object's `__wbg_ptr`. A handle passed by value is
 /// therefore dead after a single call and every later use throws `null pointer passed to rust`
-/// (xberg-io/crawlberg#56). Taking it by reference makes the glue pass `arg.__wbg_ptr` instead and
+/// after a single call. Taking it by reference makes the glue pass `arg.__wbg_ptr` instead and
 /// leaves the object alive. This holds for exported `async fn`s too: wasm-bindgen routes `&T`
 /// through `LongRefFromWasmAbi`, which needs neither `Clone` nor a borrow held across the await,
 /// and the emitted `.d.ts` signature is byte-identical to the by-value one. Verified against
