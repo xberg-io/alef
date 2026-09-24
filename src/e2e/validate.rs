@@ -90,8 +90,26 @@ pub fn validate_fixtures_semantic(
     e2e_config: &E2eConfig,
     languages: &[String],
 ) -> Vec<ValidationError> {
+    validate_fixtures_semantic_with_configured_languages(fixtures, e2e_config, languages, languages)
+}
+
+/// As [`validate_fixtures_semantic`], but distinguishing the two language sets it conflates.
+///
+/// `languages` is the set generation will actually run for, which a `--lang <one>` filter narrows
+/// to a single entry; `configured_languages` is what the project declares in `[e2e].languages` (or
+/// its top-level fallback). A call's `unsupported_in` marker is a statement about the project's
+/// configuration, so checking it against the narrowed set made every single-language CI leg log an
+/// ERROR for a marker that is perfectly current — the named language is configured, just filtered
+/// out of this run. Every other check here is about what is being generated now and keeps using
+/// `languages`. ~keep
+pub fn validate_fixtures_semantic_with_configured_languages(
+    fixtures: &[Fixture],
+    e2e_config: &E2eConfig,
+    languages: &[String],
+    configured_languages: &[String],
+) -> Vec<ValidationError> {
     let mut errors = Vec::new();
-    validate_unsupported_in_languages(e2e_config, languages, &mut errors);
+    validate_unsupported_in_languages(e2e_config, configured_languages, &mut errors);
 
     // Per-fixture checks
     for fixture in fixtures {
@@ -1107,6 +1125,29 @@ mod tests {
         assert!(
             !errors.iter().any(|e| e.message.contains("marks unsupported language")),
             "unsupported_in should accept active languages; got: {:?}",
+            errors
+        );
+    }
+
+    /// A `--lang <one>` run narrows the resolved set to that one language; an `unsupported_in`
+    /// marker naming any other configured language is still current and must not be reported.
+    #[test]
+    fn should_not_flag_unsupported_in_language_filtered_out_of_a_single_language_run() {
+        let mut call = CallConfig::default();
+        call.unsupported_in
+            .insert("brew".to_string(), "CLI backend cannot pass complex args".to_string());
+        let config = make_e2e_config(vec![("interact", call)]);
+
+        let errors = validate_fixtures_semantic_with_configured_languages(
+            &[],
+            &config,
+            &["kotlin_android".to_string()],
+            &["kotlin_android".to_string(), "brew".to_string()],
+        );
+
+        assert!(
+            !errors.iter().any(|e| e.message.contains("marks unsupported language")),
+            "a configured-but-filtered-out language must not be reported as stale; got: {:?}",
             errors
         );
     }

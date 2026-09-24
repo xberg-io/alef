@@ -40,13 +40,20 @@ pub(super) fn try_render_field_shape_gates(
     result_var: &str,
     result_is_simple: bool,
     is_streaming: bool,
+    streaming_item_type: Option<&str>,
     kotlin_android_style: bool,
     fields_c_types: &std::collections::HashMap<String, String>,
 ) -> bool {
     if try_render_streaming_usage_field_assertion(out, assertion, is_streaming, kotlin_android_style, fields_c_types) {
         return true;
     }
-    if try_render_streaming_virtual_field_assertion(out, assertion, is_streaming, kotlin_android_style) {
+    if try_render_streaming_virtual_field_assertion(
+        out,
+        assertion,
+        is_streaming,
+        streaming_item_type,
+        kotlin_android_style,
+    ) {
         return true;
     }
     if try_skip_field_not_available_on_result_type(out, assertion, field_resolver) {
@@ -267,6 +274,7 @@ pub(super) fn try_render_streaming_virtual_field_assertion(
     out: &mut String,
     assertion: &Assertion,
     is_streaming: bool,
+    streaming_item_type: Option<&str>,
     kotlin_android_style: bool,
 ) -> bool {
     if let Some(f) = &assertion.field
@@ -280,13 +288,19 @@ pub(super) fn try_render_streaming_virtual_field_assertion(
             "kotlin"
         };
         if let Some(expr) =
-            crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, stream_lang, "chunks")
+            crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
+                f,
+                stream_lang,
+                "chunks",
+                None,
+                streaming_item_type,
+            )
         {
             let line = render_streaming_virtual_field_line(assertion, f, &expr);
             out.push_str(&line);
         } else {
             // ~keep The accessor returns `None` for reachable inputs (a `stream.has_*_event`
-            // predicate never resolves through `accessor`, which supplies no item type), and this
+            // predicate whose call resolved no streaming item type, for one), and this
             // branch used to be absent: the assertion vanished with no line for
             // `fail_on_unavailable_field_markers` to see. alef's streaming adapter owns the gap,
             // so it is counted, never fatal.
@@ -332,6 +346,17 @@ fn render_streaming_virtual_field_line(assertion: &Assertion, f: &str, expr: &st
         "greater_than" => {
             if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
                 format!("        assertTrue({expr} > {n}, \"expected > {n}\")\n")
+            } else {
+                streaming_assertion_value_skip_line("        ", "//", f, &assertion.assertion_type) + "\n"
+            }
+        }
+        // ~keep `stream.event_count_min` is declared by fixtures as `greater_than_or_equal`, which
+        // this match had no arm for at all, so every event-count assertion fell to the catch-all
+        // skip below and the whole streaming test degraded to `assumeTrue(false, ..)`. Mirrors the
+        // java backend's arm.
+        "greater_than_or_equal" => {
+            if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                format!("        assertTrue({expr} >= {n}, \"expected >= {n}\")\n")
             } else {
                 streaming_assertion_value_skip_line("        ", "//", f, &assertion.assertion_type) + "\n"
             }

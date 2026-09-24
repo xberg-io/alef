@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 
 use super::args::{KotlinArgsContext, build_args_and_setup};
-use super::assertions::render_assertion;
+use super::assertions::render_assertion_with_streaming_context as render_assertion;
 use crate::e2e::escape::escape_kotlin;
 
 #[allow(clippy::too_many_arguments)]
@@ -203,6 +203,25 @@ pub(super) fn render_test_method(
             .then(|| adapter.params.first())
             .flatten()
     });
+    // The concrete stream item type (the tagged event union), needed so `stream.has_*_event`
+    // assertions resolve to a real variant check instead of being skipped. ~keep
+    let adapter_lookup_names: Vec<&str> = adapter_lookup_name.as_deref().into_iter().collect();
+    let streaming_item_type =
+        crate::e2e::codegen::recipe::streaming_item_type(call_config, &config.adapters, &adapter_lookup_names);
+    // The request DTO the streaming facade method takes. Only consulted when every non-handle arg
+    // is a mock-server URL arg, which is the shape `args.rs` knows how to wrap; any other arg
+    // shape still falls back to the fixture-`input` deserialization below. ~keep
+    let request_from_mock_url_args = streaming_request.is_some()
+        && args
+            .iter()
+            .any(|arg| arg.arg_type == "mock_url" || arg.arg_type == "mock_url_list")
+        && args
+            .iter()
+            .all(|arg| matches!(arg.arg_type.as_str(), "handle" | "mock_url" | "mock_url_list"));
+    let adapter_request_type: Option<String> = request_from_mock_url_args.then(|| {
+        let ty = &streaming_request.expect("guarded by request_from_mock_url_args").ty;
+        ty.rsplit("::").next().unwrap_or(ty).to_string()
+    });
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -316,11 +335,12 @@ pub(super) fn render_test_method(
     // duplicate that here — see the `setup_lines` doc comment on
     // `build_args_and_setup` for why it must be the sole emitter.
 
-    let call_args: Vec<_> = if streaming_owner_handle.is_some() && streaming_request.is_some() {
-        args.iter().filter(|arg| arg.arg_type == "handle").cloned().collect()
-    } else {
-        args.to_vec()
-    };
+    let call_args: Vec<_> =
+        if streaming_owner_handle.is_some() && streaming_request.is_some() && !request_from_mock_url_args {
+            args.iter().filter(|arg| arg.arg_type == "handle").cloned().collect()
+        } else {
+            args.to_vec()
+        };
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         &call_args,
@@ -335,9 +355,11 @@ pub(super) fn render_test_method(
             enums,
             owner_handle_is_receiver: streaming_owner_handle.is_some(),
             target_params,
+            adapter_request_type: adapter_request_type.as_deref(),
         },
     )?;
     if streaming_owner_handle.is_some()
+        && !request_from_mock_url_args
         && let Some(request) = streaming_request
     {
         let request_name = request.name.to_lower_camel_case();
@@ -454,6 +476,7 @@ pub(super) fn render_test_method(
                 json_scalar_fields,
                 e2e_config.effective_fields_c_types(call_config),
                 is_streaming,
+                streaming_item_type,
                 kotlin_android_style,
                 not_error_may_assert_presence,
             );
@@ -518,6 +541,7 @@ pub(super) fn render_test_method(
             json_scalar_fields,
             &e2e_config.fields_c_types,
             is_streaming,
+            streaming_item_type,
             kotlin_android_style,
             not_error_may_assert_presence,
         );

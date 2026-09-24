@@ -248,7 +248,12 @@ fn generate_e2e_with_extensions(
     // Run semantic validation against the resolved language set so the
     // empty-category check warns about the same languages we're about to
     // generate for.
-    let diagnostics = validate::validate_fixtures_semantic(&fixtures, e2e_config, &resolved_languages);
+    let diagnostics = validate::validate_fixtures_semantic_with_configured_languages(
+        &fixtures,
+        e2e_config,
+        &resolved_languages,
+        &configured_languages,
+    );
     for diag in unreported(&diagnostics, log) {
         // ~keep Both arms used to emit `warn!`, so a diagnostic that aborts the run two statements
         // later was indistinguishable in the log from one that changes nothing. The severity the

@@ -307,6 +307,7 @@ fn kotlin_android_bytes_arg_emits_files_read_all_bytes() {
             owner_handle_is_receiver: false,
             enums: &[],
             target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            adapter_request_type: None,
         },
     )
     .expect("args build succeeds");
@@ -330,6 +331,7 @@ fn kotlin_android_bytes_arg_emits_files_read_all_bytes() {
             owner_handle_is_receiver: false,
             enums: &[],
             target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            adapter_request_type: None,
         },
     )
     .expect("args build succeeds");
@@ -396,6 +398,7 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
             owner_handle_is_receiver: false,
             enums: &[],
             target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+            adapter_request_type: None,
         },
     )
     .expect("args build succeeds");
@@ -533,6 +536,7 @@ fn empty_mock_url_lists_have_explicit_string_element_types() {
                 owner_handle_is_receiver: false,
                 enums: &[],
                 target_params: crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+                adapter_request_type: None,
             },
         )
         .expect("URL argument generation succeeds");

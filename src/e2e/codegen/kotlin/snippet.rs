@@ -137,6 +137,7 @@ pub(crate) fn render_snippet_body_with_ir(
             enums,
             owner_handle_is_receiver: streaming_owner_handle.is_some(),
             target_params: recipe.target_params(lang),
+            adapter_request_type: None,
         },
     )?;
     let mut setup_lines = setup_lines

@@ -459,6 +459,40 @@ pub(super) fn render_test_file_inner(
         })
         .collect();
 
+    // The streaming event-union types a `stream.has_*_event` assertion names. Collected only for
+    // fixtures that actually declare such an assertion: the variant check (`it is CrawlEvent.Page`)
+    // is the sole place the union is spelled, so importing it unconditionally would leave a dead
+    // import on every other streaming file, which Kotlin's unused-import lint flags. ~keep
+    let streaming_item_types: std::collections::BTreeSet<String> = fixtures
+        .iter()
+        .filter(|fixture| {
+            fixture.assertions.iter().any(|assertion| {
+                assertion
+                    .field
+                    .as_deref()
+                    .is_some_and(|field| field.starts_with("stream.has_") && field.ends_with("_event"))
+            })
+        })
+        .filter_map(|fixture| {
+            let call = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let lang_for_recipe = if kotlin_android_style {
+                "kotlin_android"
+            } else {
+                "kotlin"
+            };
+            let adapter_lookup_name = call.core_lookup_name(lang_for_recipe);
+            let adapter_lookup_names: Vec<&str> = adapter_lookup_name.as_deref().into_iter().collect();
+            crate::e2e::codegen::recipe::streaming_item_type(call, &config.adapters, &adapter_lookup_names)
+                .map(str::to_string)
+        })
+        .collect();
+
     // `assertNotNull` is only emitted by `not_error::render_not_error`'s non-streaming
     // branch (the streaming branch asserts on the drained `chunks` list via `assertTrue`
     // instead, see that function's doc comment). A file whose fixtures never reach that
@@ -520,6 +554,9 @@ pub(super) fn render_test_file_inner(
     }
     for request_type in streaming_request_types {
         imports.push_binding_type(&request_type);
+    }
+    for item_type in streaming_item_types {
+        imports.push_binding_type(&item_type);
     }
     let needs_format_metadata_import = fixtures.iter().any(|fixture| {
         fixture.assertions.iter().any(|assertion| {

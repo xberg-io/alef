@@ -55,6 +55,14 @@ pub(super) struct KotlinArgsContext<'a> {
     /// — see the `arg.optional` branch below for why that claim is not, by itself, a claim about
     /// this target's generated signature. ~keep
     pub(super) target_params: TargetParams<'a>,
+    /// The streaming adapter's declared `request_type`, unqualified, when the target's call takes
+    /// a request DTO rather than positional arguments. A `mock_url` / `mock_url_list` arg is then
+    /// wrapped as `val {name}Req = {RequestType}({name})` and the wrapper — not the bare value —
+    /// is what the call receives. Mirrors `JavaArgsContext::adapter_request_type`: without it the
+    /// caller had to fall back to deserializing the fixture's whole raw `input` object into the
+    /// DTO, which carries harness-only keys (`mock_responses`) the DTO does not declare and never
+    /// consults the mock-server URL at all. ~keep
+    pub(super) adapter_request_type: Option<&'a str>,
 }
 
 /// Everything `normalize_typed_json`'s `kotlin_android_style` field-filling needs to decide
@@ -84,6 +92,7 @@ pub(super) fn build_args_and_setup(
         enums,
         owner_handle_is_receiver,
         target_params,
+        adapter_request_type,
     } = context;
     if args.is_empty() {
         return Ok((Vec::new(), String::new()));
@@ -158,7 +167,7 @@ pub(super) fn build_args_and_setup(
                     arg.name,
                 ));
             }
-            parts.push(arg.name.clone());
+            parts.push(wrap_in_request_type(&mut setup_lines, &arg.name, adapter_request_type));
             continue;
         }
 
@@ -171,7 +180,7 @@ pub(super) fn build_args_and_setup(
                     .collect::<Vec<_>>()
                     .join(", ");
                 setup_lines.push(format!("val {} = listOf<String>({literals})", arg.name));
-                parts.push(arg.name.clone());
+                parts.push(wrap_in_request_type(&mut setup_lines, &arg.name, adapter_request_type));
                 continue;
             }
             // Not preserved as-is: each element is a bare path (`/page1`) that must be
@@ -198,7 +207,7 @@ pub(super) fn build_args_and_setup(
             setup_lines.push(format!(
                 "val {name} = listOf<String>({paths_literal}).map {{ if (it.startsWith(\"http\")) it else {name}Base + it }}"
             ));
-            parts.push(name.clone());
+            parts.push(wrap_in_request_type(&mut setup_lines, name, adapter_request_type));
             continue;
         }
 
@@ -996,4 +1005,19 @@ fn append_docs_file_setup(
         .trim_end()
         .to_string(),
     );
+}
+
+/// Wrap a resolved mock-server URL argument in the streaming adapter's declared request DTO,
+/// returning the expression the call should receive. With no `request_type` declared the bare
+/// argument name is returned unchanged, so every non-adapter call site renders exactly as before.
+/// Mirrors `java/args.rs`'s `{name}Req` wrapper. ~keep
+fn wrap_in_request_type(setup_lines: &mut Vec<String>, name: &str, adapter_request_type: Option<&str>) -> String {
+    match adapter_request_type {
+        Some(request_type) => {
+            let req_var = format!("{name}Req");
+            setup_lines.push(format!("val {req_var} = {request_type}({name})"));
+            req_var
+        }
+        None => name.to_string(),
+    }
 }
