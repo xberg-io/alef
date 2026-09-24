@@ -54,7 +54,11 @@ pub(super) fn gen_async_free_function(
                 }
                 _ => {
                     let ty = mapper.map_type(&p.ty);
-                    let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                    let mapped_ty = if p.optional {
+                        format!("Option<{}>", ty)
+                    } else {
+                        super::params::borrow_opaque_param(p, &ty, opaque_types)
+                    };
                     format!("{}: {}", p.name, mapped_ty)
                 }
             })

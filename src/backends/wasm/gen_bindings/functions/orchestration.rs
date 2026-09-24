@@ -2,7 +2,9 @@
 
 use super::imports_helpers::emit_rustdoc;
 use super::input_dto::{gen_input_dto_for_type, should_have_input_dto};
-use super::params::{format_param_unused, typeref_to_core_type_str, wasm_serde_recovery_call_args};
+use super::params::{
+    borrow_opaque_param, format_param_unused, typeref_to_core_type_str, wasm_serde_recovery_call_args,
+};
 use super::returns::{gen_wasm_unimplemented_body, type_has_default, wasm_wrap_return_fn};
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::type_mapper::TypeMapper;
@@ -56,7 +58,11 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            let mapped_ty = if p.optional {
+                format!("Option<{}>", ty)
+            } else {
+                borrow_opaque_param(p, &ty, opaque_types)
+            };
             format_param_unused(&p.name, &mapped_ty, !can_delegate && !func.is_async)
         })
         .collect();
@@ -240,7 +246,11 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
                 }
                 _ => {
                     let ty = mapper.map_type(&p.ty);
-                    let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                    let mapped_ty = if p.optional {
+                        format!("Option<{}>", ty)
+                    } else {
+                        borrow_opaque_param(p, &ty, opaque_types)
+                    };
                     format!("{}: {}", p.name, mapped_ty)
                 }
             })

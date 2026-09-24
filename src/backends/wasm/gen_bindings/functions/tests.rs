@@ -778,3 +778,73 @@ fn async_named_param_overridden_to_js_value_keeps_serde_round_trip() {
         "with no generated wrapper to convert from, the serde round-trip is the only route:\n{out}"
     );
 }
+
+/// An opaque handle passed by value is consumed by wasm-bindgen's JS glue
+/// (`engine.__destroy_into_raw()` nulls `__wbg_ptr`), so the JS object is dead after one call.
+/// Taking it by reference makes the glue pass `engine.__wbg_ptr` instead, leaving the object
+/// usable. See xberg-io/crawlberg#56. ~keep
+#[test]
+fn async_opaque_handle_param_is_taken_by_reference() {
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut func = async_function(vec![
+        param("engine", TypeRef::Named("CrawlEngineHandle".to_string())),
+        param("url", TypeRef::String),
+    ]);
+    func.name = "scrape".to_string();
+    func.rust_path = "sample_fixture::scrape".to_string();
+    func.return_type = TypeRef::Named("ScrapeResult".to_string());
+
+    let opaque: AHashSet<String> = ["CrawlEngineHandle".to_string()].into_iter().collect();
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &opaque,
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("engine: &WasmCrawlEngineHandle"),
+        "opaque handle param must be by reference so repeated calls do not hit a null pointer:\n{out}"
+    );
+    assert!(
+        !out.contains("engine: WasmCrawlEngineHandle"),
+        "by-value opaque handle param leaks into the signature:\n{out}"
+    );
+    assert!(
+        out.contains("sample_fixture::scrape(&engine.inner,"),
+        "core call must still borrow the inner Arc:\n{out}"
+    );
+}
+
+/// Same contract for the synchronous delegation path in `orchestration`. ~keep
+#[test]
+fn sync_opaque_handle_param_is_taken_by_reference() {
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut func = async_function(vec![param("engine", TypeRef::Named("CrawlEngineHandle".to_string()))]);
+    func.name = "close".to_string();
+    func.rust_path = "sample_fixture::close".to_string();
+    func.is_async = false;
+
+    let opaque: AHashSet<String> = ["CrawlEngineHandle".to_string()].into_iter().collect();
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &opaque,
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("engine: &WasmCrawlEngineHandle"),
+        "opaque handle param must be by reference in the sync path too:\n{out}"
+    );
+}
