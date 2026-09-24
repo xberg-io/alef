@@ -703,7 +703,20 @@ pub(super) fn emit_converters(
             // that produced it. `admits_none` is the single fact both this branch and the
             // `T | None` widening in `types.rs` are derived from; the gate made this branch
             // disagree with that widening for exactly the non-`Named` shapes. ~keep
-            if defers_to_rust_default(field) && !is_optional && field_defaults.admits_none(field) {
+            // A serde-default marker is not the only way a parameter acquires a default. On a
+            // `has_default` type `replace_constructor_with_serde_rename` emits
+            // `field=Self::default().field` for EVERY non-`Option` parameter, marker or not, and
+            // `gen_type_init_stub` spells that `field: T = ...` -- omittable, but `None` rejected
+            // (`rust_default_constructor_fields_do_not_claim_none_is_accepted`). Requiring the
+            // marker here left exactly those fields passing `options.py`'s `None` into a
+            // non-`Option` parameter (`ResponseTool { #[serde(flatten)] config: serde_json::Value }`
+            // renders `config: str | None = None` and hands it to `config: str`): a pyrefly
+            // `[bad-argument-type]` and a runtime extraction failure. `typ.has_default` is the
+            // same condition `constructors.rs` uses to decide the parameter gets a default at all,
+            // so it is ORed in rather than replacing the marker test -- a closure-only type
+            // (`!typ.has_default`) keeps the marker as its only route to omission. ~keep
+            let parameter_has_native_default = defers_to_rust_default(field) || typ.has_default;
+            if parameter_has_native_default && !is_optional && field_defaults.admits_none(field) {
                 let raw_field_accessor = field_access(&field.name);
                 let helper_name =
                     emit_optional_kwarg_helper(&mut optional_kwarg_helpers, type_name, &snake, field, &pyo3_param_name);

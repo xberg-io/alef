@@ -627,3 +627,51 @@ fn a_fully_literal_options_dataclass_declares_no_nullable_field() {
         "no field of a fully literal-defaulted type may be declared nullable:\n{options}"
     );
 }
+
+/// A non-`Option` Rust field carrying NO serde-default marker at all, on a type that derives
+/// `Default` -- `ResponseTool { tool_type: String, #[serde(flatten)] config: serde_json::Value }`.
+///
+/// `replace_constructor_with_serde_rename` gives such a field `config=Self::default().config` with
+/// a non-`Option<String>` parameter, and the `.pyi` stub says so (`config: str = ...`, per
+/// `rust_default_constructor_fields_do_not_claim_none_is_accepted`): omission is allowed, `None`
+/// is not. `options.py` has no Python literal for `serde_json::Value::default()`, so it declares
+/// `config: str | None = None` -- which means the facade MUST withhold the keyword. Passing that
+/// `None` straight into the non-`Option` parameter is both a pyrefly `[bad-argument-type]` and a
+/// runtime extraction failure for anyone who constructs the dataclass without the field.
+#[test]
+fn should_withhold_a_none_default_from_a_non_option_parameter_that_has_no_serde_default_marker() {
+    let fields = vec![
+        FieldDef {
+            name: "tool_type".to_string(),
+            ty: TypeRef::String,
+            ..Default::default()
+        },
+        FieldDef {
+            name: "config".to_string(),
+            ty: TypeRef::Json,
+            ..Default::default()
+        },
+    ];
+    let api = surface(fields, Vec::new(), Vec::new());
+    let (facade, stub) = render_facade_and_stub(&api);
+    let options = render_options_py(&api);
+
+    assert!(
+        options.contains("config: str | None = None"),
+        "options.py cannot render `serde_json::Value::default()`, so the field stays nullable:\n{options}"
+    );
+    assert!(
+        stub.contains("config: str = ..."),
+        "the native parameter is not an `Option`, so the stub must not claim `None` is accepted:\n{stub}"
+    );
+    let json_coerced = "(json.dumps(value.config) if isinstance(value.config, (dict, list)) else value.config)";
+    assert_eq!(
+        constructor_call_arguments(&facade),
+        vec![
+            "tool_type=value.tool_type".to_string(),
+            format!("**_optional_layout_spec_config({json_coerced})"),
+        ],
+        "a field `options.py` defaults to `None` must be omitted, not passed, whether or not it \
+         carries a `#[serde(default)]` marker:\n{facade}"
+    );
+}
