@@ -33,9 +33,15 @@
 
 impl magnus::TryConvert for {{ enum_name }} {
     fn try_convert(val: magnus::Value) -> Result<Self, magnus::Error> {
-{% if native_payload %}
-        <&Self as magnus::TryConvert>::try_convert(val).cloned()
-{% else %}
+{%- if native_payload %}
+        // The native class is the only unambiguous input for a discriminator-free enum, but it is
+        // not the only legitimate one: serde's own Deserialize accepts every variant's wire form,
+        // so a caller holding a decoded String or Hash must keep working. Take the wrapped instance
+        // when there is one, otherwise fall through to the serde reader below. ~keep
+        if let Ok(wrapped) = <&Self as magnus::TryConvert>::try_convert(val) {
+            return Ok(wrapped.clone());
+        }
+{%- endif %}
 {%- if serde_tag %}
         // Generated Data variants carry native DTOs, not JSON-compatible display strings.
         let class_name: Option<String> = val.class().funcall("name", ())?;
@@ -75,7 +81,6 @@ impl magnus::TryConvert for {{ enum_name }} {
                 }
             })
             .map_err(|e| magnus::Error::new(unsafe { Ruby::get_unchecked() }.exception_type_error(), e.to_string()))
-{% endif %}
     }
 }
 

@@ -12,8 +12,13 @@ use std::collections::HashSet;
 /// reconstruction unambiguous, and `gen_tagged_enum_ruby_classes` (`mod.rs`) already generates a
 /// `from_hash` marker module for exactly that case. A native `#[magnus::wrap]` class shares the
 /// enum's own name with that marker module, so emitting both is a hard Ruby `TypeError` at
-/// require time, and `TryConvert` for a native class accepts only an already-wrapped instance --
-/// no Hash fallback -- which silently drops any caller that only has a JSON-decoded Hash. ~keep
+/// require time. ~keep
+///
+/// The native class is an *additional* ingress form, never the only one: `enum_magnus.rs.jinja`
+/// keeps the serde reader as this shape's `TryConvert` fallback. The mirrored enum still derives
+/// `Deserialize`, so every variant's own wire form stays a legitimate value for a field of this
+/// type, and a caller holding a decoded String or Hash (a fixture, a JSON round trip) has no
+/// wrapped instance to offer. ~keep
 pub(crate) fn is_native_payload_enum(def: &EnumDef) -> bool {
     def.serde_untagged
         && def.serde_tag.is_none()

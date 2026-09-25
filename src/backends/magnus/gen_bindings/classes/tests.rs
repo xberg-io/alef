@@ -39,8 +39,8 @@ fn untagged_record_enum_retains_native_identity_and_typed_factories() {
         "records must not degrade into hashes: {code}"
     );
     assert!(
-        !code.contains("serde_json::from_str"),
-        "records must not guess a variant from a hash: {code}"
+        code.find("<&Self as magnus::TryConvert>::try_convert").unwrap() < code.find("serde_json::from_str").unwrap(),
+        "the wrapped instance must win over the serde reader, never the reverse: {code}"
     );
     syn::parse_file(&code).expect("native enum Rust must parse");
 }
@@ -76,11 +76,9 @@ fn boxed_native_payload_enum_preserves_boxed_variants_and_unboxed_accessors() {
 /// named-payload tuple, matching a homogeneous untagged record shape. A tagged enum's own
 /// discriminator key already makes `gen_tagged_enum_ruby_classes` (`mod.rs`) produce an
 /// unambiguous `from_hash` marker module named after the enum; a native `#[magnus::wrap]` class
-/// would share that exact name and crash Ruby at require time (`TypeError: ... is not a module`),
-/// and its `TryConvert` has no Hash fallback, silently rejecting any caller holding a
-/// JSON-decoded Hash instead of an already-wrapped instance. `is_native_payload_enum` is
-/// therefore untagged-only; the tagged path still extracts a typed Data-variant instance before
-/// falling back to JSON. ~keep
+/// would share that exact name and crash Ruby at require time (`TypeError: ... is not a module`).
+/// `is_native_payload_enum` is therefore untagged-only; the tagged path still extracts a typed
+/// Data-variant instance before falling back to JSON. ~keep
 #[test]
 fn typed_tagged_newtypes_extract_native_payloads_before_json_fallback() {
     let mut def = EnumDef {
