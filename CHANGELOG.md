@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.2] - 2026-09-25
+
+### Fixed
+
+- **python: the optional-kwarg helper's `TypedDict` no longer fails `strict` type checking.** A
+  pyo3 converter omits a keyword whose value may be absent by unpacking a generated one-key
+  `TypedDict` (`_optional_<type>_<field>`), and pyrefly's `strict` preset -- the preset alef's own
+  scaffold writes into every generated `pyproject.toml` -- rejects unpacking any
+  non-PEP-728-`closed` `TypedDict` into a callable without `**kwargs`, so every such call site was
+  `[open-unpacking]` for consumers. The code is now suppressed for `**/api.py` alongside the three
+  already listed there. Both alternatives were measured and rejected: `closed=True` silences it but
+  `closed` is a `TypeError` on `typing.TypedDict` through 3.14 (PEP 728 lands in the 3.15 stdlib),
+  so it forces a `typing-extensions` runtime dependency into every published wheel at
+  `requires-python = ">=3.10"`; and returning a plain `dict[str, V]` needs no dependency but is
+  resolved against every remaining parameter, so heterogeneous value types in one constructor call
+  cost one `[bad-argument-type]` per incompatible pair -- under the `default` preset as well as
+  `strict`, i.e. worse than the bug. Keeping the `TypedDict` is what leaves both the value type and
+  the key name checked.
+
+### Changed
+
+- **The two pyrefly gates now check what consumers actually run.** The kwarg-unpack harness
+  hand-wrote its checker config and so ran under pyrefly's `default` preset, where
+  `[open-unpacking]` cannot fire; it now derives the config from the real scaffold and asserts it
+  carries `preset = "strict"`. The end-to-end gate did use the strict config, but its fixture
+  contained no field that reaches the optional-kwarg helper, so it type-checked output that had no
+  `**helper(...)` call in it at all; a `ToolEnvelope` struct adds the only shape that produces one
+  (a non-`Option` field whose native parameter carries a Rust-side default). Both tests now
+  announce a skipped pyrefly loudly rather than returning silently, and `ALEF_REQUIRE_PYREFLY=1`
+  still turns the skip into a failure.
+
+## [0.96.1] - 2026-09-24
+
+### Fixed
+
+- **python: a `None` default is withheld from any defaulted constructor parameter.** `0b69ca87f`
+  stopped the stub claiming a non-`Option` parameter accepts `None`, but the `api.py` half was
+  never paired to it: the converter withheld `options.py`'s `None` only when the field also carried
+  a serde-default marker. `replace_constructor_with_serde_rename` emits
+  `field=Self::default().field` for every non-`Option` parameter of a `has_default` type, marker or
+  not, so a field without one -- `ResponseTool { #[serde(flatten)] config: serde_json::Value }` is
+  the shape that surfaced it -- rendered `config: str | None = None` in `options.py` and handed
+  that straight to `config: str`. pyrefly rejects it as `[bad-argument-type]`, and at runtime pyo3
+  cannot extract `None` into a `String`. `typ.has_default` is ORed into the guard rather than
+  replacing the marker test, so a closure-only type keeps the marker as its only route to omission
+  and no call site that already omitted the keyword loses it.
+
 ## [0.96.0] - 2026-09-24
 
 Three generator fixes, all found by a consumer whose bindings were shipping broken.
