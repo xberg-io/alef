@@ -12,9 +12,20 @@ struct SwiftModuleLookup {
     environment: Vec<(String, String)>,
 }
 
+/// Where a snippet's `swiftc` invocation should look for the package's built modules.
+///
+/// Two lists, because SwiftPM's generated modulemaps are named per target rather than
+/// `module.modulemap`, so clang cannot discover them from a search directory and they have to be
+/// named outright. ~keep
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct SwiftModulePaths {
+    search_directories: Vec<std::path::PathBuf>,
+    module_maps: Vec<std::path::PathBuf>,
+}
+
 #[derive(Default)]
 pub struct SwiftValidator {
-    module_directories: Mutex<HashMap<SwiftModuleLookup, std::result::Result<Vec<std::path::PathBuf>, String>>>,
+    module_directories: Mutex<HashMap<SwiftModuleLookup, std::result::Result<SwiftModulePaths, String>>>,
 }
 
 impl SnippetValidator for SwiftValidator {
@@ -79,7 +90,7 @@ impl SnippetValidator for SwiftValidator {
         let dir = session.scratch_dir()?;
         let file = dir.path().join("snippet.swift");
         std::fs::write(&file, snippet.code.trim())?;
-        let module_directories = self.module_directories(session, timeout_secs)?;
+        let module_paths = self.module_directories(session, timeout_secs)?;
         let mut command = std::process::Command::new("swiftc");
         match level {
             ValidationLevel::Syntax => {
@@ -95,10 +106,15 @@ impl SnippetValidator for SwiftValidator {
                 command.arg("-o").arg(dir.path().join("snippet"));
             }
         }
-        for directory in &module_directories {
+        for directory in &module_paths.search_directories {
             command.arg("-I").arg(directory);
         }
-        if let Some(binary_directory) = module_directories.first().and_then(|path| path.parent()) {
+        for module_map in &module_paths.module_maps {
+            command
+                .arg("-Xcc")
+                .arg(format!("-fmodule-map-file={}", module_map.display()));
+        }
+        if let Some(binary_directory) = module_paths.search_directories.first().and_then(|path| path.parent()) {
             command.arg("-L").arg(binary_directory);
         }
         command.arg(&file);
@@ -122,15 +138,15 @@ impl SnippetValidator for SwiftValidator {
 }
 
 impl SwiftValidator {
-    fn module_directories(&self, session: &ValidationSession, timeout_secs: u64) -> Result<Vec<std::path::PathBuf>> {
+    fn module_directories(&self, session: &ValidationSession, timeout_secs: u64) -> Result<SwiftModulePaths> {
         self.cached_module_directories(session, || swift_module_directories(session, timeout_secs))
     }
 
     fn cached_module_directories(
         &self,
         session: &ValidationSession,
-        resolve: impl FnOnce() -> Result<Vec<std::path::PathBuf>>,
-    ) -> Result<Vec<std::path::PathBuf>> {
+        resolve: impl FnOnce() -> Result<SwiftModulePaths>,
+    ) -> Result<SwiftModulePaths> {
         let lookup = swift_module_lookup(session);
         let mut cache = self.module_directories.lock().map_err(|error| {
             crate::snippets::error::Error::Other(format!("locking Swift module-directory cache: {error}"))
@@ -168,7 +184,7 @@ fn swift_module_lookup(session: &ValidationSession) -> SwiftModuleLookup {
 /// gives up. It ran unbounded here while every other subprocess in snippet validation was already
 /// under the session's `timeout_secs`; it is now under the same bound, and the same process-group
 /// teardown, as the `swiftc` invocation it feeds. ~keep
-fn swift_module_directories(session: &ValidationSession, timeout_secs: u64) -> Result<Vec<std::path::PathBuf>> {
+fn swift_module_directories(session: &ValidationSession, timeout_secs: u64) -> Result<SwiftModulePaths> {
     let mut command = std::process::Command::new("swift");
     command.args(["build", "--show-bin-path"]);
     session.apply(&mut command);
@@ -185,18 +201,82 @@ fn swift_module_directories(session: &ValidationSession, timeout_secs: u64) -> R
     swift_module_directories_in(&binary_directory)
 }
 
-fn swift_module_directories_in(binary_directory: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
-    let mut directories = vec![binary_directory.join("Modules")];
+/// SwiftPM has two build systems and they lay the products out differently, so a snippet has to
+/// compile against whichever one built the package.
+///
+/// The *native* system writes the `.swiftmodule` files into a `Modules/` directory beside the
+/// binaries and generates a `module.modulemap` per C target under the bin path, where `-I` finds
+/// it. Swift 6.3 made *swiftbuild* the default: it puts the `.swiftmodule` files directly in the
+/// bin path, creates no `Modules/` directory at all, and writes generated modulemaps to
+/// `Intermediates.noindex/GeneratedModuleMaps-<platform>/<Target>.modulemap` -- named per target
+/// rather than `module.modulemap`, so clang cannot discover them from a search directory and they
+/// have to be named outright with `-fmodule-map-file`.
+///
+/// Looking for both shapes is what keeps this working across toolchains; each degrades to nothing
+/// on the layout that does not use it. Before this, a package built by swiftbuild resolved no
+/// modules at all and every snippet failed with `no such module`, which `is_dependency_error`
+/// classifies as Unavailable -- so a whole language reported as "environment not ready" rather
+/// than failing, and `--strict` blocked the run with nothing to fix in the tree. ~keep
+fn swift_module_directories_in(binary_directory: &std::path::Path) -> Result<SwiftModulePaths> {
+    let mut paths = SwiftModulePaths {
+        // `Modules` first: `validate_in_session` takes `-L` from this entry's parent, which is the
+        // bin path under either layout. ~keep
+        search_directories: vec![binary_directory.join("Modules"), binary_directory.to_path_buf()],
+        module_maps: generated_module_maps_for(binary_directory),
+    };
     let Ok(entries) = std::fs::read_dir(binary_directory) else {
-        return Ok(directories);
+        return Ok(paths);
     };
     for entry in entries {
         let path = entry?.path();
-        if path.join("module.modulemap").is_file() || path.join("include/module.modulemap").is_file() {
-            directories.push(path);
+        if path.join("module.modulemap").is_file() {
+            paths.search_directories.push(path);
+        } else if path.join("include/module.modulemap").is_file() {
+            // ~keep `-I` resolves a modulemap only in the directory named, so the nested case has
+            // to name `include` itself. The parent stays on the list because a target laid out
+            // this way still serves its headers from it.
+            paths.search_directories.push(path.join("include"));
+            paths.search_directories.push(path);
         }
     }
-    Ok(directories)
+    Ok(paths)
+}
+
+/// swiftbuild keeps generated modulemaps under the scratch directory's `Intermediates.noindex`,
+/// a sibling of the `Products` tree the bin path points into. Walk up from the bin path to find
+/// it rather than rebuilding a scratch path from `--scratch-path`: the bin path is the only
+/// location SwiftPM is actually asked for, so it is the only one guaranteed to be right. ~keep
+fn generated_module_maps_for(binary_directory: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut module_maps = Vec::new();
+    for ancestor in binary_directory.ancestors() {
+        let intermediates = ancestor.join("Intermediates.noindex");
+        let Ok(entries) = std::fs::read_dir(&intermediates) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let generated = entry.path();
+            let is_generated_module_maps = generated
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .is_some_and(|name| name.starts_with("GeneratedModuleMaps"));
+            if !is_generated_module_maps {
+                continue;
+            }
+            let Ok(candidates) = std::fs::read_dir(&generated) else {
+                continue;
+            };
+            for candidate in candidates.flatten() {
+                let module_map = candidate.path();
+                if module_map.extension().is_some_and(|extension| extension == "modulemap") {
+                    module_maps.push(module_map);
+                }
+            }
+        }
+        break;
+    }
+    // Stable ordering keeps the `swiftc` command line reproducible across runs. ~keep
+    module_maps.sort();
+    module_maps
 }
 
 #[cfg(test)]
@@ -248,7 +328,10 @@ mod tests {
         let mut second_session = first_session.clone();
         second_session.fingerprint = "second-target-identity".into();
         let invocations = AtomicUsize::new(0);
-        let expected = vec![PathBuf::from(".build/debug/Modules")];
+        let expected = SwiftModulePaths {
+            search_directories: vec![PathBuf::from(".build/debug/Modules")],
+            module_maps: Vec::new(),
+        };
 
         for session in [&first_session, &second_session] {
             let resolved = validator
@@ -289,7 +372,57 @@ mod tests {
 
         assert_eq!(
             swift_module_directories_in(&missing).expect("missing bin directory is tolerated"),
-            vec![missing.join("Modules")]
+            SwiftModulePaths {
+                search_directories: vec![missing.join("Modules"), missing.clone()],
+                module_maps: Vec::new(),
+            }
         );
+    }
+
+    /// The layout `swift build` produces from Swift 6.3 on, where the default build system became
+    /// swiftbuild: `.swiftmodule` files directly in the bin path, no `Modules/` directory, and
+    /// generated modulemaps named per target two levels up under `Intermediates.noindex`.
+    /// Reproduced against `swift:6.4`; before this the bin path contributed no `-I` of its own and
+    /// the modulemaps were never passed, so nothing resolved. ~keep
+    #[test]
+    fn swiftbuild_layout_contributes_the_bin_path_and_its_generated_module_maps() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let out = directory.path().join("out");
+        let binary_directory = out.join("Products/Debug-linux-aarch64");
+        let generated = out.join("Intermediates.noindex/GeneratedModuleMaps-linux-aarch64");
+        std::fs::create_dir_all(&binary_directory).expect("bin directory");
+        std::fs::create_dir_all(&generated).expect("generated modulemap directory");
+        std::fs::write(binary_directory.join("HtmlToMarkdown.swiftmodule"), "").expect("module");
+        std::fs::write(generated.join("RustBridgeC.modulemap"), "module RustBridgeC {}").expect("modulemap");
+        std::fs::write(generated.join("ignored.txt"), "not a modulemap").expect("decoy");
+
+        let resolved = swift_module_directories_in(&binary_directory).expect("layout resolves");
+
+        assert_eq!(
+            resolved.search_directories,
+            vec![binary_directory.join("Modules"), binary_directory.clone()]
+        );
+        assert_eq!(resolved.module_maps, vec![generated.join("RustBridgeC.modulemap")]);
+    }
+
+    /// The native layout must keep resolving exactly as it did, since a package built by the older
+    /// build system is still the common case on pinned toolchains. ~keep
+    #[test]
+    fn native_layout_still_resolves_a_c_targets_module_map_directory() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let binary_directory = directory.path().join("debug");
+        let c_target = binary_directory.join("RustBridgeC.build");
+        std::fs::create_dir_all(&c_target).expect("c target directory");
+        std::fs::create_dir_all(binary_directory.join("Modules")).expect("modules directory");
+        std::fs::write(c_target.join("module.modulemap"), "module RustBridgeC {}").expect("modulemap");
+
+        let resolved = swift_module_directories_in(&binary_directory).expect("layout resolves");
+
+        assert!(resolved.search_directories.contains(&c_target));
+        assert_eq!(
+            resolved.search_directories.first(),
+            Some(&binary_directory.join("Modules"))
+        );
+        assert!(resolved.module_maps.is_empty());
     }
 }
