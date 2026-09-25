@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.3] - 2026-09-25
+
+Two generator fixes, both found by a consumer whose bindings stopped building or serializing after
+upgrading from 0.85.x. Both affect untagged-union enums, but they are independent defects on
+different code paths.
+
+### Fixed
+
+- **magnus: a kwargs constructor no longer defaults a field whose type has no generated `Default`.**
+  The `None => Default::default()` arm resolves against the generated crate's own re-declaration of
+  the field type, never the core one, and two mechanisms composed to put it on a type that cannot
+  satisfy it. `extract_impl_block` returns early on an `impl` carrying
+  `#[cfg_attr(alef, alef(skip))]`, so a data enum whose core `Default` is hand-written and skipped
+  arrives with `has_default == false` and is mirrored without one; independently, a struct deriving
+  `Default` seeds `DefaultValue::Empty` onto *every* one of its fields, which asserts the owner is
+  defaultable rather than each field's type, and `use_unwrap_or_default` answered true for such a
+  field before ever looking at its type. The result was `error[E0277]: the trait bound
+  `T: Default` is not satisfied` in the generated crate. The arm is now gated on the set of type
+  names this backend actually emits a `Default` impl for, built by mirroring its four emission
+  sites (`gen_struct_default_impl_explicit` is called directly, so the set cannot drift from the
+  decision it describes). A withheld arm falls through to the pre-existing required-field branch,
+  which raises naming the missing keyword. Primitives, `String`, `Vec` and `Option` are untouched —
+  their `Default` is structural, not generated — so only fields of mirrored types change. The same
+  guard already existed in this backend for explicit struct `Default` impls; the kwargs constructor
+  was the site that had been missed.
+
+- **kotlin: untagged `Vec<SealedClass>` variants keep their type discriminator.** The variant
+  resolved its element serializer once, from the declared base class, via
+  `provider.findValueSerializer`. That was correct only while a tagged sealed class carried a
+  hand-written `@JsonSerialize(using = ...)` that wrote `"type"` itself — the representation
+  0.96.0 replaced with declarative `@JsonTypeInfo`. Jackson applies `@JsonTypeInfo` only in
+  `serializeWithType`, so the abstract base class's plain `BeanSerializer`, which has no
+  properties, serialized **every element as `{}`** and the Rust side rejected the array with
+  `data did not match any variant of untagged enum` before any request was sent. The element
+  serializer is now resolved per element from the element's runtime class via
+  `findTypedValueSerializer(.., true, ..)`. Both halves are load-bearing and each fails silently
+  alone: an untyped lookup emits the payload without the tag, and a typed lookup given the declared
+  base class emits the tag without the payload. This was an incomplete migration in 0.96.0 — the
+  tagged-enum representation changed and the untagged serializer that dispatched through it did
+  not.
+
+### Changed
+
+- The kotlin test that pinned the broken dispatch asserted the base-class lookup, with a comment
+  justifying it under the superseded representation. It now asserts the runtime-class form and
+  rejects both silent failure modes. New magnus coverage runs the real
+  `MagnusBackend::generate_bindings` path with a premise guard (the mirrored enum really is emitted
+  without a `Default`) and negative controls for both over- and under-correction, including one
+  that swaps in the `has_default`-only type set to prove the plumbing rather than just the
+  predicate.
+
 ## [0.96.2] - 2026-09-25
 
 ### Fixed
