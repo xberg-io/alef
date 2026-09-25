@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.4] - 2026-09-25
+
+Three generator fixes, all reported by the same consumer after upgrading from 0.85.x, and all on
+the boundary where an untagged or externally tagged Rust enum meets a host language's type system.
+The magnus one is a live regression this release exists to fix; the Jackson two were found by
+enumerating the sibling backends for the same erasure hazard 0.96.3 fixed in one place.
+
+### Fixed
+
+- **magnus: a discriminator-free enum accepts its wire form again, not only the native class.**
+  0.96.3 gave `#[serde(untagged)]` enums whose every variant wraps a named type a native Ruby
+  class, and made `TryConvert` take the wrapped instance. It did so in an `{% if %}/{% else %}`,
+  so the native branch *replaced* the serde reader rather than preceding it, and the generated
+  class became the only accepted input. Every caller passing the value serde itself accepts — a
+  `String` for a mode-style variant, a `Hash` for a struct one — started failing conversion, which
+  for an untagged enum is exactly the idiomatic call. The native branch is now a prefix: it takes
+  the wrapped instance when there is one and otherwise falls through to the serde reader, so both
+  ingresses work. The test that was meant to pin this asserted the *absence* of
+  `serde_json::from_str`, i.e. it pinned the defect; it now asserts the wrapped instance is tried
+  first, which is the property that actually matters.
+
+- **kotlin: container payloads of externally tagged and untagged enums keep their type ids.**
+  Jackson erases a collection's element type, so `mapper.writeValue(gen, payload)` resolves each
+  element through the untyped `findValueSerializer` lookup and calls `serialize`, never
+  `serializeWithType`. Both ways a sealed base carries its wire form die there: `@JsonTypeInfo`
+  writes its discriminator only from `serializeWithType`, and a custom base serializer is cancelled
+  on every struct-variant subclass with `JsonSerializer.None`, which is what the dynamic
+  per-element lookup finds. The array went out as bare payload objects and Rust rejected it with
+  `data did not match any variant`. 0.96.3 fixed this for `Vec<Named>` on the untagged serializer
+  only; the heterogeneous (externally tagged) serializer had no container handling at all, and
+  neither covered `Option`, `Map` or nesting — an `Option<Vec<Named>>` payload generated Kotlin
+  that iterated a nullable list, which does not compile. Both sites now share one recursive
+  emitter that walks the IR type and writes each named leaf through
+  `findTypedValueSerializer(<runtime class>, true, null)`. `Vec<Named>` output is unchanged
+  byte-for-byte. Maps keyed by a named type deliberately stay on the mapper path: a JSON member
+  name is a string, and such a key's `toString()` is its class or constant name rather than the
+  serde rename, so Jackson's own key serializer is the correct writer there.
+
+- **java: `ofObject` keeps the type id on an untagged union's list payload.** The untagged wrapper
+  emits `of(String)`, `of(List<String>)` and `ofObject(Object)` regardless of the enum's variants,
+  so every other payload shape — including a `Vec<SomeTaggedEnum>` — entered through `ofObject`,
+  which called `MAPPER.valueToTree(list)`. The same erasure as above dropped each element's
+  `@JsonTypeInfo` discriminator, and because the result is frozen into the wrapper's stored
+  `JsonNode` the tag was gone for good before anything serialized it. A list is now routed through
+  an `ObjectWriter` with the element type pinned, one per declared `Vec<Named>` variant, reusing
+  the collection writer the marshaller already builds for this hazard. `ofObject`'s signature is
+  unchanged, and so is every other path: a root value is resolved by its runtime type and already
+  carries its discriminator, and a `Vec<String>` variant must keep the plain conversion because a
+  union may declare both. A heterogeneous `List<Object>` whose first element is not one of the
+  declared element types also keeps today's behaviour. C# was checked for the same defect and is
+  safe on this path — .NET generics are reified, so the runtime `List<T>` still names its element
+  type and `System.Text.Json` honours the class-level converter.
+
 ## [0.96.3] - 2026-09-25
 
 Two generator fixes, both found by a consumer whose bindings stopped building or serializing after
