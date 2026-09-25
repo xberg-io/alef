@@ -1,7 +1,7 @@
 use crate::backends::java::type_map::{java_boxed_type, java_type};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToShoutySnakeCase};
 
 use super::serializers::{DEFAULT_TAG_FIELD, gen_sealed_union_deserializer, gen_sealed_union_serializer};
 use crate::backends::java::gen_bindings::helpers::{
@@ -132,8 +132,64 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str
             doc => doc,
             exception_class => exception_class,
             emit_text => emit_text,
+            typed_list_writers => untagged_typed_list_writers(enum_def),
         },
     )
+}
+
+/// One `ObjectWriter` constant the untagged wrapper needs, for a variant whose payload is a
+/// `Vec<SomeNamedType>`.
+#[derive(serde::Serialize)]
+struct TypedListWriter {
+    /// Java type name used in the `instanceof` guard that picks this writer.
+    element_type: String,
+    /// Name of the generated `private static final ObjectWriter` constant.
+    constant: String,
+    /// Right-hand side that builds the writer with the element type pinned.
+    expression: String,
+}
+
+/// Collect the element-type-pinned writers `ofObject(Object)` needs.
+///
+/// `ofObject`'s parameter is `Object`, and Java erases a `List`'s element type, so
+/// `MAPPER.valueToTree(list)` builds a `CollectionSerializer` with no element `TypeSerializer`:
+/// each element is resolved through the UNTYPED `findValueSerializer` lookup and its
+/// `@JsonTypeInfo` discriminator is silently dropped. The same value passed on its own keeps its
+/// discriminator, because a root value goes through `findTypedValueSerializer`. Only the erased
+/// container path is affected, and the tag-less tree is then frozen into the wrapper's stored
+/// `JsonNode`, so nothing downstream can repair it.
+///
+/// The generator knows each variant's `TypeRef`, hence the element type statically, so it can pin
+/// it with the same `writerFor(constructCollectionType(..))` mechanism the DTO marshal path uses.
+/// Only `Vec<Named>` payloads are collected: a `Vec<String>` element type can never carry a
+/// discriminator, and an untagged union may mix both (`Single(String) | Multiple(Vec<String>) |
+/// Parts(Vec<SomePart>)`), so the guard has to be per element type rather than "is a list". ~keep
+fn untagged_typed_list_writers(enum_def: &EnumDef) -> Vec<TypedListWriter> {
+    let opaque_types = ahash::AHashSet::new();
+    let mut writers: Vec<TypedListWriter> = Vec::new();
+    for variant in &enum_def.variants {
+        if variant.binding_excluded || variant.fields.len() != 1 {
+            continue;
+        }
+        let ty = &variant.fields[0].ty;
+        let TypeRef::Vec(inner) = ty else { continue };
+        let TypeRef::Named(element_type) = inner.as_ref() else {
+            continue;
+        };
+        if writers.iter().any(|w| &w.element_type == element_type) {
+            continue;
+        }
+        writers.push(TypedListWriter {
+            element_type: element_type.clone(),
+            constant: format!("LIST_WRITER_{}", element_type.to_shouty_snake_case()),
+            expression: crate::backends::java::gen_bindings::marshal::build_collection_writer_for(
+                inner,
+                ty,
+                &opaque_types,
+            ),
+        });
+    }
+    writers
 }
 
 pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String {

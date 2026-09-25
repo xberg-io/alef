@@ -2,8 +2,14 @@
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
+{% if typed_list_writers %}
+import com.fasterxml.jackson.core.JsonProcessingException;
+{% endif %}
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+{% if typed_list_writers %}
+import com.fasterxml.jackson.databind.ObjectWriter;
+{% endif %}
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +24,10 @@ import java.util.Optional;
 @SuppressWarnings("PMD")
 public final class {{ class_name }} {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+{% for writer in typed_list_writers %}
+    private static final ObjectWriter {{ writer.constant }} =
+        {{ writer.expression }};
+{% endfor %}
     private final JsonNode value;
 
     @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
@@ -40,9 +50,42 @@ public final class {{ class_name }} {
         return new {{ class_name }}(arr);
     }
 
+{% if typed_list_writers %}
+    /**
+     * Wraps an arbitrary value as this union's JSON shape.
+     *
+     * <p>A {@code List} whose first element is one of this union's declared element types is
+     * serialized through a writer with that element type pinned. Java erases a collection's
+     * element type, so a plain {@code valueToTree(list)} resolves each element with Jackson's
+     * untyped lookup and silently drops its {@code @JsonTypeInfo} discriminator; pinning the
+     * element type restores it. Any other value keeps the plain conversion, which already
+     * carries the discriminator because a root value is resolved by its runtime type.
+     */
+    public static {{ class_name }} ofObject(final Object o) {
+        if (o instanceof List<?> items && !items.isEmpty()) {
+            var first = items.get(0);
+{% for writer in typed_list_writers %}
+            if (first instanceof {{ writer.element_type }}) {
+                return new {{ class_name }}(typedTree({{ writer.constant }}, o));
+            }
+{% endfor %}
+        }
+        return new {{ class_name }}(MAPPER.valueToTree(o));
+    }
+
+    private static JsonNode typedTree(final ObjectWriter writer, final Object o) {
+        try {
+            return MAPPER.readTree(writer.writeValueAsString(o));
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                "Failed to serialize {{ class_name }} value: " + e.getMessage(), e);
+        }
+    }
+{% else %}
     public static {{ class_name }} ofObject(final Object o) {
         return new {{ class_name }}(MAPPER.valueToTree(o));
     }
+{% endif %}
 
     public static {{ class_name }} fromJson(final String json) throws {{ exception_class }} {
         try {

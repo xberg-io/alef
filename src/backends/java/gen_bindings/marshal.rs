@@ -100,7 +100,14 @@ pub(crate) fn gen_ffi_layout_with_enums(ty: &TypeRef, enum_names: &AHashSet<Stri
 /// writeValueAsString(list)` erases T at runtime, dropping `@JsonTypeInfo`
 /// discriminators on polymorphic element types like the tagged-enum DTO
 /// `PageAction`. The returned expression is a `ObjectWriter`.
-fn build_collection_writer_for(inner: &TypeRef, outer: &TypeRef, _opaque_types: &AHashSet<String>) -> String {
+///
+/// Also reached from the untagged-union wrapper (`types::enums::gen_java_untagged_wrapper`),
+/// whose `ofObject(Object)` factory hits the identical erasure hazard. ~keep
+pub(crate) fn build_collection_writer_for(
+    inner: &TypeRef,
+    outer: &TypeRef,
+    _opaque_types: &AHashSet<String>,
+) -> String {
     let elem_class = java_class_literal_for(inner);
     match outer {
         TypeRef::Vec(_) => format!(
