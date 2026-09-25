@@ -466,11 +466,20 @@ fn sealed_class_variant_data_classes_get_json_deserialize_reset_annotation() {
 
 /// Regression (Bug G — untagged): newtype variants of untagged sealed classes do NOT
 /// need reset annotations because the parent serializer dispatches via the inner value
-/// type (no recursion). However, the serializer for Vec<SealedClass> variants must use
-/// provider.findValueSerializer so the sealed-class serializer (which adds "type") is
-/// invoked per element, not the variant's reset-to-None subtype serializer.
+/// type (no recursion).
+///
+/// The `Vec<SealedClass>` variant must resolve its element serializer per element from the
+/// element's RUNTIME class via `findTypedValueSerializer(.., true, ..)`. This used to be
+/// `findValueSerializer(<declared base>::class.java)`, which was correct only while a tagged
+/// sealed class carried a hand-written `@JsonSerialize(using = ...)` that wrote `"type"` itself.
+/// Once tagged sealed classes moved to declarative `@JsonTypeInfo`, Jackson emitted the
+/// discriminator only from `serializeWithType`, so the base class's plain `BeanSerializer` —
+/// which has no properties — serialized every element as `{}` and Rust rejected the array with
+/// `data did not match any variant of untagged enum UserContent`. Both halves are asserted
+/// below, because each failure mode is silent on its own: the base class emits the tag but
+/// DROPS the payload, and the untyped lookup emits the payload but drops the tag.
 #[test]
-fn untagged_sealed_class_vec_variant_serializer_uses_declared_type_serializer() {
+fn untagged_sealed_class_vec_variant_serializer_uses_runtime_typed_serializer() {
     let en = make_enum(
         "UserContent",
         None,
@@ -496,8 +505,19 @@ fn untagged_sealed_class_vec_variant_serializer_uses_declared_type_serializer() 
             "Text newtype variant must NOT have reset annotations; got:\n{out}",
         );
     assert!(
-        out.contains("provider.findValueSerializer(ContentPart::class.java)"),
-        "Parts serializer must use provider.findValueSerializer(ContentPart::class.java); got:\n{out}",
+        out.contains("provider.findTypedValueSerializer(elem.javaClass, true, null).serialize(elem, gen, provider)"),
+        "Parts serializer must resolve a TYPE-WRAPPING serializer from each element's runtime class; \
+         got:\n{out}",
+    );
+    assert!(
+        !out.contains("findValueSerializer("),
+        "an untyped findValueSerializer lookup drops the @JsonTypeInfo discriminator, so every \
+         element serializes as `{{}}`; got:\n{out}",
+    );
+    assert!(
+        !out.contains("findTypedValueSerializer(ContentPart::class.java"),
+        "the typed lookup must be given the element's RUNTIME class, not the declared base class \
+         (the base class emits `type` but drops the payload); got:\n{out}",
     );
     assert!(
         out.contains("is UserContent.Text -> mapper.writeValue(gen, value.value)"),

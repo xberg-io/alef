@@ -257,6 +257,15 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
             );
             if let TypeRef::Vec(inner) = &field.ty {
                 if let TypeRef::Named(elem_type) = inner.as_ref() {
+                    // The element serializer is resolved per element from `elem.javaClass`, not once
+                    // from the declared `elem_type`. A tagged sealed class carries its discriminator
+                    // through `@JsonTypeInfo` (see `gen_tagged_sealed_class`), which Jackson applies
+                    // only in `serializeWithType`; `findValueSerializer` on the abstract base returns
+                    // a plain `BeanSerializer` for a class with no properties, so every element
+                    // serialized to `{}` and Rust rejected the array with "data did not match any
+                    // variant of untagged enum". `findTypedValueSerializer(.., true, ..)` returns the
+                    // type-wrapping serializer, and it must be handed the RUNTIME class: passing the
+                    // base class emits the tag but drops the payload. ~keep
                     out.push_str(&crate::backends::kotlin::template_env::render(
                         "sealed_vec_serializer_block.jinja",
                         minijinja::context! {
