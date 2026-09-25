@@ -9,6 +9,7 @@ use crate::codegen::naming::wire_variant_value;
 use crate::codegen::serde_enum_repr::SerdeEnumRepr;
 
 mod heterogeneous;
+mod runtime_typed;
 mod tagged;
 mod untagged;
 

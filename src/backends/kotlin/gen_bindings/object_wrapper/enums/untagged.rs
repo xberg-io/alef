@@ -2,6 +2,7 @@ use crate::core::ir::{EnumDef, TypeRef};
 
 use super::super::types::primitive_type_name;
 use super::is_tuple_field_name;
+use super::runtime_typed::{self, PAYLOAD_INDENT};
 use crate::backends::kotlin::gen_bindings::shared::kotlin_field_name_with_type;
 
 /// Emit a `fun text(): String` method on an untagged sealed class that extracts
@@ -255,42 +256,26 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
                 &variant.name,
                 1,
             );
-            if let TypeRef::Vec(inner) = &field.ty {
-                if let TypeRef::Named(elem_type) = inner.as_ref() {
-                    // The element serializer is resolved per element from `elem.javaClass`, not once
-                    // from the declared `elem_type`. A tagged sealed class carries its discriminator
-                    // through `@JsonTypeInfo` (see `gen_tagged_sealed_class`), which Jackson applies
-                    // only in `serializeWithType`; `findValueSerializer` on the abstract base returns
-                    // a plain `BeanSerializer` for a class with no properties, so every element
-                    // serialized to `{}` and Rust rejected the array with "data did not match any
-                    // variant of untagged enum". `findTypedValueSerializer(.., true, ..)` returns the
-                    // type-wrapping serializer, and it must be handed the RUNTIME class: passing the
-                    // base class emits the tag but drops the payload. ~keep
-                    out.push_str(&crate::backends::kotlin::template_env::render(
-                        "sealed_vec_serializer_block.jinja",
-                        minijinja::context! {
-                            enum_name => name,
-                            variant_name => variant.name,
-                            elem_type => elem_type,
-                            field_name => field_name,
-                        },
-                    ));
-                } else {
-                    out.push_str("            is ");
-                    out.push_str(name);
-                    out.push('.');
-                    out.push_str(&variant.name);
-                    out.push_str(" -> mapper.writeValue(gen, value.");
-                    out.push_str(&field_name);
-                    out.push_str(")\n");
-                }
+            let payload_expr = format!("value.{field_name}");
+            let mut payload_write = String::new();
+            let runtime_typed = runtime_typed::try_emit_runtime_typed_payload_write(
+                &mut payload_write,
+                PAYLOAD_INDENT,
+                &payload_expr,
+                &field.ty,
+                field.optional,
+            );
+            out.push_str("            is ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            if runtime_typed {
+                out.push_str(" -> {\n");
+                out.push_str(&payload_write);
+                out.push_str("            }\n");
             } else {
-                out.push_str("            is ");
-                out.push_str(name);
-                out.push('.');
-                out.push_str(&variant.name);
-                out.push_str(" -> mapper.writeValue(gen, value.");
-                out.push_str(&field_name);
+                out.push_str(" -> mapper.writeValue(gen, ");
+                out.push_str(&payload_expr);
                 out.push_str(")\n");
             }
         } else {

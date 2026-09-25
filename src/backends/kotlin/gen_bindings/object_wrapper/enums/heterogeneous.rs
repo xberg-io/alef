@@ -2,6 +2,7 @@ use crate::core::ir::EnumDef;
 
 use super::super::types::{escape_kotlin_string, primitive_type_name};
 use super::is_tuple_field_name;
+use super::runtime_typed::{self, PAYLOAD_INDENT};
 use crate::backends::kotlin::gen_bindings::shared::kotlin_field_name_with_type;
 use crate::codegen::naming::wire_variant_value;
 use crate::core::ir::TypeRef;
@@ -186,9 +187,19 @@ pub(super) fn emit_kotlin_heterogeneous_default_serializer(out: &mut String, en:
             out.push_str("                gen.writeFieldName(\"");
             out.push_str(&escape_kotlin_string(&discriminator));
             out.push_str("\")\n");
-            out.push_str("                mapper.writeValue(gen, value.");
-            out.push_str(&field_name);
-            out.push_str(")\n");
+            let payload_expr = format!("value.{field_name}");
+            if !runtime_typed::try_emit_runtime_typed_payload_write(
+                out,
+                PAYLOAD_INDENT,
+                &payload_expr,
+                &field.ty,
+                field.optional,
+            ) {
+                out.push_str(PAYLOAD_INDENT);
+                out.push_str("mapper.writeValue(gen, ");
+                out.push_str(&payload_expr);
+                out.push_str(")\n");
+            }
             out.push_str("                gen.writeEndObject()\n");
             out.push_str("            }\n");
         } else {
@@ -260,20 +271,15 @@ mod tests {
         }
     }
 
-    fn mixed_unit_and_data_enum() -> EnumDef {
+    /// An externally tagged enum mixing a unit variant with a newtype variant carrying `payload`.
+    fn heterogeneous_enum(payload: TypeRef) -> EnumDef {
         EnumDef {
             name: "Shape".to_string(),
             rust_path: "crate::Shape".to_string(),
             original_rust_path: "crate::Shape".to_string(),
             variants: vec![
                 make_variant("Empty", vec![]),
-                make_variant(
-                    "Circle",
-                    vec![make_field(
-                        "_0",
-                        TypeRef::Primitive(crate::core::ir::PrimitiveType::F64),
-                    )],
-                ),
+                make_variant("Filled", vec![make_field("_0", payload)]),
             ],
             methods: vec![],
             doc: String::new(),
@@ -291,6 +297,21 @@ mod tests {
             version: Default::default(),
             has_default: false,
         }
+    }
+
+    fn mixed_unit_and_data_enum() -> EnumDef {
+        heterogeneous_enum(TypeRef::Primitive(crate::core::ir::PrimitiveType::F64))
+    }
+
+    fn sealed_vec_payload() -> TypeRef {
+        TypeRef::Vec(Box::new(TypeRef::Named("Node".to_string())))
+    }
+
+    fn serialize_payload(payload: TypeRef) -> String {
+        let en = heterogeneous_enum(payload);
+        let mut out = String::new();
+        emit_kotlin_heterogeneous_default_serializer(&mut out, &en);
+        out
     }
 
     /// Regression: Jackson deprecated `JsonNode.fields()` (returning an `Iterator`) in favor
@@ -311,5 +332,104 @@ mod tests {
             !out.contains(".fields()"),
             "deserializer must not call the deprecated (since Jackson 2.19) fields() method: {out}"
         );
+    }
+
+    /// Regression: a heterogeneous (externally tagged) newtype payload that is a collection of a
+    /// sealed type must be written element by element through the type-wrapping serializer resolved
+    /// from each element's RUNTIME class.
+    ///
+    /// `mapper.writeValue(gen, value.payload)` hands Jackson a value with no static type, so the
+    /// collection's elements are resolved dynamically via `findValueSerializer` and written with
+    /// `serialize` rather than `serializeWithType`. `@JsonTypeInfo` writes its discriminator only
+    /// from `serializeWithType`, and a custom base serializer is cancelled on struct-variant
+    /// subclasses with `JsonSerializer.None`, so either way the elements go out untagged and Rust
+    /// rejects the array. An external representation is never declaratively polymorphic
+    /// (`uses_declarative_polymorphism` requires internal tagging), so this emitter is the only
+    /// serializer such an enum ever gets — there is no annotation path to fall back on. Fixed in
+    /// the untagged sibling emitter first; this is the same defect on the externally tagged path.
+    #[test]
+    fn should_type_sealed_vec_payload_elements_by_runtime_class() {
+        let out = serialize_payload(sealed_vec_payload());
+
+        assert!(
+            out.contains(
+                "provider.findTypedValueSerializer(elem.javaClass, true, null).serialize(elem, gen, provider)"
+            ),
+            "a collection payload must resolve a TYPE-WRAPPING serializer from each element's runtime class; \
+             got:\n{out}"
+        );
+        assert!(
+            !out.contains("mapper.writeValue(gen, value.value)"),
+            "the erased mapper.writeValue form drops the element discriminator; got:\n{out}"
+        );
+        assert!(
+            !out.contains("findValueSerializer("),
+            "an untyped findValueSerializer lookup drops the discriminator on every element; got:\n{out}"
+        );
+        assert!(
+            !out.contains("findTypedValueSerializer(Node::class.java"),
+            "the typed lookup must be given the element's RUNTIME class, not the declared base class \
+             (the base class emits the tag but drops the payload); got:\n{out}"
+        );
+    }
+
+    /// The runtime-typed element write must stay *inside* the `{"Variant": ...}` envelope that makes
+    /// this the externally tagged form: the array replaces the payload, not the wrapper.
+    #[test]
+    fn should_keep_the_external_tag_envelope_around_a_collection_payload() {
+        let out = serialize_payload(sealed_vec_payload());
+
+        assert!(
+            out.contains("                gen.writeFieldName(\"Filled\")\n                gen.writeStartArray()\n"),
+            "the array must open directly under the variant's field name; got:\n{out}"
+        );
+        assert!(
+            out.contains("                gen.writeEndArray()\n                gen.writeEndObject()\n"),
+            "the single-key object must close after the array; got:\n{out}"
+        );
+    }
+
+    /// A payload with no `Named` inside cannot lose a discriminator, so it must keep using
+    /// `mapper.writeValue` — the specialized path is not a blanket rewrite of every payload.
+    #[test]
+    fn should_leave_a_payload_without_a_named_type_on_the_mapper_path() {
+        let out = serialize_payload(TypeRef::Vec(Box::new(TypeRef::String)));
+
+        assert!(
+            out.contains("                mapper.writeValue(gen, value.value)\n"),
+            "a List<String> payload has nothing to type by runtime class; got:\n{out}"
+        );
+        assert!(
+            !out.contains("findTypedValueSerializer("),
+            "no runtime-typed lookup should be emitted for a payload without a Named type; got:\n{out}"
+        );
+    }
+
+    /// The remaining container shapes reachable here. `TypeRef` has exactly three container
+    /// constructors (`Optional`, `Vec`, `Map`), so this is the complete enumeration of payloads that
+    /// can hide a `Named` element behind an erased `mapper.writeValue`.
+    #[test]
+    fn should_type_every_container_payload_shape_that_hides_a_named_element() {
+        let node = || TypeRef::Named("Node".to_string());
+        let shapes = [
+            TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(node())))),
+            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(node())))),
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(node())),
+        ];
+        for shape in shapes {
+            let out = serialize_payload(shape.clone());
+            assert!(
+                out.contains("findTypedValueSerializer("),
+                "{shape:?} must reach the runtime-typed element write; got:\n{out}"
+            );
+            assert!(
+                !out.contains("findTypedValueSerializer(Node::class.java"),
+                "{shape:?} must resolve the RUNTIME class, not the declared base; got:\n{out}"
+            );
+            assert!(
+                !out.contains("mapper.writeValue(gen, value.value)"),
+                "{shape:?} must not fall through to the erased mapper.writeValue; got:\n{out}"
+            );
+        }
     }
 }

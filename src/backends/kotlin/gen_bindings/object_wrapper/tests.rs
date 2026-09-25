@@ -525,6 +525,87 @@ fn untagged_sealed_class_vec_variant_serializer_uses_runtime_typed_serializer() 
     );
 }
 
+/// Regression: the runtime-typed element write must cover every container payload that can hide a
+/// `Named` element, not only the bare `Vec(Named)` that the first fix enumerated.
+///
+/// `TypeRef` has exactly three container constructors — `Optional`, `Vec` and `Map` — so
+/// `Vec<Option<T>>`, `Vec<Vec<T>>` and `Map<String, T>` complete the enumeration. Each one used to
+/// fall through to `mapper.writeValue(gen, value.value)`, which erases the element type and drops
+/// the sealed base's discriminator exactly as the plain `Vec<T>` case did.
+#[test]
+fn untagged_sealed_class_nested_container_payloads_use_runtime_typed_serializer() {
+    let element = || TypeRef::Named("Node".to_string());
+    let shapes = [
+        TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(element())))),
+        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(element())))),
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(element())),
+    ];
+    for shape in shapes {
+        let en = make_enum(
+            "Payload",
+            None,
+            true,
+            None,
+            vec![make_variant("Wrapped", None, vec![make_field("_0", shape.clone())])],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out, "", &[]);
+
+        assert!(
+            out.contains("findTypedValueSerializer("),
+            "{shape:?} must resolve a type-wrapping serializer per element; got:\n{out}"
+        );
+        assert!(
+            !out.contains("mapper.writeValue(gen, value.value)"),
+            "{shape:?} must not fall through to the erased mapper.writeValue; got:\n{out}"
+        );
+        assert!(
+            !out.contains("findValueSerializer("),
+            "an untyped findValueSerializer lookup drops the discriminator; got:\n{out}"
+        );
+        assert!(
+            !out.contains("findTypedValueSerializer(Node::class.java"),
+            "the typed lookup must be given the element's RUNTIME class, not the declared base; got:\n{out}"
+        );
+    }
+}
+
+/// Regression: an `Option<Vec<Sealed>>` payload is stored as `ty = Vec(..)` with `optional = true`
+/// (`extract_field` unwraps the outer `Option` into the flag), so the generated property is
+/// `List<Node>?`. Iterating it directly does not compile in Kotlin — the null case has to be written
+/// as JSON `null`, which is also what serde emits for `None` under `#[serde(untagged)]`.
+#[test]
+fn untagged_sealed_class_optional_vec_payload_null_checks_before_iterating() {
+    let mut field = make_field("_0", TypeRef::Vec(Box::new(TypeRef::Named("Node".to_string()))));
+    field.optional = true;
+    let en = make_enum(
+        "Payload",
+        None,
+        true,
+        None,
+        vec![make_variant("Wrapped", None, vec![field])],
+    );
+    let mut out = String::new();
+    emit_enum(&en, &mut out, "", &[]);
+
+    assert!(
+        out.contains("val elem = value.value\n"),
+        "the nullable payload must be bound to a local so Kotlin can smart-cast it; got:\n{out}"
+    );
+    assert!(
+        out.contains("if (elem == null) {"),
+        "a nullable payload must be null-checked before it is iterated; got:\n{out}"
+    );
+    assert!(
+        out.contains("for (elem1 in elem) {"),
+        "the non-null branch must iterate the smart-cast local; got:\n{out}"
+    );
+    assert!(
+        !out.contains("for (elem in value.value) {"),
+        "iterating a List<Node>? directly does not compile; got:\n{out}"
+    );
+}
+
 /// Regression: untagged sealed-class serializer must use the payload-derived field
 /// name (e.g. `value`) rather than the literal `field0`.  Without this fix the
 /// generated `when`-branch emits `value.field0` which is an unresolved reference

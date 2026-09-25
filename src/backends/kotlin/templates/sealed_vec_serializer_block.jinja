@@ -1,7 +1,0 @@
-            is {{ enum_name }}.{{ variant_name }} -> {
-                gen.writeStartArray()
-                for (elem in value.{{ field_name }}) {
-                    provider.findTypedValueSerializer(elem.javaClass, true, null).serialize(elem, gen, provider)
-                }
-                gen.writeEndArray()
-            }

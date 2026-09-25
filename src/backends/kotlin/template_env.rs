@@ -273,8 +273,8 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/sealed_variant_close.jinja"),
     ),
     (
-        "sealed_vec_serializer_block.jinja",
-        include_str!("templates/sealed_vec_serializer_block.jinja"),
+        "runtime_typed_value_write.jinja",
+        include_str!("templates/runtime_typed_value_write.jinja"),
     ),
     (
         "error_variant_inline.jinja",
