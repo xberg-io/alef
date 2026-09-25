@@ -354,26 +354,81 @@ fn mixed_optional_primitive_defaults_use_heterogeneous_kwarg_helper() {
         ],
         "mixed optional values must flow through a heterogeneous kwargs type: {facade}"
     );
-    assert!(
-        facade.contains("class _LayoutSpecMinimumScoreKwargs(TypedDict, total=False):\n    minimum_score: float")
-            && facade.contains("class _LayoutSpecMinimumWordsKwargs(TypedDict, total=False):\n    minimum_words: int")
-            && facade.contains("class _LayoutSpecRequireTextKwargs(TypedDict, total=False):\n    require_text: bool"),
-        "each optional field must retain its constructor keyword and value type: {facade}"
-    );
+    // A `TypedDict`, not a plain `dict[str, V]`: pyrefly resolves an unpacked `dict[str, V]`
+    // against every remaining parameter, so three helpers with `float`/`int`/`bool` values on one
+    // constructor call cost one `[bad-argument-type]` per incompatible pair (3 errors here, under
+    // the `default` preset as well as `strict`). The one-key `TypedDict` is what pins each value to
+    // its own keyword. ~keep
+    for (field_name, pascal_name, python_type) in [
+        ("minimum_score", "MinimumScore", "float"),
+        ("minimum_words", "MinimumWords", "int"),
+        ("require_text", "RequireText", "bool"),
+    ] {
+        let expected =
+            format!("class _LayoutSpec{pascal_name}Kwargs(TypedDict, total=False):\n    {field_name}: {python_type}");
+        assert!(
+            facade.contains(&expected),
+            "each optional field must retain its constructor keyword and value type; missing:\n\
+             {expected}\nin:\n{facade}"
+        );
+    }
     assert!(
         !facade.contains("**({"),
         "homogeneous dict unpacks trigger Pyrefly errors: {facade}"
     );
 }
 
+/// The `[tool.pyrefly]` section of the `pyproject.toml` the scaffold really writes into a
+/// generated `packages/python`, with `project-includes` prepended so a bare temp directory is
+/// checkable.
+///
+/// Deriving the checker config from the scaffold instead of hand-writing one is the whole point:
+/// the first version of this harness wrote `[tool.pyrefly]\nproject-includes = [...]` and nothing
+/// else, so it ran under pyrefly's `default` preset while every real consumer runs under the
+/// `preset = "strict"` the scaffold emits. `[open-unpacking]` — the error that rejected the
+/// optional-kwarg helper's open `TypedDict` at every `**helper(...)` call site — fires only under
+/// `strict`, so the harness passed on output that did not type-check for anyone. ~keep
+fn scaffolded_pyrefly_project_config(project_includes: &str) -> String {
+    let files = crate::scaffold::languages::scaffold_python(&ApiSurface::default(), &python_config())
+        .expect("python scaffold succeeds");
+    let pyproject = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("pyproject.toml"))
+        .expect("the scaffold emits packages/python/pyproject.toml")
+        .content
+        .clone();
+    let marker = "[tool.pyrefly]\n";
+    let start = pyproject
+        .find(marker)
+        .expect("the scaffolded pyproject.toml carries a [tool.pyrefly] section");
+    let section = &pyproject[start..];
+    assert!(
+        section.contains("preset = \"strict\""),
+        "this harness is only meaningful while the scaffold ships the strict preset; a consumer \
+         running something laxer makes every assertion below vacuous:\n{section}"
+    );
+    format!(
+        "{marker}project-includes = [\"{project_includes}\"]\n{}",
+        &section[marker.len()..]
+    )
+}
+
 #[test]
+#[allow(clippy::print_stderr)] // narrow: reports a toolchain skip on a machine without pyrefly ~keep
 fn generated_mixed_optional_kwargs_pass_pyrefly_and_typed_sabotage_fails() {
     let pyrefly = match which::which("pyrefly") {
         Ok(path) => path,
         Err(error) if std::env::var_os("ALEF_REQUIRE_PYREFLY").is_some() => {
             panic!("ALEF_REQUIRE_PYREFLY is set but pyrefly is unavailable: {error}")
         }
-        Err(_) => return,
+        Err(error) => {
+            eprintln!(
+                "SKIP generated_mixed_optional_kwargs_pass_pyrefly_and_typed_sabotage_fails: \
+                 pyrefly is not on PATH ({error}); the strict-preset type check did NOT run. Set \
+                 ALEF_REQUIRE_PYREFLY=1 to turn this skip into a failure."
+            );
+            return;
+        }
     };
     let field_specs = [
         (
@@ -421,7 +476,7 @@ fn generated_mixed_optional_kwargs_pass_pyrefly_and_typed_sabotage_fails() {
     std::fs::write(package.join("__init__.py"), "").expect("write package init");
     std::fs::write(
         directory.path().join("pyproject.toml"),
-        "[tool.pyrefly]\nproject-includes = [\"test_lib/**/*.py\"]\n",
+        scaffolded_pyrefly_project_config("test_lib/**/*.py"),
     )
     .expect("write Pyrefly project config");
     let stub_params = field_specs
@@ -457,27 +512,70 @@ fn generated_mixed_optional_kwargs_pass_pyrefly_and_typed_sabotage_fails() {
         String::from_utf8_lossy(&checked.stderr)
     );
 
-    let sabotaged = facade.replace(
-        "**_optional_layout_spec_enable_provenance_ocr_routing(value.enable_provenance_ocr_routing)",
-        "**_optional_layout_spec_enable_provenance_ocr_routing(\"wrong\")",
+    // Three negative controls. The clean run above is only worth something if this harness can
+    // still see each way this surface can go wrong, so each control corrupts exactly one thing and
+    // pyrefly must reject it with a named code. (a) and (b) are the two guarantees the one-key
+    // `TypedDict` buys over a plain `dict[str, V]` -- the value type AND the key name. (c) guards
+    // the checker configuration itself rather than the codegen. ~keep
+    let bool_helper = "_optional_layout_spec_enable_provenance_ocr_routing";
+    let clean_config = scaffolded_pyrefly_project_config("test_lib/**/*.py");
+    let check_rejected = |label: &str, api_py: &str, config: &str, expected_marker: &str| {
+        std::fs::write(package.join("api.py"), api_py).unwrap_or_else(|_| panic!("write `{label}` facade"));
+        std::fs::write(directory.path().join("pyproject.toml"), config)
+            .unwrap_or_else(|_| panic!("write `{label}` pyrefly config"));
+        let output = std::process::Command::new(&pyrefly)
+            .current_dir(directory.path())
+            .arg("check")
+            .arg(".")
+            .output()
+            .unwrap_or_else(|_| panic!("pyrefly `{label}` control must run"));
+        let report = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !output.status.success() && report.contains(expected_marker),
+            "negative control `{label}` must be rejected with `{expected_marker}`; a run without it \
+             means this harness would not catch that defect:\n{report}"
+        );
+    };
+
+    // (a) A value whose type disagrees with the keyword it is unpacked into.
+    let wrong_value = facade.replace(
+        &format!("**{bool_helper}(value.enable_provenance_ocr_routing)"),
+        &format!("**{bool_helper}(\"wrong\")"),
     );
+    assert_ne!(wrong_value, facade, "control (a) must change the facade");
+    check_rejected("wrong value type", &wrong_value, &clean_config, "[bad-argument-type]");
+
+    // (b) A typo in the kwargs key. This is the check a plain `dict[str, V]` cannot make at all:
+    // with a `dict` the misspelled keyword is invisible and pyrefly reports nothing.
+    let typoed_key = facade
+        .replace(
+            "    enable_provenance_ocr_routing: bool\n",
+            "    enable_provenance_ocr_routng: bool\n",
+        )
+        .replace(
+            "{\"enable_provenance_ocr_routing\": value}",
+            "{\"enable_provenance_ocr_routng\": value}",
+        );
+    assert_ne!(typoed_key, facade, "control (b) must change the facade");
+    check_rejected("typoed kwargs key", &typoed_key, &clean_config, "[unexpected-keyword]");
+
+    // (c) The clean facade, checked with `open-unpacking = false` removed from the scaffolded
+    // config. `[open-unpacking]` must come straight back: that proves the extracted config really
+    // is the strict one (the code fires under no other preset) AND that the suppression the
+    // scaffold emits is load-bearing rather than decorative. If someone deletes it from
+    // `scaffold::languages::python`, this control stops failing and the test reports it here
+    // instead of the whole harness quietly going green on unusable output. ~keep
+    let without_suppression = clean_config.replace("open-unpacking = false\n", "");
     assert_ne!(
-        sabotaged, facade,
-        "negative control must sabotage an emitted TypedDict field"
+        without_suppression, clean_config,
+        "the scaffolded config must carry `open-unpacking = false` for the emitted `**helper(...)` \
+         unpacks to type-check at all:\n{clean_config}"
     );
-    std::fs::write(package.join("api.py"), sabotaged).expect("write sabotaged generated facade");
-    let rejected = std::process::Command::new(&pyrefly)
-        .current_dir(directory.path())
-        .arg("check")
-        .arg(".")
-        .output()
-        .expect("pyrefly negative control must run");
-    assert!(
-        !rejected.status.success(),
-        "pyrefly must reject a mismatched emitted TypedDict field:\n{}\n{}",
-        String::from_utf8_lossy(&rejected.stdout),
-        String::from_utf8_lossy(&rejected.stderr)
-    );
+    check_rejected("suppression removed", &facade, &without_suppression, "[open-unpacking]");
 }
 
 /// `options.py` as the backend writes it, for the dataclass half of the same contract.

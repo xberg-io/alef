@@ -435,12 +435,37 @@ preset = "strict"
 # surfaces (service_api decorators, trait_bridge visitors, streaming adapters, capsule
 # types) were not exercised by this audit; do not fold these back in without extending
 # that fixture to cover whichever surface prompted the re-audit.
+#
+# `open-unpacking` is suppressed for a different reason: it is not a latent-defect code but a
+# structural one, and it fires on correct generated code. A converter omits a keyword whose
+# value may be absent by unpacking a one-key `TypedDict` helper
+# (`_optional_<type>_<field>`), and pyrefly's `strict` preset rejects unpacking any
+# non-PEP-728-`closed` `TypedDict` into a callable that has no `**kwargs`:
+#   `_XKwargs` is an open TypedDict with unknown extra items, which cannot be unpacked into a
+#   callable without `**kwargs` [open-unpacking]
+# The two alternatives were both measured and both rejected. Marking the helper
+# `closed=True` silences it, but `closed` is a `TypeError` on `typing.TypedDict` through
+# Python 3.14 (PEP 728 lands in the 3.15 stdlib), so it forces a `typing-extensions` RUNTIME
+# dependency into every published wheel at `requires-python = ">=3.10"`. Returning a plain
+# `dict[str, V]` instead needs no dependency and is clean when every unpacked value in one
+# constructor call has the SAME type -- but pyrefly resolves an unpacked `dict[str, V]`
+# against every remaining parameter, so a call with heterogeneous value types (the shape
+# `backends::pyo3::kwarg_unpack_tests`'s
+# `mixed_optional_primitive_defaults_use_heterogeneous_kwarg_helper` is named for: `float`,
+# `int` and `bool` helpers on one constructor) yields one `[bad-argument-type]` per
+# incompatible pair -- 3 errors for 3 fields, and under the `default` preset too, i.e. worse
+# than what is suppressed here. The `TypedDict` is what keeps BOTH the value type and the key
+# name checked: a wrong value type is `[bad-argument-type]` and a typoed key is
+# `[unexpected-keyword]`, both verified against real emitted output under this very config by
+# the negative controls in `generated_mixed_optional_kwargs_pass_pyrefly_and_typed_sabotage_fails`,
+# which also asserts that removing THIS line brings `[open-unpacking]` straight back. ~keep
 [[tool.pyrefly.sub-config]]
 matches = "**/api.py"
 [tool.pyrefly.sub-config.errors]
 bad-argument-count = false
 not-iterable = false
 missing-attribute = false
+open-unpacking = false
 {pyrefly_extra}"#,
         pip_name = pip_name,
         version = version,

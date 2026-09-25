@@ -352,6 +352,30 @@ pub struct QualityThresholds {
 pub fn assess_quality(thresholds: QualityThresholds) -> bool {
     thresholds.require_text && thresholds.minimum_words > 0 && thresholds.minimum_score > 0.0
 }
+
+// `ToolEnvelope.config` is a NON-`Option` field whose native `#[pyclass]` constructor parameter
+// carries a Rust-side default, so `_to_rust_tool_envelope` routes it through the emitted
+// `_optional_*` kwargs helper and its `**helper(...)` unpack -- the ONLY shape that produces that
+// helper at all. `QualityThresholds` above does not: its `#[serde(default = "fn")]` primitives
+// become `Option<T>` parameters natively and are passed as plain keywords. Without this struct the
+// whole optional-kwarg-helper surface was invisible to this gate, which is how an open (non-PEP-728)
+// kwargs `TypedDict` shipped: every `**helper(...)` call site is `[open-unpacking]` under the
+// `preset = "strict"` this fixture's own scaffolded `pyproject.toml` sets, and nothing here emitted
+// one. Deleting `open-unpacking = false` from `scaffold::languages::python`'s `**/api.py` sub-config
+// reproduces `` `_ToolEnvelopeConfigKwargs` is an open TypedDict with unknown extra items, which
+// cannot be unpacked into a callable without `**kwargs` [open-unpacking] `` here, so this is not a
+// vacuous pass. ~keep
+#[derive(Default)]
+pub struct ToolEnvelope {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    #[serde(flatten)]
+    pub config: serde_json::Value,
+}
+
+pub fn describe_envelope(envelope: ToolEnvelope) -> String {
+    format!("{}: {}", envelope.tool_type, envelope.config)
+}
 "#;
 
 const FIXTURE_ALEF_TOML: &str = r#"
@@ -412,13 +436,23 @@ fn walkdir_pyproject_tomls(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     found
 }
 
+#[allow(clippy::print_stderr)] // narrow: reports a toolchain skip on a machine without pyrefly ~keep
 fn pyrefly_executable() -> Option<std::path::PathBuf> {
     match which::which("pyrefly") {
         Ok(path) => Some(path),
         Err(error) if std::env::var_os("ALEF_REQUIRE_PYREFLY").is_some() => {
             panic!("ALEF_REQUIRE_PYREFLY is set but pyrefly is unavailable: {error}")
         }
-        Err(_) => None,
+        Err(error) => {
+            // A silent skip here is indistinguishable from a pass, and this is the gate that
+            // type-checks alef's real generated package under the scaffolded strict preset. ~keep
+            eprintln!(
+                "SKIP pyrefly_generated_package_tests: pyrefly is not on PATH ({error}); the \
+                 strict-preset type check of the generated package did NOT run. Set \
+                 ALEF_REQUIRE_PYREFLY=1 to turn this skip into a failure."
+            );
+            None
+        }
     }
 }
 
