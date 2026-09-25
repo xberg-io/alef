@@ -494,7 +494,8 @@ fn initialize_keywords_match_the_kwargs_constructor_contract() {
         ..Default::default()
     };
 
-    let extension = gen_magnus_kwargs_constructor(&typ, &|ty| MagnusMapper.map_type(ty));
+    let extension =
+        gen_magnus_kwargs_constructor(&typ, &|ty| MagnusMapper.map_type(ty), &std::collections::HashSet::new());
     let api = ApiSurface {
         types: vec![typ],
         ..Default::default()

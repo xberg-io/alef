@@ -150,7 +150,7 @@ fn test_gen_magnus_hash_constructor_generic_type_prefix() {
         has_private_fields: false,
         version: Default::default(),
     };
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &std::collections::HashSet::new());
     assert!(
         output.contains("<Vec<String>>::try_convert"),
         "generic types should use UFCS angle-bracket prefix: {output}"
@@ -237,7 +237,7 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         has_private_fields: false,
         version: Default::default(),
     };
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &std::collections::HashSet::new());
     assert!(
         !output.contains("Option<Option<"),
         "hash constructor must not emit double Option: {output}"

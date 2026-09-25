@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 
 #[test]
@@ -152,7 +154,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         has_private_fields: false,
         version: Default::default(),
     };
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::new());
 
     assert!(
         output.contains("Option<magnus::RHash>"),
@@ -189,7 +191,7 @@ fn test_gen_magnus_kwargs_constructor_named_function_call_default_is_not_require
         )),
         ..Default::default()
     });
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::new());
 
     assert!(
         !output.contains("missing required field: ssrf"),
@@ -218,7 +220,7 @@ fn test_gen_magnus_kwargs_constructor_named_function_call_default_converts_into_
         )),
         ..Default::default()
     });
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::new());
 
     assert!(
         output.contains("ssrf: match kwargs.get(ruby.to_symbol(\"ssrf\")) { Some(v) => SsrfPolicy::try_convert(v)")
@@ -239,7 +241,7 @@ fn test_gen_magnus_kwargs_constructor_absent_field_still_defaults() {
         typed_default: Some(DefaultValue::Empty),
         ..make_field("ngram_range", TypeRef::Named("NgramRange".to_string()))
     });
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::from(["NgramRange"]));
 
     assert!(
         output.contains(
@@ -265,7 +267,7 @@ fn test_gen_magnus_kwargs_constructor_present_invalid_field_raises() {
         typed_default: Some(DefaultValue::Empty),
         ..make_field("ngram_range", TypeRef::Named("NgramRange".to_string()))
     });
-    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::from(["NgramRange"]));
 
     assert!(
         !output.contains("try_convert(v).ok()"),

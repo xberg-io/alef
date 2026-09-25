@@ -515,6 +515,7 @@ pub(super) fn gen_struct_methods(
     core_import: &str,
     _generates_default: bool,
     trait_bridges: &[TraitBridgeConfig],
+    types_with_default: &std::collections::HashSet<&str>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
@@ -532,7 +533,8 @@ pub(super) fn gen_struct_methods(
         if !filtered_fields.is_empty() {
             let mut filtered_typ = typ.clone();
             filtered_typ.fields = filtered_fields.clone();
-            let config_method = crate::codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn);
+            let config_method =
+                crate::codegen::config_gen::gen_magnus_kwargs_constructor(&filtered_typ, &map_fn, types_with_default);
             impl_builder.add_method(&config_method);
         }
     }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::core::ir::{DefaultValue, FieldDef, TypeDef, TypeRef};
 
 use super::shared::{constructor_fields, default_value_for_field_in_type, use_unwrap_or_default};
@@ -9,9 +11,16 @@ const MAGNUS_MAX_ARITY: usize = 15;
 /// For types with <=15 fields, generates a positional `Option<T>` parameter constructor.
 /// For types with >15 fields (exceeding Magnus arity limit), generates a hash-based constructor
 /// using `RHash` that extracts fields by name, applying defaults for missing keys.
-pub fn gen_magnus_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+///
+/// `types_with_default` is the set of type names the *generated* crate declares a `Default` impl
+/// for; see the guard on it in `gen_magnus_hash_constructor`.
+pub fn gen_magnus_kwargs_constructor(
+    typ: &TypeDef,
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    types_with_default: &HashSet<&str>,
+) -> String {
     let _ = MAGNUS_MAX_ARITY;
-    gen_magnus_hash_constructor(typ, type_mapper)
+    gen_magnus_hash_constructor(typ, type_mapper, types_with_default)
 }
 
 /// Wrap a type string for use as a type-path prefix in Rust.
@@ -40,7 +49,11 @@ fn try_convert_or_raise(field_name: &str, type_prefix: &str) -> String {
 
 /// Generate a hash-based Magnus constructor for types with many fields.
 /// Accepts `(kwargs: RHash)` and extracts each field by symbol name, applying defaults.
-fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
+fn gen_magnus_hash_constructor(
+    typ: &TypeDef,
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    types_with_default: &HashSet<&str>,
+) -> String {
     let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {
             let is_optional = field_is_optional_in_rust(field);
@@ -58,12 +71,28 @@ fn gen_magnus_hash_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> 
 
             let try_convert = try_convert_or_raise(&field.name, &type_prefix);
 
+            // `None => Default::default()` resolves against the *generated* re-declaration of the
+            // field's type, never the core one. A core `impl Default` carrying
+            // `#[cfg_attr(alef, alef(skip))]` is dropped by `extract_impl_block`, so the mirrored
+            // type is emitted without it and the fallback is an E0277. The owning struct's
+            // `#[derive(Default)]` seeds `DefaultValue::Empty` onto *every* one of its fields
+            // (`extract::extractor::types`), which is what routes an otherwise-required `Named`
+            // field into the `use_unwrap_or_default` arm in the first place — that seeding asserts
+            // the owner is defaultable, not that each field's type is. Withholding the arm lets the
+            // required-field branch below raise a Ruby `ArgumentError` naming the keyword instead
+            // of fabricating a value. Primitives, `String`, `Vec`, `Option` and every other
+            // non-`Named` shape are untouched: their `Default` is structural, not generated. ~keep
+            let named_lacks_generated_default = matches!(
+                effective_inner_ty,
+                TypeRef::Named(name) if !types_with_default.contains(name.as_str())
+            );
+
             let assignment = if is_optional {
                 format!(
                     "match kwargs.get(ruby.to_symbol(\"{}\")).filter(|v| !v.is_nil()) {{ Some(v) => Some({}), None => None }},",
                     field.name, try_convert
                 )
-            } else if use_unwrap_or_default(field) {
+            } else if use_unwrap_or_default(field) && !named_lacks_generated_default {
                 format!(
                     "match kwargs.get(ruby.to_symbol(\"{}\")) {{ Some(v) => {}, None => Default::default() }},",
                     field.name, try_convert

@@ -322,6 +322,13 @@ impl Backend for MagnusBackend {
             .map(|t| t.name.as_str())
             .collect();
 
+        let generated_default_types = generated_defaults::generated_default_types(
+            api,
+            &default_types,
+            &|ty: &crate::core::ir::TypeRef| mapper.map_type(ty),
+            &config.trait_bridges,
+        );
+
         let needs_default_timeout = api
             .types
             .iter()
@@ -431,6 +438,7 @@ impl Backend for MagnusBackend {
                         &core_import,
                         has_explicit_impl_default,
                         &config.trait_bridges,
+                        &generated_default_types,
                     ),
                 ));
             }
@@ -968,6 +976,11 @@ mod type_cfg_gate_tests;
 
 #[cfg(test)]
 mod companion_impl_cfg_census_tests;
+
+mod generated_defaults;
+
+#[cfg(test)]
+mod kwarg_default_fallback_tests;
 
 #[cfg(test)]
 #[path = "default_timeout_pairing_tests.rs"]
