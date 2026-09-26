@@ -61,7 +61,17 @@ fn collect_csproj_checks(
                 "AssemblyVersion" | "FileVersion" => assembly_version.as_str(),
                 _ => canonical,
             };
-            push_check(checks, workspace_root, &path, Some(field), found, expected, None);
+            push_check(
+                checks,
+                workspace_root,
+                &path,
+                Some(field),
+                found,
+                ExpectedVersion {
+                    value: expected,
+                    blocked_on_publish: None,
+                },
+            );
         }
     }
 }
@@ -76,14 +86,34 @@ fn collect_single_manifest_checks(
         .join(config.package_dir(Language::Dart))
         .join("pubspec.yaml");
     if let Some(found) = read_prefixed_value(&dart, "version:") {
-        push_check(checks, workspace_root, &dart, None, found, canonical, None);
+        push_check(
+            checks,
+            workspace_root,
+            &dart,
+            None,
+            found,
+            ExpectedVersion {
+                value: canonical,
+                blocked_on_publish: None,
+            },
+        );
     }
 
     let zig = workspace_root
         .join(config.package_dir(Language::Zig))
         .join("build.zig.zon");
     if let Some(found) = read_zig_version(&zig) {
-        push_check(checks, workspace_root, &zig, None, found, canonical, None);
+        push_check(
+            checks,
+            workspace_root,
+            &zig,
+            None,
+            found,
+            ExpectedVersion {
+                value: canonical,
+                blocked_on_publish: None,
+            },
+        );
     }
 }
 
@@ -171,8 +201,10 @@ fn collect_cargo_lock_checks(
                 &lock.path,
                 Some(name),
                 found.to_string(),
-                expected,
-                lock.blocked_on_publish.as_deref(),
+                ExpectedVersion {
+                    value: expected,
+                    blocked_on_publish: lock.blocked_on_publish.as_deref(),
+                },
             );
         }
     }
@@ -420,14 +452,20 @@ fn read_zig_version(path: &Path) -> Option<String> {
     })
 }
 
+/// The version a manifest is expected to carry, and whether a mismatch is blocked on publish
+/// rather than failing outright. Grouped only to keep [`push_check`]'s parameter list short.
+struct ExpectedVersion<'a> {
+    value: &'a str,
+    blocked_on_publish: Option<&'a str>,
+}
+
 fn push_check(
     checks: &mut Vec<VersionCheck>,
     workspace_root: &Path,
     path: &Path,
     field: Option<&str>,
     found: String,
-    expected: &str,
-    blocked_on_publish: Option<&str>,
+    expected: ExpectedVersion<'_>,
 ) {
     let mut label = path
         .strip_prefix(workspace_root)
@@ -438,12 +476,12 @@ fn push_check(
         label.push('#');
         label.push_str(field);
     }
-    let matches = found == expected;
+    let matches = found == expected.value;
     checks.push(VersionCheck {
         label,
         matches,
         found: Some(found),
-        blocked_on_publish: blocked_on_publish.filter(|_| !matches).map(str::to_string),
+        blocked_on_publish: expected.blocked_on_publish.filter(|_| !matches).map(str::to_string),
     });
 }
 

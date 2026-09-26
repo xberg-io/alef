@@ -1,4 +1,4 @@
-use super::VerifyCoverage;
+use super::{VerifyCoverage, VerifyCoverageCounts};
 use crate::bin_cli::verify_scan::ScanCoverage;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -6,6 +6,13 @@ use std::path::PathBuf;
 fn paths(directory: &std::path::Path, names: &[&str]) -> HashSet<PathBuf> {
     names.iter().map(|name| directory.join(name)).collect()
 }
+
+const ZERO_COVERAGE_COUNTS: VerifyCoverageCounts = VerifyCoverageCounts {
+    create_once_unmarked: 0,
+    create_once_drifted: 0,
+    ephemeral_excluded: 0,
+    declared_user_owned: 0,
+};
 
 /// The three managed buckets must partition the managed surface, and each must be measured
 /// from what is actually true of the path -- marked, merely present, or absent.
@@ -22,7 +29,7 @@ fn managed_paths_split_into_verified_present_and_absent() {
     let managed = paths(directory.path(), &["stamped.toml", "unmarked.json", "never_written.rs"]);
     let marked = paths(directory.path(), &["stamped.toml"]);
 
-    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), 0, 0, 0, 0);
+    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), ZERO_COVERAGE_COUNTS);
     assert_eq!(coverage.managed_total, 3);
     assert_eq!(coverage.managed_content_verified, 1);
     assert_eq!(coverage.managed_present_only, 1);
@@ -43,7 +50,7 @@ fn marked_files_outside_the_surface_are_counted_separately() {
     let managed = paths(directory.path(), &["a.rs"]);
     let marked = paths(directory.path(), &["a.rs", "legacy_visitor.py"]);
 
-    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), 0, 0, 0, 0);
+    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), ZERO_COVERAGE_COUNTS);
     assert_eq!(coverage.marked_outside_surface, 1);
     assert_eq!(coverage.managed_total, 1);
 }

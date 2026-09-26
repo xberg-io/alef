@@ -1,4 +1,4 @@
-use crate::core::ir::{EnumDef, TypeRef};
+use crate::core::ir::{EnumDef, EnumVariant, TypeRef};
 
 use super::super::types::primitive_type_name;
 use super::is_tuple_field_name;
@@ -31,69 +31,81 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
     out.push_str("    fun text(): String = when (this) {\n");
 
     for variant in &en.variants {
-        if variant.fields.is_empty() {
+        emit_text_accessor_arm(out, name, variant);
+    }
+
+    out.push_str("    }\n");
+}
+
+/// Emit one `is <Name>.<Variant> -> ...` arm of the `when (this)` block inside
+/// [`emit_kotlin_text_accessor`], for a single enum variant.
+fn emit_text_accessor_arm(out: &mut String, name: &str, variant: &EnumVariant) {
+    if variant.fields.is_empty() {
+        out.push_str("        is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(" -> \"\"\n");
+        return;
+    }
+
+    if variant.fields.len() != 1 || !is_tuple_field_name(&variant.fields[0].name) {
+        out.push_str("        is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(" -> \"\"\n");
+        return;
+    }
+
+    let field = &variant.fields[0];
+    match &field.ty {
+        TypeRef::String => {
             out.push_str("        is ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
-            out.push_str(" -> \"\"\n");
-        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            let field = &variant.fields[0];
-            match &field.ty {
-                TypeRef::String => {
-                    out.push_str("        is ");
-                    out.push_str(name);
-                    out.push('.');
-                    out.push_str(&variant.name);
-                    out.push_str(" -> this.value\n");
-                }
-                TypeRef::Vec(elem_ty) => {
-                    if let TypeRef::Named(_) | TypeRef::Json = **elem_ty {
-                        out.push_str("        is ");
-                        out.push_str(name);
-                        out.push('.');
-                        out.push_str(&variant.name);
-                        out.push_str(" -> {\n");
-                        out.push_str("            val sb = StringBuilder()\n");
-                        out.push_str("            for (part in this.value) {\n");
-                        out.push_str("                if (part is com.fasterxml.jackson.databind.JsonNode) {\n");
-                        out.push_str("                    val typeNode = part.get(\"type\")\n");
-                        out.push_str("                    if (typeNode?.asText() == \"text\") {\n");
-                        out.push_str("                        val textNode = part.get(\"text\")\n");
-                        out.push_str("                        if (textNode != null) {\n");
-                        out.push_str("                            sb.append(textNode.asText())\n");
-                        out.push_str("                        }\n");
-                        out.push_str("                    }\n");
-                        out.push_str("                } else if (part is Map<*, *>) {\n");
-                        out.push_str("                    @Suppress(\"UNCHECKED_CAST\")\n");
-                        out.push_str("                    val partMap = part as? Map<String, Any>\n");
-                        out.push_str("                    if (partMap?.get(\"type\") == \"text\") {\n");
-                        out.push_str("                        val textValue = partMap[\"text\"]\n");
-                        out.push_str("                        if (textValue != null) {\n");
-                        out.push_str("                            sb.append(textValue.toString())\n");
-                        out.push_str("                        }\n");
-                        out.push_str("                    }\n");
-                        out.push_str("                }\n");
-                        out.push_str("            }\n");
-                        out.push_str("            sb.toString()\n");
-                        out.push_str("        }\n");
-                    } else {
-                        out.push_str("        is ");
-                        out.push_str(name);
-                        out.push('.');
-                        out.push_str(&variant.name);
-                        out.push_str(" -> \"\"\n");
-                    }
-                }
-                _ => {
-                    out.push_str("        is ");
-                    out.push_str(name);
-                    out.push('.');
-                    out.push_str(&variant.name);
-                    out.push_str(" -> \"\"\n");
-                }
+            out.push_str(" -> this.value\n");
+        }
+        TypeRef::Vec(elem_ty) => {
+            if let TypeRef::Named(_) | TypeRef::Json = **elem_ty {
+                out.push_str("        is ");
+                out.push_str(name);
+                out.push('.');
+                out.push_str(&variant.name);
+                out.push_str(" -> {\n");
+                out.push_str("            val sb = StringBuilder()\n");
+                out.push_str("            for (part in this.value) {\n");
+                out.push_str("                if (part is com.fasterxml.jackson.databind.JsonNode) {\n");
+                out.push_str("                    val typeNode = part.get(\"type\")\n");
+                out.push_str("                    if (typeNode?.asText() == \"text\") {\n");
+                out.push_str("                        val textNode = part.get(\"text\")\n");
+                out.push_str("                        if (textNode != null) {\n");
+                out.push_str("                            sb.append(textNode.asText())\n");
+                out.push_str("                        }\n");
+                out.push_str("                    }\n");
+                out.push_str("                } else if (part is Map<*, *>) {\n");
+                out.push_str("                    @Suppress(\"UNCHECKED_CAST\")\n");
+                out.push_str("                    val partMap = part as? Map<String, Any>\n");
+                out.push_str("                    if (partMap?.get(\"type\") == \"text\") {\n");
+                out.push_str("                        val textValue = partMap[\"text\"]\n");
+                out.push_str("                        if (textValue != null) {\n");
+                out.push_str("                            sb.append(textValue.toString())\n");
+                out.push_str("                        }\n");
+                out.push_str("                    }\n");
+                out.push_str("                }\n");
+                out.push_str("            }\n");
+                out.push_str("            sb.toString()\n");
+                out.push_str("        }\n");
+            } else {
+                out.push_str("        is ");
+                out.push_str(name);
+                out.push('.');
+                out.push_str(&variant.name);
+                out.push_str(" -> \"\"\n");
             }
-        } else {
+        }
+        _ => {
             out.push_str("        is ");
             out.push_str(name);
             out.push('.');
@@ -101,8 +113,6 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
             out.push_str(" -> \"\"\n");
         }
     }
-
-    out.push_str("    }\n");
 }
 
 /// Emit a Jackson `StdDeserializer` for an untagged (`#[serde(untagged)]`) sealed
@@ -127,73 +137,7 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
     out.push_str("        val node = parser.codec.readTree<com.fasterxml.jackson.databind.JsonNode>(parser)\n");
 
     for variant in &en.variants {
-        if variant.fields.is_empty() {
-            continue;
-        }
-
-        let (condition, inner_expr) = if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            let ty = &variant.fields[0].ty;
-            match ty {
-                TypeRef::String => ("node.isTextual", format!("{name}.{}(node.asText())", variant.name)),
-                TypeRef::Vec(elem_ty) => {
-                    let elem_class = super::kotlin_class_name_for_type(elem_ty);
-                    let expr = format!(
-                        "run {{\n                val javaType = ctx.typeFactory.constructCollectionType(List::class.java, {elem_class}::class.java)\n                @Suppress(\"UNCHECKED_CAST\")\n                {name}.{}(ctx.readTreeAsValue<List<{elem_class}>>(node, javaType) as List<{elem_class}>)\n            }}",
-                        variant.name,
-                    );
-                    ("node.isArray", expr)
-                }
-                TypeRef::Primitive(_) => {
-                    let class_name = super::kotlin_class_name_for_type(ty);
-                    (
-                        "node.isNumber",
-                        format!(
-                            "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
-                            variant.name
-                        ),
-                    )
-                }
-                TypeRef::Named(n) => (
-                    "true",
-                    format!(
-                        "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
-                        variant.name
-                    ),
-                ),
-                _ => {
-                    let class_name = super::kotlin_class_name_for_type(ty);
-                    (
-                        "node.isObject",
-                        format!(
-                            "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
-                            variant.name
-                        ),
-                    )
-                }
-            }
-        } else {
-            let struct_class = format!("{name}.{}", variant.name);
-            (
-                "node.isObject",
-                format!("ctx.readTreeAsValue<{struct_class}>(node, {struct_class}::class.java)"),
-            )
-        };
-
-        out.push_str("        if (");
-        out.push_str(condition);
-        out.push_str(") ");
-        if condition == "true" && inner_expr.contains("try {") {
-            out.push_str("{\n");
-            out.push_str("            val result = ");
-            out.push_str(&inner_expr);
-            out.push('\n');
-            out.push_str("            if (result != null) return result\n");
-            out.push_str("        }\n");
-        } else {
-            out.push_str("return ");
-            out.push_str(&inner_expr);
-            out.push('\n');
-        }
+        emit_untagged_deserialize_arm(out, name, variant);
     }
 
     out.push_str("        throw com.fasterxml.jackson.databind.exc.InvalidFormatException(\n");
@@ -205,6 +149,79 @@ pub(super) fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) 
     out.push_str("        )\n");
     out.push_str("    }\n");
     out.push_str("}\n");
+}
+
+/// Emit one `if (<condition>) return/{ ... }` arm of `deserialize` inside
+/// [`emit_kotlin_untagged_deserializer`], for a single enum variant. A fieldless variant
+/// contributes nothing -- it cannot be distinguished by JSON shape alone.
+fn emit_untagged_deserialize_arm(out: &mut String, name: &str, variant: &EnumVariant) {
+    if variant.fields.is_empty() {
+        return;
+    }
+
+    let (condition, inner_expr) = if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+        let ty = &variant.fields[0].ty;
+        match ty {
+            TypeRef::String => ("node.isTextual", format!("{name}.{}(node.asText())", variant.name)),
+            TypeRef::Vec(elem_ty) => {
+                let elem_class = super::kotlin_class_name_for_type(elem_ty);
+                let expr = format!(
+                    "run {{\n                val javaType = ctx.typeFactory.constructCollectionType(List::class.java, {elem_class}::class.java)\n                @Suppress(\"UNCHECKED_CAST\")\n                {name}.{}(ctx.readTreeAsValue<List<{elem_class}>>(node, javaType) as List<{elem_class}>)\n            }}",
+                    variant.name,
+                );
+                ("node.isArray", expr)
+            }
+            TypeRef::Primitive(_) => {
+                let class_name = super::kotlin_class_name_for_type(ty);
+                (
+                    "node.isNumber",
+                    format!(
+                        "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
+                        variant.name
+                    ),
+                )
+            }
+            TypeRef::Named(n) => (
+                "true",
+                format!(
+                    "try {{ {name}.{}(ctx.readTreeAsValue(node, {n}::class.java)) }} catch (_: com.fasterxml.jackson.databind.exc.MismatchedInputException) {{ null as? {name} }} catch (_: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException) {{ null as? {name} }}",
+                    variant.name
+                ),
+            ),
+            _ => {
+                let class_name = super::kotlin_class_name_for_type(ty);
+                (
+                    "node.isObject",
+                    format!(
+                        "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
+                        variant.name
+                    ),
+                )
+            }
+        }
+    } else {
+        let struct_class = format!("{name}.{}", variant.name);
+        (
+            "node.isObject",
+            format!("ctx.readTreeAsValue<{struct_class}>(node, {struct_class}::class.java)"),
+        )
+    };
+
+    out.push_str("        if (");
+    out.push_str(condition);
+    out.push_str(") ");
+    if condition == "true" && inner_expr.contains("try {") {
+        out.push_str("{\n");
+        out.push_str("            val result = ");
+        out.push_str(&inner_expr);
+        out.push('\n');
+        out.push_str("            if (result != null) return result\n");
+        out.push_str("        }\n");
+    } else {
+        out.push_str("return ");
+        out.push_str(&inner_expr);
+        out.push('\n');
+    }
 }
 
 /// Emit a Jackson `StdSerializer` for an untagged (`#[serde(untagged)]`) sealed
@@ -236,62 +253,68 @@ pub(super) fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
     out.push_str("        when (value) {\n");
 
     for variant in &en.variants {
-        if variant.fields.is_empty() {
-            out.push_str("            is ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str(" -> gen.writeNull()\n");
-        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
-            let field = &variant.fields[0];
-            let field_name = kotlin_field_name_with_type(
-                &field.name,
-                0,
-                match &field.ty {
-                    TypeRef::Named(n) => Some(n.as_str()),
-                    TypeRef::String => Some("String"),
-                    TypeRef::Primitive(p) => Some(primitive_type_name(p)),
-                    _ => None,
-                },
-                &variant.name,
-                1,
-            );
-            let payload_expr = format!("value.{field_name}");
-            let mut payload_write = String::new();
-            let runtime_typed = runtime_typed::try_emit_runtime_typed_payload_write(
-                &mut payload_write,
-                PAYLOAD_INDENT,
-                &payload_expr,
-                &field.ty,
-                field.optional,
-            );
-            out.push_str("            is ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            if runtime_typed {
-                out.push_str(" -> {\n");
-                out.push_str(&payload_write);
-                out.push_str("            }\n");
-            } else {
-                out.push_str(" -> mapper.writeValue(gen, ");
-                out.push_str(&payload_expr);
-                out.push_str(")\n");
-            }
-        } else {
-            out.push_str("            is ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str(" -> mapper.writeValue(gen, value as ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str(")\n");
-        }
+        emit_untagged_serialize_arm(out, name, variant);
     }
 
     out.push_str("        }\n");
     out.push_str("    }\n");
     out.push_str("}\n");
+}
+
+/// Emit one `is <Name>.<Variant> -> ...` arm of the `when (value)` block inside
+/// [`emit_kotlin_untagged_serializer`], for a single enum variant.
+fn emit_untagged_serialize_arm(out: &mut String, name: &str, variant: &EnumVariant) {
+    if variant.fields.is_empty() {
+        out.push_str("            is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(" -> gen.writeNull()\n");
+    } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+        let field = &variant.fields[0];
+        let field_name = kotlin_field_name_with_type(
+            &field.name,
+            0,
+            match &field.ty {
+                TypeRef::Named(n) => Some(n.as_str()),
+                TypeRef::String => Some("String"),
+                TypeRef::Primitive(p) => Some(primitive_type_name(p)),
+                _ => None,
+            },
+            &variant.name,
+            1,
+        );
+        let payload_expr = format!("value.{field_name}");
+        let mut payload_write = String::new();
+        let runtime_typed = runtime_typed::try_emit_runtime_typed_payload_write(
+            &mut payload_write,
+            PAYLOAD_INDENT,
+            &payload_expr,
+            &field.ty,
+            field.optional,
+        );
+        out.push_str("            is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        if runtime_typed {
+            out.push_str(" -> {\n");
+            out.push_str(&payload_write);
+            out.push_str("            }\n");
+        } else {
+            out.push_str(" -> mapper.writeValue(gen, ");
+            out.push_str(&payload_expr);
+            out.push_str(")\n");
+        }
+    } else {
+        out.push_str("            is ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(" -> mapper.writeValue(gen, value as ");
+        out.push_str(name);
+        out.push('.');
+        out.push_str(&variant.name);
+        out.push_str(")\n");
+    }
 }

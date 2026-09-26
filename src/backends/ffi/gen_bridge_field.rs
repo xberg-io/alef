@@ -22,6 +22,23 @@ use std::collections::HashMap;
 use crate::codegen::generators::trait_bridge::format_param_type;
 use crate::core::ir::{MethodDef, ReceiverKind};
 
+/// The options field being bridged, and how its handle is obtained.
+///
+/// Grouped only to keep [`gen_options_set_bridge`]'s parameter list short -- each field is
+/// independent and describes one configured `options_field` binding. ~keep
+pub struct OptionsFieldBridgeTarget<'a> {
+    /// The field on the options struct.
+    pub field_name: &'a str,
+    /// The IR type name of the options struct.
+    pub options_type_name: &'a str,
+    /// When true, accept the `{prefix}Visitor` handle produced by the visitor-callbacks path
+    /// (gen_visitor) instead of the `{prefix}{trait}Bridge` produced by the trait-bridge path.
+    /// Required so that strict-typed C consumers (Zig) can pass the handle returned by
+    /// `{prefix}_visitor_create` directly. Both types implement the same trait so the wrapper
+    /// body is identical.
+    pub use_callbacks_visitor: bool,
+}
+
 /// Generate the `{prefix}_options_set_{field}` setter.
 ///
 /// The setter resolves the vtable bridge handle, wraps it in a thin delegating visitor,
@@ -36,20 +53,20 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 /// - `field_name`: the field on the options struct.
 /// - `options_type_name`: the IR type name of the options struct.
 /// - `type_paths`: map of IR type name → fully-qualified Rust path for signature generation.
-/// - `use_callbacks_visitor`: when true, accept the `{prefix}Visitor` handle produced by the
-///   visitor-callbacks path (gen_visitor) instead of the `{prefix}{trait}Bridge` produced by
-///   the trait-bridge path. Required so that strict-typed C consumers (Zig) can pass the
-///   handle returned by `{prefix}_visitor_create` directly. Both types implement the same
-///   trait so the wrapper body is identical.
+/// - `target`: the specific options field being bridged and how its handle is obtained. See
+///   [`OptionsFieldBridgeTarget`].
 pub fn gen_options_set_bridge(
     prefix: &str,
     core_import: &str,
     trait_def: &TypeDef,
-    field_name: &str,
-    options_type_name: &str,
     type_paths: &HashMap<String, String>,
-    use_callbacks_visitor: bool,
+    target: OptionsFieldBridgeTarget<'_>,
 ) -> String {
+    let OptionsFieldBridgeTarget {
+        field_name,
+        options_type_name,
+        use_callbacks_visitor,
+    } = target;
     let pascal_prefix = to_class_name(prefix);
     let trait_name = &trait_def.name;
     let handle_type = if use_callbacks_visitor {

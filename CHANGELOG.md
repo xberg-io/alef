@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Paid off 10 single-rule entries from the `poly.toml` quality-debt baseline (#338): four
+  over-long functions split into named helpers and six over-wide parameter lists grouped into
+  local params structs, across the dart, ffi, java, jni, kotlin and magnus backends, the verify
+  coverage reporter, the version-manifest command and the snippet script validators. Behaviour
+  is unchanged -- every call site passes the same values in the same order, now by field name.
+  Baseline header is now 1238 findings across 663 files.
+
 ### Changed (BREAKING)
 
 - **Go streaming methods now return a `*<Recv><Method>Stream` iterator instead of a bare

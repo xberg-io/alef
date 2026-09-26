@@ -472,10 +472,12 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         &all_managed_paths,
         &marked_paths,
         scan_coverage,
-        unmarked_seeds.len(),
-        drifted_seeds.len(),
-        ephemeral_excluded_count,
-        declared_user_owned_count,
+        super::super::verify_coverage::VerifyCoverageCounts {
+            create_once_unmarked: unmarked_seeds.len(),
+            create_once_drifted: drifted_seeds.len(),
+            ephemeral_excluded: ephemeral_excluded_count,
+            declared_user_owned: declared_user_owned_count,
+        },
     )
     .report_lines()
     {

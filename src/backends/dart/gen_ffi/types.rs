@@ -25,21 +25,7 @@ pub(super) fn emit_type(ty: &TypeDef, config: &ResolvedCrateConfig, out: &mut St
     }
 
     if ty.fields.is_empty() || ty.is_opaque {
-        out.push_str(&template_env::render(
-            "class_open.jinja",
-            minijinja::context! {
-                name => ty.name.as_str(),
-            },
-        ));
-        out.push_str("  final Pointer<Void> _ptr;\n");
-        out.push_str(&template_env::render(
-            "single_param_constructor.jinja",
-            minijinja::context! {
-                name => ty.name.as_str(),
-                param_name => "_ptr",
-            },
-        ));
-        out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
+        emit_opaque_handle_class(ty, out);
         return;
     }
 
@@ -92,6 +78,26 @@ pub(super) fn emit_type(ty: &TypeDef, config: &ResolvedCrateConfig, out: &mut St
             },
         ));
     }
+}
+
+/// Emit the opaque-handle class shape: a `Pointer<Void>`-wrapping Dart class with a
+/// single `_ptr` field constructor, used for types with no bindable fields.
+fn emit_opaque_handle_class(ty: &TypeDef, out: &mut String) {
+    out.push_str(&template_env::render(
+        "class_open.jinja",
+        minijinja::context! {
+            name => ty.name.as_str(),
+        },
+    ));
+    out.push_str("  final Pointer<Void> _ptr;\n");
+    out.push_str(&template_env::render(
+        "single_param_constructor.jinja",
+        minijinja::context! {
+            name => ty.name.as_str(),
+            param_name => "_ptr",
+        },
+    ));
+    out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
 }
 
 /// The variants this Dart enum may advertise: the ones the FFI crate's

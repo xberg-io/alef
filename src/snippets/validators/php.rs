@@ -2,7 +2,7 @@ use crate::snippets::error::Result;
 use crate::snippets::scratch::ScratchDir;
 use crate::snippets::session::ValidationSession;
 use crate::snippets::types::{Language, Snippet, SnippetStatus, ValidationLevel};
-use crate::snippets::validators::{BatchValidation, SnippetValidator, run_command, run_script};
+use crate::snippets::validators::{BatchValidation, ScriptInterpreter, SnippetValidator, run_command, run_script};
 
 pub struct PhpValidator;
 
@@ -141,7 +141,17 @@ impl SnippetValidator for PhpValidator {
         level: ValidationLevel,
         timeout_secs: u64,
     ) -> Result<(SnippetStatus, Option<String>)> {
-        run_script(snippet, level, timeout_secs, None, ".php", "php", &["-l"])
+        run_script(
+            snippet,
+            level,
+            timeout_secs,
+            None,
+            ScriptInterpreter {
+                suffix: ".php",
+                program: "php",
+                syntax_arguments: &["-l"],
+            },
+        )
     }
 
     fn validate_in_session(
@@ -151,7 +161,17 @@ impl SnippetValidator for PhpValidator {
         timeout_secs: u64,
         session: Option<&ValidationSession>,
     ) -> Result<(SnippetStatus, Option<String>)> {
-        run_script(snippet, level, timeout_secs, session, ".php", "php", &["-l"])
+        run_script(
+            snippet,
+            level,
+            timeout_secs,
+            session,
+            ScriptInterpreter {
+                suffix: ".php",
+                program: "php",
+                syntax_arguments: &["-l"],
+            },
+        )
     }
 
     /// `Run` is declined: each snippet must execute in its own process so its output, exit status

@@ -157,6 +157,16 @@ impl TraitBridgeGenerator for JniBridgeGenerator {
     }
 }
 
+/// The core error type name and constructor expression the generated bridge uses to report
+/// dispatch/deserialization failures.
+///
+/// Grouped only to keep [`gen_plugin_trait_bridge`]'s parameter list short -- the two always
+/// travel together, both sourced from the consumer's configured core error type. ~keep
+pub struct BridgeErrorBinding<'a> {
+    pub error_type: &'a str,
+    pub error_constructor: &'a str,
+}
+
 /// Generate the full plugin bridge (wrapper struct, trait impl, default
 /// delegates, registration shim) for one configured trait bridge.
 pub fn gen_plugin_trait_bridge(
@@ -164,10 +174,13 @@ pub fn gen_plugin_trait_bridge(
     bridge_cfg: &TraitBridgeConfig,
     register_symbol: &str,
     core_import: &str,
-    error_type: &str,
-    error_constructor: &str,
+    error_binding: BridgeErrorBinding<'_>,
     api: &ApiSurface,
 ) -> BridgeOutput {
+    let BridgeErrorBinding {
+        error_type,
+        error_constructor,
+    } = error_binding;
     let type_paths: HashMap<String, String> = api
         .types
         .iter()

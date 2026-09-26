@@ -658,10 +658,12 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 prefix,
                 &core_import,
                 trait_def,
-                field_name,
-                options_type_name,
                 &type_paths,
-                visitor_callbacks_enabled,
+                crate::backends::ffi::gen_bridge_field::OptionsFieldBridgeTarget {
+                    field_name,
+                    options_type_name,
+                    use_callbacks_visitor: visitor_callbacks_enabled,
+                },
             ));
         }
 

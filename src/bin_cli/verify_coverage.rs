@@ -91,6 +91,16 @@ pub(crate) struct VerifyCoverage {
     pub(crate) declared_user_owned: usize,
 }
 
+/// Counts the caller has already computed, carried unchanged into the resulting
+/// [`VerifyCoverage`]. Grouped only to keep [`VerifyCoverage::measure`]'s parameter list short --
+/// each field is independent and mirrors the [`VerifyCoverage`] field of the same name. ~keep
+pub(crate) struct VerifyCoverageCounts {
+    pub(crate) create_once_unmarked: usize,
+    pub(crate) create_once_drifted: usize,
+    pub(crate) ephemeral_excluded: usize,
+    pub(crate) declared_user_owned: usize,
+}
+
 impl VerifyCoverage {
     /// Measure one run from the managed surface it built and the walk it already performed.
     ///
@@ -101,20 +111,17 @@ impl VerifyCoverage {
         managed_paths: &std::collections::HashSet<std::path::PathBuf>,
         marked_paths: &std::collections::HashSet<std::path::PathBuf>,
         scan: super::verify_scan::ScanCoverage,
-        create_once_unmarked: usize,
-        create_once_drifted: usize,
-        ephemeral_excluded: usize,
-        declared_user_owned: usize,
+        counts: VerifyCoverageCounts,
     ) -> Self {
         let mut coverage = Self {
             managed_total: managed_paths.len(),
             marked_outside_surface: marked_paths.difference(managed_paths).count(),
             files_opened: scan.opened,
             files_unexamined: scan.unexamined,
-            create_once_unmarked,
-            create_once_drifted,
-            ephemeral_excluded,
-            declared_user_owned,
+            create_once_unmarked: counts.create_once_unmarked,
+            create_once_drifted: counts.create_once_drifted,
+            ephemeral_excluded: counts.ephemeral_excluded,
+            declared_user_owned: counts.declared_user_owned,
             ..Self::default()
         };
         for path in managed_paths {

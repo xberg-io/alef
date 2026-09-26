@@ -78,7 +78,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1248 size/complexity findings across 673 files that predate these
+# 1238 size/complexity findings across 663 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
 # one discrete unit of work.
@@ -128,7 +128,6 @@ pylint_max_returns = 10
 ]
 "src/backends/csharp/gen_visitor_bridge.rs" = ["function-too-long"]
 "src/backends/csharp/trait_bridge.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/backends/dart/frb_rewrite/cfg_gates.rs" = ["function-too-long"]
 "src/backends/dart/frb_rewrite/text_transformations.rs" = ["cyclomatic-complexity", "nesting-too-deep"]
 "src/backends/dart/gen_bindings/errors.rs" = ["function-too-long"]
 "src/backends/dart/gen_bindings/functions.rs" = ["function-too-long"]
@@ -138,7 +137,6 @@ pylint_max_returns = 10
 "src/backends/dart/gen_bindings/types.rs" = ["function-too-long", "nesting-too-deep"]
 "src/backends/dart/gen_ffi/functions.rs" = ["function-too-long"]
 "src/backends/dart/gen_ffi/mod.rs" = ["function-too-long"]
-"src/backends/dart/gen_ffi/types.rs" = ["function-too-long"]
 "src/backends/dart/gen_rust_crate/bridge_fn.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/backends/dart/gen_rust_crate/cargo.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/backends/dart/gen_rust_crate/conversions.rs" = ["cyclomatic-complexity", "function-too-long"]
@@ -191,7 +189,6 @@ pylint_max_returns = 10
 "src/backends/ffi/gen_bindings/tests/fields.rs" = ["file-too-long"]
 "src/backends/ffi/gen_bindings/tests/regressions.rs" = ["file-too-long"]
 "src/backends/ffi/gen_bindings/types.rs" = ["function-too-long", "too-many-parameters"]
-"src/backends/ffi/gen_bridge_field.rs" = ["too-many-parameters"]
 "src/backends/ffi/gen_visitor/binding_emission.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/ffi/gen_visitor/callback_specs.rs" = ["function-too-long"]
 "src/backends/ffi/trait_bridge/call_body.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
@@ -229,7 +226,6 @@ pylint_max_returns = 10
 "src/backends/java/gen_bindings/ffi_class/conversion_internals.rs" = ["too-many-parameters"]
 "src/backends/java/gen_bindings/ffi_class/sync_functions.rs" = ["too-many-parameters"]
 "src/backends/java/gen_bindings/line_wrap.rs" = ["nesting-too-deep"]
-"src/backends/java/gen_bindings/marshal.rs" = ["too-many-parameters"]
 "src/backends/java/gen_bindings/mod.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/backends/java/gen_bindings/native_lib.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/backends/java/gen_bindings/service_api.rs" = ["function-too-long"]
@@ -258,7 +254,6 @@ pylint_max_returns = 10
 "src/backends/jni/gen_shims/tests.rs" = ["file-too-long"]
 "src/backends/jni/gen_shims/top_level.rs" = ["too-many-parameters"]
 "src/backends/jni/service_api.rs" = ["function-too-long", "too-many-parameters"]
-"src/backends/jni/trait_bridge.rs" = ["too-many-parameters"]
 "src/backends/kotlin/gen_bindings/jni_emitter/client_methods.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/kotlin/gen_bindings/mod.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/kotlin/gen_bindings/object_wrapper/dto.rs" = ["function-too-long", "too-many-parameters"]
@@ -268,7 +263,6 @@ pylint_max_returns = 10
   "function-too-long",
   "nesting-too-deep",
 ]
-"src/backends/kotlin/gen_bindings/object_wrapper/enums/untagged.rs" = ["function-too-long"]
 "src/backends/kotlin/gen_bindings/object_wrapper/errors.rs" = ["function-too-long"]
 "src/backends/kotlin/gen_bindings/object_wrapper/methods.rs" = ["function-too-long"]
 "src/backends/kotlin/gen_bindings/object_wrapper/tests.rs" = ["file-too-long"]
@@ -307,7 +301,6 @@ pylint_max_returns = 10
 "src/backends/magnus/gen_bindings/service_api/tests.rs" = ["function-too-long"]
 "src/backends/magnus/gen_bindings/streaming.rs" = ["function-too-long"]
 "src/backends/magnus/gen_bindings/tagged_enums.rs" = ["function-too-long"]
-"src/backends/magnus/gen_bindings/tests.rs" = ["function-too-long"]
 "src/backends/magnus/gen_stubs.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/magnus/trait_bridge/bridge_functions.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/magnus/trait_bridge/bridge_generator.rs" = ["function-too-long"]
@@ -612,7 +605,6 @@ pylint_max_returns = 10
 "src/bin_cli/helpers/frozen/tests.rs" = ["function-too-long"]
 "src/bin_cli/publish_commands.rs" = ["function-too-long", "nesting-too-deep"]
 "src/bin_cli/release_commands.rs" = ["function-too-long"]
-"src/bin_cli/verify_coverage.rs" = ["too-many-parameters"]
 "src/cli/cache.rs" = ["file-too-long"]
 "src/cli/commands/adopt/batch.rs" = ["function-too-long"]
 "src/cli/commands/migrate.rs" = ["cyclomatic-complexity", "function-too-long"]
@@ -620,7 +612,6 @@ pylint_max_returns = 10
 "src/cli/commands/snippets.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/commands/snippets/gaps_command.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/commands/validate_versions.rs" = ["file-too-long", "function-too-long"]
-"src/cli/commands/version_manifests.rs" = ["too-many-parameters"]
 "src/cli/pipeline/commands/build.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/pipeline/commands/test.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/pipeline/commands/test_apps.rs" = ["function-too-long"]
@@ -1136,7 +1127,6 @@ pylint_max_returns = 10
 "src/snippets/runner.rs" = ["function-too-long", "too-many-parameters"]
 "src/snippets/runner/batch.rs" = ["too-many-parameters"]
 "src/snippets/runner/failure_reporter.rs" = ["function-too-long"]
-"src/snippets/validators/mod.rs" = ["too-many-parameters"]
 "src/snippets/validators/process.rs" = ["nesting-too-deep"]
 "src/snippets/validators/python.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "tests/adapters_adapter_test.rs" = ["file-too-long"]

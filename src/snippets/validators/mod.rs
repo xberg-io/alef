@@ -286,15 +286,29 @@ fn append_r_library_path(command: &mut std::process::Command, directory: &std::p
     Ok(())
 }
 
+/// The interpreter invocation shape for one scripting language: its source-file suffix, the
+/// program to run, and the arguments that put it in syntax-check-only mode.
+///
+/// Grouped only to keep [`run_script`]'s parameter list short -- every caller sources these
+/// three from its own language-specific constants and passes them together. ~keep
+pub struct ScriptInterpreter<'a> {
+    pub suffix: &'a str,
+    pub program: &'a str,
+    pub syntax_arguments: &'a [&'a str],
+}
+
 pub fn run_script(
     snippet: &Snippet,
     level: ValidationLevel,
     timeout_secs: u64,
     session: Option<&ValidationSession>,
-    suffix: &str,
-    program: &str,
-    syntax_arguments: &[&str],
+    interpreter: ScriptInterpreter<'_>,
 ) -> Result<(SnippetStatus, Option<String>)> {
+    let ScriptInterpreter {
+        suffix,
+        program,
+        syntax_arguments,
+    } = interpreter;
     let scratch_dir = session.map(ScratchDir::for_session).transpose()?;
     let mut source = match &scratch_dir {
         Some(dir) => tempfile::Builder::new().suffix(suffix).tempfile_in(dir.path())?,
@@ -417,9 +431,11 @@ mod tests {
             super::ValidationLevel::Syntax,
             5,
             Some(&session),
-            ".sh",
-            "true",
-            &[],
+            super::ScriptInterpreter {
+                suffix: ".sh",
+                program: "true",
+                syntax_arguments: &[],
+            },
         )
         .expect("run_script runs");
 
@@ -449,9 +465,11 @@ mod tests {
             super::ValidationLevel::Syntax,
             5,
             Some(&session),
-            ".sh",
-            "false",
-            &[],
+            super::ScriptInterpreter {
+                suffix: ".sh",
+                program: "false",
+                syntax_arguments: &[],
+            },
         )
         .expect("run_script runs");
 
@@ -482,9 +500,11 @@ mod tests {
             super::ValidationLevel::Syntax,
             5,
             Some(&session),
-            ".sh",
-            "alef-nonexistent-toolchain-for-scratch-test",
-            &[],
+            super::ScriptInterpreter {
+                suffix: ".sh",
+                program: "alef-nonexistent-toolchain-for-scratch-test",
+                syntax_arguments: &[],
+            },
         )
         .expect_err("a missing toolchain must surface as an error, not a status");
 

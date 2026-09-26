@@ -2,7 +2,7 @@ use crate::snippets::error::Result;
 use crate::snippets::scratch::ScratchDir;
 use crate::snippets::session::ValidationSession;
 use crate::snippets::types::{Language, Snippet, SnippetStatus, ValidationLevel};
-use crate::snippets::validators::{BatchValidation, SnippetValidator, run_command, run_script};
+use crate::snippets::validators::{BatchValidation, ScriptInterpreter, SnippetValidator, run_command, run_script};
 
 pub struct RubyValidator;
 
@@ -168,7 +168,17 @@ impl SnippetValidator for RubyValidator {
             return Ok((SnippetStatus::Pass, None));
         }
 
-        run_script(snippet, level, timeout_secs, None, ".rb", "ruby", &["-c"])
+        run_script(
+            snippet,
+            level,
+            timeout_secs,
+            None,
+            ScriptInterpreter {
+                suffix: ".rb",
+                program: "ruby",
+                syntax_arguments: &["-c"],
+            },
+        )
     }
 
     fn validate_in_session(
@@ -181,7 +191,17 @@ impl SnippetValidator for RubyValidator {
         if is_api_signature(snippet.code.trim()) {
             return Ok((SnippetStatus::Pass, None));
         }
-        run_script(snippet, level, timeout_secs, session, ".rb", "ruby", &["-c"])
+        run_script(
+            snippet,
+            level,
+            timeout_secs,
+            session,
+            ScriptInterpreter {
+                suffix: ".rb",
+                program: "ruby",
+                syntax_arguments: &["-c"],
+            },
+        )
     }
 
     /// `Run` is declined: each snippet must execute in its own process so its output, exit status

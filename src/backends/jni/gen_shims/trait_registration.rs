@@ -43,8 +43,10 @@ fn emit_trait_bridge_shims(
                         bridge_cfg,
                         &symbol,
                         "core_crate",
-                        &config.error_type_name(),
-                        &config.error_constructor_expr(),
+                        crate::backends::jni::trait_bridge::BridgeErrorBinding {
+                            error_type: &config.error_type_name(),
+                            error_constructor: &config.error_constructor_expr(),
+                        },
                         api,
                     );
                     out.push_str(&bridge_output.code);

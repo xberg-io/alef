@@ -506,10 +506,12 @@ fn visitor_pinvokes_declare_the_handle_width_the_ffi_crate_exports() {
         CRATE_NAME,
         CRATE_NAME,
         trait_def,
-        OPTIONS_FIELD,
-        OPTIONS_TYPE,
         &HashMap::new(),
-        true,
+        alef::backends::ffi::gen_bridge_field::OptionsFieldBridgeTarget {
+            field_name: OPTIONS_FIELD,
+            options_type_name: OPTIONS_TYPE,
+            use_callbacks_visitor: true,
+        },
     );
     let ffi_setter_signature = format!(
         "pub unsafe extern \"C\" fn {CRATE_NAME}_options_set_{OPTIONS_FIELD}(options: AlefHandle, visitor: AlefHandle)"

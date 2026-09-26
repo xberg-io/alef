@@ -301,13 +301,26 @@ mod tests {
     /// nothing here and treated the function as ungated. Positive cases (gate must attach) and
     /// negative controls (gate must not attach to anything) are tabulated together so the two
     /// kinds of assertion stay next to each other. ~keep
+    struct Case {
+        name: &'static str,
+        lib_rs: &'static str,
+        expected: Option<(&'static str, &'static str)>,
+    }
+
+    fn assert_cfg_gated_case(case: &Case) {
+        let found = cfg_gated_free_functions(case.lib_rs);
+        let actual = found.first().map(|(name, gate)| (name.as_str(), gate.as_str()));
+        assert_eq!(actual, case.expected, "case failed: {}", case.name);
+        assert_eq!(
+            found.len(),
+            usize::from(case.expected.is_some()),
+            "case found extra/unexpected entries: {}: {found:?}",
+            case.name
+        );
+    }
+
     #[test]
     fn cfg_gated_free_functions_table() {
-        struct Case {
-            name: &'static str,
-            lib_rs: &'static str,
-            expected: Option<(&'static str, &'static str)>,
-        }
         let cases = [
             Case {
                 name: "single #[frb] between gate and pub fn -- the real facade shape",
@@ -372,16 +385,8 @@ mod tests {
             },
         ];
 
-        for case in cases {
-            let found = cfg_gated_free_functions(case.lib_rs);
-            let actual = found.first().map(|(name, gate)| (name.as_str(), gate.as_str()));
-            assert_eq!(actual, case.expected, "case failed: {}", case.name);
-            assert_eq!(
-                found.len(),
-                usize::from(case.expected.is_some()),
-                "case found extra/unexpected entries: {}: {found:?}",
-                case.name
-            );
+        for case in &cases {
+            assert_cfg_gated_case(case);
         }
     }
 

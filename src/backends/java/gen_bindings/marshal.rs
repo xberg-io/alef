@@ -160,15 +160,15 @@ fn render_marshaled_value(out: &mut String, template: &str, name: &str) {
     ));
 }
 
-fn marshal_named(
-    out: &mut String,
-    name: &str,
-    type_name: &str,
+/// Whether a `Named` type field is an opaque handle or a value type, and whether it is wrapped
+/// in `Option<T>`. Grouped only to keep [`marshal_named`]'s parameter list short.
+struct NamedFieldShape {
     opaque: bool,
     optional: bool,
-    prefix: &str,
-    resources: &str,
-) {
+}
+
+fn marshal_named(out: &mut String, name: &str, type_name: &str, shape: NamedFieldShape, prefix: &str, resources: &str) {
+    let NamedFieldShape { opaque, optional } = shape;
     if opaque {
         let template = if optional {
             "marshal_optional_opaque_handle.jinja"
@@ -240,8 +240,10 @@ fn marshal_optional(
             out,
             name,
             type_name,
-            opaque_types.contains(type_name),
-            true,
+            NamedFieldShape {
+                opaque: opaque_types.contains(type_name),
+                optional: true,
+            },
             prefix,
             resources,
         ),
@@ -266,8 +268,10 @@ pub(crate) fn marshal_param_to_ffi(
             out,
             name,
             type_name,
-            opaque_types.contains(type_name),
-            false,
+            NamedFieldShape {
+                opaque: opaque_types.contains(type_name),
+                optional: false,
+            },
             prefix,
             resources,
         ),
