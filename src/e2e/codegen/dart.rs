@@ -168,7 +168,7 @@ impl E2eCodegen for DartE2eCodegen {
         if any_file_needs_helper {
             files.push(GeneratedFile {
                 path: test_base.join("e2e_helpers.dart"),
-                content: project::render_e2e_helpers(),
+                content: project::render_e2e_helpers(&e2e_config.alt_host),
                 generated_header: false,
             });
         }

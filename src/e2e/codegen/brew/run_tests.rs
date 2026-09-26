@@ -25,7 +25,12 @@ pub(super) fn render_env_block(env: &BTreeMap<String, String>) -> String {
 }
 
 /// Render the main `run_tests.sh` runner script.
-pub(super) fn render_run_tests(categories: &[String], env: &BTreeMap<String, String>, binary_name: &str) -> String {
+pub(super) fn render_run_tests(
+    categories: &[String],
+    env: &BTreeMap<String, String>,
+    binary_name: &str,
+    alt_host: &str,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::e2e_header(CommentStyle::Hash));
@@ -87,9 +92,12 @@ pub(super) fn render_run_tests(categories: &[String], env: &BTreeMap<String, Str
     let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "  rm -f mock_server.stdout");
     let _ = writeln!(out, "  : > mock_server.stdout");
+    // Baked from `[crates.e2e] alt_host` at generation time: `${VAR:-default}` respects an
+    // already-exported override, and the `VAR=value cmd` prefix scopes the configured
+    // default to just this one background spawn. ~keep
     let _ = writeln!(
         out,
-        "  \"$MOCK_SERVER_BIN\" \"$FIXTURES_DIR\" >mock_server.stdout 2>&1 &"
+        "  ALEF_MOCK_ALT_HOST=\"${{ALEF_MOCK_ALT_HOST:-{alt_host}}}\" \"$MOCK_SERVER_BIN\" \"$FIXTURES_DIR\" >mock_server.stdout 2>&1 &"
     );
     let _ = writeln!(out, "  __MOCK_PID=$!");
     let _ = writeln!(
@@ -220,7 +228,7 @@ mod tests {
     #[test]
     fn render_run_tests_uses_two_space_indent() {
         let categories = vec!["auth".to_string(), "crawl".to_string()];
-        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli", "localhost");
         assert_shfmt_canonical_indent(&script, "render_run_tests");
         assert!(
             script.lines().any(|l| l.starts_with("  ") && !l.starts_with("   ")),
@@ -234,7 +242,7 @@ mod tests {
     /// `false` also renders as text and must keep passing.
     #[test]
     fn not_empty_for_brew_rejects_the_json_renderings_of_empty_values() {
-        let script = render_run_tests(&["auth".to_string()], &BTreeMap::new(), "sample-cli");
+        let script = render_run_tests(&["auth".to_string()], &BTreeMap::new(), "sample-cli", "localhost");
         assert!(
             script.contains(
                 "  if [ -z \"$actual\" ] || [ \"$actual\" = \"null\" ] || [ \"$actual\" = \"[]\" ] \
@@ -271,7 +279,7 @@ mod tests {
     #[test]
     fn render_run_tests_omits_env_block_when_env_empty() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli", "localhost");
         assert!(
             !script.contains("Suite-level environment defaults"),
             "no env block when env empty; got: {script}"
@@ -285,7 +293,7 @@ mod tests {
     #[test]
     fn render_run_tests_emits_brew_cli_preflight_check() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "sample-cli", "localhost");
         assert!(
             script.contains("Verify the brew-installed CLI is on PATH"),
             "expected brew CLI preflight check; got:\n{script}"
@@ -309,7 +317,7 @@ mod tests {
     #[test]
     fn render_run_tests_preflight_uses_parameterized_binary_name() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &BTreeMap::new(), "mytool");
+        let script = render_run_tests(&categories, &BTreeMap::new(), "mytool", "localhost");
         assert!(
             script.contains("BINARY_NAME='mytool'") && script.contains("command -v \"$BINARY_NAME\""),
             "expected preflight to use parameterized binary; got:\n{script}"
@@ -329,7 +337,7 @@ mod tests {
         let mut env = BTreeMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &env, "sample-cli");
+        let script = render_run_tests(&categories, &env, "sample-cli", "localhost");
         assert!(
             script.contains("export E2E_ALLOW_PRIVATE_NETWORK='true'"),
             "got: {script}"
@@ -377,7 +385,7 @@ mod tests {
             std::fs::write(&path, "#!/usr/bin/env bash\nexit 0\n").expect("write stub");
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod stub");
         }
-        let script = render_run_tests(&["smoke".to_string()], &BTreeMap::new(), "sample-cli");
+        let script = render_run_tests(&["smoke".to_string()], &BTreeMap::new(), "sample-cli", "localhost");
         std::fs::write(root.join("run_tests.sh"), &script).expect("write runner");
         std::fs::write(root.join("test_smoke.sh"), category_body).expect("write category file");
 
@@ -454,5 +462,24 @@ mod tests {
             "the tally must count the test as passed; got:\n{output}"
         );
         assert!(success, "the runner must exit zero; got:\n{output}");
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn, not silently dropped. A distinctive value proves the
+    /// generator threads the configured value through rather than hard-coding it.
+    #[test]
+    fn run_tests_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let script = render_run_tests(
+            &["smoke".to_string()],
+            &BTreeMap::new(),
+            "sample-cli",
+            "alt-host-from-config.test",
+        );
+        assert!(
+            script.contains(
+                "ALEF_MOCK_ALT_HOST=\"${ALEF_MOCK_ALT_HOST:-alt-host-from-config.test}\" \"$MOCK_SERVER_BIN\""
+            ),
+            "run_tests.sh must default ALEF_MOCK_ALT_HOST from the configured alt_host, got:\n{script}"
+        );
     }
 }

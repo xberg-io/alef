@@ -1,0 +1,9 @@
+        // Baked from `[crates.e2e] alt_host` at generation time: the mock server reads
+        // ALEF_MOCK_ALT_HOST from its own process environment, so the standalone spawn
+        // here sets it explicitly rather than relying on an ambient shell var.
+        // `getEnvMap` starts from the real OS environment, so an already-exported
+        // override still wins.
+        var _alef_spawn_env = std.process.getEnvMap(_alloc) catch std.process.EnvMap.init(_alloc);
+        if (_alef_spawn_env.get("ALEF_MOCK_ALT_HOST") == null) {
+            _alef_spawn_env.put("ALEF_MOCK_ALT_HOST", "{{ alt_host }}") catch {};
+        }

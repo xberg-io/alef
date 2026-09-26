@@ -184,6 +184,48 @@ mod request_counter_and_origins_probe {
     }
 
     // -----------------------------------------------------------------------
+    // #442: a non-default `[crates.e2e] alt_host` (threaded to the server as
+    // `ALEF_MOCK_ALT_HOST` by every harness spawn site) must actually change
+    // `{{mock_alt_origin}}`/`{{mock_sub_origin}}` substitution, not just validate
+    // cleanly and get silently ignored. The outer harness invocation runs this
+    // probe binary with `--test-threads=1`, so mutating the process-global env
+    // var here is not racy against other tests.
+    // -----------------------------------------------------------------------
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_configured_alef_mock_alt_host_reaches_the_substituted_origin() {
+        // SAFETY: `--test-threads=1` (see the outer harness invocation) means no other
+        // test in this probe binary observes this mutation concurrently.
+        unsafe {
+            std::env::set_var("ALEF_MOCK_ALT_HOST", "alef-alt-host-probe.example");
+        }
+        let route = binary_route("alt={{mock_alt_origin}} sub={{mock_sub_origin}}");
+        let routes = std::collections::HashMap::from([("/fixtures/alt-host".to_string(), route)]);
+        let address = spawn_binary_server(routes).await;
+        // SAFETY: see above.
+        unsafe {
+            std::env::remove_var("ALEF_MOCK_ALT_HOST");
+        }
+
+        let client = reqwest::Client::new();
+        let response = client
+            .get(format!("http://{address}/fixtures/alt-host"))
+            .send()
+            .await
+            .expect("alt-host substitution request");
+        let body = response.text().await.expect("alt-host substitution body");
+        assert_eq!(
+            body,
+            format!(
+                "alt=http://alef-alt-host-probe.example:{port} sub=http://alef-unresolvable-alt-host.invalid:{port}",
+                port = address.port()
+            ),
+            "a configured ALEF_MOCK_ALT_HOST must reach both mock_alt_origin and \
+             mock_sub_origin substitution, got:\n{body}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // The in-process `MockServer` (used by Rust's own e2e tests) exercises the
     // same two mechanisms through its own, independently-written `handle_request`.
     // -----------------------------------------------------------------------

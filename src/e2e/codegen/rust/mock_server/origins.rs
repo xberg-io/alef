@@ -31,8 +31,9 @@ const ORIGINS_SOURCE: &str = r####"// ------------------------------------------
 struct Origins {
     /// `{{mock_origin}}` -> `http://127.0.0.1:<port>`, this same listener.
     origin: String,
-    /// `{{mock_alt_origin}}` -> `http://localhost:<port>`, this same listener under a
-    /// different hostname.
+    /// `{{mock_alt_origin}}` -> `http://<alt_host_base>:<port>`, this same listener
+    /// under a different hostname (`<alt_host_base>` defaults to `localhost`; see
+    /// [`alt_host_base_from_env`]).
     alt_origin: String,
     /// `{{mock_sub_origin}}` -> `http://sub.<alt_host_base>:<port>`, this same
     /// listener under a subdomain of the alternate hostname.
@@ -99,9 +100,10 @@ fn replace_all_bytes(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<
     out
 }
 
-/// The sub-host base fixtures resolve `{{mock_sub_origin}}` against, e.g. `sub.localhost`
-/// for the default base `localhost`. Configurable via `ALEF_MOCK_ALT_HOST` (the hook a
-/// consumer's `[crates.e2e] alt_host` config plumbing sets when it spawns this server),
+/// The base hostname `{{mock_alt_origin}}` resolves directly to and `{{mock_sub_origin}}`
+/// resolves against with a `sub.` prefix, e.g. `sub.localhost` for the default base
+/// `localhost`. Configurable via `ALEF_MOCK_ALT_HOST` (the env var every harness spawn site
+/// sets from a consumer's `[crates.e2e] alt_host` config before launching this binary),
 /// falling back to `"localhost"` when unset or empty.
 fn alt_host_base_from_env() -> String {
     std::env::var("ALEF_MOCK_ALT_HOST").ok().filter(|value| !value.is_empty()).unwrap_or_else(|| "localhost".to_string())
@@ -156,7 +158,7 @@ fn resolve_origins(port: u16) -> Origins {
     let resolves_to_loopback = sub_host_resolves_to_loopback(&sub_host);
     Origins {
         origin: format!("http://127.0.0.1:{port}"),
-        alt_origin: format!("http://localhost:{port}"),
+        alt_origin: format!("http://{alt_host_base}:{port}"),
         sub_origin: sub_origin_or_poison(&sub_host, port, resolves_to_loopback),
         foreign_origin: format!("http://127.0.0.2:{port}"),
     }

@@ -232,6 +232,7 @@ pub(super) fn render_spec_helper(
     harness_host: &str,
     _harness_port: u16,
     env: &BTreeMap<String, String>,
+    alt_host: &str,
 ) -> String {
     let header = hash::e2e_header(CommentStyle::Hash);
     let mut out = header;
@@ -346,8 +347,10 @@ end
         );
         out.push_str(&harness_setup);
     } else if has_mock_server_fixtures {
-        let mock_server_block =
-            crate::e2e::template_env::render("ruby/spec_helper_mock_server.rb.jinja", minijinja::context! {});
+        let mock_server_block = crate::e2e::template_env::render(
+            "ruby/spec_helper_mock_server.rb.jinja",
+            minijinja::context! { alt_host => alt_host },
+        );
         out.push_str(&mock_server_block);
     }
 

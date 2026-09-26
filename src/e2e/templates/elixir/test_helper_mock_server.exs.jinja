@@ -32,13 +32,19 @@ unless System.get_env("MOCK_SERVER_URL") do
     end
   end
 
+  # Baked from `[crates.e2e] alt_host` at generation time. `Port.open`'s `:env` entries
+  # are added to (or override) the inherited environment, so an already-exported
+  # override (checked first, via `||`) still wins over the configured default.
+  alt_host_env = System.get_env("ALEF_MOCK_ALT_HOST") || "{{ alt_host }}"
+
   port = Port.open({:spawn_executable, mock_server_bin}, [
     :binary,
     # Use a large line buffer (default 1024 truncates `MOCK_SERVERS={...}` lines for
     # fixture sets with many host-root routes, splitting them into `:noeol` chunks
     # that the prefix-match clauses below would never see).
     {:line, 65_536},
-    args: [fixtures_dir]
+    args: [fixtures_dir],
+    env: [{~c"ALEF_MOCK_ALT_HOST", String.to_charlist(alt_host_env)}]
   ])
   # Read startup lines: MOCK_SERVER_URL= then MOCK_SERVERS= (always emitted, possibly `{}`).
   # The standalone mock-server prints noisy stderr lines BEFORE the stdout sentinels;

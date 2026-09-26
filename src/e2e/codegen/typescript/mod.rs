@@ -234,7 +234,7 @@ impl E2eCodegen for TypeScriptCodegen {
         if needs_global_setup && !use_server_pattern {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(false),
+                content: render_global_setup(false, &e2e_config.alt_host),
                 generated_header: true,
             });
         }

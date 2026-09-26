@@ -48,6 +48,10 @@ RSpec.configure do |config|
       )
       raise "mock-server binary still missing after build: #{bin}" unless File.exist?(bin)
     end
+    # Baked from `[crates.e2e] alt_host` at generation time. `Open3.popen3` inherits the
+    # current process's ENV, so this only needs to reach the process env once; `||=`
+    # keeps an already-exported override (e.g. a parent `alef test-apps run`) authoritative.
+    ENV['ALEF_MOCK_ALT_HOST'] ||= '{{ alt_host }}'
     stdin, stdout, _stderr, _wait = Open3.popen3(bin, fixtures_dir)
     # Read startup lines: MOCK_SERVER_URL= then optional MOCK_SERVERS=.
     url = nil

@@ -280,7 +280,7 @@ pub(super) fn generate(
     if needs_mock_server {
         files.push(GeneratedFile {
             path: test_base.join("MockServerListener.kt"),
-            content: kotlin::render_mock_server_listener_kt(&kotlin_pkg_id),
+            content: kotlin::render_mock_server_listener_kt(&kotlin_pkg_id, &e2e_config.alt_host),
             generated_header: true,
         });
         files.push(GeneratedFile {

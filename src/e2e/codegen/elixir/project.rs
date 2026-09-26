@@ -75,8 +75,10 @@ pub(super) fn render_test_helper(has_http_tests: bool, e2e_config: &E2eConfig) -
 ExUnit.start()
 
 "#;
-        let mock_server =
-            crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
+        let mock_server = crate::e2e::template_env::render(
+            "elixir/test_helper_mock_server.exs.jinja",
+            minijinja::context! { alt_host => e2e_config.alt_host },
+        );
         format!("{}{}{}{}", env_setup, test_documents_env, finch_setup, mock_server)
     } else {
         format!("{}{}ExUnit.start()\n", env_setup, test_documents_env)

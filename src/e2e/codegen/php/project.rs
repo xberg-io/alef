@@ -441,6 +441,7 @@ pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
             uses_server_harness => uses_server_harness,
             harness_host => harness_host,
             harness_port => harness_port,
+            alt_host => &e2e_config.alt_host,
         },
     )
 }

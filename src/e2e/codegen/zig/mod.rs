@@ -518,6 +518,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     &e2e_config.env,
                     &zig_capsule_deps,
                     e2e_config.extra_system_libs_for("zig"),
+                    &e2e_config.alt_host,
                 ),
                 generated_header: false,
             },

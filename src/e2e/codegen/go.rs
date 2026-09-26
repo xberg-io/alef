@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use super::client;
 
+mod alt_host_env;
 mod assertion_field_shape;
 mod assertion_render_helpers;
 mod dependency_requires;
@@ -257,6 +258,7 @@ impl E2eCodegen for GoCodegen {
                     needs_mock_server,
                     has_http_fixtures,
                     &e2e_config.env,
+                    &e2e_config.alt_host,
                 ),
                 generated_header: true,
             });
@@ -499,6 +501,7 @@ fn render_main_test_go(
     needs_mock_server_bootstrap: bool,
     has_http_fixtures: bool,
     env: &std::collections::BTreeMap<String, String>,
+    alt_host: &str,
 ) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
@@ -615,6 +618,7 @@ fn render_main_test_go(
         let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
         let _ = writeln!(out, "\tcmd := exec.Command(mockBin, fixturesDir)");
         let _ = writeln!(out, "\tcmdEnv := os.Environ()");
+        alt_host_env::render_alt_host_env_lines(&mut out, alt_host);
 
         // Append configured environment variables (set via os.Setenv in TestMain earlier).
         // This is necessary because os.Setenv only affects Go's runtime env, not libc's,

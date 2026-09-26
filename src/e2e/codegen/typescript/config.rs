@@ -124,7 +124,7 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
     )
 }
 
-pub fn render_global_setup(use_server_pattern: bool) -> String {
+pub fn render_global_setup(use_server_pattern: bool, alt_host: &str) -> String {
     let header = hash::e2e_header(CommentStyle::DoubleSlash);
 
     let template = if use_server_pattern {
@@ -137,6 +137,7 @@ pub fn render_global_setup(use_server_pattern: bool) -> String {
         template,
         context! {
             header => header,
+            alt_host => alt_host,
         },
     )
 }
@@ -271,7 +272,7 @@ mod tests {
 
     #[test]
     fn render_global_setup_mock_server_waits_for_mock_server_shutdown() {
-        let out = render_global_setup(false);
+        let out = render_global_setup(false, "localhost");
         assert!(out.contains("clearTimeout(startupTimeout)"), "got: {out}");
         assert!(out.contains("proc.stdout.off('data', onData)"), "got: {out}");
         assert!(out.contains("const proc = serverProcess;"), "got: {out}");
@@ -282,7 +283,7 @@ mod tests {
 
     #[test]
     fn render_global_setup_mock_server_honors_preset_mock_server_url() {
-        let out = render_global_setup(false);
+        let out = render_global_setup(false, "localhost");
         // When MOCK_SERVER_URL is pre-set by the test runner, reuse it and skip
         // spawning the local binary. The early return must precede the spawn().
         assert!(
@@ -299,7 +300,7 @@ mod tests {
 
     #[test]
     fn render_global_setup_server_pattern_polls_for_tcp_readiness() {
-        let out = render_global_setup(true);
+        let out = render_global_setup(true, "localhost");
         assert!(out.contains("SUT_URL"), "server-pattern should use SUT_URL");
         assert!(
             out.contains("app_harness.mjs"),
@@ -308,6 +309,20 @@ mod tests {
         assert!(
             out.contains("createConnection"),
             "server-pattern should check TCP readiness"
+        );
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// (not the `"localhost"` default the other tests in this file use) proves the
+    /// generator threads the configured value through rather than hard-coding it,
+    /// and is shared by both the TypeScript and WASM generators. ~keep
+    #[test]
+    fn render_global_setup_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let out = render_global_setup(false, "alt-host-from-config.test");
+        assert!(
+            out.contains("process.env.ALEF_MOCK_ALT_HOST ??= 'alt-host-from-config.test'"),
+            "globalSetup.ts must set ALEF_MOCK_ALT_HOST to the configured alt_host, got:\n{out}"
         );
     }
 }

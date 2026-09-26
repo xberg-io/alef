@@ -503,7 +503,7 @@ fn display_text_union_empty_assertions_use_payload_instead_of_wrapper_presence()
 
 #[test]
 fn mock_server_listener_handles_nullable_os_property() {
-    let output = super::project::render_mock_server_listener_kt("example");
+    let output = super::project::render_mock_server_listener_kt("example", "localhost");
     assert!(
         output.contains("System.getProperty(\"os.name\", \"\").orEmpty().lowercase()"),
         "{output}"

@@ -177,7 +177,7 @@ impl E2eCodegen for JavaCodegen {
         if needs_mock_server {
             files.push(GeneratedFile {
                 path: test_base.join("MockServerListener.java"),
-                content: project::render_mock_server_listener(&java_group_id),
+                content: project::render_mock_server_listener(&java_group_id, &e2e_config.alt_host),
                 generated_header: true,
             });
             files.push(GeneratedFile {

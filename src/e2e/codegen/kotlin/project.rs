@@ -146,7 +146,7 @@ tasks.test {{
 /// generated test bodies read `System.getenv("MOCK_SERVER_URL")` (which the
 /// listener also honours to skip spawning when the caller already has the
 /// server running).
-pub(crate) fn render_mock_server_listener_kt(kotlin_pkg_id: &str) -> String {
+pub(crate) fn render_mock_server_listener_kt(kotlin_pkg_id: &str, alt_host: &str) -> String {
     let header = hash::e2e_header(CommentStyle::DoubleSlash);
     format!(
         r#"{header}package {kotlin_pkg_id}.e2e
@@ -204,6 +204,10 @@ class MockServerListener : LauncherSessionListener {{
         }}
         val pb = ProcessBuilder(bin.absolutePath, fixturesDir.absolutePath)
             .redirectErrorStream(false)
+        // Baked from `[crates.e2e] alt_host` at generation time. `putIfAbsent` keeps an
+        // already-exported override (e.g. a parent `alef test-apps run`) authoritative;
+        // `ProcessBuilder.environment()` otherwise already inherits the full parent env. ~keep
+        pb.environment().putIfAbsent("ALEF_MOCK_ALT_HOST", "{alt_host}")
         val server = try {{
             pb.start()
         }} catch (e: IOException) {{
@@ -378,6 +382,19 @@ mod tests {
         assert!(
             !annotations_line.contains(crate::core::template_versions::maven::JACKSON_E2E),
             "jackson-annotations must not reuse JACKSON_E2E's patch-versioned scheme, got:\n{annotations_line}"
+        );
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// proves the generator threads the configured value through rather than
+    /// hard-coding it.
+    #[test]
+    fn mock_server_listener_bakes_configured_alt_host_into_the_spawn() {
+        let out = super::render_mock_server_listener_kt("example", "alt-host-from-config.test");
+        assert!(
+            out.contains("pb.environment().putIfAbsent(\"ALEF_MOCK_ALT_HOST\", \"alt-host-from-config.test\")"),
+            "MockServerListener.kt must set ALEF_MOCK_ALT_HOST to the configured alt_host, got:\n{out}"
         );
     }
 }

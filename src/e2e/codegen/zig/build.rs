@@ -154,6 +154,7 @@ pub(super) fn render_build_zig(
     env: &std::collections::BTreeMap<String, String>,
     capsule_deps: &[(String, String, String)],
     extra_system_libs: &[String],
+    alt_host: &str,
 ) -> String {
     let ZigBuildFlags {
         has_file_fixtures,
@@ -413,7 +414,7 @@ pub fn build(b: *std.Build) void {
     // `zig build` process, which spans test execution. A pre-set
     // `MOCK_SERVER_URL` (external CI orchestration) short-circuits the spawn.
     if needs_mock_server {
-        content.push_str(render_zig_mock_server_spawn());
+        content.push_str(&render_zig_mock_server_spawn(alt_host));
         let _ = writeln!(content);
     }
 
@@ -603,8 +604,8 @@ fn push_run_step_config(
 /// The spawned child is intentionally not awaited: it lives for the duration of
 /// the `zig build` process, which spans test execution. A pre-set
 /// `MOCK_SERVER_URL` short-circuits the spawn. Targets Zig 0.16 std APIs.
-fn render_zig_mock_server_spawn() -> &'static str {
-    r#"    const _alloc = b.allocator;
+fn render_zig_mock_server_spawn(alt_host: &str) -> String {
+    let before_spawn = r#"    const _alloc = b.allocator;
     var mock_server_url: ?[]const u8 = b.graph.environ_map.get("MOCK_SERVER_URL");
     var mock_servers_json: ?[]const u8 = null;
     var mock_servers_map = std.StringHashMap([]const u8).init(_alloc);
@@ -618,11 +619,17 @@ fn render_zig_mock_server_spawn() -> &'static str {
         const _fixtures = b.pathFromRoot("../../fixtures");
         var _threaded = std.Io.Threaded.init(_alloc, .{});
         const _io = _threaded.io();
-        const _spawned = std.process.spawn(_io, .{
+"#;
+    let alt_host_env = crate::e2e::template_env::render(
+        "zig/mock_server_spawn_env.zig.jinja",
+        minijinja::context! { alt_host => alt_host },
+    );
+    let after_spawn = r#"        const _spawned = std.process.spawn(_io, .{
             .argv = &.{ _bin, _fixtures },
             .stdin = .pipe,
             .stdout = .pipe,
             .stderr = .inherit,
+            .env_map = &_alef_spawn_env,
         });
         if (_spawned) |_child| {
             // The child is intentionally not awaited: it lives for the duration
@@ -680,7 +687,8 @@ fn render_zig_mock_server_spawn() -> &'static str {
             // clear connection error rather than a build failure.
         }
     }
-"#
+"#;
+    format!("{before_spawn}{alt_host_env}{after_spawn}")
 }
 
 // ---------------------------------------------------------------------------

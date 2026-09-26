@@ -389,6 +389,8 @@ mod visitor;
 pub use stubs::{emit_test_backend, emit_test_backend_with_ns};
 
 #[cfg(test)]
+mod alt_host_tests;
+#[cfg(test)]
 mod assertion_wildcard_element_tests;
 #[cfg(test)]
 mod assertion_wildcard_getter_tests;

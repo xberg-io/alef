@@ -378,6 +378,11 @@ if _TEST_DOCUMENTS.is_dir():
         } else {
             String::new()
         };
+        // Baked at generation time from `[crates.e2e] alt_host` so the standalone-spawn path
+        // (no external MOCK_SERVER_URL) hands the mock server the configured value instead of
+        // its own built-in default. `setdefault` keeps an already-exported override (e.g. a
+        // parent test-apps run) authoritative. ~keep
+        let alt_host_literal = format!("{:?}", e2e_config.alt_host);
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
 from __future__ import annotations
@@ -431,6 +436,7 @@ def mock_server() -> Generator[str, None, None]:
                 os.environ[f"MOCK_SERVER_{{_fid.upper()}}"] = _furl
         yield existing
         return
+    os.environ.setdefault("ALEF_MOCK_ALT_HOST", {alt_host_literal})
     proc = subprocess.Popen(  # noqa: S603
         [str(_MOCK_SERVER_BIN), str(_FIXTURES_DIR)],
         stdout=subprocess.PIPE,

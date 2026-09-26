@@ -62,6 +62,14 @@
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        // Baked from `[crates.e2e] alt_host` at generation time. `ProcessStartInfo.Environment`
+        // is pre-populated from the current process's environment, so this only overrides the
+        // one key -- and only when it is not already exported (e.g. by a parent
+        // `alef test-apps run`).
+        if (!psi.Environment.ContainsKey("ALEF_MOCK_ALT_HOST"))
+        {
+            psi.Environment["ALEF_MOCK_ALT_HOST"] = "{{ alt_host }}";
+        }
         _mockServer = Process.Start(psi)
             ?? throw new InvalidOperationException("TestSetup: failed to start mock-server");
         // The mock-server prints MOCK_SERVER_URL=<url>, then optionally

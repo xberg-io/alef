@@ -121,6 +121,7 @@ impl E2eCodegen for RubyCodegen {
                     &e2e_config.harness.host,
                     e2e_config.harness.port,
                     &e2e_config.env,
+                    &e2e_config.alt_host,
                 ),
                 generated_header: true,
             });

@@ -3,6 +3,8 @@
 //! Generates `e2e/python/conftest.py` and `tests/test_{category}.py` files from
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
+#[cfg(test)]
+mod alt_host_tests;
 mod assertions;
 pub(crate) mod config;
 #[cfg(test)]

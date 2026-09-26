@@ -638,6 +638,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "zig/guarded_set_cwd.zig.jinja",
         include_str!("templates/zig/guarded_set_cwd.zig.jinja"),
     ),
+    (
+        "zig/mock_server_spawn_env.zig.jinja",
+        include_str!("templates/zig/mock_server_spawn_env.zig.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

@@ -99,6 +99,7 @@ pub(super) fn render_test_setup(
     test_documents_dir: &str,
     namespace: &str,
     env: &BTreeMap<String, String>,
+    alt_host: &str,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::e2e_header(CommentStyle::DoubleSlash));
@@ -196,8 +197,10 @@ pub(super) fn render_test_setup(
     out.push_str("        }\n");
     if needs_mock_server {
         out.push('\n');
-        let mock_server_code =
-            crate::e2e::template_env::render("csharp/test_setup_mock_server.cs.jinja", minijinja::context! {});
+        let mock_server_code = crate::e2e::template_env::render(
+            "csharp/test_setup_mock_server.cs.jinja",
+            minijinja::context! { alt_host => alt_host },
+        );
         out.push_str(&mock_server_code);
     }
     out.push_str("    }\n");
@@ -216,7 +219,7 @@ mod tests {
         env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
         env.insert("BETA_VAR".to_string(), "b_value".to_string());
 
-        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env, "localhost");
 
         assert!(output.contains("ALPHA_VAR"));
         assert!(output.contains("a_value"));
@@ -238,7 +241,7 @@ mod tests {
     #[test]
     fn test_render_test_setup_empty_env() {
         let env = BTreeMap::new();
-        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env, "localhost");
 
         // Should not contain SetEnvironmentVariable calls for empty env
         assert!(!output.contains("Environment.SetEnvironmentVariable("));
@@ -252,7 +255,7 @@ mod tests {
         let mut env = BTreeMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
-        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env);
+        let output = render_test_setup(false, false, "fixtures", "FixtureE2E", &env, "localhost");
 
         // Verify null-check pattern: if null, set via the native-aware helper.
         assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));
@@ -524,5 +527,19 @@ mod tests {
         );
 
         assert_eq!(output1, output2, "rendering with identical extras should be idempotent");
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// (not the `"localhost"` default the other tests in this file use) proves the
+    /// generator threads the configured value through rather than hard-coding it.
+    #[test]
+    fn test_setup_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let env = BTreeMap::new();
+        let output = render_test_setup(true, false, "fixtures", "FixtureE2E", &env, "alt-host-from-config.test");
+        assert!(
+            output.contains("psi.Environment[\"ALEF_MOCK_ALT_HOST\"] = \"alt-host-from-config.test\""),
+            "TestSetup.cs must set ALEF_MOCK_ALT_HOST to the configured alt_host, got: {output}"
+        );
     }
 }

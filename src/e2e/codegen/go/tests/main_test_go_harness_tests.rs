@@ -14,7 +14,7 @@ fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
     // When needs_mock_server_bootstrap=false (HTTP-fixtures harness path), the bootstrap uses
     // net.DialTimeout + io.Copy for readiness polling.
     // "net/http" and "strings" are NOT referenced, so they must not be imported.
-    let out = render_main_test_go("testing_data", false, true, &Default::default());
+    let out = render_main_test_go("testing_data", false, true, &Default::default(), "localhost");
     assert!(
         !out.contains("\t\"net/http\""),
         "main_test.go (http-fixtures harness path) must NOT import net/http; got:\n{out}"
@@ -32,7 +32,7 @@ fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
 fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
     // When needs_mock_server_bootstrap=true (mock-server path for function-call fixtures),
     // http.Get (net/http) and strings.HasPrefix/TrimPrefix are used — both must be imported.
-    let out = render_main_test_go("testing_data", true, false, &Default::default());
+    let out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     assert!(
         out.contains("\t\"net/http\""),
         "main_test.go (mock-server bootstrap path) must import net/http; got:\n{out}"
@@ -58,7 +58,7 @@ fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
 /// Go's exec.Command defaulting Stdin to /dev/null) as a shutdown signal.
 #[test]
 fn main_test_go_sets_mock_server_no_stdin_watch_env() {
-    let out = render_main_test_go("testing_data", true, false, &Default::default());
+    let out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     assert!(
         out.contains("MOCK_SERVER_NO_STDIN_WATCH=1"),
         "main_test.go must set MOCK_SERVER_NO_STDIN_WATCH=1 on the mock-server subprocess; got:\n{out}"
@@ -78,7 +78,7 @@ fn main_test_go_sets_mock_server_no_stdin_watch_env() {
 #[test]
 fn main_test_go_avoids_exitafterdefer_linter_error() {
     // Mock-server bootstrap path: must have a runTests helper function
-    let mock_server_out = render_main_test_go("testing_data", true, false, &Default::default());
+    let mock_server_out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     assert!(
         mock_server_out.contains("func runTests(m *testing.M, cmd *exec.Cmd, stdout io.ReadCloser) int"),
         "mock-server bootstrap path must emit runTests helper; got:\n{mock_server_out}"
@@ -99,7 +99,7 @@ fn main_test_go_avoids_exitafterdefer_linter_error() {
     );
 
     // Harness-spawn path: must have runHarnessTests helper
-    let harness_out = render_main_test_go("testing_data", false, true, &Default::default());
+    let harness_out = render_main_test_go("testing_data", false, true, &Default::default(), "localhost");
     assert!(
         harness_out.contains(
             "func runHarnessTests(m *testing.M, cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser) int"
@@ -160,7 +160,7 @@ fn render_env_setup_multiple_vars_are_sorted() {
 fn render_main_test_go_includes_env_setup_at_start() {
     let mut env = std::collections::BTreeMap::new();
     env.insert("TEST_VAR".to_string(), "test_value".to_string());
-    let out = render_main_test_go("test_documents", false, false, &env);
+    let out = render_main_test_go("test_documents", false, false, &env, "localhost");
 
     let dir_idx = out
         .find("dir := filepath.Dir(filename)")
@@ -209,7 +209,7 @@ fn main_test_go_forwards_env_vars_in_sorted_order() {
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect();
 
-    let out = render_main_test_go("testing_data", true, false, &env);
+    let out = render_main_test_go("testing_data", true, false, &env, "localhost");
 
     let positions: Vec<usize> = ["ALPHA_FIRST", "BRAVO_SECOND", "MIKE_MIDDLE", "ZULU_LAST"]
         .iter()
@@ -223,5 +223,25 @@ fn main_test_go_forwards_env_vars_in_sorted_order() {
         positions.windows(2).all(|pair| pair[0] < pair[1]),
         "main_test.go must forward env vars in sorted key order so generation is reproducible, \
          got offsets {positions:?} in:\n{out}"
+    );
+}
+
+/// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+/// mock-server spawn's env, not silently dropped. A distinctive value (not the
+/// `"localhost"` default every other test in this file uses) proves the generator
+/// actually threads the configured value through rather than hard-coding it.
+#[test]
+fn main_test_go_bakes_configured_alt_host_into_the_mock_server_spawn() {
+    let out = render_main_test_go(
+        "testing_data",
+        true,
+        false,
+        &Default::default(),
+        "alt-host-from-config.test",
+    );
+    assert!(
+        out.contains("cmdEnv = append(cmdEnv, \"ALEF_MOCK_ALT_HOST=alt-host-from-config.test\")"),
+        "main_test.go must set ALEF_MOCK_ALT_HOST to the configured alt_host on the mock-server \
+         spawn; got:\n{out}"
     );
 }

@@ -224,6 +224,7 @@ mod trait_bridge_tests {
             "127.0.0.1",
             8000,
             &BTreeMap::new(),
+            "localhost",
         );
 
         assert!(
@@ -233,6 +234,31 @@ mod trait_bridge_tests {
         assert!(
             !content.contains("CustomModule") && !content.contains("SampleCrate") && !content.contains("sample_crate"),
             "spec helper must avoid library-specific module cleanup:\n{content}"
+        );
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// (not the `"localhost"` default the other tests in this file use) proves the
+    /// generator threads the configured value through rather than hard-coding it.
+    #[test]
+    fn spec_helper_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let content = render_spec_helper(
+            false,
+            true,
+            false,
+            "../../fixtures",
+            "custom_gem",
+            "custom_module",
+            "127.0.0.1",
+            8000,
+            &BTreeMap::new(),
+            "alt-host-from-config.test",
+        );
+
+        assert!(
+            content.contains("ENV['ALEF_MOCK_ALT_HOST'] ||= 'alt-host-from-config.test'"),
+            "spec_helper.rb must set ALEF_MOCK_ALT_HOST to the configured alt_host, got:\n{content}"
         );
     }
 

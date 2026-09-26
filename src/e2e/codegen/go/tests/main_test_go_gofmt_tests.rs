@@ -16,7 +16,7 @@ use super::render_main_test_go;
 /// real `gofmt -l` on this exact byte sequence during development of this fix.
 #[test]
 fn mock_server_bootstrap_imports_are_gofmt_sorted() {
-    let out = render_main_test_go("testing_data", true, false, &Default::default());
+    let out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     let import_paths: Vec<&str> = out
         .lines()
         .skip_while(|l| *l != "import (")
@@ -36,7 +36,7 @@ fn mock_server_bootstrap_imports_are_gofmt_sorted() {
 /// io, net, os, os/exec, path/filepath, runtime, testing, time.
 #[test]
 fn harness_spawn_imports_are_gofmt_sorted() {
-    let out = render_main_test_go("testing_data", false, true, &Default::default());
+    let out = render_main_test_go("testing_data", false, true, &Default::default(), "localhost");
     let import_paths: Vec<&str> = out
         .lines()
         .skip_while(|l| *l != "import (")
@@ -57,7 +57,7 @@ fn harness_spawn_imports_are_gofmt_sorted() {
 /// `runtime`, `testing`) — sorting must not disturb it.
 #[test]
 fn plain_path_imports_are_unchanged_by_sorting() {
-    let out = render_main_test_go("testing_data", false, false, &Default::default());
+    let out = render_main_test_go("testing_data", false, false, &Default::default(), "localhost");
     let import_paths: Vec<&str> = out
         .lines()
         .skip_while(|l| *l != "import (")
@@ -76,7 +76,7 @@ fn plain_path_imports_are_unchanged_by_sorting() {
 /// braced block body onto its own line.
 #[test]
 fn err_check_panics_are_never_single_line() {
-    let out = render_main_test_go("testing_data", true, false, &Default::default());
+    let out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     assert!(
         !out.contains("{ panic(err) }"),
         "if-err-panic must be split across lines, not emitted as a one-liner; got:\n{out}"
@@ -87,7 +87,7 @@ fn err_check_panics_are_never_single_line() {
 /// braced `for` body inside a closure onto its own lines.
 #[test]
 fn drain_goroutine_is_never_single_line() {
-    let out = render_main_test_go("testing_data", true, false, &Default::default());
+    let out = render_main_test_go("testing_data", true, false, &Default::default(), "localhost");
     assert!(
         !out.contains("go func() { for scanner.Scan() { } }()"),
         "drain goroutine must be split across lines, not emitted as a one-liner; got:\n{out}"
@@ -100,7 +100,7 @@ fn drain_goroutine_is_never_single_line() {
 fn env_concat_has_no_spaces_around_plus() {
     let mut env = std::collections::BTreeMap::new();
     env.insert("SOME_VAR".to_string(), "1".to_string());
-    let out = render_main_test_go("testing_data", true, false, &env);
+    let out = render_main_test_go("testing_data", true, false, &env, "localhost");
     assert!(
         out.contains("\"SOME_VAR=\"+v"),
         "env concatenation must have no spaces around `+`; got:\n{out}"
@@ -121,9 +121,9 @@ fn rendered_main_test_go_matches_gofmt_when_available() {
     env.insert("SOME_VAR".to_string(), "1".to_string());
 
     for out in [
-        render_main_test_go("testing_data", true, false, &env),
-        render_main_test_go("testing_data", false, true, &Default::default()),
-        render_main_test_go("testing_data", false, false, &Default::default()),
+        render_main_test_go("testing_data", true, false, &env, "localhost"),
+        render_main_test_go("testing_data", false, true, &Default::default(), "localhost"),
+        render_main_test_go("testing_data", false, false, &Default::default(), "localhost"),
     ] {
         assert_gofmt_no_op(&out);
     }

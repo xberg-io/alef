@@ -265,6 +265,10 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit());
+    // Thread the configured `[crates.e2e] alt_host` into the mock server's own process
+    // environment. `Command::env` only adds/overrides this one key on top of the fully
+    // inherited parent environment, so an already-exported override still wins. ~keep
+    command.env("ALEF_MOCK_ALT_HOST", &e2e.alt_host);
     // Its own process group, so a descendant it starts can be reached by `kill_process_tree`
     // instead of surviving as an orphan when `MockServerHandle` is dropped. ~keep
     configure_process_group(&mut command);

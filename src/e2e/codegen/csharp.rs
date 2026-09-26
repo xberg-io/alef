@@ -175,6 +175,7 @@ impl E2eCodegen for CSharpCodegen {
                 &e2e_config.test_documents_dir,
                 &namespace,
                 &e2e_config.env,
+                &e2e_config.alt_host,
             ),
             generated_header: true,
         });

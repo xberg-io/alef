@@ -156,4 +156,21 @@ mod test_helper_tests {
             "must still start ExUnit, got:\n{output}"
         );
     }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// proves the generator threads the configured value through rather than
+    /// hard-coding it.
+    #[test]
+    fn test_helper_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let mut config = make_e2e_config();
+        config.alt_host = "alt-host-from-config.test".to_string();
+
+        let output = render_test_helper(true, &config);
+
+        assert!(
+            output.contains("System.get_env(\"ALEF_MOCK_ALT_HOST\") || \"alt-host-from-config.test\""),
+            "test_helper.exs must set ALEF_MOCK_ALT_HOST to the configured alt_host, got:\n{output}"
+        );
+    }
 }

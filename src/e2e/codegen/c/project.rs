@@ -41,6 +41,7 @@ pub(super) fn render_makefile(
     ffi_crate_path: &str,
     lib_name: &str,
     needs_mock_server: bool,
+    alt_host: &str,
 ) -> Result<String> {
     validate_makefile_inputs(header_name, ffi_crate_path, lib_name)?;
     let mut out = String::new();
@@ -189,9 +190,12 @@ pub(super) fn render_makefile(
     let _ = writeln!(out, "\t\tfi; \\");
     let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");
     let _ = writeln!(out, "\t\tmkfifo mock_server.stdin; \\");
+    // Baked from `[crates.e2e] alt_host` at generation time: `${VAR:-default}` respects an
+    // already-exported override, and the `VAR=value cmd` prefix scopes the configured
+    // default to just this one background spawn. ~keep
     let _ = writeln!(
         out,
-        "\t\t\"$(MOCK_SERVER_BIN)\" \"$(FIXTURES_DIR)\" <mock_server.stdin >mock_server.stdout 2>&1 & \\"
+        "\t\tALEF_MOCK_ALT_HOST=\"$${{ALEF_MOCK_ALT_HOST:-{alt_host}}}\" \"$(MOCK_SERVER_BIN)\" \"$(FIXTURES_DIR)\" <mock_server.stdin >mock_server.stdout 2>&1 & \\"
     );
     let _ = writeln!(out, "\t\tMOCK_PID=$$!; \\");
     let _ = writeln!(out, "\t\texec 9>mock_server.stdin; \\");
@@ -461,6 +465,7 @@ mod tests {
             "../../crates/example-pack-core-ffi",
             "example-pack-core-ffi",
             needs_mock_server,
+            "localhost",
         )
         .unwrap()
     }
@@ -621,7 +626,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let marker = dir.path().join("make-injection");
         let header = format!("$(shell touch {})", marker.display());
-        let result = render_makefile(&[], &header, "../../crates/example-ffi", "example_ffi", false);
+        let result = render_makefile(
+            &[],
+            &header,
+            "../../crates/example-ffi",
+            "example_ffi",
+            false,
+            "localhost",
+        );
         assert!(
             result.is_err(),
             "hostile header must be rejected before Makefile emission"
@@ -688,8 +700,35 @@ mod tests {
             ),
         ];
         for (header, path, lib, label) in cases {
-            let error = render_makefile(&[], header, path, lib, false).unwrap_err();
+            let error = render_makefile(&[], header, path, lib, false, "localhost").unwrap_err();
             assert!(error.to_string().contains(label), "got: {error}");
         }
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the Makefile's
+    /// mock-server spawn, not silently dropped. A distinctive value (not the
+    /// `"localhost"` default `sample_makefile` uses) proves the generator threads
+    /// the configured value through rather than hard-coding it.
+    #[test]
+    fn makefile_bakes_configured_alt_host_into_the_mock_server_spawn() {
+        let makefile = render_makefile(
+            &["smoke".to_string()],
+            "example_pack.h",
+            "../../crates/example-pack-core-ffi",
+            "example-pack-core-ffi",
+            true,
+            "alt-host-from-config.test",
+        )
+        .unwrap();
+        // `$$` (not `$`): this line lives inside a `define`/`endef` Make macro body, where a
+        // literal `$` reaching the shell must be written doubled so Make's own expansion
+        // doesn't consume it -- matching every other shell variable in this same macro
+        // (`$$MOCK_SERVER_URL`, `$$!`, `$$(seq ...)`).
+        assert!(
+            makefile.contains(
+                "ALEF_MOCK_ALT_HOST=\"$${ALEF_MOCK_ALT_HOST:-alt-host-from-config.test}\" \"$(MOCK_SERVER_BIN)\""
+            ),
+            "Makefile must default ALEF_MOCK_ALT_HOST from the configured alt_host, got:\n{makefile}"
+        );
     }
 }

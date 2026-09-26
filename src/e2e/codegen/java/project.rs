@@ -273,11 +273,12 @@ pub(super) fn render_fixture_loader(java_group_id: &str) -> String {
 }
 
 /// Render MockServerListener.java from jinja template.
-pub(super) fn render_mock_server_listener(java_group_id: &str) -> String {
+pub(super) fn render_mock_server_listener(java_group_id: &str, alt_host: &str) -> String {
     let header_comment = hash::e2e_header(CommentStyle::DoubleSlash);
     let ctx = minijinja::context! {
         java_group_id => java_group_id,
         header_comment => header_comment,
+        alt_host => alt_host,
     };
     crate::e2e::template_env::render("java/MockServerListener.java.jinja", ctx)
 }
@@ -553,5 +554,18 @@ mod tests {
         // goodlib should be present, badlib should be absent.
         assert!(block.contains("goodlib"), "entries with version should be included");
         assert!(!block.contains("badlib"), "entries without version should be skipped");
+    }
+
+    /// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+    /// mock-server spawn's environment, not silently dropped. A distinctive value
+    /// proves the generator threads the configured value through rather than
+    /// hard-coding it.
+    #[test]
+    fn mock_server_listener_bakes_configured_alt_host_into_the_spawn() {
+        let out = render_mock_server_listener("dev.example", "alt-host-from-config.test");
+        assert!(
+            out.contains("pb.environment().putIfAbsent(\"ALEF_MOCK_ALT_HOST\", \"alt-host-from-config.test\")"),
+            "MockServerListener.java must set ALEF_MOCK_ALT_HOST to the configured alt_host, got:\n{out}"
+        );
     }
 }

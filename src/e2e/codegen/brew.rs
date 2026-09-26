@@ -100,7 +100,7 @@ impl E2eCodegen for BrewCodegen {
             .collect();
         files.push(GeneratedFile {
             path: output_base.join("run_tests.sh"),
-            content: render_run_tests(&category_names, &e2e_config.env, &binary_name),
+            content: render_run_tests(&category_names, &e2e_config.env, &binary_name, &e2e_config.alt_host),
             generated_header: true,
         });
 

@@ -25,6 +25,7 @@ fn registry_mode_build_zig_links_ffi_from_bundled_paths() {
         &std::collections::BTreeMap::new(),
         &[],
         &[],
+        "localhost",
     );
 
     assert!(
@@ -66,6 +67,7 @@ fn local_mode_build_zig_uses_workspace_paths() {
         &std::collections::BTreeMap::new(),
         &[],
         &[],
+        "localhost",
     );
 
     assert!(
@@ -104,6 +106,7 @@ fn env_vars_injected_alphabetically_after_run_artifact() {
         &env,
         &[],
         &[],
+        "localhost",
     );
 
     assert!(
@@ -153,6 +156,7 @@ fn empty_env_produces_no_env_block() {
         &env,
         &[],
         &[],
+        "localhost",
     );
 
     let lines: Vec<&str> = content
@@ -195,6 +199,7 @@ fn test_step_dependencies_do_not_duplicate_run_suffix() {
         &std::collections::BTreeMap::new(),
         &[],
         &[],
+        "localhost",
     );
 
     assert!(
@@ -265,6 +270,7 @@ fn local_mode_build_zig_with_harness_extras_add_import_wiring() {
         &std::collections::BTreeMap::new(),
         &capsule_deps,
         &[],
+        "localhost",
     );
 
     assert!(
@@ -346,6 +352,7 @@ fn extra_system_libs_are_linked_in_both_modes() {
             &std::collections::BTreeMap::new(),
             &[],
             &extra,
+            "localhost",
         );
 
         assert!(
@@ -381,6 +388,7 @@ fn multiple_extra_system_libs_each_linked() {
         &std::collections::BTreeMap::new(),
         &[],
         &extra,
+        "localhost",
     );
 
     assert!(
@@ -415,6 +423,7 @@ fn empty_extra_system_libs_emit_no_extra_links() {
         &std::collections::BTreeMap::new(),
         &[],
         &[],
+        "localhost",
     );
 
     assert!(
@@ -450,5 +459,36 @@ fn local_mode_build_zig_zon_without_harness_extras_is_unchanged() {
     assert!(
         !zon.contains(".tree_sitter ="),
         "zon must not include harness_extras when empty, got:\n{zon}"
+    );
+}
+
+/// #442: a non-default `[crates.e2e] alt_host` must be baked into the standalone
+/// mock-server spawn's env, not silently dropped. A distinctive value (not the
+/// `"localhost"` default every other test in this file uses) proves the generator
+/// actually threads the configured value through rather than hard-coding it.
+#[test]
+fn build_zig_bakes_configured_alt_host_into_the_mock_server_spawn() {
+    let content = render_build_zig(
+        &["basic_test.zig".to_string()],
+        "demo_client",
+        "demo_client",
+        "demo_client_ffi",
+        "../../crates/demo-client-ffi",
+        ZigBuildFlags {
+            has_file_fixtures: false,
+            needs_mock_server: true,
+        },
+        "test_documents",
+        DependencyMode::Local,
+        false,
+        &BTreeMap::new(),
+        &[],
+        &[],
+        "alt-host-from-config.test",
+    );
+
+    assert!(
+        content.contains("_alef_spawn_env.put(\"ALEF_MOCK_ALT_HOST\", \"alt-host-from-config.test\")"),
+        "build.zig must bake the configured alt_host into the mock-server spawn env, got:\n{content}"
     );
 }

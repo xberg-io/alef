@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`[crates.e2e] alt_host` now actually reaches the running mock server (#442).** The setting
+  validated and generated cleanly but had no runtime effect, so `{{mock_alt_origin}}` and
+  `{{mock_sub_origin}}` always resolved against the built-in `localhost` default. Two independent
+  breaks: the server read `ALEF_MOCK_ALT_HOST` for the sub-origin but hard-coded the alt origin to
+  the literal `localhost`, and no spawn site ever set that variable. All fifteen per-language
+  harness spawn sites (brew, C, C#, Dart, Elixir, Go, Java, Kotlin, Kotlin Android, PHP, Python,
+  Ruby, TypeScript, WASM, Zig) and `alef test-apps run`'s own spawn now set it from the configured
+  value, each respecting an already-exported override. Swift, Gleam and R never self-spawn the
+  mock server and are unaffected.
+
 - **The typescript/wasm e2e generator no longer recognises a consumer's config type by name
   (#444).** It forced `ssrf.denyPrivate = false` on every wasm handle config whose `type_defs`
   contained a struct named (or suffixed) `SsrfPolicy` with a `deny_private` field -- one
