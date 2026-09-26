@@ -152,6 +152,27 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
+    // A closed `PyAny` async iterator (e.g. `aclose()`) drops all receivers, so `tx.closed()`
+    // resolves and we stop pulling from `stream` immediately instead of waiting for the next
+    // item. `futures::StreamExt::next` is cancel-safe here: each poll either returns `Pending`
+    // (nothing produced, safe to drop) or `Ready` (the item is already claimed by that poll, so
+    // `select!` never discards a produced item). Dropping `stream` on the way out stops any
+    // further upstream work at once rather than waiting for it to finish on its own.
+    let stream_forward_loop = "loop {
+                    tokio::select! {
+                        _ = tx.closed() => break,
+                        chunk = futures::StreamExt::next(&mut stream) => match chunk {
+                            Some(chunk) => {
+                                if tx.send(chunk).await.is_err() {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        },
+                    }
+                }
+                drop(stream);";
+
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
@@ -162,11 +183,7 @@ fn gen_python_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (St
                      let _ = tx.send(Err(e)).await;\n            \
                  }}\n            \
                  Ok(mut stream) => {{\n                \
-                     while let Some(chunk) = futures::StreamExt::next(&mut stream).await {{\n                    \
-                         if tx.send(chunk).await.is_err() {{\n                        \
-                             break;\n                    \
-                         }}\n                \
-                     }}\n            \
+                     {stream_forward_loop}\n            \
                  }}\n        \
              }}\n    \
          }});\n    \
@@ -228,6 +245,34 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
          }}"
     );
 
+    // See the pyo3 body above for why `tx.closed()` is raced against `stream.next()` and why
+    // that race cannot drop a produced item.
+    let stream_forward_loop = format!(
+        "loop {{
+                        tokio::select! {{
+                            _ = tx.closed() => break,
+                            chunk = stream.next() => {{
+                                let chunk = match chunk {{
+                                    Some(c) => c,
+                                    None => break,
+                                }};
+                                let item = match chunk {{
+                                    Ok(c) => {item_type}::from(c),
+                                    Err(e) => {{
+                                        let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;
+                                        break;
+                                    }}
+                                }};
+                                if tx.send(Ok(item)).await.is_err() {{
+                                    break;
+                                }}
+                            }}
+                        }}
+                    }}
+                    drop(stream);",
+        item_type = item_type,
+    );
+
     let method_body = format!(
         "let inner = self.inner.clone();\n    \
          {bindings_block}\
@@ -239,18 +284,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
                      let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;\n            \
                  }}\n            \
                  Ok(mut stream) => {{\n                \
-                     while let Some(chunk) = stream.next().await {{\n                    \
-                         let item = match chunk {{\n                        \
-                             Ok(c) => {item_type}::from(c),\n                        \
-                             Err(e) => {{\n                            \
-                                 let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;\n                            \
-                                 break;\n                        \
-                             }}\n                        \
-                         }};\n                    \
-                         if tx.send(Ok(item)).await.is_err() {{\n                        \
-                             break;\n                    \
-                         }}\n                \
-                     }}\n            \
+                     {stream_forward_loop}\n            \
                  }}\n        \
              }}\n    \
          }});\n    \

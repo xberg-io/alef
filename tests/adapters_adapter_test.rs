@@ -349,6 +349,27 @@ fn test_streaming_python() {
         struct_def.contains("__anext__"),
         "Streaming struct should implement __anext__ for async iteration"
     );
+
+    // Regression test: an `aclose()`'d Python async iterator must stop the forwarder on the
+    // spot instead of only noticing on the next `tx.send`. Assert the actual close-detection
+    // wiring (the `tx.closed()` select arm plus its `break`), not just the presence of
+    // `tokio::select!`, since a select over unrelated arms would also match a weaker assertion.
+    assert!(
+        method_body.contains("_ = tx.closed() => break,"),
+        "Python streaming forwarder must race the sender's closed() future against the next \
+         upstream item so a closed consumer stops it immediately. Got: {}",
+        method_body
+    );
+    assert!(
+        method_body.contains("tokio::select! {"),
+        "Python streaming forwarder must select between consumer close and the next item. Got: {}",
+        method_body
+    );
+    assert!(
+        method_body.contains("drop(stream);"),
+        "Python streaming forwarder must drop the core stream once the forward loop exits. Got: {}",
+        method_body
+    );
 }
 
 /// Test Streaming adapter with Node.
@@ -390,6 +411,27 @@ fn test_streaming_node() {
     assert!(
         body.contains("ListItemsIterator"),
         "Node streaming should return iterator struct"
+    );
+
+    // Regression test: a dropped JS-side async iterator must stop the forwarder immediately
+    // rather than only being noticed on the next `tx.send`. Assert the actual close-detection
+    // wiring, not just `tokio::select!` alone, which a weaker assertion could match even without
+    // the fix if some other select were ever added to this body.
+    assert!(
+        body.contains("_ = tx.closed() => break,"),
+        "Node streaming forwarder must race the sender's closed() future against the next \
+         upstream item so a closed consumer stops it immediately. Got: {}",
+        body
+    );
+    assert!(
+        body.contains("tokio::select! {"),
+        "Node streaming forwarder must select between consumer close and the next item. Got: {}",
+        body
+    );
+    assert!(
+        body.contains("drop(stream);"),
+        "Node streaming forwarder must drop the core stream once the forward loop exits. Got: {}",
+        body
     );
 }
 

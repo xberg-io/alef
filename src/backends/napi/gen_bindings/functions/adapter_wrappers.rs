@@ -243,6 +243,39 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                 format!("inner.{}({})", adapter_name, core_params_list)
             };
 
+            // See `src/adapters/streaming.rs`'s pyo3/napi bodies for why `tx.closed()` is raced
+            // against `stream.next()`: it stops pulling from `stream` as soon as the JS-side
+            // consumer drops the async iterator, instead of only noticing on the next send. The
+            // race cannot drop a produced item — `StreamExt::next` either returns `Pending`
+            // (nothing produced, safe to drop) or `Ready` (already claimed by `select!`).
+            let stream_forward_loop = format!(
+                "loop {{\n\
+                                 tokio::select! {{\n\
+                                     _ = tx.closed() => break,\n\
+                                     chunk = stream.next() => {{\n\
+                                         let chunk = match chunk {{\n\
+                                             Some(c) => c,\n\
+                                             None => break,\n\
+                                         }};\n\
+                                         let item = match chunk {{\n\
+                                             Ok(c) => Js{}::from(c),\n\
+                                             Err(e) => {{\n\
+                                                 let _ = tx\n\
+                                                     .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
+                                                     .await;\n\
+                                                 break;\n\
+                                             }}\n\
+                                         }};\n\
+                                         if tx.send(Ok(item)).await.is_err() {{\n\
+                                             break;\n\
+                                         }}\n\
+                                     }}\n\
+                                 }}\n\
+                             }}\n\
+                             drop(stream);",
+                item_type_name
+            );
+
             format!(
                 "#[allow(clippy::missing_errors_doc)]\n\
                  #[napi(js_name = \"{}\")]\n\
@@ -258,20 +291,7 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                                      .await;\n\
                              }}\n\
                              Ok(mut stream) => {{\n\
-                                 while let Some(chunk) = stream.next().await {{\n\
-                                     let item = match chunk {{\n\
-                                         Ok(c) => Js{}::from(c),\n\
-                                         Err(e) => {{\n\
-                                             let _ = tx\n\
-                                                 .send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string())))\n\
-                                                 .await;\n\
-                                             break;\n\
-                                         }}\n\
-                                     }};\n\
-                                     if tx.send(Ok(item)).await.is_err() {{\n\
-                                         break;\n\
-                                     }}\n\
-                                 }}\n\
+                                 {}\n\
                              }}\n\
                          }}\n\
                      }});\n\
@@ -286,10 +306,65 @@ pub(in crate::backends::napi::gen_bindings) fn gen_adapter_wrapper(
                 return_iterator_type,
                 conversions_code,
                 method_call_inner,
-                item_type_name,
+                stream_forward_loop,
                 return_iterator_type
             )
         }
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{AdapterConfig, AdapterParam, AdapterPattern};
+
+    fn streaming_adapter() -> AdapterConfig {
+        AdapterConfig {
+            name: "list_items".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "list_items".to_string(),
+            params: vec![AdapterParam {
+                name: "cursor".to_string(),
+                ty: "String".to_string(),
+                optional: false,
+            }],
+            returns: None,
+            error_type: None,
+            owner_type: Some("Client".to_string()),
+            item_type: Some("Item".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: None,
+            skip_languages: vec![],
+        }
+    }
+
+    /// Regression test for the napi module-level streaming wrapper (the "second copy" of the
+    /// napi streaming forwarder, distinct from `src/adapters/streaming.rs`'s `gen_node_body`).
+    /// Before the fix, this wrapper only noticed a closed consumer on the next `tx.send`, so a
+    /// JS-side `for await` loop that broke early left the forwarder pulling one more upstream
+    /// item. It must instead race `tx.closed()` against `stream.next()` and break immediately.
+    #[test]
+    fn streaming_wrapper_selects_on_consumer_close() {
+        let adapter = streaming_adapter();
+
+        let body = gen_adapter_wrapper(&adapter, "my_crate", &[]);
+
+        assert!(
+            body.contains("_ = tx.closed() => break,"),
+            "streaming wrapper must race the sender's `closed()` future against `stream.next()` \
+             so a dropped JS consumer stops the forwarder without waiting for another item. Got: {body}"
+        );
+        assert!(
+            body.contains("tokio::select! {"),
+            "streaming wrapper must select between consumer close and the next stream item. Got: {body}"
+        );
+        assert!(
+            body.contains("drop(stream);"),
+            "streaming wrapper must drop the core stream as soon as the forward loop exits. Got: {body}"
+        );
     }
 }
