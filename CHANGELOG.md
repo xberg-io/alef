@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.5] - 2026-09-26
+
+### Fixed
+
+- **extendr: an optional R options field is assigned `Some(..)` again.** `FieldDef` records a
+  plain `Option<T>` as `ty: T` with `optional: true`; only a nested `Option<Option<T>>` carries an
+  `Optional` `ty`. The struct emitter reads the flag and declares `Option<T>`, but the named-list
+  decoder matched on `ty` alone and assigned a bare `T`, so the first `Option<String>` on a
+  consumer's options struct (html-to-markdown's `ConversionOptions::base_url`) emitted
+  `opts.base_url = String::try_from(&v)...?` and failed the whole R package build with
+  `error[E0308]: expected Option<String>, found String`. The wrap now happens once at the
+  assignment and is idempotent, because the optional-numeric template already emits its own
+  `Some(..)` and an earlier attempt keyed off `ty` turned `Option<usize>` into
+  `Some(Some(f64_val))`.
+
+- **swift snippets resolve their modules under the `swiftbuild` layout.** Swift 6.3 made
+  `swiftbuild` the default build system: it writes `.swiftmodule` files directly into the bin path
+  instead of a `Modules/` subdirectory, and emits generated modulemaps to
+  `Intermediates.noindex/GeneratedModuleMaps-<platform>/<Target>.modulemap`, named per target so
+  `-I` cannot discover them. The validator understood only the native layout, so every Swift
+  snippet failed with `no such module` — classified as `Unavailable`, which reports a whole
+  language as "environment not ready" and blocks `--strict` with nothing to fix in the tree. Both
+  layouts are now searched, and generated modulemaps are named with `-fmodule-map-file`.
+
 ## [0.96.4] - 2026-09-25
 
 Three generator fixes, all reported by the same consumer after upgrading from 0.85.x, and all on
