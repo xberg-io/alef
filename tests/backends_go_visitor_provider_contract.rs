@@ -2,7 +2,9 @@ use alef::backends::go::GoBackend;
 use alef::core::backend::Backend;
 use alef::core::config::new_config::NewAlefConfig;
 use alef::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
-use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use alef::core::ir::{
+    ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+};
 
 const PROVIDER_HEADER: &str = r#"
 #include <stdint.h>
@@ -147,11 +149,15 @@ fn write_empty_native_archive(directory: &std::path::Path, library_dir: &str) ->
 }
 
 fn assert_real_go_build(binding: &str) {
+    assert_real_go_build_with_header(binding, PROVIDER_HEADER);
+}
+
+fn assert_real_go_build_with_header(binding: &str, header: &str) {
     let library_dir = native_library_dir().expect("generated Go binding compile fixture supports this target");
     let go = which::which("go").expect("Go is required for generated binding compile fixtures");
     let directory = tempfile::tempdir().expect("temporary Go package directory");
     std::fs::create_dir_all(directory.path().join("include")).expect("create include directory");
-    std::fs::write(directory.path().join("include/test.h"), PROVIDER_HEADER).expect("write provider header");
+    std::fs::write(directory.path().join("include/test.h"), header).expect("write provider header");
     std::fs::write(directory.path().join("binding.go"), binding).expect("write generated binding");
     assert!(write_empty_native_archive(directory.path(), library_dir));
     let output = std::process::Command::new(go)
@@ -192,4 +198,166 @@ fn options_field_associated_types_do_not_call_unprovided_ffi_symbols() {
     assert!(!binding.content.contains("type NodeContext struct"));
     assert!(!binding.content.contains("type VisitorChoice "));
     assert_real_go_build(&binding.content);
+}
+
+// -- issue #439: LockOSThread around the FFI call + lastError() read + result conversion -- ~keep
+
+const LOCK_OS_THREAD_HEADER: &str = r#"
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef uint64_t TESTCounter;
+typedef uint64_t TESTAlefHandle;
+
+static inline int32_t test_last_error_code(void) { return 0; }
+static inline const char *test_last_error_context(void) { return NULL; }
+static inline TESTAlefHandle test_placeholder_from_json(const char *json) { return 1; }
+static inline void test_placeholder_free(TESTAlefHandle h) {}
+static inline uint32_t test_get_count(TESTAlefHandle options) { return 7; }
+static inline void test_counter_free(TESTCounter h) {}
+static inline uint32_t test_counter_value(TESTCounter h) { return 9; }
+"#;
+
+fn lock_os_thread_config() -> ResolvedCrateConfig {
+    let source = r#"
+[workspace]
+languages = ["ffi", "go"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.go]
+module = "example.invalid/test-lib"
+"#;
+    let config: NewAlefConfig = toml::from_str(source).expect("test config parses");
+    config.resolve().expect("test config resolves").remove(0)
+}
+
+/// A fallible free function and a fallible method on an opaque type, both plain primitive
+/// returns -- the minimal shape that exercises `gen_function_wrapper`'s and
+/// `gen_method_wrapper`'s `C.<fn>(...)` call followed by the separate `lastError()` cgo call.
+fn lock_os_thread_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Counter".to_string(),
+                rust_path: "test_lib::Counter".to_string(),
+                is_opaque: true,
+                methods: vec![MethodDef {
+                    name: "value".to_string(),
+                    return_type: TypeRef::Primitive(PrimitiveType::U32),
+                    error_type: Some("TestError".to_string()),
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                }],
+                ..TypeDef::default()
+            },
+            // A plain DTO whose own marshal/unmarshal code is the thing that legitimately
+            // uses `encoding/json` -- `Counter.value()` and `get_count()` are both primitive
+            // in and out, so neither one needs JSON on its own. Without this, the package's
+            // unconditional `encoding/json` import (added whenever any sync function or
+            // non-static method exists, regardless of whether that particular one needs it)
+            // would be unused, which is itself a real but separate defect from #439.
+            TypeDef {
+                name: "Placeholder".to_string(),
+                rust_path: "test_lib::Placeholder".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "label".to_string(),
+                    ty: TypeRef::String,
+                    ..Default::default()
+                }],
+                ..TypeDef::default()
+            },
+        ],
+        functions: vec![FunctionDef {
+            name: "get_count".to_string(),
+            rust_path: "test_lib::get_count".to_string(),
+            params: vec![alef::core::ir::ParamDef {
+                name: "options".to_string(),
+                ty: TypeRef::Named("Placeholder".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Primitive(PrimitiveType::U32),
+            error_type: Some("TestError".to_string()),
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    }
+}
+
+/// Real `go build` proof for #439: the generated free function and method wrappers both pin
+/// the goroutine to one OS thread across the FFI call and the `lastError()` read, and the
+/// package still compiles -- in particular, the `runtime` import `body_uses_qualified_name`
+/// adds is neither missing (the lock lines would be undeclared identifiers) nor unused/duplicated
+/// (either of which is a Go compile error).
+#[test]
+fn lock_os_thread_wrappers_compile_and_lock_around_the_ffi_call() {
+    let files = GoBackend
+        .generate_bindings(&lock_os_thread_api(), &lock_os_thread_config())
+        .expect("Go bindings generate");
+    let binding = files
+        .iter()
+        .find(|file| file.path.ends_with("binding.go"))
+        .expect("binding.go is generated");
+
+    assert_eq!(
+        binding.content.matches("\"runtime\"").count(),
+        1,
+        "the runtime import must be added exactly once, got:\n{}",
+        binding.content
+    );
+
+    let free_fn_body = binding
+        .content
+        .split("func GetCount(")
+        .nth(1)
+        .expect("GetCount wrapper must be generated");
+    let lock_pos = free_fn_body
+        .find("runtime.LockOSThread()")
+        .expect("free function must lock");
+    let call_pos = free_fn_body
+        .find("C.test_get_count(")
+        .expect("free function must call the FFI symbol");
+    let last_error_pos = free_fn_body
+        .find("if err := lastError()")
+        .expect("free function must read lastError()");
+    assert!(
+        lock_pos < call_pos && call_pos < last_error_pos,
+        "lock must precede the FFI call, which must precede the lastError() read, got:\n{free_fn_body}"
+    );
+    assert!(
+        free_fn_body.contains("defer runtime.UnlockOSThread()"),
+        "free function must defer the unlock so it covers every return path, got:\n{free_fn_body}"
+    );
+
+    let method_body = binding
+        .content
+        .split("func (h *Counter) Value(")
+        .nth(1)
+        .expect("Value method wrapper must be generated");
+    assert!(
+        method_body.contains("runtime.LockOSThread()") && method_body.contains("defer runtime.UnlockOSThread()"),
+        "method wrapper must also lock around its FFI call and lastError() read, got:\n{method_body}"
+    );
+
+    assert_real_go_build_with_header(&binding.content, LOCK_OS_THREAD_HEADER);
 }

@@ -178,6 +178,10 @@ pub(super) fn gen_function_wrapper(
             return_type => &ret_type_str,
         },
     ));
+    out.push_str(&crate::backends::go::template_env::render(
+        "lock_os_thread.jinja",
+        minijinja::Value::default(),
+    ));
 
     let returns_value_and_error =
         can_return_error && (writeback.is_some() || !matches!(func.return_type, TypeRef::Unit));
@@ -554,6 +558,10 @@ pub(super) fn gen_capsule_function_wrapper(
             return_type => &ret_type_str,
         },
     ));
+    out.push_str(&crate::backends::go::template_env::render(
+        "lock_os_thread.jinja",
+        minijinja::Value::default(),
+    ));
 
     let conv_fail_prefix = if is_fallible { "nil, " } else { "nil" };
     for param in func.params.iter() {
@@ -663,6 +671,10 @@ pub(super) fn gen_convert_with_visitor_wrapper(
             params => &params_str,
             return_type => &return_type_str,
         },
+    ));
+    out.push_str(&crate::backends::go::template_env::render(
+        "lock_os_thread.jinja",
+        minijinja::Value::default(),
     ));
 
     if let Some(options_var) = options_go_name.as_deref() {

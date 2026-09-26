@@ -95,6 +95,7 @@ static TEMPLATES: &[(&str, &str)] = &[
         "function_signature.jinja",
         include_str!("templates/function_signature.jinja"),
     ),
+    ("lock_os_thread.jinja", include_str!("templates/lock_os_thread.jinja")),
     (
         "c_string_arg_setup.jinja",
         include_str!("templates/c_string_arg_setup.jinja"),

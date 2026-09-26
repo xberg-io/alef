@@ -1,3 +1,5 @@
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	handle := {{ start_call }}
 	if handle == 0 {
 		if err := lastError(); err != nil {
@@ -10,8 +12,10 @@
 		defer close(ch)
 		defer C.{{ fn_free }}(handle)
 		for {
+			runtime.LockOSThread()
 			chunkPtr := C.{{ fn_next }}(handle)
 			if chunkPtr == 0 {
+				runtime.UnlockOSThread()
 				// Null = clean end-of-stream (errno 0) or stream error (errno != 0).
 				// In either case there are no more chunks; close the channel.
 				return
@@ -19,6 +23,7 @@
 			jsonPtr := C.{{ item_to_json_fn }}(chunkPtr)
 			if jsonPtr == nil {
 				C.{{ item_free_fn }}(chunkPtr)
+				runtime.UnlockOSThread()
 				return
 			}
 {% if item_is_sum_type %}
@@ -29,6 +34,7 @@
 {% endif %}
 			C.{{ free_string_fn }}(jsonPtr)
 			C.{{ item_free_fn }}(chunkPtr)
+			runtime.UnlockOSThread()
 			if unmarshalErr != nil {
 				return
 			}

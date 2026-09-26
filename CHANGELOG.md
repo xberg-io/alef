@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Generated Go wrappers pin the goroutine to one OS thread across the FFI call and the
+  `lastError()` read (#439).** The native last-error slot is per-OS-thread, but the wrapper read
+  it in a second cgo call after the one that set it; Go is free to reschedule the goroutine onto
+  a different thread in between, so a failing call could return a nil error, or surface an error
+  belonging to an unrelated call on the thread it landed on. Every synchronous wrapper (free
+  function, method, capsule, and the convert-with-visitor helper) now brackets its body with
+  `runtime.LockOSThread()`/`defer runtime.UnlockOSThread()`. The streaming wrapper locks twice
+  and independently: briefly around the synchronous start call before the goroutine spawns, and
+  per item inside the forwarding loop -- unlocked explicitly at each loop exit rather than with
+  `defer`, which would pin one thread for the stream's whole lifetime.
+
 ## [0.97.0] - 2026-09-26
 
 ### Added

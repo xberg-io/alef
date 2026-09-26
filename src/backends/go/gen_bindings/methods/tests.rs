@@ -564,3 +564,136 @@ fn a_json_param_keeps_a_null_value_intact() {
         "a JSON-valued param must not have its null rewritten: {out}"
     );
 }
+
+// -- issue #439: LockOSThread around the FFI call + lastError() read + result conversion -- ~keep
+
+/// #439: same race as the free-function wrapper, but for methods -- the native layer stores
+/// the last error per OS thread, and the generated method wrapper reads it with a separate cgo
+/// call after the FFI call that set it. The fix pins the goroutine to one OS thread for the
+/// whole wrapper body, so the call, the `lastError()` read, and the result conversion all see
+/// the same thread's error slot. ~keep
+#[test]
+fn test_gen_method_wrapper_locks_os_thread_across_call_read_and_convert() {
+    let typ = opaque_type("Engine");
+    let mut method = simple_method("scale", TypeRef::Primitive(PrimitiveType::U32), false);
+    method.error_type = Some("SampleCrateError".to_string());
+    method.receiver = Some(ReceiverKind::Ref);
+    let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let out = gen_method_wrapper(
+        &typ,
+        &method,
+        "krz",
+        &opaque,
+        &value_only_types,
+        &enum_names,
+        &ffi_param_enum_names,
+    );
+
+    let signature_pos = out.find("func (h *Engine) Scale(").expect("signature must be emitted");
+    let lock_pos = out.find("runtime.LockOSThread()").expect("must lock the OS thread");
+    let call_pos = out.find("C.krz_engine_scale(").expect("must call the FFI symbol");
+    let last_error_pos = out.find("if err := lastError()").expect("must read lastError()");
+
+    assert!(
+        signature_pos < lock_pos && lock_pos < call_pos && call_pos < last_error_pos,
+        "expected lock, then call, then lastError() read, in that order, got:\n{out}"
+    );
+    assert!(
+        out.contains("defer runtime.UnlockOSThread()"),
+        "the unlock must be deferred so every return path releases it, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches("runtime.LockOSThread()").count(),
+        1,
+        "a synchronous method wrapper must lock exactly once, got:\n{out}"
+    );
+}
+
+/// #439: the streaming iterator's goroutine drives `_next` in a loop for the life of the
+/// stream, so a `defer runtime.UnlockOSThread()` written at the top of that loop (the naive
+/// fix) would nest a fresh lock on every iteration without ever releasing the previous one,
+/// pinning the goroutine's OS thread for the stream's entire lifetime. The fix instead locks
+/// once per item and explicitly unlocks on every exit from that iteration -- clean end of
+/// stream, a failed JSON conversion, and the successful path -- so exactly one lock is ever
+/// held at a time. The outer, short-lived "start the stream" call is a normal synchronous
+/// call+read and is allowed to use `defer`. ~keep
+#[test]
+fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime() {
+    let typ = opaque_type("Engine");
+    let method = simple_method("crawl_stream", TypeRef::Unit, false);
+    let data_enum_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let out = gen_streaming_method_wrapper(
+        &typ,
+        &method,
+        "krz",
+        "CrawlEvent",
+        &data_enum_names,
+        &opaque,
+        &value_only_types,
+        &enum_names,
+        &ffi_param_enum_names,
+    );
+
+    let signature_pos = out
+        .find("func (h *Engine) CrawlStream(")
+        .expect("signature must be emitted");
+    let outer_lock_pos = out
+        .find("runtime.LockOSThread()")
+        .expect("must lock before starting the stream");
+    let start_call_pos = out
+        .find("C.krz_engine_crawl_stream_start(")
+        .expect("must call the stream-start FFI symbol");
+    assert!(
+        signature_pos < outer_lock_pos && outer_lock_pos < start_call_pos,
+        "the outer lock must be established before the stream-start call, got:\n{out}"
+    );
+
+    // The per-item lock inside the goroutine's `for` loop is a second, independent lock --
+    // not the same one that guards the start call.
+    assert_eq!(
+        out.matches("runtime.LockOSThread()").count(),
+        2,
+        "expected exactly one lock for the start call and one for the per-item loop body, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches("defer runtime.UnlockOSThread()").count(),
+        1,
+        "only the short-lived outer call may defer its unlock; the long-lived per-item loop must not, got:\n{out}"
+    );
+    let unlock_count = out.matches("runtime.UnlockOSThread()").count();
+    assert_eq!(
+        unlock_count, 4,
+        "expected 1 deferred unlock (outer) + 3 explicit unlocks in the loop (clean end, failed \
+         conversion, and after a successful conversion), got {unlock_count} in:\n{out}"
+    );
+
+    // The three explicit per-item unlocks must each run before their matching exit, not after
+    // the loop as a whole -- i.e. inside the `for` block, at each of its three exit points.
+    let loop_pos = out.find("for {").expect("goroutine must drive the stream in a loop");
+    let per_item_lock_pos = out[loop_pos..]
+        .find("runtime.LockOSThread()")
+        .map(|offset| loop_pos + offset)
+        .expect("the loop body must lock at its top");
+    let first_explicit_unlock_pos = out[per_item_lock_pos..]
+        .find("runtime.UnlockOSThread()")
+        .map(|offset| per_item_lock_pos + offset)
+        .expect("the loop body must unlock before its first exit");
+    let clean_end_comment_pos = out
+        .find("// Null = clean end-of-stream")
+        .expect("clean end-of-stream branch must still be present");
+    assert!(
+        per_item_lock_pos < first_explicit_unlock_pos && first_explicit_unlock_pos < clean_end_comment_pos,
+        "the per-item lock must be released before the clean-end-of-stream return, got:\n{out}"
+    );
+
+    assert_go_syntax_is_valid(&out);
+}

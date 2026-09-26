@@ -1,5 +1,7 @@
 // {{ helper_name }} calls the FFI function with visitor support.
 func {{ helper_name }}({{ helper_params }}) (*{{ result_type }}, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 {{ helper_setup }}
 
 	var cOptions C.{{ conversion_options_type }}

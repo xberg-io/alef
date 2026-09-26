@@ -223,6 +223,10 @@ pub(super) fn gen_method_wrapper(
             },
         ));
     }
+    out.push_str(&crate::backends::go::template_env::render(
+        "lock_os_thread.jinja",
+        minijinja::Value::default(),
+    ));
 
     {
         let returns_value_and_error = method_can_return_error && !matches!(method.return_type, TypeRef::Unit);

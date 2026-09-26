@@ -810,6 +810,8 @@ fn test_gen_function_wrapper_owned_dto_param_is_unchanged() {
         concat!(
             "// ConsumeAndTagRecord calls the FFI function.\n",
             "func ConsumeAndTagRecord(record Record) error {\n",
+            "\truntime.LockOSThread()\n",
+            "\tdefer runtime.UnlockOSThread()\n",
             "\tjsonBytescRecord, err := json.Marshal(record)\n",
             "\tif err != nil {\n",
             "\t\treturn fmt.Errorf(\"failed to marshal: %w\", err)\n",
@@ -862,5 +864,135 @@ fn test_reject_unsupported_writeback_fires_for_mut_param_with_non_unit_return() 
     assert!(
         message.contains("tag_and_count"),
         "the diagnostic must name the offending function, got: {message}"
+    );
+}
+
+// -- issue #439: LockOSThread around the FFI call + lastError() read + result conversion -- ~keep
+
+/// #439: the native layer stores the last error per OS thread, but the generated wrapper reads
+/// it with a *separate* cgo call (`lastError()`) after the FFI call that actually set it.
+/// Nothing pinned the goroutine to one OS thread between the two calls, so the Go runtime could
+/// resume the goroutine on a different thread and read that thread's (empty or stale) error
+/// slot. The fix holds `runtime.LockOSThread()`/`defer runtime.UnlockOSThread()` across the
+/// call, the `lastError()` read, and the result conversion that follows. This exercises the
+/// full round trip for a fallible free function returning a non-opaque `Named` type, which is
+/// the shape that also does a JSON conversion after the error check. ~keep
+#[test]
+fn test_gen_function_wrapper_locks_os_thread_across_call_read_and_convert() {
+    let func = FunctionDef {
+        name: "get_widget".to_string(),
+        return_type: TypeRef::Named("Widget".to_string()),
+        error_type: Some("SampleCrateError".to_string()),
+        ..Default::default()
+    };
+    let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_strings = HashSet::new();
+
+    let out = gen_function_wrapper(
+        &func,
+        "krz",
+        &opaque,
+        &empty_strings,
+        &empty_strings,
+        &empty_strings,
+        &empty_strings,
+        &empty_strings,
+        &empty_strings,
+    );
+
+    let signature_pos = out.find("func GetWidget(").expect("signature must be emitted");
+    let lock_pos = out.find("runtime.LockOSThread()").expect("must lock the OS thread");
+    let call_pos = out.find("C.krz_get_widget(").expect("must call the FFI symbol");
+    let last_error_pos = out.find("if err := lastError()").expect("must read lastError()");
+    let unmarshal_pos = out.find("json.Unmarshal").expect("must convert the JSON result");
+
+    assert!(
+        signature_pos < lock_pos && lock_pos < call_pos && call_pos < last_error_pos && last_error_pos < unmarshal_pos,
+        "expected lock, then call, then lastError() read, then conversion, in that order, got:\n{out}"
+    );
+    assert!(
+        out.contains("defer runtime.UnlockOSThread()"),
+        "the unlock must be deferred so every return path in the body releases it, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches("runtime.LockOSThread()").count(),
+        1,
+        "a synchronous wrapper must lock exactly once, got:\n{out}"
+    );
+}
+
+#[test]
+fn test_capsule_wrapper_locks_os_thread_when_fallible() {
+    let func = make_capsule_func("get_language", true);
+    let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
+
+    let lock_pos = out.find("runtime.LockOSThread()").expect("must lock the OS thread");
+    let call_pos = out
+        .find("cLang := C.krz_get_language(")
+        .expect("must call the FFI symbol");
+    let last_error_pos = out.find("if err := lastError()").expect("must read lastError()");
+    assert!(
+        lock_pos < call_pos && call_pos < last_error_pos,
+        "expected lock, then call, then lastError() read, got:\n{out}"
+    );
+    assert!(
+        out.contains("defer runtime.UnlockOSThread()"),
+        "the unlock must be deferred, got:\n{out}"
+    );
+}
+
+/// The options-field visitor wrapper makes up to three separate FFI calls that each may set
+/// the per-thread last error (`_from_json` for the options, `_from_json` for the default
+/// options, and the conversion call itself); all three checks and the final JSON conversion
+/// must run under one lock, not three independent ones.
+#[test]
+fn test_convert_with_visitor_wrapper_locks_os_thread_once_around_every_ffi_call() {
+    let func = FunctionDef {
+        name: "convert".to_string(),
+        params: vec![
+            make_param("html", TypeRef::String),
+            make_param("options", TypeRef::Named("ConversionOptions".to_string())),
+        ],
+        return_type: TypeRef::Named("ConversionResult".to_string()),
+        error_type: Some("ConversionError".to_string()),
+        ..Default::default()
+    };
+    let opaque_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let bridge_cfg = TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        type_alias: Some("VisitorHandle".to_string()),
+        param_name: Some("visitor".to_string()),
+        options_type: Some("ConversionOptions".to_string()),
+        ..Default::default()
+    };
+    let reserved_type_names: HashSet<String> = HashSet::new();
+
+    let out = gen_convert_with_visitor_wrapper(
+        &func,
+        "htm",
+        &opaque_names,
+        &value_only_types,
+        &bridge_cfg,
+        &reserved_type_names,
+    );
+
+    let signature_pos = out.find("func Convert(").expect("signature must be emitted");
+    let lock_pos = out.find("runtime.LockOSThread()").expect("must lock the OS thread");
+    let call_pos = out.find("C.htm_convert(").expect("must call the FFI conversion symbol");
+    assert!(
+        signature_pos < lock_pos && lock_pos < call_pos,
+        "the lock must be established before any of the wrapper's FFI calls, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches("runtime.LockOSThread()").count(),
+        1,
+        "one lock must cover every FFI call this wrapper makes, not one per call, got:\n{out}"
+    );
+    assert!(
+        out.contains("defer runtime.UnlockOSThread()"),
+        "the unlock must be deferred so it covers the final JSON conversion too, got:\n{out}"
     );
 }
