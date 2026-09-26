@@ -10,19 +10,29 @@
 //! - [`model`] -- the field grammar (`mock.requests.total`, `mock.requests["<key>"]`).
 //! - [`snippets`] -- which languages can emit the once-per-suite capture, and which cannot.
 //! - [`helper`] -- renders the capture as a language-native function, through Minijinja.
+//! - [`query`] -- builds the mock server's `path_and_query` string from a parsed `MockQuery`.
 //! - [`ensure_capture_declared`] -- the shared `E2eCodegen::generate_gated` gate: a backend that is
 //!   neither in the capture table nor acknowledged by the assertion's own `skip` declaration fails
 //!   generation naming the fixture, rather than silently falling through to the wrong oracle (the
 //!   fate every backend's `render_assertion` has today, since none intercepts `mock.*` yet).
+//!
+//! `rust`, `python` and `node` wire the call site into their own assertion renderers (alef issue
+//! #443, the reference-backend wave): `rust::assertion_mock_capture`,
+//! `python::assertion_mock_capture`, `typescript::assertions::mock_capture`. Every other backend
+//! still renders the counted [`crate::e2e::codegen::field_skip::FieldSkip::MockCaptureNotSupported`]
+//! skip.
 
 pub(crate) mod helper;
 pub(crate) mod model;
+pub(crate) mod query;
 pub(crate) mod snippets;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use model::{MOCK_RECIPE, is_mock_virtual_field};
+pub(crate) use helper::render_helper;
+pub(crate) use model::{MOCK_RECIPE, is_mock_virtual_field, parse_mock_field};
+pub(crate) use query::build_path_and_query;
 pub(crate) use snippets::mock_capture;
 
 use crate::e2e::config::E2eConfig;
@@ -43,11 +53,11 @@ use crate::e2e::fixture::FixtureGroup;
 ///
 /// ~keep Intentionally unconditional -- it does not consult `ALEF_E2E_STRICT_ASSERTIONS`, matching
 /// `ensure_supported_assertion_types`. Without this gate, a backend with no `mock.*` interception
-/// (every backend, until a later wave wires `rust`/`python`/`node`'s own `render_assertion`) would
-/// fall through to its ordinary field-availability oracle, which rejects `mock.requests.total` as
-/// `FieldSkip::NotAvailableOnResultType` -- an `AuthoringGap` that blames the fixture for a gap that
-/// is alef's own. Gating here, before generation, is what keeps that misattribution from ever
-/// reaching a rendered file.
+/// (every backend except `rust`/`python`/`node`, which wire their own `render_assertion` -- see
+/// this module's own doc) would fall through to its ordinary field-availability oracle, which
+/// rejects `mock.requests.total` as `FieldSkip::NotAvailableOnResultType` -- an `AuthoringGap` that
+/// blames the fixture for a gap that is alef's own. Gating here, before generation, is what keeps
+/// that misattribution from ever reaching a rendered file.
 pub(crate) fn ensure_capture_declared(
     groups: &[FixtureGroup],
     e2e_config: &E2eConfig,

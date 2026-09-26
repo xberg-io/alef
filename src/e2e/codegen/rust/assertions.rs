@@ -271,6 +271,13 @@ pub fn render_assertion_with_streaming(
         return;
     }
 
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct field --
+    // intercept before is_valid_for_result for the same reason streaming virtual fields do.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     // Exception: fields prefixed with "error." target the error value in error-context
     // assertions — they are resolved against the error type via accessor_for_error,

@@ -143,14 +143,28 @@ pub(super) fn finalize_stdlib_and_bare_imports(
         || references_identifier(fixtures_body, "json.loads");
     let needs_re_import =
         references_identifier(fixtures_body, "re.match") || references_identifier(fixtures_body, "re.search");
+    // `asyncio.to_thread` (alef issue #443): the async form of the `mock.*` request-count call
+    // site (`python::assertion_mock_capture`). Scanning the rendered body, not a config flag,
+    // keeps this the one source of truth the same way `needs_json_import`/`needs_re_import`
+    // already are for their own call sites.
+    let needs_asyncio_import = references_identifier(fixtures_body, "asyncio.to_thread");
+    // `os.environ` (alef issue #443): the `mock.*` call site reads `MOCK_SERVER_URL` from the
+    // environment, and it is reachable on a fixture with no client factory, no http test and no
+    // `mock_url` argument -- none of the config flags `needs.needs_os_import` is built from. It
+    // is scanned here rather than added as a fourth flag for the same reason `asyncio` is: the
+    // rendered body is the only thing that knows what the assertion renderers actually emitted. ~keep
+    let needs_os_import = needs.needs_os_import || references_identifier(fixtures_body, "os.environ");
 
+    if needs_asyncio_import {
+        stdlib_imports.push("import asyncio".to_string());
+    }
     if needs.needs_base64_import {
         stdlib_imports.push("import base64".to_string());
     }
     if needs_json_import {
         stdlib_imports.push("import json".to_string());
     }
-    if needs.needs_os_import {
+    if needs_os_import {
         stdlib_imports.push("import os".to_string());
     }
     if needs.needs_path_import {

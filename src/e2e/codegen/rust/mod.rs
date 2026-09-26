@@ -14,6 +14,7 @@ mod args;
 #[cfg(test)]
 mod assertion_containment_tests;
 mod assertion_helpers;
+mod assertion_mock_capture;
 mod assertion_streaming;
 #[cfg(test)]
 mod assertion_streaming_option_tests;

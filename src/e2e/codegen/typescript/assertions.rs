@@ -7,6 +7,8 @@ use crate::e2e::fixture::Assertion;
 
 use super::json::json_to_js;
 
+#[path = "assertions/mock_capture.rs"]
+mod mock_capture;
 #[path = "assertions/napi_enum.rs"]
 mod napi_enum;
 #[path = "assertions/streaming.rs"]
@@ -375,6 +377,14 @@ fn render_synthetic_field_assertion(
                 FieldSkip::NotAvailableOnNodeProcessingResult.message(field)
             ));
             true
+        }
+        // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+        // server's own request log via the once-per-suite helper, never a struct field.
+        // Checked ahead of the streaming arm below (order does not matter between the two --
+        // their field grammars are disjoint) and unconditionally, unlike streaming's `is_streaming`
+        // gate: a `mock.*` assertion is legal on either kind of fixture.
+        f if crate::e2e::codegen::mock_assertions::is_mock_virtual_field(f) => {
+            mock_capture::render(out, assertion, f, lang)
         }
         // Streaming virtual fields resolve against the `chunks` collected-list variable.
         // Skip the streaming interception entirely when the call has opted out

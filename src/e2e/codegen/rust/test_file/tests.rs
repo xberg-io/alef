@@ -762,3 +762,122 @@ mod client_factory_construction {
         );
     }
 }
+
+/// End-to-end coverage for the `mock.*` request-count gate (alef issue #443): the call site
+/// (`assertion_mock_capture::try_render_mock_capture_assertion`) and the helper-definition gate
+/// (`file_rendering::render_test_file`'s `body_references_symbol(&body_buf, capture.helper_name)`
+/// scan) are tested SEPARATELY everywhere else in this codebase -- this drives the real
+/// `render_test_file` entry point so both land in ONE rendered artifact, the only way to catch
+/// the two disagreeing about `capture.helper_name`.
+mod mock_capture_gate {
+    use super::*;
+    use crate::e2e::config::{CallConfig, E2eConfig};
+    use crate::e2e::fixture::{Assertion, Fixture, MockResponse};
+
+    fn crate_config() -> crate::core::config::ResolvedCrateConfig {
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            "[workspace]\nlanguages = [\"rust\"]\n[[crates]]\nname = \"my_crate\"\nsources = [\"src/lib.rs\"]\n",
+        )
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    fn e2e_config() -> E2eConfig {
+        let call = CallConfig {
+            function: "chat".to_string(),
+            module: "my_crate".to_string(),
+            result_var: "result".to_string(),
+            returns_result: false,
+            ..Default::default()
+        };
+        E2eConfig {
+            call,
+            ..Default::default()
+        }
+    }
+
+    fn fixture_with_assertions(assertions: Vec<Assertion>) -> Fixture {
+        Fixture {
+            id: "mock_capture_fixture".to_string(),
+            description: "asserts against the mock server request log".to_string(),
+            input: serde_json::Value::Null,
+            mock_response: Some(MockResponse {
+                status: 200,
+                body: Some(serde_json::json!({"ok": true})),
+                stream_chunks: None,
+                headers: Default::default(),
+            }),
+            assertions,
+            ..Fixture::default()
+        }
+    }
+
+    fn render(fixture: &Fixture) -> String {
+        render_test_file(
+            "mock_capture",
+            &[fixture],
+            &e2e_config(),
+            &crate_config(),
+            &[],
+            &[],
+            &[],
+            "my_crate",
+            true,
+            None,
+            false,
+        )
+    }
+
+    /// Covers both `mock.requests.total` and the bracketed `mock.requests["POST /v1/chat"]` key
+    /// form on the same fixture -- cheap here since both share one rendered file. ~keep
+    #[test]
+    fn a_mock_assertion_gets_both_its_call_and_the_helper_definition_in_one_file() {
+        let fixture = fixture_with_assertions(vec![
+            Assertion {
+                assertion_type: "equals".to_string(),
+                field: Some("mock.requests.total".to_string()),
+                value: Some(serde_json::json!(1)),
+                ..Default::default()
+            },
+            Assertion {
+                assertion_type: "greater_than_or_equal".to_string(),
+                field: Some(r#"mock.requests["POST /v1/chat"]"#.to_string()),
+                value: Some(serde_json::json!(1)),
+                ..Default::default()
+            },
+        ]);
+        let out = render(&fixture);
+
+        assert!(
+            out.contains(
+                "    assert_eq!(alef_mock_request_count(mock_server.url.as_str(), \"/__alef/requests/total?prefix=\").await, 1, \"expected mock.requests.total == 1\");"
+            ),
+            "expected the total-count call, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "    assert!(alef_mock_request_count(mock_server.url.as_str(), \"/__alef/requests/one?key=POST%20%2Fv1%2Fchat\").await >= 1, \"expected mock.requests[\\\"POST /v1/chat\\\"] >= 1\");"
+            ),
+            "expected the bracketed-key call, got:\n{out}"
+        );
+        assert!(
+            out.contains("async fn alef_mock_request_count(base_url: &str, path_and_query: &str) -> u64 {"),
+            "expected the helper definition in the same file as the call, got:\n{out}"
+        );
+    }
+
+    /// Negative direction: an always-emit bug in the helper-definition gate would pass every
+    /// positive test above, so a fixture with NO `mock.*` assertion must not define the helper.
+    #[test]
+    fn a_file_with_no_mock_assertion_defines_no_helper() {
+        let fixture = fixture_with_assertions(vec![Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }]);
+        let out = render(&fixture);
+        assert!(
+            !out.contains("alef_mock_request_count"),
+            "a file with no mock.* assertion must not reference or define the helper, got:\n{out}"
+        );
+    }
+}

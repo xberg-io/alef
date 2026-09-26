@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mock.*` request-count assertions now work in the rust, python and node (typescript) e2e
+  suites (#443, follow-up to #433).** `mock.requests.total` and `mock.requests["<METHOD> <path>"]`
+  render a real query against the mock server's introspection endpoints instead of falling
+  through to a generic field-not-found path. The helper, the endpoint constants and the capture
+  table already existed but had no call site in any backend; these three now consume them. Every
+  other backend is unchanged -- an unacknowledged `mock.*` assertion still fails generation via
+  `mock_assertions::ensure_capture_declared`, which is a hard error, not a silent skip.
+
+### Fixed
+
+- **A generated python e2e suite using a `mock.*` assertion was missing its `import os` (#443).**
+  The `mock.*` call site reads `os.environ["MOCK_SERVER_URL"]`, but the `import os` decision was
+  built only from config flags -- client factory, http tests, `mock_url` arguments -- none of
+  which a plain `mock.requests.total` fixture sets. The import is now driven by a scan of the
+  rendered body, the way `import asyncio` and `import json` already are.
+
 ### Changed
 
 - Paid off 10 single-rule entries from the `poly.toml` quality-debt baseline (#338): four

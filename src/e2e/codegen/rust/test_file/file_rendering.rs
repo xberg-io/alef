@@ -360,6 +360,18 @@ pub fn render_test_file(
         }
     }
 
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered bodies actually call it -- mirrors the `body_references_symbol`-gated crate
+    // imports above: a helper defined but never called is dead code the consumer's own
+    // `-D unused` lint would flag.
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("rust")
+        && body_references_symbol(&body_buf, capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("rust")
+    {
+        out.push_str(&rendered);
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(out);
     out.push_str(&body_buf);
 

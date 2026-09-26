@@ -25,34 +25,13 @@ use crate::e2e::template_env;
 use super::snippets::{MockCapture, mock_capture};
 
 /// The mock server's total-count introspection endpoint path.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no emitter consumes it until the reference-backend wave -- #433"
-    )
-)]
 pub(crate) const MOCK_TOTAL_PATH: &str = "/__alef/requests/total";
 
 /// The mock server's single-key introspection endpoint path.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no emitter consumes it until the reference-backend wave -- #433"
-    )
-)]
 pub(crate) const MOCK_ONE_PATH: &str = "/__alef/requests/one";
 
 /// Render `language`'s once-per-suite mock-request-count helper, or `None` when `language` has no
 /// capture-table entry (see [`super::snippets::mock_capture`]).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no emitter consumes it until the reference-backend wave -- #433"
-    )
-)]
 pub(crate) fn render_helper(language: &str) -> Option<String> {
     let MockCapture {
         helper_name,

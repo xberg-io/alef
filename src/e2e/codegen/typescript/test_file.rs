@@ -32,6 +32,8 @@ mod input_contract_tests;
 mod json_object_field_agreement_tests;
 #[cfg(test)]
 mod loop_binding_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 mod mock_url_splice;
 #[cfg(test)]
 mod mock_url_tagged_enum_tests;

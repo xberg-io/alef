@@ -436,6 +436,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         field_resolver,
         result_is_simple,
         is_streaming,
+        is_async,
         force_bind_result,
         streaming_item_type,
     );

@@ -630,11 +630,22 @@ pub fn render_test_file(
     // Build helper functions string.
     // Emit for non-HTTP fixtures (tree assertions) AND for HTTP-only files that reference
     // `_alefE2eDecompressAndParseJson` (JSON body / partial body / validation error assertions).
-    let helper_functions = if has_non_http_fixtures || http_fixtures_need_decompress_helper {
+    let mut helper_functions = if has_non_http_fixtures || http_fixtures_need_decompress_helper {
         crate::e2e::template_env::render("typescript/helpers.jinja", minijinja::context! {})
     } else {
         String::new()
     };
+
+    // The `mock.*` once-per-suite request-count helper (alef issue #443), gated on the same
+    // reference-scan pattern as the helpers above: a helper defined but never called is dead
+    // code. `mock_capture(lang)` is `Err` for `lang == "wasm"` (only `"node"` is wired this
+    // wave), so this is a no-op for WASM files regardless of what they reference.
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture(lang)
+        && super::snippet::references_identifier(&fixtures_body, capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper(lang)
+    {
+        helper_functions.push_str(&rendered);
+    }
 
     // Build cache isolation setup
     let mut cache_isolation_setup = String::new();

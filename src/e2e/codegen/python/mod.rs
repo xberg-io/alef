@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod alt_host_tests;
+mod assertion_mock_capture;
 mod assertions;
 pub(crate) mod config;
 #[cfg(test)]

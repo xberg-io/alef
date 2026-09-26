@@ -59,6 +59,7 @@ pub(super) fn emit_result_and_assertions(
     field_resolver: &FieldResolver,
     result_is_simple: bool,
     is_streaming: bool,
+    is_async: bool,
     force_bind_result: bool,
     streaming_item_type: Option<&str>,
 ) {
@@ -115,6 +116,17 @@ pub(super) fn emit_result_and_assertions(
                 );
                 continue;
             }
+            // `mock.*` request-count virtual fields (alef issue #443) are legal on a streaming
+            // fixture too (asserting the request count alongside the drained chunks), so they
+            // must be checked here rather than falling into the generic
+            // "not available on streaming result type" skip below.
+            if super::super::assertion_mock_capture::try_render_mock_capture_assertion(
+                &mut streaming_assertions,
+                assertion,
+                is_async,
+            ) {
+                continue;
+            }
             // Non-streaming-virtual assertions on streaming fixtures are skipped
             // (the result type doesn't have these fields during iteration).
             if let Some(f) = assertion.field.as_deref().filter(|f| !f.is_empty()) {
@@ -148,6 +160,16 @@ pub(super) fn emit_result_and_assertions(
             // `not_error` has no explicit rendering: an uncaught exception already
             // fails the test, so the check is implicit in the call succeeding.
             if assertion.assertion_type == "not_error" {
+                continue;
+            }
+            // `mock.*` request-count virtual fields (alef issue #443): intercept before
+            // `render_assertion`, which has no `is_async` parameter -- see this module's doc
+            // comment for why the interception lives here instead.
+            if super::super::assertion_mock_capture::try_render_mock_capture_assertion(
+                &mut temp_assertions,
+                assertion,
+                is_async,
+            ) {
                 continue;
             }
             render_assertion(

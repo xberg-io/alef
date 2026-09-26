@@ -19,6 +19,11 @@ mod test_file_misc_tests;
 #[path = "dead_helper_tests.rs"]
 mod dead_helper_tests;
 // Declared here for the same `python/mod.rs` size reason as the modules above. It needs
+// `render_test_file` to drive the real per-file rendering entry point end to end. ~keep
+#[cfg(test)]
+#[path = "mock_capture_gate_tests.rs"]
+mod mock_capture_gate_tests;
+// Declared here for the same `python/mod.rs` size reason as the modules above. It needs
 // `render_test_file` (to prove the class body it executes is the one that ships) and reaches the
 // visitor generators through `super::super`. ~keep
 #[cfg(test)]
@@ -472,6 +477,17 @@ pub(super) fn render_test_file(
         render_text_helper(&mut helper_functions);
     }
     helper_functions.push_str(&item_texts_helper);
+
+    // The `mock.*` once-per-suite request-count helper (alef issue #443) -- `conftest.py`
+    // carries pytest fixtures, not importable helpers (see the comment above), so every file
+    // that calls it must also define it, gated on the same reference-scan pattern.
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("python")
+        && references_identifier(&fixtures_body, capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("python")
+    {
+        helper_functions.push_str(&rendered);
+        helper_functions.push('\n');
+    }
 
     import_lines::prune_unreferenced_from_imports(
         &mut thirdparty_from,

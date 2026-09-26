@@ -241,6 +241,7 @@ fn should_bind_result_when_force_bind_result_is_set_with_no_assertions() {
         &field_resolver,
         false,
         false,
+        false,
         true,
         None,
     );
@@ -273,6 +274,7 @@ fn should_discard_result_when_force_bind_result_is_unset_and_unused() {
         "await widget_client.create()",
         "result",
         &field_resolver,
+        false,
         false,
         false,
         false,
@@ -379,6 +381,7 @@ fn not_error_only_fixture_binds_result_and_emits_real_assertion() {
         false,
         false,
         false,
+        false,
         None,
     );
 
@@ -423,6 +426,7 @@ fn void_not_error_fixture_emits_a_bare_unbound_call_not_a_guaranteed_failure() {
         "await widget_client.prefetch()",
         "result",
         &field_resolver,
+        false,
         false,
         false,
         false,
@@ -506,6 +510,7 @@ fn streaming_fixture_whose_only_assertion_is_non_virtual_gets_a_vacuous_fallback
         false,
         true,
         false,
+        false,
         None,
     );
 
@@ -548,6 +553,7 @@ fn streaming_fixture_with_a_real_streaming_assertion_is_not_touched_by_the_fallb
         &field_resolver,
         false,
         true,
+        false,
         false,
         None,
     );
@@ -595,6 +601,7 @@ fn non_streaming_skip_comment_carries_the_marker_the_strict_mode_matches_on() {
         "widget_client.create()",
         "result",
         &field_resolver,
+        false,
         false,
         false,
         false,
