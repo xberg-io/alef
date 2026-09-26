@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A parity test pinning the documented Go streaming signature against the one the Go backend
+  actually emits (#446). `src/docs/language_pages/streaming.rs` hand-builds target-language
+  syntax and never calls a backend, so the two are independent generators of the same artifact
+  -- #441 had to edit both by hand against a written-down contract, and nothing would have
+  failed had one been missed. The test drives both public entry points from one fixture and
+  compares the extracted shape. Go only for now; the other languages this page covers remain
+  unguarded.
+
 ### Fixed
 
 - **A configured `[[adapters]] owner_type` containing an initialism emitted Go that does not
