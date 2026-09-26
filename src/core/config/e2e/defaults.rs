@@ -31,6 +31,15 @@ pub(super) fn default_output_dir() -> String {
 pub(super) fn default_test_documents_dir() -> String {
     "test_documents".to_string()
 }
+
+/// Default base hostname for `mock_alt_origin` / `mock_sub_origin` origin-token substitution
+/// in generated mock-server response bodies. `localhost` resolves `*.localhost` to loopback on
+/// every platform alef currently targets except where that resolution is unavailable, in which
+/// case `[crates.e2e] alt_host` can point this at a name registered in `/etc/hosts` instead.
+/// See `crate::e2e::fixture::origin_tokens`. ~keep
+pub(super) fn default_alt_host() -> String {
+    "localhost".to_string()
+}
 /// The name a generated call binds its return value to when the call does not name one.
 ///
 /// Both the serde default below and [`CallConfig::effective_result_var`](super::CallConfig::effective_result_var)

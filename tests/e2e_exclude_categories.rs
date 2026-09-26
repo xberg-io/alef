@@ -43,6 +43,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         snippets: None,
         fixtures: "fixtures".to_string(),
         output: "e2e".to_string(),
+        alt_host: "localhost".to_string(),
         languages: Vec::new(),
         call: CallConfig {
             function: "chat".to_string(),

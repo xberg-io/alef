@@ -2253,6 +2253,11 @@
       "additionalProperties": false,
       "description": "Root e2e configuration from `[e2e]` section of alef.toml.",
       "properties": {
+        "alt_host": {
+          "default": "localhost",
+          "description": "Base hostname for `{{mock_alt_origin}}` / `{{mock_sub_origin}}` origin-token\nsubstitution in generated mock-server response bodies (default: `\"localhost\"`).\n\n`{{mock_alt_origin}}` resolves to `http://<alt_host>:<port>` and `{{mock_sub_origin}}`\nresolves to `http://sub.<alt_host>:<port>` -- the same dedicated per-fixture listener\nunder a different hostname, which is what makes cross-host client behavior (following\nor refusing a link to \"this same server, different host\") testable at all. See\n`crate::e2e::fixture::origin_tokens`.\n\nThe default relies on `*.localhost` resolving to loopback, which is not guaranteed on\nevery platform. A consumer whose test runner lacks that resolution can point this at a\nname it has registered in `/etc/hosts` instead.\n\nValidated by `crate::e2e::validate` as a bare hostname: no scheme, port, path, or\nwhitespace.\n\nExample:\n```toml\n[crates.e2e]\nalt_host = \"alt.test\"\n```",
+          "type": "string"
+        },
         "call": {
           "$ref": "#/$defs/CallConfig",
           "description": "Default function call configuration."
@@ -8264,7 +8269,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.96.5/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.97.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8384,6 +8389,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.96.5",
-  "x-alef-version": "0.96.5"
+  "version": "0.97.0",
+  "x-alef-version": "0.97.0"
 }

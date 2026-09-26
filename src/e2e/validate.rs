@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use std::fmt;
 use std::path::Path;
 
+mod origin_tokens;
 mod url_preservation;
 
 static FIXTURE_SCHEMA: &str = include_str!("schema/fixture.schema.json");
@@ -85,6 +86,7 @@ pub fn validate_fixtures(fixtures_dir: &Path) -> Result<Vec<ValidationError>> {
 /// 5. (D1) Argument arity and type mismatches in call configs
 /// 6. (D2) Field path assertions against simple return types
 /// 7. Domain-shaped assertions without required assertion recipes
+/// 8. Unrecognized `{{mock_*}}` origin-substitution tokens and a malformed `[crates.e2e] alt_host`
 pub fn validate_fixtures_semantic(
     fixtures: &[Fixture],
     e2e_config: &E2eConfig,
@@ -110,9 +112,12 @@ pub fn validate_fixtures_semantic_with_configured_languages(
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     validate_unsupported_in_languages(e2e_config, configured_languages, &mut errors);
+    origin_tokens::validate_alt_host(e2e_config, &mut errors);
 
     // Per-fixture checks
     for fixture in fixtures {
+        // Check 6: unrecognized {{mock_*}} origin-substitution token.
+        origin_tokens::check_origin_tokens(fixture, &mut errors);
         // Check 1: skip-all detection
         // Fixtures in excluded categories are intentionally excluded at the
         // category level; empty skip.languages with no reason is the correct

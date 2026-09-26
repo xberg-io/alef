@@ -12,6 +12,7 @@ pub mod docs_only;
 mod docs_presentation;
 mod loader;
 mod metadata;
+pub mod origin_tokens;
 mod protocol;
 pub use loader::load_fixtures;
 pub use metadata::{
@@ -574,8 +575,11 @@ impl Fixture {
     /// Route-array fixtures are normally mounted under `/fixtures/<id>` in the shared
     /// mock server. A dedicated listener is required when a route path or fixture body
     /// makes the client under test resolve follow-up requests from the origin root rather
-    /// than the fixture namespace. Mirrors the `is_host_root_path` predicate in the
-    /// standalone mock-server binary (`codegen/rust/mock_server.rs`).
+    /// than the fixture namespace, or when a response body/header carries one of the
+    /// `{{mock_origin}}` / `{{mock_alt_origin}}` / `{{mock_sub_origin}}` /
+    /// `{{mock_foreign_origin}}` origin-substitution tokens (see [`origin_tokens`]). Mirrors
+    /// the `is_host_root_path` predicate in the standalone mock-server binary
+    /// (`codegen/rust/mock_server/route_loading.rs`).
     ///
     /// Origin-root fixtures get a dedicated per-fixture listener and their base URL is
     /// published in the `MOCK_SERVERS={"fixture_id":"http://..."}` JSON line.
@@ -645,7 +649,11 @@ impl Fixture {
                     .and_then(|v| v.as_str())
                     .map(|body| body.contains("href=\"/") || body.contains("href='/"))
                     .unwrap_or(false);
-                location_redirect || refresh_redirect || meta_refresh || inline_host_link
+                location_redirect
+                    || refresh_redirect
+                    || meta_refresh
+                    || inline_host_link
+                    || origin_tokens::entry_has_origin_token(entry)
             });
         }
         false
@@ -1162,6 +1170,55 @@ mod tests {
         assert!(
             fixture.has_host_root_route(),
             "expected origin-root listener for origin-root link target"
+        );
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_alt_origin_token_in_body() {
+        let json = r#"{
+            "id": "cross_host_link",
+            "description": "Body links to this server under a different hostname",
+            "input": {
+                "mock_responses": [
+                    {
+                        "path": "/",
+                        "status_code": 200,
+                        "body_inline": "<html><a href=\"{{mock_alt_origin}}/page2\">other host</a></html>"
+                    },
+                    {"path": "/page2", "status_code": 200, "body_inline": "{}"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(
+            fixture.has_host_root_route(),
+            "expected origin-root listener for a body carrying the mock_alt_origin token"
+        );
+    }
+
+    #[test]
+    fn has_host_root_route_true_for_sub_origin_token_in_header() {
+        let json = r#"{
+            "id": "cross_host_redirect",
+            "description": "Redirects to this server under a subdomain",
+            "input": {
+                "mock_responses": [
+                    {
+                        "path": "/",
+                        "status_code": 302,
+                        "headers": {"Location": "{{mock_sub_origin}}/final"},
+                        "body_inline": ""
+                    },
+                    {"path": "/final", "status_code": 200, "body_inline": "{}"}
+                ]
+            },
+            "assertions": []
+        }"#;
+        let fixture: Fixture = serde_json::from_str(json).unwrap();
+        assert!(
+            fixture.has_host_root_route(),
+            "expected origin-root listener for a header carrying the mock_sub_origin token"
         );
     }
 

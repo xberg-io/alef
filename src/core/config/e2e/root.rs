@@ -262,6 +262,29 @@ pub struct E2eConfig {
     /// beyond an eventual, much later CI-level kill.
     #[serde(default = "default_e2e_test_timeout_seconds")]
     pub timeout_seconds: u64,
+    /// Base hostname for `{{mock_alt_origin}}` / `{{mock_sub_origin}}` origin-token
+    /// substitution in generated mock-server response bodies (default: `"localhost"`).
+    ///
+    /// `{{mock_alt_origin}}` resolves to `http://<alt_host>:<port>` and `{{mock_sub_origin}}`
+    /// resolves to `http://sub.<alt_host>:<port>` -- the same dedicated per-fixture listener
+    /// under a different hostname, which is what makes cross-host client behavior (following
+    /// or refusing a link to "this same server, different host") testable at all. See
+    /// `crate::e2e::fixture::origin_tokens`.
+    ///
+    /// The default relies on `*.localhost` resolving to loopback, which is not guaranteed on
+    /// every platform. A consumer whose test runner lacks that resolution can point this at a
+    /// name it has registered in `/etc/hosts` instead.
+    ///
+    /// Validated by `crate::e2e::validate` as a bare hostname: no scheme, port, path, or
+    /// whitespace.
+    ///
+    /// Example:
+    /// ```toml
+    /// [crates.e2e]
+    /// alt_host = "alt.test"
+    /// ```
+    #[serde(default = "default_alt_host")]
+    pub alt_host: String,
 }
 
 impl E2eConfig {
@@ -502,6 +525,7 @@ impl Default for E2eConfig {
             registry: RegistryConfig::default(),
             snippets: None,
             timeout_seconds: default_e2e_test_timeout_seconds(),
+            alt_host: default_alt_host(),
         }
     }
 }
