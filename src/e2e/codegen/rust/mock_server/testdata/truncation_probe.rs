@@ -28,7 +28,11 @@ mod truncation_probe {
         ]));
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind probe");
         let address = listener.local_addr().expect("probe address");
-        let app = Router::new().fallback(handle_request).with_state(routes);
+        let state = AppState {
+            routes,
+            origins: resolve_origins(address.port()),
+        };
+        let app = Router::new().fallback(handle_request).with_state(state);
         let server = tokio::spawn(async move { axum::serve(listener, app).await.expect("serve probe") });
         verify_responses(address).await;
         server.abort();

@@ -2,6 +2,8 @@
 
 use crate::core::hash::{self, CommentStyle};
 
+use super::origins::render_origins_source;
+use super::request_counter::render_request_counter_source;
 use super::response_body::RESPONSE_BODY_SOURCE;
 use super::route_loading::render_route_loading_source;
 use super::runtime_server::render_runtime_server_source;
@@ -255,14 +257,16 @@ async fn main() {
     let loaded = load_routes(fixtures_dir);
     eprintln!("mock-server: loaded {} shared routes from {}", loaded.shared.len(), fixtures_dir.display());
 
-    // Shared namespaced server.
-    let shared_table: RouteTable = Arc::new(loaded.shared);
-    let shared_app = Router::new().fallback(handle_request).with_state(shared_table);
-
+    // Bind first, then resolve origins from the actual bound port -- each listener
+    // substitutes `{{mock_origin}}`-style tokens using its OWN port, so a fixture's
+    // self-referencing links always point back at the listener that served them.
     let shared_listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("mock-server: failed to bind shared port");
     let shared_addr: SocketAddr = shared_listener.local_addr().expect("mock-server: failed to get shared local addr");
+    let shared_table: RouteTable = Arc::new(loaded.shared);
+    let shared_state = AppState { routes: shared_table, origins: resolve_origins(shared_addr.port()) };
+    let shared_app = Router::new().fallback(handle_request).with_state(shared_state);
 
     // Per-fixture listeners for origin-root routes.
     // Sorted by fixture_id for deterministic output.
@@ -274,12 +278,13 @@ async fn main() {
     for fixture_id in &fixture_ids {
         let routes = loaded.per_fixture[fixture_id].clone();
         eprintln!("mock-server: fixture {} has {} origin-root routes", fixture_id, routes.len());
-        let table: RouteTable = Arc::new(routes);
-        let app = Router::new().fallback(handle_request).with_state(table);
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("mock-server: failed to bind per-fixture port");
         let addr: SocketAddr = listener.local_addr().expect("mock-server: failed to get per-fixture local addr");
+        let table: RouteTable = Arc::new(routes);
+        let state = AppState { routes: table, origins: resolve_origins(addr.port()) };
+        let app = Router::new().fallback(handle_request).with_state(state);
         fixture_urls.insert(fixture_id.clone(), format!("http://{addr}"));
         readiness_addrs.push(addr);
         tokio::spawn(async move {
@@ -428,6 +433,8 @@ pub fn render_mock_server_binary() -> String {
         minijinja::context! {},
     ));
     out.push_str(BINARY_AFTER_FIXTURE_SOURCE);
+    out.push_str(render_origins_source());
+    out.push_str(render_request_counter_source());
     out.push_str(render_runtime_server_source());
     out.push_str(RESPONSE_BODY_SOURCE);
     out.push_str(render_route_loading_source());

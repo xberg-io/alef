@@ -23,19 +23,38 @@ struct MockRoute {
 
 type RouteTable = Arc<HashMap<String, MockRoute>>;
 
+/// Per-listener router state: the shared server and each per-fixture origin-root
+/// server each get their own `RouteTable` and their own `Origins` (the latter
+/// resolved from that listener's own bound port -- see `origins.rs`).
+#[derive(Clone)]
+struct AppState {
+    routes: RouteTable,
+    origins: Origins,
+}
+
 // ---------------------------------------------------------------------------
 // Axum handler
 // ---------------------------------------------------------------------------
 
-async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) -> Response {
+async fn handle_request(State(state): State<AppState>, req: Request<Body>) -> Response {
+    let method = req.method().as_str().to_uppercase();
     let path = req.uri().path().to_owned();
+    let query = req.uri().query().map(str::to_owned);
+
+    // Control requests are answered before route lookup and are never counted.
+    if let Some(response) = handle_request_counter_control(&method, &path, query.as_deref()) {
+        return response;
+    }
+    record_request(&method, &path);
+
+    let routes = &state.routes;
 
     // Try exact match first
     if let Some(route) = routes.get(&path) {
         if let Some(delay_ms) = route.delay_ms {
             tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
         }
-        return serve_route(route);
+        return serve_route(route, &state.origins);
     }
 
     // Try prefix match: find a route that is a prefix of the request path
@@ -45,7 +64,7 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
             if let Some(delay_ms) = route.delay_ms {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
-            return serve_route(route);
+            return serve_route(route, &state.origins);
         }
     }
 
@@ -62,7 +81,7 @@ async fn handle_request(State(routes): State<RouteTable>, req: Request<Body>) ->
         .into_response()
 }
 
-fn serve_route(route: &MockRoute) -> Response {
+fn serve_route(route: &MockRoute, origins: &Origins) -> Response {
     let status = StatusCode::from_u16(route.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
     if route.is_streaming {
@@ -71,7 +90,7 @@ fn serve_route(route: &MockRoute) -> Response {
         let mut sse = String::new();
         for chunk in &route.stream_chunks {
             sse.push_str("data: ");
-            sse.push_str(chunk);
+            sse.push_str(&origins.substitute_str(chunk));
             sse.push_str("\n\n");
         }
         sse.push_str("data: [DONE]\n\n");
@@ -81,17 +100,21 @@ fn serve_route(route: &MockRoute) -> Response {
             .header("content-type", "text/event-stream")
             .header("cache-control", "no-cache");
         for (name, value) in &route.headers {
-            builder = builder.header(name, value);
+            builder = builder.header(name, origins.substitute_str(value));
         }
         return builder.body(Body::from(sse)).unwrap().into_response();
     }
+
+    // Substitute origin tokens before content-type sniffing and encoding, so a fixture
+    // whose body is entirely `{{mock_origin}}`-style content still sniffs correctly.
+    let body_bytes = origins.substitute_bytes(route.body.clone());
 
     // Only set the default content-type if the fixture does not override it.
     // Inspect the first non-whitespace byte to detect JSON vs binary vs plain text.
     let has_content_type = route.headers.iter().any(|(k, _)| k.to_lowercase() == "content-type");
     let mut builder = Response::builder().status(status);
     if !has_content_type {
-        let first_nonws = route.body.iter().find(|&&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r');
+        let first_nonws = body_bytes.iter().find(|&&b| b != b' ' && b != b'\t' && b != b'\n' && b != b'\r');
         let default_ct = match first_nonws {
             Some(&b'{') | Some(&b'[') => "application/json",
             _ => "text/plain",
@@ -114,16 +137,16 @@ fn serve_route(route: &MockRoute) -> Response {
         .find(|(name, _)| name.to_lowercase() == "content-encoding")
         .map(|(_, value)| value.as_str());
     let response_body = match declared_encoding {
-        None | Some("<<absent>>") => route.body.clone(),
+        None | Some("<<absent>>") => body_bytes.clone(),
         Some("gzip") => {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(&route.body).expect("mock-server: gzip encode failed");
+            encoder.write_all(&body_bytes).expect("mock-server: gzip encode failed");
             encoder.finish().expect("mock-server: gzip finish failed")
         }
         Some("br") => {
             let mut encoded = Vec::new();
             brotli::BrotliCompress(
-                &mut route.body.as_slice(),
+                &mut body_bytes.as_slice(),
                 &mut encoded,
                 &brotli::enc::BrotliEncoderParams::default(),
             )
@@ -156,7 +179,7 @@ fn serve_route(route: &MockRoute) -> Response {
             builder = builder.header(name, uuid);
             continue;
         }
-        builder = builder.header(name, value);
+        builder = builder.header(name, origins.substitute_str(value));
     }
     let body = response_body_with_headers(&route.headers, response_body);
     builder.body(body).unwrap().into_response()

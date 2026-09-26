@@ -115,6 +115,34 @@ fn render_mock_server_binary_keeps_route_loading_paths() {
     );
 }
 
+/// alef issue #433: a route-array fixture whose body or header carries an origin-substitution
+/// token (`{{mock_origin}}`, `{{mock_alt_origin}}`, `{{mock_sub_origin}}`,
+/// `{{mock_foreign_origin}}`) resolves to a host-absolute URL at serve time (see origins.rs), so
+/// `has_host_root` must route it to a dedicated per-fixture listener the same way it already does
+/// for a relative redirect or an inline `href="/"` link. This was the confirmed gap:
+/// `Origins::token_pairs` substituted the tokens, but nothing in route loading ever looked for
+/// them, so such a fixture 404'd against the shared `/fixtures/<id>` table.
+#[test]
+fn render_mock_server_binary_routes_origin_substitution_tokens_to_a_dedicated_listener() {
+    let out = render_mock_server_binary();
+    for token in [
+        "{{mock_origin}}",
+        "{{mock_alt_origin}}",
+        "{{mock_sub_origin}}",
+        "{{mock_foreign_origin}}",
+    ] {
+        assert!(
+            out.contains(token),
+            "expected {token} to appear in the generated route-loading source, got:\n{out}"
+        );
+    }
+    assert!(
+        out.contains("has_origin_substitution_token"),
+        "load_routes_recursive must gate has_host_root on an origin-substitution-token check, got:\n{out}"
+    );
+    syn::parse_file(&out).expect("generated mock server must parse as Rust");
+}
+
 #[test]
 fn render_common_module_has_expected_symbols() {
     let src = render_common_module();

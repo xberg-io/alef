@@ -1,5 +1,7 @@
 //! Rendering for the generated Rust tests/mock_server.rs module.
 
+use super::origins::render_origins_source;
+use super::request_counter::render_request_counter_source;
 use super::response_body::RESPONSE_BODY_SOURCE;
 use crate::core::hash::{self, CommentStyle};
 
@@ -61,6 +63,7 @@ pub struct MockRoute {
 
 struct ServerState {
     routes: Vec<MockRoute>,
+    origins: Origins,
 }
 
 pub struct MockServer {
@@ -73,15 +76,17 @@ impl MockServer {
     /// Start a mock server with the given routes.  Binds to a random port on
     /// localhost and returns immediately once the server is listening.
     pub async fn start(routes: Vec<MockRoute>) -> Self {
-        let state = Arc::new(ServerState { routes });
-
-        let app = Router::new().fallback(handle_request).with_state(state);
-
+        // Bind first, then resolve origins from the actual bound port -- see
+        // `Origins` for why each server substitutes `{{mock_origin}}`-style tokens
+        // using its own port rather than a shared/global one.
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("Failed to bind mock server port");
         let addr: SocketAddr = listener.local_addr().expect("Failed to get local addr");
         let url = format!("http://{addr}");
+
+        let state = Arc::new(ServerState { routes, origins: resolve_origins(addr.port()) });
+        let app = Router::new().fallback(handle_request).with_state(state);
 
         let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.expect("Mock server failed");
@@ -105,6 +110,13 @@ impl Drop for MockServer {
 async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body>) -> Response {
     let path = req.uri().path().to_owned();
     let method = req.method().as_str().to_uppercase();
+    let query = req.uri().query().map(str::to_owned);
+
+    // Control requests are answered before route lookup and are never counted.
+    if let Some(response) = handle_request_counter_control(&method, &path, query.as_deref()) {
+        return response;
+    }
+    record_request(&method, &path);
 
     for route in &state.routes {
         // Match on method and either exact path or path prefix (route.path is a prefix of the
@@ -128,7 +140,7 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
                 let mut sse = String::new();
                 for chunk in &route.stream_chunks {
                     sse.push_str("data: ");
-                    sse.push_str(chunk);
+                    sse.push_str(&state.origins.substitute_str(chunk));
                     sse.push_str("\n\n");
                 }
                 sse.push_str("data: [DONE]\n\n");
@@ -138,7 +150,7 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
                     .header("content-type", "text/event-stream")
                     .header("cache-control", "no-cache");
                 for (name, value) in &route.headers {
-                    builder = builder.header(name, value);
+                    builder = builder.header(name, state.origins.substitute_str(value));
                 }
                 return builder.body(Body::from(sse)).unwrap().into_response();
             }
@@ -146,9 +158,10 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
             let mut builder =
                 Response::builder().status(status).header("content-type", "application/json");
             for (name, value) in &route.headers {
-                builder = builder.header(name, value);
+                builder = builder.header(name, state.origins.substitute_str(value));
             }
-            return builder.body(response_body_with_headers(&route.headers, route.body.clone().into_bytes())).unwrap().into_response();
+            let body_bytes = state.origins.substitute_bytes(route.body.clone().into_bytes());
+            return builder.body(response_body_with_headers(&route.headers, body_bytes)).unwrap().into_response();
         }
     }
 
@@ -160,4 +173,6 @@ async fn handle_request(State(state): State<Arc<ServerState>>, req: Request<Body
         .into_response()
 }
 "# + RESPONSE_BODY_SOURCE
+        + render_origins_source()
+        + render_request_counter_source()
 }

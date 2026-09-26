@@ -4,6 +4,23 @@ const ROUTE_LOADING_SOURCE: &str = r####"// ------------------------------------
 // Fixture loading
 // ---------------------------------------------------------------------------
 
+/// The four origin-substitution placeholders `Origins::token_pairs` resolves at serve time (see
+/// origins.rs). A fixture whose body or header values carry one needs a dedicated per-fixture
+/// listener for the same reason as the origin-root triggers below: the client is told to follow a
+/// full URL, and the shared `/fixtures/<id>`-namespaced table has no route for the path resolved
+/// against it. ~keep
+const ORIGIN_SUBSTITUTION_TOKENS: [&str; 4] = [
+    "{{mock_origin}}",
+    "{{mock_alt_origin}}",
+    "{{mock_sub_origin}}",
+    "{{mock_foreign_origin}}",
+];
+
+/// True if `value` contains one of [`ORIGIN_SUBSTITUTION_TOKENS`] verbatim.
+fn contains_origin_substitution_token(value: &str) -> bool {
+    ORIGIN_SUBSTITUTION_TOKENS.iter().any(|token| value.contains(token))
+}
+
 /// Intermediate fixture-loading result: shared route table plus per-fixture origin-root data.
 struct LoadedRoutes {
     /// Routes namespaced under /fixtures/<id> for the shared listener.
@@ -111,8 +128,20 @@ fn load_routes_recursive(
                     let body_lossy = String::from_utf8_lossy(&r.body_bytes);
                     body_lossy.contains("href=\"/") || body_lossy.contains("href='/")
                 });
+                // A body or header value carrying an origin-substitution token (see
+                // ORIGIN_SUBSTITUTION_TOKENS above) resolves to a host-absolute URL, so it needs
+                // the same dedicated listener as an intra-fixture redirect or inline host link.
+                let has_origin_substitution_token = resolved_routes.iter().any(|r| {
+                    let body_lossy = String::from_utf8_lossy(&r.body_bytes);
+                    contains_origin_substitution_token(&body_lossy)
+                        || r.response
+                            .headers
+                            .iter()
+                            .any(|(_, value)| contains_origin_substitution_token(value))
+                });
                 let has_host_root = has_intra_fixture_redirect
                     || has_inline_host_link
+                    || has_origin_substitution_token
                     || resolved_routes.iter().any(|r| is_host_root_path(&r.original_path));
 
                 for resolved in resolved_routes {

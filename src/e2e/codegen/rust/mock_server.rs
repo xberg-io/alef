@@ -2,11 +2,16 @@
 
 mod binary;
 mod common_module;
+mod origins;
+mod request_counter;
 mod response_body;
 mod route_loading;
 mod runtime_server;
 mod server_module;
 mod setup;
+
+#[cfg(test)]
+mod request_counter_and_origins_tests;
 
 #[cfg(test)]
 mod tests;
