@@ -242,92 +242,87 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                 });
             if is_null_config && !wasm_has_ssrf_field {
                 setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
-            } else if is_null_config && wasm_has_ssrf_field {
-                // Null config but WASM needs SSRF override — materialise a default config.
-                let config_type = handle_config_type.unwrap();
+            } else if let Some(config_type) = handle_config_type {
+                // WASM: factory pattern + setters. Covers both a populated config (the
+                // fixture's own object, `is_null_config == false`) and a null/empty config that
+                // still needs the SSRF override (`is_null_config && wasm_has_ssrf_field`, which
+                // guarantees `handle_config_type.is_some()` — see the gate above).
                 setup_lines.push(format!(
                     "const {name}Config = {config_type}.default();",
                     name = arg.name
                 ));
-                setup_lines.push(format!("{name}Config.ssrf.denyPrivate = false;", name = arg.name));
+                let mut fields = config_value.as_object().cloned().unwrap_or_default();
+                // Fold the override into the fixture's own `ssrf` value (or synthesize one) so
+                // it renders through the same `ssrf = <value>` setter every other class-typed
+                // field below uses, rather than as a second, later assignment that a
+                // wasm-bindgen getter's detached-clone semantics would silently discard. See
+                // `inject_wasm_ssrf_deny_private_override`.
+                if wasm_has_ssrf_field {
+                    inject_wasm_ssrf_deny_private_override(&mut fields);
+                }
+                if !fields.is_empty() {
+                    // Derive nested types for the handle config type so nested objects
+                    // are wrapped with their proper class constructors
+                    let derived_nested = derive_nested_types_for_wasm(config_type, type_defs, wasm_type_prefix);
+                    let effective_nested: std::collections::HashMap<String, String> = {
+                        let mut m = derived_nested;
+                        for (k, v) in nested_types {
+                            m.insert(k.clone(), v.clone());
+                        }
+                        m
+                    };
+
+                    // One traversal owns the whole value, at every depth and through arrays —
+                    // see `handle_values`. The three-way `Object`/`else` split this replaced
+                    // consulted the class map only for a directly nested object, so an object
+                    // inside a list fell to `json_to_js_camel` and stayed a bare literal that
+                    // wasm-bindgen rejects, even though the map already held the element's
+                    // class (`derive_nested_types_for_wasm` unwraps `Vec<Named>`). ~keep
+                    // Strip the wasm binding prefix (`WasmEngineConfig` -> `EngineConfig`) so
+                    // scalar fields can be resolved against the IR's own type name, the same
+                    // way `ts_builder_expression_inner` derives `ir_owner_name`.
+                    let owner_type = config_type.strip_prefix(wasm_type_prefix).unwrap_or(config_type);
+                    let context = HandleConfigContext {
+                        nested_types,
+                        effective_nested_types: &effective_nested,
+                        lang,
+                        enum_fields,
+                        bigint_fields,
+                        type_defs,
+                        enums,
+                        wasm_type_prefix,
+                        owner_type: Some(owner_type),
+                    };
+                    for (key, val) in &fields {
+                        let camel_key = underscore_camel_case(key);
+                        let value_expr = build_handle_config_value(key, val, &context, &mut *referenced_enums);
+                        setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));
+                    }
+                }
                 setup_lines.push(format!(
                     "const {} = {constructor_name}({name}Config);",
                     arg.name,
                     name = arg.name,
                 ));
             } else {
-                // WASM: if handle_config_type is set, use factory pattern + setters
-                if let Some(config_type) = handle_config_type {
-                    // Construct config object with setters
-                    setup_lines.push(format!(
-                        "const {name}Config = {config_type}.default();",
-                        name = arg.name
-                    ));
-                    if let Some(obj) = config_value.as_object() {
-                        // Derive nested types for the handle config type so nested objects
-                        // are wrapped with their proper class constructors
-                        let derived_nested = derive_nested_types_for_wasm(config_type, type_defs, wasm_type_prefix);
-                        let effective_nested: std::collections::HashMap<String, String> = {
-                            let mut m = derived_nested;
-                            for (k, v) in nested_types {
-                                m.insert(k.clone(), v.clone());
-                            }
-                            m
-                        };
-
-                        // One traversal owns the whole value, at every depth and through arrays —
-                        // see `handle_values`. The three-way `Object`/`else` split this replaced
-                        // consulted the class map only for a directly nested object, so an object
-                        // inside a list fell to `json_to_js_camel` and stayed a bare literal that
-                        // wasm-bindgen rejects, even though the map already held the element's
-                        // class (`derive_nested_types_for_wasm` unwraps `Vec<Named>`). ~keep
-                        // Strip the wasm binding prefix (`WasmEngineConfig` -> `EngineConfig`) so
-                        // scalar fields can be resolved against the IR's own type name, the same
-                        // way `ts_builder_expression_inner` derives `ir_owner_name`.
-                        let owner_type = config_type.strip_prefix(wasm_type_prefix).unwrap_or(config_type);
-                        let context = HandleConfigContext {
-                            nested_types,
-                            effective_nested_types: &effective_nested,
-                            lang,
-                            enum_fields,
-                            bigint_fields,
-                            type_defs,
-                            enums,
-                            wasm_type_prefix,
-                            owner_type: Some(owner_type),
-                        };
-                        for (key, val) in obj {
-                            let camel_key = underscore_camel_case(key);
-                            let value_expr = build_handle_config_value(key, val, &context, &mut *referenced_enums);
-                            setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));
-                        }
-                    }
-                    // WASM: inject ssrf.denyPrivate=false if the binding exposes SsrfPolicy.
-                    // E2e suites hit localhost; std::env::var is unavailable on wasm32 so
-                    // SsrfPolicy::from_env() cannot read private-network override environment.
-                    if wasm_has_ssrf_field {
-                        setup_lines.push(format!("{name}Config.ssrf.denyPrivate = false;", name = arg.name));
-                    }
-                } else {
-                    // Other languages: pass config object directly or via constructor.
-                    //
-                    // node routes through the typed renderer whenever the IR determines the
-                    // constructor's config struct — see `node_typed_value_expression` for the
-                    // enum literal the untyped dump got wrong. Everything else, and node with an
-                    // unresolvable config type, keeps the plain key-casing dump.
-                    let literal = match handle_config_ir_type(arg, ir, type_defs).filter(|_| lang == "node") {
-                        Some(config_type) => node_typed_value_expression(
-                            config_value,
-                            config_type,
-                            enum_fields,
-                            type_defs,
-                            enums,
-                            &mut *referenced_enums,
-                        ),
-                        None => json_to_js_camel(config_value),
-                    };
-                    setup_lines.push(format!("const {name}Config = {literal};", name = arg.name));
-                }
+                // Other languages: pass config object directly or via constructor.
+                //
+                // node routes through the typed renderer whenever the IR determines the
+                // constructor's config struct — see `node_typed_value_expression` for the
+                // enum literal the untyped dump got wrong. Everything else, and node with an
+                // unresolvable config type, keeps the plain key-casing dump.
+                let literal = match handle_config_ir_type(arg, ir, type_defs).filter(|_| lang == "node") {
+                    Some(config_type) => node_typed_value_expression(
+                        config_value,
+                        config_type,
+                        enum_fields,
+                        type_defs,
+                        enums,
+                        &mut *referenced_enums,
+                    ),
+                    None => json_to_js_camel(config_value),
+                };
+                setup_lines.push(format!("const {name}Config = {literal};", name = arg.name));
                 setup_lines.push(format!(
                     "const {} = {constructor_name}({name}Config);",
                     arg.name,

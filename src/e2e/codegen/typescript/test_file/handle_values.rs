@@ -34,6 +34,34 @@ pub(in crate::e2e::codegen::typescript::test_file) struct HandleConfigContext<'a
     pub owner_type: Option<&'a str>,
 }
 
+/// Fold WASM's SSRF override into a handle config's fixture object before it is rendered, merging
+/// onto whatever `ssrf` value the fixture already set rather than emitting a second, later
+/// assignment.
+///
+/// This exists because `{name}Config.ssrf.denyPrivate = false` — the form this replaced — is a
+/// silent no-op: a wasm-bindgen getter like `WasmCrawlConfig::ssrf` returns a freshly `__wrap`ped,
+/// DETACHED clone of the Rust-side value, so mutating the object that expression yields never
+/// reaches the real config. Only the parent's `ssrf` SETTER (`{name}Config.ssrf = <value>`)
+/// reaches Rust, so the override must be a value fed into that setter, not a follow-up mutation of
+/// its result. Folding the override into the JSON object here lets it ride the same
+/// [`build_handle_config_value`] traversal every other class-typed field already goes through,
+/// producing exactly one `ssrf` assignment regardless of whether the fixture also set `ssrf`
+/// itself. ~keep
+pub(in crate::e2e::codegen::typescript::test_file) fn inject_wasm_ssrf_deny_private_override(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    match fields.get_mut("ssrf").and_then(|v| v.as_object_mut()) {
+        Some(ssrf) => {
+            ssrf.insert("deny_private".to_string(), serde_json::Value::Bool(false));
+        }
+        None => {
+            let mut ssrf = serde_json::Map::new();
+            ssrf.insert("deny_private".to_string(), serde_json::Value::Bool(false));
+            fields.insert("ssrf".to_string(), serde_json::Value::Object(ssrf));
+        }
+    }
+}
+
 /// Render one handle-config field value as a TypeScript expression.
 pub(in crate::e2e::codegen::typescript::test_file) fn build_handle_config_value(
     key: &str,

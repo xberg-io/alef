@@ -96,6 +96,7 @@ pub(in crate::e2e::codegen::typescript::test_file) use cache::{
 };
 pub(in crate::e2e::codegen::typescript::test_file) use handle_values::{
     HandleConfigContext, build_handle_config_value, collect_used_handle_config_types,
+    inject_wasm_ssrf_deny_private_override,
 };
 pub(super) use helpers::resolve_node_function_name;
 pub(in crate::e2e::codegen::typescript::test_file) use helpers::{

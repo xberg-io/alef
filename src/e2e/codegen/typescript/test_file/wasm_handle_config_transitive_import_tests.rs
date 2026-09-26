@@ -186,3 +186,150 @@ fn wasm_handle_config_without_the_override_edge_imports_neither_nested_class() {
         "with no override edge, the import must name only the handle config type, full output:\n{output}"
     );
 }
+
+/// Regression for #431: `WasmCrawlConfig::ssrf`, like every wasm-bindgen struct-field getter,
+/// returns a freshly `__wrap`ped, DETACHED clone on every read. The old emission,
+/// `{name}Config.ssrf.denyPrivate = false;`, mutated that throwaway clone and never touched the
+/// real config -- a no-op at every one of the ~216 call sites one consumer emitted it at, masked
+/// only because the suite also flipped the same field via an env var. The only path that reaches
+/// Rust is the parent's `ssrf` SETTER, so the fix folds the override into the same value the
+/// setter is assigned, through the same `build_handle_config_value` traversal every other
+/// class-typed field already uses.
+///
+/// `CrawlConfig.ssrf: SsrfPolicy` here is a real IR field (unlike the override-introduced `auth`
+/// edge above), so `derive_nested_types_for_wasm` maps `ssrf` to `WasmSsrfPolicy` without any
+/// `nested_types` override -- pinning that the fix works on the ordinary IR-derived path, not
+/// only the override path the rest of this file covers.
+fn ssrf_override_config_type_defs() -> Vec<TypeDef> {
+    vec![
+        make_type(
+            "CrawlConfig",
+            vec![
+                make_field("max_depth", TypeRef::Primitive(PrimitiveType::U32)),
+                make_field("ssrf", TypeRef::Named("SsrfPolicy".to_string())),
+            ],
+        ),
+        make_type(
+            "SsrfPolicy",
+            vec![
+                make_field("deny_private", TypeRef::Primitive(PrimitiveType::Bool)),
+                make_field("allow_local", TypeRef::Primitive(PrimitiveType::Bool)),
+            ],
+        ),
+    ]
+}
+
+fn ssrf_override_engine_arg() -> ArgMapping {
+    ArgMapping {
+        name: "engine".into(),
+        field: "engine".into(),
+        arg_type: "handle".into(),
+        optional: false,
+        owned: true,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }
+}
+
+/// Drives `build_args_and_setup` directly (rather than the full `render_test_file` pipeline used
+/// above) so the assertions can pin the exact setup-line text the SSRF override produces.
+fn ssrf_override_setup_lines(input: serde_json::Value) -> Vec<String> {
+    let type_defs = ssrf_override_config_type_defs();
+    let fixture = crate::e2e::fixture::Fixture {
+        id: "crawl".to_string(),
+        description: "Crawl".to_string(),
+        ..Default::default()
+    };
+    let args = [ssrf_override_engine_arg()];
+    let config = crate::core::config::ResolvedCrateConfig::default();
+
+    let (setup_lines, _call_args) = build_args_and_setup(
+        &input,
+        &args,
+        None,
+        &fixture,
+        &Default::default(),
+        "wasm",
+        &Default::default(),
+        &Default::default(),
+        Some("WasmCrawlConfig"),
+        &type_defs,
+        &[],
+        "Wasm",
+        &config,
+        true,
+        &mut Default::default(),
+        crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        crate::e2e::codegen::call_ir::CallIr::default(),
+    );
+    setup_lines
+}
+
+const SSRF_OVERRIDE_ONLY_IIFE: &str =
+    "(() => { const _u0 = WasmSsrfPolicy.default(); _u0.denyPrivate = false; return _u0; })()";
+
+#[test]
+fn ssrf_override_writes_back_through_the_setter_for_a_null_config() {
+    let setup = ssrf_override_setup_lines(serde_json::json!({})).join("\n");
+
+    assert!(
+        setup.contains(&format!("engineConfig.ssrf = {SSRF_OVERRIDE_ONLY_IIFE};")),
+        "a null config must still construct a real WasmSsrfPolicy instance and write it back \
+         through the ssrf setter, not a detached-clone mutation: {setup}"
+    );
+    assert!(
+        !setup.contains(".ssrf.denyPrivate ="),
+        "must not mutate a detached clone returned by the ssrf getter: {setup}"
+    );
+}
+
+#[test]
+fn ssrf_override_writes_back_through_the_setter_for_a_populated_config_without_ssrf() {
+    let setup = ssrf_override_setup_lines(serde_json::json!({ "engine": { "max_depth": 5 } })).join("\n");
+
+    assert!(
+        setup.contains("engineConfig.maxDepth = 5;"),
+        "the fixture's own field must still be set: {setup}"
+    );
+    assert!(
+        setup.contains(&format!("engineConfig.ssrf = {SSRF_OVERRIDE_ONLY_IIFE};")),
+        "a populated config with no `ssrf` key must still get the override via the setter: {setup}"
+    );
+    assert!(
+        !setup.contains(".ssrf.denyPrivate ="),
+        "must not mutate a detached clone returned by the ssrf getter: {setup}"
+    );
+}
+
+/// The double-emission case this fix exists to close: the fixture already sets `ssrf` itself, so
+/// the setup-line loop already renders one IIFE for it. The old code appended the broken
+/// follow-up assignment on top -- two `ssrf` writes for one field. The fix must merge the
+/// override into that single IIFE, forcing `deny_private` to `false` even though the fixture asks
+/// for `true`, while preserving the fixture's other `ssrf` field.
+#[test]
+fn ssrf_override_merges_into_the_fixtures_own_ssrf_setter_instead_of_doubling_it() {
+    let setup = ssrf_override_setup_lines(
+        serde_json::json!({ "engine": { "ssrf": { "allow_local": true, "deny_private": true } } }),
+    )
+    .join("\n");
+
+    let expected_iife = "(() => { const _u0 = WasmSsrfPolicy.default(); _u0.allowLocal = true; \
+                          _u0.denyPrivate = false; return _u0; })()";
+    assert!(
+        setup.contains(&format!("engineConfig.ssrf = {expected_iife};")),
+        "the fixture's own ssrf field must be preserved while the override forces deny_private \
+         to false: {setup}"
+    );
+    assert_eq!(
+        setup.matches("engineConfig.ssrf =").count(),
+        1,
+        "exactly one ssrf assignment must survive -- a second, broken emission on top of the \
+         fixture's own setter is the #431 defect: {setup}"
+    );
+    assert!(
+        !setup.contains(".ssrf.denyPrivate ="),
+        "must not mutate a detached clone returned by the ssrf getter: {setup}"
+    );
+}
