@@ -30,9 +30,14 @@ fn mock_server_module_applies_headers_to_response() {
         "handle_request must iterate `route.headers` and apply each entry via \
          `builder.header(name, value)` — otherwise fixture headers are dropped"
     );
+    // The value goes through `origins.substitute_str` so a header carrying a `{{mock_*}}` origin
+    // token (a `Location:` redirect to the alternate hostname, say) resolves to the live port the
+    // same way a response body does. Asserting the substituting form, not a bare
+    // `builder.header(name, value)`, keeps this pinned to applying-and-substituting. ~keep
     assert!(
-        module.contains("builder = builder.header(name, value)"),
-        "handle_request must apply headers via `builder.header(name, value)`"
+        module.contains("builder = builder.header(name, state.origins.substitute_str(value))"),
+        "handle_request must apply each header via the builder, substituting origin tokens in \
+         the value"
     );
 }
 
