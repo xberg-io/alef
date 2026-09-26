@@ -918,9 +918,16 @@ pub(super) fn render_c(segments: &[PathSegment], result_var: &str) -> String {
                 out = format!("result_{snake}({current})");
             }
             PathSegment::ArrayField { name, index } => {
-                let snake = name.to_snake_case();
                 let current = std::mem::take(&mut out);
-                out = format!("result_{snake}({current})[{index}]");
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no getter to call —
+                // `current` IS the array, so index it directly instead of wrapping it in a
+                // `result_()` call with an empty identifier. ~keep
+                out = if name.is_empty() {
+                    format!("{current}[{index}]")
+                } else {
+                    let snake = name.to_snake_case();
+                    format!("result_{snake}({current})[{index}]")
+                };
             }
             PathSegment::MapAccess { field, key } => {
                 let snake = field.to_snake_case();

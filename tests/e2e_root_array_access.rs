@@ -58,6 +58,11 @@ fn root_array_indices_are_executable_accessors_for_remaining_backends() {
         ("php", "result[0]->id", "result->items[1]->id"),
         ("go", "result[0].ID", "result.Items[1].ID"),
         ("r", "result[[1]]$id", "result$items[[2]]$id"),
+        ("c", "result_id(result[0])", "result_id(result_items(result)[1])"),
+        ("elixir", "Enum.at(result, 0).id", "Enum.at(result.items, 1).id"),
+        // gleam falls through to the guarded `render_dot_access` default arm — pins that the
+        // shared guard also covers languages with no dedicated renderer. ~keep
+        ("gleam", "result[0].id", "result.items[1].id"),
     ];
 
     for (language, root_expected, indexed_expected) in cases {

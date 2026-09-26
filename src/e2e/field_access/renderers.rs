@@ -208,8 +208,12 @@ pub(super) fn render_rust(segments: &[PathSegment], result_var: &str) -> String 
                 out.push_str(&f.to_snake_case());
             }
             PathSegment::ArrayField { name, index } => {
-                out.push('.');
-                out.push_str(&name.to_snake_case());
+                // A root-array segment (`name` empty, e.g. `[0].id`) has no field to name —
+                // `result_var` IS the array. ~keep
+                if !name.is_empty() {
+                    out.push('.');
+                    out.push_str(&name.to_snake_case());
+                }
                 out.push_str(&format!("[{index}]"));
             }
             PathSegment::MapAccess { field, key } => {
@@ -240,7 +244,13 @@ pub(super) fn render_dot_access(segments: &[PathSegment], result_var: &str, lang
             PathSegment::ArrayField { name, index } => {
                 if language == "elixir" {
                     let current = std::mem::take(&mut out);
-                    out = format!("Enum.at({current}.{name}, {index})");
+                    // A root-array segment (`name` empty, e.g. `[0].id`) has no field to
+                    // qualify `Enum.at`'s container with — `result_var` IS the list. ~keep
+                    out = if name.is_empty() {
+                        format!("Enum.at({current}, {index})")
+                    } else {
+                        format!("Enum.at({current}.{name}, {index})")
+                    };
                 } else {
                     if !name.is_empty() {
                         out.push('.');
