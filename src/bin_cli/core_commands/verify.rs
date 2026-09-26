@@ -115,6 +115,11 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // plain `missing_generated_files` entry -- see `MissingAndFrozenFiles::missing_gitignored`. ~keep
     let mut missing_gitignored_generated_files: Vec<String> = Vec::new();
     let mut frozen_generated_files: Vec<FrozenFile> = Vec::new();
+    // Marked, present, and no longer what a fresh render would produce -- the alef#436 gap:
+    // neither the per-file `alef:hash:` check (a file self-consistently hashes its own stale
+    // bytes) nor the crate-scoped inputs-hash check (re-stamped by `alef generate`, never by
+    // `alef docs`) can see this. See `helpers::drifted_marked_paths`'s doc for the full mechanism. ~keep
+    let mut drifted_generated_files: Vec<String> = Vec::new();
     // Unioned across every crate before the orphan diff runs below: a file legitimately
     // owned by crate B must never look orphaned merely because crate A's own managed
     // surface doesn't mention it. See `verify_orphans::find_orphaned_generated_files`. ~keep
@@ -174,6 +179,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             missing_generated_files.extend(missing);
             missing_gitignored_generated_files.extend(missing_gitignored);
             frozen_generated_files.extend(found.frozen);
+            drifted_generated_files.extend(found.drifted);
             stage_failures.extend(
                 found
                     .stage_failures
@@ -202,6 +208,8 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     missing_gitignored_generated_files.dedup();
     frozen_generated_files.sort_by(|a, b| a.path.cmp(&b.path));
     frozen_generated_files.dedup_by(|a, b| a.path == b.path);
+    drifted_generated_files.sort();
+    drifted_generated_files.dedup();
     stage_failures.sort();
     stage_failures.dedup();
     create_once_template_drift.sort();
@@ -209,6 +217,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     let has_stage_failures = !stage_failures.is_empty();
     let has_missing_files = !missing_generated_files.is_empty();
     let has_missing_gitignored_files = !missing_gitignored_generated_files.is_empty();
+    let has_drifted_files = !drifted_generated_files.is_empty();
     // Only a frozen file that `alef adopt --write` will actually ACCEPT may gate the exit code.
     // A create-once seed's missing marker is deliberate, not drift: the write guard refuses it by
     // design, a plain `alef generate` leaves it untouched, and adopting it needs the deliberate
@@ -437,6 +446,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         && !has_missing_files
         && !has_missing_gitignored_files
         && !has_adoptable_frozen_files
+        && !has_drifted_files
         && !has_orphan_files
         && !has_abi_disagreement
         && !has_frb_generated_drift
@@ -521,6 +531,23 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
                 crate::bin_cli::output::line(format_args!("  {path}"));
             }
         }
+        // Distinct from `stale` above (a hand-edit to the file's own bytes) and from
+        // `frozen`/`missing` (ownership/presence): this is a marked, present file whose bytes
+        // are internally self-consistent -- its embedded `alef:hash:` matches its own content --
+        // but no longer match what this run's fresh render would produce. `alef generate`/`alef
+        // all`/`alef docs` (whichever stage owns the path) is the remedy. See
+        // `helpers::drifted_marked_paths`'s doc for why neither the per-file hash check nor the
+        // crate-scoped inputs-hash check can see this on their own. ~keep
+        if has_drifted_files {
+            crate::bin_cli::output::line(
+                "Generated files drifted from a fresh render detected (the file's embedded hash \
+                 matches its own bytes, but this run's backends would now emit different content \
+                 -- rerun the owning stage, e.g. `alef generate`/`alef all`/`alef docs`, to refresh it):",
+            );
+            for path in &drifted_generated_files {
+                crate::bin_cli::output::line(format_args!("  {path}"));
+            }
+        }
         // Reported separately from stale/missing, never folded into either
         // count: the remedy is different (a human must review and adopt or
         // delete the file -- `alef generate` alone cannot fix it) and folding
@@ -570,6 +597,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             || has_missing_files
             || has_missing_gitignored_files
             || has_adoptable_frozen_files
+            || has_drifted_files
             || has_orphan_files
             || has_abi_disagreement
             || has_frb_generated_drift
@@ -798,6 +826,109 @@ mod frb_generated_drift_tests {
         assert!(
             drift.is_empty(),
             "already-canonical frb_generated.rs must not be reported as drift: {drift:?}"
+        );
+    }
+}
+
+/// alef#436, reproduced end to end through the real `alef docs` write path rather than a
+/// hand-built `GeneratedFile`: a public-surface change after the last `alef docs` run left the
+/// rendered API reference pages stale while `alef verify` reported nothing wrong, because every
+/// check it ran was structurally blind to the gap -- see `helpers::drifted_marked_paths`'s doc for
+/// the full mechanism (the per-file `alef:hash:` walk hashes a file's own stale bytes against
+/// itself, and the crate-scoped inputs-hash baseline is re-stamped by `alef generate`, which never
+/// touches docs, so neither check has ever actually re-rendered a docs page and compared it to
+/// disk). ~keep
+#[cfg(test)]
+mod docs_drift_tests {
+    use super::super::super::args::Commands;
+    use super::super::super::dispatch::DispatchContext;
+
+    const DRIFT_FIXTURE_CARGO_TOML: &str = "[package]\nname = \"docslib\"\nversion = \"0.1.0\"\nedition = \"2024\"\n";
+    const DRIFT_FIXTURE_ALEF_TOML: &str =
+        "[workspace]\nlanguages = [\"python\"]\n\n[[crates]]\nname = \"docslib\"\nsources = [\"src/lib.rs\"]\n";
+
+    fn write_source(root: &std::path::Path, doc_comment: &str) {
+        std::fs::create_dir_all(root.join("src")).expect("create src dir");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            format!("/// {doc_comment}\npub fn greet(name: String) -> String {{\n    format!(\"hi {{name}}\")\n}}\n"),
+        )
+        .expect("write lib.rs");
+    }
+
+    /// Writes the fixture workspace (source, `Cargo.toml`, `alef.toml`) and runs the real `alef
+    /// docs` command against it, exactly as an operator would. Returns the fixture's root and its
+    /// `alef.toml` path.
+    fn run_alef_docs(doc_comment: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+        write_source(&root, doc_comment);
+        std::fs::write(root.join("Cargo.toml"), DRIFT_FIXTURE_CARGO_TOML).expect("write Cargo.toml");
+        std::fs::write(root.join("alef.toml"), DRIFT_FIXTURE_ALEF_TOML).expect("write alef.toml");
+        let config_path = root.join("alef.toml");
+        let _cwd = crate::test_support::CwdGuard::enter(&root);
+        let context = DispatchContext {
+            config_path: config_path.clone(),
+            crate_filter: Vec::new(),
+        };
+        super::super::handle(
+            Commands::Docs {
+                lang: None,
+                output: None,
+                skip_snippet_validation: true,
+            },
+            &context,
+        )
+        .expect("alef docs must succeed against this fixture");
+        (dir, config_path)
+    }
+
+    /// The exact `find_missing_and_frozen_generated_files` call `alef verify` itself makes, so
+    /// this test proves the wiring all the way through `MissingAndFrozenFiles::drifted`, not just
+    /// the standalone `drifted_marked_paths` helper (covered directly in `helpers::tests`).
+    fn drifted_paths(root: &std::path::Path, config_path: &std::path::Path) -> Vec<String> {
+        let _cwd = crate::test_support::CwdGuard::enter(root);
+        let (_workspace, resolved) = super::load_config(config_path).expect("config loads");
+        let config = &resolved[0];
+        let languages = super::resolve_languages(config, None).expect("languages resolve");
+        let api = super::pipeline::extract(config, config_path, false).expect("extraction succeeds");
+        super::find_missing_and_frozen_generated_files(&languages, &api, config, config_path, root)
+            .expect("collect_managed_surface must succeed")
+            .drifted
+    }
+
+    #[test]
+    fn a_docs_page_whose_source_changed_since_the_last_alef_docs_run_is_reported_as_drifted() {
+        let (dir, config_path) = run_alef_docs("Greets someone.");
+        let root = dir.path().to_path_buf();
+
+        // The reported bug: the public surface changes (here, the doc comment `alef docs` embeds
+        // into the reference page -- the same shape as a type gaining a field), but nothing
+        // re-runs `alef docs` to refresh the committed page.
+        write_source(&root, "Greets someone warmly.");
+
+        let drifted = drifted_paths(&root, &config_path);
+        assert!(
+            drifted
+                .iter()
+                .any(|path| path.contains("docs") && path.contains("reference")),
+            "a docs page whose generator output changed since the last `alef docs` run must be \
+             reported as drifted, got: {drifted:?}"
+        );
+    }
+
+    /// THE CONTROL. Nothing changed between the `alef docs` run and this check, so nothing may be
+    /// reported -- otherwise every up-to-date consumer repo would fail `alef verify` on this check
+    /// forever.
+    #[test]
+    fn an_up_to_date_docs_tree_is_not_reported_as_drifted() {
+        let (dir, config_path) = run_alef_docs("Greets someone.");
+        let root = dir.path().to_path_buf();
+
+        let drifted = drifted_paths(&root, &config_path);
+        assert!(
+            drifted.is_empty(),
+            "an up-to-date docs tree must not be reported drifted, got: {drifted:?}"
         );
     }
 }

@@ -433,6 +433,9 @@ pub(crate) struct MissingAndFrozenFiles {
     /// entry. See that function's doc. ~keep
     pub(crate) missing_gitignored: Vec<String>,
     pub(crate) frozen: Vec<FrozenFile>,
+    /// Absolute paths of alef-marked files that already exist on disk but whose bytes no longer
+    /// match what this run's fresh render (`surface`) would produce — see [`drifted_marked_paths`]. ~keep
+    pub(crate) drifted: Vec<String>,
     /// Absolute paths of every file this crate's configuration would produce this run, from the
     /// same `surface` `missing`/`frozen` are derived from -- deliberately every path, not only
     /// [`crate::cli::pipeline::managed_output_paths`]'s marker-carrying subset: a self-marking
@@ -506,6 +509,7 @@ pub(crate) fn find_missing_and_frozen_generated_files(
         missing,
         missing_gitignored,
         frozen: frozen_managed_paths(&surface, base_dir, &rewritten_output_roots(config, base_dir)),
+        drifted: drifted_marked_paths(&surface, base_dir),
         managed_paths,
         stage_failures: stage_failures
             .into_iter()
@@ -518,9 +522,97 @@ pub(crate) fn find_missing_and_frozen_generated_files(
     result.missing_gitignored.dedup();
     result.frozen.sort_by(|a, b| a.path.cmp(&b.path));
     result.frozen.dedup_by(|a, b| a.path == b.path);
+    result.drifted.sort();
+    result.drifted.dedup();
     result.stage_failures.sort();
     result.stage_failures.dedup();
     Ok(result)
+}
+
+/// Absolute paths of every file in `files` that already exists on disk, already carries alef's
+/// own provenance marker, and yet no longer matches the bytes this run's fresh render would
+/// produce.
+///
+/// THE GAP this closes (alef#436): a public type gaining a field left `alef docs`' rendered API
+/// reference pages stale while `alef verify` stayed green, because every check `alef verify` ran
+/// was structurally blind to it:
+///
+/// - [`stale_among`]'s per-file `alef:hash:` check recomputes a hash of the file's OWN current
+///   bytes and compares it to the hash embedded in those same bytes — it catches a hand-edit,
+///   never a file that is internally self-consistent but stale relative to a fresh render.
+/// - The crate-scoped `inputs_hash` record (`cache::generation_record`,
+///   `bin_cli::core_commands::verify::run`) is written only by `alef generate`/`alef all`, never
+///   by `alef docs` — so a docs-only regeneration gap never re-stamps it, but neither does
+///   leaving docs untouched ever unstamp it: `alef generate` re-stamps the very baseline this
+///   check would need to catch the drift, from a run that never touched a single docs page.
+/// - [`missing_managed_paths`]/[`frozen_managed_paths`] only ever ask "does this path exist" and
+///   "does it carry a marker" — never "do its bytes match", so a marked, present, stale file is
+///   invisible to both.
+///
+/// Scoped to `.rs` and `.md` paths ONLY — deliberately narrower than "every stage
+/// `collect_managed_surface` renders." MEASURED, not assumed: an earlier version of this
+/// check ran over the whole surface and broke
+/// `verify_reports_an_incomplete_generation_run_instead_of_ordinary_staleness` and two
+/// sibling tests, all three asserting the established, pre-existing contract "a completed
+/// `alef all` run leaves a tree `alef verify` reports clean." The false positives were
+/// `pyproject.toml`, `poly.toml` (TOML, via poly's `taplo`) and a generated `.py` file (via
+/// poly's `ruff`): `alef all`'s "Formatting generated files..." stage runs `poly fmt --fix`
+/// (`cli::pipeline::format::poly_format`) over the paths it just wrote, AFTER
+/// `collect_managed_surface`'s in-memory render is computed, and that external reformatting
+/// pass changes bytes `normalize_content` never claims to predict. `normalize_content` only
+/// reproduces two of poly's engines today — `rustfmt` for `.rs` (`format_rust_content`) and a
+/// blank-line policy for `.md` deliberately matched to poly's `rumdl` (see that function's own
+/// doc: "matching downstream rumdl-fmt... so cold and hot paths converge") — so those two
+/// extensions are the only ones where an in-memory render is a faithful stand-in for the bytes
+/// `alef all` actually leaves on disk. Every other poly-formatted language (Python, JSON,
+/// JS/TS, and TOML among them) would false-positive on this check on every clean repo,
+/// systemically, not as an edge case — reproducing the `normalize_content`-vs-`poly fmt` gap
+/// for every one of them is real future work, not something this fix can absorb by widening a
+/// comparison that only two extensions can currently make honest. Restricting scope here is a
+/// consequence of that measurement, not a tuning pass to silence a test. ~keep
+///
+/// Deliberately excludes every file [`frozen_managed_paths`] would already report: an unmarked
+/// file is that check's condition, not this one's (this function's own `content_has_alef_marker`
+/// guard below is what enforces the split), and reporting the same withheld write under two
+/// headings would describe it as two different findings with two different remedies.
+///
+/// Reuses [`crate::cli::commands::adopt::managed_outputs`] and
+/// [`crate::cli::pipeline::matches_alef_output`] — the exact pairing [`frozen_managed_paths`]
+/// already uses for its own `drifted` field — rather than a bespoke comparison, specifically
+/// because of the caveat that pairing already solves: a self-marking backend (pyo3's `lib.rs`,
+/// `docs::render`'s HTML-commented pages) or a `generated_header: true` file both legitimately
+/// differ from a naive in-memory render by exactly the provenance header/hash line, and
+/// `matches_alef_output` is the one place that discounts it. A hand-rolled byte comparison here
+/// would report permanent drift for every one of those files. ~keep
+fn drifted_marked_paths(files: &[crate::core::backend::GeneratedFile], base_dir: &std::path::Path) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|file| {
+            let full_path = base_dir.join(&file.path);
+            if !render_predicts_final_bytes(&full_path) {
+                return None;
+            }
+            let existing = std::fs::read_to_string(&full_path).ok()?;
+            if !crate::core::hash::content_has_alef_marker(&existing) {
+                // Unmarked: `frozen_managed_paths`'s territory, not this check's.
+                return None;
+            }
+            let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(file), base_dir);
+            let up_to_date = rendered.first().is_some_and(|output| {
+                crate::cli::pipeline::matches_alef_output(&full_path, &existing, &output.content)
+            });
+            (!up_to_date).then(|| full_path.display().to_string())
+        })
+        .collect()
+}
+
+/// Whether [`crate::cli::pipeline::normalize_content`]'s in-memory normalization is a faithful
+/// stand-in for the bytes `alef generate`/`alef all` actually leave on disk at `path` — see
+/// [`drifted_marked_paths`]'s doc for the measured evidence this narrows to exactly
+/// `normalize_content`'s own two special-cased extensions, no others. ~keep
+fn render_predicts_final_bytes(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension == "rs" || extension == "md")
 }
 
 /// The absolute output roots this configuration writes with `overwrite = true`.
@@ -869,5 +961,7 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path) -> anyhow::Result<Vec<Stal
 
 #[cfg(all(test, unix))]
 mod complete_generated_artifacts_staging_order_tests;
+#[cfg(test)]
+mod drift_tests;
 #[cfg(test)]
 mod tests;
