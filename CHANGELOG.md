@@ -5,6 +5,141 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.97.0] - 2026-09-26
+
+### Added
+
+- **e2e fixtures can assert what the mock server received, and reach it under a second hostname
+  (#433).** Two structural limits had made a class of crawler defects invisible to a green
+  16-language suite. Nothing could see what the server *received*, so "how many requests did we
+  send" was inexpressible -- a retry multiplication that requested a 503 URL 4, 8 and 20 times
+  produced an identical result object every time. And the server answered to exactly one
+  hostname, so `allow_subdomains`, `stay_on_domain` and external-link behaviour could not be
+  expressed at all.
+
+  Request counts arrive as a `mock.*` **virtual-field namespace** -- `mock.requests.total`,
+  `mock.requests["POST /path"]` -- following the pattern `assertion_kinds_design.rs` and
+  `docs/design/assertion-kinds.md` already prescribe for state that is not a field of the result.
+  They are fields, not a new assertion type, so all 24 existing operators work on them and the
+  schema's `type` enum is untouched. The server counts in `handle_request` before route lookup,
+  keyed on the request path, and exposes plain-text integers on
+  `/__alef/requests/{total,one,reset}`. `rust`, `python` and `node` carry the capture; every other
+  backend renders a *counted* `GeneratorGap` skip that is fatal under
+  `ALEF_E2E_STRICT_ASSERTIONS`, so a `mock.*` assertion can never silently pass on a backend that
+  cannot run it.
+
+  The second hostname is four tokens -- `{{mock_origin}}`, `{{mock_alt_origin}}`,
+  `{{mock_sub_origin}}`, `{{mock_foreign_origin}}` -- substituted into response bodies and header
+  values at serve time, so no per-language codegen or harness change was needed.
+  `{{mock_alt_origin}}` is `http://localhost:<port>`: a genuinely different hostname at the same
+  port on every platform, which is what cross-host policy actually compares. Only
+  `{{mock_sub_origin}}` depends on `*.localhost` resolving to loopback; where it does not, the
+  server substitutes a poisoned `.invalid` origin and says so, so a subdomain fixture fails with a
+  DNS error naming the alias instead of an inscrutable 404. A fixture body carrying an origin
+  token is also routed to its own listener, without which the client would follow
+  `localhost:PORT/page2` into the shared `/fixtures/<id>` table and 404. `[crates.e2e] alt_host`
+  configures the sub-host base.
+
+### Fixed
+
+- **swift: a path-typed field's getter returns the plain path again, not a JSON-quoted string.**
+  `emit_string_like_getter` routed `String`, `Path`, `Char` and `Json` through one arm. `Char` had
+  its own early branch and a plain `String` on a serde struct got `getter_simple_clone`, but
+  `Path` had neither, so it fell through to the catch-all meant for types that genuinely need a
+  JSON round-trip. Because `PathBuf` bridges to Swift as a plain `String`, the getter's return
+  type was `String` while its body ran `serde_json::to_string`. `Path` now has its own branch,
+  placed before the non-serde debug-format branch so it applies whether or not the parent struct
+  derives serde, converting through `to_string_lossy` as the NAPI backend already does. Plain
+  `String` and `Char` were already correct, and `Json` is deliberately bridged as an undecoded
+  serde_json string.
+- **kotlin-android: the gradle wrapper snapshot matches the emitted 9.8.0 distribution URL.** The
+  gradle 9.8.0 bump changed the generated `distributionUrl` but left the insta snapshot pinned at
+  9.7.1, so `main` was red from the moment it merged -- its own PR validation never reported the
+  mismatch because the run was cancelled in a runner backlog rather than completing.
+- **two downstream project names removed from a test fixture and a doc comment.** A Swift
+  validator test wrote a fixture module named after a consumer, and the extendr field-decoder doc
+  comment named that consumer's options struct, which had kept the `project-agnostic-codegen`
+  enforcement test red. The decoder bug is now described by its shape -- the first plain
+  `Option<T>` field on an options struct -- which is the part that generalises.
+- **wasm method params carrying an opaque handle are now taken by reference, matching free
+  functions.** `gen_method` in `src/backends/wasm/gen_bindings/methods.rs` built its parameter
+  list, and the fall-through arm of its async named-param reshaping, from `mapper.map_type(&p.ty)`
+  alone, never consulting `opaque_types` -- unlike the free-function path, which already ran every
+  non-optional param through `borrow_opaque_param`. wasm-bindgen's JS glue for a by-value exported
+  struct argument calls `arg.__destroy_into_raw()`, which nulls the JS object's `__wbg_ptr`, so an
+  opaque handle passed by value to a method is dead after that one call and throws "null pointer
+  passed to rust" on any later use -- while the identical handle passed to a free function stayed
+  alive. Both method-param sites now call `borrow_opaque_param`, exported from
+  `functions.rs`, to render the handle as `&Wasm{Type}` instead.
+- **typescript/wasm e2e: the SSRF override now writes through the config setter, not a detached
+  clone.** `build_args_and_setup` emitted `{name}Config.ssrf.denyPrivate = false;` to force
+  `deny_private` off for the mock-server-only e2e suite (WASM has no `std::env::var`, so
+  `SsrfPolicy::from_env()` always resolves `deny_private=true` there). A wasm-bindgen struct-field
+  getter like `WasmCrawlConfig::ssrf` returns a freshly `__wrap`ped, DETACHED clone of the Rust
+  value on every read, so that assignment mutated a throwaway object and never reached the real
+  config -- a no-op at every call site it was emitted for, masked only because the suite also
+  flipped the same field via an env var through another route. Worse, when a fixture already set
+  `ssrf` itself, the loop's own correct write-back IIFE and the broken follow-up assignment both
+  ran, so one field got two conflicting emissions. The override is now folded into the fixture's
+  `ssrf` value (or synthesized when absent) and rendered through the same `ssrf = <value>` setter
+  and `build_handle_config_value` traversal every other class-typed handle-config field already
+  uses, so exactly one assignment reaches Rust.
+- **ruby e2e mock-server startup no longer swallows every `StandardError`.** The generated
+  `spec_helper_mock_server.rb` used an inline `rescue break` modifier to end the handshake read
+  loop on EOF, which also silently caught (and hid as an early loop exit) any other error raised
+  while reading the mock server's stdout. Narrowed to `rescue EOFError, IOError` in an explicit
+  `begin`/`rescue` block.
+- **c and elixir root-array accessors are valid again.** `d94a160e7` (#417) guarded every other
+  backend's `ArrayField { name: "" }` case (a path like `[0].id` where the root itself is the
+  array) but missed `render_c` and the elixir branch of `render_dot_access`, which still emitted
+  the field-owner wrapper for the empty name: `result_id(result_(result)[0])` (an illegal `(` after
+  `result_`) and `Enum.at(result., 0)`. Both now collapse the empty root segment the same way the
+  other backends do.
+- **generated streaming forwarders (pyo3, napi) now stop on consumer close, not on the next
+  send.** A caller who closed the stream early (Python `aclose()`, or a JS consumer dropping the
+  async iterator) kept the Rust forwarder running until it next tried to send, so one or two more
+  upstream requests could start before it noticed. The pyo3 body in `src/adapters/streaming.rs`
+  and both napi bodies -- `src/adapters/streaming.rs`'s `gen_node_body` and the module-level
+  wrapper in `src/backends/napi/gen_bindings/functions/adapter_wrappers.rs` (a second, independent
+  emission of the same napi forwarder that the fix must cover in lockstep, or napi stays half
+  fixed) -- now `tokio::select!` the sender's `closed()` future against the next stream item and
+  break immediately, then drop the core stream. `futures::StreamExt::next`/`stream.next()` is
+  cancel-safe here: a poll either returns `Pending` (nothing produced) or `Ready` (already claimed
+  by `select!`), so the race cannot drop an item the consumer should have seen. wasm is unfixed:
+  `futures::channel::mpsc::Sender` has no equivalent to tokio's `closed()`, only a pollable
+  `is_closed()`/`poll_ready`, so an equivalent fix needs a different (larger) shape. dart is
+  unfixed: the FRB `StreamSink::add` result is discarded at the call site and a close signal isn't
+  plumbed through today.
+- **`alef verify` now catches a marked, present generated file that no longer matches a fresh
+  render.** The issue reported `alef docs`' rendered API reference pages going
+  stale after a public type gained a field while `alef verify` stayed green. Both existing checks
+  were structurally blind to it: the per-file `alef:hash:` walk (`helpers::stale_among`) hashes a
+  file's own on-disk bytes against themselves, so an internally self-consistent but stale file
+  always passes; and the crate-scoped `inputs_hash` baseline (`cache::generation_record`) is
+  written only by `alef generate`/`alef all`, never by `alef docs`, so a `generate` run re-stamps
+  the very baseline that would need to catch a docs-only regeneration gap without ever touching a
+  docs page. `find_missing_and_frozen_generated_files` now also computes `drifted` -- every
+  already-marked file `collect_managed_surface`'s in-memory render says would come out different
+  from what is on disk, via `crate::cli::commands::adopt::managed_outputs` and
+  `matches_alef_output` (the same pairing `frozen_managed_paths` already uses for its own
+  `drifted` field), so a self-marking backend's baked-in header/hash line is discounted rather than
+  reported as permanent false-positive drift. This closes the gap for every stage the managed
+  surface covers -- bindings, scaffold, e2e, and README alike -- not only docs.
+
+### Changed
+
+- **Paid down 13 entries of the `poly.toml` quality-debt baseline (#338), no behavior change.**
+  Grouped the php/csharp/kotlin e2e `build_call_field_resolver` functions' parameters into a
+  local per-backend inputs struct each (kept separate per file, since the three backends'
+  parameter shapes differ and evolve independently); dropped an already-unused parameter from
+  the jni streaming-shims and zig static-method emitters; grouped the pyo3 function-return-call
+  emitter's parameters into an inputs struct; and extracted one named helper each from
+  `publish::package::c_ffi::package_c_ffi`, `codegen::generators::methods::opaque::gen_opaque_impl_block`,
+  and the go e2e `build_go_method_call`/`resolve_assertion_target` generators to bring them under
+  the function-length cap. Three stale entries (`src/cli/pipeline/version_registry.rs`,
+  `src/codegen/config_gen/extendr.rs`, `src/codegen/generators/trait_bridge/wrapper.rs`) no
+  longer reproduce and were deleted as-is.
+
 ## [0.96.5] - 2026-09-26
 
 ### Fixed
