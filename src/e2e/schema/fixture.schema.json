@@ -100,7 +100,7 @@
         "assertion_recipes": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Assertion recipes enabled for domain-shaped assertion shortcuts and streaming pseudo-fields"
+          "description": "Assertion recipes enabled for domain-shaped assertion shortcuts and streaming pseudo-fields. `mock_requests` (alef issue #433) gates every `mock.*` field on the `assertion.field` schema: it must be a deliberate opt-in because the capture injects an HTTP round trip into the mock server for every test that asserts it."
         },
         "assertions": {
           "type": "array",
@@ -211,11 +211,14 @@
     },
     "mock_response": {
       "type": "object",
+      "description": "Mock HTTP response for testing HTTP clients. The mock server also exposes a request-count introspection API for `mock.*` assertions (alef issue #433): `GET /__alef/requests/total?prefix=<p>` and `GET /__alef/requests/one?key=<METHOD>%20<path>`, each returning a bare, plain-text decimal integer body.",
       "required": ["status"],
       "additionalProperties": false,
       "properties": {
         "status": { "type": "integer", "minimum": 100, "maximum": 599 },
-        "body": {},
+        "body": {
+          "description": "Response body. Accepts four host-substitution tokens the mock server replaces before responding, so a fixture can exercise a multi-host call (SSRF policy, redirect targets, cross-origin checks) without hardcoding an address the mock server did not actually bind: `{{mock_origin}}` (the fixture's own mock server origin), `{{mock_alt_origin}}` (a second, distinct origin), `{{mock_sub_origin}}` (a subdomain of the primary origin), `{{mock_foreign_origin}}` (an origin unrelated to the primary one)."
+        },
         "stream_chunks": {
           "type": "array",
           "items": {}
@@ -293,7 +296,7 @@
         },
         "field": {
           "type": "string",
-          "description": "Dot-separated field path on the result object"
+          "description": "Dot-separated field path on the result object. Also accepts the `mock.*` request-count virtual-field namespace (alef issue #433), which asserts against the generated mock HTTP server's own request log rather than a field of any result type: `mock.requests.total` (every request the mock server has recorded) or `mock.requests[\"<key>\"]`, where `<key>` is either `\"<METHOD> <path>\"` (e.g. `\"POST /v1/chat\"`) or `\"<path>\"` alone (any method, e.g. `\"/v1/chat\"`). Every existing assertion type that operates on an integer (`equals`, `greater_than_or_equal`, `count_min`, ...) works against it unchanged. Requires the `mock_requests` recipe in `assertion_recipes` -- see that property's description."
         },
         "value": { "description": "Expected value (type depends on assertion type)" },
         "values": {

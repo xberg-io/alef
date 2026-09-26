@@ -1,0 +1,19 @@
+{#- Once-per-suite mock-request-count helper (alef issue #433).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE sync function using only the standard library (urllib.request), so it adds no new
+   dependency to the generated pyproject.toml. Callers build `path_and_query` from
+   "{{ total_path }}?prefix=<p>" (mock.requests.total) or "{{ one_path }}?key=<k>"
+   (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery. An async test calls this via
+   `asyncio.to_thread({{ helper_name }}, ...)` rather than calling it directly on the event loop.
+#}
+def {{ helper_name }}(base_url: str, path_and_query: str) -> int:
+    import urllib.request
+
+    with urllib.request.urlopen(f"{base_url}{path_and_query}") as response:
+        body = response.read().decode("utf-8").strip()
+    return int(body)

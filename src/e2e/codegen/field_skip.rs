@@ -332,6 +332,19 @@ field_skip_variants! {
         "enum field ",
         " is a payload-carrying union with no scalar wire accessor in this binding",
     ),
+    /// ~keep The `mock.*` request-count namespace (alef issue #433): `mock.requests.total` and
+    /// `mock.requests["<key>"]` assert against the generated mock HTTP server's own request log,
+    /// not a field of any result type -- the same "virtual field whose accessor reads state the
+    /// generator arranges around the call" shape `streaming_assertions` already established (see
+    /// `mock_assertions::model`). This fires when `mock_assertions::snippets::mock_capture` has no
+    /// entry for the target language, i.e. alef has not written that language's once-per-suite
+    /// fetch helper yet. A consumer cannot add the capture from their own `alef.toml`, so this is
+    /// `GeneratorGap`, not `AuthoringGap` -- exactly the "assertion kind... a property of the call
+    /// rather than the result" the strict-gate error text at `codegen/mod.rs` already names.
+    MockCaptureNotSupported: GeneratorGap => (
+        "mock request-count assertion on field ",
+        " requires a capture this backend does not emit",
+    ),
 }
 
 impl FieldSkip {
@@ -475,6 +488,12 @@ mod tests {
              arbitrary instance methods, so this is alef's own unfinished wiring, not a property \
              of Ruby or magnus; a LanguageLimitation verdict would misattribute it and block a \
              future alef release from ever closing it without a reclassification"
+        );
+        assert_eq!(
+            FieldSkip::MockCaptureNotSupported.class(),
+            SkipClass::GeneratorGap,
+            "a consumer cannot add a mock-server capture from their own alef.toml -- this is \
+             alef's own gap, and must never be fatal under strict by construction"
         );
     }
 

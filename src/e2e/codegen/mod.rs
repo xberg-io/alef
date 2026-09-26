@@ -51,6 +51,7 @@ mod java_mvnw;
 pub mod kotlin;
 pub mod kotlin_android;
 pub(crate) mod loop_binding;
+pub(crate) mod mock_assertions;
 pub(crate) mod not_error_presence;
 pub(crate) mod payload_union_skip;
 pub mod php;
@@ -723,6 +724,7 @@ pub trait E2eCodegen: Send + Sync {
             self.language_name(),
             &self.supported_assertion_types(),
         )?;
+        mock_assertions::ensure_capture_declared(groups, e2e_config, self.language_name())?;
         let generated = self.generate(groups, e2e_config, config, type_defs, enums, functions, errors);
         // Drained unconditionally, on both the `Ok` and the `Err` path: a refusal recorded by an
         // expression builder too deep to return a `Result` (see `fixture_refusal`) must become

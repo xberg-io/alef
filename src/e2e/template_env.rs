@@ -58,6 +58,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust/mock_server_fixture.rs.jinja"),
     ),
     (
+        "rust/mock_request_helper.rs.jinja",
+        include_str!("templates/rust/mock_request_helper.rs.jinja"),
+    ),
+    (
         "typescript/typed_binding.jinja",
         include_str!("templates/typescript/typed_binding.jinja"),
     ),
@@ -151,6 +155,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "python/test_smoke.py.jinja",
         include_str!("templates/python/test_smoke.py.jinja"),
+    ),
+    (
+        "python/mock_request_helper.py.jinja",
+        include_str!("templates/python/mock_request_helper.py.jinja"),
     ),
     ("ruby/Gemfile.jinja", include_str!("templates/ruby/Gemfile.jinja")),
     (
@@ -521,6 +529,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "typescript/globalSetup_server.ts.jinja",
         include_str!("templates/typescript/globalSetup_server.ts.jinja"),
+    ),
+    (
+        "typescript/mock_request_helper.jinja",
+        include_str!("templates/typescript/mock_request_helper.jinja"),
     ),
     ("go/snippet_body.jinja", include_str!("templates/go/snippet_body.jinja")),
     ("go/dto_literal.jinja", include_str!("templates/go/dto_literal.jinja")),

@@ -1,0 +1,21 @@
+{#- Once-per-suite mock-request-count helper (alef issue #433).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE async function using the runtime global `fetch` (already relied on by
+   templates/typescript/http_test.jinja), so it adds no new dependency. Callers build
+   `pathAndQuery` from "{{ total_path }}?prefix=<p>" (mock.requests.total) or
+   "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery.
+#}
+async function {{ helper_name }}(baseUrl: string, pathAndQuery: string): Promise<number> {
+  const response = await fetch(`${baseUrl}${pathAndQuery}`);
+  const body = (await response.text()).trim();
+  const value = Number.parseInt(body, 10);
+  if (Number.isNaN(value)) {
+    throw new Error(`{{ helper_name }}: non-integer response body ${JSON.stringify(body)}`);
+  }
+  return value;
+}

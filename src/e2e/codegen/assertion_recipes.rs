@@ -88,6 +88,12 @@ pub(crate) fn required_recipe(assertion: &Assertion) -> Option<&'static str> {
 }
 
 pub(crate) fn required_field_recipe(field: &str) -> Option<&'static str> {
+    // ~keep `mock.*` (alef issue #433) is gated ahead of the literal match below because its
+    // bracket form (`mock.requests["<key>"]`) is open-ended and cannot be listed as a match arm --
+    // see `mock_assertions::model` for the grammar this delegates to.
+    if super::mock_assertions::is_mock_virtual_field(field) {
+        return Some(super::mock_assertions::MOCK_RECIPE);
+    }
     match field {
         "stream.items"
         | "stream.items.length"
@@ -287,6 +293,28 @@ mod tests {
             };
 
             assert_eq!(required_recipe(&assertion), Some(STREAMING_RECIPE), "field: {field}");
+        }
+    }
+
+    #[test]
+    fn mock_request_count_fields_require_mock_requests_recipe() {
+        for field in [
+            "mock.requests.total",
+            "mock.requests[\"POST /v1/chat\"]",
+            "mock.requests[\"/v1/chat\"]",
+        ] {
+            let assertion = Assertion {
+                assertion_type: "equals".to_string(),
+                field: Some(field.to_string()),
+                value: Some(serde_json::json!(1)),
+                ..Default::default()
+            };
+
+            assert_eq!(
+                required_recipe(&assertion),
+                Some(super::super::mock_assertions::MOCK_RECIPE),
+                "field: {field}"
+            );
         }
     }
 

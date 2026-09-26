@@ -1,0 +1,36 @@
+{#- Once-per-suite mock-request-count helper (alef issue #433).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE async function taking the mock server's base URL and a fully-formed path-and-query
+   string, returning the plain-text decimal integer response body as a `u64`. Callers build
+   `path_and_query` from "{{ total_path }}?prefix=<p>" (mock.requests.total) or
+   "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery. Uses
+   only `tokio` (already a dependency of every streaming-capable rust e2e suite), so it adds no new
+   crate dependency.
+#}
+async fn {{ helper_name }}(base_url: &str, path_and_query: &str) -> u64 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let authority = base_url.strip_prefix("http://").unwrap_or(base_url);
+    let mut stream = tokio::net::TcpStream::connect(authority)
+        .await
+        .unwrap_or_else(|error| panic!("{{ helper_name }}: connect to mock server failed: {error}"));
+    let request = format!("GET {path_and_query} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("{{ helper_name }}: write request");
+    let mut raw = Vec::new();
+    stream
+        .read_to_end(&mut raw)
+        .await
+        .expect("{{ helper_name }}: read response");
+    let text = String::from_utf8_lossy(&raw);
+    let body = text.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+    body.parse::<u64>()
+        .unwrap_or_else(|error| panic!("{{ helper_name }}: non-integer response body {body:?}: {error}"))
+}
