@@ -10,7 +10,7 @@ mod returns;
 pub(super) use imports_helpers::{emit_rustdoc, gen_env_shims};
 pub(super) use input_dto::{gen_input_dto_for_type_with_cfg, should_have_input_dto};
 pub(super) use orchestration::gen_function_with_emitted_dtos;
-pub(super) use params::format_param_unused;
+pub(super) use params::{borrow_opaque_param, format_param_unused};
 pub(super) use returns::{gen_wasm_unimplemented_body, wasm_wrap_return};
 
 #[cfg(test)]

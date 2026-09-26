@@ -1,9 +1,29 @@
 use super::*;
-use crate::core::ir::ReceiverKind;
+use crate::core::ir::{ParamDef, ReceiverKind};
 use std::collections::HashMap;
 
 fn mapper() -> WasmMapper {
     WasmMapper::new(HashMap::new(), "Wasm".to_string())
+}
+
+fn param(name: &str, ty: TypeRef) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional: false,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+        map_is_btree: false,
+        core_wrapper: crate::core::ir::CoreWrapper::None,
+    }
 }
 
 /// A static `default()` method, as synthesized from a type's own custom `impl Default` (not
@@ -174,5 +194,97 @@ fn gen_method_rewrites_the_source_crate_prefix_when_a_remap_is_configured() {
     assert!(
         !out.contains("sample_core::"),
         "no reference to the un-depended-on source crate may survive: {out}"
+    );
+}
+
+/// Same defect as `functions::tests::sync_opaque_handle_param_is_taken_by_reference`, but for the
+/// method-parameter path: wasm-bindgen's glue for a by-value exported struct calls
+/// `arg.__destroy_into_raw()`, nulling the JS object's `__wbg_ptr`, so a handle passed by value is
+/// dead after one call. Method params were built without consulting `opaque_types` at all, so
+/// every opaque-handle method param leaked into the signature by value. ~keep
+#[test]
+fn sync_method_opaque_handle_param_is_taken_by_reference() {
+    let typ = TypeDef {
+        name: "Session".to_string(),
+        rust_path: "sample_fixture::Session".to_string(),
+        ..Default::default()
+    };
+    let method = MethodDef {
+        name: "attach".to_string(),
+        is_static: true,
+        params: vec![param("engine", TypeRef::Named("CrawlEngineHandle".to_string()))],
+        return_type: TypeRef::Unit,
+        ..Default::default()
+    };
+    let opaque: AHashSet<String> = ["CrawlEngineHandle".to_string()].into_iter().collect();
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "Session",
+        "sample_fixture",
+        &opaque,
+        "Wasm",
+        &typ,
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &[],
+    );
+
+    assert!(
+        out.contains("engine: &WasmCrawlEngineHandle"),
+        "opaque handle method param must be by reference so repeated calls do not hit a null pointer:\n{out}"
+    );
+    assert!(
+        !out.contains("engine: WasmCrawlEngineHandle"),
+        "by-value opaque handle method param leaks into the signature:\n{out}"
+    );
+}
+
+/// Same contract for the async named-param reshaping path: the fall-through `_` arm handled every
+/// param that was not a non-opaque `Named` type, including opaque handles, but built the type the
+/// same unreferenced way as the base list. Requires a sibling non-opaque `Named` param to make
+/// `has_named_params` true and route through the reshaping branch at all. ~keep
+#[test]
+fn async_method_opaque_handle_param_is_taken_by_reference() {
+    let typ = TypeDef {
+        name: "Session".to_string(),
+        rust_path: "sample_fixture::Session".to_string(),
+        ..Default::default()
+    };
+    let method = MethodDef {
+        name: "run".to_string(),
+        is_async: true,
+        receiver: Some(ReceiverKind::Ref),
+        params: vec![
+            param("options", TypeRef::Named("RunOptions".to_string())),
+            param("engine", TypeRef::Named("CrawlEngineHandle".to_string())),
+        ],
+        return_type: TypeRef::Unit,
+        error_type: Some("CrawlError".to_string()),
+        ..Default::default()
+    };
+    let opaque: AHashSet<String> = ["CrawlEngineHandle".to_string()].into_iter().collect();
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "Session",
+        "sample_fixture",
+        &opaque,
+        "Wasm",
+        &typ,
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &[],
+    );
+
+    assert!(
+        out.contains("engine: &WasmCrawlEngineHandle"),
+        "opaque handle param must be by reference in the async named-reshape fall-through arm:\n{out}"
+    );
+    assert!(
+        !out.contains("engine: WasmCrawlEngineHandle"),
+        "by-value opaque handle param leaks into the async signature:\n{out}"
     );
 }

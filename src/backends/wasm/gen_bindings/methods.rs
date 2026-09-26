@@ -7,7 +7,7 @@ use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToPascalCase;
 
-use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
+use super::functions::{borrow_opaque_param, emit_rustdoc, format_param_unused, wasm_wrap_return};
 
 #[cfg(test)]
 #[path = "methods_tests.rs"]
@@ -64,7 +64,11 @@ pub(super) fn gen_method(
         .iter()
         .map(|p| {
             let ty = mapper.map_type(&p.ty);
-            let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+            let mapped_ty = if p.optional {
+                format!("Option<{}>", ty)
+            } else {
+                borrow_opaque_param(p, &ty, opaque_types)
+            };
             format_param_unused(&p.name, &mapped_ty, !can_delegate && !method.is_async)
         })
         .collect();
@@ -119,7 +123,11 @@ pub(super) fn gen_method(
                     }
                     _ => {
                         let ty = mapper.map_type(&p.ty);
-                        let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
+                        let mapped_ty = if p.optional {
+                            format!("Option<{}>", ty)
+                        } else {
+                            borrow_opaque_param(p, &ty, opaque_types)
+                        };
                         format!("{}: {}", p.name, mapped_ty)
                     }
                 })
