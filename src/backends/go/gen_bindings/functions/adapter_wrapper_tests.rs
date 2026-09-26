@@ -201,3 +201,24 @@ fn fieldless_request_type_falls_back_to_the_configured_param() {
     assert_eq!(request_construction_line(&rendered), None);
     assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(request)");
 }
+
+// -- issue #447: `owner_type` must go through the same normalization as the receiver type --
+
+/// An `owner_type` containing an initialism (`Api`) must render through `go_type_name` exactly
+/// the way `methods.rs` renders the IR type name it names -- `ApiEngine` -> `APIEngine` -- for
+/// both the receiver parameter and the `<Owner><Method>Stream` type name. A config value without
+/// an initialism (`CrawlEngineHandle`, as used above) is a no-op under this normalization and
+/// would pass even with the bug present; this case is the one that discriminates. ~keep
+#[test]
+fn owner_type_with_an_initialism_is_normalized_like_the_receiver_type() {
+    let mut adapter = streaming_adapter(Vec::new(), Some("sample::CrawlRequest"));
+    adapter.owner_type = Some("ApiEngine".to_string());
+
+    let rendered = gen_adapter_wrapper(&adapter, "pkg", &[]);
+
+    assert_eq!(
+        signature_line(&rendered),
+        "func CrawlStream(engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"
+    );
+    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream()");
+}

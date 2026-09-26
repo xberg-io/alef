@@ -4,7 +4,7 @@ use super::types::{emit_type_doc, go_return_expr};
 use crate::backends::go::c_symbols;
 use crate::backends::go::type_map::{alef_handle_c_type, go_optional_type, go_return_type, go_type};
 use crate::codegen::mut_writeback;
-use crate::codegen::naming::{go_free_function_name, go_param_name, pascal_to_snake, to_go_name};
+use crate::codegen::naming::{go_free_function_name, go_param_name, go_type_name, pascal_to_snake, to_go_name};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
@@ -833,11 +833,19 @@ pub(super) fn gen_adapter_wrapper(
 ) -> String {
     let adapter_name = &adapter.name;
     let go_func_name = to_go_name(adapter_name);
-    let owner_type = adapter.owner_type.as_deref().unwrap_or_else(|| {
+    let owner_type_raw = adapter.owner_type.as_deref().unwrap_or_else(|| {
         panic!(
             "go adapter `{adapter_name}`: streaming adapter requires `owner_type` in `[[adapters]]` config (the Rust handle type that owns the streaming method)"
         )
     });
+    // `methods.rs` declares the receiver type (and the `<Recv><Method>Stream` iterator it
+    // returns) by running the IR type name through `go_type_name`. `[[adapters]] owner_type` is a
+    // plain config string with nothing upstream normalizing it, so this wrapper must apply the
+    // same helper before using it as either a Go type reference or a Stream-type name component
+    // -- otherwise a configured value containing an initialism (`ApiClient`, `HttpEngine`, ...)
+    // names an identifier `methods.rs` never declares. See #447. ~keep
+    let owner_type = go_type_name(owner_type_raw);
+    let owner_type = owner_type.as_str();
     // The Stream type name comes from the owning method's own wrapper (see
     // `gen_streaming_method_wrapper`), not from `item_type` directly, but `item_type` is still
     // required config for the adapter as a whole, so the presence check stays here.

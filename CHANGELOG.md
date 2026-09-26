@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A configured `[[adapters]] owner_type` containing an initialism emitted Go that does not
+  compile (#447).** `methods.rs` declares the receiver type, and the `<Recv><Method>Stream`
+  iterator from #441, by running the IR type name through `go_type_name`; `gen_adapter_wrapper`
+  used the raw config string. So `owner_type = "ApiClient"` declared `APIClient` and
+  `APIClientChatStreamStream` while the module-level wrapper referenced `ApiClient` and
+  `ApiClientChatStreamStream` -- two undefined identifiers. Values with no initialism
+  (`CrawlEngine`, `App`) were unaffected, which is why it went unnoticed. The receiver-parameter
+  half predates #441; #441 added the second divergent identifier. Now pinned by a real
+  `go build` of the generated package, since a string assertion on either emitter alone passes
+  while the two disagree.
+
 ### Changed
 
 - The Go e2e harness's mock-server spawn-env block is emitted through a Minijinja template
