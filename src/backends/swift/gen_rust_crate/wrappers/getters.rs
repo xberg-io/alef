@@ -604,6 +604,32 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
         }
         return;
     }
+    // `Path` is bridged as a plain `String` (`swift_bridge_rust_type`), not a JSON payload, so
+    // its getter must convert the value directly (`to_string_lossy`) rather than fall through to
+    // the `serde_json::to_string`/`{:?}` branches below — both of those wrap the path in an extra
+    // pair of JSON/Debug quote characters that the Swift side never decodes back out. ~keep
+    if matches!(field.ty, TypeRef::Path) {
+        if field.optional {
+            out.push_str(&crate::backends::swift::template_env::render(
+                "getter_path_optional.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
+            ));
+        } else {
+            out.push_str(&crate::backends::swift::template_env::render(
+                "getter_path.jinja",
+                minijinja::context! {
+                    getter_name => getter_name,
+                    return_type => bridge_ty_owned,
+                    name => name,
+                },
+            ));
+        }
+        return;
+    }
     // NOTE: TypeRef::Bytes is NOT included here — it maps to Vec<u8> in the
     if !ty.has_serde {
         if field.optional {
@@ -679,5 +705,89 @@ fn emit_string_like_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx:
                 name => name,
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path_field(name: &str, optional: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: TypeRef::Path,
+            optional,
+            ..Default::default()
+        }
+    }
+
+    fn serde_struct(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: name.to_string(),
+            rust_path: format!("demo::{name}"),
+            has_serde: true,
+            fields,
+            ..Default::default()
+        }
+    }
+
+    /// GH#438: a required `PathBuf` config field getter must return the plain path string.
+    /// The pre-fix routing fell through to the generic string-like `serde_json::to_string`
+    /// branch, which JSON-quotes the value (`"\"/tmp/out.warc\""`) — Swift never decodes that
+    /// back out, so callers of the generated getter would see the literal quote characters.
+    #[test]
+    fn should_emit_a_plain_string_conversion_for_a_required_path_field() {
+        let ty = serde_struct("CrawlConfig", vec![path_field("warc_output", false)]);
+        let mut out = String::new();
+        emit_getters(
+            &ty,
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut out,
+        );
+
+        assert!(
+            out.contains("self.0.warc_output.to_string_lossy().into_owned()"),
+            "a required Path field getter must return the plain path string via to_string_lossy, \
+             not a JSON round-trip:\n{out}"
+        );
+        assert!(
+            !out.contains("serde_json::to_string(&self.0.warc_output)"),
+            "the getter must not JSON-encode a scalar Path field (produces literal quote \
+             characters the Swift side never decodes):\n{out}"
+        );
+    }
+
+    /// Same defect, `Option<PathBuf>` shape (e.g. a newly added `chrome_path` field).
+    #[test]
+    fn should_emit_a_plain_string_conversion_for_an_optional_path_field() {
+        let ty = serde_struct("CrawlConfig", vec![path_field("chrome_path", true)]);
+        let mut out = String::new();
+        emit_getters(
+            &ty,
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &mut out,
+        );
+
+        assert!(
+            out.contains("self.0.chrome_path.as_ref().map(|v| v.to_string_lossy().into_owned())"),
+            "an optional Path field getter must map to the plain path string, not JSON-encode \
+             it:\n{out}"
+        );
+        assert!(
+            !out.contains("serde_json::to_string(v)"),
+            "the optional getter must not JSON-encode the inner Path value:\n{out}"
+        );
     }
 }

@@ -94,6 +94,11 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("getter_char.jinja", include_str!("../templates/getter_char.jinja")),
     (
+        "getter_path_optional.jinja",
+        include_str!("../templates/getter_path_optional.jinja"),
+    ),
+    ("getter_path.jinja", include_str!("../templates/getter_path.jinja")),
+    (
         "getter_string_like_debug_optional.jinja",
         include_str!("../templates/getter_string_like_debug_optional.jinja"),
     ),
