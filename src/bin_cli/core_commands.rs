@@ -12,6 +12,7 @@ use super::verify_orphans;
 mod docs;
 mod generate;
 mod verify;
+mod verify_dart_bridge;
 mod verify_flags;
 
 use verify_flags::refuse_unimplemented_verify_flags;

@@ -20,6 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per item inside the forwarding loop -- unlocked explicitly at each loop exit rather than with
   `defer`, which would pin one thread for the stream's whole lifetime.
 
+- **`alef verify` now catches a Dart bridge left stale by a skipped `flutter_rust_bridge_codegen`
+  run (#437).** `flutter_rust_bridge_codegen` writes the Dart-side bridge (`lib.dart`) as a
+  post-build step of `alef generate`/`alef all`; when the tool is missing from `PATH` or skipped
+  via `ALEF_SKIP_COMMANDS`, that step falls back to the already-committed bridge with only a
+  warning easy to miss in CI, and `alef verify` had no opinion on `lib.dart` at all -- only on its
+  Rust-side facade sibling. A public field added or renamed after that point left the Dart class
+  silently out of sync until someone noticed and hand-edited it (xberg-io/crawlberg#154).
+  `alef verify` now compares the current FRB facade (`packages/dart/rust/src/lib.rs`) against the
+  bridge class's own fields and reports any the bridge is missing, mirroring the existing
+  free-function coverage check (`VerifyFrbBridgeCoverage`, alef #135) that already catches this
+  same failure shape for functions at generate time.
+
 ## [0.97.0] - 2026-09-26
 
 ### Added

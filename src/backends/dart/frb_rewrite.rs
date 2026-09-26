@@ -43,7 +43,7 @@ mod tests;
 #[path = "frb_rewrite/text_transformations.rs"]
 mod text_transformations;
 
-pub use bridge_coverage::{missing_bridge_functions, undeclared_gate_features};
+pub use bridge_coverage::{missing_bridge_functions, missing_bridge_struct_fields, undeclared_gate_features};
 pub use cfg_gates::{carry_lib_rs_cfg_gates_into_frb_generated, cfg_gated_free_functions, inject_frb_cfg_gates};
 pub use sealed_variants::rewrite_frb_sealed_variants;
 pub use text_transformations::{

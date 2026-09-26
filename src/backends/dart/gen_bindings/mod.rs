@@ -375,7 +375,9 @@ impl DartBackend {
             DartStyle::Frb => {
                 let module_name = dart_module_name(&config.name);
                 let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
-                let lib_dart_path = PathBuf::from(format!("{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"));
+                let Some(lib_dart_path) = frb_dart_bridge_path(config) else {
+                    unreachable!("frb_dart_bridge_path only returns None for DartStyle::Ffi, already matched above");
+                };
                 let lib_freezed_path = PathBuf::from(format!(
                     "{lib_dart_dir}/{module_name}_bridge_generated/lib.freezed.dart"
                 ));
@@ -553,4 +555,23 @@ pub fn frb_rust_facade_paths(config: &ResolvedCrateConfig) -> Option<(PathBuf, P
     let rust_lib_rs_path = PathBuf::from(format!("{rust_crate_dir}/src/lib.rs"));
     let rust_frb_generated_path = PathBuf::from(format!("{rust_crate_dir}/src/frb_generated.rs"));
     Some((rust_lib_rs_path, rust_frb_generated_path))
+}
+
+/// The `flutter_rust_bridge_codegen`-written `lib.dart` path for `config`, or `None` when the
+/// active bridging style is `DartStyle::Ffi` (no FRB bridge at all).
+///
+/// The single source of truth for this path, mirroring [`frb_rust_facade_paths`]: this backend's
+/// own `build_config_for` uses it to build `VerifyFrbBridgeCoverage`/`PostProcessFile` steps that
+/// target the bridge, and `alef verify`'s Dart-bridge-field-drift check
+/// (`bin_cli::core_commands::verify`) uses it to find the same file read-only, so a write target
+/// and a read-only check can never independently drift apart on where the bridge lives.
+pub fn frb_dart_bridge_path(config: &ResolvedCrateConfig) -> Option<PathBuf> {
+    if dart_style(config) == DartStyle::Ffi {
+        return None;
+    }
+    let module_name = dart_module_name(&config.name);
+    let lib_dart_dir = resolve_output_dir(None, &config.name, "packages/dart/lib/src");
+    Some(PathBuf::from(format!(
+        "{lib_dart_dir}/{module_name}_bridge_generated/lib.dart"
+    )))
 }

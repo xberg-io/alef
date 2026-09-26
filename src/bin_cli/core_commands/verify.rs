@@ -282,6 +282,30 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         }
     }
 
+    // alef #437: the Dart-side FRB bridge (`lib.dart`) is written by an external
+    // `flutter_rust_bridge_codegen` invocation that a missing-tool or `ALEF_SKIP_COMMANDS` run
+    // silently skips (see `verify_dart_bridge::frb_dart_bridge_field_drift`'s doc), and a plain
+    // `alef verify` never looked at that file at all -- only its Rust-side sibling above. This
+    // closes that gap. ~keep
+    let mut all_dart_bridge_field_drift: Vec<String> = Vec::new();
+    for resolved_cfg in &crates_to_process {
+        all_dart_bridge_field_drift.extend(super::verify_dart_bridge::frb_dart_bridge_field_drift(
+            resolved_cfg,
+            &base_dir,
+        ));
+    }
+    let has_dart_bridge_field_drift = !all_dart_bridge_field_drift.is_empty();
+    if has_dart_bridge_field_drift {
+        crate::bin_cli::output::line(
+            "Dart bridge drift detected (lib.dart is missing field(s) the current facade \
+             declares -- run `alef generate` with flutter_rust_bridge_codegen installed and on \
+             PATH to regenerate it):",
+        );
+        for missing_field in &all_dart_bridge_field_drift {
+            crate::bin_cli::output::line(format_args!("  {missing_field}"));
+        }
+    }
+
     // Config-driven: `pipeline::verify_versions` enumerates every manifest
     // `commands::validate_versions::collect_checks` finds for this crate (Python, Node, Ruby,
     // PHP, Elixir, Go, Java, R, WASM, `Cargo.lock`, `.csproj`, Dart, Zig -- whatever the repo
@@ -450,6 +474,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         && !has_orphan_files
         && !has_abi_disagreement
         && !has_frb_generated_drift
+        && !has_dart_bridge_field_drift
         && !has_version_issues
         && snippet_coverage_issues.is_empty()
         && untracked_records.is_empty()
@@ -601,6 +626,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             || has_orphan_files
             || has_abi_disagreement
             || has_frb_generated_drift
+            || has_dart_bridge_field_drift
             || has_stage_failures
             || has_schema_surface_drift,
         has_version_issues,

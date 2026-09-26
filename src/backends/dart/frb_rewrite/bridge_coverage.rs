@@ -190,6 +190,176 @@ pub fn missing_bridge_functions(
         .collect()
 }
 
+/// `(struct_name, field_name)` for every named (non-tuple, non-unit) `pub` field of every
+/// top-level `pub struct Name { ... }` block in `lib_rs_source`, in declaration order.
+///
+/// Depth-tracked by brace count rather than indentation, so it does not depend on `lib_rs_source`
+/// already being rustfmt-canonical. A struct's own fields are the only lines collected while its
+/// body is open; nested item kinds (an enum's variant-payload braces, for instance) never open a
+/// `current_struct` scope in the first place, since only a `pub struct ... {` header line starts
+/// one.
+fn struct_field_pairs(lib_rs_source: &str) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    let mut current_struct: Option<String> = None;
+    let mut depth: i32 = 0;
+    for line in lib_rs_source.lines() {
+        if current_struct.is_none() {
+            if let Some(name) = pub_struct_name(line) {
+                current_struct = Some(name);
+                depth = brace_delta(line);
+            }
+            continue;
+        }
+        depth += brace_delta(line);
+        if depth <= 0 {
+            current_struct = None;
+            continue;
+        }
+        if let Some(field) = pub_field_name(line.trim()) {
+            pairs.push((current_struct.clone().unwrap_or_default(), field));
+        }
+    }
+    pairs
+}
+
+/// Net change in brace depth `line` contributes (opens minus closes).
+fn brace_delta(line: &str) -> i32 {
+    line.matches('{').count() as i32 - line.matches('}').count() as i32
+}
+
+/// The struct name from a `pub struct Name { ... }` (or `pub struct Name<T> { ... }`) header
+/// line, or `None` for a tuple struct (`pub struct Name(...)`), a unit struct (`pub struct
+/// Name;`), or any non-struct-header line. Only a named-field struct has Dart-side properties for
+/// [`missing_bridge_struct_fields`] to check.
+fn pub_struct_name(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let rest = trimmed.strip_prefix("pub struct ")?;
+    if !trimmed.ends_with('{') {
+        return None;
+    }
+    let name_end = rest.find(|c: char| c == '{' || c == '<' || c.is_whitespace())?;
+    let name = &rest[..name_end];
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// The field name from a `pub field_name: Type,` struct-body line (already trimmed), or `None`
+/// for a doc comment, attribute, or any other line a struct body can contain.
+fn pub_field_name(trimmed_line: &str) -> Option<String> {
+    let rest = trimmed_line.strip_prefix("pub ")?;
+    let colon = rest.find(':')?;
+    let name = rest[..colon].trim();
+    let is_identifier = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    is_identifier.then(|| name.to_string())
+}
+
+/// Whether `line` opens a new top-level Dart type declaration -- the boundary
+/// [`dart_class_body`] stops a class's body at, so one class's field list is never contaminated
+/// by the next declaration's source text.
+fn is_top_level_type_header(line: &str) -> bool {
+    if line.is_empty() || line.starts_with(' ') || line.starts_with('\t') {
+        return false;
+    }
+    [
+        "class ",
+        "sealed class ",
+        "abstract class ",
+        "base class ",
+        "final class ",
+        "mixin ",
+        "enum ",
+    ]
+    .iter()
+    .any(|prefix| line.starts_with(prefix))
+}
+
+/// Whether `line` is the (column-0) header of a Dart type declaration named `class_name` --
+/// `class Name {`, `sealed class Name with ...`, `abstract class Name implements ...`, and so on,
+/// which is exactly how flutter_rust_bridge's generated `lib.dart` opens every data class.
+fn is_class_header_for(line: &str, class_name: &str) -> bool {
+    if !is_top_level_type_header(line) {
+        return false;
+    }
+    let Some(after_class_kw) = line.split_once("class ").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let name_end = after_class_kw
+        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .unwrap_or(after_class_kw.len());
+    &after_class_kw[..name_end] == class_name
+}
+
+/// The Dart source text of the `class_name` declaration in `dart_bridge_source`, from its header
+/// line up to (not including) the next top-level type header, or `None` when no such class is
+/// declared at all.
+///
+/// A missing class is deliberately not itself reported by [`missing_bridge_struct_fields`]: a
+/// facade struct with no matching Dart class could be an excluded type, an unused mirror, or a
+/// type this specific check has not learned to find -- a different and more fundamental gap than
+/// "the class exists but is missing a field", which is the narrower, well-evidenced claim this
+/// module makes. See its doc comment.
+fn dart_class_body(dart_bridge_source: &str, class_name: &str) -> Option<String> {
+    let lines: Vec<&str> = dart_bridge_source.lines().collect();
+    let start = lines.iter().position(|line| is_class_header_for(line, class_name))?;
+    let end = lines[start + 1..]
+        .iter()
+        .position(|line| is_top_level_type_header(line))
+        .map_or(lines.len(), |offset| start + 1 + offset);
+    Some(lines[start..end].join("\n"))
+}
+
+/// Whether `name` occurs in `haystack` as a whole identifier -- neither the character
+/// immediately before nor immediately after any match is itself an identifier character. Unlike
+/// [`contains_function_at_token_boundary`] (which only needs a left boundary, because its fixed
+/// `(` suffix already anchors the right side), a Dart field name can be followed by any of
+/// several punctuation marks (`;`, `,`, `.`, `==`), so both sides need checking here.
+fn contains_identifier_at_token_boundary(haystack: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let is_identifier_char = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let mut search_start = 0;
+    while let Some(relative_offset) = haystack[search_start..].find(name) {
+        let absolute_offset = search_start + relative_offset;
+        let preceding_ok = !matches!(haystack[..absolute_offset].chars().next_back(), Some(c) if is_identifier_char(c));
+        let following_ok =
+            !matches!(haystack[absolute_offset + name.len()..].chars().next(), Some(c) if is_identifier_char(c));
+        if preceding_ok && following_ok {
+            return true;
+        }
+        search_start = absolute_offset + 1;
+    }
+    false
+}
+
+/// `TypeName.field_name` for every named field of a facade struct (outside `exclude_types`) whose
+/// Dart class exists in `bridge_dart_source` but does not declare a matching field.
+///
+/// This is [`missing_bridge_functions`]'s counterpart for struct fields rather than free
+/// functions -- the same alef #135 shape (a `RunCommand` skip leaves post-processing to patch a
+/// stale bridge) applies identically to a struct that gained or renamed a field, not only to a
+/// newly added function. `alef #437`'s reported bug -- a public field changed and the Dart bridge
+/// class silently kept its old shape -- is exactly what a skipped/no-op `flutter_rust_bridge_codegen`
+/// run produces: the facade (`lib.rs`) is fresh, but the Dart class frb already emitted for an
+/// earlier version of the struct is not revisited.
+///
+/// A struct absent from the bridge entirely is not reported here -- see [`dart_class_body`]'s doc.
+pub fn missing_bridge_struct_fields(
+    lib_rs_source: &str,
+    bridge_dart_source: &str,
+    exclude_types: &[String],
+) -> Vec<String> {
+    let excluded: HashSet<&str> = exclude_types.iter().map(String::as_str).collect();
+    struct_field_pairs(lib_rs_source)
+        .into_iter()
+        .filter(|(struct_name, _)| !excluded.contains(struct_name.as_str()))
+        .filter_map(|(struct_name, field_name)| {
+            let body = dart_class_body(bridge_dart_source, &struct_name)?;
+            let camel = frb_dart_function_name(&field_name);
+            (!contains_identifier_at_token_boundary(&body, &camel)).then(|| format!("{struct_name}.{field_name}"))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,5 +662,148 @@ pub fn count_widgets(collection: String) -> Result<i64, String> {
             BTreeSet::from(["widgets".to_string()]),
             "the gate's feature name must be reported as undeclared: {undeclared:?}"
         );
+    }
+
+    const PAGE_RESULT_LIB_RS: &str = "\
+#[frb(mirror(CrawlPageResult))]
+pub struct CrawlPageResult {
+    /// The page URL.
+    pub url: String,
+    /// Redirect hops taken to reach `final_url` from `url`.
+    pub redirect_count: i64,
+}
+";
+
+    const PAGE_RESULT_DART_UP_TO_DATE: &str = "\
+class CrawlPageResult {
+  final String url;
+
+  /// Redirect hops taken to reach `final_url` from `url`.
+  final PlatformInt64 redirectCount;
+
+  const CrawlPageResult({required this.url, required this.redirectCount});
+}
+
+class OtherClass {
+  final int redirectCountUnrelated;
+}
+";
+
+    #[test]
+    fn struct_field_pairs_lists_every_named_field_of_every_top_level_struct() {
+        let lib_rs = "\
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+pub struct Tuple(pub String);
+
+pub struct Unit;
+
+pub enum Shape {
+    Circle { pub radius: f64 },
+}
+";
+        assert_eq!(
+            struct_field_pairs(lib_rs),
+            vec![
+                ("Point".to_string(), "x".to_string()),
+                ("Point".to_string(), "y".to_string()),
+            ],
+            "only the named-field struct's own fields are collected -- tuple/unit structs and \
+             enum variant payloads are excluded"
+        );
+    }
+
+    /// alef #437: a public struct field added or renamed after the Dart bridge was last
+    /// generated (a skipped/no-op `flutter_rust_bridge_codegen` run) must be reported missing,
+    /// exactly as [`missing_bridge_functions`] already does for a missing free function.
+    #[test]
+    fn missing_bridge_struct_fields_reports_a_facade_field_absent_from_the_bridge_class() {
+        // The bridge's `CrawlPageResult` predates `redirect_count` entirely.
+        let stale_bridge = "\
+class CrawlPageResult {
+  final String url;
+
+  const CrawlPageResult({required this.url});
+}
+";
+        let missing = missing_bridge_struct_fields(PAGE_RESULT_LIB_RS, stale_bridge, &[]);
+        assert_eq!(
+            missing,
+            vec!["CrawlPageResult.redirect_count".to_string()],
+            "a facade field with no matching Dart class property must be reported missing: {missing:?}"
+        );
+    }
+
+    /// THE CONTROL. Once the bridge class already declares every facade field, nothing may be
+    /// reported -- otherwise every up-to-date consumer repo would fail this check forever.
+    #[test]
+    fn missing_bridge_struct_fields_is_empty_when_every_facade_field_is_bridged() {
+        let missing = missing_bridge_struct_fields(PAGE_RESULT_LIB_RS, PAGE_RESULT_DART_UP_TO_DATE, &[]);
+        assert!(
+            missing.is_empty(),
+            "every facade field is present on the bridge class and must not be reported: {missing:?}"
+        );
+    }
+
+    /// A field name reused on a DIFFERENT Dart class (`OtherClass.redirectCountUnrelated` above,
+    /// which merely contains `redirectCount` as a substring of a longer identifier) must never
+    /// stand in for `CrawlPageResult`'s own field -- this pins [`dart_class_body`]'s per-class
+    /// scoping and [`contains_identifier_at_token_boundary`]'s whole-identifier match together, so
+    /// a regression in either one is caught here even though each has its own direct coverage too.
+    #[test]
+    fn missing_bridge_struct_fields_does_not_cross_class_boundaries() {
+        let stale_bridge = "\
+class CrawlPageResult {
+  final String url;
+
+  const CrawlPageResult({required this.url});
+}
+
+class OtherClass {
+  final int redirectCount;
+}
+";
+        let missing = missing_bridge_struct_fields(PAGE_RESULT_LIB_RS, stale_bridge, &[]);
+        assert_eq!(
+            missing,
+            vec!["CrawlPageResult.redirect_count".to_string()],
+            "a same-named field on an unrelated class must not satisfy CrawlPageResult's own \
+             coverage: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn missing_bridge_struct_fields_ignores_configured_exclusions() {
+        let stale_bridge = "\
+class CrawlPageResult {
+  final String url;
+
+  const CrawlPageResult({required this.url});
+}
+";
+        let missing = missing_bridge_struct_fields(PAGE_RESULT_LIB_RS, stale_bridge, &["CrawlPageResult".to_string()]);
+        assert!(
+            missing.is_empty(),
+            "an excluded type's fields must not be reported missing: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn dart_class_body_stops_at_the_next_top_level_type_header() {
+        let body = dart_class_body(PAGE_RESULT_DART_UP_TO_DATE, "CrawlPageResult")
+            .expect("CrawlPageResult class must be found");
+        assert!(body.contains("redirectCount"));
+        assert!(
+            !body.contains("redirectCountUnrelated"),
+            "the next class's body must not leak into CrawlPageResult's own: {body}"
+        );
+    }
+
+    #[test]
+    fn dart_class_body_is_none_for_an_absent_class() {
+        assert!(dart_class_body(PAGE_RESULT_DART_UP_TO_DATE, "NeverEmitted").is_none());
     }
 }
