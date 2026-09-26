@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **Go streaming methods now return a `*<Recv><Method>Stream` iterator instead of a bare
+  `<-chan Item` (#441).** The channel shape could not report why a stream ended: the forwarding
+  goroutine had three paths -- a null chunk (which the native layer overloads to mean *either*
+  end-of-stream *or* a stream error), a failed `to_json`, and a failed unmarshal -- that all
+  dropped the failure and closed the channel exactly like a clean completion. The new type
+  follows the `sql.Rows`/`bufio.Scanner` convention: range `Chan()` to completion, then check
+  `Err()`. Each of the three paths now records the error before the channel closes, and the
+  null-chunk path reads `lastError()` while still holding the per-item `runtime.LockOSThread()`
+  from #439, since the native last-error slot is per-OS-thread.
+
+  Migration -- a consumer that ranged the channel directly:
+
+  ```go
+  // before
+  stream, err := client.ChatStream(req)
+  if err != nil { return err }
+  for chunk := range stream { fmt.Println(chunk) }
+
+  // after
+  stream, err := client.ChatStream(req)
+  if err != nil { return err }
+  for chunk := range stream.Chan() { fmt.Println(chunk) }
+  if err := stream.Err(); err != nil { return err }
+  ```
+
+  `Err()` is only safe to read once `Chan()` has been ranged to completion; the channel close is
+  what publishes the goroutine's write. The generated e2e Go tests and the `alef docs` Go
+  streaming page emit the new shape as well.
+
 ## [0.97.1] - 2026-09-26
 
 ### Fixed

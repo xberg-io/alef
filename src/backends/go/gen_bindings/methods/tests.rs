@@ -687,11 +687,15 @@ fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime
         .find("runtime.UnlockOSThread()")
         .map(|offset| per_item_lock_pos + offset)
         .expect("the loop body must unlock before its first exit");
-    let clean_end_comment_pos = out
-        .find("// Null = clean end-of-stream")
+    let clean_end_branch_pos = out
+        .find("if chunkPtr == 0 {")
         .expect("clean end-of-stream branch must still be present");
+    let clean_end_return_pos = out[clean_end_branch_pos..]
+        .find("return")
+        .map(|offset| clean_end_branch_pos + offset)
+        .expect("the clean end-of-stream branch must still return");
     assert!(
-        per_item_lock_pos < first_explicit_unlock_pos && first_explicit_unlock_pos < clean_end_comment_pos,
+        per_item_lock_pos < first_explicit_unlock_pos && first_explicit_unlock_pos < clean_end_return_pos,
         "the per-item lock must be released before the clean-end-of-stream return, got:\n{out}"
     );
 

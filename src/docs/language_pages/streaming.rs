@@ -3,7 +3,7 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
 use crate::docs::doc_cleaning::{demote_headings_to_start_at, extract_param_docs};
 use crate::docs::examples::MethodExampleOverride;
 use crate::docs::examples::render_method_example_with_override;
-use crate::docs::naming::{func_name, lang_code_fence, method_name, type_name};
+use crate::docs::naming::{func_name, lang_code_fence, method_name, to_camel_case, type_name};
 use crate::docs::signatures::{MethodSignatureOverride, render_method_signature_with_override};
 use crate::docs::{clean_doc, doc_type, template_env};
 use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
@@ -149,6 +149,39 @@ fn streaming_method_signature_override(
         // ~keep The rustler backend always names the receiver param `obj`, never `client`
         // (`gen_bindings/helpers/conversions.rs`'s `def_args.push("obj".to_string())`).
         Language::Elixir => Some(format!("def {}(obj, req)", adapter.name.to_snake_case())),
+        // ~keep Go streaming no longer returns a bare `<-chan Item`: issue #441 found that
+        // shape indistinguishable from a mid-stream error, since a null next-chunk pointer
+        // means either clean end-of-stream or failure and the channel just closes either way.
+        // The fix wraps the channel in a `<Recv><Method>Stream` accessor type with `Chan()` and
+        // `Err()`, so a consumer can check `Err()` after the range loop ends. `stream_type`
+        // reuses `type_name`/`name` (both already `crate::codegen::naming`-backed) rather than
+        // inventing a third casing of the receiver or method -- see
+        // `test_streaming_go_stream_type_name_matches_backend_naming_primitives` below for the
+        // parity check against `codegen::naming::{go_type_name, to_go_name}` directly.
+        Language::Go => {
+            let go_receiver_type = type_name(type_name_str, lang, ffi_prefix);
+            let stream_type = format!("{go_receiver_type}{name}Stream");
+            let item = type_name(item_type, lang, ffi_prefix);
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|param| {
+                    format!(
+                        "{} {}",
+                        to_camel_case(&param.name),
+                        doc_type(&param.ty, lang, ffi_prefix)
+                    )
+                })
+                .collect();
+            Some(format!(
+                "type {stream_type} struct{{ /* ... */ }}\n\
+                 func (s *{stream_type}) Chan() <-chan {item}\n\
+                 func (s *{stream_type}) Err() error\n\
+                 \n\
+                 func (o *{go_receiver_type}) {name}({}) (*{stream_type}, error)",
+                params.join(", ")
+            ))
+        }
         Language::Ffi | Language::C | Language::Jni => Some(streaming_c_start_signature(
             adapter,
             method,
@@ -203,10 +236,19 @@ fn streaming_return_type(
         Language::Php => "array<string>".to_string(),
         Language::Elixir => "{:ok, Stream.t()}".to_string(),
         Language::Go => {
+            // ~keep Mirrors the `Language::Go` arm of `streaming_method_signature_override`:
+            // the stream is now a `*<Recv><Method>Stream` handle, not a bare channel. `name`
+            // isn't in scope here, so the Go method name is rederived via `func_name` directly
+            // -- `streaming_method_name`'s own `_ => func_name(&adapter.name, lang, ffi_prefix)`
+            // arm is exactly this call for Go, since Go isn't one of the languages that arm
+            // special-cases.
+            let go_receiver_type = type_name(type_name_str, lang, ffi_prefix);
+            let go_method_name = func_name(&adapter.name, lang, ffi_prefix);
+            let stream_type = format!("{go_receiver_type}{go_method_name}Stream");
             if include_outer_result {
-                format!("(<-chan {item}, error)")
+                format!("(*{stream_type}, error)")
             } else {
-                format!("<-chan {item}")
+                format!("*{stream_type}")
             }
         }
         Language::Java => format!("java.util.stream.Stream<{item}>"),
@@ -320,8 +362,12 @@ fn streaming_example(
             config.name.to_pascal_case(),
             adapter.name.to_snake_case()
         ),
+        // ~keep Ranges `stream.Chan()` and checks `stream.Err()` once the channel closes -- a
+        // null next-chunk pointer means either clean end-of-stream or a stream error (issue
+        // #441), and an example that only ranges the channel documents the bug the accessor
+        // exists to fix.
         Language::Go => format!(
-            "stream, err := instance.{method_name}({req_value})\nif err != nil {{\n    return err\n}}\nfor chunk := range stream {{\n    fmt.Println(chunk)\n}}"
+            "stream, err := instance.{method_name}({req_value})\nif err != nil {{\n    return err\n}}\nfor chunk := range stream.Chan() {{\n    fmt.Println(chunk)\n}}\nif err := stream.Err(); err != nil {{\n    return err\n}}"
         ),
         Language::Java => format!(
             "try (var stream = instance.{method_name}({req_value})) {{\n    stream.forEach(System.out::println);\n}}"
@@ -588,5 +634,98 @@ mod tests {
             "heading must title the method with the same C symbol the signature and example \
              use: {doc}"
         );
+    }
+
+    /// Pins the shape from issue #441: a bare `<-chan Item` return is indistinguishable from a
+    /// mid-stream error (a null next-chunk pointer means either), so the documented Go
+    /// signature now shows the `<Recv><Method>Stream` accessor type (`Chan()`/`Err()`) alongside
+    /// the starting method, not just the starting method's own return type.
+    #[test]
+    fn test_streaming_go_signature_documents_the_stream_accessor_type() {
+        let adapter = make_adapter("chat_stream", "DefaultClient", "ChatChunk");
+        let method = make_method(
+            "chat_stream",
+            vec![make_param("req", TypeRef::Named("StreamRequest".to_string()), false)],
+            TypeRef::Unit,
+            false,
+            false,
+            Some("String"),
+        );
+        let override_ = streaming_method_signature_override(
+            &adapter,
+            &method,
+            "DefaultClient",
+            "ChatChunk",
+            Language::Go,
+            TEST_PREFIX,
+            TEST_CRATE_NAME,
+        );
+        let expected = "type DefaultClientChatStreamStream struct{ /* ... */ }\n\
+                         func (s *DefaultClientChatStreamStream) Chan() <-chan ChatChunk\n\
+                         func (s *DefaultClientChatStreamStream) Err() error\n\
+                         \n\
+                         func (o *DefaultClient) ChatStream(req StreamRequest) \
+                         (*DefaultClientChatStreamStream, error)";
+        assert_eq!(override_.signature.as_deref(), Some(expected));
+    }
+
+    /// A documented example that ranges the raw channel and never reads the error accessor
+    /// teaches exactly the bug issue #441 fixes -- a mid-stream failure looks identical to a
+    /// clean end-of-stream. This pins that the generated example checks `stream.Err()` after
+    /// the range loop closes.
+    #[test]
+    fn test_streaming_go_example_checks_err_after_ranging_chan() {
+        let adapter = make_adapter("chat_stream", "DefaultClient", "ChatChunk");
+        let method = make_method(
+            "chat_stream",
+            vec![make_param("req", TypeRef::Named("StreamRequest".to_string()), false)],
+            TypeRef::Unit,
+            false,
+            false,
+            Some("String"),
+        );
+        let config = ResolvedCrateConfig::default();
+        let example = streaming_example(
+            &config,
+            &adapter,
+            &method,
+            "DefaultClient",
+            "ChatChunk",
+            Language::Go,
+            TEST_PREFIX,
+        );
+        let expected = "stream, err := instance.ChatStream(StreamRequest{})\n\
+                         if err != nil {\n    return err\n}\n\
+                         for chunk := range stream.Chan() {\n    fmt.Println(chunk)\n}\n\
+                         if err := stream.Err(); err != nil {\n    return err\n}";
+        assert_eq!(example, expected);
+    }
+
+    /// Second-copy parity guard. This page hand-builds the Go streaming shape as a `format!`
+    /// string rather than rendering `streaming_method_signature.jinja` /
+    /// `streaming_method_body.jinja` (`src/backends/go/templates/`) the way the Go backend
+    /// does, so nothing forces the two to track each other if only one side is edited. This
+    /// pins the one piece checkable from `src/docs` without reaching into `backends::go`
+    /// internals: the receiver-type and method-name casing must match the exact
+    /// `crate::codegen::naming` primitives `gen_streaming_method_wrapper`
+    /// (`backends/go/gen_bindings/methods.rs`) calls -- `go_type_name(&typ.name)` (the owning
+    /// type's *already-PascalCase* Rust name, with no `to_pascal_case` pre-step) and
+    /// `to_go_name(&method.name)`. It does not, and cannot from here, confirm the emitted Go
+    /// *shape* (struct + `Chan()`/`Err()` + start method) matches the real templates -- see the
+    /// handback report for what closing that gap would require.
+    #[test]
+    fn test_streaming_go_receiver_and_method_naming_matches_backend_primitives() {
+        let owner = "DefaultClient";
+        let method_rust_name = "chat_stream";
+        let adapter = make_adapter(method_rust_name, owner, "ChatChunk");
+        let method = make_method(method_rust_name, vec![], TypeRef::Unit, false, false, None);
+
+        let docs_receiver = type_name(owner, Language::Go, TEST_PREFIX);
+        let backend_receiver = crate::codegen::naming::go_type_name(owner);
+        assert_eq!(docs_receiver, backend_receiver);
+
+        let docs_method = streaming_method_name(&adapter, &method, Language::Go, TEST_PREFIX);
+        let backend_method = crate::codegen::naming::to_go_name(method_rust_name);
+        assert_eq!(docs_method, backend_method);
     }
 }

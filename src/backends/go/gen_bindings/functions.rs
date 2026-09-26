@@ -838,12 +838,14 @@ pub(super) fn gen_adapter_wrapper(
             "go adapter `{adapter_name}`: streaming adapter requires `owner_type` in `[[adapters]]` config (the Rust handle type that owns the streaming method)"
         )
     });
-    let item_type = adapter.item_type.as_deref().unwrap_or_else(|| {
+    // The Stream type name comes from the owning method's own wrapper (see
+    // `gen_streaming_method_wrapper`), not from `item_type` directly, but `item_type` is still
+    // required config for the adapter as a whole, so the presence check stays here.
+    let _item_type = adapter.item_type.as_deref().unwrap_or_else(|| {
         panic!(
             "go adapter `{adapter_name}`: streaming adapter requires `item_type` in `[[adapters]]` config (the Rust item type yielded by the stream)"
         )
     });
-    let item_type_simple = item_type.rsplit("::").next().unwrap_or(item_type);
 
     let request_type = adapter.request_type.as_deref().unwrap_or_else(|| {
         panic!(
@@ -885,9 +887,9 @@ pub(super) fn gen_adapter_wrapper(
         (params, None)
     };
 
-    let return_type = format!("<-chan {item_type_simple}, error");
-
     let method_call_name = to_go_name(adapter_name);
+    let stream_type_name = format!("{owner_type}{method_call_name}Stream");
+    let return_type = format!("*{stream_type_name}, error");
     let method_call = if request_construction.is_some() {
         format!("engine.{}(*req)", method_call_name)
     } else {

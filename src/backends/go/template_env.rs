@@ -424,6 +424,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "streaming_method_body.jinja",
         include_str!("templates/streaming_method_body.jinja"),
     ),
+    (
+        "streaming_stream_type.jinja",
+        include_str!("templates/streaming_stream_type.jinja"),
+    ),
     ("free_string.jinja", include_str!("templates/free_string.jinja")),
     ("free_type.jinja", include_str!("templates/free_type.jinja")),
     (

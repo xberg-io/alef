@@ -1,7 +1,7 @@
 use alef::backends::go::GoBackend;
 use alef::core::backend::Backend;
 use alef::core::config::new_config::NewAlefConfig;
-use alef::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
+use alef::core::config::{AdapterConfig, AdapterPattern, BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use alef::core::ir::{
     ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
@@ -464,4 +464,124 @@ fn primitive_only_package_does_not_import_unused_encoding_json() {
     );
 
     assert_real_go_build_with_header(&binding.content, PRIMITIVE_ONLY_HEADER);
+}
+
+// -- issue #441: the streaming iterator must report why the stream ended -- ~keep
+
+const STREAMING_ERROR_HEADER: &str = r#"
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef uint64_t TESTEngine;
+typedef uint64_t TESTAlefHandle;
+
+static inline int32_t test_last_error_code(void) { return 0; }
+static inline const char *test_last_error_context(void) { return NULL; }
+static inline void test_engine_free(TESTEngine h) {}
+static inline TESTAlefHandle test_engine_crawl_stream_start(TESTEngine self) { return 1; }
+static inline TESTAlefHandle test_engine_crawl_stream_next(TESTAlefHandle handle) { return 0; }
+static inline void test_engine_crawl_stream_free(TESTAlefHandle handle) {}
+static inline char *test_crawl_event_to_json(TESTAlefHandle chunk) { return NULL; }
+static inline void test_crawl_event_free(TESTAlefHandle chunk) {}
+static inline void test_free_string(char *s) {}
+"#;
+
+/// An opaque `Engine` with one streaming method (`crawl_stream`, yielding `CrawlEvent`), plus a
+/// `[[adapters]]` entry with no configured params -- the minimal shape that exercises both
+/// `gen_streaming_method_wrapper`'s `<Recv><Method>Stream` iterator and `gen_adapter_wrapper`'s
+/// module-level forwarding wrapper, which must agree on the exact same Stream type name.
+fn streaming_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "Engine".to_string(),
+                rust_path: "test_lib::Engine".to_string(),
+                is_opaque: true,
+                methods: vec![MethodDef {
+                    name: "crawl_stream".to_string(),
+                    return_type: TypeRef::Unit,
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                }],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "CrawlEvent".to_string(),
+                rust_path: "test_lib::CrawlEvent".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "message".to_string(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    }
+}
+
+fn streaming_config() -> ResolvedCrateConfig {
+    let mut resolved = lock_os_thread_config();
+    resolved.adapters = vec![AdapterConfig {
+        name: "crawl_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "test_lib::Engine::crawl_stream".to_string(),
+        params: Vec::new(),
+        returns: None,
+        error_type: None,
+        owner_type: Some("Engine".to_string()),
+        item_type: Some("CrawlEvent".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: Some("test_lib::CrawlRequest".to_string()),
+        skip_languages: Vec::new(),
+    }];
+    resolved
+}
+
+/// Real `go build` proof for #441: the generated `EngineCrawlStreamStream` iterator (its
+/// `Chan()`/`Err()` accessors, the method wrapper that returns it, and the module-level
+/// `CrawlStream` adapter wrapper that forwards to it) compiles as real cgo-linked Go, not just
+/// `gofmt`-valid text.
+#[test]
+fn streaming_iterator_compiles_and_exposes_chan_and_err() {
+    let files = GoBackend
+        .generate_bindings(&streaming_api(), &streaming_config())
+        .expect("Go bindings generate");
+    let binding = files
+        .iter()
+        .find(|file| file.path.ends_with("binding.go"))
+        .expect("binding.go is generated");
+
+    assert!(
+        binding.content.contains("type EngineCrawlStreamStream struct {"),
+        "the iterator struct must be declared, got:\n{}",
+        binding.content
+    );
+    assert!(
+        binding
+            .content
+            .contains("func (h *Engine) CrawlStream() (*EngineCrawlStreamStream, error) {"),
+        "the method must return the iterator, got:\n{}",
+        binding.content
+    );
+    assert!(
+        binding
+            .content
+            .contains("func CrawlStream(engine *Engine) (*EngineCrawlStreamStream, error) {"),
+        "the module-level adapter wrapper must return the exact same iterator type, got:\n{}",
+        binding.content
+    );
+    assert!(
+        binding.content.contains("stream.err = lastError()"),
+        "the null-chunk path must report a stream error instead of dropping it, got:\n{}",
+        binding.content
+    );
+
+    assert_real_go_build_with_header(&binding.content, STREAMING_ERROR_HEADER);
 }

@@ -28,7 +28,7 @@ func main() {
   {{- "\tif err != nil {\n\t\tpanic(err)\n\t}" }}
 {% endif %}
 {% if not returns_void and not expects_error %}
-{% if stream_item %}    for {{ stream_item }} := range {{ result_var }} {
+{% if stream_item %}    for {{ stream_item }} := range {{ result_var }}.Chan() {
 {% endif %}
 {% if presentation %}
 {% for operation in presentation %}
@@ -53,6 +53,9 @@ func main() {
   {{- "\t" }}fmt.Printf("%+v\n", {{ stream_item or result_var }})
 {% endif %}
 {% if stream_item %}    }
+    if err := {{ result_var }}.Err(); err != nil {
+        panic(err)
+    }
 {% endif %}
 {% endif %}
 }

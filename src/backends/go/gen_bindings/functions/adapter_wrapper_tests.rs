@@ -151,7 +151,7 @@ fn single_param_adapter_decomposes_into_a_scalar_go_parameter() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, URL string) (<-chan CrawlEvent, error) {"
+        "func CrawlStream(engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(
         request_construction_line(&rendered),
@@ -175,7 +175,7 @@ fn two_param_adapter_exposes_each_configured_param_directly() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (<-chan CrawlEvent, error) {"
+        "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(request_construction_line(&rendered), None);
     assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(url, depth)");
@@ -196,7 +196,7 @@ fn fieldless_request_type_falls_back_to_the_configured_param() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (<-chan CrawlEvent, error) {"
+        "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(request_construction_line(&rendered), None);
     assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(request)");

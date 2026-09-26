@@ -381,11 +381,20 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(!zig.contains("[:0]const u8"));
 
     let go = doc_content(&files, "api-go");
+    // ~keep The documented Go streaming shape is the `<Recv><Method>Stream` iterator from #441,
+    // not a bare channel: a null next-chunk pointer means either end-of-stream or a stream
+    // error, so the channel alone cannot report why the stream stopped. The negative assertion
+    // is the load-bearing half -- this page hand-builds its signatures independently of the Go
+    // backend (#446), so nothing else fails if it drifts back to the old shape.
     assert!(
         go.contains(
-            "func (o *DefaultClient) ChatStream(req ChatCompletionRequest) (<-chan ChatCompletionChunk, error)"
-        )
+            "func (o *DefaultClient) ChatStream(req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"
+        ),
+        "{go}"
     );
+    assert!(go.contains("func (s *DefaultClientChatStreamStream) Chan() <-chan ChatCompletionChunk"));
+    assert!(go.contains("func (s *DefaultClientChatStreamStream) Err() error"));
+    assert!(!go.contains("(<-chan ChatCompletionChunk, error)"), "{go}");
 
     let csharp = doc_content(&files, "api-csharp");
     assert!(csharp.contains(

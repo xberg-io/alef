@@ -486,17 +486,7 @@ pub(super) fn render_test_function_with_facts(
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
         if is_streaming {
-            if let Some(streaming_item_type) = streaming_item_type {
-                let _ = writeln!(out, "\tvar chunks []{import_alias}.{streaming_item_type}");
-                let _ = writeln!(out, "\tfor chunk := range stream {{");
-                let _ = writeln!(out, "\t\tchunks = append(chunks, chunk)");
-                let _ = writeln!(out, "\t}}");
-            } else {
-                let _ = writeln!(
-                    out,
-                    "\t// skipped: streaming fixture requires adapter item_type for Go e2e codegen"
-                );
-            }
+            streaming_collect::render_streaming_collect_loop(out, import_alias, streaming_item_type);
         }
         if result_is_simple && has_usable_assertion && result_binding != "_" {
             if result_is_array {
@@ -994,6 +984,9 @@ impl client::TestClientRenderer for GoTestClientRenderer {
 #[path = "test_function/call_resolver.rs"]
 pub(super) mod call_resolver;
 pub(super) use call_resolver::fixture_has_go_callable;
+
+#[path = "test_function/streaming_collect.rs"]
+mod streaming_collect;
 
 #[cfg(test)]
 #[path = "test_function/declared_error_value_tests.rs"]

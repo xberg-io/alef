@@ -2036,7 +2036,11 @@ mod stream_presentation_regression {
         .expect("config");
         let body =
             render_snippet_body(&fixture, &config, &ResolvedCrateConfig::default(), &[], &[], &[]).expect("snippet");
-        assert!(body.contains("for resultChunk := range result"), "{body}");
+        assert!(body.contains("for resultChunk := range result.Chan()"), "{body}");
         assert!(body.contains("resultChunk.Usage != nil"), "{body}");
+        assert!(
+            body.contains("if err := result.Err(); err != nil"),
+            "a mid-stream failure must not be dropped silently:\n{body}"
+        );
     }
 }

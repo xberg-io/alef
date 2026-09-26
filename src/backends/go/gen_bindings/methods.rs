@@ -10,9 +10,12 @@ use crate::core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 /// Generate a streaming wrapper for a method decorated with the `Streaming` adapter pattern.
 ///
 /// The returned Go method consumes the FFI iterator-handle exports
-/// (`<prefix>_<type>_<method>_start`, `_next`, `_free`) and exposes a typed
-/// `<-chan <ItemType>` to Go callers. A goroutine drives `_next` until null
-/// (clean end-of-stream) or an error is signalled, then frees the handle.
+/// (`<prefix>_<type>_<method>_start`, `_next`, `_free`) and exposes a `*<Recv><Method>Stream`
+/// iterator to Go callers (see `streaming_stream_type.jinja`), following the `sql.Rows`
+/// convention: `Chan()` for the item channel, `Err()` for the reason the stream ended. A
+/// goroutine drives `_next` until null (clean end-of-stream) or a stream error is signalled --
+/// distinguished by a `lastError()` read on the null-chunk path -- or a per-item conversion
+/// failure, then frees the handle. ~keep
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_streaming_method_wrapper(
     typ: &TypeDef,
@@ -28,11 +31,22 @@ pub(super) fn gen_streaming_method_wrapper(
     let mut out = String::with_capacity(2048);
 
     let method_go_name = to_go_name(&method.name);
-    emit_type_doc(&mut out, &method_go_name, &method.doc, "is a streaming method.");
-
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
     let item_go_type = go_type_name(item_type);
+    let stream_type_name = format!("{go_receiver_type}{method_go_name}Stream");
+
+    out.push_str(&crate::backends::go::template_env::render(
+        "streaming_stream_type.jinja",
+        minijinja::context! {
+            stream_type_name => &stream_type_name,
+            receiver_type => &go_receiver_type,
+            method_name => &method_go_name,
+            item_type => &item_go_type,
+        },
+    ));
+
+    emit_type_doc(&mut out, &method_go_name, &method.doc, "is a streaming method.");
 
     let item_is_sum_type = data_enum_names.contains(item_type);
 
@@ -63,6 +77,7 @@ pub(super) fn gen_streaming_method_wrapper(
             method_name => &method_go_name,
             params => params.join(", "),
             item_type => &item_go_type,
+            stream_type_name => &stream_type_name,
         },
     ));
 
@@ -117,6 +132,7 @@ pub(super) fn gen_streaming_method_wrapper(
             item_free_fn => &item_free_fn,
             item_type => &item_go_type,
             item_is_sum_type => item_is_sum_type,
+            stream_type_name => &stream_type_name,
         },
     ));
 
@@ -829,5 +845,7 @@ pub(super) fn gen_param_to_c(
     out
 }
 
+#[cfg(test)]
+mod streaming_error_paths_tests;
 #[cfg(test)]
 mod tests;

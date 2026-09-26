@@ -8,6 +8,7 @@
 		return nil, fmt.Errorf("failed to start {{ method_name }} stream")
 	}
 	ch := make(chan {{ item_type }})
+	stream := &{{ stream_type_name }}{ch: ch}
 	go func() {
 		defer close(ch)
 		defer C.{{ fn_free }}(handle)
@@ -15,14 +16,17 @@
 			runtime.LockOSThread()
 			chunkPtr := C.{{ fn_next }}(handle)
 			if chunkPtr == 0 {
+				// Null means either a clean end-of-stream (errno 0) or a stream error
+				// (errno != 0); read lastError() while still locked to this OS thread,
+				// since the native last-error slot is per-OS-thread.
+				stream.err = lastError()
 				runtime.UnlockOSThread()
-				// Null = clean end-of-stream (errno 0) or stream error (errno != 0).
-				// In either case there are no more chunks; close the channel.
 				return
 			}
 			jsonPtr := C.{{ item_to_json_fn }}(chunkPtr)
 			if jsonPtr == nil {
 				C.{{ item_free_fn }}(chunkPtr)
+				stream.err = fmt.Errorf("{{ method_name }}: stream item could not be converted to JSON")
 				runtime.UnlockOSThread()
 				return
 			}
@@ -36,10 +40,11 @@
 			C.{{ item_free_fn }}(chunkPtr)
 			runtime.UnlockOSThread()
 			if unmarshalErr != nil {
+				stream.err = fmt.Errorf("{{ method_name }}: failed to decode stream item: %w", unmarshalErr)
 				return
 			}
 			ch <- chunk
 		}
 	}()
-	return ch, nil
+	return stream, nil
 }

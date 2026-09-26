@@ -68,8 +68,13 @@ fn test_streaming_fixture_emits_collect_snippet() {
 
     assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
     assert!(
-        out.contains("for chunk := range stream"),
-        "should emit collect loop, got:\n{out}"
+        out.contains("for chunk := range stream.Chan() {"),
+        "should range over the iterator's Chan(), got:\n{out}"
+    );
+    assert!(
+        out.contains("if streamErr := stream.Err(); streamErr != nil {")
+            && out.contains("t.Fatalf(\"stream failed: %v\", streamErr)"),
+        "a mid-stream failure must fail the test via Err(), not close silently, got:\n{out}"
     );
 }
 #[test]
@@ -150,7 +155,12 @@ fn test_streaming_with_client_factory_and_json_arg() {
 
     assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
     assert!(
-        out.contains("for chunk := range stream"),
-        "should emit collect loop, got:\n{out}"
+        out.contains("for chunk := range stream.Chan() {"),
+        "should range over the iterator's Chan(), got:\n{out}"
+    );
+    assert!(
+        out.contains("if streamErr := stream.Err(); streamErr != nil {")
+            && out.contains("t.Fatalf(\"stream failed: %v\", streamErr)"),
+        "a mid-stream failure must fail the test via Err(), not close silently, got:\n{out}"
     );
 }
