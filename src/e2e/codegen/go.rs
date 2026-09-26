@@ -618,19 +618,7 @@ fn render_main_test_go(
         let _ = writeln!(out, "\tfixturesDir := filepath.Join(dir, \"..\", \"..\", \"fixtures\")");
         let _ = writeln!(out, "\tcmd := exec.Command(mockBin, fixturesDir)");
         let _ = writeln!(out, "\tcmdEnv := os.Environ()");
-        alt_host_env::render_alt_host_env_lines(&mut out, alt_host);
-
-        // Append configured environment variables (set via os.Setenv in TestMain earlier).
-        // This is necessary because os.Setenv only affects Go's runtime env, not libc's,
-        // and the mock-server (a C FFI process) reads the libc environment directly.
-        // `env` is a `BTreeMap`, so this already iterates in key order -- no separate sort
-        // needed to keep generation reproducible. ~keep
-        for k in env.keys() {
-            let _ = writeln!(out, "\tif v := os.Getenv(\"{k}\"); v != \"\" {{");
-            let _ = writeln!(out, "\t\tcmdEnv = append(cmdEnv, \"{k}=\"+v)");
-            let _ = writeln!(out, "\t}}");
-        }
-
+        alt_host_env::render_mock_server_spawn_env(&mut out, alt_host, env);
         let _ = writeln!(out, "\tcmdEnv = append(cmdEnv, \"MOCK_SERVER_NO_STDIN_WATCH=1\")");
         let _ = writeln!(out, "\tcmd.Env = cmdEnv");
         let _ = writeln!(out, "\tstdout, err := cmd.StdoutPipe()");

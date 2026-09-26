@@ -545,6 +545,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/go/empty_dto_literal.jinja"),
     ),
     (
+        "go/mock_server_spawn_env.go.jinja",
+        include_str!("templates/go/mock_server_spawn_env.go.jinja"),
+    ),
+    (
         "python/http_test.jinja",
         include_str!("templates/python/http_test.jinja"),
     ),

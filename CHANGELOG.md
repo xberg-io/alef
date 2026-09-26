@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The Go e2e harness's mock-server spawn-env block is emitted through a Minijinja template
+  (`go/mock_server_spawn_env.go.jinja`) instead of `writeln!`, as the `jinja-templates` rule
+  requires (#445). Both interpolation sites -- the `alt_host` override and the per-key `env`
+  forwarding loop -- moved together, since converting one and leaving the other as `writeln!`
+  would be worse than leaving both. Rendered output is byte-identical, verified by SHA-256
+  across four harness shapes. `src/e2e/codegen/go.rs` drops from 1003 to 991 lines, back under
+  the 1,000-line cap.
+
 ### Added
 
 - **`mock.*` request-count assertions now work in the rust, python and node (typescript) e2e

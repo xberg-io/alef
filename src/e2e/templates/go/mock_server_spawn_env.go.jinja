@@ -1,0 +1,8 @@
+	if _, ok := os.LookupEnv("ALEF_MOCK_ALT_HOST"); !ok {
+		cmdEnv = append(cmdEnv, "ALEF_MOCK_ALT_HOST={{ alt_host }}")
+	}
+{% for key in env_keys %}
+	if v := os.Getenv("{{ key }}"); v != "" {
+		cmdEnv = append(cmdEnv, "{{ key }}="+v)
+	}
+{% endfor %}
