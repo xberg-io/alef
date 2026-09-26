@@ -1,14 +1,26 @@
 use crate::core::ir::TypeRef;
 
-pub(super) fn emit_function_return_call(
-    out: &mut String,
-    return_type: &TypeRef,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
-    return_prefix: &str,
-    name: &str,
-    kwargs: &[String],
-    return_converter: Option<&str>,
-) {
+/// Inputs for [`emit_function_return_call`], grouped to keep the function under the
+/// too-many-parameters limit without changing any of the values passed through. `out` stays a
+/// separate argument since it is the mutable output buffer, not a data input.
+pub(super) struct FunctionReturnCallInputs<'a> {
+    pub return_type: &'a TypeRef,
+    pub capsule_types: &'a std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
+    pub return_prefix: &'a str,
+    pub name: &'a str,
+    pub kwargs: &'a [String],
+    pub return_converter: Option<&'a str>,
+}
+
+pub(super) fn emit_function_return_call(out: &mut String, inputs: FunctionReturnCallInputs<'_>) {
+    let FunctionReturnCallInputs {
+        return_type,
+        capsule_types,
+        return_prefix,
+        name,
+        kwargs,
+        return_converter,
+    } = inputs;
     let is_void_return = matches!(return_type, TypeRef::Unit);
 
     // The wrapper's declared return type is the name `options.py` publishes; the extension

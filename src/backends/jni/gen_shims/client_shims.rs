@@ -67,7 +67,7 @@ fn emit_client_lifecycle_shims(
 fn emit_client_streaming_shims(
     out: &mut String,
     ty: &TypeDef,
-    api: &ApiSurface,
+    _api: &ApiSurface,
     config: &ResolvedCrateConfig,
     package: &str,
     bridge: &str,
@@ -80,6 +80,6 @@ fn emit_client_streaming_shims(
         let start_symbol = jni_symbol(package, bridge, &start_name);
         let next_symbol = jni_symbol(package, bridge, &next_name);
         let free_symbol = jni_symbol(package, bridge, &free_adapter_name);
-        emit_streaming_shims(out, &start_symbol, &next_symbol, &free_symbol, ty, adapter, api);
+        emit_streaming_shims(out, &start_symbol, &next_symbol, &free_symbol, ty, adapter);
     }
 }

@@ -169,15 +169,16 @@ pub(super) fn render_test_method(
     let variant_access = super::enum_variant_access::PhpVariantAccess::new(&per_call_getter_map, php_enum_lowering);
     // Extracted to `call_field_resolver.rs` (this file is at the file-size ratchet's frozen
     // ceiling).
-    let call_field_resolver = super::call_field_resolver::build_call_field_resolver(
-        e2e_config,
-        call_config,
-        fixture,
-        lang,
-        type_defs,
-        functions,
-        &per_call_getter_map,
-    );
+    let call_field_resolver =
+        super::call_field_resolver::build_call_field_resolver(super::call_field_resolver::CallFieldResolverInputs {
+            e2e_config,
+            call_config,
+            fixture,
+            lang,
+            type_defs,
+            functions,
+            per_call_getter_map: &per_call_getter_map,
+        });
     let field_resolver = &call_field_resolver;
     let call_overrides = call_config.overrides.get(lang);
     let has_override = call_overrides.is_some_and(|o| o.function.is_some());

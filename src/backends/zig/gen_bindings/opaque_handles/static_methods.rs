@@ -19,7 +19,6 @@ pub(super) fn emit_opaque_static_method(
     method: &MethodDef,
     ty: &TypeDef,
     prefix: &str,
-    _declared_errors: &[String],
     struct_names: &HashSet<String>,
     enum_names: &HashSet<String>,
     out: &mut String,

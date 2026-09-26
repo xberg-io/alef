@@ -494,15 +494,16 @@ fn render_test_method(
     //
     // Extracted to `call_field_resolver.rs` (this file is at the file-size ratchet's frozen
     // ceiling).
-    let call_field_resolver = call_field_resolver::build_call_field_resolver(
-        e2e_config,
-        call_config,
-        fixture,
-        enum_fields,
-        type_defs,
-        enums,
-        functions,
-    );
+    let call_field_resolver =
+        call_field_resolver::build_call_field_resolver(call_field_resolver::CallFieldResolverInputs {
+            e2e_config,
+            call_config,
+            fixture,
+            enum_fields,
+            type_defs,
+            enums,
+            functions,
+        });
     let field_resolver = &call_field_resolver;
 
     // Streaming branch: streaming adapters return IAsyncEnumerable<T>, not

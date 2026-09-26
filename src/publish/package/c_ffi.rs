@@ -57,24 +57,7 @@ pub fn package_c_ffi(
     copy_required_headers(config, &ffi_crate_dir, &include_dir)?;
 
     let pub_config = publish_lang_config(config);
-    if pub_config.pkg_config.unwrap_or(true) {
-        let pkgconfig_dir = staging.join("share/pkgconfig");
-        fs::create_dir_all(&pkgconfig_dir)?;
-        let pc_content = generate_pc_file(crate_name, version, &lib_name, &header_name);
-        fs::write(pkgconfig_dir.join(format!("{crate_name}.pc")), pc_content)?;
-    }
-
-    if pub_config.cmake_config.unwrap_or(true) {
-        let cmake_dir = staging.join("lib/cmake").join(crate_name);
-        fs::create_dir_all(&cmake_dir)?;
-        let cmake_content = generate_cmake_config(crate_name, &lib_name);
-        fs::write(cmake_dir.join(format!("{crate_name}-config.cmake")), cmake_content)?;
-        let version_content = generate_cmake_version(version);
-        fs::write(
-            cmake_dir.join(format!("{crate_name}-config-version.cmake")),
-            version_content,
-        )?;
-    }
+    write_build_system_artifacts(&pub_config, &staging, crate_name, version, &lib_name, &header_name)?;
 
     // Copy LICENSE if present.
     for name in &["LICENSE", "LICENSE-MIT", "LICENSE-APACHE"] {
@@ -96,6 +79,37 @@ pub fn package_c_ffi(
         name: archive_name,
         checksum: None,
     })
+}
+
+/// Write the pkg-config `.pc` file and CMake find-module files into the staging directory, each
+/// gated by its own `publish` language config flag (defaulting to enabled).
+fn write_build_system_artifacts(
+    pub_config: &crate::core::config::publish::PublishLanguageConfig,
+    staging: &Path,
+    crate_name: &str,
+    version: &str,
+    lib_name: &str,
+    header_name: &str,
+) -> Result<()> {
+    if pub_config.pkg_config.unwrap_or(true) {
+        let pkgconfig_dir = staging.join("share/pkgconfig");
+        fs::create_dir_all(&pkgconfig_dir)?;
+        let pc_content = generate_pc_file(crate_name, version, lib_name, header_name);
+        fs::write(pkgconfig_dir.join(format!("{crate_name}.pc")), pc_content)?;
+    }
+
+    if pub_config.cmake_config.unwrap_or(true) {
+        let cmake_dir = staging.join("lib/cmake").join(crate_name);
+        fs::create_dir_all(&cmake_dir)?;
+        let cmake_content = generate_cmake_config(crate_name, lib_name);
+        fs::write(cmake_dir.join(format!("{crate_name}-config.cmake")), cmake_content)?;
+        let version_content = generate_cmake_version(version);
+        fs::write(
+            cmake_dir.join(format!("{crate_name}-config-version.cmake")),
+            version_content,
+        )?;
+    }
+    Ok(())
 }
 
 fn copy_required_headers(config: &ResolvedCrateConfig, ffi_crate_dir: &Path, include_dir: &Path) -> Result<()> {

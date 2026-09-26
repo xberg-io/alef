@@ -24,6 +24,31 @@ pub(super) struct ResolvedAssertionTarget {
     pub(super) array_guard: Option<String>,
 }
 
+/// Resolve the initial (pre-shape-adjustment) Go accessor expression for `assertion`'s target
+/// field: the simple-result variable, an already-unwrapped optional local, or the field
+/// resolver's own accessor.
+fn initial_field_expr(
+    assertion: &Assertion,
+    result_is_simple: bool,
+    result_var: &str,
+    optional_locals: &std::collections::HashMap<String, String>,
+    field_resolver: &crate::e2e::field_access::FieldResolver,
+) -> String {
+    if result_is_simple {
+        return result_var.to_string();
+    }
+    match &assertion.field {
+        Some(f) if !f.is_empty() => {
+            if let Some(local_var) = optional_locals.get(f.as_str()) {
+                local_var.clone()
+            } else {
+                field_resolver.accessor(f, "go", result_var)
+            }
+        }
+        _ => result_var.to_string(),
+    }
+}
+
 /// Resolve the Go accessor expression and shape facts for `assertion`'s target field.
 ///
 /// Must run after the synthetic-field, streaming-field, and wildcard/availability checks
@@ -39,20 +64,7 @@ pub(super) fn resolve_assertion_target(
     let optional_locals = context.optional_locals;
     let field_resolver = context.field_resolver;
 
-    let field_expr = if result_is_simple {
-        result_var.to_string()
-    } else {
-        match &assertion.field {
-            Some(f) if !f.is_empty() => {
-                if let Some(local_var) = optional_locals.get(f.as_str()) {
-                    local_var.clone()
-                } else {
-                    field_resolver.accessor(f, "go", result_var)
-                }
-            }
-            _ => result_var.to_string(),
-        }
-    };
+    let field_expr = initial_field_expr(assertion, result_is_simple, result_var, optional_locals, field_resolver);
 
     let field_shape = resolve_assertion_field_shape(assertion, field_resolver, optional_locals);
     let is_optional = field_shape.is_optional;

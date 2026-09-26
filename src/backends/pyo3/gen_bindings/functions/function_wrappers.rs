@@ -5,7 +5,7 @@ use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 
 use super::helper_type_mapping::classify_param_type;
-use super::return_error::emit_function_return_call;
+use super::return_error::{FunctionReturnCallInputs, emit_function_return_call};
 use super::signature_params::emit_param_conversion;
 use crate::backends::pyo3::gen_bindings::enums::{Wrapping, sanitize_python_doc};
 use crate::backends::pyo3::py_signature::{leaf_named_type, python_signature_params};
@@ -302,12 +302,14 @@ pub(super) fn emit_function_wrappers(
 
         emit_function_return_call(
             out,
-            &func.return_type,
-            capsule_types,
-            return_prefix,
-            &func.name,
-            &kwargs,
-            return_converter.as_deref(),
+            FunctionReturnCallInputs {
+                return_type: &func.return_type,
+                capsule_types,
+                return_prefix,
+                name: &func.name,
+                kwargs: &kwargs,
+                return_converter: return_converter.as_deref(),
+            },
         );
         out.push_str("\n\n");
     }

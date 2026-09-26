@@ -16,16 +16,28 @@ use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Fixture;
 use std::collections::HashMap;
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn build_call_field_resolver(
-    e2e_config: &E2eConfig,
-    call_config: &CallConfig,
-    fixture: &Fixture,
-    enum_fields: &HashMap<String, String>,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-) -> FieldResolver {
+/// Inputs for [`build_call_field_resolver`], grouped to keep the function under the
+/// too-many-parameters limit without changing any of the values passed through.
+pub(super) struct CallFieldResolverInputs<'a> {
+    pub e2e_config: &'a E2eConfig,
+    pub call_config: &'a CallConfig,
+    pub fixture: &'a Fixture,
+    pub enum_fields: &'a HashMap<String, String>,
+    pub type_defs: &'a [crate::core::ir::TypeDef],
+    pub enums: &'a [crate::core::ir::EnumDef],
+    pub functions: &'a [crate::core::ir::FunctionDef],
+}
+
+pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> FieldResolver {
+    let CallFieldResolverInputs {
+        e2e_config,
+        call_config,
+        fixture,
+        enum_fields,
+        type_defs,
+        enums,
+        functions,
+    } = inputs;
     let cs_overrides = call_config.overrides.get("csharp");
     // See `values::effective_csharp_enum_fields` for why this must be an effective (per-call
     // override wins, not merges) set rather than the raw global `fields_enum`.

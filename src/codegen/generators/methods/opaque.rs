@@ -4,8 +4,25 @@ use crate::codegen::generators::{AdapterBodies, RustBindingConfig};
 use crate::codegen::shared::partition_methods;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::workspace::ClientConstructorConfig;
-use crate::core::ir::TypeDef;
+use crate::core::ir::{MethodDef, TypeDef};
 use ahash::AHashSet;
+
+/// Shared skip condition for both instance and static methods: skip a sanitized method with no
+/// adapter body, and skip a non-delegatable method when the binding config asks for that.
+fn should_skip_method(
+    method: &MethodDef,
+    adapter_key: &str,
+    cfg: &RustBindingConfig,
+    opaque_types: &AHashSet<String>,
+    adapter_bodies: &AdapterBodies,
+) -> bool {
+    if method.sanitized && !adapter_bodies.contains_key(adapter_key) {
+        return true;
+    }
+    cfg.skip_methods_when_not_delegatable
+        && !adapter_bodies.contains_key(adapter_key)
+        && !crate::codegen::shared::can_auto_delegate(method, opaque_types)
+}
 
 /// Generate a full impl block for an opaque type, delegating methods to `self.inner`.
 ///
@@ -37,13 +54,7 @@ pub fn gen_opaque_impl_block(
 
     for m in &instance {
         let adapter_key = format!("{}.{}", typ.name, m.name);
-        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
-            continue;
-        }
-        if cfg.skip_methods_when_not_delegatable
-            && !adapter_bodies.contains_key(&adapter_key)
-            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
-        {
+        if should_skip_method(m, &adapter_key, cfg, opaque_types, adapter_bodies) {
             continue;
         }
         out.push_str(&gen_method(
@@ -61,13 +72,7 @@ pub fn gen_opaque_impl_block(
 
     for m in &statics {
         let adapter_key = format!("{}.{}", typ.name, m.name);
-        if m.sanitized && !adapter_bodies.contains_key(&adapter_key) {
-            continue;
-        }
-        if cfg.skip_methods_when_not_delegatable
-            && !adapter_bodies.contains_key(&adapter_key)
-            && !crate::codegen::shared::can_auto_delegate(m, opaque_types)
-        {
+        if should_skip_method(m, &adapter_key, cfg, opaque_types, adapter_bodies) {
             continue;
         }
         out.push_str(&gen_static_method(

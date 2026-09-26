@@ -14,6 +14,34 @@ pub(super) struct GoMethodCallInfo {
     pub(super) value_cast: Option<&'static str>,
 }
 
+/// Extract the `node_type` string argument shared by `contains_node_type` and
+/// `find_nodes_by_type`, defaulting to the empty string when absent.
+fn node_type_argument(args: Option<&serde_json::Value>) -> &str {
+    args.and_then(|a| a.get("node_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+}
+
+/// Build the `RunQuery` call info: `RunQuery` returns `(*[]QueryMatch, error)`, so callers use the
+/// `is_error` check type rather than `is_pointer`.
+fn build_run_query_call(result_var: &str, import_alias: &str, args: Option<&serde_json::Value>) -> GoMethodCallInfo {
+    let query_source = args
+        .and_then(|a| a.get("query_source"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let language = args
+        .and_then(|a| a.get("language"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let query_lit = go_string_literal(query_source);
+    let lang_lit = go_string_literal(language);
+    GoMethodCallInfo {
+        call_expr: format!("{import_alias}.RunQuery({result_var}, {lang_lit}, {query_lit}, []byte(source))"),
+        is_pointer: false,
+        value_cast: None,
+    }
+}
+
 /// Build a Go call expression for a `method_result` assertion on a sample_language Tree.
 ///
 /// Maps method names to the appropriate Go function calls, matching the Go binding API
@@ -61,10 +89,7 @@ pub(super) fn build_go_method_call(
             value_cast: None,
         },
         "contains_node_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let node_type = node_type_argument(args);
             GoMethodCallInfo {
                 call_expr: format!("{import_alias}.TreeContainsNodeType({result_var}, \"{node_type}\")"),
                 is_pointer: true,
@@ -72,34 +97,14 @@ pub(super) fn build_go_method_call(
             }
         }
         "find_nodes_by_type" => {
-            let node_type = args
-                .and_then(|a| a.get("node_type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let node_type = node_type_argument(args);
             GoMethodCallInfo {
                 call_expr: format!("{import_alias}.FindNodesByType({result_var}, \"{node_type}\")"),
                 is_pointer: true,
                 value_cast: None,
             }
         }
-        "run_query" => {
-            let query_source = args
-                .and_then(|a| a.get("query_source"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let language = args
-                .and_then(|a| a.get("language"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let query_lit = go_string_literal(query_source);
-            let lang_lit = go_string_literal(language);
-            // RunQuery returns (*[]QueryMatch, error) — use is_error check type.
-            GoMethodCallInfo {
-                call_expr: format!("{import_alias}.RunQuery({result_var}, {lang_lit}, {query_lit}, []byte(source))"),
-                is_pointer: false,
-                value_cast: None,
-            }
-        }
+        "run_query" => build_run_query_call(result_var, import_alias, args),
         other => {
             let method_pascal = other.to_upper_camel_case();
             GoMethodCallInfo {

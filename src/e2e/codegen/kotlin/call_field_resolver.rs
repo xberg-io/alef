@@ -19,16 +19,28 @@ use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Fixture;
 use std::collections::HashSet;
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn build_call_field_resolver(
-    e2e_config: &E2eConfig,
-    call_config: &CallConfig,
-    fixture: &Fixture,
-    lang: &str,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-) -> FieldResolver {
+/// Inputs for [`build_call_field_resolver`], grouped to keep the function under the
+/// too-many-parameters limit without changing any of the values passed through.
+pub(super) struct CallFieldResolverInputs<'a> {
+    pub e2e_config: &'a E2eConfig,
+    pub call_config: &'a CallConfig,
+    pub fixture: &'a Fixture,
+    pub lang: &'a str,
+    pub type_defs: &'a [crate::core::ir::TypeDef],
+    pub enums: &'a [crate::core::ir::EnumDef],
+    pub functions: &'a [crate::core::ir::FunctionDef],
+}
+
+pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> FieldResolver {
+    let CallFieldResolverInputs {
+        e2e_config,
+        call_config,
+        fixture,
+        lang,
+        type_defs,
+        enums,
+        functions,
+    } = inputs;
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
     let call_root_type = resolve_declared_result_type(call_config, lang, CallIr { functions, type_defs });
     FieldResolver::new(

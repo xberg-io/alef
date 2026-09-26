@@ -1,5 +1,4 @@
 /// Emit Start/Next/Free streaming shims for one adapter.
-#[allow(clippy::too_many_arguments)]
 fn emit_streaming_shims(
     out: &mut String,
     start_sym: &str,
@@ -7,7 +6,6 @@ fn emit_streaming_shims(
     free_sym: &str,
     ty: &TypeDef,
     adapter: &crate::core::config::AdapterConfig,
-    _api: &ApiSurface,
 ) {
     let type_name = &ty.name;
     let adapter_pascal = internal_class_component(&adapter.name);

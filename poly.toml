@@ -78,7 +78,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1263 size/complexity findings across 687 files that predate these
+# 1248 size/complexity findings across 673 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
 # one discrete unit of work.
@@ -255,7 +255,6 @@ pylint_max_returns = 10
 "src/backends/jni/gen_shims/client_shims.rs" = ["too-many-parameters"]
 "src/backends/jni/gen_shims/marshalling.rs" = ["function-too-long"]
 "src/backends/jni/gen_shims/method_shims.rs" = ["too-many-parameters"]
-"src/backends/jni/gen_shims/streaming_shims.rs" = ["too-many-parameters"]
 "src/backends/jni/gen_shims/tests.rs" = ["file-too-long"]
 "src/backends/jni/gen_shims/top_level.rs" = ["too-many-parameters"]
 "src/backends/jni/service_api.rs" = ["function-too-long", "too-many-parameters"]
@@ -429,7 +428,6 @@ pylint_max_returns = 10
   "function-too-long",
   "too-many-parameters",
 ]
-"src/backends/pyo3/gen_bindings/functions/return_error.rs" = ["too-many-parameters"]
 "src/backends/pyo3/gen_bindings/methods.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/backends/pyo3/gen_bindings/mod.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/backends/pyo3/gen_bindings/public_files.rs" = ["function-too-long"]
@@ -593,7 +591,6 @@ pylint_max_returns = 10
 "src/backends/zig/gen_bindings/opaque_handles/constructors.rs" = ["function-too-long"]
 "src/backends/zig/gen_bindings/opaque_handles/instance_methods.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/zig/gen_bindings/opaque_handles/params.rs" = ["function-too-long"]
-"src/backends/zig/gen_bindings/opaque_handles/static_methods.rs" = ["too-many-parameters"]
 "src/backends/zig/gen_bindings/result_presence.rs" = ["too-many-parameters"]
 "src/backends/zig/gen_bindings/service_api.rs" = ["function-too-long"]
 "src/backends/zig/gen_bindings/types.rs" = ["function-too-long", "nesting-too-deep"]
@@ -647,7 +644,6 @@ pylint_max_returns = 10
 "src/cli/pipeline/helpers.rs" = ["function-too-long"]
 "src/cli/pipeline/version.rs" = ["file-too-long"]
 "src/cli/pipeline/version_core.rs" = ["function-too-long", "nesting-too-deep"]
-"src/cli/pipeline/version_registry.rs" = ["function-too-long"]
 "src/cli/pipeline/version_swift.rs" = ["function-too-long"]
 "src/cli/pipeline/version_tests/e2e_manifests.rs" = ["function-too-long"]
 "src/cli/pipeline/version_tests/lockfile_relock.rs" = ["function-too-long"]
@@ -660,7 +656,6 @@ pylint_max_returns = 10
 "src/cli/pipeline/version_text.rs" = ["nesting-too-deep"]
 "src/codegen/builder.rs" = ["function-too-long"]
 "src/codegen/cfg.rs" = ["cyclomatic-complexity", "file-too-long"]
-"src/codegen/config_gen/extendr.rs" = ["function-too-long"]
 "src/codegen/config_gen/magnus.rs" = ["function-too-long"]
 "src/codegen/config_gen/shared.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/codegen/config_gen/tests.rs" = ["function-too-long"]
@@ -709,7 +704,6 @@ pylint_max_returns = 10
   "nesting-too-deep",
   "too-many-parameters",
 ]
-"src/codegen/generators/methods/opaque.rs" = ["function-too-long"]
 "src/codegen/generators/methods/static_methods.rs" = [
   "cyclomatic-complexity",
   "function-too-long",
@@ -718,7 +712,6 @@ pylint_max_returns = 10
 "src/codegen/generators/structs.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/codegen/generators/trait_bridge/tests.rs" = ["too-many-parameters"]
 "src/codegen/generators/trait_bridge/trait_impl.rs" = ["function-too-long"]
-"src/codegen/generators/trait_bridge/wrapper.rs" = ["function-too-long"]
 "src/codegen/shared.rs" = ["function-too-long", "too-many-parameters"]
 "src/codegen/visitor_context.rs" = ["function-too-long"]
 "src/codegen/visitor_result.rs" = ["function-too-long"]
@@ -791,7 +784,6 @@ pylint_max_returns = 10
   "function-too-long",
   "too-many-parameters",
 ]
-"src/e2e/codegen/csharp/call_field_resolver.rs" = ["too-many-parameters"]
 "src/e2e/codegen/csharp/discriminated.rs" = ["too-many-parameters"]
 "src/e2e/codegen/csharp/project.rs" = ["function-too-long"]
 "src/e2e/codegen/csharp/setup.rs" = [
@@ -852,8 +844,6 @@ pylint_max_returns = 10
 "src/e2e/codegen/go.rs" = ["function-too-long", "too-many-parameters"]
 "src/e2e/codegen/go/assertions/streaming_fields.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/e2e/codegen/go/assertions/synthetic_fields.rs" = ["function-too-long"]
-"src/e2e/codegen/go/assertions/target.rs" = ["function-too-long"]
-"src/e2e/codegen/go/method_calls.rs" = ["function-too-long"]
 "src/e2e/codegen/go/snippet.rs" = ["file-too-long", "function-too-long"]
 "src/e2e/codegen/go/test_backend.rs" = ["function-too-long", "too-many-parameters"]
 "src/e2e/codegen/go/test_file.rs" = ["cyclomatic-complexity", "function-too-long"]
@@ -895,7 +885,6 @@ pylint_max_returns = 10
 "src/e2e/codegen/kotlin/assertion_scalar_context.rs" = ["too-many-parameters"]
 "src/e2e/codegen/kotlin/assertion_scalar_dispatch.rs" = ["too-many-parameters"]
 "src/e2e/codegen/kotlin/assertions.rs" = ["too-many-parameters"]
-"src/e2e/codegen/kotlin/call_field_resolver.rs" = ["too-many-parameters"]
 "src/e2e/codegen/kotlin/discriminated.rs" = ["too-many-parameters"]
 "src/e2e/codegen/kotlin/project.rs" = ["function-too-long"]
 "src/e2e/codegen/kotlin/snippet.rs" = ["function-too-long", "too-many-parameters"]
@@ -920,7 +909,6 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/e2e/codegen/php/assertions.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
-"src/e2e/codegen/php/call_field_resolver.rs" = ["too-many-parameters"]
 "src/e2e/codegen/php/project.rs" = ["function-too-long", "too-many-parameters"]
 "src/e2e/codegen/php/snippet.rs" = ["function-too-long"]
 "src/e2e/codegen/php/stubs.rs" = ["function-too-long"]
@@ -1117,7 +1105,6 @@ pylint_max_returns = 10
 "src/extract/type_resolver.rs" = ["function-too-long"]
 "src/extract/validation.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/publish/mod.rs" = ["function-too-long", "nesting-too-deep", "too-many-parameters"]
-"src/publish/package/c_ffi.rs" = ["function-too-long"]
 "src/publish/package/csharp.rs" = ["function-too-long"]
 "src/publish/package/node.rs" = ["too-many-parameters"]
 "src/publish/vendor.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]

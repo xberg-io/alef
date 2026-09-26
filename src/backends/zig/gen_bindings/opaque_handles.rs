@@ -118,7 +118,7 @@ fn emit_streaming_structs(
 fn emit_static_methods(
     ty: &TypeDef,
     prefix: &str,
-    declared_errors: &[String],
+    _declared_errors: &[String],
     struct_names: &HashSet<String>,
     enum_names: &HashSet<String>,
     out: &mut String,
@@ -128,7 +128,7 @@ fn emit_static_methods(
         .iter()
         .filter(|m| m.is_static && !m.returns_ref_to_owner(&ty.name))
     {
-        emit_opaque_static_method(method, ty, prefix, declared_errors, struct_names, enum_names, out);
+        emit_opaque_static_method(method, ty, prefix, struct_names, enum_names, out);
         out.push('\n');
     }
 }
