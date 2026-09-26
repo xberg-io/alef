@@ -516,16 +516,13 @@ pub(super) fn gen_go_file(
     }
 
     let has_opaque_types = !emission.opaque.is_empty();
-    let has_sync_functions = api.functions.iter().any(|function| !function.is_async);
-    let has_non_static_methods = api
-        .types
-        .iter()
-        .filter(|definition| emission.emits_type(&definition.name))
-        .any(|typ| typ.methods.iter().any(|method| !method.is_static));
-    let needs_json = has_sync_functions
-        || has_non_static_methods
-        || needs_duration_helper
-        || body_uses_qualified_name(&body, "json.");
+    // `gen_duration_millis_helper` (pushed into `body` above, when `needs_duration_helper`) emits
+    // its `MarshalJSON`/`UnmarshalJSON` methods with literal `json.Marshal`/`json.Unmarshal` calls,
+    // so `body_uses_qualified_name` already observes that usage; a separate disjunct here would
+    // just restate it. Testing `body` directly instead of proxying through "does this package have
+    // any sync function / non-static method" avoids importing `encoding/json` into a package whose
+    // sync functions and methods are all primitive-only and never emit a `json.` call. ~keep
+    let needs_json = body_uses_qualified_name(&body, "json.");
 
     let mut imports = vec!["fmt"];
     if needs_json {

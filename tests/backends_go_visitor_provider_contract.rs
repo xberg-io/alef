@@ -258,12 +258,12 @@ fn lock_os_thread_api() -> ApiSurface {
                 }],
                 ..TypeDef::default()
             },
-            // A plain DTO whose own marshal/unmarshal code is the thing that legitimately
-            // uses `encoding/json` -- `Counter.value()` and `get_count()` are both primitive
-            // in and out, so neither one needs JSON on its own. Without this, the package's
-            // unconditional `encoding/json` import (added whenever any sync function or
-            // non-static method exists, regardless of whether that particular one needs it)
-            // would be unused, which is itself a real but separate defect from #439.
+            // A plain DTO whose own marshal/unmarshal code is what makes `encoding/json`
+            // legitimately needed here -- `Counter.value()` and `get_count()`'s own bodies are
+            // both primitive in and out, so this exercises the case where the import must stay
+            // because a *different* part of the package (the DTO's marshal/unmarshal code)
+            // literally calls `json.`, not because the package merely has sync functions or
+            // non-static methods (see #440 for the case where that used to be enough on its own).
             TypeDef {
                 name: "Placeholder".to_string(),
                 rust_path: "test_lib::Placeholder".to_string(),
@@ -360,4 +360,108 @@ fn lock_os_thread_wrappers_compile_and_lock_around_the_ffi_call() {
     );
 
     assert_real_go_build_with_header(&binding.content, LOCK_OS_THREAD_HEADER);
+}
+
+// -- issue #440: encoding/json is only needed when a generated body literally calls it -- ~keep
+
+const PRIMITIVE_ONLY_HEADER: &str = r#"
+#include <stdint.h>
+#include <stdlib.h>
+
+typedef uint64_t TESTCounter;
+
+static inline int32_t test_last_error_code(void) { return 0; }
+static inline const char *test_last_error_context(void) { return NULL; }
+static inline uint32_t test_add(uint32_t left, uint32_t right) { return left + right; }
+static inline void test_counter_free(TESTCounter h) {}
+static inline uint32_t test_counter_value(TESTCounter h) { return 9; }
+"#;
+
+/// A sync free function and a non-static method, both entirely primitive params and returns,
+/// with no DTO anywhere in the surface -- the minimal shape that triggers #440:
+/// `has_sync_functions`/`has_non_static_methods` were true while nothing in the generated body
+/// ever referenced `json.`.
+fn primitive_only_api() -> ApiSurface {
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![TypeDef {
+            name: "Counter".to_string(),
+            rust_path: "test_lib::Counter".to_string(),
+            is_opaque: true,
+            methods: vec![MethodDef {
+                name: "value".to_string(),
+                return_type: TypeRef::Primitive(PrimitiveType::U32),
+                receiver: Some(ReceiverKind::Ref),
+                ..MethodDef::default()
+            }],
+            ..TypeDef::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "add".to_string(),
+            rust_path: "test_lib::add".to_string(),
+            params: vec![
+                alef::core::ir::ParamDef {
+                    name: "left".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+                alef::core::ir::ParamDef {
+                    name: "right".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+            ],
+            return_type: TypeRef::Primitive(PrimitiveType::U32),
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    }
+}
+
+/// Real `go build` proof for #440: a package whose only sync function and only non-static
+/// method are both fully primitive must not import `encoding/json` -- an unused import is a
+/// Go compile error. `has_sync_functions`/`has_non_static_methods` used to add the import
+/// unconditionally regardless of whether anything in the generated body actually called `json.`.
+#[test]
+fn primitive_only_package_does_not_import_unused_encoding_json() {
+    let files = GoBackend
+        .generate_bindings(&primitive_only_api(), &lock_os_thread_config())
+        .expect("Go bindings generate");
+    let binding = files
+        .iter()
+        .find(|file| file.path.ends_with("binding.go"))
+        .expect("binding.go is generated");
+
+    assert!(
+        !binding.content.contains("\"encoding/json\""),
+        "a primitive-only package must not import encoding/json, got:\n{}",
+        binding.content
+    );
+
+    assert_real_go_build_with_header(&binding.content, PRIMITIVE_ONLY_HEADER);
 }

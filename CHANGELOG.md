@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Generated Go packages no longer import `encoding/json` when nothing uses it (#440).** The
+  import was added whenever the package had any synchronous function or any non-static method,
+  regardless of whether the generated bodies ever called `json.`. For an API whose functions and
+  methods are all primitive in and out, that is an unused import, and `go build` rejects the whole
+  package with `"encoding/json" imported and not used`. The decision now tests the assembled body
+  for a `json.` call directly.
+
 - **Generated Go wrappers pin the goroutine to one OS thread across the FFI call and the
   `lastError()` read (#439).** The native last-error slot is per-OS-thread, but the wrapper read
   it in a second cgo call after the one that set it; Go is free to reschedule the goroutine onto

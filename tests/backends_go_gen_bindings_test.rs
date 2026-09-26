@@ -209,7 +209,11 @@ fn test_basic_generation() {
 
     assert!(content.contains("import ("), "Should have import block");
     assert!(content.contains("\"fmt\""), "Should import fmt");
-    assert!(content.contains("\"encoding/json\""), "Should import encoding/json");
+    // No generated body calls json. here (Config/Mode never cross a signature); Go rejects an unused import. #440 ~keep
+    assert!(
+        !content.contains("\"encoding/json\""),
+        "must not import unused encoding/json"
+    );
     assert!(content.contains("\"unsafe\""), "Should import unsafe");
 
     assert!(content.contains("func lastError()"), "Should define lastError helper");
