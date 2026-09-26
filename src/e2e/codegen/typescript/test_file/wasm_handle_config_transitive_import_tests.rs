@@ -234,7 +234,12 @@ fn ssrf_override_engine_arg() -> ArgMapping {
 }
 
 /// Drives `build_args_and_setup` directly (rather than the full `render_test_file` pipeline used
-/// above) so the assertions can pin the exact setup-line text the SSRF override produces.
+/// above) so the assertions can pin the exact setup-line text the configured override produces.
+///
+/// `[crates.e2e] wasm_config_overrides` is the opt-in this generic mechanism requires (#444):
+/// unlike the type-name sniffing it replaced, nothing fires without a project explicitly naming
+/// the field path to force. `"ssrf.deny_private" = false` mirrors the deploy this regression
+/// originally covered, but the mechanism itself has no notion of an `ssrf` field at all.
 fn ssrf_override_setup_lines(input: serde_json::Value) -> Vec<String> {
     let type_defs = ssrf_override_config_type_defs();
     let fixture = crate::e2e::fixture::Fixture {
@@ -243,7 +248,15 @@ fn ssrf_override_setup_lines(input: serde_json::Value) -> Vec<String> {
         ..Default::default()
     };
     let args = [ssrf_override_engine_arg()];
-    let config = crate::core::config::ResolvedCrateConfig::default();
+    let config = crate::core::config::ResolvedCrateConfig {
+        e2e: Some(E2eConfig {
+            wasm_config_overrides: [("ssrf.deny_private".to_string(), toml::Value::Boolean(false))]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
 
     let (setup_lines, _call_args) = build_args_and_setup(
         &input,

@@ -2478,6 +2478,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "wasm_config_overrides": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "`handle`-arg config-object field paths to force to a fixed value when generating the\n`wasm` target only, keyed by dotted path within the handle's own config object (e.g.\n`\"ssrf.deny_private\"`).\n\n`std::env::var` is unavailable on `wasm32`, so a Rust config field whose default reads an\nenvironment variable silently falls back to its compiled-in default under wasm-bindgen,\neven though the same fixture's node/native targets see the real environment. An e2e suite\npointed at a local mock server needs such a field forced to a runtime-appropriate value on\nwasm specifically; every other target keeps the fixture's own config value unchanged.\nEmpty by default, so a project with no env-defaulted config field gets no override.\n\nEach path's value folds onto whatever the fixture already set there (creating intermediate\nobjects as needed), riding the same setter every class-typed field uses rather than a\nfollow-up mutation a wasm-bindgen detached-clone getter would silently discard.\n\n```toml\n[crates.e2e]\nwasm_config_overrides = { \"ssrf.deny_private\" = false }\n```",
+          "type": "object"
         }
       },
       "required": [

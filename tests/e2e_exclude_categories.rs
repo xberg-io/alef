@@ -71,6 +71,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         harness_extras: Default::default(),
         extra_system_libs: Default::default(),
         timeout_seconds: 1800,
+        wasm_config_overrides: Default::default(),
     }
 }
 

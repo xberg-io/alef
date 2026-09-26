@@ -285,6 +285,28 @@ pub struct E2eConfig {
     /// ```
     #[serde(default = "default_alt_host")]
     pub alt_host: String,
+    /// `handle`-arg config-object field paths to force to a fixed value when generating the
+    /// `wasm` target only, keyed by dotted path within the handle's own config object (e.g.
+    /// `"ssrf.deny_private"`).
+    ///
+    /// `std::env::var` is unavailable on `wasm32`, so a Rust config field whose default reads an
+    /// environment variable silently falls back to its compiled-in default under wasm-bindgen,
+    /// even though the same fixture's node/native targets see the real environment. An e2e suite
+    /// pointed at a local mock server needs such a field forced to a runtime-appropriate value on
+    /// wasm specifically; every other target keeps the fixture's own config value unchanged.
+    /// Empty by default, so a project with no env-defaulted config field gets no override.
+    ///
+    /// Each path's value folds onto whatever the fixture already set there (creating intermediate
+    /// objects as needed), riding the same setter every class-typed field uses rather than a
+    /// follow-up mutation a wasm-bindgen detached-clone getter would silently discard.
+    ///
+    /// ```toml
+    /// [crates.e2e]
+    /// wasm_config_overrides = { "ssrf.deny_private" = false }
+    /// ```
+    #[serde(default)]
+    #[schemars(with = "BTreeMap<String, serde_json::Value>")]
+    pub wasm_config_overrides: BTreeMap<String, toml::Value>,
 }
 
 impl E2eConfig {
@@ -526,6 +548,7 @@ impl Default for E2eConfig {
             snippets: None,
             timeout_seconds: default_e2e_test_timeout_seconds(),
             alt_host: default_alt_host(),
+            wasm_config_overrides: BTreeMap::new(),
         }
     }
 }

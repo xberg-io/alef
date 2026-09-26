@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The typescript/wasm e2e generator no longer recognises a consumer's config type by name
+  (#444).** It forced `ssrf.denyPrivate = false` on every wasm handle config whose `type_defs`
+  contained a struct named (or suffixed) `SsrfPolicy` with a `deny_private` field -- one
+  consumer's type names compiled into alef, against `project-agnostic-codegen`. The underlying
+  fact is generic: `std::env::var` is unavailable on `wasm32`, so any config field whose Rust
+  default reads an environment variable silently reverts to its compiled-in default under
+  wasm-bindgen, and only the project knows which of its fields have that property. That is now
+  stated in config instead of inferred:
+
+  ```toml
+  [crates.e2e]
+  wasm_config_overrides = { "ssrf.deny_private" = false }
+  ```
+
+  Each dotted path is folded into the fixture's own value before rendering, so it rides the one
+  setter write rather than a follow-up mutation a wasm-bindgen detached-clone getter discards.
+  **Consumers that relied on the implicit override must add the `wasm_config_overrides` entry
+  above**, or their wasm e2e suite reverts to the compiled-in default.
+
 - **Generated Go packages no longer import `encoding/json` when nothing uses it (#440).** The
   import was added whenever the package had any synchronous function or any non-static method,
   regardless of whether the generated bodies ever called `json.`. For an API whose functions and

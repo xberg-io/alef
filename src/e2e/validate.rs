@@ -9,6 +9,7 @@ use std::path::Path;
 
 mod origin_tokens;
 mod url_preservation;
+mod wasm_config_overrides;
 
 static FIXTURE_SCHEMA: &str = include_str!("schema/fixture.schema.json");
 
@@ -87,6 +88,7 @@ pub fn validate_fixtures(fixtures_dir: &Path) -> Result<Vec<ValidationError>> {
 /// 6. (D2) Field path assertions against simple return types
 /// 7. Domain-shaped assertions without required assertion recipes
 /// 8. Unrecognized `{{mock_*}}` origin-substitution tokens and a malformed `[crates.e2e] alt_host`
+/// 9. A malformed `[crates.e2e] wasm_config_overrides` dotted field-path key
 pub fn validate_fixtures_semantic(
     fixtures: &[Fixture],
     e2e_config: &E2eConfig,
@@ -113,6 +115,7 @@ pub fn validate_fixtures_semantic_with_configured_languages(
     let mut errors = Vec::new();
     validate_unsupported_in_languages(e2e_config, configured_languages, &mut errors);
     origin_tokens::validate_alt_host(e2e_config, &mut errors);
+    wasm_config_overrides::validate_wasm_config_overrides(e2e_config, &mut errors);
 
     // Per-fixture checks
     for fixture in fixtures {

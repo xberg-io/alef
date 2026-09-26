@@ -66,6 +66,8 @@ mod visitor;
 mod void_not_error_call_tests;
 mod wasm;
 #[cfg(test)]
+mod wasm_config_override_tests;
+#[cfg(test)]
 mod wasm_enum_import_tests;
 #[cfg(test)]
 mod wasm_enum_member_agreement_tests;
@@ -95,8 +97,7 @@ pub(in crate::e2e::codegen::typescript::test_file) use cache::{
     detect_cache_isolation_needs, emit_cache_isolation_setup,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use handle_values::{
-    HandleConfigContext, build_handle_config_value, collect_used_handle_config_types,
-    inject_wasm_ssrf_deny_private_override,
+    HandleConfigContext, apply_wasm_config_overrides, build_handle_config_value, collect_used_handle_config_types,
 };
 pub(super) use helpers::resolve_node_function_name;
 pub(in crate::e2e::codegen::typescript::test_file) use helpers::{

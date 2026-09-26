@@ -227,38 +227,39 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
             let is_null_config = config_value.is_null()
                 || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty());
-            // WASM: std::env::var is unavailable on wasm32 so SsrfPolicy::from_env()
-            // always returns deny_private=true. E2e suites target localhost (mock server),
-            // so we must override ssrf.denyPrivate=false on every engine config.
-            // Detect whether the config type exposes an `ssrf` field by checking the
-            // WASM type-prefix: if the type_defs include an SsrfPolicy struct, we know
-            // the binding exposes it. Emit the override whenever lang=="wasm" and the
-            // handle has a config type.
-            let wasm_has_ssrf_field = lang == "wasm"
-                && handle_config_type.is_some()
-                && type_defs.iter().any(|td| {
-                    (td.name == "SsrfPolicy" || td.name.ends_with("SsrfPolicy"))
-                        && td.fields.iter().any(|f| f.name == "deny_private")
-                });
-            if is_null_config && !wasm_has_ssrf_field {
+            // WASM: std::env::var is unavailable on wasm32, so a config field whose Rust default
+            // reads an environment variable silently falls back to its compiled-in default under
+            // wasm-bindgen, even though the same fixture's node/native targets see the real
+            // environment. `[crates.e2e] wasm_config_overrides` names the field paths (if any)
+            // that must be forced to a fixture-independent value for this reason; whether any
+            // such field exists is a project-specific fact stated in config, not something this
+            // generator infers from a type or field name. Empty by default, so a project with no
+            // env-defaulted config field configures nothing and this gate never fires.
+            let wasm_config_overrides = (lang == "wasm" && handle_config_type.is_some())
+                .then_some(config.e2e.as_ref())
+                .flatten()
+                .map(|e2e| &e2e.wasm_config_overrides)
+                .filter(|overrides| !overrides.is_empty());
+            let has_wasm_config_overrides = wasm_config_overrides.is_some();
+            if is_null_config && !has_wasm_config_overrides {
                 setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
             } else if let Some(config_type) = handle_config_type {
                 // WASM: factory pattern + setters. Covers both a populated config (the
                 // fixture's own object, `is_null_config == false`) and a null/empty config that
-                // still needs the SSRF override (`is_null_config && wasm_has_ssrf_field`, which
-                // guarantees `handle_config_type.is_some()` — see the gate above).
+                // still needs a configured override (`is_null_config && has_wasm_config_overrides`,
+                // which guarantees `handle_config_type.is_some()` — see the gate above).
                 setup_lines.push(format!(
                     "const {name}Config = {config_type}.default();",
                     name = arg.name
                 ));
                 let mut fields = config_value.as_object().cloned().unwrap_or_default();
-                // Fold the override into the fixture's own `ssrf` value (or synthesize one) so
-                // it renders through the same `ssrf = <value>` setter every other class-typed
-                // field below uses, rather than as a second, later assignment that a
-                // wasm-bindgen getter's detached-clone semantics would silently discard. See
-                // `inject_wasm_ssrf_deny_private_override`.
-                if wasm_has_ssrf_field {
-                    inject_wasm_ssrf_deny_private_override(&mut fields);
+                // Fold each configured override into the fixture's own value at that path (or
+                // synthesize one) so it renders through the same `<field> = <value>` setter every
+                // other class-typed field below uses, rather than as a second, later assignment
+                // that a wasm-bindgen getter's detached-clone semantics would silently discard.
+                // See `apply_wasm_config_overrides`.
+                if let Some(overrides) = wasm_config_overrides {
+                    apply_wasm_config_overrides(&mut fields, overrides);
                 }
                 if !fields.is_empty() {
                     // Derive nested types for the handle config type so nested objects

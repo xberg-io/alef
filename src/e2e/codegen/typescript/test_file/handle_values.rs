@@ -34,30 +34,57 @@ pub(in crate::e2e::codegen::typescript::test_file) struct HandleConfigContext<'a
     pub owner_type: Option<&'a str>,
 }
 
-/// Fold WASM's SSRF override into a handle config's fixture object before it is rendered, merging
-/// onto whatever `ssrf` value the fixture already set rather than emitting a second, later
-/// assignment.
+/// Fold `[crates.e2e] wasm_config_overrides` into a handle config's fixture object before it is
+/// rendered, merging each dotted path onto whatever value the fixture already set at that path
+/// (creating intermediate objects as needed) rather than emitting a second, later assignment.
 ///
-/// This exists because `{name}Config.ssrf.denyPrivate = false` — the form this replaced — is a
-/// silent no-op: a wasm-bindgen getter like `WasmCrawlConfig::ssrf` returns a freshly `__wrap`ped,
-/// DETACHED clone of the Rust-side value, so mutating the object that expression yields never
-/// reaches the real config. Only the parent's `ssrf` SETTER (`{name}Config.ssrf = <value>`)
-/// reaches Rust, so the override must be a value fed into that setter, not a follow-up mutation of
-/// its result. Folding the override into the JSON object here lets it ride the same
-/// [`build_handle_config_value`] traversal every other class-typed field already goes through,
-/// producing exactly one `ssrf` assignment regardless of whether the fixture also set `ssrf`
-/// itself. ~keep
-pub(in crate::e2e::codegen::typescript::test_file) fn inject_wasm_ssrf_deny_private_override(
+/// This exists because `{name}Config.<path> = <value>` — a follow-up mutation on the getter's
+/// result — is a silent no-op: a wasm-bindgen struct-field getter (e.g. a generated
+/// `WasmEngineConfig::retryPolicy` accessor) returns a freshly `__wrap`ped, DETACHED clone of the
+/// Rust-side value, so mutating the object that expression yields never reaches the real config.
+/// Only the parent's own setter (`{name}Config.<field> = <value>`) reaches Rust, so every override
+/// must be a value fed into that setter, not a follow-up mutation of its result. Folding each
+/// override into the JSON object here lets it ride the same [`build_handle_config_value`]
+/// traversal every other class-typed field already goes through, producing exactly one assignment
+/// per field regardless of whether the fixture also set that field itself.
+///
+/// A dotted path with a segment that collides with a non-object value already at that position
+/// (e.g. path `"a.b"` when the fixture already set `a` to a scalar) replaces that value with an
+/// object rather than erroring — an override the fixture author configured always wins. ~keep
+pub(in crate::e2e::codegen::typescript::test_file) fn apply_wasm_config_overrides(
     fields: &mut serde_json::Map<String, serde_json::Value>,
+    overrides: &std::collections::BTreeMap<String, toml::Value>,
 ) {
-    match fields.get_mut("ssrf").and_then(|v| v.as_object_mut()) {
-        Some(ssrf) => {
-            ssrf.insert("deny_private".to_string(), serde_json::Value::Bool(false));
-        }
+    for (path, value) in overrides {
+        let Ok(json_value) = serde_json::to_value(value) else {
+            continue;
+        };
+        set_dotted_path(fields, path, json_value);
+    }
+}
+
+/// Set `value` at `path` (dot-separated field names) within `fields`, creating any missing
+/// intermediate object along the way. An empty path segment (a leading/trailing/doubled `.`) is
+/// treated as a literal (empty-string) key rather than skipped, matching how every other
+/// unresolved key in this generator falls through to a plain assignment instead of being silently
+/// dropped.
+fn set_dotted_path(fields: &mut serde_json::Map<String, serde_json::Value>, path: &str, value: serde_json::Value) {
+    match path.split_once('.') {
         None => {
-            let mut ssrf = serde_json::Map::new();
-            ssrf.insert("deny_private".to_string(), serde_json::Value::Bool(false));
-            fields.insert("ssrf".to_string(), serde_json::Value::Object(ssrf));
+            fields.insert(path.to_string(), value);
+        }
+        Some((head, rest)) => {
+            let entry = fields
+                .entry(head.to_string())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if !entry.is_object() {
+                *entry = serde_json::Value::Object(serde_json::Map::new());
+            }
+            set_dotted_path(
+                entry.as_object_mut().expect("just ensured this entry is an object"),
+                rest,
+                value,
+            );
         }
     }
 }
