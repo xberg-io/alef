@@ -617,7 +617,7 @@ pub mod toolchain {
     pub const SWIFT_MIN_IOS: &str = "16.0";
 
     // renovate: datasource=gradle-version depName=gradle
-    pub const GRADLE_VERSION: &str = "9.7.1";
+    pub const GRADLE_VERSION: &str = "9.8.0";
 
     pub const ANDROID_COMPILE_SDK: &str = "36";
     pub const ANDROID_MIN_SDK: &str = "24";
