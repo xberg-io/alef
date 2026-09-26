@@ -313,6 +313,15 @@ pub(super) fn map_type_to_binding(ty: &TypeRef) -> TypeRef {
 }
 
 /// Generate field decoding logic for a single field.
+///
+/// `FieldDef` carries optionality in two places: `ty` is `TypeRef::Optional` only for a nested
+/// option (`Option<Option<T>>`), while a plain `Option<T>` is recorded as `ty: T` with
+/// `optional: true`. The struct emitter reads the flag and declares `Option<T>`; this decoder
+/// matched on `ty` alone and so assigned a bare `T` into it. For html-to-markdown's
+/// `ConversionOptions::base_url` (`Option<String>`) that produced
+/// `opts.base_url = String::try_from(&v)...?;` — `error[E0308]: expected Option<String>, found
+/// String`, which broke the whole R package build. `base_url` was simply the first `Option<String>`
+/// on that struct, so nothing had exercised the combination before. ~keep
 pub(super) fn gen_field_decoder(
     code: &mut String,
     field: &FieldDef,
@@ -323,6 +332,58 @@ pub(super) fn gen_field_decoder(
         return;
     }
 
+    // ~keep Emit into a buffer so the assignment can be wrapped once, uniformly, instead of
+    // teaching each of the ten type arms about optionality. The wrap is idempotent: some arms
+    // (the `optional_numeric_field` template) already emit `Some(...)` themselves, and keying the
+    // decision off `field.ty` instead got that wrong — `Option<usize>` reaches the numeric arm
+    // through `map_type_to_binding`, not as a `TypeRef::Optional`, so it produced
+    // `Some(Some(f64_val))`. Deciding from the emitted text is what holds for every arm.
+    if field.optional {
+        let mut decoded = String::new();
+        gen_field_decoder_unwrapped(&mut decoded, field, enum_defs, type_defs);
+        code.push_str(&wrap_assigned_value_in_some(&decoded, &field.name));
+        return;
+    }
+    gen_field_decoder_unwrapped(code, field, enum_defs, type_defs);
+}
+
+/// Wrap the right-hand side of `opts.<field> = <value>;` in `Some(...)`, unless it already is.
+///
+/// Operates on this module's own output, where the assignment is always a single line ending in
+/// `;`, so the value is exactly the text between the `= ` and that terminator. A decoder that
+/// emits no assignment at all (an unsupported type falling through to `_ => {}`) is returned
+/// unchanged rather than silently corrupted, and a value the arm already wrapped is left alone so
+/// the transform cannot produce `Some(Some(_))`. ~keep
+fn wrap_assigned_value_in_some(decoded: &str, field_name: &str) -> String {
+    let assignment = format!("opts.{field_name} = ");
+    let mut out = String::with_capacity(decoded.len() + 8);
+    for line in decoded.split_inclusive('\n') {
+        match line.find(&assignment).and_then(|start| {
+            let value_start = start + assignment.len();
+            line.rfind(';')
+                .filter(|end| *end > value_start)
+                .map(|end| (value_start, end))
+        }) {
+            Some((value_start, end)) if !line[value_start..end].starts_with("Some(") => {
+                out.push_str(&line[..value_start]);
+                out.push_str("Some(");
+                out.push_str(&line[value_start..end]);
+                out.push(')');
+                out.push_str(&line[end..]);
+            }
+            Some(_) => out.push_str(line),
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+fn gen_field_decoder_unwrapped(
+    code: &mut String,
+    field: &FieldDef,
+    enum_defs: &HashMap<&str, &EnumDef>,
+    type_defs: &HashMap<&str, &TypeDef>,
+) {
     let binding_ty = map_type_to_binding(&field.ty);
 
     let field_name = &field.name;
@@ -534,4 +595,93 @@ fn gen_optional_numeric_field(field: &FieldDef, decode_type: &str, cast_type: Op
             cast_type => cast_type,
         },
     )
+}
+
+#[cfg(test)]
+mod optional_field_decoder_tests {
+    use super::*;
+
+    fn field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            ..Default::default()
+        }
+    }
+
+    fn decode(field: &FieldDef) -> String {
+        let mut code = String::new();
+        gen_field_decoder(&mut code, field, &HashMap::new(), &HashMap::new());
+        code
+    }
+
+    /// `ConversionOptions::base_url` — the shape that broke the R package build. The struct
+    /// emitter declares `Option<String>` from `optional: true`, so the decoder must assign a
+    /// `Some(...)` or the generated crate does not compile. ~keep
+    #[test]
+    fn an_optional_string_field_is_assigned_as_some() {
+        let decoded = decode(&field("base_url", TypeRef::String, true));
+
+        assert!(
+            decoded.contains("opts.base_url = Some(String::try_from(&v).map_err(|e| format!(\"base_url: {e}\"))?);"),
+            "optional string must be wrapped, got:\n{decoded}"
+        );
+    }
+
+    #[test]
+    fn a_required_string_field_is_assigned_bare() {
+        let decoded = decode(&field("output_format", TypeRef::String, false));
+
+        assert!(
+            decoded.contains("opts.output_format = String::try_from(&v)"),
+            "required string must not be wrapped, got:\n{decoded}"
+        );
+        // ~keep Assert on the assignment, not the whole block: every arm opens with
+        // `if let Some(v) = list_get(...)`, so a bare `contains("Some(")` is true regardless.
+        assert!(
+            !decoded.contains("opts.output_format = Some("),
+            "required string must not be wrapped, got:\n{decoded}"
+        );
+    }
+
+    #[test]
+    fn an_optional_bool_and_an_optional_string_vec_are_also_wrapped() {
+        let boolean = decode(&field("wrap", TypeRef::Primitive(PrimitiveType::Bool), true));
+        assert!(
+            boolean.contains("opts.wrap = Some(bool::try_from(&v)"),
+            "got:\n{boolean}"
+        );
+
+        let strings = decode(&field("strip_tags", TypeRef::Vec(Box::new(TypeRef::String)), true));
+        assert!(strings.contains("opts.strip_tags = Some(vec);"), "got:\n{strings}");
+    }
+
+    /// A type the decoder has no arm for emits nothing; the wrapper must not invent an assignment
+    /// or corrupt the empty output. ~keep
+    #[test]
+    fn an_unsupported_optional_type_emits_nothing_rather_than_broken_code() {
+        let decoded = decode(&field("visitor_hooks", TypeRef::Vec(Box::new(TypeRef::Char)), true));
+
+        assert_eq!(decoded, "", "unsupported type must stay empty, got:\n{decoded}");
+    }
+
+    /// An optional numeric reaches the `optional_numeric_field` template, which emits its own
+    /// `Some(...)`. This is the case that produced `Some(Some(f64_val))` and failed to compile
+    /// when the wrap was keyed off `field.ty` instead of the emitted text. ~keep
+    #[test]
+    fn an_optional_numeric_is_not_double_wrapped() {
+        for ty in [
+            TypeRef::Primitive(PrimitiveType::Usize),
+            TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+        ] {
+            let decoded = decode(&field("max_depth", ty, true));
+
+            assert!(!decoded.contains("Some(Some("), "must not double-wrap, got:\n{decoded}");
+            assert!(
+                decoded.contains("opts.max_depth = Some("),
+                "must still wrap once, got:\n{decoded}"
+            );
+        }
+    }
 }
