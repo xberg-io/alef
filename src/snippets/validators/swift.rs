@@ -392,7 +392,7 @@ mod tests {
         let generated = out.join("Intermediates.noindex/GeneratedModuleMaps-linux-aarch64");
         std::fs::create_dir_all(&binary_directory).expect("bin directory");
         std::fs::create_dir_all(&generated).expect("generated modulemap directory");
-        std::fs::write(binary_directory.join("HtmlToMarkdown.swiftmodule"), "").expect("module");
+        std::fs::write(binary_directory.join("SampleFixture.swiftmodule"), "").expect("module");
         std::fs::write(generated.join("RustBridgeC.modulemap"), "module RustBridgeC {}").expect("modulemap");
         std::fs::write(generated.join("ignored.txt"), "not a modulemap").expect("decoy");
 

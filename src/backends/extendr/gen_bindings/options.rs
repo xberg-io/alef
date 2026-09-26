@@ -317,11 +317,11 @@ pub(super) fn map_type_to_binding(ty: &TypeRef) -> TypeRef {
 /// `FieldDef` carries optionality in two places: `ty` is `TypeRef::Optional` only for a nested
 /// option (`Option<Option<T>>`), while a plain `Option<T>` is recorded as `ty: T` with
 /// `optional: true`. The struct emitter reads the flag and declares `Option<T>`; this decoder
-/// matched on `ty` alone and so assigned a bare `T` into it. For html-to-markdown's
-/// `ConversionOptions::base_url` (`Option<String>`) that produced
-/// `opts.base_url = String::try_from(&v)...?;` — `error[E0308]: expected Option<String>, found
-/// String`, which broke the whole R package build. `base_url` was simply the first `Option<String>`
-/// on that struct, so nothing had exercised the combination before. ~keep
+/// matched on `ty` alone and so assigned a bare `T` into it. For the first `Option<String>` field
+/// on an options struct that produced
+/// `opts.<field> = String::try_from(&v)...?;` — `error[E0308]: expected Option<String>, found
+/// String`, which broke the whole R package build. Nothing had exercised the combination before,
+/// because it needs a plain `Option<T>` on a struct the named-list decoder handles. ~keep
 pub(super) fn gen_field_decoder(
     code: &mut String,
     field: &FieldDef,
