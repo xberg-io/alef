@@ -278,6 +278,35 @@ fn walk_items(
     }
 }
 
+/// Repo-relative paths of `.rs` files pulled in as source *text* by `include_str!`, resolved
+/// against the directory of the file carrying the macro (the way `rustc` resolves it).
+///
+/// A file under a `testdata/` directory is not a crate module: it is the source of a throwaway
+/// cargo project this crate generates, compiles and runs at test time, so its `#[test]`
+/// functions run in that project rather than in this one. Reachability via `mod` is the wrong
+/// question for it. Being `include_str!`d is the evidence that it is live — a stray file in
+/// `testdata/` that nothing includes still fails the gate. ~keep
+fn include_str_targets(repo_root: &Path, sources: &[String]) -> BTreeSet<PathBuf> {
+    let mut targets = BTreeSet::new();
+    for source in sources {
+        let relative = PathBuf::from(source);
+        let Some(dir) = relative.parent().map(Path::to_path_buf) else {
+            continue;
+        };
+        let text =
+            std::fs::read_to_string(repo_root.join(&relative)).unwrap_or_else(|error| panic!("read {source}: {error}"));
+        for capture in text.split("include_str!(\"").skip(1) {
+            let Some((literal, _)) = capture.split_once('"') else {
+                continue;
+            };
+            if literal.ends_with(".rs") {
+                targets.insert(normalize(dir.join(literal)));
+            }
+        }
+    }
+    targets
+}
+
 /// Every file reachable from a crate root (`src/lib.rs`, `src/main.rs`), by real `mod`
 /// resolution.
 fn reachable_src_files(repo_root: &Path) -> BTreeSet<PathBuf> {
@@ -309,10 +338,24 @@ fn reachable_src_files(repo_root: &Path) -> BTreeSet<PathBuf> {
 fn every_src_test_file_is_reachable_via_mod_declaration() {
     let repo_root = repo_root();
     let reachable = reachable_src_files(&repo_root);
+    let sources = all_src_sources();
+    let included = include_str_targets(&repo_root, &sources);
+    assert!(
+        !included.is_empty(),
+        "no `include_str!(\"*.rs\")` target resolved — the exemption below would be vacuous and \
+         this gate would be asserting nothing about testdata"
+    );
 
     let mut offenders = Vec::new();
-    for path in all_src_sources() {
+    for path in sources {
         let relative = PathBuf::from(&path);
+        let is_included_testdata = included.contains(&relative)
+            && relative
+                .components()
+                .any(|component| component.as_os_str() == "testdata");
+        if is_included_testdata {
+            continue;
+        }
         let file = parse(&repo_root, &relative);
         if file_contains_test_fn(&file) && !reachable.contains(&relative) {
             offenders.push(path);
