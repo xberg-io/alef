@@ -142,6 +142,15 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // down and `VerifyConfig`'s module doc for why a run that narrowed its own scope must say
     // so rather than silently passing. ~keep
     let mut ephemeral_excluded_count = 0usize;
+    // How many non-`.rs`/`.md` marked files the alef#436 drift check actually ran a real `poly
+    // fmt --fix` pass over, versus how many it had to skip because `poly` is not installed --
+    // see `helpers::format_drift`'s module doc. Reported unconditionally below (never folded
+    // into a pass/fail condition) so a missing formatter is a loud, counted gap rather than a
+    // silent pass: a comparison that examined nothing must never look identical to one that found
+    // a clean tree. ~keep
+    let mut format_drift_compared = 0usize;
+    let mut format_drift_skipped = 0usize;
+    let mut format_drift_staging_errors = 0usize;
     for resolved_cfg in &crates_to_process {
         let languages = resolve_languages(resolved_cfg, None)?;
         let api = pipeline::extract(resolved_cfg, config_path, false)?;
@@ -180,6 +189,9 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             missing_gitignored_generated_files.extend(missing_gitignored);
             frozen_generated_files.extend(found.frozen);
             drifted_generated_files.extend(found.drifted);
+            format_drift_compared += found.format_drift_compared;
+            format_drift_skipped += found.format_drift_skipped;
+            format_drift_staging_errors += found.format_drift_staging_errors;
             stage_failures.extend(
                 found
                     .stage_failures
@@ -336,6 +348,11 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             "Version consistency: {total_version_checks} manifest(s) checked, all consistent."
         ));
     }
+    crate::bin_cli::helpers::report_format_drift_coverage(
+        format_drift_compared,
+        format_drift_skipped,
+        format_drift_staging_errors,
+    );
     // The consumer's vendored copy of alef's own `alef.toml` JSON Schema, if they keep one. It
     // is not a generated binding and nothing here writes it -- see `verify_schema`'s module doc
     // for why this reports only, why it speaks only about a file that already exists at the path

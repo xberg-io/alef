@@ -41,7 +41,7 @@ fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
     std::fs::write(dir.path().join("lib.rs"), &old_rendered[0].content).unwrap();
     let files = vec![gen_file("lib.rs", "pub fn greet() -> &'static str { \"new\" }\n")];
 
-    let drifted = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
 
     assert_eq!(
         drifted,
@@ -66,7 +66,8 @@ fn drifted_marked_paths_is_silent_once_the_marked_file_matches_the_fresh_render(
     std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
     let files = vec![file];
 
-    assert!(drifted_marked_paths(&files, dir.path()).is_empty());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    assert!(drifted.is_empty());
 }
 
 /// An unmarked pre-existing file is `frozen_managed_paths`'s condition, not this one's --
@@ -77,34 +78,82 @@ fn drifted_marked_paths_ignores_a_file_that_carries_no_marker_at_all() {
     std::fs::write(dir.path().join("lib.rs"), "pub fn greet() {}\n").unwrap();
     let files = vec![gen_file("lib.rs", "pub fn greet() { /* changed */ }\n")];
 
-    assert!(drifted_marked_paths(&files, dir.path()).is_empty());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    assert!(drifted.is_empty());
 }
 
-/// THE MEASURED SCOPE LIMIT (see `drifted_marked_paths`'s doc for the full evidence): a marked
-/// TOML file, even with genuinely different content, must not be reported. `alef all`'s
-/// "Formatting generated files..." stage runs `poly fmt --fix` (taplo for TOML, ruff for
-/// Python) over every path it just wrote, AFTER this in-memory render is computed --
-/// `normalize_content` has no TOML/Python emulation of that pass, so comparing against it would
-/// report every one of poly's own reformatting as drift on a tree `alef all` just produced
-/// cleanly. Regression coverage for exactly that: `verify_reports_an_incomplete_generation_run_
-/// instead_of_ordinary_staleness` (and two siblings) in `core_commands::tests` broke on a real
-/// `alef all` fixture the first time this check ran over every extension. ~keep
+/// THE alef#436 SECOND-HALF FIX: a marked TOML file whose content genuinely changed must be
+/// reported drifted, even though `normalize_content` has no TOML emulation at all --
+/// `drifted_marked_paths` no longer relies on that prediction for a non-`.rs`/`.md` extension. It
+/// instead runs a REAL `poly fmt --fix` pass over the rendered bytes (see
+/// `format_drift::real_formatter_drift`'s module doc) and compares the result to disk, which is
+/// exact rather than approximate and needs no per-language emulation to get right. Skips itself
+/// when `poly` is not on the host running the suite -- the branch for that case is proven
+/// host-independently via `format_drift::tests::skips_and_counts_every_candidate_when_poly_is_
+/// unavailable`'s injectable seam instead.
 #[test]
-fn drifted_marked_paths_does_not_check_an_extension_poly_fmt_can_still_reformat() {
+fn drifted_marked_paths_now_catches_a_toml_file_via_the_real_poly_fmt_pass() {
+    if !crate::cli::pipeline::is_tool_available("poly") {
+        return;
+    }
     let dir = tempfile::tempdir().expect("tempdir");
     let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
     std::fs::write(
         dir.path().join("pyproject.toml"),
-        format!("{header}\n[project]\nname=\"old\"\n"),
+        format!("{header}\n[project]\nname = \"old\"\n"),
     )
     .unwrap();
     let files = vec![gen_file("pyproject.toml", "[project]\nname=\"new\"\n")];
 
-    assert!(
-        drifted_marked_paths(&files, dir.path()).is_empty(),
-        "TOML (and every other extension `normalize_content` does not fully normalize) is out of \
-         scope for this check until it can predict poly fmt's final bytes"
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path());
+
+    assert_eq!(
+        drifted,
+        vec![dir.path().join("pyproject.toml").display().to_string()],
+        "a marked TOML file whose source changed must now be reported drifted via the real \
+         formatter pass, not silently predicted-and-missed"
     );
+    assert_eq!(
+        stats.compared, 1,
+        "the real-formatter pass must have actually examined this file"
+    );
+    assert_eq!(stats.skipped_missing_formatter, 0);
+}
+
+/// THE CONTROL for the fix above: a marked TOML file that is already up to date -- even after a
+/// real `poly fmt --fix` pass reformats the fresh render -- must not be reported. Without this,
+/// every already-formatted TOML file in a clean tree would fail `alef verify` forever, which is
+/// exactly the regression `verify_reports_an_incomplete_generation_run_instead_of_ordinary_
+/// staleness` (and two siblings) caught the first time this check ran over every extension using
+/// a byte-for-byte prediction instead of the real formatter.
+#[test]
+fn drifted_marked_paths_is_silent_once_a_toml_file_matches_the_real_formatters_output() {
+    if !crate::cli::pipeline::is_tool_available("poly") {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
+    let rendered_raw = "[project]\nname=\"same\"\n";
+    // Build the on-disk fixture by running the SAME rendered content through the SAME real
+    // `poly fmt` pass `drifted_marked_paths` itself uses, rather than hand-formatting a fixture,
+    // so this stays correct regardless of which poly version or TOML formatting opinion the host
+    // running the suite has installed.
+    let scratch = dir.path().join("scratch.toml");
+    std::fs::write(&scratch, format!("{header}\n{rendered_raw}")).unwrap();
+    crate::cli::pipeline::poly_format_strict(std::slice::from_ref(&scratch), dir.path())
+        .expect("poly fmt must succeed");
+    let converged = std::fs::read_to_string(&scratch).unwrap();
+    std::fs::write(dir.path().join("pyproject.toml"), &converged).unwrap();
+    std::fs::remove_file(&scratch).ok();
+    let files = vec![gen_file("pyproject.toml", rendered_raw)];
+
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path());
+
+    assert!(
+        drifted.is_empty(),
+        "an already up-to-date TOML file must not be reported drifted: {drifted:?}"
+    );
+    assert_eq!(stats.compared, 1);
 }
 
 /// THE CAVEAT this whole check has to get right: a self-marking backend (pyo3's `lib.rs`,
@@ -136,7 +185,7 @@ fn drifted_marked_paths_reports_a_self_marking_file_whose_body_no_longer_matches
         &format!("{header}Describes `greet`, which says hi warmly.\n"),
     )];
 
-    let drifted = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
 
     assert_eq!(
         drifted,
@@ -157,5 +206,6 @@ fn drifted_marked_paths_is_silent_once_a_self_marking_file_matches() {
     std::fs::write(dir.path().join("reference.md"), &content).unwrap();
     let files = vec![gen_file_unheadered("reference.md", &content)];
 
-    assert!(drifted_marked_paths(&files, dir.path()).is_empty());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    assert!(drifted.is_empty());
 }

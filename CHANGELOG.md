@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef verify` now catches stale formatted output for every generated language, not just
+  Rust and Markdown (#436).** The drift check added in `683fe82ec` was scoped to `.rs`/`.md`
+  because `normalize_content` can only predict `poly fmt`'s final bytes for those two; every
+  other poly-formatted file (Python, JSON, TOML, and whatever poly delegates to a native tool
+  for) could regenerate stale and still pass. Rather than growing a per-language emulation of an
+  engine alef does not own, verify now runs a real `poly fmt --fix` over each candidate's freshly
+  rendered bytes -- batched into one subprocess call per crate -- and compares the result to
+  disk. That is exact rather than approximate, and it degrades to a plain content comparison for
+  any extension poly has no engine for. When `poly` is absent, the count of unchecked files is
+  reported on every run instead of passing silently.
+
 - **`[crates.e2e] alt_host` now actually reaches the running mock server (#442).** The setting
   validated and generated cleanly but had no runtime effect, so `{{mock_alt_origin}}` and
   `{{mock_sub_origin}}` always resolved against the built-in `localhost` default. Two independent
