@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.97.1] - 2026-09-26
+
 ### Fixed
 
 - **`alef verify` now catches stale formatted output for every generated language, not just
