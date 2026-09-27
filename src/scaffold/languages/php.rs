@@ -113,8 +113,9 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 /// already be satisfied (e.g. `tower`/`tokenizer` when the core dependency line already requests
 /// `full`). Used only to keep `cfg_forwarding` from declaring these as toggleable php-crate
 /// `[features]`: PHP never gates a function by cfg (see `rust_bindings.rs::generate_bindings`),
-/// so none of these names should appear there regardless of whether anything needed adding for
-/// them. ~keep
+/// so a name that is ONLY referenced by a function's cfg should not appear there. A name a
+/// function shares with a struct field's cfg is a different story -- see
+/// [`php_field_referenced_feature_names`] and [`php_declared_features`]. ~keep
 pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for func in &api.functions {
@@ -123,6 +124,43 @@ pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSe
         }
         if let Some(cfg) = &func.cfg {
             crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
+        }
+    }
+    out
+}
+
+/// Every feature name referenced by a struct field's `cfg` predicate on a host-owned, non-trait
+/// type -- i.e. the names [`php_declared_features`] must keep even when
+/// [`php_function_referenced_feature_names`] would otherwise remove them for being
+/// function-owned.
+///
+/// A field's cfg gate is copied (narrowed through
+/// [`crate::codegen::conversions::ConversionConfig::restrict_field_gate`]) verbatim onto the
+/// generated `From` impl that converts between the core and binding types -- unlike a function's
+/// or a method's cfg, which is never re-emitted as a runtime `#[cfg(...)]` at all (PHP always
+/// emits every function/method into its facade unconditionally; see
+/// `php_function_referenced_feature_names`'s doc). So a feature name a field references must stay
+/// declared here for that copied gate to compile, regardless of whether a function also
+/// references it.
+///
+/// Enum variants and whole types are deliberately NOT walked here: a variant's cfg fate is
+/// resolved independently of this set, before `rust_bindings` ever narrows a field gate against
+/// it (`enum_cfg::specialize` looks at the crate's actual forced dependency features, not just
+/// this declared set, and bakes the answer into the variant's own `cfg` -- dropping it to `None`
+/// when the feature turns out to be unconditionally active); a whole type is dropped from the IR
+/// entirely before codegen when its own cfg is unsatisfied, so no runtime `#[cfg]` for it is ever
+/// emitted either. Neither one needs its feature name kept declared just to satisfy a `#[cfg]`
+/// codegen never emits for it. ~keep
+fn php_field_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for typ in &api.types {
+        if typ.is_trait || !crate::codegen::cfg::is_host_owned_rust_path(&api.crate_name, &typ.rust_path) {
+            continue;
+        }
+        for field in &typ.fields {
+            if let Some(cfg) = &field.cfg {
+                crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
+            }
         }
     }
     out
@@ -137,10 +175,19 @@ pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSe
 /// `unexpected_cfg_condition_value` under `-D warnings`. The comment on that stripping still says
 /// PHP "never gates a function by cfg", which stayed true, but it is a FIELD gate that reaches the
 /// table's namespace, so the two sets have to be derived together rather than each rebuilt.
+///
+/// A name referenced by BOTH a top-level function and a struct field's cfg is kept: removing it
+/// (alef-issue #451) left the field's own gate naming a feature this crate's `[features]` table
+/// never declared, which `restrict_field_gate`'s `Unreachable` branch could only paper over by
+/// falling back to that same undeclared gate -- `unexpected_cfg_condition_value` on the gate
+/// itself, then a missing struct-literal field (E0063) once rustc evaluated it false. ~keep
 pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features: &[&str]) -> BTreeSet<String> {
     let mut features = crate::codegen::cfg::collect_cfg_features(api);
+    let field_needed = php_field_referenced_feature_names(api);
     for name in &php_function_referenced_feature_names(api) {
-        features.remove(name);
+        if !field_needed.contains(name) {
+            features.remove(name);
+        }
     }
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features

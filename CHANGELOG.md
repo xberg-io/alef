@@ -70,6 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `catch (ParsingException e)` (or any other typed catch) works and `getMessage()` carries the
   native error text.
 
+- **php: a cfg-gated top-level function no longer strips its feature from `[features]` when a
+  field also needs it declared (#451).** `php_declared_features` started from every feature name
+  any cfg gate referenced, then removed every name a top-level function's cfg referenced --
+  correct for the function (PHP always emits it unconditionally into the facade and forces the
+  feature on the core dependency line instead), but wrong when a struct field's cfg named that
+  same feature: the field's gate is copied onto the generated `From` impl and narrowed against
+  that same declared set, so the stripped name left the field's own gate naming a feature the
+  crate's `[features]` table never declared. rustc evaluated it false, dropping the field from a
+  struct literal required to fully initialize it (E0063). A function-referenced feature name is
+  now only removed when no field anywhere in the surface still needs it declared.
+
 
 ## [0.98.0] - 2026-09-27
 

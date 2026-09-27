@@ -311,17 +311,23 @@ impl<'a> ConversionConfig<'a> {
     /// reference. See `codegen::cfg::restrict_cfg_gate_to_declared` for the term-by-term
     /// semantics.
     ///
-    /// A gate reaching this call site was already proven satisfiable by this same feature set
-    /// upstream -- the caller that decided to keep this field at all
-    /// (`never_skip_cfg_field_names`) used `cfg_feature_satisfied` against the identical set a
-    /// consistent caller passes here. So `restrict_cfg_gate_to_declared` returning
-    /// `Unreachable` at this call site means the caller populated
-    /// `never_skip_cfg_field_names` and `declared_features` from two different feature sets --
-    /// a logic error, not a real reachable state for a consistent caller. Neither generated
-    /// `From` impl has a template-safe way to drop the field reference this guards in every
-    /// code path (`core_to_binding_impl` has no `..Default::default()` fallback at all), so the
-    /// conservative choice on that unreachable branch is to fall back to the gate unrestricted
-    /// rather than emit a struct literal missing a field. ~keep
+    /// `Unreachable` requires that NONE of the feature names this specific field's own gate
+    /// mentions are declared. For PHP (the only caller that passes `Some` here), that cannot
+    /// happen for a field gate reached through the normal codegen path: every name any struct
+    /// field's cfg predicate mentions, anywhere in the API surface, is unconditionally folded
+    /// into `declared_features` by construction --
+    /// `scaffold::languages::php::php_declared_features` only ever removes a name that is
+    /// referenced *exclusively* by a top-level function's cfg (`php_function_referenced_feature_names`)
+    /// and never a name a field also needs (`php_field_referenced_feature_names`). This is NOT the
+    /// same claim as "the same feature set `never_skip_cfg_field_names` used" -- that field-keep
+    /// decision is checked against a wider, separately-computed closure
+    /// (`enabled_features_for_language`), and the two sets disagreeing is exactly what let
+    /// alef-issue #451 reach this branch: a top-level function shared a field's feature name, that
+    /// name was stripped from `declared_features`, and this branch silently fell back to
+    /// re-emitting the now-undeclared gate instead of surfacing the drift. Neither generated
+    /// `From` impl has a template-safe way to drop the field reference this guards in every code
+    /// path (`core_to_binding_impl` has no `..Default::default()` fallback at all), so the
+    /// fallback stays as a last-resort safety net, not the expected path. ~keep
     pub(crate) fn restrict_field_gate<'g>(&self, gate: &'g str) -> std::borrow::Cow<'g, str> {
         match self.declared_features {
             Some(declared) => match crate::codegen::cfg::restrict_cfg_gate_to_declared(gate, declared) {
