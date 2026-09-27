@@ -58,6 +58,7 @@ fn generated_swift(api: &ApiSurface) -> String {
 #[test]
 fn async_return_sendable_extensions_are_stable_across_repeated_generation() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_core".to_string(),
         version: "0.1.0".to_string(),
         functions: vec![

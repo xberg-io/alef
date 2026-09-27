@@ -50,6 +50,7 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
 fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -98,6 +99,7 @@ fn test_pyclass_enum_variants_use_upper_snake_case_pyo3_name() {
 fn test_options_py_does_not_emit_screaming_alias_lines() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -166,6 +168,7 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
 fn test_options_py_escapes_python_keyword_variant_names() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -251,6 +254,7 @@ fn test_api_py_void_function_no_redundant_return() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -349,6 +353,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -533,6 +538,7 @@ fn test_native_import_no_stray_blank_line_after_open_paren() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -605,6 +611,7 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
 
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -695,6 +702,7 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
 
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

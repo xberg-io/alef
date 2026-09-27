@@ -76,6 +76,7 @@ fn test_basic_generation() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -268,6 +269,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -338,6 +340,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
 fn dts_preserves_native_argument_order_for_defaultable_config_param() {
     let backend = NapiBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -470,6 +473,7 @@ fn test_type_mapping() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -546,6 +550,7 @@ fn test_enum_generation() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -651,6 +656,7 @@ fn test_binding_excluded_field_is_hidden_from_napi_api() {
     hidden.binding_exclusion_reason = Some("marked with #[alef(skip)]".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -754,6 +760,7 @@ fn test_generated_header() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -789,6 +796,7 @@ fn test_async_function() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -863,6 +871,7 @@ fn test_methods_generation() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -992,6 +1001,7 @@ fn test_error_types() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1086,6 +1096,7 @@ fn test_opaque_type() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1178,6 +1189,7 @@ fn test_optional_and_default_fields() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1255,6 +1267,7 @@ fn test_async_method() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1359,6 +1372,7 @@ fn test_static_method_with_error() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1460,6 +1474,7 @@ fn test_map_types() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1600,6 +1615,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![make_type("SystemMessage"), make_type("UserMessage")],
@@ -1777,6 +1793,7 @@ fn make_async_method_napi(name: &str, return_type: TypeRef) -> MethodDef {
 
 fn make_api_napi() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -2283,6 +2300,7 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
     let mut shutdown = make_method_napi("shutdown", TypeRef::Unit, true, false);
     shutdown.has_default_impl = true;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![
             make_trait_def_napi(
                 "OcrBackend",
@@ -2466,6 +2484,7 @@ fn test_capsule_types_end_to_end() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def()],
@@ -2543,6 +2562,7 @@ fn test_capsule_types_dts_generation() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def()],
@@ -2667,6 +2687,7 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def(), make_language_registry_type_def()],
@@ -2757,6 +2778,7 @@ fn test_capsule_types_method_on_opaque_dts() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_language_type_def(), make_language_registry_type_def()],
@@ -2816,6 +2838,7 @@ fn test_napi_js_name_on_non_opaque_struct() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2878,6 +2901,7 @@ fn test_napi_js_name_on_opaque_struct() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2940,6 +2964,7 @@ fn test_napi_js_name_on_string_enum() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3024,6 +3049,7 @@ fn test_dts_dto_fields_are_readonly() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3104,6 +3130,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3194,6 +3221,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
 fn struct_doc_and_field_docs_emitted_as_rustdoc() {
     let backend = NapiBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3266,6 +3294,7 @@ fn struct_doc_and_field_docs_emitted_as_rustdoc() {
 fn enum_and_variant_docs_emitted_as_rustdoc() {
     let backend = NapiBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3352,6 +3381,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
 fn function_doc_emitted_as_rustdoc_single_and_multiline() {
     let backend = NapiBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3431,6 +3461,7 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3507,6 +3538,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
         ..Default::default()
     }];
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3755,6 +3787,7 @@ fn napi_constructor_mutex_wraps_when_type_has_mut_methods() {
         ..Default::default()
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![counter],
@@ -3872,6 +3905,7 @@ fn napi_emits_a_cfg_gated_method_with_its_gate_above_the_napi_attribute() {
     let backend = NapiBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

@@ -151,6 +151,7 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![renderer],
@@ -233,6 +234,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![renderer],
@@ -281,6 +283,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
 #[test]
 fn bool_function_uses_widened_long_ffi_layout_and_boolean_wrapper_result() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -363,6 +366,7 @@ fn bool_function_uses_widened_long_ffi_layout_and_boolean_wrapper_result() {
 #[test]
 fn string_return_uses_len_companion_and_bounded_decode() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -501,6 +505,7 @@ fn named_param_from_json_is_checked_before_primary_call() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],
@@ -577,6 +582,7 @@ fn test_basic_generation() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -876,6 +882,7 @@ package = "dev.example"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![hidden_type, visible_type],
@@ -933,6 +940,7 @@ fn test_duplicate_error_variant_exception_classes_are_emitted_once() {
         doc: "Depth limit exceeded.".to_string(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -997,6 +1005,7 @@ fn test_package_default_when_unconfigured() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1038,6 +1047,7 @@ fn test_optional_field_defaults_in_builder() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1395,6 +1405,7 @@ fn test_no_standalone_builder_java_file_emitted() {
     }
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1503,6 +1514,7 @@ fn test_serde_default_boxed_boolean_true_restored_in_compact_ctor() {
     }];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1563,6 +1575,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1777,6 +1790,7 @@ type = "ChatCompletionRequest"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -1959,6 +1973,7 @@ fn test_bytes_parameter_expansion_in_ffi_descriptor_and_invoke() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2074,6 +2089,7 @@ fn test_dto_emits_as_record_with_fields_only() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2217,6 +2233,7 @@ fn test_opaque_handle_returning_method_does_not_free_result() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![tree, cursor],
@@ -2255,6 +2272,7 @@ fn test_opaque_handle_type_remains_class() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2317,6 +2335,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2508,6 +2527,7 @@ type = "EventRequest"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "stream_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -2667,6 +2687,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2772,6 +2793,7 @@ fn test_plain_dto_emits_as_record_not_sealed_class() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2886,6 +2908,7 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3181,6 +3204,7 @@ type = "EventRequest"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "stream_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3307,6 +3331,7 @@ type = "EventRequest"
 fn facade_unwraps_optional_string_return_via_or_else_null() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3378,6 +3403,7 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
 fn optional_named_method_body_wraps_via_optional_of() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3499,6 +3525,7 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3614,6 +3641,7 @@ fn json_util_centralizes_from_json_deserialization() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3711,6 +3739,7 @@ fn javadoc_sanitizes_rust_syntax() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3796,6 +3825,7 @@ fn test_trait_bridge_clear_fn_generates_correct_error_handling() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4005,6 +4035,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -4334,6 +4365,7 @@ fn options_field_visitor_context_type_with_lifetime_params_is_still_bound() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -4604,6 +4636,7 @@ fn test_facade_no_java_lang_imports() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4732,6 +4765,7 @@ type = "CrawlRequest"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "crawl_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -4955,6 +4989,7 @@ fn java_untagged_wrapper_without_text_types_does_not_emit_text_method() {
     let config = make_test_config("dev.test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -4993,6 +5028,7 @@ fn java_untagged_wrapper_with_text_types_emits_text_method() {
     let config = resolved_with_text_types(&["AssistantContent"]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -5102,6 +5138,7 @@ fn trait_bridge_sync_infallible_primitive_uses_direct_value_convention() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![tokenizer],
@@ -5191,6 +5228,7 @@ fn make_plain_enum_variant(name: &str, serde_rename: Option<&str>) -> EnumVarian
 fn generate_plain_enum_content(serde_rename_all: Option<&str>, serde_rename: Option<&str>) -> String {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

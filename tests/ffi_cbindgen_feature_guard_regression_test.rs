@@ -86,6 +86,7 @@ prefix = "sample"
     );
 
     let mut api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample-lib".to_string(),
         version: "1.0.0".to_string(),
         ..ApiSurface::default()

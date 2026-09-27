@@ -215,6 +215,7 @@ pub fn gen_trait_bridge_object(
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: vec![],
+        unresolved_modules: vec![],
     };
     let excluded_types = std::collections::HashSet::new();
 

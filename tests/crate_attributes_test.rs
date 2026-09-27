@@ -54,6 +54,7 @@ sources = ["src/lib.rs"]
 
 fn empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         ..ApiSurface::default()

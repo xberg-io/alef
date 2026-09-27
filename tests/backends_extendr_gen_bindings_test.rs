@@ -152,6 +152,7 @@ fn test_basic_generation() {
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -330,6 +331,7 @@ fn test_basic_generation() {
 fn options_decoder_uses_configured_type_and_ir_shapes() {
     let backend = ExtendrBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -415,6 +417,7 @@ fn test_type_mapping() {
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -483,6 +486,7 @@ fn test_enum_generation() {
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -582,6 +586,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -728,6 +733,7 @@ fn test_emits_binding_to_core_from_impls_for_input_types() {
 fn test_emits_lossy_from_impls_for_data_variant_enums() {
     let backend = ExtendrBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -847,6 +853,7 @@ fn test_generated_header() {
     let backend = ExtendrBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -969,6 +976,7 @@ fn make_ref_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> M
 fn r_method_wrappers_bind_self_without_mutating_method_environment() {
     let backend = ExtendrBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1113,6 +1121,7 @@ fn test_opaque_type_generates_inner_field_and_delegates() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![options_type, builder_type],
@@ -1158,6 +1167,7 @@ mod trait_bridge {
 
     fn make_api() -> ApiSurface {
         ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
             types: vec![TypeDef {
@@ -1614,6 +1624,7 @@ mod trait_bridge {
         let backend = ExtendrBackend;
 
         let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
@@ -1861,6 +1872,7 @@ fn extendr_param_non_mut_emits_let_immut() {
 #[test]
 fn extendr_underscore_prefix_stripped_from_r_params() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1997,6 +2009,7 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],
@@ -2106,6 +2119,7 @@ fn methods_with_vec_struct_params_are_excluded_from_extendr_impl() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![entry, widget],

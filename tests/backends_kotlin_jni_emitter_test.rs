@@ -149,6 +149,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -184,6 +185,7 @@ fn make_simple_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -221,6 +223,7 @@ fn make_top_level_bytes_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -449,6 +452,7 @@ target = "jvm"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -564,6 +568,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -703,6 +708,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -818,6 +824,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -917,6 +924,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1113,6 +1121,7 @@ fn make_opaque_client_api() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![tree_cursor_type, tree_walker_type],

@@ -84,6 +84,7 @@ sources = ["src/lib.rs"]
 
 fn api_with_type(ty: TypeDef) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],

@@ -40,6 +40,7 @@ fn test_multiple_types_with_shared_error() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -198,6 +199,7 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -304,6 +306,7 @@ fn test_generate_public_api_delegates_to_api_class() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -375,6 +378,7 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -513,6 +517,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -664,6 +669,7 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
 fn php_exclude_functions_omits_facade_method() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

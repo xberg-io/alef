@@ -73,6 +73,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
 
 fn make_basic_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -551,6 +552,7 @@ fn test_jni_opaque_handle_return_types() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "lang".into(),
         version: "0.1.0".into(),
         types: vec![tree_type, tree_cursor_type],

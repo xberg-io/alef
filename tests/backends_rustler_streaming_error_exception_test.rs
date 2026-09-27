@@ -59,6 +59,7 @@ app_name = "{app_name}"
 
 fn empty_api(crate_name: &str) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: crate_name.to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

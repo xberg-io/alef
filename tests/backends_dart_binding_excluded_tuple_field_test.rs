@@ -32,6 +32,7 @@ fn make_binding_excluded_field(name: &str, ty: TypeRef) -> FieldDef {
 
 fn make_api_with_binding_excluded_error() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

@@ -99,6 +99,7 @@ fn func(name: &str, params: Vec<ParamDef>, return_type: TypeRef, error_type: Opt
 
 fn api(types: Vec<TypeDef>, functions: Vec<FunctionDef>) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types,

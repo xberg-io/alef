@@ -82,6 +82,7 @@ fn api_with_options_field_trait_bridge() -> ApiSurface {
         ..Default::default()
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![trait_type],

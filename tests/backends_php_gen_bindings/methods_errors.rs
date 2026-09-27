@@ -5,6 +5,7 @@ fn test_methods_generation() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -145,6 +146,7 @@ fn test_error_types() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -238,6 +240,7 @@ fn test_async_function() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -343,6 +346,7 @@ fn test_cfg_gated_async_function() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -452,6 +456,7 @@ fn test_opaque_type() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -542,6 +547,7 @@ fn test_default_config() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

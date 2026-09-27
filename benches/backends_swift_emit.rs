@@ -220,6 +220,7 @@ fn make_synthetic_api() -> ApiSurface {
     }
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types,

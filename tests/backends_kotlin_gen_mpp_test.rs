@@ -140,6 +140,7 @@ target = "multiplatform"
 #[test]
 fn mpp_emits_five_files() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -165,6 +166,7 @@ fn mpp_emits_five_files() {
 #[test]
 fn mpp_common_contains_expect_object() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -216,6 +218,7 @@ fn mpp_common_contains_expect_object() {
 #[test]
 fn mpp_jvm_contains_actual_object_with_bridge() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -257,6 +260,7 @@ fn mpp_jvm_contains_actual_object_with_bridge() {
 #[test]
 fn mpp_native_contains_actual_object_with_mem_scoped() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -303,6 +307,7 @@ fn mpp_native_contains_actual_object_with_mem_scoped() {
 #[test]
 fn mpp_dtos_only_in_common_main() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -355,6 +360,7 @@ fn mpp_dtos_only_in_common_main() {
 #[test]
 fn mpp_def_file_has_correct_fields() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -396,6 +402,7 @@ fn mpp_def_file_has_correct_fields() {
 #[test]
 fn mpp_gradle_uses_multiplatform_plugin() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -442,6 +449,7 @@ fn mpp_gradle_uses_multiplatform_plugin() {
 #[test]
 fn mpp_sealed_enum_in_common_main() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -523,6 +531,7 @@ fn mpp_sealed_enum_in_common_main() {
 #[test]
 fn mpp_error_sealed_class_in_common_main() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],

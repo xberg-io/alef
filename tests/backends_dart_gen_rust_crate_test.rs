@@ -155,6 +155,7 @@ fn find_file<'a>(files: &'a [alef::core::backend::GeneratedFile], suffix: &str) 
 #[test]
 fn cargo_toml_uses_dart_specific_extra_dependencies() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -193,6 +194,7 @@ shared-crate = { path = "../../../crates/shared-crate" }
 #[test]
 fn lib_rs_converts_named_map_values_from_core_to_mirror() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -256,6 +258,7 @@ fn opaque_methods_convert_optional_ref_string_json_params_and_returns() {
     graphql.error_type = Some("SnapshotError".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_opaque_type("TestClient", vec![description, graphql])],
@@ -291,6 +294,7 @@ fn opaque_methods_convert_optional_ref_string_json_params_and_returns() {
 #[test]
 fn cargo_toml_contains_frb_version() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -327,6 +331,7 @@ fn cargo_toml_contains_frb_version() {
 #[test]
 fn lib_rs_emits_mirror_struct_per_ir_type() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -363,6 +368,7 @@ fn lib_rs_emits_mirror_struct_per_ir_type() {
 #[test]
 fn lib_rs_emits_bridge_fn_per_ir_function() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -413,6 +419,7 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
 #[test]
 fn lib_rs_async_fn_uses_async_fn_keyword() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -456,6 +463,7 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
 #[test]
 fn lib_rs_result_fn_uses_map_err_to_string() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -503,6 +511,7 @@ fn lib_rs_result_fn_uses_map_err_to_string() {
 #[test]
 fn lib_rs_emits_mirror_enum_per_ir_enum() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -581,6 +590,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
 #[test]
 fn build_rs_is_emitted() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -607,6 +617,7 @@ fn build_rs_is_emitted() {
 #[test]
 fn build_rs_loader_searches_for_the_dart_bridge_cdylib_stem() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -636,6 +647,7 @@ fn build_rs_loader_searches_for_the_dart_bridge_cdylib_stem() {
 #[test]
 fn frb_yaml_is_emitted_with_module_name() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -668,6 +680,7 @@ fn frb_yaml_is_emitted_with_module_name() {
 #[test]
 fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -798,6 +811,7 @@ fn lib_rs_emits_frb_trait_bridge_for_sync_method_trait() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -857,6 +871,7 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -930,6 +945,7 @@ fn lib_rs_trait_bridge_preserves_excluded_named_type_contract_via_json_bridge() 
         "demo_crate::types::hidden::HiddenDocument".to_string(),
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -989,6 +1005,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1101,6 +1118,7 @@ fn lib_rs_skips_ordinary_lifecycle_functions_when_trait_bridge_manages_them() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1171,6 +1189,7 @@ fn lib_rs_does_not_emit_register_forwarder_without_register_fn() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1211,6 +1230,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1267,6 +1287,7 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1329,6 +1350,7 @@ fn lib_rs_does_not_emit_clear_forwarder_without_clear_fn() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1368,6 +1390,7 @@ fn cargo_toml_has_license_field() {
     });
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1393,6 +1416,7 @@ fn cargo_toml_has_license_field() {
 #[test]
 fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1418,6 +1442,7 @@ fn cargo_toml_license_defaults_to_mit_when_scaffold_absent() {
 #[test]
 fn cargo_toml_does_not_include_anyhow_without_trait_bridges() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1453,6 +1478,7 @@ fn cargo_toml_does_not_include_anyhow_with_trait_bridges() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1486,6 +1512,7 @@ fn cargo_toml_does_not_include_anyhow_with_trait_bridges() {
 #[test]
 fn cargo_toml_does_not_include_serde_json() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1529,6 +1556,7 @@ stub_methods = ["process_bytes_batch"]
     let config = cfg.resolve().expect("test config must resolve").remove(0);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1617,6 +1645,7 @@ fn opaque_method_named_param_with_is_ref_passes_by_reference() {
     process.error_type = Some("Error".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -1708,6 +1737,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![config_type],
@@ -1747,6 +1777,7 @@ fn opaque_method_vec_string_param_with_is_ref_bridges_to_str_slice() {
     ensure_with_error.error_type = Some("Error".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_opaque_type("DownloadManager", vec![ensure_with_error])],
@@ -1786,6 +1817,7 @@ fn trait_bridge_return_type_does_not_emit_from_impl_for_trait() {
     let visitor_trait = make_trait("MyVisitor", "demo_crate::MyVisitor", vec![]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def, visitor_trait],
@@ -1872,6 +1904,7 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![annotation_type],
@@ -1922,6 +1955,7 @@ fn mirror_struct_field_with_rustdoc_emits_triple_slash_above_field() {
     ty.doc = String::new();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -1950,6 +1984,7 @@ fn mirror_struct_with_rustdoc_emits_triple_slash_above_attribute() {
     ty.doc = "Top-level news article.\nUsed by the article extractor.".to_string();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -1977,6 +2012,7 @@ fn mirror_struct_without_rustdoc_omits_doc_comments() {
     let ty = make_type("Plain", vec![make_field("value", TypeRef::String, false)]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -2005,6 +2041,7 @@ fn mirror_struct_without_rustdoc_omits_doc_comments() {
 #[test]
 fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2087,6 +2124,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
 #[test]
 fn mirror_enum_data_variant_field_emits_rustdoc() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2157,6 +2195,7 @@ fn mirror_multi_line_rustdoc_emits_one_triple_slash_per_line() {
     ty.doc = "First line.\n\nSecond line after a blank.".to_string();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -2239,6 +2278,7 @@ fn mirror_error_introspection_uses_safe_from_conversion_not_transmute() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2375,6 +2415,7 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2547,6 +2588,7 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2651,6 +2693,7 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2693,6 +2736,7 @@ fn opaque_wrapper_cfg_widens_to_include_android_x86_64() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![llm],

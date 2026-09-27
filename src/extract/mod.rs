@@ -246,6 +246,7 @@ mod tests {
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         }
     }
 

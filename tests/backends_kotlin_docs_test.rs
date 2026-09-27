@@ -33,6 +33,7 @@ target = "jvm"
 #[test]
 fn test_kdoc_emitted_for_function() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

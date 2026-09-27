@@ -68,6 +68,7 @@ fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVarian
 
 fn make_api(enums: Vec<EnumDef>, functions: Vec<FunctionDef>) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

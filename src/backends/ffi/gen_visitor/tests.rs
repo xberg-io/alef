@@ -106,6 +106,7 @@ fn protocol_api(context_name: &str, result_name: &str, default_variant: &str) ->
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 
@@ -275,6 +276,7 @@ fn visitor_bindings_use_derived_default_result_variant() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     };
 
     let code = gen_visitor_bindings_with_api(

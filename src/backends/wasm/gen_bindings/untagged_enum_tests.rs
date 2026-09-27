@@ -30,6 +30,7 @@ fn function_taking(type_name: &str) -> FunctionDef {
 
 fn empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

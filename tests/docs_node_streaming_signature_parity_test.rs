@@ -52,6 +52,7 @@ package_name = "test-lib"
 /// convenience).
 fn streaming_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

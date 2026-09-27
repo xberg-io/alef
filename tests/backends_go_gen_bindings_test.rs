@@ -62,6 +62,7 @@ fn test_basic_generation() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -245,6 +246,7 @@ fn test_basic_generation() {
 #[test]
 fn bytes_params_are_pinned_before_c_calls() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -412,6 +414,7 @@ module = "github.com/test/test-lib"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![hidden_type, visible_type],
@@ -457,6 +460,7 @@ fn test_type_mapping() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -540,6 +544,7 @@ fn test_enum_generation() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -647,6 +652,7 @@ fn test_generated_header() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -683,6 +689,7 @@ fn test_methods_generation() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -836,6 +843,7 @@ fn test_error_types() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -905,6 +913,7 @@ fn coded_error_keeps_the_native_message_and_still_matches_its_sentinel() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -976,6 +985,7 @@ fn test_async_function() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

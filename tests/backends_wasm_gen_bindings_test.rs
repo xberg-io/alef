@@ -69,6 +69,7 @@ fn test_basic_generation() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -238,6 +239,7 @@ fn test_type_mapping() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -309,6 +311,7 @@ fn test_enum_generation() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -411,6 +414,7 @@ fn test_generated_header() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -486,6 +490,7 @@ fn test_async_function() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -549,6 +554,7 @@ fn test_async_function_with_error() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -612,6 +618,7 @@ fn test_methods_generation() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -713,6 +720,7 @@ fn test_async_methods() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -803,6 +811,7 @@ fn test_error_types() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -867,6 +876,7 @@ fn test_opaque_type() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -922,6 +932,7 @@ fn test_opaque_type_configured_in_config() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1029,6 +1040,7 @@ fn test_opaque_type_filter_simple_newtype_not_excluded() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1108,6 +1120,7 @@ fn test_opaque_type_filter_generic_path_excluded() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1170,6 +1183,7 @@ fn test_exclude_functions() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1246,6 +1260,7 @@ fn test_exclude_types() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -1337,6 +1352,7 @@ fn test_exclude_types() {
 fn test_exclude_fields_removes_wasm_struct_field() {
     let backend = WasmBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1655,6 +1671,7 @@ fn make_visit_result_wasm() -> EnumDef {
 
 fn make_api_wasm() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_node_context_wasm()],
@@ -1954,6 +1971,7 @@ fn test_wasm_async_method_body_uses_box_pin() {
 fn test_generate_bindings_cargo_toml_includes_js_sys() {
     let backend = WasmBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "1.2.3".to_string(),
         types: vec![],
@@ -2020,6 +2038,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
 
     let backend = WasmBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.5.0".to_string(),
         types: vec![TypeDef {
@@ -2124,6 +2143,7 @@ fn test_vec_string_is_ref_without_inner_ref_passes_the_vec_directly() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2210,6 +2230,7 @@ fn test_static_default_returns_binding_wrapper_not_core_type() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2296,6 +2317,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -2431,6 +2453,7 @@ fn test_static_from_update_returns_binding_wrapper_not_core_type() {
 fn test_wasm_core_crate_override_and_exclude_extra_dependencies() {
     let backend = WasmBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2612,6 +2635,7 @@ fn test_map_named_value_uses_serde_wasm_bindgen_not_into() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![child, parent],
@@ -2821,6 +2845,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2936,6 +2961,7 @@ fn test_default_factory_skipped_when_explicit_default_method_present() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3100,6 +3126,7 @@ fn test_optional_enum_getter_returns_option_string() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![choice_type],
@@ -3164,6 +3191,7 @@ fn test_optional_vec_of_struct_getter_returns_js_array() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![tool_call_type, delta_type],
@@ -3320,6 +3348,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![request_type],
@@ -3497,6 +3526,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         // `TextFormat` must be ON the surface: `is_fully_flattened_internal_enum` resolves each
@@ -3637,6 +3667,7 @@ fn test_constructor_params_camel_case() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3705,6 +3736,7 @@ fn test_wasm_js_name_on_non_opaque_struct() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3769,6 +3801,7 @@ fn test_wasm_js_name_on_opaque_struct() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3849,6 +3882,7 @@ fn test_wasm_js_name_on_unit_enum() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3933,6 +3967,7 @@ fn test_has_default_struct_delegates_wasm_default_to_core_default() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -4040,6 +4075,7 @@ fn test_constructor_camel_case_param_sync_with_snake_case_field_init() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4106,6 +4142,7 @@ fn test_constructor_camel_case_required_multi_word_field() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4170,6 +4207,7 @@ fn test_from_impl_uses_snake_case_field_names() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4501,6 +4539,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![trait_def],
@@ -4572,6 +4611,7 @@ fn has_default_non_convertible_type_derives_default_not_delegating_impl() {
     let backend = WasmBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

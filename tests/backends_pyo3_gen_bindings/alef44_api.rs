@@ -16,6 +16,7 @@ fn test_sanitized_field_gets_serde_skip() {
     cancel_field.sanitized = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -90,6 +91,7 @@ fn test_sanitized_enum_like_field_gets_serde_skip() {
     format_field.sanitized = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -155,6 +157,7 @@ fn test_api_py_uses_keyword_arguments() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -297,6 +300,7 @@ fn test_async_function_emits_async_def_and_await() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -405,6 +409,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         // Both bridges below name these traits. A bridge whose trait is absent from the surface
@@ -582,6 +587,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 fn test_options_py_imports_data_enums_as_native_classes() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

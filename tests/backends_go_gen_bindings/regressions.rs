@@ -12,6 +12,7 @@ fn test_opaque_type() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -93,6 +94,7 @@ fn test_default_config() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -198,6 +200,7 @@ fn test_optional_primitive_uses_cgo_types() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -260,6 +263,7 @@ fn test_optional_return_type_no_double_pointer() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -334,6 +338,7 @@ fn test_opaque_error_type_uses_value_semantics() {
     let backend = GoBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -475,6 +480,7 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
     }
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -579,6 +585,7 @@ module = "github.com/example/mylib"
 "#,
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -610,6 +617,7 @@ fn test_no_duplicate_var_raw_struct_in_unmarshal_json() {
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

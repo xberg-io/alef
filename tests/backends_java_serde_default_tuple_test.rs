@@ -79,6 +79,7 @@ fn test_java_serde_default_tuple_field_uses_nullable_type_and_null_default() {
     let typ = make_type("KeywordConfig", vec![tuple_field]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".to_string(),
         version: "1.0.0".to_string(),
         types: vec![typ],

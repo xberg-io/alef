@@ -147,6 +147,7 @@ fn service_surface() -> ApiSurface {
     // collapses to an `i32` status code. While it was undeclared the Java backend skipped the
     // entrypoint outright, so this guard swept output that was missing rather than stubbed. ~keep
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_crate".to_owned(),
         version: "1.0.0".to_owned(),
         types: vec![TypeDef {

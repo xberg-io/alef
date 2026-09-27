@@ -274,6 +274,7 @@ fn make_visit_result_php() -> EnumDef {
 
 fn make_api_php() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_node_context_php()],

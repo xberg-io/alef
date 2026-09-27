@@ -869,6 +869,7 @@ fn core_to_binding_convertible_excludes_excluded_type_fields() {
     };
 
     let surface = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![server_config],

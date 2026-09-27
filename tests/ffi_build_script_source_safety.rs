@@ -30,6 +30,7 @@ go = "packages/go/"
     .unwrap();
     let config = config.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         ..ApiSurface::default()

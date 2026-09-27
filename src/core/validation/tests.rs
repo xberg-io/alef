@@ -941,6 +941,8 @@ fn api_surface_validation_scoped_to_ffi_only_languages_does_not_flag() {
     );
 }
 
+mod unresolved_modules;
+
 #[test]
 fn api_surface_validation_scoped_to_a_mixed_language_set_still_flags() {
     // One affected language (Python, i.e. pyo3) alongside FFI-derived ones must still fire --

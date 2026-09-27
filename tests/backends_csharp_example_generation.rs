@@ -27,6 +27,7 @@ fn test_generated_code_example() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -408,6 +409,7 @@ fn csharp_untagged_wrapper_without_text_types_does_not_emit_text_method() {
     let config = make_sample_crate_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         enums: vec![make_untagged_enum("AssistantContent")],
@@ -438,6 +440,7 @@ fn csharp_untagged_wrapper_with_text_types_emits_text_method() {
     let config = make_config_with_text_types(&["AssistantContent"]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         enums: vec![make_untagged_enum("AssistantContent")],

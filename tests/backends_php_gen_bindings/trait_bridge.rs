@@ -161,6 +161,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
         ..Default::default()
     }];
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![make_trait_def_php(
             "OcrBackend",
             vec![make_method_php("process", TypeRef::String, true, false)],
@@ -351,6 +352,7 @@ fn make_greeter_api() -> (TypeDef, ApiSurface) {
     mood_enum.rust_path = "my_lib::Mood".to_string();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![
             make_serde_struct("Opts"),
             make_serde_struct("Doc"),

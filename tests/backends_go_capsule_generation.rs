@@ -73,6 +73,7 @@ fn capsule_function() -> FunctionDef {
 
 fn make_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),
         types: vec![],

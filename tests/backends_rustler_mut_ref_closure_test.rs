@@ -101,6 +101,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         types: vec![opaque_type],

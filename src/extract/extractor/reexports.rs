@@ -368,6 +368,7 @@ pub(crate) fn extract_module(
         }
 
         if !found {
+            record_unresolved_module(item_mod, surface, &new_module_path, source_path, &candidates);
             return Ok(());
         }
     }
@@ -412,6 +413,33 @@ pub(crate) fn extract_module(
     }
 
     Ok(())
+}
+
+/// Record a `mod x;` declaration that resolved to neither candidate file.
+///
+/// A `#[path = "..."]` module resolves against the file the attribute names, which this search
+/// never looks at -- recording it here would name a file the crate never intended as a
+/// "missing" candidate. See `has_path_attribute`. `declared_sources` is left empty; it is
+/// filled in later by `cli::pipeline::extract::raw`, the only place that knows which `sources`
+/// entries backed this extraction group. ~keep
+fn record_unresolved_module(
+    item_mod: &syn::ItemMod,
+    surface: &mut ApiSurface,
+    module_path: &str,
+    source_path: &Path,
+    candidates: &[PathBuf],
+) {
+    if super::helpers::has_path_attribute(&item_mod.attrs) {
+        return;
+    }
+    surface
+        .unresolved_modules
+        .push(crate::core::ir::UnresolvedModuleDeclaration {
+            module_path: module_path.to_string(),
+            declared_in: source_path.to_path_buf(),
+            candidates: candidates.to_vec(),
+            declared_sources: Vec::new(),
+        });
 }
 
 use anyhow::Context;

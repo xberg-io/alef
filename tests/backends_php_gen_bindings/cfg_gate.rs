@@ -18,6 +18,7 @@ use super::*;
 fn php_standalone_function_never_wraps_body_in_cfg() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -72,6 +73,7 @@ fn php_struct_and_conversions_strip_cfg_fields_by_default() {
     let mut feature_only = make_field("feature_only", TypeRef::String, false);
     feature_only.cfg = Some(r#"feature = "enterprise""#.to_string());
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

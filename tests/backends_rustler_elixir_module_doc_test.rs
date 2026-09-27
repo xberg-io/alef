@@ -104,6 +104,7 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -174,6 +175,7 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
     };
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -252,6 +254,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
     };
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -397,6 +400,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
     };
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],

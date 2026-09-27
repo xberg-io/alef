@@ -5,6 +5,7 @@ fn test_empty_api_surface() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -42,6 +43,7 @@ fn test_module_registration() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -183,6 +185,7 @@ fn test_async_function() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -263,6 +266,7 @@ fn test_async_function_with_error() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -318,6 +322,7 @@ fn test_methods_generation() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -445,6 +450,7 @@ fn test_async_method() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -529,6 +535,7 @@ fn test_error_types() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -612,6 +619,7 @@ fn test_opaque_type() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -679,6 +687,7 @@ fn test_optional_and_vec_fields() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -756,6 +765,7 @@ fn test_static_method() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -841,6 +851,7 @@ fn test_exceptions_py_reexports_native_classes() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

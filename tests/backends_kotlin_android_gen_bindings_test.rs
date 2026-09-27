@@ -140,6 +140,7 @@ fn make_streaming_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -238,6 +239,7 @@ fn make_trait_carrier_api() -> ApiSurface {
     excluded_type_paths.insert("HiddenCarrier".to_string(), "demo::HiddenCarrier".to_string());
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type, public_carrier],
@@ -466,6 +468,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -618,6 +621,7 @@ fn make_handle_only_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![engine_type],
@@ -975,6 +979,7 @@ fn make_optional_params_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1032,6 +1037,7 @@ fn optional_params_get_kotlin_default_values_in_facade() {
 fn make_nullable_primitives_api() -> ApiSurface {
     use alef::core::ir::PrimitiveType;
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1322,6 +1328,7 @@ fn make_sealed_variants_api() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1391,6 +1398,7 @@ fn sealed_variant_tuple_params_use_payload_derived_names() {
 fn make_tuple_error_api() -> ApiSurface {
     use alef::core::ir::{ErrorDef, ErrorVariant, FieldDef};
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1570,6 +1578,7 @@ fn error_tuple_variant_message_template_interpolates_field_refs() {
 
 fn make_convert_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -1753,6 +1762,7 @@ fn typed_dto_return_emits_jackson_wrapper_and_suspend_async() {
 
 fn make_batch_function_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -1976,6 +1986,7 @@ fn handle_only_wrapper_emits_kdoc_from_type_doc() {
 
 fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2148,6 +2159,7 @@ exclude_types = [{exclude_list}]
 fn make_exclude_types_api() -> ApiSurface {
     use alef::core::ir::{EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef};
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -2422,6 +2434,7 @@ fn make_trait_api() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -2770,6 +2783,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![included_type, skipped_type],
@@ -2969,6 +2983,7 @@ fn make_long_signature_api() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -3204,6 +3219,7 @@ fn optional_bytes_param_declared_as_bytearray() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

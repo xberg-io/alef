@@ -74,6 +74,7 @@ fn builder_nullable_qualified_type_emits_correct_annotation_position() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

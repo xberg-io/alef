@@ -55,6 +55,7 @@ fn api_for_configuration_link_test() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 
@@ -180,6 +181,7 @@ fn api_with_table_model_enum() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 
@@ -473,6 +475,7 @@ fn api_with_image_config_and_enums() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 

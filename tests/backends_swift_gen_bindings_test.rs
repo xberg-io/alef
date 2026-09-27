@@ -110,6 +110,7 @@ fn struct_with_primitive_fields_emits_public_struct() {
         ],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -171,6 +172,7 @@ fn rust_bridge_constructor_omits_binding_excluded_fields() {
     ty.has_stripped_cfg_fields = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -233,6 +235,7 @@ fn swift_codegen_includes_cfg_default_features_in_field_filtering() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![url_config, crawl_config],
@@ -283,6 +286,7 @@ fn swift_codegen_includes_cfg_default_features_in_field_filtering() {
 #[test]
 fn struct_with_optional_array_and_dict_fields() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -329,6 +333,7 @@ fn struct_with_serde_derives_codable() {
     ty.has_default = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -369,6 +374,7 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
     ty.has_default = false;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -406,6 +412,7 @@ fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
 #[test]
 fn empty_struct_emits_single_line() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type("Empty", vec![])],
@@ -431,6 +438,7 @@ fn empty_struct_emits_single_line() {
 #[test]
 fn unit_only_enum_emits_lower_camel_cases() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -506,6 +514,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
 #[test]
 fn data_bearing_enum_emits_associated_values() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -581,6 +590,7 @@ fn data_bearing_enum_emits_associated_values() {
 #[test]
 fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -689,6 +699,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
 #[test]
 fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -779,6 +790,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
 #[test]
 fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -871,6 +883,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
 #[test]
 fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -955,6 +968,7 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
 #[test]
 fn sync_function_emits_public_static_func() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1002,6 +1016,7 @@ fn sync_function_emits_public_static_func() {
 #[test]
 fn async_function_emits_async_keyword() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1045,6 +1060,7 @@ fn async_function_emits_async_keyword() {
 #[test]
 fn error_throwing_function_emits_throws() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1088,6 +1104,7 @@ fn error_throwing_function_emits_throws() {
 #[test]
 fn async_throws_function_emits_both_qualifiers() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1131,6 +1148,7 @@ fn async_throws_function_emits_both_qualifiers() {
 #[test]
 fn error_enum_conforms_to_error_protocol() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1191,6 +1209,7 @@ fn error_enum_conforms_to_error_protocol() {
 #[test]
 fn error_enum_named_error_is_renamed_to_module_error() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1243,6 +1262,7 @@ fn error_enum_with_methods_emits_extension_properties() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1419,6 +1439,7 @@ fn make_optional_param(name: &str, ty: TypeRef) -> ParamDef {
 #[test]
 fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1464,6 +1485,7 @@ fn bytes_first_param_skips_overload_when_name_shadows_bridge() {
 #[test]
 fn bytes_overload_with_string_return_appends_to_string_for_throws() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1498,6 +1520,7 @@ fn bytes_overload_with_string_return_appends_to_string_for_throws() {
 #[test]
 fn bytes_sync_suffix_stripped_in_wrapper_name() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1538,6 +1561,7 @@ fn bytes_sync_suffix_stripped_in_wrapper_name() {
 #[test]
 fn path_first_param_emits_string_path_overload() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1579,6 +1603,7 @@ fn path_first_param_emits_string_path_overload() {
 #[test]
 fn no_bytes_or_path_functions_emits_no_wrapper_section() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1635,6 +1660,7 @@ fn async_bytes_function_emits_async_forwarder() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1668,6 +1694,7 @@ fn async_bytes_function_emits_async_forwarder() {
 #[test]
 fn output_path_uses_pascal_case_module_name() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1728,6 +1755,7 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo_crate::DefaultClie
 fn make_streaming_api() -> ApiSurface {
     use alef::core::ir::{MethodDef, ReceiverKind};
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1885,6 +1913,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -2037,6 +2066,7 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
     use alef::core::ir::{MethodDef, ReceiverKind};
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -2202,6 +2232,7 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type, request_type],
@@ -2311,6 +2342,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type, req_type],
@@ -2368,6 +2400,7 @@ fn first_class_struct_field_emits_doc_comment_above_let() {
     ty.has_default = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -2420,6 +2453,7 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
     request_type.has_serde = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![message_type, request_type],
@@ -2498,6 +2532,7 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
     response_type.has_serde = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![usage_type, response_type],
@@ -2558,6 +2593,7 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
     request_type.has_serde = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![tool_type, request_type],
@@ -2613,6 +2649,7 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
 #[test]
 fn forwarder_optional_string_return_emits_json_decode_body() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2683,6 +2720,7 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
 #[test]
 fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -2769,6 +2807,7 @@ fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
 #[test]
 fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![{
@@ -2828,6 +2867,7 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
 #[test]
 fn async_function_with_result_and_opaque_param_emits_forwarder() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crawler".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2905,6 +2945,7 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -2948,6 +2989,7 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
 #[test]
 fn swift_string_param_not_wrapped() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "syn".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -3071,6 +3113,7 @@ fn first_class_struct_emits_instance_methods() {
 
     let cfg = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ty],
@@ -3171,6 +3214,7 @@ fn opaque_type_returned_from_free_function_emits_forwarder() {
         .insert("Language".to_string(), "external_runtime::Language".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![language_type],
@@ -3291,6 +3335,7 @@ fn every_public_type_is_reachable_from_xberg_module() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -3370,6 +3415,7 @@ fn swift_drops_a_cfg_gated_method_from_the_rust_bridge_and_the_swift_facade_toge
     ];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client],

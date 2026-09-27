@@ -44,6 +44,7 @@ fn test_pyi_includes_trait_bridge_registry_functions() {
         ..Default::default()
     }];
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         // The bridged trait must resolve here and the bridge must carry a `registry_getter`, or

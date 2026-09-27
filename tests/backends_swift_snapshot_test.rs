@@ -78,6 +78,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
 
 fn make_basic_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -249,6 +250,7 @@ fn snapshot_basic_struct_function_enum_error() {
 #[test]
 fn snapshot_conversion_struct_with_named_types() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -343,6 +345,7 @@ fn snapshot_conversion_struct_with_named_types() {
 #[test]
 fn snapshot_conversion_enum_with_data() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -439,6 +442,7 @@ fn snapshot_conversion_enum_with_data() {
 #[test]
 fn snapshot_conversion_vec_of_named() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -527,6 +531,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
 #[test]
 fn snapshot_trait_bridge_inbound() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -760,6 +765,7 @@ fn snapshot_tuple_field_as_vec() {
     ngram_range_field.sanitized = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -859,6 +865,7 @@ fn snapshot_tuple_field_as_vec() {
 #[test]
 fn snapshot_streaming_adapter() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -957,6 +964,7 @@ client_constructor_body.DefaultClient = "Self { inner: ::demo::DefaultClient::ne
 #[test]
 fn snapshot_first_class_struct_optional_field() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1043,6 +1051,7 @@ fn snapshot_first_class_struct_optional_field() {
 #[test]
 fn snapshot_trait_bridge_inbound_options_field() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -1253,6 +1262,7 @@ result_type = "FlowDecision"
 #[test]
 fn snapshot_into_rust_bulk_constructor_primitives() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1343,6 +1353,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
 #[test]
 fn snapshot_into_rust_bulk_constructor_nested() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![
@@ -1510,6 +1521,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
 #[test]
 fn snapshot_intorust_bulk_constructor_primitive_no_default() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1610,6 +1622,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
 #[test]
 fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1695,6 +1708,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
 #[test]
 fn snapshot_enum_variant_optional_field() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1828,6 +1842,7 @@ fn snapshot_enum_variant_optional_field() {
 fn untagged_enum_field_uses_json_decoder_not_ref_init() {
     // Regression test: a struct whose field type is a `#[serde(untagged)]` enum must emit
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {

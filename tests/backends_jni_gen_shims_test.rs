@@ -165,6 +165,7 @@ fn make_demo_api() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type, config_type],
@@ -818,6 +819,7 @@ fn real_ir_shape_optional_ref_result_async() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -955,6 +957,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1037,6 +1040,7 @@ fn method_ref_receiver_emits_const_cast() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1131,6 +1135,7 @@ fn method_slice_u8_param_receives_jbytearray() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1230,6 +1235,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1336,6 +1342,7 @@ fn method_pathbuf_param_receives_raw_string() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1439,6 +1446,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1701,6 +1709,7 @@ clear_fn = "clear_text_backends"{exclude_array}
 
 fn empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1820,6 +1829,7 @@ fn lib_rs_emits_use_clauses_for_trait_method_paths() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1890,6 +1900,7 @@ fn lib_rs_dedupes_trait_paths_by_last_segment() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],

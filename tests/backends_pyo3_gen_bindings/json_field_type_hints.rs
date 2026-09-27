@@ -5,6 +5,7 @@ use super::*;
 /// `Map<String, String>` field.
 fn make_json_field_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

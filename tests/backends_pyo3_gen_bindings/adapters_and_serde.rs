@@ -10,6 +10,7 @@ fn test_adapter_wrapper_functions() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -159,6 +160,7 @@ fn test_async_method_adapter_wrapper() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -262,6 +264,7 @@ fn test_serde_rename_in_constructor_and_properties() {
     field_with_rename.typed_default = Some(alef::core::ir::DefaultValue::IntLiteral(1000));
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -349,6 +352,7 @@ fn test_cfg_gated_fields_excluded_from_constructor() {
     cfg_field.typed_default = Some(alef::core::ir::DefaultValue::None);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -443,6 +447,7 @@ fn test_serde_rename_rust_keyword_emitted_as_raw_ident() {
     item_type_field.serde_rename = Some("type".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

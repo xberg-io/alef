@@ -11,6 +11,7 @@ use crate::core::ir::*;
 #[test]
 fn test_option_option_primitive_getter_returns_primitive_type() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -180,6 +181,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![holder, named_type],

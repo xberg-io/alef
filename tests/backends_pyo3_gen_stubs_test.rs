@@ -80,6 +80,7 @@ fn test_basic_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -262,6 +263,7 @@ fn test_optional_field_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -348,6 +350,7 @@ fn test_enum_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -460,6 +463,7 @@ fn test_exception_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -535,6 +539,7 @@ fn test_stubs_with_no_stubs_config() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -563,6 +568,7 @@ fn test_type_stubs_with_vec_fields() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -637,6 +643,7 @@ fn test_function_stubs_with_multiple_params() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -753,6 +760,7 @@ fn test_opaque_type_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -853,6 +861,7 @@ fn test_stubs_generated_header_flag() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -891,6 +900,7 @@ fn test_python_keyword_escaping_function_name() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -941,6 +951,7 @@ fn test_static_method_stubs() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1051,6 +1062,7 @@ fn test_multiple_types_and_functions() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -1303,6 +1315,7 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1368,6 +1381,7 @@ fn test_builtin_shadowing_params_get_noqa_comment() {
 fn test_async_function_stub_uses_async_def() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1430,6 +1444,7 @@ fn test_async_function_stub_uses_async_def() {
 fn test_async_method_stub_uses_async_def() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1587,6 +1602,7 @@ fn make_batch_status_enum_def() -> EnumDef {
 fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1638,6 +1654,7 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
 fn test_pyi_stub_escapes_python_keyword_variant_names() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1752,6 +1769,7 @@ fn test_opaque_type_with_constructor_emits_init_stub() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1867,6 +1885,7 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1921,6 +1940,7 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
 fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2358,6 +2378,7 @@ fn test_pyi_annotates_json_fields_as_str_not_dict() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

@@ -125,6 +125,7 @@ fn make_image_output_format_enum() -> EnumDef {
 
 fn generate_lib_rs(enum_def: EnumDef) -> String {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

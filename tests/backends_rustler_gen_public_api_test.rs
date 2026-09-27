@@ -135,6 +135,7 @@ fn test_generate_public_api_creates_all_files() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -320,6 +321,7 @@ fn test_native_ex_has_all_nif_stubs() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -456,6 +458,7 @@ fn test_struct_module_has_defstruct() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -609,6 +612,7 @@ fn test_main_module_has_method_wrappers() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -677,6 +681,7 @@ fn test_opaque_types_not_get_struct_module() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -745,6 +750,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -852,6 +858,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -921,6 +928,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1015,6 +1023,7 @@ fn test_native_ex_emits_force_build_guard() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1057,6 +1066,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1179,6 +1189,7 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
     }
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1261,6 +1272,7 @@ fn test_defstruct_string_fields_default_to_nil() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -1359,6 +1371,7 @@ fn make_function_with_doc(name: &str, doc: &str) -> FunctionDef {
 fn render_native_ex(functions: Vec<FunctionDef>) -> String {
     let backend = RustlerBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1473,6 +1486,7 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     let backend = RustlerBackend;
     let doc = "Convert markup conversion, returning\na ConversionResult.\n\n# Arguments\n\n* `html` - Input.";
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1609,6 +1623,7 @@ fn make_error_with_methods() -> ErrorDef {
 fn error_methods_emit_nif_shims_in_lib_rs() {
     let backend = RustlerBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1646,6 +1661,7 @@ fn error_methods_emit_nif_shims_in_lib_rs() {
 fn error_methods_emit_elixir_spec_and_def_wrappers() {
     let backend = RustlerBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1699,6 +1715,7 @@ fn error_methods_emit_elixir_spec_and_def_wrappers() {
 fn error_methods_emit_matching_native_ex_stubs() {
     let backend = RustlerBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1821,6 +1838,7 @@ fn opaque_static_constructor_wraps_return_in_struct() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![opaque_type],
@@ -1878,6 +1896,7 @@ fn rustler_gates_a_cfg_gated_nif_method_and_keeps_no_nif_name_list_to_disagree_w
     let backend = RustlerBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {

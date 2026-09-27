@@ -2,6 +2,7 @@ use super::*;
 
 fn error_api(name: &str) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

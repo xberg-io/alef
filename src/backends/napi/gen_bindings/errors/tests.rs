@@ -989,6 +989,7 @@ fn variant_untagged_enum_declares_literal_union_with_string_widening_tail() {
 fn gen_dts_includes_service_entrypoint_bridge_functions() {
     use crate::core::ir::{EntrypointDef, EntrypointKind, MethodDef, ReceiverKind, ServiceDef};
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

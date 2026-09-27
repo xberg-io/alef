@@ -71,6 +71,7 @@ fn render(api: ApiSurface) -> String {
 #[test]
 fn struct_fields_emit_zig_doc_comments_above_declaration() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -143,6 +144,7 @@ fn struct_fields_emit_zig_doc_comments_above_declaration() {
 #[test]
 fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -215,6 +217,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
 #[test]
 fn tagged_enum_variants_emit_zig_doc_comments() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

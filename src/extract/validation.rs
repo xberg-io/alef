@@ -1,6 +1,6 @@
 //! Validation for extracted API surfaces before code generation.
 
-use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, TypeRef};
+use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, TypeRef, UnresolvedModuleDeclaration};
 use anyhow::bail;
 
 const SUGGESTED_FIX: &str = "Expose a binding-safe DTO/newtype for this Rust type, include the referenced type in \
@@ -41,6 +41,12 @@ pub struct SanitizedPublicApiDiagnostic {
     pub item_path: String,
     pub reason: String,
     pub suggested_fix: String,
+    /// A best-effort, non-causal note naming any `mod` declarations this crate could not
+    /// resolve to a source file, so a reader can rule them in or out by hand. `None` unless
+    /// [`ApiSurface::unresolved_modules`] is non-empty -- see [`unresolved_modules_note`].
+    /// Never claims that this specific item's sanitized type came from one of them: alef has no
+    /// way to prove that link, only that resolution failed somewhere in the crate.
+    pub note: Option<String>,
 }
 
 /// Fail when the public binding surface contains sanitized items.
@@ -122,7 +128,51 @@ pub fn sanitized_public_api_diagnostics(api: &ApiSurface) -> Vec<SanitizedPublic
         }
     }
 
+    if let Some(note) = unresolved_modules_note(&api.unresolved_modules) {
+        for entry in &mut diagnostics {
+            entry.note = Some(note.clone());
+        }
+    }
+
     diagnostics
+}
+
+/// Build the shared, non-causal note describing every `mod` declaration this crate could not
+/// resolve. Returns `None` when `unresolved` is empty, so a crate with no unresolved modules
+/// gets a diagnostic and rendering byte-identical to before this note existed.
+///
+/// Deliberately names only the module path, the file that declares it, and the exact candidate
+/// paths the extractor checked -- never the sanitized item's own type name, and never a claim
+/// that this item's type is the missing module's content. ~keep
+fn unresolved_modules_note(unresolved: &[UnresolvedModuleDeclaration]) -> Option<String> {
+    if unresolved.is_empty() {
+        return None;
+    }
+
+    let details = unresolved
+        .iter()
+        .map(|module| {
+            let candidates = module
+                .candidates
+                .iter()
+                .map(|candidate| candidate.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" and ");
+            format!(
+                "`mod {}` declared in {} (checked {candidates})",
+                module.module_path,
+                module.declared_in.display()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    Some(format!(
+        "{} module declaration{} in this crate did not resolve to a source file ({details}); alef cannot tell \
+         whether this item's type is one of them.",
+        unresolved.len(),
+        if unresolved.len() == 1 { "" } else { "s" }
+    ))
 }
 
 fn collect_function_diagnostics(function: &FunctionDef, diagnostics: &mut Vec<SanitizedPublicApiDiagnostic>) {
@@ -188,6 +238,7 @@ fn diagnostic(item_path: String, reason: String) -> SanitizedPublicApiDiagnostic
         item_path,
         reason,
         suggested_fix: SUGGESTED_FIX.to_string(),
+        note: None,
     }
 }
 
@@ -208,6 +259,10 @@ fn format_sanitized_public_api_error(diagnostics: &[SanitizedPublicApiDiagnostic
         message.push_str(&diagnostic.reason);
         message.push_str("\n  suggested fix: ");
         message.push_str(&diagnostic.suggested_fix);
+        if let Some(note) = &diagnostic.note {
+            message.push_str("\n  note: ");
+            message.push_str(note);
+        }
     }
     message
 }
@@ -322,6 +377,68 @@ mod tests {
             diagnostics[0].reason.contains("Duration"),
             "the diagnostic must name the recorded original Rust type, not just the placeholder: {}",
             diagnostics[0].reason
+        );
+    }
+
+    #[test]
+    fn the_sanitized_note_is_absent_when_every_module_resolved() {
+        let api = ApiSurface {
+            types: vec![crate::core::ir::TypeDef {
+                name: "Config".to_string(),
+                rust_path: "sample::Config".to_string(),
+                fields: vec![sanitized_field("timeout", "Duration")],
+                ..crate::core::ir::TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+
+        let diagnostics = sanitized_public_api_diagnostics(&api);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0].note.is_none(),
+            "no unresolved modules means no note: {:?}",
+            diagnostics[0]
+        );
+
+        let rendered = format_sanitized_public_api_error(&diagnostics);
+        let expected = format!(
+            "public API validation failed: lossy sanitized items would be generated\n- item: field Config.timeout\n  \
+             reason: field type `Duration` was sanitized to `String`\n  suggested fix: {SUGGESTED_FIX}"
+        );
+        assert_eq!(
+            rendered, expected,
+            "rendered error must stay byte-identical to before this note existed when nothing is unresolved"
+        );
+    }
+
+    #[test]
+    fn the_sanitized_note_names_the_count_without_claiming_causation() {
+        let mut api = ApiSurface {
+            types: vec![crate::core::ir::TypeDef {
+                name: "Config".to_string(),
+                rust_path: "sample::Config".to_string(),
+                fields: vec![sanitized_field("timeout", "Duration")],
+                ..crate::core::ir::TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+        api.unresolved_modules.push(UnresolvedModuleDeclaration {
+            module_path: "credentials".to_string(),
+            declared_in: "src/config.rs".into(),
+            candidates: vec!["src/config/credentials.rs".into(), "src/credentials.rs".into()],
+            declared_sources: vec![],
+        });
+
+        let diagnostics = sanitized_public_api_diagnostics(&api);
+        assert_eq!(diagnostics.len(), 1);
+        let note = diagnostics[0]
+            .note
+            .as_deref()
+            .expect("a note must be present when a module is unresolved");
+        assert!(note.contains("cannot tell"), "{note}");
+        assert!(
+            !note.contains("Duration") && !note.contains("timeout") && !note.contains("Config"),
+            "the note must never claim this specific sanitized item's type came from the missing module: {note}"
         );
     }
 

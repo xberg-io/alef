@@ -60,6 +60,7 @@ fn bridge(trait_name: &str, register_fn: Option<&str>) -> TraitBridgeConfig {
 
 fn empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

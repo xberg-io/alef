@@ -148,6 +148,7 @@ fn extendr_emits_from_core_for_types_in_return_values() {
     let foo = make_type("Foo", vec![make_field("bar", TypeRef::Named("Bar".to_string()))]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![bar, foo],
@@ -188,6 +189,7 @@ fn extendr_emits_conversions_for_vec_named_struct_in_return() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![item, container],
@@ -236,6 +238,7 @@ fn extendr_emits_conversions_for_struct_variant_enum_payloads() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![value_type],

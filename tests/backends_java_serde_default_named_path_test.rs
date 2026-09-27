@@ -67,6 +67,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
 
 fn generate(typ: TypeDef) -> Vec<alef::core::backend::GeneratedFile> {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".to_string(),
         version: "1.0.0".to_string(),
         types: vec![typ],

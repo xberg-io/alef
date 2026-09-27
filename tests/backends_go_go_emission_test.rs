@@ -62,6 +62,7 @@ fn test_error_method_uses_value_receiver() {
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -129,6 +130,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -221,6 +223,7 @@ fn test_zero_default_dto_skips_functional_options() {
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -310,6 +313,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -420,6 +424,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
     let config = make_config();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -611,6 +616,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![ocr_request_type],
@@ -760,6 +766,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![chat_request_type],

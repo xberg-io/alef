@@ -40,6 +40,7 @@ fn make_type(name: &str, is_trait: bool) -> TypeDef {
 #[test]
 fn scaffold_napi_cargo_never_includes_tokio_util() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type("MyTrait", true)],
@@ -91,6 +92,7 @@ fn scaffold_napi_cargo_never_includes_tokio_util() {
 #[test]
 fn scaffold_napi_cargo_excludes_tokio_util_when_no_trait_bridges() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

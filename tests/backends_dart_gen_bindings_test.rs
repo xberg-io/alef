@@ -101,6 +101,7 @@ sources = ["src/lib.rs"]
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_primitive_fields_emits_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -148,6 +149,7 @@ fn struct_with_primitive_fields_emits_class() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn struct_with_optional_vec_map_fields() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -195,6 +197,7 @@ fn struct_with_optional_vec_map_fields() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn empty_struct_emits_empty_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type("Empty", vec![])],
@@ -217,6 +220,7 @@ fn empty_struct_emits_empty_class() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn unit_enum_emits_dart_enum() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -295,6 +299,7 @@ fn unit_enum_emits_dart_enum() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn data_bearing_enum_emits_sealed_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -381,6 +386,7 @@ fn data_bearing_enum_emits_sealed_class() {
 #[test]
 fn simple_sync_function_emits_static_method() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -448,6 +454,7 @@ fn simple_sync_function_emits_static_method() {
 #[test]
 fn module_file_omits_traits_import_when_no_trait_is_referenced() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -491,6 +498,7 @@ fn module_file_omits_traits_import_when_no_trait_is_referenced() {
 #[test]
 fn module_file_imports_traits_dart_when_a_trait_is_referenced() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -537,6 +545,7 @@ fn module_file_imports_traits_dart_when_a_trait_is_referenced() {
 #[test]
 fn module_file_omits_typed_data_import_when_no_typed_list_type_is_used() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -597,6 +606,7 @@ fn module_file_omits_typed_data_import_when_no_typed_list_type_is_used() {
 #[test]
 fn module_file_routes_bare_typed_list_return_through_frb_import_not_typed_data() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -661,6 +671,7 @@ fn module_file_routes_bare_typed_list_return_through_frb_import_not_typed_data()
 #[test]
 fn download_libs_dart_uses_package_qualified_native_loader_import() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -704,6 +715,7 @@ fn download_libs_dart_uses_package_qualified_native_loader_import() {
 #[test]
 fn download_libs_dart_checks_bundled_lib_before_cache() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -746,6 +758,7 @@ fn default_config_param_uses_default_constructor_for_empty_default_type() {
     let mut pack_config = make_type("PackConfig", vec![]);
     pack_config.has_default = true;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![pack_config],
@@ -803,6 +816,7 @@ fn default_config_param_falls_back_to_from_json_for_function_call_defaults() {
     sink_config.has_serde = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![sink_config],
@@ -859,6 +873,7 @@ fn default_config_param_stays_required_without_a_from_json_helper() {
     sink_config.has_serde = false;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![sink_config],
@@ -915,6 +930,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
     example_config.has_default = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![example_config],
@@ -999,6 +1015,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
 #[test]
 fn async_function_emits_future_return_and_async_keyword() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1054,6 +1071,7 @@ fn async_function_emits_future_return_and_async_keyword() {
 #[test]
 fn error_returning_function_emits_doc_comment() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1110,6 +1128,7 @@ fn error_returning_function_emits_doc_comment() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_type_emits_sealed_class_hierarchy() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1181,6 +1200,7 @@ fn error_type_emits_sealed_class_hierarchy() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn bytes_field_adds_typed_data_import() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type("Blob", vec![make_field("data", TypeRef::Bytes, false)])],
@@ -1209,6 +1229,7 @@ fn bytes_field_adds_typed_data_import() {
 #[test]
 fn output_path_uses_module_name() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1319,6 +1340,7 @@ fn find_traits_dart(files: &[alef::core::backend::GeneratedFile]) -> Option<&str
 #[test]
 fn no_trait_bridges_emit_empty_traits_dart_stub() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1357,6 +1379,7 @@ fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1406,6 +1429,7 @@ fn traits_dart_path_is_under_lib_src() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1457,6 +1481,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![ocr_trait, validator_trait],
@@ -1548,6 +1573,7 @@ fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1608,6 +1634,7 @@ fn traits_dart_includes_typed_data_import_for_bytes_param() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1649,6 +1676,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1743,6 +1771,7 @@ fn dart_traits_preserve_excluded_named_type_as_explicit_bridge_type() {
         "demo_crate::types::hidden::HiddenDocument".to_string(),
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1796,6 +1825,7 @@ fn dart_bridge_class_emits_register_unregister_clear_wrappers_when_all_configure
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1854,6 +1884,7 @@ fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
         )],
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![trait_def],
@@ -1884,6 +1915,7 @@ fn dart_bridge_class_does_not_emit_unregister_or_clear_when_not_configured() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn enum_variant_named_default_is_escaped() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1962,6 +1994,7 @@ fn enum_variant_named_default_is_escaped() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn tuple_variant_with_numeric_field_name_is_escaped() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -2028,6 +2061,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
 #[ignore = "FRB style: types/enums/errors are emitted by flutter_rust_bridge, not alef"]
 fn error_message_template_strips_placeholders_and_escapes_special_chars() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

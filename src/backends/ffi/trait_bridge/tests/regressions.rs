@@ -53,6 +53,7 @@ fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
     let bridge_cfg = sample_bridge_cfg("Renderer");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -391,6 +392,7 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
     let bridge_cfg = sample_bridge_cfg("Extractor");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -600,6 +602,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
     let bridge_cfg = sample_bridge_cfg("HtmlVisitor");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -677,6 +680,7 @@ fn vtable_registration_signature_takes_const_pointer() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![trait_def.clone()],

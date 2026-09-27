@@ -41,6 +41,7 @@ app_name = "test_lib"
 /// `CrawlEvent`) -- the same fixture shape as the Go/PHP/Python parity tests.
 fn streaming_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

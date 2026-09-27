@@ -75,6 +75,7 @@ fn enum_variant_name_matching_payload_type_emits_fully_qualified_component() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],

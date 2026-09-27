@@ -236,6 +236,7 @@ fn test_gen_function_uses_function_attr() {
 #[test]
 fn test_collect_trait_imports_empty_when_no_trait_methods() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![simple_type_def()],
@@ -302,6 +303,7 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
     }];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![typ1, typ2],
@@ -324,6 +326,7 @@ fn test_collect_trait_imports_deduplicates_by_trait_name() {
 #[test]
 fn test_collect_explicit_core_imports_returns_type_and_enum_names() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![simple_type_def()],
@@ -351,6 +354,7 @@ fn test_collect_explicit_core_imports_is_sorted() {
     typ_a.name = "Alpha".to_string();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![typ_b, typ_a],

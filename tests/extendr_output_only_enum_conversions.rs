@@ -159,6 +159,7 @@ fn extendr_output_only_enum_gets_both_conversions() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![container],

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -150,6 +151,8 @@ pub struct ApiSurface {
     pub handler_contracts: Vec<HandlerContractDef>,
     #[serde(default)]
     pub unsupported_public_items: Vec<UnsupportedPublicItem>,
+    #[serde(default)]
+    pub unresolved_modules: Vec<UnresolvedModuleDeclaration>,
 }
 
 impl ApiSurface {
@@ -319,6 +322,30 @@ pub struct UnsupportedPublicItem {
     pub item_path: String,
     pub reason: String,
     pub suggested_fix: String,
+}
+
+/// A `mod x;` declaration whose backing source file the extractor could not find at either of
+/// the two candidate paths it checks (see `extract::extractor::reexports::extract_module`).
+///
+/// This is recorded as a standalone defect, independent of whatever sanitization it may cause
+/// downstream: alef cannot prove that any particular sanitized field or parameter came from the
+/// type this module would have declared, so this only records *that* resolution failed and
+/// *where alef looked*, never a causal link to a specific sanitized item. A `#[path = "..."]`
+/// module is never recorded here -- it resolves somewhere this search never looks, so recording
+/// it would name a file the crate never intended. ~keep
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UnresolvedModuleDeclaration {
+    /// The crate-relative module path of the unresolved `mod` declaration (e.g. `"types::config::credentials"`).
+    pub module_path: String,
+    /// The source file that contains the unresolved `mod x;` declaration.
+    pub declared_in: PathBuf,
+    /// Every file path the extractor actually checked for this module's contents.
+    pub candidates: Vec<PathBuf>,
+    /// The `sources` entries of the crate group this module was extracted from. Filled in by
+    /// the merge step in `cli::pipeline::extract::raw`, which is the only place that knows
+    /// which `sources` entries backed which extraction group.
+    #[serde(default)]
+    pub declared_sources: Vec<PathBuf>,
 }
 
 #[cfg(test)]

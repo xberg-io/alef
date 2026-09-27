@@ -10,6 +10,7 @@ fn test_option_fields_in_constructor_signature() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -107,6 +108,7 @@ fn test_option_fields_on_has_default_type() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -186,6 +188,7 @@ fn test_has_default_struct_delegates_binding_default_to_core_default() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -293,6 +296,7 @@ fn test_option_fields_with_serde_rename_on_has_default() {
     timeout_field.serde_rename = Some("timeout_ms".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -365,6 +369,7 @@ fn test_has_default_struct_with_nested_struct_field_accepts_none() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -478,6 +483,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
     visitor_field.cfg = Some("feature = \"visitor\"".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![

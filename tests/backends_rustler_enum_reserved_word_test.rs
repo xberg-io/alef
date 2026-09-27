@@ -125,6 +125,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
 
     let config = make_config("my_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![dummy_type],
@@ -288,6 +289,7 @@ fn enum_variant_with_multiple_reserved_words() {
 
     let config = make_config("my_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![dummy_type],

@@ -77,6 +77,7 @@ fn render(api: ApiSurface) -> Vec<(String, String)> {
 #[test]
 fn data_class_field_carries_kdoc() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -138,6 +139,7 @@ fn data_class_field_carries_kdoc() {
 #[test]
 fn enum_variants_carry_kdoc() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -218,6 +220,7 @@ fn enum_variants_carry_kdoc() {
 #[test]
 fn module_free_function_facade_carries_kdoc() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -289,6 +292,7 @@ fn module_free_function_facade_carries_kdoc() {
 #[test]
 fn error_type_with_methods_emits_abstract_properties() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

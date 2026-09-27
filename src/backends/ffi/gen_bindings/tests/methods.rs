@@ -10,6 +10,7 @@ use crate::core::ir::*;
 #[test]
 fn test_skips_method_with_generic_type_parameter() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -121,6 +122,7 @@ fn test_skips_method_with_generic_type_parameter() {
 #[test]
 fn test_skips_method_with_receiver_reference_return() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -218,6 +220,7 @@ fn test_skips_method_with_receiver_reference_return() {
 #[test]
 fn test_field_and_same_named_method_do_not_emit_duplicate_symbol() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -388,6 +391,7 @@ fn test_ffi_method_symbol_matches_the_symbol_docs_would_publish() {
 #[test]
 fn test_method_wrapper_symbol_matches_c_consumer_method_symbol() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -437,6 +441,7 @@ fn test_method_wrapper_symbol_matches_c_consumer_method_symbol() {
 #[test]
 fn test_static_constructor_symbol_matches_c_consumer_method_symbol() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {

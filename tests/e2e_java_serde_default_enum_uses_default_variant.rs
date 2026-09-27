@@ -58,6 +58,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -249,6 +250,7 @@ fn enum_default_variants_map_extracts_default_variants() {
     ];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

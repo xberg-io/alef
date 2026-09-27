@@ -162,6 +162,7 @@ target = "native"
 #[test]
 fn native_emits_three_files() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -183,6 +184,7 @@ fn native_emits_three_files() {
 #[test]
 fn native_struct_emits_data_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -235,6 +237,7 @@ fn native_struct_emits_data_class() {
 #[test]
 fn native_unit_enum_emits_enum_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -317,6 +320,7 @@ fn native_unit_enum_emits_enum_class() {
 #[test]
 fn native_function_uses_mem_scoped() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -352,6 +356,7 @@ fn native_function_uses_mem_scoped() {
 #[test]
 fn native_fallible_function_checks_error_code() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -411,6 +416,7 @@ fn native_fallible_function_checks_error_code() {
 #[test]
 fn native_def_file_has_correct_fields() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -446,6 +452,7 @@ fn native_def_file_has_correct_fields() {
 #[test]
 fn native_kt_file_is_at_correct_path() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-crate".into(),
         version: "0.1.0".into(),
         types: vec![],

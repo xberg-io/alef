@@ -109,6 +109,7 @@ module = "github.com/test/test-lib"
 
 fn make_api_with_type(trait_type: TypeDef) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![trait_type],
@@ -138,6 +139,7 @@ fn test_options_field_visitor_wrapper_uses_bridge_config_not_convert_names() {
     config.go.as_mut().unwrap().functional_options = vec![];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
@@ -860,6 +862,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![trait_type],

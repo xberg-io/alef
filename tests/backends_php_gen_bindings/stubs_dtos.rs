@@ -5,6 +5,7 @@ fn test_stubs_non_void_methods_have_return_statements() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -120,6 +121,7 @@ fn test_static_stubs_promote_parameters_after_first_optional() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -218,6 +220,7 @@ fn test_vec_named_struct_parameter() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -336,6 +339,7 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -420,6 +424,7 @@ fn test_dto_properties_use_camel_case_php_names() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -509,6 +514,7 @@ fn test_unit_enums_emit_constants_class_with_wire_values() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

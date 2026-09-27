@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[test]
 fn scaffold_elixir_mix_exs_omits_missing_native_src_directory() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

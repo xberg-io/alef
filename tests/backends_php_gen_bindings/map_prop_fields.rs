@@ -14,6 +14,7 @@ fn string_keyed_string_valued_map_field_becomes_a_real_php_prop() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -95,6 +96,7 @@ fn map_of_structs_field_stays_getter_only_and_documents_the_omission() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -209,6 +211,7 @@ fn optional_named_struct_field_gets_a_working_setter_method() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![

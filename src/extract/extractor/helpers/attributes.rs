@@ -851,3 +851,14 @@ pub(crate) fn extract_version_annotation(attrs: &[syn::Attribute]) -> crate::cor
         deprecated: extract_deprecation(attrs),
     }
 }
+
+/// Check whether an item carries `#[path = "..."]`.
+///
+/// A `#[path]` module resolves against the literal file the attribute names, not against the
+/// sibling/`mod.rs` search `extract_module` performs. The extractor has no handling for
+/// `#[path]` anywhere today, so a `mod` declaration under this attribute must never be reported
+/// as an unresolved module declaration: this search never looked at the real file, so it has
+/// nothing true to say about where the module lives. ~keep
+pub(crate) fn has_path_attribute(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| attr.path().is_ident("path"))
+}

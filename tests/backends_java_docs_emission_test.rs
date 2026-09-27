@@ -71,6 +71,7 @@ fn field_with_doc(name: &str, ty: TypeRef, doc: &str) -> FieldDef {
 fn record_components_omit_field_javadoc_in_multi_line_emit() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -162,6 +163,7 @@ fn record_components_omit_field_javadoc_in_multi_line_emit() {
 fn opaque_handle_instance_method_emits_javadoc_above_signature() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -254,6 +256,7 @@ fn opaque_handle_instance_method_emits_javadoc_above_signature() {
 fn free_function_javadoc_uses_generated_exception_name() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -311,6 +314,7 @@ fn free_function_javadoc_uses_generated_exception_name() {
 fn plain_enum_variants_carry_summary_javadoc() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -392,6 +396,7 @@ fn plain_enum_variants_carry_summary_javadoc() {
 fn plain_enum_variant_multiline_summary_preserves_every_line() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -453,6 +458,7 @@ fn plain_enum_variant_multiline_summary_preserves_every_line() {
 fn sealed_interface_variant_multiline_summary_preserves_every_line() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -518,6 +524,7 @@ fn sealed_interface_variant_multiline_summary_preserves_every_line() {
 fn free_function_facade_emits_javadoc_above_static_method() {
     let backend = JavaBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],

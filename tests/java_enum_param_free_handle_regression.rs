@@ -103,6 +103,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![param_type],
@@ -195,6 +196,7 @@ fn serde_enum_return_emits_to_json_handle_in_native_lib() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

@@ -78,6 +78,7 @@ module = "github.com/test/test-lib"
     ));
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![opaque_type("Widget"), opaque_type("Canvas")],

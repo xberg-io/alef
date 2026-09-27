@@ -110,6 +110,7 @@ fn extendr_deeply_nested_transitive_types() {
     let deep_a = make_type("DeepA", vec![make_field("nested", TypeRef::Named("DeepB".to_string()))]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![deep_c, deep_b, deep_a],
@@ -155,6 +156,7 @@ fn extendr_vec_of_vec_nested_types() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![item, container],

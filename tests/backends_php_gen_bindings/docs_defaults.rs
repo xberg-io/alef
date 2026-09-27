@@ -5,6 +5,7 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -86,6 +87,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -151,6 +153,7 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
 fn test_public_api_sanitizes_rust_syntax_from_docstrings() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -235,6 +238,7 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

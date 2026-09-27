@@ -76,6 +76,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -263,6 +264,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],

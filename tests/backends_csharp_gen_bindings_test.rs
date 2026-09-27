@@ -24,6 +24,7 @@ fn test_basic_generation() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -316,6 +317,7 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "testlib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -491,6 +493,7 @@ fn test_ffi_excluded_types_are_not_generated_for_pinvoke() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![hidden_type, visible_type],
@@ -537,6 +540,7 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -630,6 +634,7 @@ fn bool_param_call_site_matches_the_c_int_pinvoke_declaration() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -746,6 +751,7 @@ fn test_fallible_unit_opaque_method_checks_last_error_code() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -834,6 +840,7 @@ fn test_error_class_doc_strips_rust_idioms_and_sections() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -925,6 +932,7 @@ fn test_namespace_resolution() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -957,6 +965,7 @@ fn test_generated_header() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -994,6 +1003,7 @@ fn test_type_mapping() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1159,6 +1169,7 @@ fn test_tuple_struct_fields_skipped() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1268,6 +1279,7 @@ fn test_mixed_struct_skips_tuple_fields_only() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1416,6 +1428,7 @@ fn test_duplicate_variant_names_across_error_enums_do_not_corrupt_files() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_router".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1564,6 +1577,7 @@ fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1670,6 +1684,7 @@ fn wrapper_optional_bytes_param_emits_null_safe_length() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1735,6 +1750,7 @@ fn test_duration_field_emits_required_ulong_not_double_nullable() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1834,6 +1850,7 @@ fn test_duration_millis_converter_file_emitted_when_duration_field_exists() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1920,6 +1937,7 @@ fn test_duration_millis_converter_file_omitted_without_duration_field() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2001,6 +2019,7 @@ fn test_optional_ulong_field_emits_single_nullable() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2096,6 +2115,7 @@ fn test_plain_enum_without_field_default_stays_required() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2225,6 +2245,7 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2351,6 +2372,7 @@ fn test_non_nullable_string_field_emits_required() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2441,6 +2463,7 @@ fn test_nullable_field_does_not_emit_required() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2531,6 +2554,7 @@ fn test_collection_field_does_not_emit_required() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2621,6 +2645,7 @@ fn test_field_with_default_does_not_emit_required() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2712,6 +2737,7 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
     let config = minimal_csharp_config("test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2795,6 +2821,7 @@ fn test_opaque_handle_wrapper_has_internal_handle() {
 fn test_file_scoped_namespace_emitted() {
     let backend = CsharpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2869,6 +2896,7 @@ type = "ChatRequest"
     let cfg: alef::core::config::NewAlefConfig = toml::from_str(toml_str).unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2988,6 +3016,7 @@ fn test_required_config_param_stays_required() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3099,6 +3128,7 @@ fn test_bytes_field_default_uses_collection_expression() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3185,6 +3215,7 @@ fn test_using_directives_each_on_own_line() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3291,6 +3322,7 @@ type = "*const std::ffi::c_char"
     let config = cfg.resolve().unwrap().remove(0);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -3374,6 +3406,7 @@ fn record_method_bool_param_crosses_as_the_c_int_the_header_declares() {
     let config = minimal_csharp_config("test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3479,6 +3512,7 @@ fn test_receiver_selfhandle_freed_on_named_param_failure() {
     let config = minimal_csharp_config("test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3647,6 +3681,7 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
     let config = minimal_csharp_config("test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -3797,6 +3832,7 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
     let config = minimal_csharp_config("test");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3957,6 +3993,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
     ];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

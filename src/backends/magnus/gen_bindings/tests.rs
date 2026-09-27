@@ -102,6 +102,7 @@ fn make_process_function_def() -> FunctionDef {
 
 fn make_api_surface() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![make_config_type_def()],

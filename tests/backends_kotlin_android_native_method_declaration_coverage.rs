@@ -54,6 +54,7 @@ fn base_surface() -> ApiSurface {
         ..TypeDef::default()
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: CRATE_NAME.to_owned(),
         version: "0.1.0".to_owned(),
         types: vec![client, result],

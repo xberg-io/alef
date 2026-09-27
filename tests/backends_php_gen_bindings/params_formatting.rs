@@ -12,6 +12,7 @@ fn test_php_option_param_emits_nullable_with_default() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -92,6 +93,7 @@ fn test_php_required_str_param_not_nullable_with_optional_tail() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -173,6 +175,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
@@ -312,6 +315,7 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
 fn facade_emits_nullable_marker_for_non_tail_optional_param() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -405,6 +409,7 @@ fn module_entry_uses_explicit_extension_name_not_cargo_pkg_name() {
     // install to error with "already loaded". The root cause was #[php_module]
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.2.3".to_string(),
         types: vec![],

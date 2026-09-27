@@ -92,6 +92,7 @@ gem_name = "test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         };
         let code = gen_function(
             &func,
@@ -121,6 +122,7 @@ gem_name = "test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         };
         let code = gen_function(
             &func,
@@ -148,6 +150,7 @@ gem_name = "test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         };
         let code = gen_module_init(
             "TestLib",
@@ -195,6 +198,7 @@ gem_name = "test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         };
         let code = gen_module_init(
             "TestLib",
@@ -237,6 +241,7 @@ gem_name = "test_lib"
             services: vec![],
             handler_contracts: vec![],
             unsupported_public_items: Vec::new(),
+            unresolved_modules: Vec::new(),
         };
         let code = gen_module_init(
             "TestLib",

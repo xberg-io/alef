@@ -47,6 +47,17 @@ pub(super) fn extract_raw(config: &ResolvedCrateConfig, _config_path: &Path) -> 
         merged.excluded_type_paths.extend(api.excluded_type_paths);
         merged.excluded_trait_names.extend(api.excluded_trait_names);
         merged.unsupported_public_items.extend(api.unsupported_public_items);
+        // `sources` is the only thing here that knows which `sources` entries backed this
+        // extraction group -- `extract_module` itself has no visibility into `alef.toml`, so
+        // `declared_sources` is stamped on here, per group, rather than at the point of
+        // discovery. ~keep
+        let declared_sources: Vec<std::path::PathBuf> = sources.iter().map(|source| source.to_path_buf()).collect();
+        merged
+            .unresolved_modules
+            .extend(api.unresolved_modules.into_iter().map(|mut unresolved| {
+                unresolved.declared_sources = declared_sources.clone();
+                unresolved
+            }));
     }
 
     let return_type_names: ahash::AHashSet<String> = merged
@@ -79,4 +90,76 @@ fn derive_crate_name_from_path(path: &Path, default: &str) -> String {
         return name.replace('-', "_");
     }
     default.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_manifest(tmp: &Path) {
+        fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("write manifest fixture");
+    }
+
+    /// Regression coverage for the `raw.rs` merge point: two crate groups each carry their own
+    /// unresolved `mod` declaration, and `extract_raw` must stamp each recorded entry with only
+    /// the `sources` that backed *its own* group -- never the union across groups.
+    #[test]
+    fn extract_raw_stamps_each_unresolved_module_with_its_own_crate_sources() {
+        let tmp = std::env::temp_dir().join("alef_test_raw_unresolved_modules_sources");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("crates/crate_a/src")).expect("create crate_a dir");
+        fs::create_dir_all(tmp.join("crates/crate_b/src")).expect("create crate_b dir");
+        write_manifest(&tmp);
+        fs::write(tmp.join("crates/crate_a/src/lib.rs"), "pub mod missing_a;\n").expect("write crate_a lib.rs");
+        fs::write(tmp.join("crates/crate_b/src/lib.rs"), "pub mod missing_b;\n").expect("write crate_b lib.rs");
+
+        let crate_a_lib = tmp.join("crates/crate_a/src/lib.rs");
+        let crate_b_lib = tmp.join("crates/crate_b/src/lib.rs");
+
+        let config = ResolvedCrateConfig {
+            name: "sample".to_string(),
+            sources: vec![crate_a_lib.clone(), crate_b_lib.clone()],
+            version_from: tmp.join("Cargo.toml").to_string_lossy().into_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let config_path = tmp.join("alef.toml");
+
+        let surface = extract_raw(&config, &config_path).expect("extract_raw must succeed");
+
+        assert_eq!(
+            surface.unresolved_modules.len(),
+            2,
+            "each crate group's own unresolved `mod` declaration must be recorded once; got {:?}",
+            surface.unresolved_modules
+        );
+
+        let missing_a = surface
+            .unresolved_modules
+            .iter()
+            .find(|module| module.module_path == "missing_a")
+            .expect("missing_a must be recorded");
+        assert_eq!(
+            missing_a.declared_sources,
+            vec![crate_a_lib.clone()],
+            "missing_a's declared_sources must be crate_a's own sources only, not the union with crate_b"
+        );
+
+        let missing_b = surface
+            .unresolved_modules
+            .iter()
+            .find(|module| module.module_path == "missing_b")
+            .expect("missing_b must be recorded");
+        assert_eq!(
+            missing_b.declared_sources,
+            vec![crate_b_lib.clone()],
+            "missing_b's declared_sources must be crate_b's own sources only, not the union with crate_a"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }

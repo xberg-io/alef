@@ -74,6 +74,7 @@ module = "example.invalid/test-lib"
 /// the receiver/owner name swapped for one that contains an initialism.
 fn owner_type_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

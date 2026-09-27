@@ -120,6 +120,7 @@ fn test_generate_docs_typescript_optional_field_emits_consistent_table_cells() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     };
     let config = make_test_config();
     let files = generate_docs(
@@ -177,6 +178,7 @@ fn test_generate_docs_post_processing_wraps_bare_urls() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     };
     let config = make_test_config();
     let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();

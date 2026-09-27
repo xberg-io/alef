@@ -392,6 +392,7 @@ fn surface_with(types: Vec<crate::core::ir::TypeDef>, functions: Vec<crate::core
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 

@@ -85,6 +85,7 @@ fn error_def(name: &str, variants: &[&str]) -> ErrorDef {
 /// ever exercising the still-broken `api.functions`/`api.errors` order. See task #132 follow-up. ~keep
 fn determinism_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![

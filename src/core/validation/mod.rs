@@ -52,6 +52,7 @@ pub enum ValidationCode {
     SerdeContainerConversionUnsupported,
     SinceNewerThanCrateVersion,
     SinceVersionUnparseable,
+    UnresolvedModuleDeclaration,
 }
 
 /// Diagnostics that are never safe to suppress globally.
@@ -76,6 +77,7 @@ impl fmt::Display for ValidationCode {
             Self::SerdeContainerConversionUnsupported => f.write_str("serde_container_conversion_unsupported"),
             Self::SinceNewerThanCrateVersion => f.write_str("since_newer_than_crate_version"),
             Self::SinceVersionUnparseable => f.write_str("since_version_unparseable"),
+            Self::UnresolvedModuleDeclaration => f.write_str("unresolved_module_declaration"),
         }
     }
 }
@@ -90,6 +92,10 @@ pub struct ValidationDiagnostic {
     pub item_path: Option<String>,
     pub reason: String,
     pub suggested_fix: String,
+    /// A non-causal, best-effort note attached to some diagnostics (currently only
+    /// [`ValidationCode::LossySanitizedSurface`]) -- see
+    /// [`crate::extract::validation::SanitizedPublicApiDiagnostic::note`].
+    pub note: Option<String>,
 }
 
 impl ValidationDiagnostic {
@@ -108,6 +114,7 @@ impl ValidationDiagnostic {
             item_path: item_path.into(),
             reason: reason.into(),
             suggested_fix: suggested_fix.into(),
+            note: None,
         }
     }
 
@@ -127,6 +134,7 @@ impl ValidationDiagnostic {
             item_path: item_path.into(),
             reason: reason.into(),
             suggested_fix: suggested_fix.into(),
+            note: None,
         }
     }
 }
@@ -140,7 +148,11 @@ impl fmt::Display for ValidationDiagnostic {
         if let Some(item_path) = &self.item_path {
             write!(f, " item `{item_path}`")?;
         }
-        write!(f, ": {} Suggested fix: {}", self.reason, self.suggested_fix)
+        write!(f, ": {} Suggested fix: {}", self.reason, self.suggested_fix)?;
+        if let Some(note) = &self.note {
+            write!(f, " Note: {note}")?;
+        }
+        Ok(())
     }
 }
 
@@ -251,15 +263,21 @@ pub fn validate_api_surface_for_resolved_languages(
     resolved_languages: Option<&[Language]>,
 ) -> ValidationReport {
     let mut report = ValidationReport::new();
-    report.extend(sanitized_public_api_diagnostics(api).into_iter().map(|diagnostic| {
-        ValidationDiagnostic::error(
-            ValidationCode::LossySanitizedSurface,
-            api.crate_name.clone(),
-            Some(diagnostic.item_path),
-            diagnostic.reason,
-            diagnostic.suggested_fix,
-        )
-    }));
+    report.extend(
+        sanitized_public_api_diagnostics(api)
+            .into_iter()
+            .map(|diagnostic| ValidationDiagnostic {
+                note: diagnostic.note.clone(),
+                ..ValidationDiagnostic::error(
+                    ValidationCode::LossySanitizedSurface,
+                    api.crate_name.clone(),
+                    Some(diagnostic.item_path),
+                    diagnostic.reason,
+                    diagnostic.suggested_fix,
+                )
+            }),
+    );
+    report.extend(unresolved_module_diagnostics(api));
     report.extend(api.unsupported_public_items.iter().map(|item| {
         ValidationDiagnostic::error(
             ValidationCode::UnsupportedGenericItem,
@@ -279,6 +297,44 @@ pub fn validate_api_surface_for_resolved_languages(
     ));
     report.extend(since_version_diagnostics(api));
     report
+}
+
+/// One standalone warning per `mod x;` declaration the extractor could not resolve to a source
+/// file, regardless of whether anything downstream was sanitized as a result. See
+/// [`crate::core::ir::UnresolvedModuleDeclaration`] -- this never claims that a specific
+/// sanitized item came from the missing module, only that resolution failed and where alef
+/// looked.
+fn unresolved_module_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> {
+    api.unresolved_modules
+        .iter()
+        .map(|unresolved| {
+            let mod_name = unresolved
+                .module_path
+                .rsplit("::")
+                .next()
+                .unwrap_or(&unresolved.module_path);
+            let candidates = unresolved
+                .candidates
+                .iter()
+                .map(|candidate| candidate.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            ValidationDiagnostic::warning(
+                ValidationCode::UnresolvedModuleDeclaration,
+                api.crate_name.clone(),
+                None,
+                Some(unresolved.module_path.clone()),
+                format!(
+                    "`mod {mod_name}` declared in {} did not resolve to a source file at either \
+                     checked path: {candidates}",
+                    unresolved.declared_in.display()
+                ),
+                "verify the module's source file exists at one of the checked paths, check for a stale or \
+                 partially-vendored checkout, or correct this crate's `sources` entry in alef.toml"
+                    .to_string(),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

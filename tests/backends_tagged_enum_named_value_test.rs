@@ -33,6 +33,7 @@ fn named_value_variant(name: &str) -> EnumVariant {
 
 fn tagged_enum_surface() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "fixture_core".to_owned(),
         version: "1.0.0".to_owned(),
         enums: vec![EnumDef {

@@ -342,6 +342,7 @@ fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
     let config = make_config();
     let long_doc = "Open Graph metadata (og:* properties) for social media Keys like \"title\", \"description\", \"image\", \"url\", etc.";
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

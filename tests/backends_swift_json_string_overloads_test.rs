@@ -134,6 +134,7 @@ fn json_string_overloads_emitted_for_serde_config() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],
@@ -196,6 +197,7 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],
@@ -262,6 +264,7 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
     async_func.is_async = true;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![config_type],

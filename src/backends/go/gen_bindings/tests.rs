@@ -52,6 +52,7 @@ fn test_generate_bindings_produces_binding_go_file() {
     use crate::core::ir::ApiSurface;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -137,6 +138,7 @@ exclude_functions = ["embed_sparse_async"]
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -214,6 +216,7 @@ exclude_functions = ["go_only_excluded"]
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -260,6 +263,7 @@ fn test_generate_bindings_emits_cmd_setup_and_native_setup_sentinel() {
     use crate::core::ir::ApiSurface;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0-rc.38".to_string(),
         types: vec![],
@@ -324,6 +328,7 @@ fn test_generate_bindings_cmd_setup_requests_versioned_asset_name() {
     use crate::core::ir::ApiSurface;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0-rc.38".to_string(),
         types: vec![],
@@ -448,6 +453,7 @@ host_destructor = "none"
 fn capsule_api() -> crate::core::ir::ApiSurface {
     use crate::core::ir::*;
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample-capsule".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -560,6 +566,7 @@ fn free_function_colliding_with_type_name_is_renamed_get_prefixed() {
 
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -692,6 +699,7 @@ fn generate_bindings_skips_method_wrapper_when_struct_field_has_same_name() {
 
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -752,6 +760,7 @@ fn generate_bindings_emits_duration_millis_helper_when_a_duration_field_exists()
 
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -806,6 +815,7 @@ fn generate_bindings_omits_duration_millis_helper_without_a_duration_field() {
 
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

@@ -49,6 +49,7 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, error_
 
 fn make_empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -167,6 +168,7 @@ fn ffi_emits_library_load_helper_with_platform_branching() {
 #[test]
 fn each_function_gets_lookup_function_call() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         functions: vec![
             make_function(
                 "process_text",
@@ -204,6 +206,7 @@ fn each_function_gets_lookup_function_call() {
 #[test]
 fn string_params_marshal_via_to_native_utf8_and_calloc_free() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         functions: vec![make_function(
             "convert",
             vec![make_param("text", TypeRef::String)],
@@ -234,6 +237,7 @@ fn string_params_marshal_via_to_native_utf8_and_calloc_free() {
 #[test]
 fn result_returning_functions_check_last_error_code() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         functions: vec![make_function(
             "parse",
             vec![make_param("src", TypeRef::String)],
@@ -270,6 +274,7 @@ fn async_functions_fail_generation_loudly_in_ffi_mode() {
     let mut f = make_function("stream_data", vec![], TypeRef::Unit, None);
     f.is_async = true;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         functions: vec![f],
         ..make_empty_api()
     };
@@ -349,6 +354,7 @@ fn unit_enum_emits_dart_enum() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         enums: vec![en],
         ..make_empty_api()
     };
@@ -432,6 +438,7 @@ fn build_config_for_dispatches_on_dart_style() {
 #[test]
 fn product_type_single_field_emits_freezed_with_factory() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![make_type(
             "Point",
             vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32), false)],
@@ -472,6 +479,7 @@ fn product_type_single_field_emits_freezed_with_factory() {
 #[test]
 fn product_type_multi_field_emits_freezed_with_named_params() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![make_type(
             "Config",
             vec![
@@ -511,6 +519,7 @@ fn product_type_multi_field_emits_freezed_with_named_params() {
 #[test]
 fn ffi_file_includes_part_of_directives_for_freezed() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         types: vec![make_type("Data", vec![make_field("value", TypeRef::String, false)])],
         ..make_empty_api()
     };

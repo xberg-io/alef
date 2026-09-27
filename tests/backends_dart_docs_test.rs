@@ -21,6 +21,7 @@ sources = ["src/lib.rs"]
 #[test]
 fn test_dartdoc_emitted_for_bridge_function() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

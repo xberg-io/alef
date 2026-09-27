@@ -31,6 +31,7 @@ extension_name = "html_to_markdown"
     let config = &resolved[0];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: config.name.clone(),
         version: "3.6.9".into(),
         types: vec![],
@@ -85,6 +86,7 @@ extension_name = "html_to_markdown"
     let config = &resolved[0];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: config.name.clone(),
         version: "3.6.9".into(),
         types: vec![],

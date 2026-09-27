@@ -150,6 +150,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
 #[test]
 fn struct_emits_zig_struct() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -184,6 +185,7 @@ fn struct_emits_zig_struct() {
 #[test]
 fn trait_bridge_complex_return_passes_through_as_cstring() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_trait_type(
@@ -257,6 +259,7 @@ fn trait_bridge_complex_return_passes_through_as_cstring() {
 #[test]
 fn string_param_allocates_z_string_and_frees() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -314,6 +317,7 @@ fn string_param_allocates_z_string_and_frees() {
 #[test]
 fn bytes_param_passes_ptr_and_len() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -363,6 +367,7 @@ fn bytes_param_passes_ptr_and_len() {
 #[test]
 fn vec_param_takes_json_slice() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -416,6 +421,7 @@ fn vec_param_takes_json_slice() {
 #[test]
 fn result_function_checks_last_error_code() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -491,6 +497,7 @@ fn result_function_checks_last_error_code() {
 #[test]
 fn async_function_is_emitted_as_sync() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -539,6 +546,7 @@ fn async_function_is_emitted_as_sync() {
 #[test]
 fn helpers_are_always_emitted() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -576,6 +584,7 @@ fn helpers_are_always_emitted() {
 #[test]
 fn enum_emits_zig_enum_or_union() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -649,6 +658,7 @@ fn enum_emits_zig_enum_or_union() {
 #[test]
 fn optional_field_uses_zig_optional_syntax() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -673,6 +683,7 @@ fn optional_field_uses_zig_optional_syntax() {
 #[test]
 fn error_set_emits_zig_error_with_pascal_case_tags() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -783,6 +794,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![language_type],
@@ -850,6 +862,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
 #[test]
 fn bool_return_emits_not_zero_conversion() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -903,6 +916,7 @@ fn bool_return_emits_not_zero_conversion() {
 #[test]
 fn bool_return_in_error_union_emits_not_zero_conversion() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -976,6 +990,7 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
 #[test]
 fn string_param_infallible_defers_free_after_c_call() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1045,6 +1060,7 @@ fn string_param_infallible_defers_free_after_c_call() {
 #[test]
 fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1122,6 +1138,7 @@ fn demo_api_with_error_codes(codes: Option<(u32, u32)>) -> ApiSurface {
         None => (None, None),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1273,6 +1290,7 @@ fn snake_case_error_variant_is_pascal_cased_identically_in_the_set_and_the_dispa
 #[test]
 fn string_param_fallible_defers_free_after_c_call() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1350,6 +1368,7 @@ fn string_param_fallible_defers_free_after_c_call() {
 #[test]
 fn string_return_uses_len_companion_and_pointer_slice() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1409,6 +1428,7 @@ fn string_return_uses_len_companion_and_pointer_slice() {
 #[test]
 fn optional_string_return_uses_len_companion_with_null_guard() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -1487,6 +1507,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![config_type],
@@ -1564,6 +1585,7 @@ type = "*const std::ffi::c_char"
     let config = cfg.resolve().expect("test config must resolve").remove(0);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![TypeDef {
@@ -1713,6 +1735,7 @@ type = "CrawlStreamRequest"
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![engine_type],
@@ -1906,6 +1929,7 @@ type = "CrawlStreamRequest"
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![engine_type],
@@ -2088,6 +2112,7 @@ type = "BatchCrawlStreamRequest"
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![engine_type],
@@ -2209,6 +2234,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![result_type],

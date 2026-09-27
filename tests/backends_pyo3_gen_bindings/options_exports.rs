@@ -72,6 +72,7 @@ fn test_return_type_exported_from_native_module_not_options() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![conversion_result, conversion_options],
@@ -317,6 +318,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![conversion_result, conversion_options],
@@ -498,6 +500,7 @@ fn test_typeddict_style_reexports_only_listed_results_as_native() {
 
     let backend = Pyo3Backend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![mk_type("DocResult", true), mk_type("DocConfig", true)],

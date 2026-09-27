@@ -19,6 +19,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
     // methods so no `Greeter.Host`-style behaviour block is emitted, keeping this test's negative
     // assertions about `@callback` return shapes about the delegate specs alone. ~keep
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -286,6 +287,7 @@ fn test_register_nif_stub_has_implemented_methods_parameter() {
     // when the bridged trait resolves — so the trait has to be in the surface for a stub to exist
     // at all. Method-less keeps the stub's parameter list the only thing under test. ~keep
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {

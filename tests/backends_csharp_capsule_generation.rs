@@ -65,6 +65,7 @@ fn test_csharp_capsule_function_generation() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),
         types: vec![],
@@ -133,6 +134,7 @@ fn test_csharp_capsule_requires_construct_expr() {
     let backend = CsharpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),
         types: vec![],

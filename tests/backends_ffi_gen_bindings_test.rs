@@ -12,6 +12,7 @@ fn resolved_one(toml: &str) -> ResolvedCrateConfig {
 
 fn make_empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -155,6 +156,7 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
 
 fn make_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -819,6 +821,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -980,6 +983,7 @@ ffi = "crates/mylib-ffi/src/"
 
     // triggered clippy::manual_unwrap_or in sample-llm-ffi.
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1059,6 +1063,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1153,6 +1158,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1224,6 +1230,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1299,6 +1306,7 @@ ffi = "crates/mylib-ffi/src/"
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "mylib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

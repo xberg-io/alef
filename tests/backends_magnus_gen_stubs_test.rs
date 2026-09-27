@@ -95,6 +95,7 @@ fn test_basic_rbs_stubs() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -299,6 +300,7 @@ fn test_type_mapping_in_stubs() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -398,6 +400,7 @@ fn test_enum_stubs() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -513,6 +516,7 @@ fn test_opaque_type_stubs() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -666,6 +670,7 @@ fn test_rbs_stubs_without_config() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -709,6 +714,7 @@ fn test_type_with_methods_and_fields() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -855,6 +861,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
     let multiline_doc = "First line of the doc.\n\nSecond paragraph here.\nThird line.".to_string();
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -973,6 +980,7 @@ fn test_module_naming_from_crate_name() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my_awesome_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1024,6 +1032,7 @@ output = "packages/ruby/sig/"
 fn test_rbs_uses_original_public_name_for_suffixed_async_helper() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

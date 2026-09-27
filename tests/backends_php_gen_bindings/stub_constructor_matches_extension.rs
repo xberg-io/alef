@@ -36,6 +36,7 @@ fn json_field_is_excluded_from_constructor_but_reachable_via_getter() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -138,6 +139,7 @@ fn bytes_field_is_a_plain_constructor_param_without_a_promoted_property() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -221,6 +223,7 @@ fn optional_json_field_is_a_plain_constructor_param_and_reachable_via_getter() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

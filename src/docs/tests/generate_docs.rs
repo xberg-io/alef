@@ -14,6 +14,7 @@ fn test_generate_docs_empty_api() {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     };
     let config = make_test_config();
 

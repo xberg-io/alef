@@ -21,6 +21,7 @@ fn print_generated_java_code() {
     let backend = JavaBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
         types: vec![

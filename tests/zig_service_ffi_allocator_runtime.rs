@@ -28,6 +28,7 @@ prefix = "test"
 
 fn surface() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_owned(),
         version: "0.1.0".to_owned(),
         services: vec![ServiceDef {

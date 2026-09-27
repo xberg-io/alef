@@ -4,6 +4,7 @@ use super::*;
 fn php_native_and_facade_allow_null_default_config_param() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -114,6 +115,7 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
     policy.type_rust_path = Some("test_lib::Policy".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -205,6 +207,7 @@ fn php_function_path_serde_default_qualifies_crate_local_dto() {
     policy.default = Some("serde(default = \"Policy::from_env\")".to_string());
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -273,6 +276,7 @@ fn test_basic_generation() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -455,6 +459,7 @@ fn test_basic_generation() {
 fn type_stubs_honor_php_excludes_and_enum_wire_values() {
     let backend = PhpBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -569,6 +574,7 @@ fn test_type_mapping() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -644,6 +650,7 @@ fn test_enum_generation() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -743,6 +750,7 @@ fn test_generated_header() {
     let backend = PhpBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

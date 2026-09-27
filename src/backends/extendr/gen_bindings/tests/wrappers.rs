@@ -92,6 +92,7 @@ fn extendr_wrappers_emits_roxygen_doc_block_for_free_functions() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
@@ -231,6 +232,7 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -321,6 +323,7 @@ fn extendr_wrappers_do_not_call_defaults_for_excluded_classes() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -479,6 +482,7 @@ fn make_instance_method(name: &str) -> MethodDef {
 
 fn make_api_with_instance_method() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -626,6 +630,7 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -708,6 +713,7 @@ fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
@@ -783,6 +789,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -1045,6 +1052,7 @@ fn r_public_api_omits_from_json_for_unregistered_dto_roots() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1180,6 +1188,7 @@ fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
     let backend = ExtendrBackend;
     let config = make_config();
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![

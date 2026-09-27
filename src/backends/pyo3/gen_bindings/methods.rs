@@ -203,6 +203,7 @@ module_name = "_test_lib"
     #[test]
     fn gen_module_init_empty_api_produces_ok() {
         let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test-lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
@@ -229,6 +230,7 @@ module_name = "_test_lib"
     #[test]
     fn gen_module_init_provisions_async_runtime_worker_stack() {
         let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test-lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],

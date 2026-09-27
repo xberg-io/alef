@@ -133,6 +133,7 @@ pub(crate) fn empty_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 
@@ -164,5 +165,6 @@ pub(crate) fn make_minimal_api(version: &str) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }

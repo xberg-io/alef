@@ -146,6 +146,7 @@ fn result_enum() -> EnumDef {
 
 fn api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
@@ -373,6 +374,7 @@ fn assert_filtered_callback_surface(code: &str, bridge_name: &str) {
 
 fn syntax_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

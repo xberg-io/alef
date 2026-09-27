@@ -24,6 +24,7 @@ namespace = "Neutral"
 
 fn upload_file_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "neutral".to_string(),
         version: "0.1.0".to_string(),
         types: vec![upload_file_type()],

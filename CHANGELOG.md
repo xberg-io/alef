@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **`ApiSurface` gains a public `unresolved_modules` field (#464).** `ApiSurface` is re-exported as
+  `alef::ApiSurface` with public fields, so any exhaustive `ApiSurface { .. }` literal now fails to
+  compile with `error[E0063]: missing field 'unresolved_modules'`. The scale is the reason this is
+  a minor rather than a patch: roughly 500 literals across ~100 files inside alef's own tests and
+  benches had to be updated. **Migration:** add `unresolved_modules: Vec::new(),` to the literal,
+  or switch to `..Default::default()`, which is unaffected. The field is `#[serde(default)]`, so
+  serialized IR from an older alef still deserializes.
+
 ### Fixed
+
+- **extract: a `mod` declaration that resolved to no file vanished silently, and
+  `lossy_sanitized_surface` never pointed at the cause (#464).** `extract_module` returned
+  `Ok(())` for an unresolvable `mod x;` with no diagnostic at all, so every type that module
+  defined was simply absent and later sanitized exactly like a type that does not exist -- the
+  shape that cost a consumer a five-cell version matrix to diagnose, for what turned out to be one
+  line of `alef.toml`. Those declarations are now recorded and reported as a warning whether or
+  not anything sanitized, naming the module, the declaring file and both candidate paths actually
+  checked. Sanitization diagnostics additionally carry a note when any module failed to resolve.
+  The note deliberately does not claim causation -- the cheap check cannot prove a specific
+  sanitized type came from a specific unresolved module, so it says alef cannot tell -- and it is
+  omitted entirely when nothing failed to resolve, leaving the existing wording byte-identical for
+  a type that is genuinely absent. A `#[path = "..."]` module is never recorded, since it resolves
+  somewhere this search does not look and naming a path alef never checked would be worse than
+  silence. Note #466 already fixed the originally reported case; what remains is the
+  genuinely-absent one.
 
 - **cli: `alef all` wrote Rust bindings before the `rustfmt.toml` that governs them, and rustfmt
   resolved its config from the process cwd (#465).** The bindings stage runs before the scaffold

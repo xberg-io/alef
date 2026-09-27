@@ -44,6 +44,7 @@ fn test_basic_generation() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -239,6 +240,7 @@ fn test_type_mapping() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -306,6 +308,7 @@ fn test_enum_generation() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -419,6 +422,7 @@ fn test_enum_generation() {
 fn test_internally_tagged_enum_constructor_wraps_bare_string() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -506,6 +510,7 @@ fn test_generated_header() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -570,6 +575,7 @@ fn test_methods_generation() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -702,6 +708,7 @@ fn test_error_types() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -807,6 +814,7 @@ fn test_async_function() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -905,6 +913,7 @@ fn test_async_function() {
 fn test_async_helper_registers_under_original_public_name() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -953,6 +962,7 @@ fn test_opaque_type() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1066,6 +1076,7 @@ fn test_opaque_ref_mut_bytes_param_binds_and_decodes_string() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1174,6 +1185,7 @@ fn test_default_config() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1250,6 +1262,7 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -1380,6 +1393,7 @@ mod trait_bridge {
 
     fn make_api() -> ApiSurface {
         ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
             types: vec![TypeDef {
@@ -2065,6 +2079,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2256,6 +2271,7 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2352,6 +2368,7 @@ fn test_tuple_variant_bytes_stays_as_vec() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -2421,6 +2438,7 @@ fn test_optional_ref_string_method_returns_owned_option() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2518,6 +2536,7 @@ fn test_opaque_owned_builder_return_rewraps_arc() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2617,6 +2636,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2745,6 +2765,7 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -2918,6 +2939,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_markdown_rs".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -3038,6 +3060,7 @@ fn test_module_init_requires_json_stdlib() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3075,6 +3098,7 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -3142,6 +3166,7 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3272,6 +3297,7 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3368,6 +3394,7 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3484,6 +3511,7 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
 fn tagged_enum_dispatcher_uses_serde_wire_names() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3573,6 +3601,7 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3735,6 +3764,7 @@ fn test_enum_yard_doc_emission() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -3856,6 +3886,7 @@ fn test_enum_variant_method_yard_docs() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -4043,6 +4074,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
     ];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib-rs".to_string(),
         version: "0.1.0".to_string(),
         types,
@@ -4207,6 +4239,7 @@ fn test_registration_variant_styles_emit_unified_block_form() {
         };
 
         ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "test_lib".to_string(),
             version: "0.1.0".to_string(),
             types: vec![],
@@ -4290,6 +4323,7 @@ fn test_async_function_with_vec_named_params() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -4466,6 +4500,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -4693,6 +4728,7 @@ fn free_fn(name: &str, cfg: Option<&str>) -> FunctionDef {
 fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -4745,6 +4781,7 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
 fn test_internally_tagged_unit_variant_wraps_bare_string() {
     let backend = MagnusBackend;
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -5037,6 +5074,7 @@ fn magnus_gates_the_wrapper_fn_and_its_define_method_registration_together() {
     let backend = MagnusBackend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

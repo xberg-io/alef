@@ -104,6 +104,7 @@ fn async_vec_named_params_convert_to_core_vec() {
         TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
     )]);
     let api = crate::core::ir::ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_fixture".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -492,6 +493,7 @@ fn type_has_default_lookup_returns_correct_value() {
     use crate::core::ir::ApiSurface;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],

@@ -11,6 +11,7 @@ fn test_capsule_types_end_to_end() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![
@@ -349,6 +350,7 @@ fn test_capsule_types_in_methods() {
     let backend = Pyo3Backend;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_pack".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

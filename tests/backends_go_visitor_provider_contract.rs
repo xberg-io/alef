@@ -383,6 +383,7 @@ static inline uint32_t test_counter_value(TESTCounter h) { return 9; }
 /// ever referenced `json.`.
 fn primitive_only_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -492,6 +493,7 @@ static inline void test_free_string(char *s) {}
 /// module-level forwarding wrapper, which must agree on the exact same Stream type name.
 fn streaming_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

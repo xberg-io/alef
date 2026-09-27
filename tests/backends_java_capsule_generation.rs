@@ -33,6 +33,7 @@ fn capsule_function(name: &str) -> FunctionDef {
 
 fn api_with_capsule(fn_name: &str) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "tree_sitter".to_string(),
         version: "0.25.0".to_string(),
         types: vec![],

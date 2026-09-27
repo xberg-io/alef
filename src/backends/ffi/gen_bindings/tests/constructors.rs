@@ -178,6 +178,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 
@@ -390,6 +391,7 @@ fn opaque_with_named_constructor_api() -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+        unresolved_modules: Vec::new(),
     }
 }
 

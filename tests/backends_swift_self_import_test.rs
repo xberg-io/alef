@@ -120,6 +120,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
 /// bridged trait (so the trait-bridge protocol/adapter files land in `Sources/RustBridge/`).
 fn sample_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample".into(),
         version: "0.1.0".into(),
         types: vec![

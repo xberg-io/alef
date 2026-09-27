@@ -36,6 +36,7 @@ fn test_generates_lib_rs() {
 /// `_to_string` accessors alongside `_free` / `_to_json`.
 fn enum_return_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],

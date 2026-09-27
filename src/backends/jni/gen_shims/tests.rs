@@ -71,6 +71,7 @@ namespace = "dev.sample_crate"
 
     fn api_with_functions(functions: Vec<crate::core::ir::FunctionDef>) -> crate::core::ir::ApiSurface {
         crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
             version: "0.1.0".into(),
             types: vec![],
@@ -441,6 +442,7 @@ namespace = "dev.sample_crate"
         .unwrap();
         let config = raw.resolve().unwrap().remove(0);
         let api = crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
             version: "0.1.0".into(),
             types: vec![],
@@ -484,6 +486,7 @@ namespace = "dev.sample_crate"
             ..Default::default()
         };
         crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
             version: "0.1.0".into(),
             types: vec![client],
@@ -633,6 +636,7 @@ exclude_types = ["Loader"]
             ..Default::default()
         };
         let api = crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
             version: "0.1.0".into(),
             types: vec![
@@ -956,6 +960,7 @@ register_fn = "register_backend"
 
     fn api_with_types(types: Vec<crate::core::ir::TypeDef>) -> crate::core::ir::ApiSurface {
         crate::core::ir::ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "demo".into(),
             version: "0.1.0".into(),
             types,

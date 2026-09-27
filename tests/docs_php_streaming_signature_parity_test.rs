@@ -45,6 +45,7 @@ sources = ["src/lib.rs"]
 /// `CrawlEvent`) -- the same fixture shape as the Go and Python parity tests.
 fn streaming_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![

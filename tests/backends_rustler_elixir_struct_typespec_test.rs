@@ -93,6 +93,7 @@ fn test_struct_module_emits_type_t_typespec_with_correct_field_types() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -209,6 +210,7 @@ fn test_struct_module_defstruct_defaults_align_with_typespec() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -315,6 +317,7 @@ fn test_struct_module_with_named_type_field() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -537,6 +540,7 @@ fn test_struct_module_with_known_named_type_fields() {
 
     let config = make_config("xberg");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "xberg".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],
@@ -641,6 +645,7 @@ fn test_struct_module_with_vec_fields() {
 
     let config = make_config("test_app");
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-app".to_string(),
         version: "1.0.0".to_string(),
         functions: vec![],

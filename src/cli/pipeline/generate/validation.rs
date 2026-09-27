@@ -173,6 +173,7 @@ fn unreadable_field_default_diagnostics(api: &ApiSurface, config: &ResolvedCrate
                             the literal arguments passed (`Self::new(\"en\")`), or accept the type-zero \
                             explicitly with `suppress_validation_codes = [\"unreadable_field_default\"]`"
                 .to_string(),
+            note: None,
         });
     }
     diagnostics
@@ -245,6 +246,7 @@ fn service_api_capability_diagnostics(
                     backend.name()
                 ),
                 suggested_fix: "remove the language from this generation run, opt it out in service config, or implement service API support for the backend".to_string(),
+                note: None,
             })
         })
         .collect()
@@ -371,6 +373,7 @@ fn ffi_json_return_diagnostic(
             type_ref_label(return_type)
         ),
         suggested_fix: "derive Serialize/Deserialize on the named return type, expose a binding-safe DTO, or exclude/bridge the item explicitly".to_string(),
+        note: None,
     }
 }
 

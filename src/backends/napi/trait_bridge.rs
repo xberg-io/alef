@@ -204,6 +204,7 @@ mod tests {
         };
 
         let api = ApiSurface {
+            unresolved_modules: Vec::new(),
             crate_name: "sample-core".to_string(),
             version: "0.1.0".to_string(),
             types: vec![trait_def.clone()],

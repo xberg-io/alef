@@ -135,6 +135,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
 #[test]
 fn struct_emits_data_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -170,6 +171,7 @@ fn struct_emits_data_class() {
 #[test]
 fn function_emits_object_member() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -217,6 +219,7 @@ fn function_emits_object_member() {
 #[test]
 fn unit_enum_emits_enum_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -291,6 +294,7 @@ fn unit_enum_emits_enum_class() {
 #[test]
 fn optional_field_uses_kotlin_nullable() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -318,6 +322,7 @@ fn optional_field_uses_kotlin_nullable() {
 #[test]
 fn async_function_emits_suspend() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -365,6 +370,7 @@ fn async_function_emits_suspend() {
 #[test]
 fn unit_error_variant_emits_sealed_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -422,6 +428,7 @@ fn unit_error_variant_emits_sealed_class() {
 #[test]
 fn error_variant_with_fields_emits_data_class() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -468,6 +475,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
     use alef::core::ir::ReceiverKind;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -583,6 +591,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
 #[test]
 fn function_imports_native_facade() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -709,6 +718,7 @@ type = "ChatCompletionRequest"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -863,6 +873,7 @@ type = "ChatCompletionRequest"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -979,6 +990,7 @@ target = "jvm"
         version: Default::default(),
     };
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![client_type],
@@ -1107,6 +1119,7 @@ target = "jvm"
     let graphql_config = opaque_with_method("GraphQLRouteConfig", "playground_enabled");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![router, graphql_config],
@@ -1260,6 +1273,7 @@ target = "jvm"
     }
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
         types: vec![opaque("Router")],
@@ -1584,6 +1598,7 @@ fn dto_with_instance_methods_emits_member_functions() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         functions: vec![],

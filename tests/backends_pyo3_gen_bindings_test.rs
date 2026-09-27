@@ -174,6 +174,7 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
 
 fn make_api_surface() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],

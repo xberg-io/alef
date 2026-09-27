@@ -85,6 +85,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
 
 fn surface_for_type(typ: TypeDef) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![typ],
@@ -222,6 +223,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -356,6 +358,7 @@ fn option_string_return_null_checks_and_boxes_value() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

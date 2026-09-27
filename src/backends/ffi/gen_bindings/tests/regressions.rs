@@ -615,6 +615,7 @@ core_import = "my_custom_lib"
 #[test]
 fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -732,6 +733,7 @@ type = "ChatRequest"
 "#,
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -1041,6 +1043,7 @@ type = "*const std::ffi::c_char"
 "#,
     );
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![TypeDef {
@@ -1116,6 +1119,7 @@ type = "*const std::ffi::c_char"
 /// `map_is_ahash=true` and `map_key_is_cow=true` on the param.
 fn ahashmap_cow_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1225,6 +1229,7 @@ fn test_optional_ahashmap_cow_key_uses_as_ref_not_as_deref() {
 #[test]
 fn test_optional_vec_still_uses_as_deref() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],
@@ -1856,6 +1861,7 @@ fn optional_bytes_present_arm_never_writes_null_so_empty_is_not_absent() {
 
 fn optional_bytes_api(return_type: TypeRef, error_type: Option<String>) -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![],

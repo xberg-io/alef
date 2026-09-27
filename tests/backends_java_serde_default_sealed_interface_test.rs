@@ -213,6 +213,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
     let config_type = make_type("EmbeddingConfig", vec![model_field]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".to_string(),
         version: "1.0.0".to_string(),
         types: vec![config_type],
@@ -320,6 +321,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
     let config_type = make_type("StatusConfig", vec![status_field]);
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".to_string(),
         version: "1.0.0".to_string(),
         types: vec![config_type],

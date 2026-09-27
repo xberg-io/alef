@@ -100,6 +100,7 @@ fn make_config_with_nif(nif_module: &str) -> ResolvedCrateConfig {
 #[test]
 fn struct_emits_record_type() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -131,6 +132,7 @@ fn struct_emits_record_type() {
 #[test]
 fn function_emits_external_binding() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -174,6 +176,7 @@ fn function_emits_external_binding() {
 #[test]
 fn enum_emits_custom_type() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -247,6 +250,7 @@ fn enum_emits_custom_type() {
 #[test]
 fn optional_field_imports_option() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![make_type(
@@ -272,6 +276,7 @@ fn optional_field_imports_option() {
 #[test]
 fn error_emits_custom_type() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -335,6 +340,7 @@ fn error_emits_custom_type() {
 #[test]
 fn enum_tuple_variant_emits_unlabeled_field() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -397,6 +403,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
 #[test]
 fn nif_module_override_uses_custom_name() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![],
@@ -573,6 +580,7 @@ fn trait_bridge_single_method_emits_register_and_support_nifs() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -627,6 +635,7 @@ fn trait_bridge_multiple_bridges_emit_support_nifs_only_once() {
     let embedding_bridge = make_bridge_cfg("EmbeddingBackend", "register_embedding_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![ocr_type, embedding_type],
@@ -671,6 +680,7 @@ fn trait_bridge_emits_per_method_response_shim() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -718,6 +728,7 @@ fn trait_bridge_response_shim_uses_typed_return_and_error() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -761,6 +772,7 @@ fn trait_bridge_response_shim_unit_return_emits_nil() {
     };
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -796,6 +808,7 @@ fn trait_bridge_multiple_methods_emit_one_shim_each() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -840,6 +853,7 @@ fn trait_bridge_response_shim_includes_doc_comment() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -874,6 +888,7 @@ fn trait_bridge_emits_unregistration_fn_when_configured() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -907,6 +922,7 @@ fn trait_bridge_omits_unregistration_fn_when_not_configured() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -936,6 +952,7 @@ fn trait_bridge_emits_clear_fn_when_configured() {
     let bridge_cfg = make_bridge_cfg_full("OcrBackend", "register_ocr_backend", None, Some("clear_ocr_backends"));
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -969,6 +986,7 @@ fn trait_bridge_omits_clear_fn_when_not_configured() {
     let bridge_cfg = make_bridge_cfg("OcrBackend", "register_ocr_backend");
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -1003,6 +1021,7 @@ fn trait_bridge_emits_all_three_fns_when_fully_configured() {
     );
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![trait_type],
@@ -1040,6 +1059,7 @@ fn non_trait_type_with_methods_emits_opaque_resource_only_once() {
     client.methods = vec![make_method("chat")];
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client],

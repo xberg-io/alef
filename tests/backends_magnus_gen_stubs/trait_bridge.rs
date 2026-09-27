@@ -25,6 +25,7 @@ fn test_rbs_includes_trait_registry_functions() {
     // no methods so no `interface _OcrBackend` is emitted and the `backend` param stays `untyped`,
     // which is what this test pins. ~keep
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {

@@ -139,6 +139,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         version: Default::default(),
     };
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "demo".into(),
         version: "0.1.0".into(),
         types: vec![client_type],

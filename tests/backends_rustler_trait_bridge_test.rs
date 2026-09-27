@@ -7,6 +7,7 @@ use alef::core::ir::*;
 
 fn make_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "my-lib".to_string(),
         version: "1.0.0".to_string(),
         types: vec![make_node_context()],

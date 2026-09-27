@@ -8,6 +8,7 @@ use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, PrimitiveType, 
 
 fn empty_api() -> ApiSurface {
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -45,6 +46,7 @@ fn wasm_backend_name_is_wasm() {
 #[test]
 fn generate_bindings_empty_api_produces_files() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -81,6 +83,7 @@ serde = { version = "1", features = ["derive", "rc"] }
     .unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -165,6 +168,7 @@ fn cargo_toml_emits_passthrough_features_for_type_cfg_attrs() {
     use crate::core::ir::TypeDef;
 
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -200,6 +204,7 @@ fn cargo_toml_emits_passthrough_features_for_type_cfg_attrs() {
 #[test]
 fn cargo_toml_omits_features_block_when_no_cfg_attrs() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -237,6 +242,7 @@ extra_features = ["sceptre-wasm", "", "sceptre-wasm", "telemetry"]
     .unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -287,6 +293,7 @@ features = ["wasm-target"]
     .unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
@@ -327,6 +334,7 @@ features = ["wasm-target"]
 #[test]
 fn cargo_toml_has_no_issues_docs_line_and_getrandom_deps_are_alphabetical() {
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -381,6 +389,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
     .unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],
@@ -442,6 +451,7 @@ wasm-bindgen-test = "0.3"
     .unwrap();
     let config = cfg.resolve().unwrap().remove(0);
     let api = ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![],

@@ -63,6 +63,7 @@ fn surface() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "sample_crate".to_owned(),
         version: "0.1.0".to_owned(),
         types: vec![

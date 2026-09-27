@@ -99,6 +99,7 @@ fn registry_api() -> ApiSurface {
     };
 
     ApiSurface {
+        unresolved_modules: Vec::new(),
         crate_name: "kreuzberg".to_string(),
         version: "0.1.0".to_string(),
         types: vec![registry],
