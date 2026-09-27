@@ -144,10 +144,11 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     let mut ephemeral_excluded_count = 0usize;
     // How many marked files the alef#436 drift check actually ran a real `poly fmt --fix` pass
     // over, versus how many it had to skip because `poly` is not installed -- see
-    // `helpers::format_drift`'s module doc. Normally every non-`.rs`/`.md` candidate, but
-    // alef#458 folds `.rs`/`.md` in here too whenever poly is unavailable, since their own
-    // fast in-memory prediction assumes a `poly fmt --fix` pass this environment cannot prove
-    // ran. Reported unconditionally below (never folded into a pass/fail condition) so a missing
+    // `helpers::format_drift`'s module doc. Every non-`.rs`/`.md` candidate, and only those:
+    // alef#458 used to fold `.rs`/`.md` in here whenever poly was unavailable, but #469 removed
+    // that for `.md` and #465 removed it for `.rs` once `rustfmt.toml` was written before the
+    // bindings it governs, so both now predict their own final bytes with no poly involved.
+    // Reported unconditionally below (never folded into a pass/fail condition) so a missing
     // formatter is a loud, counted gap rather than a silent pass: a comparison that examined
     // nothing must never look identical to one that found a clean tree. ~keep
     let mut managed_version_manifests: Vec<String> = Vec::new();
@@ -857,19 +858,13 @@ mod docs_drift_tests {
             .drifted
     }
 
-    /// Guarded on `poly` (alef#458): `.md` now shares the same fast-path precondition `.rs`
-    /// does -- see `helpers::format_drift::render_predicts_final_bytes`'s doc -- so without poly
-    /// this reference page falls through to `real_formatter_drift_with` instead, which itself needs
-    /// poly to compare anything and otherwise only counts a skip rather than reporting drift.
-    /// That skip path is already covered directly
-    /// (`format_drift::tests::skips_and_counts_every_candidate_when_poly_is_unavailable`), so
-    /// this guard keeps this test about the mechanism it names rather than the unrelated,
-    /// already-proven skip behaviour. ~keep
+    /// Deliberately NOT guarded on `poly`. It was, under alef#458, when `.md` shared the `.rs`
+    /// fast path's poly precondition -- which made this a vacuous early return on exactly the
+    /// CI leg that has no poly. #469 removed that precondition for `.md`, so
+    /// `render_predicts_final_bytes` now clears this page's bytes with or without poly and the
+    /// guard would only hide the assertion. ~keep
     #[test]
     fn a_docs_page_whose_source_changed_since_the_last_alef_docs_run_is_reported_as_drifted() {
-        if !crate::cli::pipeline::is_tool_available("poly") {
-            return;
-        }
         let (dir, config_path) = run_alef_docs("Greets someone.");
         let root = dir.path().to_path_buf();
 
