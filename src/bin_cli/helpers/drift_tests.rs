@@ -32,9 +32,19 @@ fn gen_file_unheadered(rel: &str, content: &str) -> crate::core::backend::Genera
 /// `docs::render`/`generate_docs_stage_impl` bake their own HTML-commented header straight into
 /// `content` rather than relying on `ensure_generated_header` -- so `.md` cannot exercise the
 /// `generated_header: true`-inserts-a-comment-header shape this test is about; the self-marking
-/// shape gets its own pair of tests below. ~keep
+/// shape gets its own pair of tests below.
+///
+/// Guarded on `poly` (alef#458): the fast path this test exercises now only fires when poly is
+/// available (see `render_predicts_final_bytes`'s doc); without poly this `.rs` candidate falls
+/// through to `real_formatter_drift_with` instead, which itself needs poly to compare anything and
+/// otherwise only counts a skip -- a different, already-covered mechanism
+/// (`format_drift::tests::skips_and_counts_every_candidate_when_poly_is_unavailable`), not a
+/// failure of the one this test is about. ~keep
 #[test]
 fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
+    if !crate::cli::pipeline::is_tool_available("poly") {
+        return;
+    }
     let dir = tempfile::tempdir().expect("tempdir");
     let old_file = gen_file("lib.rs", "pub fn greet() -> &'static str { \"old\" }\n");
     let old_rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&old_file), dir.path());
@@ -86,7 +96,7 @@ fn drifted_marked_paths_ignores_a_file_that_carries_no_marker_at_all() {
 /// reported drifted, even though `normalize_content` has no TOML emulation at all --
 /// `drifted_marked_paths` no longer relies on that prediction for a non-`.rs`/`.md` extension. It
 /// instead runs a REAL `poly fmt --fix` pass over the rendered bytes (see
-/// `format_drift::real_formatter_drift`'s module doc) and compares the result to disk, which is
+/// `format_drift::real_formatter_drift_with`'s module doc) and compares the result to disk, which is
 /// exact rather than approximate and needs no per-language emulation to get right. Skips itself
 /// when `poly` is not on the host running the suite -- the branch for that case is proven
 /// host-independently via `format_drift::tests::skips_and_counts_every_candidate_when_poly_is_

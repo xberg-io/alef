@@ -21,6 +21,23 @@
 //! `POLY_ELIXIR_EXCLUDE_GLOBS`/`POLY_CSHARP_EXCLUDE_GLOBS`) degrades to a plain content
 //! comparison for free, because running `poly fmt --fix` on such a file is a no-op.
 //!
+//! # Why the `.rs`/`.md` fast path also requires poly (alef#458)
+//!
+//! [`render_predicts_final_bytes`]'s prediction is only honest about what `alef all` leaves on
+//! disk when `poly fmt --fix` actually ran during that write -- "final" bytes means *post*-poly.
+//! `alef all` writes Rust binding sources (`all_commands.rs`'s bindings stage) BEFORE its
+//! scaffold stage emits `rustfmt.toml`, so that first write is formatted at rustfmt's default
+//! `max_width` (100); only the later `poly fmt --fix` pass re-wraps it at the project's
+//! configured width (120) once `rustfmt.toml` exists. When poly is not installed, that
+//! re-wrap never happens and the default-width bytes are what's left on disk -- but this fast
+//! path re-renders with `normalize_content`, which resolves `rustfmt.toml` fresh from the
+//! current working directory (present by verify time) and so predicts the post-poly width
+//! regardless of whether poly ever actually ran. Gating the fast path on poly's own
+//! availability closes that gap: with poly absent, `.rs`/`.md` fall through to the same counted
+//! skip every other extension already gets, rather than a prediction that quietly assumes a
+//! pass this environment never ran. See `drifted_marked_paths_with`'s doc for how the count
+//! stays loud. ~keep
+//!
 //! # Why the temp files live beside the real file, not in a scratch directory
 //!
 //! poly resolves `poly.toml` (and each engine's own project markers -- `pyproject.toml`,
@@ -51,7 +68,7 @@ pub(super) struct RealFormatCandidate {
     pub(super) rendered_content: String,
 }
 
-/// How many candidates [`real_formatter_drift`] actually compared through a real `poly fmt`
+/// How many candidates [`real_formatter_drift_with`] actually compared through a real `poly fmt`
 /// pass, versus how many it had to skip because `poly` is not installed on this machine.
 ///
 /// Surfaced all the way to `alef verify`'s own report (`bin_cli::core_commands::verify`) so a
@@ -76,20 +93,17 @@ pub(crate) struct FormatDriftStats {
 /// same-directory temp copy of its rendered bytes -- see the module doc for why colocated and
 /// why batched. Returns the drifted subset (as `full_path.display()` strings, matching every
 /// other list in [`super::MissingAndFrozenFiles`]) alongside [`FormatDriftStats`].
-pub(super) fn real_formatter_drift(
-    candidates: Vec<RealFormatCandidate>,
-    base_dir: &Path,
-) -> (Vec<String>, FormatDriftStats) {
-    real_formatter_drift_with(candidates, base_dir, &crate::cli::pipeline::is_tool_available)
-}
-
-/// Testable seam for [`real_formatter_drift`]: gates the up-front "is poly even installed"
-/// decision through `is_available` instead of PATH, so the skip-and-count branch is provable
-/// without depending on whether the host running the suite happens to have `poly`. There is
-/// deliberately no seam for the formatting pass itself once this gate passes -- emulating
-/// poly's own output is exactly the prediction this module exists to avoid, so the "poly ran and
-/// found real drift" branch is proven against the real binary instead, skipping itself when it
-/// is absent (see this module's own tests for that pattern). ~keep
+///
+/// Gates the up-front "is poly even installed" decision through the injected `is_available`
+/// rather than reading PATH directly, so the skip-and-count branch is provable without
+/// depending on whether the host running the suite happens to have `poly` -- production calls
+/// (`drifted_marked_paths_with`) always pass [`crate::cli::pipeline::is_tool_available`], and
+/// share that same instance with the `.rs`/`.md` fast-path gate (alef#458) so the two tiers can
+/// never disagree about whether poly is present. There is deliberately no seam for the
+/// formatting pass itself once this gate passes -- emulating poly's own output is exactly the
+/// prediction this module exists to avoid, so the "poly ran and found real drift" branch is
+/// proven against the real binary instead, skipping itself when it is absent (see this module's
+/// own tests for that pattern). ~keep
 fn real_formatter_drift_with(
     candidates: Vec<RealFormatCandidate>,
     base_dir: &Path,
@@ -222,7 +236,7 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<t
 /// comment considered and rejected -- a per-engine emulation of a formatter alef does not own,
 /// and does not control the evolution of, is a maintenance trap that grows every time poly adds,
 /// drops, or reconfigures an engine), every other marked, existing file is instead compared
-/// through [`real_formatter_drift`]: the freshly rendered content is run through a REAL `poly fmt
+/// through [`real_formatter_drift_with`]: the freshly rendered content is run through a REAL `poly fmt
 /// --fix` pass and the result is compared to disk. This is exact rather than approximate, and it
 /// degrades safely for an extension poly has no engine for (or deliberately excludes, like
 /// `.ex`/`.exs`/`.cs`): running `poly fmt --fix` on such a file is a no-op, so the comparison
@@ -257,6 +271,21 @@ pub(super) fn drifted_marked_paths(
     files: &[crate::core::backend::GeneratedFile],
     base_dir: &Path,
 ) -> (Vec<String>, FormatDriftStats) {
+    drifted_marked_paths_with(files, base_dir, &crate::cli::pipeline::is_tool_available)
+}
+
+/// Testable seam for [`drifted_marked_paths`]: gates the `.rs`/`.md` fast path's own
+/// precondition -- see [`render_predicts_final_bytes`]'s doc and the module doc's alef#458
+/// section -- through `is_available` instead of PATH, mirroring [`real_formatter_drift_with`]'s
+/// identical seam for the same reason. Threading the same `is_available` into both tiers keeps
+/// one call answering "is poly here" for the whole function, rather than the fast-path gate and
+/// [`real_formatter_drift_with`]'s own gate silently risking two different answers. ~keep
+fn drifted_marked_paths_with(
+    files: &[crate::core::backend::GeneratedFile],
+    base_dir: &Path,
+    is_available: &dyn Fn(&str) -> bool,
+) -> (Vec<String>, FormatDriftStats) {
+    let poly_available = is_available("poly");
     let mut drifted = Vec::new();
     let mut real_format_candidates = Vec::new();
     for file in files {
@@ -275,7 +304,7 @@ pub(super) fn drifted_marked_paths(
         let Some(output) = rendered.into_iter().next() else {
             continue;
         };
-        if render_predicts_final_bytes(&full_path) {
+        if render_predicts_final_bytes(&full_path, poly_available) {
             let up_to_date = crate::cli::pipeline::matches_alef_output(&full_path, &existing, &output.content);
             if !up_to_date {
                 drifted.push(full_path.display().to_string());
@@ -288,7 +317,7 @@ pub(super) fn drifted_marked_paths(
             rendered_content: output.content,
         });
     }
-    let (real_drifted, stats) = real_formatter_drift(real_format_candidates, base_dir);
+    let (real_drifted, stats) = real_formatter_drift_with(real_format_candidates, base_dir, is_available);
     drifted.extend(real_drifted);
     (drifted, stats)
 }
@@ -296,12 +325,21 @@ pub(super) fn drifted_marked_paths(
 /// Whether [`crate::cli::pipeline::normalize_content`]'s in-memory normalization is a faithful
 /// PREDICTION of the bytes `alef generate`/`alef all` actually leave on disk at `path` -- the fast
 /// path [`drifted_marked_paths`] takes for `.rs`/`.md`. Every other extension instead goes
-/// through [`real_formatter_drift`], which runs the real formatter rather than predicting it --
+/// through [`real_formatter_drift_with`], which runs the real formatter rather than predicting it --
 /// see this module's own doc and [`drifted_marked_paths`]'s doc for the measured evidence that
-/// only these two extensions can be predicted honestly today. ~keep
-fn render_predicts_final_bytes(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension == "rs" || extension == "md")
+/// only these two extensions can be predicted honestly today.
+///
+/// `poly_available` (alef#458): even for `.rs`/`.md`, the prediction is only honest when `poly
+/// fmt --fix` actually ran during the write it is predicting -- see the module doc's "Why the
+/// `.rs`/`.md` fast path also requires poly" section for the exact false-positive this closes.
+/// With poly unavailable this always returns `false`, so both extensions fall through to
+/// [`real_formatter_drift_with`] and are counted as a loud, explicit skip instead of a silently wrong
+/// prediction. ~keep
+fn render_predicts_final_bytes(path: &Path, poly_available: bool) -> bool {
+    poly_available
+        && path
+            .extension()
+            .is_some_and(|extension| extension == "rs" || extension == "md")
 }
 
 /// Print `alef verify`'s formatted-output drift coverage line.

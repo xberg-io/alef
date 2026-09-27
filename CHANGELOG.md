@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **verify: the fresh-render drift check reported freshly generated files as drifted whenever
+  `poly` was absent (#458).** The `.rs`/`.md` fast path predicts `alef all`'s *final* bytes in
+  memory, but "final" means post-`poly fmt --fix`, and that precondition was never checked. `alef
+  all` writes Rust binding output before the `rustfmt.toml` it later emits exists, so those files
+  land at rustfmt's default width and only the subsequent `poly fmt --fix` pass rewraps them; with
+  no poly on `PATH` that pass never runs, disk keeps the narrower wrapping, and the prediction
+  disagreed with it. This failed three `alef verify` regression tests on every CI OS while passing
+  on any developer machine with poly installed. The fast path is now gated on poly's availability
+  and falls into the same counted-skip bucket as every other extension, so the gap is reported
+  loudly instead of inventing drift, and both tiers read one shared availability check so they
+  cannot disagree. `poly` is now installed in CI's `test` job, pinned to the release
+  `generated-output-gate` already uses, so the comparison actually executes there.
 - **ci: the pyrefly negative control in `kwarg_unpack_tests` could not fire, hiding a defect class
   on every CI run (#457).** CI hard-pinned `pyrefly==1.2.0` and had since 2026-08-29, while the
   constant `template_versions::pypi::PYREFLY` only sets the floor emitted into a generated

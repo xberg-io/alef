@@ -439,15 +439,20 @@ pub(crate) struct MissingAndFrozenFiles {
     /// Absolute paths of alef-marked files that already exist on disk but whose bytes no longer
     /// match what this run's fresh render (`surface`) would produce — see [`drifted_marked_paths`]. ~keep
     pub(crate) drifted: Vec<String>,
-    /// How many non-`.rs`/`.md` marked files [`drifted_marked_paths`] actually compared through
-    /// a real `poly fmt --fix` pass this run -- see [`format_drift::real_formatter_drift`]'s
-    /// module doc. Reported by `alef verify` alongside [`Self::format_drift_skipped`] so a
+    /// How many marked files [`drifted_marked_paths`] actually compared through a real `poly fmt
+    /// --fix` pass this run -- see [`format_drift::real_formatter_drift_with`]'s module doc. Normally
+    /// every non-`.rs`/`.md` candidate, but alef#458 routes `.rs`/`.md` here too whenever poly is
+    /// unavailable: their own fast, in-memory prediction is honest only when `poly fmt --fix`
+    /// actually ran (see [`format_drift::drifted_marked_paths`]'s doc), so without poly they fall
+    /// back to this same real-formatter tier rather than trusting a prediction this environment
+    /// never validated. Reported by `alef verify` alongside [`Self::format_drift_skipped`] so a
     /// missing `poly` shows up as a loud, counted gap rather than a silent pass. ~keep
     pub(crate) format_drift_compared: usize,
     /// How many of those same candidates [`drifted_marked_paths`] had to skip because `poly` is
     /// not installed on this machine -- never folded into [`Self::format_drift_compared`], and
     /// never treated as "no drift found": a skip answers a different question than a comparison
-    /// does. ~keep
+    /// does. Includes every `.rs`/`.md` candidate too when poly is absent, for the same alef#458
+    /// reason noted on [`Self::format_drift_compared`]. ~keep
     pub(crate) format_drift_skipped: usize,
     /// How many candidates could not be staged as a temp copy at all (read-only checkout,
     /// permission-denied directory). Separate from [`Self::format_drift_skipped`] because the

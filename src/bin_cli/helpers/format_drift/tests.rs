@@ -1,9 +1,27 @@
-//! Tests for [`super::real_formatter_drift`]/[`super::real_formatter_drift_with`] (alef#436's
-//! second half) -- split into its own module for the same reason `helpers/drift_tests.rs` splits
-//! out of `helpers/tests.rs`: this repository's 1,000-line file cap, and this concern (comparing
-//! a non-`.rs`/`.md` render against disk through a real formatter) is self-contained. ~keep
+//! Tests for [`super::real_formatter_drift_with`], via this file's own `real_formatter_drift`
+//! convenience wrapper bound to the real `is_tool_available` (alef#436's second half) -- split
+//! into its own module for the same reason `helpers/drift_tests.rs` splits out of
+//! `helpers/tests.rs`: this repository's 1,000-line file cap, and this concern (comparing a
+//! non-`.rs`/`.md` render against disk through a real formatter) is self-contained. Also covers
+//! [`super::render_predicts_final_bytes`] and [`super::drifted_marked_paths_with`]'s alef#458
+//! poly-availability gate on the `.rs`/`.md` fast path -- the closely related concern of deciding
+//! whether that fast path may run at all before falling back to the real-formatter tier this
+//! module otherwise covers. ~keep
 
 use super::*;
+
+/// Test-only convenience wrapper around [`real_formatter_drift_with`], bound to the real
+/// [`crate::cli::pipeline::is_tool_available`] -- production has no call site for this exact
+/// binding since alef#458 threads a single `is_available` closure through both
+/// [`drifted_marked_paths_with`]'s tiers instead of resolving it twice, so this exists purely to
+/// keep the tests below (which only ever care about the real binary, not the injectable seam)
+/// from repeating that argument at every call site. ~keep
+fn real_formatter_drift(
+    candidates: Vec<RealFormatCandidate>,
+    base_dir: &std::path::Path,
+) -> (Vec<String>, FormatDriftStats) {
+    real_formatter_drift_with(candidates, base_dir, &crate::cli::pipeline::is_tool_available)
+}
 
 fn candidate(full_path: &std::path::Path, disk_content: &str, rendered_content: &str) -> RealFormatCandidate {
     RealFormatCandidate {
@@ -164,5 +182,70 @@ fn leaves_no_temp_file_behind_after_comparing() {
     assert!(
         leftovers.is_empty(),
         "no temp file may survive a comparison call, found: {leftovers:?}"
+    );
+}
+
+/// alef#458: THE GATING LOGIC. [`render_predicts_final_bytes`]'s prediction for `.rs`/`.md` is
+/// only honest when `poly fmt --fix` ran during the write it predicts -- see the module doc's
+/// "Why the `.rs`/`.md` fast path also requires poly" section. Pure and host-independent (no
+/// subprocess, no real `poly` binary), so every combination this function has to get right is
+/// provable on any machine regardless of what it has installed. ~keep
+#[test]
+fn render_predicts_final_bytes_is_gated_on_poly_availability() {
+    let cases = [
+        ("lib.rs", true, true),
+        ("reference.md", true, true),
+        ("pyproject.toml", true, false),
+        ("lib.rs", false, false),
+        ("reference.md", false, false),
+        ("pyproject.toml", false, false),
+    ];
+    for (name, poly_available, expected) in cases {
+        assert_eq!(
+            render_predicts_final_bytes(std::path::Path::new(name), poly_available),
+            expected,
+            "render_predicts_final_bytes({name:?}, poly_available={poly_available}) must be {expected}"
+        );
+    }
+}
+
+/// alef#458 END TO END, against [`drifted_marked_paths_with`]'s own injectable seam: with poly
+/// unavailable, an `.rs` candidate -- even one whose fresh render is byte-identical to disk --
+/// must be routed into the same counted-skip bucket every other extension already gets through
+/// [`real_formatter_drift`], never silently treated as "compared and clean". THE FALSE POSITIVE
+/// this closes (see the module doc) was the opposite failure mode -- a `.rs` file the fast path
+/// wrongly reported as drifted -- but the fix is the same gate, and this control proves the gate
+/// does not merely suppress that false positive by making the fast path never fire at all
+/// without also making the run honest about having skipped, not examined, the file. Drives
+/// `&|_| false` directly, so this is provable on a host that does, in fact, have `poly`
+/// installed. ~keep
+#[test]
+fn drifted_marked_paths_routes_an_rs_candidate_to_the_counted_skip_when_poly_is_unavailable() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = crate::core::backend::GeneratedFile {
+        path: std::path::PathBuf::from("lib.rs"),
+        content: "pub fn greet() -> &'static str { \"old\" }\n".to_string(),
+        generated_header: true,
+    };
+    let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path());
+    std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
+    let files = vec![file];
+
+    let (drifted, stats) = drifted_marked_paths_with(&files, dir.path(), &|_tool| false);
+
+    assert!(
+        drifted.is_empty(),
+        "an unprovable fast-path prediction must never manufacture a drift finding when poly is \
+         unavailable: {drifted:?}"
+    );
+    assert_eq!(
+        stats,
+        FormatDriftStats {
+            compared: 0,
+            skipped_missing_formatter: 1,
+            skipped_staging_error: 0,
+        },
+        "the .rs candidate must be counted as a loud, explicit skip -- not silently dropped, and \
+         not folded into a clean-looking zero"
     );
 }

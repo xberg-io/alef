@@ -70,11 +70,23 @@ jobs:
       # Several `#[test]`s compile alef's own generated output, or alef's own compiler-oracle
       # probes, with the real per-language toolchain rather than mocking it (that is the point
       # of them), so those toolchains have to actually be on PATH here, not just in the
-      # `generated-output-gate` job. `poly` is deliberately not installed in this job: the tests
-      # that exercise it already tolerate its absence (see `e2e::format::format_language`'s
-      # non-`--strict` deferral, and `cli_all_format_gate_covers_every_write_phase`'s own
-      # `poly_is_available()` branch), so it is not required for this job to pass, only for the
-      # `generated-output-gate` job's lanes, which install it themselves.
+      # `generated-output-gate` job.
+      #
+      # `poly` IS installed here (alef#458), unlike most of this job's toolchains, which the
+      # tests that need them tolerate skipping: `bin_cli::helpers::format_drift`'s alef#436
+      # drift check has a fast, in-memory `.rs`/`.md` prediction whose precondition is "a real
+      # `poly fmt --fix` pass ran during the write it predicts" (see that module's doc). Without
+      # poly on PATH, `alef verify`'s own regression tests in `bin_cli::core_commands::tests`
+      # (`verify_command_reports_and_fails_on_a_real_orphaned_generated_file` and two siblings)
+      # ran `alef all` against a tree that never got that pass, then predicted post-pass bytes
+      # anyway and reported a freshly-generated file as falsely drifted -- three real CI
+      # failures on every OS this job runs, not a hypothetical. Pinned to the same release the
+      # `generated-output-gate` job installs, so the two jobs can never disagree about which
+      # poly version this repo's tests run against. ~keep
+      - name: Install poly
+        uses: Goldziher/poly@v0
+        with:
+          version: v0.24.0
       - name: Set up JDK
         uses: actions/setup-java@v6
         with:
