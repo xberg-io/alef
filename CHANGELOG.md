@@ -81,6 +81,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct literal required to fully initialize it (E0063). A function-referenced feature name is
   now only removed when no field anywhere in the surface still needs it declared.
 
+- **python: a generated free function no longer raises `RuntimeError` for every error kind
+  (#452).** The trait-bridge and capsule call sites already convert a core `Result::Err` through
+  the `{Error}_to_py_err` converter `gen_pyo3_error_converter` emits, so `except ParsingError:`
+  catches the right typed exception -- but the plain free-function generator
+  (`codegen::generators::functions::gen_function_with_mutex`, shared across pyo3/napi/wasm/extendr)
+  never received that converter list, so it always fell back to the pattern's generic conversion
+  (`pyo3::exceptions::PyRuntimeError::new_err(e.to_string())`) regardless of whether a typed
+  converter existed for the function's declared error type. `RustBindingConfig::error_converters`
+  now threads the same converter-name list `gen_bindings/mod.rs` already builds into the shared
+  function generator; a pyo3 free function whose error type has a matching converter routes
+  through it, and every other backend (and any pyo3 call site that leaves it unset) keeps today's
+  conversion unchanged.
+
 
 ## [0.98.0] - 2026-09-27
 

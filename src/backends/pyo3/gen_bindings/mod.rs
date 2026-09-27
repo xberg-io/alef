@@ -289,6 +289,12 @@ impl Backend for Pyo3Backend {
                 format!("{}_to_py_err", e.name.to_snake_case())
             })
             .collect();
+        // Free functions must route their `.map_err(...)` through the same typed converter the
+        // trait-bridge and capsule call sites already use, instead of collapsing every error kind
+        // into `PyRuntimeError` (alef #452). Only `cfg` (the config the free-function loop below
+        // uses) needs this -- `cfg_unsendable` backs opaque-type method generation, which this fix
+        // does not touch. ~keep
+        cfg.error_converters = Some(&error_converters);
 
         // Track emitted #[pyclass] struct names to prevent duplicate definitions (E0255/E0428).
         let mut emitted_pyclass_names: AHashSet<&str> = AHashSet::new();

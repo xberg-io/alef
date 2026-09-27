@@ -151,6 +151,16 @@ pub struct RustBindingConfig<'a> {
     /// `gen_from_core_to_binding_cfg` calls. `None` means the caller has not wired this, so no
     /// struct in this run gets delegation. ~keep
     pub delegate_deserialize_to_core_for_types: Option<&'a ahash::AHashSet<String>>,
+    /// `{error}_to_py_err` converter function names already emitted for this crate's
+    /// `api.errors` (see `crate::codegen::error_gen::gen_pyo3_error_converter`). When a free
+    /// function's declared `error_type` has a matching converter here AND `async_pattern` is
+    /// `AsyncPattern::Pyo3FutureIntoPy`, its `.map_err(...)` conversion routes through that
+    /// converter instead of collapsing every error kind into `pyo3::exceptions::PyRuntimeError`
+    /// (alef #452) -- the same converter the trait-bridge and capsule call sites already use, so
+    /// `except {Variant}Error:` catches the right typed exception from a free function too.
+    /// `None` (the default for every backend other than pyo3, and for any pyo3 call site that
+    /// has not wired this) preserves today's generic conversion unchanged. ~keep
+    pub error_converters: Option<&'a [String]>,
 }
 
 /// Method names that conflict with standard trait methods.

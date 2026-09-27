@@ -11,6 +11,8 @@ mod kwarg_unpack_tests;
 #[cfg(test)]
 mod plain_function_dataclass_return_conversion_tests;
 #[cfg(test)]
+mod plain_function_typed_error_conversion_tests;
+#[cfg(test)]
 mod public_return_type_tests;
 mod py_signature;
 #[cfg(test)]

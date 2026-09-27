@@ -72,6 +72,7 @@ fn binding_config() -> RustBindingConfig<'static> {
         source_crate_remaps: &[],
         emit_delegating_default_for_types: None,
         delegate_deserialize_to_core_for_types: None,
+        error_converters: None,
     }
 }
 

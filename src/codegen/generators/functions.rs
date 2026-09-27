@@ -105,6 +105,43 @@ fn cast_return_expr(
     }
 }
 
+/// Resolve the `.map_err(...)` conversion for a free function's core `Result::Err`.
+///
+/// PyO3 free functions whose declared `error_type` has a matching `{error}_to_py_err`
+/// converter in `cfg.error_converters` (populated by the pyo3 backend from the same
+/// `gen_pyo3_error_converter` output the trait-bridge and capsule call sites already route
+/// through) convert through that typed converter, so `except {Variant}Error:` catches the
+/// right exception instead of every error kind collapsing into a generic
+/// `pyo3::exceptions::PyRuntimeError` (alef #452). Every other async pattern, and any pyo3
+/// call site that leaves `error_converters` unset, keeps today's generic conversion
+/// unchanged. ~keep
+fn resolve_err_conv(cfg: &RustBindingConfig<'_>, error_type: Option<&str>) -> String {
+    if cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy
+        && let Some(converters) = cfg.error_converters
+        && let Some(error_type) = error_type
+    {
+        use heck::ToSnakeCase;
+        let short_name = error_type.rsplit("::").next().unwrap_or(error_type);
+        let candidate = format!("{}_to_py_err", short_name.to_snake_case());
+        if converters.iter().any(|c| c == &candidate) {
+            return format!(".map_err({candidate})");
+        }
+    }
+    match cfg.async_pattern {
+        AsyncPattern::Pyo3FutureIntoPy => {
+            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+        }
+        AsyncPattern::NapiNativeAsync => {
+            ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))".to_string()
+        }
+        AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))".to_string(),
+        AsyncPattern::TokioBlockOn => {
+            ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))".to_string()
+        }
+        _ => ".map_err(|e| e.to_string())".to_string(),
+    }
+}
+
 /// Generate a free function. Equivalent to `gen_function_with_mutex` with no mutex types.
 pub fn gen_function(
     func: &FunctionDef,
@@ -262,28 +299,20 @@ pub fn gen_function_with_mutex(
         }
     };
 
-    let serde_err_conv = match cfg.async_pattern {
-        AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
-        AsyncPattern::NapiNativeAsync => ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))",
-        AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-        AsyncPattern::TokioBlockOn => {
-            ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
-        }
-        _ => ".map_err(|e| e.to_string())",
-    };
+    let serde_err_conv = resolve_err_conv(cfg, func.error_type.as_deref());
 
     let body = if !can_delegate {
         if let Some(adapter_body) = adapter_bodies.get(&func.name) {
             adapter_body.clone()
         } else if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
             let is_async_pyo3 = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
-            let (serde_indent, serde_err_async) = if is_async_pyo3 {
+            let (serde_indent, serde_err_async): (&str, &str) = if is_async_pyo3 {
                 (
                     "        ",
                     ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
                 )
             } else {
-                ("    ", serde_err_conv)
+                ("    ", serde_err_conv.as_str())
             };
             let serde_bindings =
                 gen_serde_let_bindings(&func.params, opaque_types, core_import, serde_err_async, serde_indent);
@@ -631,17 +660,10 @@ pub fn gen_function_with_mutex(
             }
         };
 
-        let err_conv = func.error_type.is_some().then_some(match cfg.async_pattern {
-            AsyncPattern::Pyo3FutureIntoPy => ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))",
-            AsyncPattern::NapiNativeAsync => {
-                ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))"
-            }
-            AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
-            AsyncPattern::TokioBlockOn => {
-                ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))"
-            }
-            _ => ".map_err(|e| e.to_string())",
-        });
+        let err_conv = func
+            .error_type
+            .is_some()
+            .then(|| resolve_err_conv(cfg, func.error_type.as_deref()));
 
         if let Some(var) = &writeback_var {
             // The core call mutates `{var}` and returns `()`; the binding hands back the
