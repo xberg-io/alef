@@ -43,7 +43,21 @@
 				stream.err = fmt.Errorf("{{ method_name }}: failed to decode stream item: %w", unmarshalErr)
 				return
 			}
-			ch <- chunk
+			// Issue #448: guard the send against the caller cancelling ctx, so a consumer that
+			// stops ranging Chan() early (e.g. via break) does not park this goroutine on an
+			// unbuffered channel forever -- that used to leak both the goroutine and the native
+			// stream handle, since the deferred close(ch)/C.{{ fn_free }}(handle) above never
+			// ran. Deliberately NOT also checking ctx.Done() at the top of this loop, before
+			// calling C.{{ fn_next }}: that would skip one wasted native fetch after
+			// cancellation, but trades it for scheduling nondeterminism with no correctness
+			// benefit, since this send already guarantees the goroutine exits promptly either
+			// way. ~keep
+			select {
+			case ch <- chunk:
+			case <-ctx.Done():
+				stream.err = ctx.Err()
+				return
+			}
 		}
 	}()
 	return stream, nil

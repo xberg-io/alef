@@ -263,9 +263,18 @@ pub(super) fn render_test_function_with_facts(
         visitor_opts_var = Some(opts_var);
     }
 
+    // Computed here (ahead of `final_args`), not just at its original use site below, because
+    // #448 gives every generated streaming start method a leading `ctx context.Context`
+    // parameter -- `final_args` must know whether to pass one before it is assembled.
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
+
     let go_extra_args = recipe.extra_args.to_vec();
     let final_args = {
         let mut parts: Vec<String> = Vec::new();
+        if is_streaming {
+            parts.push("context.Background()".to_string());
+        }
         if !args_str.is_empty() {
             let processed_args = if let Some(ref opts_var) = visitor_opts_var {
                 args_str.trim_end_matches(", nil").to_string() + ", " + opts_var
@@ -368,8 +377,6 @@ pub(super) fn render_test_function_with_facts(
         return;
     }
 
-    let is_streaming =
-        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     let fn_snake = function_name.to_snake_case();
     let base_snake = base_function_name.to_snake_case();
     let streaming_item_type = is_streaming

@@ -388,7 +388,7 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     // backend (#446), so nothing else fails if it drifts back to the old shape.
     assert!(
         go.contains(
-            "func (o *DefaultClient) ChatStream(req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"
+            "func (o *DefaultClient) ChatStream(ctx context.Context, req ChatCompletionRequest) (*DefaultClientChatStreamStream, error)"
         ),
         "{go}"
     );

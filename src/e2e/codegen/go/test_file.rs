@@ -208,6 +208,10 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     // produced the opposite failure: `os.` referenced but not imported. Matches
     // `needs_strings` below — the rendered body is the only sound and complete authority.
     let needs_os = body.contains("os.");
+    // #448: every streaming fixture's call now passes `context.Background()` as the streaming
+    // start method's required first argument. Read from the rendered body, same as the other
+    // `needs_*` flags on this file, rather than re-deriving "is this fixture streaming" here.
+    let needs_context = body.contains("context.");
     // ~keep `strings.` is emitted from several independent sites (equality/contains/prefix/
     // suffix assertions, declared-error-value checks, HTTP header/body assertions, mock URL
     // list setup) that drift out of sync with any hand-maintained enumeration — a prior
@@ -225,6 +229,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     let _ = writeln!(out, "package e2e_test");
     let _ = writeln!(out);
     let _ = writeln!(out, "import (");
+    if needs_context {
+        let _ = writeln!(out, "\t\"context\"");
+    }
     if needs_base64 {
         let _ = writeln!(out, "\t\"encoding/base64\"");
     }

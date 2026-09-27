@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+
+- **Generated Go streaming methods now take a leading `ctx context.Context` parameter (#448).**
+  On an unbuffered channel, a consumer that `break`s out of `for chunk := range stream.Chan()`
+  early used to park the forwarding goroutine forever on `ch <- chunk`, since nothing was left to
+  receive -- leaking both the goroutine and the native stream handle, because the deferred
+  `close(ch)`/`C.<fn_free>(handle)` never ran. The generated forwarder now races the send against
+  `<-ctx.Done()`, so cancelling the context unblocks it. This changes the signature of every
+  generated streaming start method and its module-level adapter wrapper.
+
+  ```go
+  // Before
+  stream, err := client.ChatStream(req)
+
+  // After
+  stream, err := client.ChatStream(context.Background(), req)
+  // or, to be able to cancel and stop the goroutine early:
+  ctx, cancel := context.WithCancel(context.Background())
+  stream, err := client.ChatStream(ctx, req)
+  ...
+  cancel()
+  ```
+
+  After cancelling, keep ranging `stream.Chan()` until it closes (it will close promptly) before
+  reading `stream.Err()` -- cancellation unblocks the forwarding goroutine, it does not publish
+  the error by itself; only the channel close does.
+
 ## [0.98.0] - 2026-09-27
 
 ### Added

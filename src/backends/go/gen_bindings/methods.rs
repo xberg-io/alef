@@ -15,7 +15,16 @@ use crate::core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 /// convention: `Chan()` for the item channel, `Err()` for the reason the stream ended. A
 /// goroutine drives `_next` until null (clean end-of-stream) or a stream error is signalled --
 /// distinguished by a `lastError()` read on the null-chunk path -- or a per-item conversion
-/// failure, then frees the handle. ~keep
+/// failure, then frees the handle.
+///
+/// The generated method's FIRST parameter is always `ctx context.Context` (Go convention), never
+/// forwarded to the native `_start`/`_next`/`_free` symbols -- it exists purely to let a Go
+/// caller unblock the forwarding goroutine's channel send. See issue #448: on an unbuffered
+/// channel, a consumer that `break`s out of `for chunk := range stream.Chan()` early parks that
+/// goroutine on `ch <- chunk` forever, leaking both the goroutine and the native stream handle
+/// (the deferred `close(ch)`/`C.<fn_free>(handle)` never run). `streaming_method_body.jinja`
+/// races the send against `<-ctx.Done()` to fix that. This is a breaking change to every
+/// generated streaming method's signature. ~keep
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_streaming_method_wrapper(
     typ: &TypeDef,
@@ -50,24 +59,21 @@ pub(super) fn gen_streaming_method_wrapper(
 
     let item_is_sum_type = data_enum_names.contains(item_type);
 
-    let params: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| {
-            let param_type: String = if p.optional {
-                go_optional_type(&p.ty).into_owned()
-            } else if let TypeRef::Named(name) = &p.ty {
-                if opaque_names.contains(name.as_str()) {
-                    format!("*{}", go_type(&p.ty))
-                } else {
-                    go_type(&p.ty).into_owned()
-                }
+    let mut params: Vec<String> = vec!["ctx context.Context".to_string()];
+    params.extend(method.params.iter().map(|p| {
+        let param_type: String = if p.optional {
+            go_optional_type(&p.ty).into_owned()
+        } else if let TypeRef::Named(name) = &p.ty {
+            if opaque_names.contains(name.as_str()) {
+                format!("*{}", go_type(&p.ty))
             } else {
                 go_type(&p.ty).into_owned()
-            };
-            format!("{} {}", go_param_name(&p.name), param_type)
-        })
-        .collect();
+            }
+        } else {
+            go_type(&p.ty).into_owned()
+        };
+        format!("{} {}", go_param_name(&p.name), param_type)
+    }));
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_signature.jinja",

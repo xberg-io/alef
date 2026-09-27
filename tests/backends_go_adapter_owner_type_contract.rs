@@ -185,14 +185,15 @@ fn adapter_owner_type_with_an_initialism_agrees_with_the_receiver_type_and_compi
     assert!(
         binding
             .content
-            .contains("func (h *APIEngine) CrawlStream() (*APIEngineCrawlStreamStream, error) {"),
-        "the method must return the normalized iterator type, got:\n{}",
+            .contains("func (h *APIEngine) CrawlStream(ctx context.Context) (*APIEngineCrawlStreamStream, error) {"),
+        "the method must take a leading ctx context.Context (issue #448) and return the \
+         normalized iterator type, got:\n{}",
         binding.content
     );
     assert!(
-        binding
-            .content
-            .contains("func CrawlStream(engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"),
+        binding.content.contains(
+            "func CrawlStream(ctx context.Context, engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"
+        ),
         "the module-level adapter wrapper must reference the exact same normalized identifiers \
          the receiver/iterator declare, not the raw `owner_type` config string, got:\n{}",
         binding.content

@@ -158,21 +158,26 @@ fn streaming_method_signature_override(
         // inventing a third casing of the receiver or method -- see
         // `test_streaming_go_stream_type_name_matches_backend_naming_primitives` below for the
         // parity check against `codegen::naming::{go_type_name, to_go_name}` directly.
+        // ~keep Issue #448: the starting method's first parameter is always `ctx
+        // context.Context` (Go convention) -- an unbuffered channel used to park the
+        // forwarding goroutine forever when a consumer `break`s out of `range stream.Chan()`
+        // early, leaking both the goroutine and the native stream handle. `ctx` lets the
+        // caller unblock that send. `params` is seeded with it the same way
+        // `gen_streaming_method_wrapper` (`backends/go/gen_bindings/methods.rs`) seeds its own
+        // params vec, so the two stay in lockstep -- see
+        // `test_streaming_go_signature_documents_the_stream_accessor_type` below.
         Language::Go => {
             let go_receiver_type = type_name(type_name_str, lang, ffi_prefix);
             let stream_type = format!("{go_receiver_type}{name}Stream");
             let item = type_name(item_type, lang, ffi_prefix);
-            let params: Vec<String> = method
-                .params
-                .iter()
-                .map(|param| {
-                    format!(
-                        "{} {}",
-                        to_camel_case(&param.name),
-                        doc_type(&param.ty, lang, ffi_prefix)
-                    )
-                })
-                .collect();
+            let mut params: Vec<String> = vec!["ctx context.Context".to_string()];
+            params.extend(method.params.iter().map(|param| {
+                format!(
+                    "{} {}",
+                    to_camel_case(&param.name),
+                    doc_type(&param.ty, lang, ffi_prefix)
+                )
+            }));
             Some(format!(
                 "type {stream_type} struct{{ /* ... */ }}\n\
                  func (s *{stream_type}) Chan() <-chan {item}\n\
@@ -365,9 +370,11 @@ fn streaming_example(
         // ~keep Ranges `stream.Chan()` and checks `stream.Err()` once the channel closes -- a
         // null next-chunk pointer means either clean end-of-stream or a stream error (issue
         // #441), and an example that only ranges the channel documents the bug the accessor
-        // exists to fix.
+        // exists to fix. Passes `context.Background()` as the now-required first argument
+        // (issue #448): the generated method takes a `ctx context.Context` so a caller can
+        // unblock the forwarding goroutine's channel send after cancelling.
         Language::Go => format!(
-            "stream, err := instance.{method_name}({req_value})\nif err != nil {{\n    return err\n}}\nfor chunk := range stream.Chan() {{\n    fmt.Println(chunk)\n}}\nif err := stream.Err(); err != nil {{\n    return err\n}}"
+            "stream, err := instance.{method_name}(context.Background(), {req_value})\nif err != nil {{\n    return err\n}}\nfor chunk := range stream.Chan() {{\n    fmt.Println(chunk)\n}}\nif err := stream.Err(); err != nil {{\n    return err\n}}"
         ),
         Language::Java => format!(
             "try (var stream = instance.{method_name}({req_value})) {{\n    stream.forEach(System.out::println);\n}}"
@@ -664,7 +671,7 @@ mod tests {
                          func (s *DefaultClientChatStreamStream) Chan() <-chan ChatChunk\n\
                          func (s *DefaultClientChatStreamStream) Err() error\n\
                          \n\
-                         func (o *DefaultClient) ChatStream(req StreamRequest) \
+                         func (o *DefaultClient) ChatStream(ctx context.Context, req StreamRequest) \
                          (*DefaultClientChatStreamStream, error)";
         assert_eq!(override_.signature.as_deref(), Some(expected));
     }
@@ -694,7 +701,7 @@ mod tests {
             Language::Go,
             TEST_PREFIX,
         );
-        let expected = "stream, err := instance.ChatStream(StreamRequest{})\n\
+        let expected = "stream, err := instance.ChatStream(context.Background(), StreamRequest{})\n\
                          if err != nil {\n    return err\n}\n\
                          for chunk := range stream.Chan() {\n    fmt.Println(chunk)\n}\n\
                          if err := stream.Err(); err != nil {\n    return err\n}";

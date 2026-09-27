@@ -531,6 +531,13 @@ pub(super) fn gen_go_file(
     if body_uses_qualified_name(&body, "runtime.") {
         imports.push("runtime");
     }
+    // Issue #448: every streaming start method and module-level streaming adapter wrapper now
+    // takes a `ctx context.Context` first parameter, so a package with at least one streaming
+    // method always needs this import. A `ctx context.Context` parameter line matches
+    // `body_uses_qualified_name(&body, "context.")` the same way any other qualified call does. ~keep
+    if body_uses_qualified_name(&body, "context.") {
+        imports.push("context");
+    }
     if needs_json || has_opaque_types || body_uses_qualified_name(&body, "unsafe.") {
         imports.push("unsafe");
     }

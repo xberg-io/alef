@@ -151,13 +151,13 @@ fn single_param_adapter_decomposes_into_a_scalar_go_parameter() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(
         request_construction_line(&rendered),
         Some("\treq := &CrawlRequest{URL: URL}")
     );
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(*req)");
+    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, *req)");
 }
 
 /// Else branch, arity sub-case: two configured adapter params never satisfy the `params.len()
@@ -175,10 +175,10 @@ fn two_param_adapter_exposes_each_configured_param_directly() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(request_construction_line(&rendered), None);
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(url, depth)");
+    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, url, depth)");
 }
 
 /// Else branch, fieldless sub-case: a single configured param whose declared type resolves in
@@ -196,10 +196,10 @@ fn fieldless_request_type_falls_back_to_the_configured_param() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {"
     );
     assert_eq!(request_construction_line(&rendered), None);
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(request)");
+    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, request)");
 }
 
 // -- issue #447: `owner_type` must go through the same normalization as the receiver type --
@@ -218,7 +218,7 @@ fn owner_type_with_an_initialism_is_normalized_like_the_receiver_type() {
 
     assert_eq!(
         signature_line(&rendered),
-        "func CrawlStream(engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"
+        "func CrawlStream(ctx context.Context, engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"
     );
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream()");
+    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx)");
 }

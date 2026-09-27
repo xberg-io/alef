@@ -110,8 +110,9 @@ fn method_signature_and_start_failure_return_a_stream_pointer_not_a_bare_channel
     let out = render_crawl_stream();
 
     assert!(
-        out.contains("func (h *Engine) CrawlStream() (*EngineCrawlStreamStream, error) {"),
-        "the outer signature must return `*<Recv><Method>Stream, error`, got:\n{out}"
+        out.contains("func (h *Engine) CrawlStream(ctx context.Context) (*EngineCrawlStreamStream, error) {"),
+        "the outer signature must take a leading ctx context.Context (issue #448) and return \
+         `*<Recv><Method>Stream, error`, got:\n{out}"
     );
     assert!(
         !out.contains("<-chan CrawlEvent, error"),
@@ -188,6 +189,29 @@ fn unmarshal_error_path_wraps_and_assigns_a_reported_stream_err() {
     assert!(
         branch.contains("stream.err = fmt.Errorf(") && branch.contains("%w") && branch.contains("unmarshalErr"),
         "the unmarshal-error path must wrap unmarshalErr into stream.err, got:\n{branch}"
+    );
+}
+
+/// Issue #448: an unbuffered `ch <- chunk` parks the forwarding goroutine forever when a
+/// consumer breaks out of `range stream.Chan()` early, leaking the goroutine and the native
+/// stream handle (the deferred `close(ch)`/`C.<fn_free>(handle)` never run). The fix races the
+/// send against the caller's `ctx.Done()`.
+#[test]
+fn chunk_send_races_against_ctx_done_instead_of_blocking_forever() {
+    let out = render_crawl_stream();
+
+    assert!(
+        !out.contains("\tch <- chunk\n"),
+        "the bare unbuffered send must be gone, got:\n{out}"
+    );
+    let branch = extract_if_block(&out, "select {");
+    assert!(
+        branch.contains("case ch <- chunk:"),
+        "the select must still deliver the chunk on the happy path, got:\n{branch}"
+    );
+    assert!(
+        branch.contains("case <-ctx.Done():") && branch.contains("stream.err = ctx.Err()") && branch.contains("return"),
+        "the select must let a cancelled ctx unblock the goroutine and report ctx.Err(), got:\n{branch}"
     );
 }
 

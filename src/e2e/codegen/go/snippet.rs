@@ -7,6 +7,7 @@ use anyhow::{Result, bail};
 use super::adapter_target_params::{flattened_stream_params, target_params_or};
 use super::ir_signature::{go_ir_named_type, go_is_bridge_param, go_options_param_is_pointer};
 use super::setup::{GoArgsContext, build_args_and_setup};
+use super::streaming_snippet_ctx;
 
 pub(super) fn render_snippet_body(
     fixture: &Fixture,
@@ -255,7 +256,8 @@ pub(super) fn render_snippet_body(
     } else {
         (import_alias.to_string(), String::new())
     };
-    let call_expr = format!("{call_prefix}.{function_name}({args})");
+    let (call_expr, is_streaming) =
+        streaming_snippet_ctx::streaming_call_expr_and_flag(fixture, call, &call_prefix, &function_name, &args);
     let returns_error = override_config
         .and_then(|value| value.returns_result)
         .unwrap_or(call.returns_result)
@@ -269,6 +271,7 @@ pub(super) fn render_snippet_body(
         .iter()
         .any(|assertion| assertion.assertion_type == "error");
     let mut standard_imports = std::collections::BTreeSet::new();
+    standard_imports.extend(is_streaming.then_some("context")); // #448
     let setup_lines: Vec<String> = setup_lines.into_iter().map(snippet_setup_line).collect();
     let joined_setup = setup_lines.join("\n");
     let joined_declarations = package_decls.join("\n");
@@ -2042,5 +2045,8 @@ mod stream_presentation_regression {
             body.contains("if err := result.Err(); err != nil"),
             "a mid-stream failure must not be dropped silently:\n{body}"
         );
+        // #448: the streaming start method now requires a leading `ctx context.Context`.
+        assert!(body.contains("pkg.StreamUsage(context.Background())"), "{body}");
+        assert!(body.contains("\"context\""), "{body}");
     }
 }

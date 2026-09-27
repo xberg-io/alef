@@ -874,6 +874,7 @@ pub(super) fn gen_adapter_wrapper(
         };
 
         let wrapper_params = vec![
+            "ctx context.Context".to_string(),
             format!("engine *{owner_type}"),
             format!("{field_name_go} {go_field_type}"),
         ];
@@ -883,7 +884,9 @@ pub(super) fn gen_adapter_wrapper(
 
         (wrapper_params, Some(construction))
     } else {
-        let mut params = vec![format!("engine *{owner_type}")];
+        // ctx must lead, matching the receiver method's own first parameter (#448) -- this
+        // module-level wrapper exists only to forward to it. ~keep
+        let mut params = vec!["ctx context.Context".to_string(), format!("engine *{owner_type}")];
         for p in &adapter.params {
             let go_param_type = match p.ty.as_str() {
                 "String" => "string".to_string(),
@@ -899,7 +902,7 @@ pub(super) fn gen_adapter_wrapper(
     let stream_type_name = format!("{owner_type}{method_call_name}Stream");
     let return_type = format!("*{stream_type_name}, error");
     let method_call = if request_construction.is_some() {
-        format!("engine.{}(*req)", method_call_name)
+        format!("engine.{}(ctx, *req)", method_call_name)
     } else {
         let param_args = adapter
             .params
@@ -908,9 +911,9 @@ pub(super) fn gen_adapter_wrapper(
             .collect::<Vec<_>>()
             .join(", ");
         if param_args.is_empty() {
-            format!("engine.{}()", method_call_name)
+            format!("engine.{}(ctx)", method_call_name)
         } else {
-            format!("engine.{}({})", method_call_name, param_args)
+            format!("engine.{}(ctx, {})", method_call_name, param_args)
         }
     };
 

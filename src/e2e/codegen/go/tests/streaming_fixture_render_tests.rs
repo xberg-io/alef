@@ -76,6 +76,11 @@ fn test_streaming_fixture_emits_collect_snippet() {
             && out.contains("t.Fatalf(\"stream failed: %v\", streamErr)"),
         "a mid-stream failure must fail the test via Err(), not close silently, got:\n{out}"
     );
+    // #448: the generated streaming start method now requires a leading `ctx context.Context`.
+    assert!(
+        out.contains("context.Background()"),
+        "expected the call to pass context.Background() as its first argument, got:\n{out}"
+    );
 }
 #[test]
 fn test_streaming_with_client_factory_and_json_arg() {
@@ -162,5 +167,9 @@ fn test_streaming_with_client_factory_and_json_arg() {
         out.contains("if streamErr := stream.Err(); streamErr != nil {")
             && out.contains("t.Fatalf(\"stream failed: %v\", streamErr)"),
         "a mid-stream failure must fail the test via Err(), not close silently, got:\n{out}"
+    );
+    assert!(
+        out.contains("context.Background()"),
+        "expected the call to pass context.Background() as its first argument, got:\n{out}"
     );
 }
