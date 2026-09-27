@@ -2,10 +2,11 @@ let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ visitor_kwarg }}.
         let bridge = {{ struct_name }}::new(v);
         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
     });
-    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|mut o| {
-        o.{{ field_name }} = None;
+    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|o| {
         let mut result: {{ options_path }} = o.into();
-        result.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();
+        if {{ visitor_kwarg }}_handle.is_some() {
+            result.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();
+        }
         result
     }).or_else(|| {
         if {{ visitor_kwarg }}_handle.is_some() {

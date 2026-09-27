@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::ir::FieldDef;
 use std::collections::HashMap;
 
 fn mapper() -> WasmMapper {
@@ -11,6 +12,19 @@ fn enum_names(names: &[&str]) -> AHashSet<String> {
 
 fn no_untagged_ts_types() -> ahash::AHashMap<String, String> {
     ahash::AHashMap::default()
+}
+
+fn class_names(names: &[&str]) -> AHashSet<String> {
+    names.iter().map(|s| (*s).to_string()).collect()
+}
+
+fn class_field(name: &str, type_name: &str, optional: bool) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty: TypeRef::Named(type_name.to_string()),
+        optional,
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -48,7 +62,15 @@ fn gen_setter_option_vec_unit_enum_wraps_some() {
     };
     let enums = enum_names(&["Modality"]);
     let tagged: AHashSet<String> = AHashSet::new();
-    let out = gen_setter(&field, &mapper(), &enums, false, &tagged, &no_untagged_ts_types());
+    let out = gen_setter(
+        &field,
+        &mapper(),
+        &enums,
+        false,
+        &tagged,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(
         out.contains("value: Option<Vec<String>>"),
         "setter must take Option<Vec<String>>: {out}"
@@ -78,7 +100,15 @@ fn gen_getter_setter_required_vec_unit_enum_unchanged() {
         getter.contains("self.tags.iter().map(|v| v.to_api_str().to_owned()).collect()"),
         "getter must iterate the Vec directly: {getter}"
     );
-    let setter = gen_setter(&field, &mapper(), &enums, false, &tagged, &no_untagged_ts_types());
+    let setter = gen_setter(
+        &field,
+        &mapper(),
+        &enums,
+        false,
+        &tagged,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(
         setter.contains("value: Vec<String>"),
         "setter must take Vec<String>: {setter}"
@@ -105,7 +135,15 @@ fn optional_u64_vec_accessors_keep_the_wasm_bigint_vector_shape() {
     let tagged = AHashSet::new();
 
     let getter = gen_getter(&field, &mapper(), &enums, &tagged, false, &no_untagged_ts_types());
-    let setter = gen_setter(&field, &mapper(), &enums, false, &tagged, &no_untagged_ts_types());
+    let setter = gen_setter(
+        &field,
+        &mapper(),
+        &enums,
+        false,
+        &tagged,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
 
     assert!(
         getter.contains("-> Option<Vec<u64>>"),
@@ -275,13 +313,22 @@ fn gen_setter_vec_enum_mapped_to_js_value_skips_from_api_str() {
         false,
         &tagged,
         &no_untagged_ts_types(),
+        &AHashSet::new(),
     );
     assert!(
         !out.contains("from_api_str") && !out.contains("WasmModality"),
         "an overridden enum has no generated wrapper to parse into: {out}"
     );
 
-    let control = gen_setter(&field, &mapper(), &enums, false, &tagged, &no_untagged_ts_types());
+    let control = gen_setter(
+        &field,
+        &mapper(),
+        &enums,
+        false,
+        &tagged,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(
         control.contains("WasmModality::from_api_str"),
         "wrapper-backed enum setter must keep parsing wire strings: {control}"
@@ -329,5 +376,97 @@ fn gen_struct_never_derives_serde_even_with_container_conversion() {
     assert!(
         !out.contains("Deserialize"),
         "wasm binding struct must not derive Deserialize: {out}"
+    );
+}
+
+/// wasm-bindgen lowers a by-value exported-struct argument through `__destroy_into_raw()`, so a
+/// by-value setter kills the handle the caller assigned. Proven against wasm-bindgen 0.2.121:
+/// `set legacy(value) { ... ptr0 = value.__destroy_into_raw(); }` for `Option<Inner>` versus
+/// `set req(value) { ... wasm.holder_set_req(this.__wbg_ptr, value.__wbg_ptr); }` for `&Inner`.
+/// See alef#470. ~keep
+#[test]
+fn gen_setter_required_class_field_takes_a_borrow() {
+    let field = class_field("palette", "Palette", false);
+    let out = gen_setter(
+        &field,
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &no_untagged_ts_types(),
+        &class_names(&["Palette"]),
+    );
+    assert!(
+        out.contains("value: &WasmPalette"),
+        "class-typed setter must borrow so the caller keeps its handle: {out}"
+    );
+    assert!(
+        out.contains("self.palette = value.clone();"),
+        "class-typed setter must store a clone of the borrowed value: {out}"
+    );
+}
+
+/// `Option<&T>` has no `OptionFromWasmAbi` impl -- rustc rejects it with E0277 against
+/// wasm-bindgen 0.2.129 -- so the optional case borrows the same way and wraps in `Some`
+/// rather than exposing a nullable parameter. ~keep
+#[test]
+fn gen_setter_optional_class_field_takes_a_borrow_and_wraps_in_some() {
+    let field = class_field("renderer", "RendererHandle", true);
+    let out = gen_setter(
+        &field,
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &no_untagged_ts_types(),
+        &class_names(&["RendererHandle"]),
+    );
+    assert!(
+        out.contains("value: &WasmRendererHandle"),
+        "optional class-typed setter must borrow: {out}"
+    );
+    assert!(
+        out.contains("self.renderer = Some(value.clone());"),
+        "optional class-typed setter must wrap the clone in Some: {out}"
+    );
+    assert!(
+        !out.contains("Option<WasmRendererHandle>"),
+        "an Option of an exported struct is exactly the shape that destroys the handle: {out}"
+    );
+}
+
+#[test]
+fn gen_setter_overridden_class_name_keeps_the_mapped_type() {
+    let field = class_field("palette", "Palette", false);
+    let out = gen_setter(
+        &field,
+        &mapper_with_override("Palette", "JsValue"),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &no_untagged_ts_types(),
+        &class_names(&["Palette"]),
+    );
+    assert!(
+        out.contains("value: JsValue"),
+        "an overridden name resolves to no generated class, so there is nothing to borrow: {out}"
+    );
+}
+
+#[test]
+fn gen_setter_non_class_named_field_keeps_the_mapped_type() {
+    let field = class_field("palette", "Palette", false);
+    let out = gen_setter(
+        &field,
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
+    assert!(
+        out.contains("value: WasmPalette") && !out.contains("&WasmPalette"),
+        "the borrow is gated on the name actually being emitted as a class: {out}"
     );
 }

@@ -170,6 +170,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/ts_extern_value_type.jinja"),
     ),
     ("ts_bridged_setter", include_str!("templates/ts_bridged_setter.jinja")),
+    (
+        "gen_class_field_setter",
+        include_str!("templates/gen_class_field_setter.jinja"),
+    ),
+    (
+        "gen_class_field_clear",
+        include_str!("templates/gen_class_field_clear.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

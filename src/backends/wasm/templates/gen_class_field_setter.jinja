@@ -1,0 +1,12 @@
+{#-
+  The parameter is a borrow on purpose: wasm-bindgen lowers a by-value exported-struct argument
+  through `__destroy_into_raw()`, which kills the handle the caller assigned (alef#470). Do not
+  "fix" the `get x(): T | undefined` / `set x(value: T)` asymmetry this produces for an optional
+  field by reverting to by-value -- the asymmetry is inherent to borrowing on set (`Option<&T>`
+  has no `OptionFromWasmAbi` impl) and TypeScript accepts it from 5.1 on. Clearing an optional
+  field is restored by the companion `clear{Field}()` in gen_class_field_clear.jinja. ~keep
+-#}
+#[wasm_bindgen(setter{{ js_name_attr }})]
+pub fn set_{{ field_name }}(&mut self, value: &{{ class_type }}) {
+    self.{{ field_name }} = {% if optional %}Some(value.clone()){% else %}value.clone(){% endif %};
+}

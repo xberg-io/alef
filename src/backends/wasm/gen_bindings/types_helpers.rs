@@ -1,6 +1,8 @@
 //! Shared helpers for WASM type generation.
 
-use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
+use crate::backends::wasm::type_map::WasmMapper;
+use crate::codegen::type_mapper::TypeMapper;
+use crate::core::ir::{ApiSurface, FieldDef, MethodDef, TypeRef};
 use ahash::AHashSet;
 
 /// Return a WASM binding surface whose struct fields and methods match the backend feature set.
@@ -95,4 +97,25 @@ pub(super) fn optional_inner(ty: &TypeRef) -> &TypeRef {
         TypeRef::Optional(inner) => inner.as_ref(),
         other => other,
     }
+}
+
+/// The generated wasm-bindgen class a field is stored as, when it is stored as one.
+///
+/// Returns the mapped `{prefix}{Name}` class for a field typed `Named` or `Option<Named>` whose
+/// name the backend emits as a `#[wasm_bindgen]` struct. Returns `None` when a `type_overrides`
+/// entry redirects the name somewhere else (`JsValue`, `String`, ...): the accessor then has to
+/// keep using the mapper's rendering, because no such class exists to borrow. ~keep
+pub(super) fn class_backed_field_type(
+    field: &FieldDef,
+    mapper: &WasmMapper,
+    class_type_names: &AHashSet<String>,
+) -> Option<String> {
+    let TypeRef::Named(name) = optional_inner(&field.ty) else {
+        return None;
+    };
+    if !class_type_names.contains(name.as_str()) {
+        return None;
+    }
+    let mapped = mapper.named(name).into_owned();
+    (mapped == format!("{}{name}", mapper.prefix)).then_some(mapped)
 }

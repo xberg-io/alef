@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm: a class-typed setter destroyed the handle it was given, and a trait-bridge options
+  field was discarded by the wrapper that owns it (#470).** wasm-bindgen lowers a by-value
+  exported-struct argument through `__destroy_into_raw()`, so `options.field = handle` left the
+  caller holding a dead handle -- reusing it, or assigning it to a second options object, threw
+  `null pointer passed to rust`. A setter for a field whose type is a generated wasm class now
+  takes `&Wasm{Type}` and stores a clone, which wasm-bindgen lowers as a plain `__wbg_ptr` read.
+  `Option<&T>` has no `OptionFromWasmAbi` impl, so an optional field takes the same borrow and
+  wraps it in `Some`, and a generated `clear{Field}()` companion restores unsetting it:
+  `opts.x = handle` keeps the handle alive, `opts.clearX()` clears the field, and
+  **`opts.x = null` now throws rather than clearing**. The generated `.d.ts` accessor pair for an
+  optional field is asymmetric (`get x(): T | undefined; set x(value: T);`), which requires
+  TypeScript 5.1 or newer. The companion is emitted only for optional fields whose type is a
+  generated class, and stands down when the struct's own API already mints that identifier. A
+  `type_overrides` entry that redirects the name to `JsValue`/`String` is unaffected. Separately,
+  the options-field trait-bridge wrapper blanked the options struct's own bridge field
+  (`o.field = None;`) before converting, so assigning the property had no effect on the call at
+  all; the explicit visitor argument still wins, but the field is now the fallback rather than
+  discarded. Blanking it was also a latent `E0609` whenever that field's type has no generated
+  wasm representation and the binding struct therefore drops it. The struct constructor still
+  takes class-typed arguments by value and still consumes them.
+
 - **extract: a `mod` declaration that resolved to no file vanished silently, and
   `lossy_sanitized_surface` never pointed at the cause (#464).** `extract_module` returned
   `Ok(())` for an unresolvable `mod x;` with no diagnostic at all, so every type that module
