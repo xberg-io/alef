@@ -95,6 +95,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through it, and every other backend (and any pyo3 call site that leaves it unset) keeps today's
   conversion unchanged.
 
+- **Documented type names for the thirteen verbatim-name backends now match what those backends
+  actually emit for an already-PascalCase name with an irregular acronym run (#455).** The same
+  defect #449 fixed for Go and C#, across the rest of the surface. pyo3, napi, magnus, php,
+  rustler, java, kotlin, swift, gleam, zig, extendr, wasm and dart all declare a public type from
+  the IR name verbatim (`#[pyclass]` with no `name =`, `napi(object, js_name = "{typ.name}")`,
+  `public record {typ.name}`, `data class {typ.name}`, `public struct {typ.name}`, and so on),
+  but `public_type_name`'s catch-all arm ran `heck::to_pascal_case()` first, which re-segments an
+  acronym run that is not in the language's initialism list (`RDFaChunk` -> `RdFaChunk`,
+  `IOError` -> `IoError`, `SQLiteDB` -> `SqLiteDb`). That arm is now the identity function.
+  Because a few callers legitimately pass a genuinely uncased name -- a kebab-case crate name
+  through `kotlin_android_wrapper_object_name` and the Kotlin arm of `crate_facade_class_names`,
+  a snake_case adapter name through rustler's `streaming_handle_type_component` and magnus's
+  `ruby_streaming_iterator_type_name`, and Kotlin's internal `kotlin_pascal_case` reuse across
+  roughly twenty JNI call sites -- the fix splits the surface by input contract rather than
+  swapping the transform: `cased_pascal_type_name` and `cased_public_type_name` keep the casing
+  behavior for those callers unchanged, so only the already-PascalCase path became identity.
+
 ### Added
 
 - **e2e: fan the `mock.*` request-count capture out to go, ruby, php and java (#443).** Each

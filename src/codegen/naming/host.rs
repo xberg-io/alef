@@ -105,11 +105,27 @@ pub(super) fn public_type_name(lang: Language, name: &str) -> String {
         // site (`go_type_name(&typ.name)` / `csharp_type_name(&typ.name)` in the backends
         // themselves) -- an extra `heck::to_pascal_case()` pre-step re-segments an irregular
         // acronym run (`RDFaChunk` -> `RdFaChunk`) that `go_type_name`/`csharp_type_name` would
-        // otherwise leave alone. See issue #449: KotlinAndroid is the one caller that legitimately
-        // passes a non-PascalCase (crate) name through this function, which is why the pre-step
-        // stays for every other arm below.
+        // otherwise leave alone. See issue #449.
         Language::Go => go_type_name(name),
         Language::Csharp => csharp_type_name(name),
+        // ~keep Issue #455: every one of these backends declares its public type from an IR
+        // type name (`typ.name`/`enum_def.name`) VERBATIM -- none of them run it through
+        // `heck::to_pascal_case()` or any acronym pass first (spot-checked: pyo3's
+        // `#[pyclass(...)]` carries no `name =` override; napi's `napi(object, js_name =
+        // "{typ.name}")`; magnus's `format!("{module_name}::{}", typ.name)`; php's
+        // `php(name = "...\\{typ.name}")`; rustler's `defmodule {AppModule}.{typ.name}`; java's
+        // `public record {typ.name}`; kotlin's `data class {typ.name}`; swift's
+        // `public struct {typ.name}`; gleam's `pub type {typ.name}`; zig's
+        // `pub const {typ.name} = struct`; wasm's `#[wasm_bindgen(js_name = "{typ.name}")]`;
+        // extendr re-declares the literal Rust struct verbatim under `#[extendr]`; dart's
+        // production class names come from flutter_rust_bridge reading the real Rust struct,
+        // not from any of alef's own templates). A `to_pascal_case()` pre-step here re-segments
+        // an irregular acronym run the same way it did for Go/C# in #449 (`RDFaChunk` ->
+        // `RdFaChunk`), so this arm is now identity, matching every real backend by
+        // construction. `PublicIdentifierKind::Type`/`public_host_identifier` assumes an
+        // already-PascalCase Rust IR name; a caller with a genuinely uncased name (a crate name,
+        // or Kotlin's internal `to_pascal_case` reuse for snake_case member names) must go
+        // through [`cased_public_type_name`] instead, not this function. ~keep
         Language::Python
         | Language::Node
         | Language::Ruby
@@ -127,8 +143,45 @@ pub(super) fn public_type_name(lang: Language, name: &str) -> String {
         | Language::R
         | Language::Rust
         | Language::C
-        | Language::Jni => name.to_pascal_case(),
+        | Language::Jni => name.to_string(),
     }
+}
+
+/// Case an arbitrary name (kebab/snake-case, or any other shape) into this language's
+/// PascalCase type-name convention, without the identifier-escaping step
+/// [`cased_public_type_name`] applies on top.
+///
+/// The opposite input contract from [`public_type_name`]/`PublicIdentifierKind::Type`: that
+/// function assumes `name` is already a PascalCase Rust IR type name and (per issue #455) must
+/// not re-case it. A crate name (`sample-widget-rs`) is not that -- it genuinely needs case
+/// conversion, so it needs its own entry point rather than sharing `public_type_name`'s
+/// now-identity behavior. `pub(super)` because [`languages::kotlin_android_wrapper_object_name`]
+/// (a sibling module) needs the cased-but-unescaped result exactly as `public_type_name` used to
+/// provide it, with no behavior change from before #455. ~keep
+pub(super) fn cased_pascal_type_name(lang: Language, name: &str) -> String {
+    match lang {
+        Language::Go => go_type_name(&name.to_pascal_case()),
+        Language::Csharp => csharp_type_name(&name.to_pascal_case()),
+        _ => name.to_pascal_case(),
+    }
+}
+
+/// Resolve a public host-language type identifier for a name that is not already a PascalCase
+/// Rust IR type name -- see [`cased_pascal_type_name`] for the input contract this covers -- and
+/// escape it for the target language the same way [`public_host_identifier`] escapes a real type
+/// name.
+///
+/// Two real callers need exactly this: `crate::e2e::validate_call_class::crate_facade_class_names`
+/// (Kotlin emits its crate module object via `to_pascal_case(crate_name)`, not from any IR type)
+/// and `crate::backends::kotlin::gen_bindings::shared::kotlin_pascal_case` (Kotlin's own
+/// `to_pascal_case` helper, reused across its JNI emitter for crate names, function/method names,
+/// and internal JNI symbol fragments derived from IR type names -- none of which are the "public
+/// type declaration" surface `public_host_identifier(_, PublicIdentifierKind::Type, _)` now
+/// guards). Redirecting both keeps issue #455's fix from silently turning every one of those
+/// call sites into a no-op. ~keep
+pub fn cased_public_type_name(lang: Language, name: &str) -> String {
+    let converted = cased_pascal_type_name(lang, name);
+    escape_identifier_for(lang, &converted, IdentifierContext::PublicType)
 }
 
 fn public_enum_variant_name(lang: Language, name: &str) -> String {

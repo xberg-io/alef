@@ -194,10 +194,13 @@ fn check_class_override(
 /// - `Kotlin` emits the crate module object via `to_pascal_case(crate_name)` with no
 ///   suffix stripping (`src/backends/kotlin/gen_bindings/mod.rs`'s `generate_jvm`, `module_name`
 ///   binding). That `to_pascal_case` is `shared::kotlin_pascal_case`, i.e.
-///   `naming::public_host_identifier(Language::Kotlin, PublicIdentifierKind::Type, crate_name)`
-///   — not bare `heck::ToPascalCase` — because it also backtick-escapes Kotlin keywords, so
-///   this arm calls that same function rather than the generic `to_class_name` helper other
-///   arms use for languages with no keyword-escaping step. ~keep
+///   `naming::cased_public_type_name(Language::Kotlin, crate_name)` — not bare
+///   `heck::ToPascalCase` — because it also backtick-escapes Kotlin keywords, so this arm calls
+///   that same function rather than the generic `to_class_name` helper other arms use for
+///   languages with no keyword-escaping step. `crate_name` is a crate name, not an IR type name,
+///   so this goes through `cased_public_type_name` rather than
+///   `public_host_identifier(_, PublicIdentifierKind::Type, _)` — issue #455 made the latter an
+///   identity function for `Kotlin`, which would no longer case a kebab/snake crate name at all. ~keep
 /// - `Java` emits *two* real classes an override can legitimately name: the raw FFI wrapper
 ///   via `crate::backends::java::naming::main_class_name` (PascalCased crate name, trailing
 ///   `Rs` kept/added — `src/backends/java/gen_bindings/mod.rs`'s `main_class`), and the
@@ -243,11 +246,7 @@ fn check_class_override(
 /// fallback in `check_class_override`, rather than inheriting a guessed candidate silently.
 fn crate_facade_class_names(naming_lang: Language, config: &ResolvedCrateConfig) -> Option<Vec<String>> {
     match naming_lang {
-        Language::Kotlin => Some(vec![naming::public_host_identifier(
-            Language::Kotlin,
-            PublicIdentifierKind::Type,
-            &config.name,
-        )]),
+        Language::Kotlin => Some(vec![naming::cased_public_type_name(Language::Kotlin, &config.name)]),
         Language::Java => Some(vec![
             crate::backends::java::naming::main_class_name(&config.name),
             crate::backends::java::naming::public_class_name(&config.name),
@@ -803,12 +802,11 @@ lib_name = "widget"
         checked.push(Language::Kotlin);
         assert_eq!(
             crate_facade_class_names(Language::Kotlin, &sample_widget),
-            Some(vec![naming::public_host_identifier(
+            Some(vec![naming::cased_public_type_name(
                 Language::Kotlin,
-                PublicIdentifierKind::Type,
-                &sample_widget.name,
+                &sample_widget.name
             )]),
-            "kotlin must match shared::kotlin_pascal_case (public_host_identifier), the \
+            "kotlin must match shared::kotlin_pascal_case (cased_public_type_name), the \
              keyword-escaping function the real emitter uses — not bare heck::ToPascalCase"
         );
 

@@ -705,14 +705,118 @@ fn go_public_type_name_no_longer_mis_segments_an_irregular_acronym_run() {
     );
 }
 
-/// The constraint that makes the fix safe to scope to only the Go/C# arms:
-/// `kotlin_android_wrapper_object_name` is the one caller in the codebase that passes a
-/// non-PascalCase (crate) name through `public_type_name` -- it must keep going through the
-/// `to_pascal_case()` pre-step that the Kotlin/KotlinAndroid arm was left untouched.
+/// `kotlin_android_wrapper_object_name` passes a non-PascalCase (crate) name through this
+/// module. Issue #455 made `public_type_name`'s `KotlinAndroid` arm an identity function (it now
+/// assumes an already-PascalCase IR type name), so this helper was moved onto
+/// [`cased_pascal_type_name`] -- the "case an arbitrary name" entry point -- instead. Its
+/// observable output must not change.
 #[test]
 fn kotlin_android_wrapper_object_name_still_pascal_cases_a_kebab_case_crate_name() {
     assert_eq!(kotlin_android_wrapper_object_name("sample-parser-rs"), "SampleParser");
     assert_eq!(kotlin_android_wrapper_object_name("document_tools"), "DocumentTools");
+}
+
+/// Issue #455: thirteen backends (pyo3, napi, magnus, php, rustler, java, kotlin,
+/// kotlin_android, swift, dart, gleam, zig, wasm) declare their public type from an IR type name
+/// (`typ.name`/`enum_def.name`) VERBATIM -- none of them run it through
+/// `heck::to_pascal_case()` or any acronym pass first. `public_type_name`'s catch-all arm used to
+/// run every one of these languages through `heck::to_pascal_case()` regardless, which
+/// re-segments an acronym run that is not in any per-language initialism list (`RDFaChunk` ->
+/// `RdFaChunk`), so `public_host_identifier` -- what `src/docs` and
+/// `crate::e2e::validate_call_class` use -- silently disagreed with what every one of these
+/// backends actually emits. Table-driven over the acronym names measured for the issue, over
+/// every affected `Language` variant, so a regression in any single arm fails immediately rather
+/// than only being caught for whichever language a hand-picked example happened to use.
+#[test]
+fn verbatim_backends_public_type_name_no_longer_re_cases_an_already_pascal_case_name() {
+    let names = [
+        "IOError",
+        "HTMLParser",
+        "JSONLD",
+        "SSRFPolicy",
+        "DBHandle",
+        "SQLiteDB",
+        "GRPCClient",
+        "URLPath",
+        "RDFaChunk",
+        // The two of the eleven measured names that happened to survive heck's PascalCase
+        // round-trip unchanged; kept so a future regression can't hide behind "only the
+        // already-broken cases were checked".
+        "DefaultClient",
+        "IPv4Addr",
+    ];
+    let langs = [
+        Language::Python,
+        Language::Node,
+        Language::Ruby,
+        Language::Php,
+        Language::Elixir,
+        Language::Java,
+        Language::Kotlin,
+        Language::KotlinAndroid,
+        Language::Swift,
+        Language::Dart,
+        Language::Gleam,
+        Language::Zig,
+        Language::Wasm,
+        Language::R,
+    ];
+    for lang in langs {
+        for name in names {
+            assert_eq!(
+                public_host_identifier(lang, PublicIdentifierKind::Type, name),
+                name,
+                "{lang:?} must leave an already-PascalCase IR type name {name:?} untouched, \
+                 matching what its backend declares verbatim"
+            );
+        }
+    }
+}
+
+/// Pins the exact pre-fix-vs-post-fix spelling for the case the issue was filed over, on two of
+/// the affected languages, so a regression back to the `to_pascal_case()` pre-step fails on a
+/// concrete wrong value (`RdFaChunk`), not just an equality-with-itself comparison.
+#[test]
+fn kotlin_and_python_public_type_name_no_longer_mis_segment_an_irregular_acronym_run() {
+    assert_eq!(
+        public_host_identifier(Language::Kotlin, PublicIdentifierKind::Type, "RDFaChunk"),
+        "RDFaChunk",
+        "must match what the kotlin backend's `data class` declaration actually emits, not \
+         heck's re-segmented RdFaChunk"
+    );
+    assert_eq!(
+        public_host_identifier(Language::Python, PublicIdentifierKind::Type, "RDFaChunk"),
+        "RDFaChunk",
+        "must match what pyo3's #[pyclass] actually emits (no name override), not heck's \
+         re-segmented RdFaChunk"
+    );
+}
+
+/// The input-contract split issue #455 introduced: [`cased_public_type_name`] is the entry point
+/// for a name that genuinely needs case conversion (a crate name, or a snake_case adapter/method
+/// name reused as a type-name fragment), as opposed to `public_host_identifier(_,
+/// PublicIdentifierKind::Type, _)` which now assumes its input is already PascalCase and leaves
+/// it alone. A kebab-case crate name must still come out fully PascalCased through this path, for
+/// every language that has a real crate-name-to-class-name caller today (Kotlin via
+/// `kotlin_pascal_case`/`crate_facade_class_names`, KotlinAndroid via
+/// `kotlin_android_wrapper_object_name`'s sibling `cased_pascal_type_name`) and for Go/C# per
+/// #449's pre-existing crate-name contract.
+#[test]
+fn cased_public_type_name_still_fully_pascal_cases_an_uncased_name() {
+    let cases = [
+        (Language::Kotlin, "sample-widget-rs", "SampleWidgetRs"),
+        (Language::Kotlin, "crawl_stream", "CrawlStream"),
+        (Language::KotlinAndroid, "sample-widget-rs", "SampleWidgetRs"),
+        (Language::Go, "sample_widget", "SampleWidget"),
+        (Language::Csharp, "sample_widget", "SampleWidget"),
+    ];
+    for (lang, input, expected) in cases {
+        assert_eq!(
+            cased_public_type_name(lang, input),
+            expected,
+            "{lang:?} must fully case {input:?} into PascalCase, not leave it untouched"
+        );
+    }
 }
 
 /// `node_type_name` must be the identity function: the NAPI-RS `.d.ts` emitter never applies

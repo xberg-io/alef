@@ -5,7 +5,7 @@
 //! per-language *choice* — Go uppercasing `URL`, C# preferring `Json`, and so on. ~keep
 
 use super::case::{apply_initialisms, normalize_acronym_to_pascalcase};
-use super::host::public_type_name;
+use super::host::cased_pascal_type_name;
 use crate::core::config::Language;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::HashSet;
@@ -239,8 +239,13 @@ pub fn csharp_wrapper_class_name(crate_name: &str, _namespace: &str) -> String {
 /// `crate::core::jni::bridge_class_name`.  For example:
 /// - `sample-parser-rs` -> `SampleParser`
 /// - `document_tools` -> `DocumentTools`
+///
+/// `crate_name` is a crate name (kebab/snake), not an IR type name, so this goes through
+/// [`cased_pascal_type_name`] rather than `public_type_name`/`PublicIdentifierKind::Type` --
+/// issue #455 made the latter an identity function for `KotlinAndroid`, which would otherwise
+/// turn this into a no-op and emit `object sample-parser-rs`. ~keep
 pub fn kotlin_android_wrapper_object_name(crate_name: &str) -> String {
-    let base = public_type_name(Language::KotlinAndroid, crate_name);
+    let base = cased_pascal_type_name(Language::KotlinAndroid, crate_name);
     let stem = base.strip_suffix("Rs").unwrap_or(&base);
     stem.to_string()
 }

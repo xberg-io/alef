@@ -9,7 +9,7 @@
 //! IR represents `BoxStream` returns as `String` (sanitized), which would emit a
 //! `chat_stream_async` stub raising `NotImplementedError`.
 
-use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::codegen::naming::cased_public_type_name;
 use crate::core::config::{AdapterConfig, AdapterPattern, Language};
 
 fn render(template_name: &str, ctx: minijinja::Value) -> String {
@@ -60,8 +60,12 @@ impl<'a> StreamingAdapter<'a> {
     }
 }
 
+// ~keep `name` here is a config adapter name (e.g. `chat_stream`), snake_case -- not an
+// already-PascalCase IR type name -- so this must go through the "case an arbitrary name" entry
+// point, not `public_host_identifier(_, PublicIdentifierKind::Type, _)`, which issue #455 made
+// an identity function on the assumption its input is already PascalCase.
 fn ruby_streaming_iterator_type_name(name: &str) -> String {
-    public_host_identifier(Language::Ruby, PublicIdentifierKind::Type, name)
+    cased_public_type_name(Language::Ruby, name)
 }
 
 /// Generate the iterator opaque struct, its `IntoValueFromNative`/`TryConvert`

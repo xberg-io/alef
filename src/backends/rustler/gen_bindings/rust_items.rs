@@ -1,5 +1,5 @@
 use crate::backends::rustler::template_env;
-use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::codegen::naming::{PublicIdentifierKind, cased_public_type_name, public_host_identifier};
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use ahash::AHashSet;
@@ -136,7 +136,11 @@ pub(super) fn gen_nif_init(
             Some(format!(
                 "{}{}Handle",
                 streaming_handle_type_component(owner),
-                streaming_handle_type_component(&a.name)
+                // ~keep `a.name` is a config adapter name (e.g. `crawl_stream`), snake_case --
+                // not an already-PascalCase IR type name -- so it must go through the "case an
+                // arbitrary name" entry point, not the "already PascalCase, leave alone" one
+                // `streaming_handle_type_component` uses for `owner`. See issue #455.
+                cased_public_type_name(Language::Elixir, &a.name)
             ))
         })
         .collect();
@@ -191,7 +195,9 @@ pub(super) fn gen_nif_init(
     }
 }
 
-/// Return the public type-name component used in generated Rustler resource structs.
+/// Return the public type-name component used in generated Rustler resource structs, for a name
+/// that is already a PascalCase Rust IR type name (an `owner_type`). See issue #455 --
+/// `cased_public_type_name` is the sibling entry point for a name that still needs casing.
 fn streaming_handle_type_component(name: &str) -> String {
     public_host_identifier(Language::Elixir, PublicIdentifierKind::Type, name)
 }

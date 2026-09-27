@@ -2,7 +2,7 @@
 //!
 //! Used by both the JVM and Native backends as well as the MPP backend.
 
-use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::codegen::naming::cased_public_type_name;
 use crate::core::config::Language;
 
 /// Everything a data-class emitter needs to bridge value-type instance methods
@@ -21,8 +21,15 @@ pub struct ValueMethodBridge<'a> {
 }
 
 /// Convert a `snake_case` or `kebab-case` name to `PascalCase`.
+///
+/// Goes through `cased_public_type_name`, not `public_host_identifier(_,
+/// PublicIdentifierKind::Type, _)`: this helper is reused across the Kotlin backend for crate
+/// names, function/method names, and IR type-name fragments used in internal JNI symbol
+/// synthesis (`nativeFree{TypeName}` and similar) — none of which are the "already PascalCase,
+/// do not re-case" input contract issue #455 gave to `public_type_name`. See that function's doc
+/// comment in `src/codegen/naming/host.rs`. ~keep
 pub fn kotlin_pascal_case(name: &str) -> String {
-    public_host_identifier(Language::Kotlin, PublicIdentifierKind::Type, name)
+    cased_public_type_name(Language::Kotlin, name)
 }
 
 pub use kotlin_pascal_case as to_pascal_case;

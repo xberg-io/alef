@@ -33,7 +33,7 @@ pub use case::{
     underscore_camel_case,
 };
 pub(crate) use host::public_casing;
-pub use host::{public_field_name, public_host_identifier, qualified_type_path};
+pub use host::{cased_public_type_name, public_field_name, public_host_identifier, qualified_type_path};
 pub use identifiers::{
     dart_tuple_field_identifier, dart_type_identifier, dart_value_identifier, escape_identifier, escape_identifier_for,
     is_valid_identifier, is_valid_identifier_for, validate_identifier,
