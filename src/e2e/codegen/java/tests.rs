@@ -216,6 +216,7 @@ fn java_trait_bridge_stub_marshals_a_configured_excluded_enum_as_string_but_keep
             ..Default::default()
         }],
         java: Some(JavaConfig {
+            dependency_versions: Default::default(),
             capsule_types: std::collections::HashMap::new(),
             shares_native_runtime: false,
             package: None,

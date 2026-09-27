@@ -1,5 +1,6 @@
-use crate::core::template_versions as tv;
+use crate::core::config::extras::Language;
 use crate::scaffold::ScaffoldMeta;
+use crate::scaffold::dependency_versions::{ManagedVersions, override_notice_hash};
 
 /// Everything [`ruby_gemspec_content`] needs from `super::scaffold_ruby`, which derives each
 /// field from the same `ResolvedCrateConfig`/`ApiSurface` pair it uses for the package's other
@@ -11,6 +12,7 @@ pub(super) struct RubyGemspecParams<'a> {
     pub ext_name: &'a str,
     pub version: &'a str,
     pub required_ruby_version: &'a str,
+    pub versions: &'a ManagedVersions<'a>,
 }
 
 fn ruby_authors_literal(meta: &ScaffoldMeta) -> String {
@@ -78,6 +80,7 @@ pub(super) fn ruby_gemspec_content(params: RubyGemspecParams<'_>) -> String {
         ext_name,
         version,
         required_ruby_version,
+        versions,
     } = params;
     let authors_ruby = ruby_authors_literal(meta);
     let metadata_ruby = ruby_keywords_metadata(meta);
@@ -86,7 +89,7 @@ pub(super) fn ruby_gemspec_content(params: RubyGemspecParams<'_>) -> String {
 
     format!(
         r#"# frozen_string_literal: true
-
+{version_notice}
 Gem::Specification.new do |spec|
   spec.name = "{gem_name}"
   spec.version = "{version}"
@@ -108,6 +111,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency "sorbet-runtime", "{sorbet_runtime}"
 end
 "#,
+        version_notice = override_notice_hash(Language::Ruby),
         gem_name = gem_name,
         ext_name = ext_name,
         version = version,
@@ -117,15 +121,15 @@ end
         homepage = homepage_ruby,
         license = license_ruby,
         metadata = metadata_ruby,
-        rb_sys = tv::gem::RB_SYS,
-        sorbet_runtime = tv::gem::SORBET_RUNTIME,
+        rb_sys = versions.get("gem:rb_sys"),
+        sorbet_runtime = versions.get("gem:sorbet-runtime"),
     )
 }
 
-pub(super) fn ruby_gemfile_content() -> String {
+pub(super) fn ruby_gemfile_content(versions: &ManagedVersions<'_>) -> String {
     format!(
         r#"# frozen_string_literal: true
-
+{version_notice}
 source "https://rubygems.org"
 
 gemspec
@@ -140,12 +144,13 @@ group :development do
   gem "steep", "{steep}"
 end
 "#,
-        rake_compiler = tv::gem::RAKE_COMPILER,
-        rb_sys = tv::gem::RB_SYS,
-        rspec = tv::gem::RSPEC_SCAFFOLD,
-        rubocop = tv::gem::RUBOCOP_SCAFFOLD,
-        rubocop_performance = tv::gem::RUBOCOP_PERFORMANCE,
-        rubocop_rspec = tv::gem::RUBOCOP_RSPEC_SCAFFOLD,
-        steep = tv::gem::STEEP,
+        version_notice = override_notice_hash(Language::Ruby),
+        rake_compiler = versions.get("gem:rake-compiler"),
+        rb_sys = versions.get("gem:rb_sys"),
+        rspec = versions.get("gem:rspec"),
+        rubocop = versions.get("gem:rubocop"),
+        rubocop_performance = versions.get("gem:rubocop-performance"),
+        rubocop_rspec = versions.get("gem:rubocop-rspec"),
+        steep = versions.get("gem:steep"),
     )
 }

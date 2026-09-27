@@ -436,6 +436,7 @@ fn eligible_context_fixture_set_is_non_empty_and_every_entry_resolves_to_the_cla
 /// A `PythonConfig` with only `exclude_types` populated.
 fn python_config_excluding(exclude_types: &[&str]) -> crate::core::config::PythonConfig {
     crate::core::config::PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: None,
         async_runtime: None,

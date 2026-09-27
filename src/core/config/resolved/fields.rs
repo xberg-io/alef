@@ -1,6 +1,8 @@
 //! Field name resolution, serde strategy, path rewriting, and version methods.
 
 use std::cmp::Reverse;
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use super::ResolvedCrateConfig;
 use crate::core::config::extras::Language;
@@ -163,6 +165,36 @@ impl ResolvedCrateConfig {
             .and_then(|p| p.get("version"))
             .and_then(|v| v.as_str())
             .map(|v| v.to_string())
+    }
+
+    /// The `[crates.<lang>.dependency_versions]` table this crate declares for `lang`.
+    ///
+    /// Empty for a language that carries no managed versions and for one whose per-language
+    /// config block is absent — both mean "no override", which is what the caller needs.
+    pub fn dependency_version_overrides(&self, lang: Language) -> &BTreeMap<String, String> {
+        static EMPTY: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+        let declared = match lang {
+            Language::Python => self.python.as_ref().map(|c| &c.dependency_versions),
+            Language::Java => self.java.as_ref().map(|c| &c.dependency_versions),
+            Language::Elixir => self.elixir.as_ref().map(|c| &c.dependency_versions),
+            Language::Ruby => self.ruby.as_ref().map(|c| &c.dependency_versions),
+            Language::R => self.r.as_ref().map(|c| &c.dependency_versions),
+            _ => None,
+        };
+        declared.unwrap_or_else(|| EMPTY.get_or_init(BTreeMap::new))
+    }
+
+    /// The literal to emit for the managed dependency `key` in `lang`'s manifests:
+    /// the consumer's override when one is declared, the `template_versions` default
+    /// otherwise.
+    ///
+    /// ~keep Precedence is exactly two levels — explicit override, then default. There is
+    /// deliberately no comparison against a version already on disk: `version_floor`'s
+    /// `semver::VersionReq` ordering is meaningless for a PEP 440 specifier, a Bundler `~>`
+    /// requirement, or `"^11.5 || ^12.0 || ^13.1"`, and guessing at an unordered comparison
+    /// is worse than emitting the literal the consumer asked for.
+    pub fn managed_version(&self, lang: Language, key: &str) -> Option<&str> {
+        crate::core::managed_versions::resolve(lang, key, self.dependency_version_overrides(lang))
     }
 }
 

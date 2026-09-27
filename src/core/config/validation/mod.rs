@@ -15,6 +15,7 @@
 //! is exempt: the default precondition still applies via the surrounding
 //! defaults logic.
 
+mod dependency_versions;
 mod preconditions;
 
 use super::extras::Language;
@@ -33,6 +34,7 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
     validate_package_metadata(config)?;
     validate_e2e_env_keys(config)?;
     validate_extra_lint_paths(config)?;
+    dependency_versions::validate_dependency_version_overrides(config)?;
     validate_section("test", &config.test, test_main_fields, |c| c.precondition.as_deref())?;
     validate_test_e2e_precondition(&config.test)?;
     validate_trait_bridges(config)?;

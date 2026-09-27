@@ -1,12 +1,13 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
-use crate::core::template_versions as tv;
 use crate::core::version::to_r_version;
+use crate::scaffold::dependency_versions::ManagedVersions;
 use crate::{scaffold::cargo_package_header, scaffold::render_extra_deps, scaffold::scaffold_meta};
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::R);
     let meta = scaffold_meta(config);
     let version = to_r_version(&api.version);
     let package_name = config.r_package_name();
@@ -66,7 +67,7 @@ Config/testthat/edition: 3
         description = description,
         repository_lines = repository_lines,
         license = license,
-        rextendr = tv::cran::REXTENDR,
+        rextendr = versions.get("cran:rextendr"),
     );
 
     Ok(vec![GeneratedFile {
@@ -91,6 +92,7 @@ fn parse_r_author(author: &str) -> Option<(String, String, String)> {
 }
 
 pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::R);
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
@@ -120,22 +122,22 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
             &features_str,
             version,
         ),
-        format!("extendr-api = \"{}\"", tv::cargo::EXTENDR_API),
+        format!("extendr-api = \"{}\"", versions.get("cargo:extendr-api")),
         format!(
             "serde = {{ version = \"{}\", features = [\"derive\"] }}",
-            tv::cargo::SERDE
+            versions.get("cargo:serde")
         ),
-        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!("serde_json = \"{}\"", versions.get("cargo:serde_json")),
     ];
     if has_async {
         dep_lines.push(format!(
             "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\"] }}",
-            tv::cargo::TOKIO
+            versions.get("cargo:tokio")
         ));
     }
     if has_trait_bridges {
-        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
-        dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
+        dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
+        dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
     dep_lines.extend(render_extra_deps(config, Language::R).lines().map(ToOwned::to_owned));
     crate::scaffold::sort_dependency_lines(&mut dep_lines);

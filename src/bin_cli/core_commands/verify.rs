@@ -150,6 +150,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // ran. Reported unconditionally below (never folded into a pass/fail condition) so a missing
     // formatter is a loud, counted gap rather than a silent pass: a comparison that examined
     // nothing must never look identical to one that found a clean tree. ~keep
+    let mut managed_version_manifests: Vec<String> = Vec::new();
     let mut format_drift_compared = 0usize;
     let mut format_drift_skipped = 0usize;
     let mut format_drift_staging_errors = 0usize;
@@ -157,6 +158,10 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         let languages = resolve_languages(resolved_cfg, None)?;
         let api = pipeline::extract(resolved_cfg, config_path, false)?;
         let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages, config_path)?;
+        managed_version_manifests.extend(super::verify_informational::managed_dependency_version_findings(
+            &resolved_cfg.name,
+            &languages,
+        ));
         create_once_template_drift.extend(
             pipeline::find_create_once_template_drift(&scaffold_files, &base_dir)
                 .into_iter()
@@ -389,6 +394,10 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             crate::bin_cli::output::line(format_args!("  {directory}"));
         }
     }
+
+    managed_version_manifests.sort();
+    managed_version_manifests.dedup();
+    super::verify_informational::report_managed_dependency_versions(&managed_version_manifests);
 
     super::verify_informational::report_create_once_template_drift(&create_once_template_drift);
 

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`[crates.<lang>.dependency_versions]`: a consumer can now pin an alef-emitted dependency
+  version and have it survive a regeneration (#462).** Every binding manifest alef emits with
+  `generated_header: true` is rewritten in full on each run from literals baked into the
+  emitters, so a hand-edited version in `pyproject.toml`, `pom.xml`, `mix.exs`, a `.gemspec`,
+  a `Gemfile`, `DESCRIPTION` or a binding crate's `Cargo.toml` was discarded on the next
+  `alef all` -- silently, and not until someone else regenerated. alef still carries the
+  defaults (`src/core/template_versions.rs`, kept current by Renovate); the new per-language
+  table overrides one of them for one crate. Available on `python`, `java`, `elixir`, `ruby`
+  and `r`; the registry of valid keys and their defaults is `alef::core::managed_versions`.
+- Keys are ecosystem-qualified (`cargo:pyo3`, `pypi:pyrefly`, `maven:junit`, `hex:credo`,
+  `gem:rspec`, `cran:rextendr`) because the same package name is two different dependencies in
+  two ecosystems -- the Elixir manifests emit both `cargo:rustler` and `hex:rustler`. An
+  unknown key is a **hard error** naming the valid keys for that language, not a warning:
+  silently ignoring a typo would discard the consumer's bump again, which is the exact failure
+  this table exists to prevent.
+- Precedence is two levels, explicit override then default. alef never compares an override
+  against anything, because ordering a PEP 440 specifier, a Bundler `~>` requirement and
+  `"^11.5 || ^12.0 || ^13.1"` is not something it can do correctly -- a value is emitted
+  verbatim. An explicit pin now also wins over `scaffold::version_floor`'s disk floor for that
+  one dependency: the floor only ever raises, so a deliberate pin *below* a committed version
+  would otherwise be reverted on every run and never converge. A dependency with no explicit
+  pin is still floored exactly as before.
+- Error surface, independent of whether a table is declared: the five comment-capable
+  manifests (`pyproject.toml`, `pom.xml`, `mix.exs`, the `.gemspec` and the `Gemfile`) now
+  carry a notice naming the override table, and `alef verify` prints an informational finding
+  listing the managed manifests per crate. The finding never affects the exit code, and it is
+  the only surface for `DESCRIPTION`, which is Debian Control File format and takes no
+  comment.
+- The `[crates.<lang>.package_extras]` table `core::config::manifest_extras`' module doc
+  promised was never implemented, and the claim has been removed. `harness_extras` is
+  unaffected.
+
 ### Changed (BREAKING)
 
 - **`ApiSurface` gains a public `unresolved_modules` field (#464).** `ApiSurface` is re-exported as

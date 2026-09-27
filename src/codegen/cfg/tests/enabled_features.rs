@@ -83,6 +83,7 @@ fn core_default_features_active_is_unconditionally_true_outside_r_and_wasm() {
 fn core_default_features_active_for_r_defaults_to_true_when_unset() {
     let config = ResolvedCrateConfig {
         r: Some(RConfig {
+            dependency_versions: Default::default(),
             features: Some(vec!["curated".to_string()]),
             default_features: None,
             ..r_config_defaults()
@@ -101,6 +102,7 @@ fn core_default_features_active_for_r_defaults_to_true_when_unset() {
 fn core_default_features_active_for_r_stays_true_with_no_replacement_features() {
     let config = ResolvedCrateConfig {
         r: Some(RConfig {
+            dependency_versions: Default::default(),
             features: Some(vec![]),
             default_features: Some(false),
             ..r_config_defaults()
@@ -117,6 +119,7 @@ fn core_default_features_active_for_r_stays_true_with_no_replacement_features() 
 fn core_default_features_active_for_r_is_false_with_default_features_disabled_and_a_replacement_list() {
     let config = ResolvedCrateConfig {
         r: Some(RConfig {
+            dependency_versions: Default::default(),
             features: Some(vec!["curated".to_string()]),
             default_features: Some(false),
             ..r_config_defaults()
@@ -128,6 +131,7 @@ fn core_default_features_active_for_r_is_false_with_default_features_disabled_an
 
 fn r_config_defaults() -> RConfig {
     RConfig {
+        dependency_versions: Default::default(),
         package_name: None,
         features: None,
         default_features: None,
@@ -202,6 +206,7 @@ fn enabled_features_for_language_does_not_resurrect_a_feature_r_genuinely_suppre
         dir.path(),
         "default = [\"extended-mode\"]\nextended-mode = []\ncurated = []\n",
         Some(RConfig {
+            dependency_versions: Default::default(),
             features: Some(vec!["curated".to_string()]),
             default_features: Some(false),
             ..r_config_defaults()

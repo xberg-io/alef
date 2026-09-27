@@ -8,6 +8,7 @@ mod cargo_config;
 mod cargo_deps;
 mod cargo_lints;
 mod core_features;
+pub(crate) mod dependency_versions;
 mod generated_files;
 pub(crate) mod languages;
 mod manifest_header;

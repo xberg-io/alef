@@ -8,6 +8,7 @@ use ahash::AHashSet;
 /// A `PythonConfig` with only the two exclusion surfaces under test populated.
 fn python_config(exclude_types: &[&str], capsule_types: &[&str]) -> PythonConfig {
     PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: None,
         async_runtime: None,

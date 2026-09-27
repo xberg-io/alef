@@ -60,6 +60,7 @@ fn make_config_with_core_default(dir: &std::path::Path, core_features_body: &str
         name: "test-lib".to_string(),
         sources: vec![std::path::PathBuf::from("crates/test-lib/src/lib.rs")],
         r: Some(crate::core::config::RConfig {
+            dependency_versions: Default::default(),
             package_name: Some("testlib".to_string()),
             features: None,
             default_features: None,

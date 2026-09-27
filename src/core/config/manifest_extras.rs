@@ -6,12 +6,15 @@
 //! `pyproject.toml`, `Gemfile`, `composer.json`, `pom.xml`, `*.csproj`, `pubspec.yaml`,
 //! `Package.swift`, `go.mod`, `mix.exs`, `build.gradle.kts`, `build.zig.zon`.
 //!
-//! Two parallel surfaces:
-//! - `[crates.<lang>.package_extras]` — applied to `packages/<lang>/<manifest>`
-//! - `[crates.e2e.<lang>.harness_extras]` — applied to `e2e/<lang>/<manifest>`
+//! The one surface that exists: `[crates.e2e.<lang>.harness_extras]`, applied to
+//! `e2e/<lang>/<manifest>`.
 //!
-//! Both deserialize into [`ManifestExtras`], so per-language emitters need only one
-//! injection helper that consumes the same struct.
+//! ~keep This doc previously also promised `[crates.<lang>.package_extras]` for
+//! `packages/<lang>/<manifest>`. No such field was ever added to any per-language config
+//! struct and nothing reads one, so the claim is removed rather than left to be found by a
+//! consumer whose table is silently ignored. Raising an alef-emitted dependency version in a
+//! generated package manifest is `[crates.<lang>.dependency_versions]`
+//! ([`crate::core::managed_versions`]), which rejects an unknown key instead of warning.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

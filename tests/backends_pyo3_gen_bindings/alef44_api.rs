@@ -243,6 +243,7 @@ fn test_api_py_uses_keyword_arguments() {
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
@@ -350,6 +351,7 @@ fn test_async_function_emits_async_def_and_await() {
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
@@ -475,6 +477,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: Some("_test_lib".to_string()),
         pip_name: None,

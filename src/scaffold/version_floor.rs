@@ -67,16 +67,54 @@ pub(crate) fn floor_manifest(rendered: &str, config: &ResolvedCrateConfig, relat
     let Ok(existing) = std::fs::read_to_string(base_dir.join(relative_path)) else {
         return rendered.to_string();
     };
-    floor_against(rendered, &existing)
+    floor_against_exempting(rendered, &existing, &explicitly_pinned_crates(config))
+}
+
+/// Crate names this crate's config pins explicitly through
+/// `[crates.<lang>.dependency_versions]`.
+///
+/// ~keep The floor and an explicit override are two answers to the same question, and the
+/// floor would win every time: it only ever raises, so a deliberate pin *below* what the
+/// consumer has committed is reverted on every run and never converges -- the precise silent
+/// discard `[crates.<lang>.dependency_versions]` exists to end. An explicit pin is a stated
+/// intent about one dependency; the floor is a guess about all of them, so the pin wins.
+///
+/// ~keep Unioned across every managed language rather than matched to the manifest's own
+/// language: a `Cargo.toml`'s owning language is not recoverable from the `GeneratedFile`
+/// path without re-deriving each renderer's directory convention, and the over-reach is
+/// bounded -- it can only ever mean "alef emits the literal it was told to" for a dependency
+/// the consumer has already pinned by name somewhere in this same crate.
+fn explicitly_pinned_crates(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
+    crate::core::managed_versions::MANAGED_LANGUAGES
+        .iter()
+        .flat_map(|language| config.dependency_version_overrides(*language).keys())
+        .filter_map(|key| key.strip_prefix("cargo:"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// [`floor_against_exempting`] with nothing exempted.
+///
+/// ~keep Test-only since the exemption set landed: every production caller reaches the floor
+/// through [`floor_manifest`], which always has a config to derive explicit pins from. Kept
+/// so the floor's own table-driven tests stay about the floor rather than about the exemption.
+#[cfg(test)]
+pub(crate) fn floor_against(rendered: &str, existing: &str) -> String {
+    floor_against_exempting(rendered, existing, &std::collections::HashSet::new())
 }
 
 /// Return `rendered` with every dependency requirement raised to the one `existing`
-/// declares for the same crate, wherever `existing`'s is strictly higher.
+/// declares for the same crate, wherever `existing`'s is strictly higher, leaving every
+/// dependency named in `exempt` exactly as rendered.
 ///
 /// `toml_edit` is format-preserving and the document is only re-serialised when something
 /// actually moved, so a manifest with nothing to raise is returned byte-for-byte and the
 /// emitted comments, blank lines and key order survive untouched.
-pub(crate) fn floor_against(rendered: &str, existing: &str) -> String {
+pub(crate) fn floor_against_exempting(
+    rendered: &str,
+    existing: &str,
+    exempt: &std::collections::HashSet<String>,
+) -> String {
     let (Ok(mut generated_doc), Ok(existing_doc)) = (
         rendered.parse::<toml_edit::DocumentMut>(),
         existing.parse::<toml_edit::DocumentMut>(),
@@ -86,9 +124,9 @@ pub(crate) fn floor_against(rendered: &str, existing: &str) -> String {
 
     let mut raised = 0usize;
     for table in DEPENDENCY_TABLES {
-        raised += raise_table(generated_doc.get_mut(table), existing_doc.get(table));
+        raised += raise_table(generated_doc.get_mut(table), existing_doc.get(table), exempt);
     }
-    raised += raise_target_tables(&mut generated_doc, &existing_doc);
+    raised += raise_target_tables(&mut generated_doc, &existing_doc, exempt);
 
     if raised == 0 {
         return rendered.to_string();
@@ -98,10 +136,14 @@ pub(crate) fn floor_against(rendered: &str, existing: &str) -> String {
 
 /// Apply the floor to the dependency tables nested under each `[target.'cfg(...)']` entry.
 ///
-/// Kept separate from [`floor_against`] because the wasm crate declares its `getrandom`
+/// Kept separate from [`floor_against_exempting`] because the wasm crate declares its `getrandom`
 /// trio only under `cfg(target_arch = "wasm32")` — a floor that walked the document root
 /// alone would leave exactly those requirements unprotected.
-fn raise_target_tables(generated_doc: &mut toml_edit::DocumentMut, existing_doc: &toml_edit::DocumentMut) -> usize {
+fn raise_target_tables(
+    generated_doc: &mut toml_edit::DocumentMut,
+    existing_doc: &toml_edit::DocumentMut,
+    exempt: &std::collections::HashSet<String>,
+) -> usize {
     let Some(target_item) = generated_doc.get_mut("target") else {
         return 0;
     };
@@ -124,14 +166,18 @@ fn raise_target_tables(generated_doc: &mut toml_edit::DocumentMut, existing_doc:
             let existing_table = existing_target
                 .and_then(|item| item.as_table_like())
                 .and_then(|tables| tables.get(table));
-            raised += raise_table(generated_target.get_mut(table), existing_table);
+            raised += raise_table(generated_target.get_mut(table), existing_table, exempt);
         }
     }
     raised
 }
 
 /// Raise every entry of one dependency table, returning how many entries moved.
-fn raise_table(generated: Option<&mut toml_edit::Item>, existing: Option<&toml_edit::Item>) -> usize {
+fn raise_table(
+    generated: Option<&mut toml_edit::Item>,
+    existing: Option<&toml_edit::Item>,
+    exempt: &std::collections::HashSet<String>,
+) -> usize {
     let (Some(generated), Some(existing)) = (generated, existing) else {
         return 0;
     };
@@ -142,6 +188,14 @@ fn raise_table(generated: Option<&mut toml_edit::Item>, existing: Option<&toml_e
     let names: Vec<String> = generated.iter().map(|(name, _)| name.to_string()).collect();
     let mut raised = 0usize;
     for name in names {
+        if exempt.contains(&name) {
+            tracing::debug!(
+                dependency = %name,
+                "leaving an emitted dependency requirement alone: it is pinned explicitly in \
+                 [crates.<lang>.dependency_versions]"
+            );
+            continue;
+        }
         let Some(committed) = existing.get(&name).and_then(version_requirement) else {
             continue;
         };

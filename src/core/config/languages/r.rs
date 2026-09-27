@@ -1,10 +1,18 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RConfig {
+    /// Per-dependency version overrides for the manifests alef regenerates for this
+    /// language. Keys are ecosystem-qualified (`cargo:pyo3`, `pypi:pyrefly`, `maven:junit`,
+    /// `hex:credo`, `gem:rspec`, `cran:rextendr`) and are listed, with the literal each one
+    /// defaults to, by `alef::core::managed_versions`. An unknown key is rejected outright
+    /// rather than ignored: silently dropping an override is the exact failure this table
+    /// exists to prevent.
+    #[serde(default)]
+    pub dependency_versions: BTreeMap<String, String>,
     pub package_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,

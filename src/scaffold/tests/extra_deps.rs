@@ -154,6 +154,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
     let mut python_extra: std::collections::HashMap<String, toml::Value> = std::collections::HashMap::new();
     python_extra.insert("shared-dep".to_string(), toml::Value::String("2.0".to_string()));
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: None,
         async_runtime: None,

@@ -1,7 +1,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
-use crate::core::template_versions as tv;
+use crate::scaffold::dependency_versions::ManagedVersions;
 use crate::scaffold::naming::python_pip_name;
 use crate::{
     scaffold::cargo_package_header, scaffold::core_dep_features, scaffold::detect_workspace_inheritance_for_crate,
@@ -117,6 +117,7 @@ pub(crate) fn scaffold_python_cargo(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::Python);
     let meta = scaffold_meta(config);
     let version = &api.version;
     let module_name = config.python_module_name();
@@ -137,13 +138,13 @@ pub(crate) fn scaffold_python_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str(&format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
+        all_deps.push_str(&format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
     }
     if has_trait_bridges && !all_deps.contains("tracing") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str(&format!("tracing = \"{}\"", tv::cargo::TRACING));
+        all_deps.push_str(&format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
     if (has_trait_bridges || has_streaming) && !all_deps.contains("tokio = ") {
         if !all_deps.is_empty() {
@@ -160,7 +161,7 @@ pub(crate) fn scaffold_python_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str(&format!("futures = \"{}\"", tv::cargo::FUTURES));
+        all_deps.push_str(&format!("futures = \"{}\"", versions.get("cargo:futures")));
     }
 
     let extra_deps_section = if all_deps.is_empty() {
@@ -204,16 +205,16 @@ pub(crate) fn scaffold_python_cargo(
         format!("\n{core_target_blocks}")
     };
     let mut dep_entries: Vec<String> = vec![
-        format!("pyo3 = {{ version = \"{}\" }}", tv::cargo::PYO3),
+        format!("pyo3 = {{ version = \"{}\" }}", versions.get("cargo:pyo3")),
         format!(
             "pyo3-async-runtimes = {{ version = \"{}\", features = [\"tokio-runtime\"] }}",
-            tv::cargo::PYO3_ASYNC_RUNTIMES
+            versions.get("cargo:pyo3-async-runtimes")
         ),
         format!(
             "serde = {{ version = \"{}\", features = [\"derive\"] }}",
-            tv::cargo::SERDE
+            versions.get("cargo:serde")
         ),
-        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!("serde_json = \"{}\"", versions.get("cargo:serde_json")),
     ];
     if !core_dep_py.is_empty() {
         dep_entries.push(core_dep_py.clone());
@@ -291,6 +292,7 @@ crate-type = ["cdylib"]
 }
 
 pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::Python);
     let meta = scaffold_meta(config);
     let pip_name = python_pip_name(config);
     let version = to_pep440(&api.version);
@@ -362,7 +364,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // lint+format, so the generated package must not pull in a standalone ruff.
     let dev_group_entries = [format!(
         "\"pyrefly{}\"",
-        canonicalize_pep440_specifier(tv::pypi::PYREFLY)
+        canonicalize_pep440_specifier(versions.get("pypi:pyrefly"))
     )];
     let dev_group_array = format_toml_array_with_prefix(&dev_group_entries, "dev = ".len());
 
@@ -377,7 +379,8 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .collect::<String>();
 
     let content = format!(
-        r#"[build-system]
+        r#"{version_notice}
+[build-system]
 build-backend = "maturin"
 requires = [ "{maturin_build_requires}" ]
 
@@ -467,6 +470,7 @@ not-iterable = false
 missing-attribute = false
 open-unpacking = false
 {pyrefly_extra}"#,
+        version_notice = crate::scaffold::dependency_versions::override_notice_hash(Language::Python),
         pip_name = pip_name,
         version = version,
         description = meta.description,
@@ -480,7 +484,7 @@ open-unpacking = false
         python_package = python_package,
         module_name = module_name,
         crate_dir = core_crate_dir,
-        maturin_build_requires = canonicalize_pep440_specifier(tv::pypi::MATURIN_BUILD_REQUIRES),
+        maturin_build_requires = canonicalize_pep440_specifier(versions.get("pypi:maturin")),
         maturin_features = maturin_extension_module_features(),
         dev_group = dev_group_array,
         pyrefly_extra = pyrefly_extra,

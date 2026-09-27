@@ -228,6 +228,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
     config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
+        dependency_versions: Default::default(),
         app_name: Some("demo_markup".to_string()),
         features: None,
         nif_features: None,
@@ -292,6 +293,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
     config.name = "demo-markup".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
+        dependency_versions: Default::default(),
         app_name: Some("demo_markup".to_string()),
         features: None,
         nif_features: None,
@@ -365,6 +367,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
     config.name = "sample-language-pack".to_string();
     config.languages = vec![Language::Elixir];
     config.elixir = Some(crate::core::config::ElixirConfig {
+        dependency_versions: Default::default(),
         app_name: Some("sample_language_pack".to_string()),
         features: None,
         nif_features: None,

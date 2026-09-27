@@ -288,6 +288,7 @@ fn test_api_py_void_function_no_redundant_return() {
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: Some("_test_lib".to_string()),
         pip_name: None,
@@ -427,6 +428,7 @@ fn test_api_py_pep8_blank_lines_between_functions() {
 
     let mut config = make_config();
     config.python = Some(PythonConfig {
+        dependency_versions: Default::default(),
         send_sync_types: Vec::new(),
         module_name: Some("_test_lib".to_string()),
         pip_name: None,

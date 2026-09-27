@@ -11,6 +11,7 @@ pub mod ir;
 pub mod jni;
 pub mod keep_marker;
 pub mod keywords;
+pub mod managed_versions;
 pub mod template_env;
 pub mod template_versions;
 pub mod toolchain;

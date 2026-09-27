@@ -212,6 +212,7 @@ crate-type = ["cdylib"]
 }
 
 pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = crate::scaffold::dependency_versions::ManagedVersions::new(config, Language::Ruby);
     let meta = scaffold_meta(config);
     let gem_name = config.ruby_gem_name();
     let gem_name_snake = gem_name.replace('-', "_");
@@ -233,6 +234,7 @@ pub(crate) fn scaffold_ruby(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         ext_name: &ext_name,
         version: &version,
         required_ruby_version: &required_ruby_version,
+        versions: &versions,
     });
 
     let rubocop_content = r#"plugins:
@@ -459,7 +461,7 @@ end
         },
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/Gemfile")),
-            content: ruby_gemfile_content(),
+            content: ruby_gemfile_content(&versions),
             generated_header: false,
         },
         GeneratedFile {

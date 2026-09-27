@@ -1,7 +1,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{AdapterPattern, BridgeBinding, Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
-use crate::core::template_versions as tv;
+use crate::scaffold::dependency_versions::ManagedVersions;
 use crate::{
     scaffold::capitalize_first, scaffold::cargo_package_header, scaffold::detect_workspace_inheritance_for_crate,
     scaffold::render_extra_deps, scaffold::scaffold_meta,
@@ -29,6 +29,7 @@ pub(crate) fn scaffold_elixir_cargo(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::Elixir);
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
     let nif_name = format!("{app_name}_nif");
@@ -97,28 +98,28 @@ pub(crate) fn scaffold_elixir_cargo(
         format!("\n{core_target_blocks}")
     };
     let mut dep_lines: Vec<String> = vec![
-        format!("rustler = \"{}\"", tv::cargo::RUSTLER),
+        format!("rustler = \"{}\"", versions.get("cargo:rustler")),
         format!(
             "serde = {{ version = \"{}\", features = [\"derive\"] }}",
-            tv::cargo::SERDE
+            versions.get("cargo:serde")
         ),
-        format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
+        format!("serde_json = \"{}\"", versions.get("cargo:serde_json")),
     ];
     if needs_ahash {
-        dep_lines.push(format!("ahash = \"{}\"", tv::cargo::AHASH));
+        dep_lines.push(format!("ahash = \"{}\"", versions.get("cargo:ahash")));
     }
     if has_trait_bridges {
-        dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
-        dep_lines.push(format!("tracing = \"{}\"", tv::cargo::TRACING));
+        dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
+        dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
     if has_async || has_trait_bridges || has_streaming {
         dep_lines.push(format!(
             "tokio = {{ version = \"{}\", features = [\"rt-multi-thread\", \"sync\"] }}",
-            tv::cargo::TOKIO
+            versions.get("cargo:tokio")
         ));
     }
     if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
-        dep_lines.push(format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
+        dep_lines.push(format!("futures-util = \"{}\"", versions.get("cargo:futures-util")));
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
@@ -134,9 +135,15 @@ pub(crate) fn scaffold_elixir_cargo(
     // with no path/git is a no-op cargo rejects outright, so direct `=` dependencies are the only
     // way to hold the whole tree on the allocator versions brotli 8.0.x needs. The versions
     // themselves live in `template_versions` so Renovate tracks them like every other crate.
-    dep_lines.push(format!("alloc-no-stdlib = \"={}\"", tv::cargo::ALLOC_NO_STDLIB));
-    dep_lines.push(format!("alloc-stdlib = \"={}\"", tv::cargo::ALLOC_STDLIB));
-    dep_lines.push(format!("brotli-decompressor = \"={}\"", tv::cargo::BROTLI_DECOMPRESSOR));
+    dep_lines.push(format!(
+        "alloc-no-stdlib = \"={}\"",
+        versions.get("cargo:alloc-no-stdlib")
+    ));
+    dep_lines.push(format!("alloc-stdlib = \"={}\"", versions.get("cargo:alloc-stdlib")));
+    dep_lines.push(format!(
+        "brotli-decompressor = \"={}\"",
+        versions.get("cargo:brotli-decompressor")
+    ));
     if !core_dep_line.is_empty() {
         dep_lines.push(core_dep_line);
     }
@@ -257,6 +264,7 @@ crate-type = ["cdylib"]
 }
 
 pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::Elixir);
     let meta = scaffold_meta(config);
     let app_name = config.elixir_app_name();
     let nif_name = format!("{app_name}_nif");
@@ -264,7 +272,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let pkg_dir = config.package_dir(Language::Elixir);
     let nif_targets = elixir_nif_targets(config).join(" ");
 
-    let jason_dep = format!("\n      {{:jason, \"{jason}\"}},", jason = tv::hex::JASON);
+    let jason_dep = format!("\n      {{:jason, \"{jason}\"}},", jason = versions.get("hex:jason"));
 
     let external_elixir_src: Option<String> = config.explicit_output.elixir.as_ref().and_then(|elixir_out| {
         let elixir_out_str = elixir_out.to_string_lossy();
@@ -394,7 +402,8 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     })?;
 
     let content = format!(
-        r#"defmodule {module}.MixProject do
+        r#"{version_notice}
+defmodule {module}.MixProject do
   use Mix.Project
 
   def project do
@@ -427,6 +436,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
   end
 end
 "#,
+        version_notice = crate::scaffold::dependency_versions::override_notice_hash(Language::Elixir),
         module = app_name.to_pascal_case(),
         app_name = app_name,
         version = version,
@@ -437,10 +447,10 @@ end
         description = meta.description,
         license = license,
         links = links_line,
-        rustler_hex = tv::hex::RUSTLER,
-        rustler_precompiled = tv::hex::RUSTLER_PRECOMPILED,
-        credo = tv::hex::CREDO,
-        ex_doc = tv::hex::EX_DOC,
+        rustler_hex = versions.get("hex:rustler"),
+        rustler_precompiled = versions.get("hex:rustler_precompiled"),
+        credo = versions.get("hex:credo"),
+        ex_doc = versions.get("hex:ex_doc"),
     );
 
     let formatter_content = r#"[

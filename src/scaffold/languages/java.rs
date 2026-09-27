@@ -1,7 +1,9 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::extras::Language;
 use crate::core::ir::ApiSurface;
-use crate::core::template_versions::{maven, toolchain};
+use crate::core::template_versions::toolchain;
+use crate::scaffold::dependency_versions::{ManagedVersions, override_notice_lines};
 use crate::{scaffold::parse_author, scaffold::scaffold_meta, scaffold::xml_escape};
 use anyhow::Context as _;
 use minijinja::context;
@@ -37,6 +39,7 @@ fn java_capsule_dependencies(config: &ResolvedCrateConfig) -> Vec<minijinja::Val
 }
 
 pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let versions = ManagedVersions::new(config, Language::Java);
     let meta = scaffold_meta(config);
     let name = config.java_artifact_id();
     let name = name.as_str();
@@ -97,29 +100,30 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             scm_developer_connection => scm.developer_connection,
             capsule_deps => java_capsule_dependencies(config),
             source_root => source_root,
+            version_notice_lines => override_notice_lines(Language::Java),
             java_release => toolchain::JAVA_JVM_TARGET,
-            junit_version => maven::JUNIT,
-            maven_core_version => maven::MAVEN_CORE,
-            maven_compiler_plugin_version => maven::MAVEN_COMPILER_PLUGIN,
-            maven_surefire_plugin_version => maven::MAVEN_SUREFIRE_PLUGIN,
-            maven_checkstyle_plugin_version => maven::MAVEN_CHECKSTYLE_PLUGIN,
-            maven_source_plugin_version => maven::MAVEN_SOURCE_PLUGIN,
-            maven_javadoc_plugin_version => maven::MAVEN_JAVADOC_PLUGIN,
-            maven_gpg_plugin_version => maven::MAVEN_GPG_PLUGIN,
-            maven_clean_plugin_version => maven::MAVEN_CLEAN_PLUGIN,
-            maven_resources_plugin_version => maven::MAVEN_RESOURCES_PLUGIN,
-            maven_jar_plugin_version => maven::MAVEN_JAR_PLUGIN,
-            maven_install_plugin_version => maven::MAVEN_INSTALL_PLUGIN,
-            maven_deploy_plugin_version => maven::MAVEN_DEPLOY_PLUGIN,
-            maven_site_plugin_version => maven::MAVEN_SITE_PLUGIN,
-            central_publishing_plugin_version => maven::CENTRAL_PUBLISHING_PLUGIN,
-            versions_maven_plugin_version => maven::VERSIONS_MAVEN_PLUGIN,
-            maven_enforcer_plugin_version => maven::MAVEN_ENFORCER_PLUGIN,
-            jacoco_maven_plugin_version => maven::JACOCO_MAVEN_PLUGIN,
-            checkstyle_version => maven::CHECKSTYLE,
-            jspecify_version => maven::JSPECIFY,
-            jackson_version => maven::JACKSON,
-            assertj_version => maven::ASSERTJ,
+            junit_version => versions.get("maven:junit"),
+            maven_core_version => versions.get("maven:maven-core"),
+            maven_compiler_plugin_version => versions.get("maven:maven-compiler-plugin"),
+            maven_surefire_plugin_version => versions.get("maven:maven-surefire-plugin"),
+            maven_checkstyle_plugin_version => versions.get("maven:maven-checkstyle-plugin"),
+            maven_source_plugin_version => versions.get("maven:maven-source-plugin"),
+            maven_javadoc_plugin_version => versions.get("maven:maven-javadoc-plugin"),
+            maven_gpg_plugin_version => versions.get("maven:maven-gpg-plugin"),
+            maven_clean_plugin_version => versions.get("maven:maven-clean-plugin"),
+            maven_resources_plugin_version => versions.get("maven:maven-resources-plugin"),
+            maven_jar_plugin_version => versions.get("maven:maven-jar-plugin"),
+            maven_install_plugin_version => versions.get("maven:maven-install-plugin"),
+            maven_deploy_plugin_version => versions.get("maven:maven-deploy-plugin"),
+            maven_site_plugin_version => versions.get("maven:maven-site-plugin"),
+            central_publishing_plugin_version => versions.get("maven:central-publishing-maven-plugin"),
+            versions_maven_plugin_version => versions.get("maven:versions-maven-plugin"),
+            maven_enforcer_plugin_version => versions.get("maven:maven-enforcer-plugin"),
+            jacoco_maven_plugin_version => versions.get("maven:jacoco-maven-plugin"),
+            checkstyle_version => versions.get("maven:checkstyle"),
+            jspecify_version => versions.get("maven:jspecify"),
+            jackson_version => versions.get("maven:jackson"),
+            assertj_version => versions.get("maven:assertj"),
         },
     );
 

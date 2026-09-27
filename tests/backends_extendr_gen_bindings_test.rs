@@ -1679,6 +1679,7 @@ mod trait_bridge {
 
         let mut config = super::make_config();
         config.r = Some(alef::core::config::languages::RConfig {
+            dependency_versions: Default::default(),
             package_name: Some("testlib".to_string()),
             features: None,
             default_features: None,

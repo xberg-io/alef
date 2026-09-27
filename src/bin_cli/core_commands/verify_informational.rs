@@ -63,6 +63,55 @@ pub(super) fn report_create_once_template_drift(create_once_template_drift: &[St
     }
 }
 
+/// Heading for the alef-managed dependency-version finding.
+///
+/// ~keep A const rather than a literal at the call site so the end-to-end test can assert
+/// the text the binary actually prints instead of a hand-copied paraphrase that drifts.
+pub(super) const MANAGED_DEPENDENCY_VERSIONS_HEADING: &str = "Dependency versions in these generated manifests are alef-managed (informational -- alef \
+     rewrites them on every run, so a direct edit is discarded; raise one durably in the named \
+     table instead):";
+
+/// One line per (crate, language) whose manifests carry alef-managed dependency versions.
+///
+/// ~keep Split from the printer so the content is unit-testable: `output::line` writes
+/// straight to stdout and nothing in-process can read it back.
+pub(super) fn managed_dependency_version_findings(
+    crate_name: &str,
+    languages: &[crate::core::config::Language],
+) -> Vec<String> {
+    languages
+        .iter()
+        .filter_map(|language| {
+            let manifests = crate::core::managed_versions::manifests_for(*language)?;
+            let mut named = vec![manifests.package_manifest];
+            named.extend(manifests.binding_manifest);
+            Some(format!(
+                "  [{crate_name}] {language}: {} -- {}",
+                named.join(", "),
+                crate::core::managed_versions::override_table(*language)
+            ))
+        })
+        .collect()
+}
+
+/// Report the manifests whose dependency versions alef owns.
+pub(super) fn report_managed_dependency_versions(findings: &[String]) {
+    // Informational only, and deliberately outside every exit-code gate below: alef owning
+    // these versions is the designed steady state, not drift, and there is no rerun that
+    // "fixes" it. It prints on every run including a clean one because the loss it warns
+    // about is silent and delayed -- the consumer's upgrade succeeds, CI may go green, and
+    // the revert lands on whoever next runs `alef all`. This is also the ONLY surface for
+    // `DESCRIPTION`, which is Debian Control File format and carries no in-manifest notice
+    // (see `cli::pipeline::generate::write::marker_header_syntax`). ~keep
+    if findings.is_empty() {
+        return;
+    }
+    crate::bin_cli::output::line(MANAGED_DEPENDENCY_VERSIONS_HEADING);
+    for finding in findings {
+        crate::bin_cli::output::line(finding);
+    }
+}
+
 /// Report, and return, the required alef records git does not track.
 pub(super) fn report_untracked_records(base_dir: &std::path::Path) -> Vec<&'static str> {
     // The `verify` half of the escalation `cache::untracked_required_records`
@@ -158,5 +207,59 @@ pub(super) fn report_coverage(params: CoverageParams<'_>) {
     .report_lines()
     {
         crate::bin_cli::output::line(line);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::config::Language;
+
+    /// `DESCRIPTION` is Debian Control File format: `write::marker_header_syntax` deliberately
+    /// refuses to stamp it and the R renderer emits no comment notice into it, so this finding
+    /// is the only place a consumer is ever told alef owns the version in it.
+    #[test]
+    fn the_finding_covers_the_language_with_no_in_manifest_notice() {
+        let findings = super::managed_dependency_version_findings("sample-lib", &[Language::R]);
+
+        assert_eq!(findings.len(), 1, "R must produce exactly one line, got {findings:?}");
+        assert!(findings[0].contains("DESCRIPTION"), "got: {}", findings[0]);
+        assert!(
+            findings[0].contains("[crates.r.dependency_versions]"),
+            "got: {}",
+            findings[0]
+        );
+    }
+
+    /// One line per managed language and none for the rest: a finding for a language alef
+    /// carries no managed version in would point the reader at a table that rejects every key.
+    #[test]
+    fn only_languages_with_managed_versions_are_reported() {
+        let findings = super::managed_dependency_version_findings(
+            "sample-lib",
+            &[Language::Go, Language::Node, Language::Python, Language::Ruby],
+        );
+
+        assert_eq!(findings.len(), 2, "got {findings:?}");
+        assert!(findings.iter().any(|line| line.contains("pyproject.toml")));
+        assert!(findings.iter().any(|line| line.contains("gemspec")));
+        // Matched on the override table, not on the bare language name: `Cargo.toml` contains
+        // the substring `go`, so a naive name check passes for the wrong reason.
+        assert!(
+            !findings
+                .iter()
+                .any(|line| line.contains("crates.go.") || line.contains("crates.node.")),
+            "got {findings:?}"
+        );
+    }
+
+    /// The heading has to say it is informational, or a reader treats it as a failure and the
+    /// next person routes the whole report around it.
+    #[test]
+    fn the_heading_declares_itself_informational() {
+        assert!(
+            super::MANAGED_DEPENDENCY_VERSIONS_HEADING.contains("informational"),
+            "got: {}",
+            super::MANAGED_DEPENDENCY_VERSIONS_HEADING
+        );
     }
 }
