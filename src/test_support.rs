@@ -153,6 +153,22 @@ impl Drop for PathWithoutToolGuard {
     }
 }
 
+/// `Some(guard)` when `tool_name` is on `PATH`, holding [`PATH_LOCK`] for the caller's scope so
+/// a concurrent [`PathWithoutToolGuard`] cannot remove the tool between this check and the
+/// subprocess the caller is about to spawn; `None` (lock released) when the host does not have
+/// it and the caller should skip.
+///
+/// The check-then-use window this closes is real and was measured, not hypothesized:
+/// `bin_cli::helpers::format_drift::tests::is_silent_once_poly_fmt_converges_the_render_to_/// match_disk` failed with "poly not found on PATH" under `cargo test`'s default parallel
+/// scheduling, and passed under `--test-threads=1`, because a sibling test in the same module
+/// had hidden `poly` from `PATH` for the duration of a real end-to-end `alef all` run. A bare
+/// `is_tool_available(..)` early return is not enough on its own once any test in the binary
+/// mutates `PATH`. ~keep
+pub(crate) fn tool_available_with_stable_path(tool_name: &str) -> Option<MutexGuard<'static, ()>> {
+    let lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    crate::cli::pipeline::is_tool_available(tool_name).then_some(lock)
+}
+
 /// The single lock serializing every test in this crate that spawns a REAL `cargo` subprocess
 /// (`cargo fmt --all`, `cargo sort -n -w`, `cargo sort --check`, ...) outside of alef's own
 /// `ALEF_SKIP_COMMANDS` skip mechanism.

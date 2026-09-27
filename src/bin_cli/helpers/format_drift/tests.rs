@@ -82,9 +82,9 @@ fn is_a_trivial_no_op_on_an_empty_candidate_list() {
 /// assertion with no injectable seam underneath it.
 #[test]
 fn catches_a_toml_file_whose_rendered_value_genuinely_differs_from_disk() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let real_path = dir.path().join("pyproject.toml");
     std::fs::write(&real_path, "[project]\nname = \"old\"\n").unwrap();
@@ -115,9 +115,9 @@ fn catches_a_toml_file_whose_rendered_value_genuinely_differs_from_disk() {
 /// formatting opinion the host running the suite has installed.
 #[test]
 fn is_silent_once_poly_fmt_converges_the_render_to_match_disk() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let real_path = dir.path().join("pyproject.toml");
     let rendered = "[project]\nname=\"same\"\n";
@@ -159,9 +159,9 @@ fn format_once_for_test(content: &str, base_dir: &std::path::Path) -> String {
 /// read-only `alef verify` must not have.
 #[test]
 fn leaves_no_temp_file_behind_after_comparing() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let real_path = dir.path().join("pyproject.toml");
     std::fs::write(&real_path, "[project]\nname = \"old\"\n").unwrap();
@@ -185,54 +185,59 @@ fn leaves_no_temp_file_behind_after_comparing() {
     );
 }
 
-/// THE GATING LOGIC, and the asymmetry between the two predictable extensions is the whole
-/// point of the table below.
+/// THE GATING LOGIC: exactly two extensions are predictable, and neither of them depends on
+/// `poly` being installed -- the function takes no availability argument at all any more.
 ///
-/// `.rs` is gated on poly (alef#458): `alef all` writes Rust bindings before the scaffold stage
-/// emits the `rustfmt.toml` that governs their width, so only the later `poly fmt --fix` pass
-/// leaves the bytes this prediction assumes.
+/// `.rs` was gated on poly by alef#458 for a real cause that alef#465 removed: `alef all` used
+/// to write Rust bindings before the scaffold stage emitted the `rustfmt.toml` that governs
+/// them, so only the later `poly fmt --fix` pass left the bytes this prediction assumes. The
+/// pre-pass now writes that config ahead of the bindings stage, which
+/// [`rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`] measures end to end against
+/// a real `alef all` run with `poly` off `PATH`.
 ///
-/// `.md` is NOT gated (alef#469): nothing writes a markdown config late, so with poly absent the
-/// on-disk bytes are exactly what `normalize_content` produces and the prediction is byte-exact.
-/// alef#458 gated both extensions together on implementation symmetry rather than on a measured
-/// cause, which inverted `.md` -- it predicted where the prediction is approximate (poly present,
-/// rumdl having run, and alef modelling only its MD012 rule) and skipped where the prediction is
-/// perfect. That cost a real check: `drift_tests::drifted_marked_paths_reports_a_self_marking_\
-/// file_whose_body_no_longer_matches` went red on Windows CI, the one leg with no poly installed.
+/// `.md` was never gated (alef#469): nothing writes a markdown config late, so with poly absent
+/// the on-disk bytes are exactly what `normalize_content` produces and the prediction is
+/// byte-exact. alef#458 gated both extensions together on implementation symmetry rather than
+/// on a measured cause, which inverted `.md` -- it predicted where the prediction is
+/// approximate (poly present, rumdl having run, and alef modelling only its MD012 rule) and
+/// skipped where the prediction is perfect. That cost a real check:
+/// `drift_tests::drifted_marked_paths_reports_a_self_marking_file_whose_body_no_longer_matches`
+/// went red on Windows CI, the one leg with no poly installed.
 ///
-/// Pure and host-independent (no subprocess, no real `poly` binary), so every combination is
-/// provable on any machine regardless of what it has installed. ~keep
+/// Pure and host-independent (no subprocess, no real `poly` binary), so every case is provable
+/// on any machine regardless of what it has installed. ~keep
 #[test]
-fn render_predicts_final_bytes_gates_rust_on_poly_but_never_markdown() {
+fn render_predicts_final_bytes_clears_rust_and_markdown_and_nothing_else() {
     let cases = [
-        ("lib.rs", true, true),
-        ("reference.md", true, true),
-        ("pyproject.toml", true, false),
-        ("lib.rs", false, false),
-        ("reference.md", false, true),
-        ("pyproject.toml", false, false),
+        ("lib.rs", true),
+        ("reference.md", true),
+        ("pyproject.toml", false),
+        ("bindings.go", false),
+        ("noextension", false),
     ];
-    for (name, poly_available, expected) in cases {
+    for (name, expected) in cases {
         assert_eq!(
-            render_predicts_final_bytes(std::path::Path::new(name), poly_available),
+            render_predicts_final_bytes(std::path::Path::new(name)),
             expected,
-            "render_predicts_final_bytes({name:?}, poly_available={poly_available}) must be {expected}"
+            "render_predicts_final_bytes({name:?}) must be {expected}"
         );
     }
 }
 
-/// alef#458 END TO END, against [`drifted_marked_paths_with`]'s own injectable seam: with poly
-/// unavailable, an `.rs` candidate -- even one whose fresh render is byte-identical to disk --
-/// must be routed into the same counted-skip bucket every other extension already gets through
-/// [`real_formatter_drift`], never silently treated as "compared and clean". THE FALSE POSITIVE
-/// this closes (see the module doc) was the opposite failure mode -- a `.rs` file the fast path
-/// wrongly reported as drifted -- but the fix is the same gate, and this control proves the gate
-/// does not merely suppress that false positive by making the fast path never fire at all
-/// without also making the run honest about having skipped, not examined, the file. Drives
-/// `&|_| false` directly, so this is provable on a host that does, in fact, have `poly`
-/// installed. ~keep
+/// alef#465 END TO END, against [`drifted_marked_paths_with`]'s own injectable seam: with poly
+/// unavailable, an `.rs` candidate must still be COMPARED on the fast path, in both directions
+/// -- silent when it matches a fresh render, reported when it does not -- never routed into the
+/// counted-skip bucket. This is the repin of the alef#458 contract that asserted the exact
+/// opposite; the gate it pinned was suppressing this coverage on the one CI leg with no poly
+/// installed rather than avoiding a false positive, once alef#465 made the first write already
+/// rustfmt-formatted (measured by
+/// [`rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`]).
+///
+/// `FormatDriftStats` stays at its default in both halves on purpose: it counts only the
+/// real-formatter tier, and a fast-path file never reaches that tier. Drives `&|_| false`
+/// directly, so this is provable on a host that does, in fact, have `poly` installed. ~keep
 #[test]
-fn drifted_marked_paths_routes_an_rs_candidate_to_the_counted_skip_when_poly_is_unavailable() {
+fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_unavailable() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = crate::core::backend::GeneratedFile {
         path: std::path::PathBuf::from("lib.rs"),
@@ -241,23 +246,173 @@ fn drifted_marked_paths_routes_an_rs_candidate_to_the_counted_skip_when_poly_is_
     };
     let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path());
     std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
-    let files = vec![file];
 
-    let (drifted, stats) = drifted_marked_paths_with(&files, dir.path(), &|_tool| false);
+    let (drifted, stats) = drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &|_tool| false);
 
     assert!(
         drifted.is_empty(),
-        "an unprovable fast-path prediction must never manufacture a drift finding when poly is \
-         unavailable: {drifted:?}"
+        "an up-to-date .rs file must be compared and found clean without poly, not reported: {drifted:?}"
     );
     assert_eq!(
         stats,
-        FormatDriftStats {
-            compared: 0,
-            skipped_missing_formatter: 1,
-            skipped_staging_error: 0,
-        },
-        "the .rs candidate must be counted as a loud, explicit skip -- not silently dropped, and \
-         not folded into a clean-looking zero"
+        FormatDriftStats::default(),
+        "a fast-path file must never be counted as a real-formatter skip just because poly is absent"
     );
+
+    let changed = vec![crate::core::backend::GeneratedFile {
+        path: std::path::PathBuf::from("lib.rs"),
+        content: "pub fn greet() -> &'static str { \"new\" }\n".to_string(),
+        generated_header: true,
+    }];
+
+    let (drifted, stats) = drifted_marked_paths_with(&changed, dir.path(), &|_tool| false);
+
+    assert_eq!(
+        drifted,
+        vec![dir.path().join("lib.rs").display().to_string()],
+        "a genuinely stale .rs file must be REPORTED with poly absent -- this is the finding the \
+         alef#458 gate suppressed on the no-poly CI leg"
+    );
+    assert_eq!(stats, FormatDriftStats::default());
+}
+
+/// THE MEASUREMENT that licensed dropping the `poly_available` gate from
+/// [`render_predicts_final_bytes`]'s `.rs` arm (alef#465 vs alef#458), and the regression test
+/// that keeps that licence valid.
+///
+/// The gate existed because `alef all` wrote Rust bindings BEFORE the scaffold stage emitted
+/// `rustfmt.toml`, so on a first run the bindings landed unformatted while an in-memory
+/// re-render -- which resolves `rustfmt.toml` fresh -- predicted formatted bytes. With poly
+/// absent nothing repaired the disk copy, so the prediction was wrong and the fast path
+/// manufactured a false drift finding.
+///
+/// This drives a real, from-scratch first `alef all` (no committed `rustfmt.toml`) with `poly`
+/// made to look absent for the run's duration -- without that guard `alef all`'s own whole-tree
+/// `poly fmt --fix` pass would repair the bytes regardless of the write-time ordering, and this
+/// test would pass for the wrong reason -- and then asserts byte equality between every marked
+/// `.rs` file on disk and a fresh [`crate::cli::pipeline::normalize_content`] render of those
+/// same bytes. That render is the exact half of the fast-path prediction the gate distrusted,
+/// so equality is what makes the ungated `.rs` arm honest; should this ever go red, the gate
+/// has to come back rather than the assertion being relaxed.
+///
+/// `compared > 0` is asserted separately and deliberately: a run that generated no marked `.rs`
+/// file at all would satisfy every byte comparison vacuously and render identically to a real
+/// pass (the `prove-the-check-fired` rule). ~keep
+#[test]
+fn rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly() {
+    if !crate::cli::pipeline::is_tool_available("rustfmt") {
+        return;
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().canonicalize().unwrap_or_else(|_| temp.path().to_path_buf());
+    write_first_run_fixture(&root);
+    assert!(
+        !root.join("rustfmt.toml").exists(),
+        "fixture setup: this run must start with no committed rustfmt.toml, or it is not \
+         exercising a project's first `alef all` run at all"
+    );
+
+    let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
+    let _no_poly = crate::test_support::PathWithoutToolGuard::exclude("poly");
+    let _cwd = crate::test_support::CwdGuard::enter(&root);
+
+    let context = crate::bin_cli::dispatch::DispatchContext {
+        config_path: root.join("alef.toml"),
+        crate_filter: Vec::new(),
+    };
+    crate::bin_cli::all_commands::handle(first_run_all_command(), &context)
+        .expect("alef all must succeed against a plain python fixture");
+
+    let mut compared = 0usize;
+    let mut mismatches = Vec::new();
+    for entry in walkdir::WalkDir::new(&root).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+        let Ok(disk) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        if !crate::core::hash::content_has_alef_marker(&disk) {
+            continue;
+        }
+        compared += 1;
+        let rerendered = crate::cli::pipeline::normalize_content(&root, path, &disk);
+        if rerendered != disk {
+            mismatches.push(format!(
+                "{}\n--- on disk ---\n{}\n--- fresh render ---\n{}",
+                path.display(),
+                first_differing_lines(&disk, &rerendered),
+                first_differing_lines(&rerendered, &disk)
+            ));
+        }
+    }
+
+    assert!(
+        compared > 0,
+        "no marked .rs file was produced by this run, so every byte comparison above was \
+         vacuous -- this check examined nothing"
+    );
+    assert!(
+        mismatches.is_empty(),
+        "{compared} marked .rs file(s) compared; {} differ from a fresh in-memory render on a \
+         first run with no poly, so the .rs fast-path prediction is still unsound:\n{}",
+        mismatches.len(),
+        mismatches.join("\n\n")
+    );
+}
+
+/// First few lines of `left` from the point it stops matching `right`, for the diff excerpt the
+/// assertion above prints. Whole-file dumps of generated bindings are unreadable in test output.
+fn first_differing_lines(left: &str, right: &str) -> String {
+    let start = left
+        .lines()
+        .zip(right.lines())
+        .position(|(l, r)| l != r)
+        .unwrap_or_else(|| left.lines().count().min(right.lines().count()));
+    left.lines().skip(start).take(6).collect::<Vec<_>>().join("\n")
+}
+
+const FIRST_RUN_FIXTURE_SOURCE: &str = "pub fn compute_widget_totals(\n    \
+    alpha: String,\n    bravo: String,\n    charlie: String,\n    delta: String,\n    echo: String,\n    \
+    foxtrot: String,\n    golf: String,\n    hotel: String,\n    india: String,\n    juliett: String,\n\
+) -> String {\n    \
+    format!(\"{alpha}{bravo}{charlie}{delta}{echo}{foxtrot}{golf}{hotel}{india}{juliett}\")\n\
+}\n";
+
+const FIRST_RUN_FIXTURE_CARGO_TOML: &str = "[package]\nname = \"test-lib\"\nversion = \"0.1.0\"\nedition = \"2024\"\n";
+
+const FIRST_RUN_FIXTURE_ALEF_TOML: &str = r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+version_from = "Cargo.toml"
+
+[crates.python]
+module_name = "test_lib"
+
+[crates.python.stubs]
+output = "packages/python/test_lib"
+"#;
+
+fn write_first_run_fixture(root: &std::path::Path) {
+    std::fs::create_dir_all(root.join("src")).expect("create fixture src directory");
+    std::fs::write(root.join("src/lib.rs"), FIRST_RUN_FIXTURE_SOURCE).expect("write fixture source");
+    std::fs::write(root.join("Cargo.toml"), FIRST_RUN_FIXTURE_CARGO_TOML).expect("write fixture Cargo.toml");
+    std::fs::write(root.join("alef.toml"), FIRST_RUN_FIXTURE_ALEF_TOML).expect("write fixture alef.toml");
+}
+
+fn first_run_all_command() -> crate::bin_cli::args::Commands {
+    crate::bin_cli::args::Commands::All {
+        clean: false,
+        clobber_create_once_seeds: false,
+        strict: false,
+        skip_frb: false,
+        skip_snippet_validation: false,
+        skip_compile: true,
+    }
 }

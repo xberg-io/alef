@@ -34,17 +34,15 @@ fn gen_file_unheadered(rel: &str, content: &str) -> crate::core::backend::Genera
 /// `generated_header: true`-inserts-a-comment-header shape this test is about; the self-marking
 /// shape gets its own pair of tests below.
 ///
-/// Guarded on `poly` (alef#458): the fast path this test exercises now only fires when poly is
-/// available (see `render_predicts_final_bytes`'s doc); without poly this `.rs` candidate falls
-/// through to `real_formatter_drift_with` instead, which itself needs poly to compare anything and
-/// otherwise only counts a skip -- a different, already-covered mechanism
-/// (`format_drift::tests::skips_and_counts_every_candidate_when_poly_is_unavailable`), not a
-/// failure of the one this test is about. ~keep
+/// Deliberately UNGUARDED on `poly` (alef#465, repinning alef#458): the `.rs` fast path this
+/// test exercises no longer consults poly at all, because the pre-pass that writes
+/// `rustfmt.toml` ahead of the bindings stage makes the first on-disk write already
+/// rustfmt-formatted -- measured by
+/// `format_drift::tests::rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`. The old
+/// `is_tool_available("poly")` early return here meant this test proved nothing on the one CI
+/// leg with no poly installed; it is the coverage the gate was suppressing. ~keep
 #[test]
 fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
-        return;
-    }
     let dir = tempfile::tempdir().expect("tempdir");
     let old_file = gen_file("lib.rs", "pub fn greet() -> &'static str { \"old\" }\n");
     let old_rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&old_file), dir.path());
@@ -103,9 +101,9 @@ fn drifted_marked_paths_ignores_a_file_that_carries_no_marker_at_all() {
 /// unavailable`'s injectable seam instead.
 #[test]
 fn drifted_marked_paths_now_catches_a_toml_file_via_the_real_poly_fmt_pass() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
     std::fs::write(
@@ -138,9 +136,9 @@ fn drifted_marked_paths_now_catches_a_toml_file_via_the_real_poly_fmt_pass() {
 /// a byte-for-byte prediction instead of the real formatter.
 #[test]
 fn drifted_marked_paths_is_silent_once_a_toml_file_matches_the_real_formatters_output() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let header = crate::core::hash::header(crate::core::hash::CommentStyle::Hash);
     let rendered_raw = "[project]\nname=\"same\"\n";

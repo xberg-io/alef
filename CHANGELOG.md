@@ -103,6 +103,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole format rather than a re-wrap. The gate that doc justified is still correct for `.rs`; only
   the explanation was wrong.
 
+- **verify: `alef verify` silently skipped real Rust drift findings on any host without poly
+  (#465).** `render_predicts_final_bytes` gated the `.rs` fast path on poly being installed,
+  because `alef all` used to write Rust bindings before the `rustfmt.toml` governing them and the
+  on-disk bytes therefore landed unformatted while the in-memory re-render predicted formatted
+  ones. #465 fixed that ordering, so the gate stopped preventing a false positive and started
+  suppressing a true one: a genuinely stale `.rs` binding was routed to a counted skip instead of
+  being reported. The gate is gone and `poly` no longer participates in the `.rs`/`.md` fast path
+  at all. Measured before narrowing, not assumed -- on a real first-run `alef all` with `poly`
+  removed from `PATH`, the on-disk binding bytes are byte-identical to a fresh render, and all
+  three repinned tests fail on purpose against the old gate on that same poly-free `PATH`. One
+  pre-existing limitation is unchanged and now slightly wider: the `.rs` prediction's real
+  precondition is `rustfmt`, not `poly`, and neither gate ever checked for it.
+
 ### Changed
 
 - **Paid off 16 more entries from the quality-debt baseline (#338).** 1222 findings across 647

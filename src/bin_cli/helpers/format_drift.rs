@@ -21,35 +21,42 @@
 //! `POLY_ELIXIR_EXCLUDE_GLOBS`/`POLY_CSHARP_EXCLUDE_GLOBS`) degrades to a plain content
 //! comparison for free, because running `poly fmt --fix` on such a file is a no-op.
 //!
-//! # Why the `.rs` fast path requires poly, and `.md` must not (alef#458, alef#469)
+//! # Why neither the `.rs` nor the `.md` fast path needs poly (alef#458, alef#465, alef#469)
 //!
-//! For `.rs`, [`render_predicts_final_bytes`]'s prediction is only honest about what `alef all`
-//! leaves on disk when `poly fmt --fix` actually ran during that write -- "final" bytes means
-//! *post*-poly. `alef all` writes Rust binding sources (`all_commands.rs`'s bindings stage)
-//! BEFORE its scaffold stage emits `rustfmt.toml`. On a first run that file does not exist yet,
-//! and `format_rust_content` passes `--config-path <dir>` explicitly, which makes rustfmt exit 1
-//! rather than search upward:
+//! Neither extension's prediction is gated on `poly` being installed, but for two different
+//! reasons, and they have to be reasoned about separately: alef#458 gated both together on
+//! implementation symmetry rather than on a measured cause, and got both halves wrong in
+//! opposite directions.
+//!
+//! `.rs` WAS gated, for a real cause that no longer exists. `alef all` used to write Rust
+//! binding sources (`all_commands.rs`'s bindings stage) BEFORE its scaffold stage emitted
+//! `rustfmt.toml`, and `format_rust_content` passed `--config-path <dir>` unconditionally,
+//! which makes rustfmt exit 1 rather than search upward:
 //!
 //! ```text
 //! $ printf 'fn x(){let y=1;}\n' | rustfmt --edition 2024 --config-path /usr
 //! Error: unable to find a config file for the given path: `/usr`
 //! ```
 //!
-//! so the binding lands on disk completely UNFORMATTED and the later `poly fmt --fix` does the
-//! whole format, not a re-wrap. (An earlier revision of this doc said the first write landed at
-//! rustfmt's default `max_width` of 100. That mechanism does not exist -- measured above. The
-//! gate it justified is still right for `.rs`; only the explanation was wrong. alef#465 tracks
-//! fixing the ordering itself, after which this gate can go.) This fast path re-renders with
-//! `normalize_content`, which resolves `rustfmt.toml` fresh and so predicts formatted bytes
-//! regardless of whether poly ever ran, hence the gate.
+//! so on a first run the binding landed on disk completely UNFORMATTED while this fast path's
+//! re-render -- which resolves `rustfmt.toml` fresh -- predicted formatted bytes. Only the
+//! later `poly fmt --fix` repaired the disk copy, so with poly absent the prediction was wrong
+//! and the fast path manufactured a false drift finding. alef#465 fixed the ordering itself:
+//! [`crate::cli::pipeline::write_format_config_prepass`] writes `rustfmt.toml` ahead of the
+//! bindings stage, and `format_rust_content` now emits `--config-path` only when a config is
+//! actually found (rustfmt's own defaults otherwise, never a hard error), so the first write is
+//! already rustfmt-formatted and the re-render predicts it byte-exactly. Measured rather than
+//! assumed: `tests::rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly` drives a
+//! real from-scratch `alef all` with `poly` removed from `PATH` and asserts byte equality
+//! against a fresh `normalize_content` render. Keeping the gate past that fix suppressed real
+//! coverage on the one CI leg with no poly installed instead of avoiding a false positive. ~keep
 //!
-//! **`.md` is deliberately NOT gated.** Nothing writes a markdown config late, so with poly
+//! `.md` was never gated and must not be. Nothing writes a markdown config late, so with poly
 //! absent the on-disk bytes are exactly `normalize_content`'s own output and the prediction is
 //! byte-exact; with poly present it is the *approximate* one, since alef models only rumdl's
-//! MD012. alef#458 gated both extensions on implementation symmetry rather than on a measured
-//! cause, which inverted markdown -- predicting where the prediction is weakest and skipping
-//! where it is perfect. That suppressed a real finding on the one CI leg with no poly
-//! installed. Keep the two extensions reasoned about separately. ~keep
+//! MD012. alef#458's symmetry inverted markdown -- predicting where the prediction is weakest
+//! and skipping where it is perfect -- and that suppressed a real finding on the same no-poly
+//! CI leg. Keep the two extensions reasoned about separately. ~keep
 //!
 //! # Why the temp files live beside the real file, not in a scratch directory
 //!
@@ -110,13 +117,11 @@ pub(crate) struct FormatDriftStats {
 /// Gates the up-front "is poly even installed" decision through the injected `is_available`
 /// rather than reading PATH directly, so the skip-and-count branch is provable without
 /// depending on whether the host running the suite happens to have `poly` -- production calls
-/// (`drifted_marked_paths_with`) always pass [`crate::cli::pipeline::is_tool_available`], and
-/// share that same instance with the `.rs`/`.md` fast-path gate (alef#458) so the two tiers can
-/// never disagree about whether poly is present. There is deliberately no seam for the
-/// formatting pass itself once this gate passes -- emulating poly's own output is exactly the
-/// prediction this module exists to avoid, so the "poly ran and found real drift" branch is
-/// proven against the real binary instead, skipping itself when it is absent (see this module's
-/// own tests for that pattern). ~keep
+/// (`drifted_marked_paths_with`) always pass [`crate::cli::pipeline::is_tool_available`]. There
+/// is deliberately no seam for the formatting pass itself once this gate passes -- emulating
+/// poly's own output is exactly the prediction this module exists to avoid, so the "poly ran
+/// and found real drift" branch is proven against the real binary instead, skipping itself when
+/// it is absent (see this module's own tests for that pattern). ~keep
 fn real_formatter_drift_with(
     candidates: Vec<RealFormatCandidate>,
     base_dir: &Path,
@@ -287,18 +292,16 @@ pub(super) fn drifted_marked_paths(
     drifted_marked_paths_with(files, base_dir, &crate::cli::pipeline::is_tool_available)
 }
 
-/// Testable seam for [`drifted_marked_paths`]: gates the `.rs`/`.md` fast path's own
-/// precondition -- see [`render_predicts_final_bytes`]'s doc and the module doc's alef#458
-/// section -- through `is_available` instead of PATH, mirroring [`real_formatter_drift_with`]'s
-/// identical seam for the same reason. Threading the same `is_available` into both tiers keeps
-/// one call answering "is poly here" for the whole function, rather than the fast-path gate and
-/// [`real_formatter_drift_with`]'s own gate silently risking two different answers. ~keep
+/// Testable seam for [`drifted_marked_paths`]: resolves poly's availability through
+/// `is_available` rather than PATH, so [`real_formatter_drift_with`]'s counted-skip branch is
+/// provable on a host that does have poly installed. The `.rs`/`.md` fast path deliberately
+/// does NOT consult it -- see [`render_predicts_final_bytes`]'s doc and the module doc's
+/// alef#465 section for why that prediction stands on its own. ~keep
 fn drifted_marked_paths_with(
     files: &[crate::core::backend::GeneratedFile],
     base_dir: &Path,
     is_available: &dyn Fn(&str) -> bool,
 ) -> (Vec<String>, FormatDriftStats) {
-    let poly_available = is_available("poly");
     let mut drifted = Vec::new();
     let mut real_format_candidates = Vec::new();
     for file in files {
@@ -317,7 +320,7 @@ fn drifted_marked_paths_with(
         let Some(output) = rendered.into_iter().next() else {
             continue;
         };
-        if render_predicts_final_bytes(&full_path, poly_available) {
+        if render_predicts_final_bytes(&full_path) {
             let up_to_date = crate::cli::pipeline::matches_alef_output(&full_path, &existing, &output.content);
             if !up_to_date {
                 drifted.push(full_path.display().to_string());
@@ -342,18 +345,15 @@ fn drifted_marked_paths_with(
 /// see this module's own doc and [`drifted_marked_paths`]'s doc for the measured evidence that
 /// only these two extensions can be predicted honestly today.
 ///
-/// `poly_available` (alef#458): even for `.rs`/`.md`, the prediction is only honest when `poly
-/// fmt --fix` actually ran during the write it is predicting -- see the module doc's "Why the
-/// `.rs`/`.md` fast path also requires poly" section for the exact false-positive this closes.
-/// With poly unavailable this always returns `false`, so both extensions fall through to
-/// [`real_formatter_drift_with`] and are counted as a loud, explicit skip instead of a silently wrong
-/// prediction. ~keep
-fn render_predicts_final_bytes(path: &Path, poly_available: bool) -> bool {
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("rs") => poly_available,
-        Some("md") => true,
-        _ => false,
-    }
+/// Deliberately takes no `poly`-availability argument: both extensions predict the bytes their
+/// own write path leaves on disk without any post-write `poly fmt --fix` pass having to run --
+/// see the module doc's alef#458/#465/#469 section for the measured reason each one qualifies,
+/// and why the two reasons are not the same reason. ~keep
+fn render_predicts_final_bytes(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("rs" | "md")
+    )
 }
 
 /// Print `alef verify`'s formatted-output drift coverage line.
