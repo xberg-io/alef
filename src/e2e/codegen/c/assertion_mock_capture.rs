@@ -128,7 +128,26 @@ fn render_mock_capture_comparison(out: &mut String, assertion: &Assertion, field
 /// backend needs no equivalent because each already has a standard-library HTTP client
 /// (`java.net.http`, `HttpClient`, `net/http`, ...); C alone speaks the raw POSIX socket API,
 /// which lives behind headers this file does not otherwise include. ~keep
-const MOCK_HELPER_INCLUDES: &str = "#include <sys/socket.h>\n#include <netdb.h>\n#include <unistd.h>\n";
+///
+/// ~keep The `_WIN32` guard leads, before the first `#include`, and that order is the whole
+/// point: on Windows these three headers do not exist, so without the guard the build fails
+/// with a cascade of missing-header errors followed by every socket symbol being undeclared --
+/// a failure whose text names nothing that would lead a reader to the cause. The `#error` names
+/// the issue instead. It is deliberately not a Winsock implementation (alef issue #468): a
+/// `WSAStartup`/`SOCKET`/`closesocket` branch written without a Windows machine to compile it on
+/// would be unverified platform code presented as coverage, which is strictly worse than a
+/// legible refusal. Alef's own CI `test` matrix runs `windows-latest`, but it exercises the Rust
+/// generator, never a compiled generated C suite, so nothing here would have caught it.
+const MOCK_HELPER_INCLUDES: &str = concat!(
+    "#ifdef _WIN32\n",
+    "#error \"alef: the generated C mock.* request-count helper requires POSIX sockets and has no \
+Winsock port yet (alef issue #468). Remove mock.* assertions from this suite's fixtures, or run \
+the C e2e suite on Linux or macOS.\"\n",
+    "#endif\n",
+    "#include <sys/socket.h>\n",
+    "#include <netdb.h>\n",
+    "#include <unistd.h>\n",
+);
 
 /// Appends the once-per-suite mock-request-count helper -- and the socket headers it needs -- to
 /// `out` iff a fixture already rendered into it actually calls the helper. `includes_offset` is

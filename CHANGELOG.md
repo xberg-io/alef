@@ -30,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e: a generated C suite asserting on `mock.*` now fails legibly on Windows instead of
+  cascading (#468).** The helper #443 added for the C backend speaks raw POSIX sockets -- the
+  right call, since the generated C test project links no HTTP client and the mock endpoint
+  returns plain-text decimal precisely so C needs no JSON parser -- but `<sys/socket.h>`,
+  `<netdb.h>` and `<unistd.h>` do not exist on Windows, so the build died with a missing-header
+  cascade naming nothing that leads back to the cause. A `#ifdef _WIN32` / `#error` guard now
+  leads the injected include block and names the issue. It is deliberately not a Winsock port:
+  a `WSAStartup`/`SOCKET` branch written with no Windows machine to compile it on would be
+  unverified platform code counted as coverage. A test pins the guard *ahead of* the first POSIX
+  include and fails when the two are reordered.
+
 - **node/wasm: a `mock.*` assertion on a simple-result fixture rendered a skip instead of the
   helper call (#443).** The interception sat after the `result_is_simple` gate, so the field never
   reached it. Present since the reference wave; gleam had the same shape in its own pre-filter.

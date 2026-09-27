@@ -102,9 +102,16 @@ fn append_helper_if_referenced_inserts_includes_at_the_given_offset_and_appends_
     let includes_offset = "// includes go here\n".len();
     append_helper_if_referenced(&mut out, includes_offset);
     assert!(
-        out.starts_with("// includes go here\n#include <sys/socket.h>\n#include <netdb.h>\n#include <unistd.h>\n"),
-        "expected includes right after the marker, got:\n{out}"
+        out.starts_with("// includes go here\n#ifdef _WIN32\n"),
+        "expected the injected block right after the marker, got:\n{out}"
     );
+    for header in [
+        "#include <sys/socket.h>\n",
+        "#include <netdb.h>\n",
+        "#include <unistd.h>\n",
+    ] {
+        assert!(out.contains(header), "expected {header:?} injected, got:\n{out}");
+    }
     assert!(
         out.contains("static int alef_mock_request_count(const char *base_url, const char *path_and_query)"),
         "expected the helper definition appended, got:\n{out}"
@@ -119,4 +126,33 @@ fn append_helper_if_referenced_is_a_no_op_when_the_helper_is_never_called() {
     let original = out.clone();
     append_helper_if_referenced(&mut out, "// includes go here\n".len());
     assert_eq!(out, original, "a file with no mock.* call must be left untouched");
+}
+
+/// The Windows guard must PRECEDE the first POSIX include, or the preprocessor reaches
+/// `<sys/socket.h>` first and the build dies with a missing-header cascade that names nothing
+/// useful -- ordering is the entire value of the guard, so assert the offsets, not just presence
+/// (alef issue #468). ~keep
+#[test]
+fn the_windows_guard_precedes_every_posix_include_and_names_the_issue() {
+    let mut out = String::from("// includes go here\n// fixture body calling alef_mock_request_count(...)\n");
+    append_helper_if_referenced(&mut out, "// includes go here\n".len());
+
+    let guard = out.find("#ifdef _WIN32").expect("expected a _WIN32 guard, got:\n{out}");
+    let error_directive = out.find("#error").expect("expected an #error directive");
+    let endif = out.find("#endif").expect("expected the guard to be closed");
+    let first_posix_include = out
+        .find("#include <sys/socket.h>")
+        .expect("expected the socket include");
+
+    assert!(guard < error_directive, "the #error must sit inside the guard");
+    assert!(error_directive < endif, "the guard must close after the #error");
+    assert!(
+        endif < first_posix_include,
+        "the guard must close BEFORE the first POSIX include, otherwise the missing-header \
+         cascade fires first; got:\n{out}"
+    );
+    assert!(
+        out[error_directive..endif].contains("#468"),
+        "the #error must name alef issue #468 so the failure is traceable, got:\n{out}"
+    );
 }
