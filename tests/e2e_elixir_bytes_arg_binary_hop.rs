@@ -1,12 +1,26 @@
-//! Regression test for alef#308: the Elixir e2e generator must never hand a raw
-//! binary read from a fixture file (or decoded from base64) directly to a NIF
-//! argument, because that value later crosses a `Jason.encode!` hop (e.g. the
-//! `ExtractInput` struct's `bytes` field) and Jason blows up on the first
-//! non-UTF-8 byte with `Jason.EncodeError: invalid byte 0xC4`.
+//! Regression coverage for two related but distinct Elixir e2e bytes-marshalling
+//! defects that share this file because both were exercised by the same
+//! `try_push_bytes_value` / `render_struct_fields` code paths.
 //!
-//! The fix converts both the file-read and base64-decode paths to an
-//! integer-list shape (`:binary.bin_to_list(...)`), matching the shape the
-//! already-working inline `Vec<u8>` JSON-array path emits.
+//! alef#308: a `bytes` value nested in a struct field (e.g. an options struct's
+//! `content` field, reached via `render_struct_fields` / `docs_file_read.jinja`)
+//! later crosses a `Jason.encode!` hop, and Jason blows up on the first
+//! non-UTF-8 byte with `Jason.EncodeError: invalid byte 0xC4`. The fix there
+//! converts the struct-field path to an integer-list shape
+//! (`:binary.bin_to_list(...)`), matching the shape the already-working inline
+//! `Vec<u8>` JSON-array path emits. `docs_file_read_template_emits_integer_list_not_bare_binary`
+//! below pins that fix and must keep passing.
+//!
+//! alef#453: an `arg_type = "bytes"` argument passed *directly* to a free
+//! function (not nested in a struct) maps straight to a `rustler::Binary` NIF
+//! parameter and never crosses `Jason.encode!` on any facade shape (see
+//! `json_encode_param_indices` in `src/backends/rustler/gen_bindings/public_api_args.rs`,
+//! which never marks a bytes param). Rustler's `Binary` decoder does not accept
+//! an Elixir list, so the integer-list form that alef#308 needs for the
+//! struct-field path raises `ArgumentError` here instead. The fix makes
+//! `try_push_bytes_value` emit a raw binary (`File.read!`/`Base.decode64!`)
+//! for this direct-argument path. `bytes_arg_file_path_emits_raw_binary_not_integer_list`
+//! and `bytes_arg_base64_emits_raw_binary_not_integer_list` below pin that fix.
 
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
@@ -197,17 +211,15 @@ fn docs_file_read_template_emits_integer_list_not_bare_binary() {
     );
 }
 
-/// Covers the `test_documents`-prefixed branch in args.rs (~line 300), a
-/// forward-looking guard should a fixture ever route a `bytes` arg through a file
-/// path here - this branch produces zero call sites in xberg's generated e2e today;
-/// `docs_file_read_template_emits_integer_list_not_bare_binary` above covers the
-/// path that actually produces the reported `Jason.EncodeError`. ~keep
-///
-/// A `bytes` arg whose fixture value looks like a file path must be read as raw
-/// bytes and immediately converted to a byte-integer list, not left as a bare
-/// binary that later crashes `Jason.encode!` on non-UTF-8 content.
+/// Covers the `test_documents`-prefixed branch in args.rs (~line 500): a direct
+/// `arg_type = "bytes"` argument, as used by a free function taking a bytes
+/// parameter (e.g. `fn sample(data: &[u8])`), maps straight to a
+/// `rustler::Binary` NIF parameter and must receive a raw binary. alef#453:
+/// this branch previously emitted the byte-integer-list shape meant for the
+/// struct-field/`Jason.encode!` path (alef#308), and Rustler's `Binary`
+/// decoder rejects a list, raising `ArgumentError`.
 #[test]
-fn bytes_arg_file_path_emits_integer_list_not_bare_binary() {
+fn bytes_arg_file_path_emits_raw_binary_not_integer_list() {
     let args_toml = r#"
   { name = "data", field = "input.data", type = "bytes" }
 "#;
@@ -217,25 +229,22 @@ fn bytes_arg_file_path_emits_integer_list_not_bare_binary() {
     let body = generate_test_body(args_toml, input);
 
     assert!(
-        body.contains(r#"data = :binary.bin_to_list(File.read!("../../test_documents/docs/sample.bin"))"#),
-        "expected exact integer-list file read, got:\n{body}"
+        body.contains(r#"data = File.read!("../../test_documents/docs/sample.bin")"#),
+        "expected exact raw-binary file read, got:\n{body}"
     );
-    // No bare `File.read!(...)` assigned straight to a variable used as the NIF arg.
     assert!(
-        !body.contains("data = File.read!("),
-        "found a bare File.read! assignment that skips the byte-integer conversion:\n{body}"
+        !body.contains(":binary.bin_to_list"),
+        "found a byte-integer-list conversion on a direct bytes arg - Rustler's Binary decoder \
+         rejects a list and raises ArgumentError (alef#453):\n{body}"
     );
 }
 
-/// Covers the base64-decode branch in args.rs (~line 315) - speculative hardening,
-/// not a fix for an observed failure: this branch also produces zero call sites in
-/// xberg's generated e2e today. ~keep
-///
-/// A `bytes` arg whose fixture value is an inline base64 literal must also be
-/// converted to a byte-integer list after decoding - the decoded binary is just
-/// as capable of containing non-UTF-8 bytes as a file read is.
+/// Covers the base64-decode branch in args.rs (~line 518). Same reasoning as
+/// the file-path case above: a direct `bytes` argument is passed to the NIF
+/// as a raw binary, never JSON-encoded, so decoding straight to a binary
+/// (not an integer list) is required (alef#453).
 #[test]
-fn bytes_arg_base64_emits_integer_list_not_bare_binary() {
+fn bytes_arg_base64_emits_raw_binary_not_integer_list() {
     let args_toml = r#"
   { name = "data", field = "input.data", type = "bytes" }
 "#;
@@ -246,11 +255,12 @@ fn bytes_arg_base64_emits_integer_list_not_bare_binary() {
     let body = generate_test_body(args_toml, input);
 
     assert!(
-        body.contains(r#"data = :binary.bin_to_list(Base.decode64!("xyzAMQ", padding: false))"#),
-        "expected exact integer-list base64 decode, got:\n{body}"
+        body.contains(r#"data = Base.decode64!("xyzAMQ", padding: false)"#),
+        "expected exact raw-binary base64 decode, got:\n{body}"
     );
     assert!(
-        !body.contains("data = Base.decode64!("),
-        "found a bare Base.decode64! assignment that skips the byte-integer conversion:\n{body}"
+        !body.contains(":binary.bin_to_list"),
+        "found a byte-integer-list conversion on a direct bytes arg - Rustler's Binary decoder \
+         rejects a list and raises ArgumentError (alef#453):\n{body}"
     );
 }

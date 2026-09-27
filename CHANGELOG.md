@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/go` or `src/backends/csharp` ever routed through `public_type_name` for its own
   emitted code (they already called `go_type_name`/`csharp_type_name` directly), so this only
   corrects generated documentation, not any already-shipped generated binding.
+- **elixir: a `bytes` argument passed directly to a generated function is now a raw binary, and a
+  single trailing optional argument is now passed positionally (#453).** Two e2e-generator
+  mismatches against the rustler facade. `try_push_bytes_value` emitted
+  `:binary.bin_to_list(...)` for every `bytes` value, but that integer-list shape exists for the
+  *nested struct field* path (#308), which crosses a `Jason.encode!` hop; a direct `bytes`
+  argument maps to a `rustler::Binary` NIF parameter, is never JSON-encoded
+  (`json_encode_param_indices` never marks a bytes param), and Rustler's `Binary` decoder rejects
+  a list with `ArgumentError`. Separately, optional arguments were always emitted in keyword-opts
+  form, but the backend only declares that facade at `trailing_keyword_count >= 2`
+  (`public_api.rs`); below the threshold it declares fixed positional arity clauses, so a keyword
+  list handed to a positional parameter failed to decode. Both call sites now mirror the
+  backend's own threshold. The #308 struct-field path is unchanged and still emits an integer list.
+
 
 ## [0.98.0] - 2026-09-27
 

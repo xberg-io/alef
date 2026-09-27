@@ -443,9 +443,19 @@ fn push_present_value_arg(
     if arg.arg_type == "json_object" && !v.is_null() && try_push_json_object_value(arg, v, ctx, setup_lines, parts) {
         return;
     }
-    // Optional args use keyword-opts form: `name: value`.
+    // Optional args use keyword-opts form (`name: value`) only when the
+    // trailing-optional-count threshold says the generated wrapper actually
+    // declares a keyword-opts facade (see `use_keyword_form_for_optional_args`
+    // above). Below the threshold the wrapper declares fixed positional
+    // arity clauses instead, and a keyword list handed to a positional
+    // parameter fails to decode on the Rust side (alef#453).
     let elixir_val = json_to_elixir(v);
-    push_arg_value(&arg.name, elixir_val, arg.optional, parts);
+    push_arg_value(
+        &arg.name,
+        elixir_val,
+        ctx.use_keyword_form_for_optional_args && arg.optional,
+        parts,
+    );
 }
 
 fn try_push_file_path_value(
@@ -462,7 +472,12 @@ fn try_push_file_path_value(
     };
     let full_path = format!("{}/{path_str}", ctx.test_documents_path);
     let formatted = format!("\"{}\"", escape_elixir(&full_path));
-    push_arg_value(&arg.name, formatted, arg.optional, parts);
+    push_arg_value(
+        &arg.name,
+        formatted,
+        ctx.use_keyword_form_for_optional_args && arg.optional,
+        parts,
+    );
     true
 }
 
@@ -483,7 +498,12 @@ fn try_push_bytes_value(
     if raw.starts_with('<') || raw.starts_with('{') || raw.starts_with('[') || raw.contains(' ') {
         // Inline text - use as a binary string.
         let formatted = format!("\"{}\"", escape_elixir(raw));
-        push_arg_value(&arg.name, formatted, arg.optional, parts);
+        push_arg_value(
+            &arg.name,
+            formatted,
+            ctx.use_keyword_form_for_optional_args && arg.optional,
+            parts,
+        );
         return true;
     }
     let first = raw.chars().next().unwrap_or('\0');
@@ -492,28 +512,42 @@ fn try_push_bytes_value(
             .find('/')
             .is_some_and(|slash_pos| slash_pos > 0 && raw[slash_pos + 1..].contains('.'));
     if is_file_path {
-        // Looks like "dir/file.ext" - read from the
-        // configured test-documents directory. Convert to a byte-integer
-        // list, not a raw binary: the value later crosses a Jason.encode!
-        // hop (e.g. the ExtractInput struct's `bytes` field), and a
-        // binary containing non-UTF-8 bytes crashes that encode. An
-        // integer list matches the shape the already-working inline
-        // Vec<u8> array path emits (see the `element_type` array branch
-        // below), which the NIF already accepts. ~keep
+        // Looks like "dir/file.ext" - read from the configured
+        // test-documents directory. `arg_type = "bytes"` maps straight to a
+        // `rustler::Binary` NIF parameter (see `TypeRef::Bytes` in the
+        // rustler backend) and never crosses a `Jason.encode!` hop -
+        // `json_encode_param_indices` in `public_api_args.rs` never marks a
+        // bytes param, on either the positional or keyword-opts facade, so
+        // the raw binary from `File.read!` is exactly what the NIF expects.
+        // The byte-integer-list form belongs to the *nested struct field*
+        // path (`render_struct_fields` / `docs_file_read.jinja`, alef#308),
+        // which does cross `Jason.encode!` and is untouched by this
+        // function. Passing a list here instead of a binary raises
+        // `ArgumentError` in the NIF (alef#453). ~keep
         let full_path = format!("{}/{raw}", ctx.test_documents_path);
         let escaped = escape_elixir(&full_path);
-        setup_lines.push(format!("{var_name} = :binary.bin_to_list(File.read!(\"{escaped}\"))"));
-        push_arg_value(&arg.name, var_name.to_string(), arg.optional, parts);
+        setup_lines.push(format!("{var_name} = File.read!(\"{escaped}\")"));
+        push_arg_value(
+            &arg.name,
+            var_name.to_string(),
+            ctx.use_keyword_form_for_optional_args && arg.optional,
+            parts,
+        );
         return true;
     }
-    // Treat as base64-encoded binary. Decoding to a raw binary has the
-    // same non-UTF-8-crashes-Jason.encode! problem as the file-path
-    // case above, so convert to a byte-integer list too. ~keep
+    // Treat as base64-encoded binary. Same reasoning as the file-path case
+    // above: a direct `bytes` argument is passed to the NIF as a raw
+    // binary, never JSON-encoded, so decode straight to a binary. ~keep
     setup_lines.push(format!(
-        "{var_name} = :binary.bin_to_list(Base.decode64!(\"{}\", padding: false))",
+        "{var_name} = Base.decode64!(\"{}\", padding: false)",
         escape_elixir(raw)
     ));
-    push_arg_value(&arg.name, var_name.to_string(), arg.optional, parts);
+    push_arg_value(
+        &arg.name,
+        var_name.to_string(),
+        ctx.use_keyword_form_for_optional_args && arg.optional,
+        parts,
+    );
     true
 }
 
