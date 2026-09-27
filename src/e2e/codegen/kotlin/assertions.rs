@@ -9,6 +9,24 @@
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 
+/// Non-(out, assertion) inputs to [`render_assertion`], grouped to keep the function under
+/// poly's `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+#[cfg(test)]
+pub(super) struct RenderAssertionContext<'a> {
+    pub(super) result_var: &'a str,
+    pub(super) class_name: &'a str,
+    pub(super) field_resolver: &'a FieldResolver,
+    pub(super) result_is_simple: bool,
+    pub(super) result_is_option: bool,
+    pub(super) enum_fields: &'a std::collections::HashSet<String>,
+    pub(super) json_scalar_fields: &'a std::collections::HashSet<String>,
+    pub(super) fields_c_types: &'a std::collections::HashMap<String, String>,
+    pub(super) is_streaming: bool,
+    pub(super) kotlin_android_style: bool,
+    pub(super) not_error_may_assert_presence: bool,
+}
+
 /// [`render_assertion_with_streaming_context`] with no stream item type, so a `stream.has_*_event`
 /// predicate renders as a counted skip marker rather than a variant check. Every non-streaming
 /// call site (and every unit test below) keeps its existing signature through this.
@@ -17,25 +35,8 @@ use crate::e2e::fixture::Assertion;
 /// [`render_assertion_with_streaming_context`] directly, so this exists only to keep the unit
 /// tests' existing call shape. ~keep
 #[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-pub(super) fn render_assertion(
-    out: &mut String,
-    assertion: &Assertion,
-    result_var: &str,
-    class_name: &str,
-    field_resolver: &FieldResolver,
-    result_is_simple: bool,
-    result_is_option: bool,
-    enum_fields: &std::collections::HashSet<String>,
-    json_scalar_fields: &std::collections::HashSet<String>,
-    fields_c_types: &std::collections::HashMap<String, String>,
-    is_streaming: bool,
-    kotlin_android_style: bool,
-    not_error_may_assert_presence: bool,
-) {
-    render_assertion_with_streaming_context(
-        out,
-        assertion,
+pub(super) fn render_assertion(out: &mut String, assertion: &Assertion, context: RenderAssertionContext) {
+    let RenderAssertionContext {
         result_var,
         class_name,
         field_resolver,
@@ -45,33 +46,70 @@ pub(super) fn render_assertion(
         json_scalar_fields,
         fields_c_types,
         is_streaming,
-        None,
         kotlin_android_style,
         not_error_may_assert_presence,
+    } = context;
+    render_assertion_with_streaming_context(
+        out,
+        assertion,
+        RenderAssertionStreamingContext {
+            result_var,
+            class_name,
+            field_resolver,
+            result_is_simple,
+            result_is_option,
+            enum_fields,
+            json_scalar_fields,
+            fields_c_types,
+            is_streaming,
+            streaming_item_type: None,
+            kotlin_android_style,
+            not_error_may_assert_presence,
+        },
     );
+}
+
+/// Non-(out, assertion) inputs to [`render_assertion_with_streaming_context`], grouped to keep
+/// the function under poly's `too-many-parameters` limit. Field order matches the parameter
+/// order it replaces -- no behavior change.
+pub(super) struct RenderAssertionStreamingContext<'a> {
+    pub(super) result_var: &'a str,
+    pub(super) class_name: &'a str,
+    pub(super) field_resolver: &'a FieldResolver,
+    pub(super) result_is_simple: bool,
+    pub(super) result_is_option: bool,
+    pub(super) enum_fields: &'a std::collections::HashSet<String>,
+    pub(super) json_scalar_fields: &'a std::collections::HashSet<String>,
+    pub(super) fields_c_types: &'a std::collections::HashMap<String, String>,
+    pub(super) is_streaming: bool,
+    pub(super) streaming_item_type: Option<&'a str>,
+    pub(super) kotlin_android_style: bool,
+    pub(super) not_error_may_assert_presence: bool,
 }
 
 /// `streaming_item_type` is the unqualified name of the streaming event union (e.g. `CrawlEvent`),
 /// resolved by the caller from the call recipe or the matching streaming adapter. It is what lets
 /// `stream.has_page_event` and friends render a real `chunks.any { it is CrawlEvent.Page }` check
 /// instead of being skipped for want of a type name. ~keep
-#[allow(clippy::too_many_arguments)]
 pub(super) fn render_assertion_with_streaming_context(
     out: &mut String,
     assertion: &Assertion,
-    result_var: &str,
-    _class_name: &str,
-    field_resolver: &FieldResolver,
-    result_is_simple: bool,
-    result_is_option: bool,
-    enum_fields: &std::collections::HashSet<String>,
-    json_scalar_fields: &std::collections::HashSet<String>,
-    fields_c_types: &std::collections::HashMap<String, String>,
-    is_streaming: bool,
-    streaming_item_type: Option<&str>,
-    kotlin_android_style: bool,
-    not_error_may_assert_presence: bool,
+    context: RenderAssertionStreamingContext,
 ) {
+    let RenderAssertionStreamingContext {
+        result_var,
+        class_name: _class_name,
+        field_resolver,
+        result_is_simple,
+        result_is_option,
+        enum_fields,
+        json_scalar_fields,
+        fields_c_types,
+        is_streaming,
+        streaming_item_type,
+        kotlin_android_style,
+        not_error_may_assert_presence,
+    } = context;
     // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
     // server's own request log via the once-per-suite helper, never a struct field --
     // intercept before EVERY other branch below, including every field-shape gate
@@ -84,13 +122,15 @@ pub(super) fn render_assertion_with_streaming_context(
     if super::assertion_field_gates::try_render_field_shape_gates(
         out,
         assertion,
-        field_resolver,
-        result_var,
-        result_is_simple,
-        is_streaming,
-        streaming_item_type,
-        kotlin_android_style,
-        fields_c_types,
+        super::assertion_field_gates::FieldShapeGatesContext {
+            field_resolver,
+            result_var,
+            result_is_simple,
+            is_streaming,
+            streaming_item_type,
+            kotlin_android_style,
+            fields_c_types,
+        },
     ) {
         return;
     }
@@ -98,16 +138,18 @@ pub(super) fn render_assertion_with_streaming_context(
     super::assertion_scalar_dispatch::render_scalar_pipeline(
         out,
         assertion,
-        field_resolver,
-        result_var,
-        result_is_simple,
-        result_is_option,
-        enum_fields,
-        json_scalar_fields,
-        fields_c_types,
-        kotlin_android_style,
-        is_streaming,
-        not_error_may_assert_presence,
+        super::assertion_scalar_dispatch::ScalarPipelineContext {
+            field_resolver,
+            result_var,
+            result_is_simple,
+            result_is_option,
+            enum_fields,
+            json_scalar_fields,
+            fields_c_types,
+            kotlin_android_style,
+            is_streaming,
+            not_error_may_assert_presence,
+        },
     );
 }
 

@@ -10,11 +10,14 @@ use crate::backends::java::gen_bindings::helpers::{emit_javadoc, safe_java_metho
 use crate::backends::java::gen_bindings::marshal::{is_ffi_string_return, java_ffi_return_cast, java_ffi_return_expr};
 
 mod extended;
-use extended::{gen_static_factory_method, gen_streaming_helpers, gen_streaming_method, param_needs_null_check};
+use extended::{
+    StaticFactoryMethodParams, gen_static_factory_method, gen_streaming_helpers, gen_streaming_method,
+    param_needs_null_check,
+};
 mod instance;
 #[cfg(test)]
 mod optional_bytes_result_tests;
-use instance::gen_instance_method;
+use instance::{InstanceMethodParams, gen_instance_method};
 
 struct OpaqueClassMethods<'a> {
     streaming_adapters: Vec<&'a AdapterConfig>,
@@ -90,25 +93,29 @@ fn emit_opaque_class_methods(
     for method in &methods.instance_methods {
         gen_instance_method(
             body,
-            method,
-            naming.prefix,
-            naming.type_snake,
-            naming.main_class,
-            type_names.enum_names,
-            type_names.opaque_type_names,
-            type_names.to_json_type_names,
+            InstanceMethodParams {
+                method,
+                prefix: naming.prefix,
+                owner_snake: naming.type_snake,
+                main_class: naming.main_class,
+                enum_names: type_names.enum_names,
+                opaque_type_names: type_names.opaque_type_names,
+                to_json_type_names: type_names.to_json_type_names,
+            },
         );
     }
     for method in &methods.static_factory_methods {
         gen_static_factory_method(
             body,
-            method,
-            &typ.name,
-            naming.prefix,
-            naming.type_snake,
-            naming.main_class,
-            type_names.enum_names,
-            type_names.opaque_type_names,
+            StaticFactoryMethodParams {
+                method,
+                class_name: &typ.name,
+                prefix: naming.prefix,
+                owner_snake: naming.type_snake,
+                main_class: naming.main_class,
+                enum_names: type_names.enum_names,
+                opaque_type_names: type_names.opaque_type_names,
+            },
         );
     }
 }

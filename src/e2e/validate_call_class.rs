@@ -118,13 +118,15 @@ pub fn validate_call_class_overrides(
                 continue;
             };
             check_class_override(
-                &config_key,
-                lang,
-                naming_lang,
-                class_value,
-                config,
-                type_defs,
-                enums,
+                ClassOverrideCheckContext {
+                    config_key: &config_key,
+                    lang,
+                    naming_lang,
+                    class_value,
+                    config,
+                    type_defs,
+                    enums,
+                },
                 &mut errors,
             );
         }
@@ -132,17 +134,26 @@ pub fn validate_call_class_overrides(
     errors
 }
 
-#[allow(clippy::too_many_arguments)]
-fn check_class_override(
-    config_key: &str,
-    lang: &str,
+struct ClassOverrideCheckContext<'a> {
+    config_key: &'a str,
+    lang: &'a str,
     naming_lang: Language,
-    class_value: &str,
-    config: &ResolvedCrateConfig,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    errors: &mut Vec<ValidationError>,
-) {
+    class_value: &'a str,
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [TypeDef],
+    enums: &'a [EnumDef],
+}
+
+fn check_class_override(context: ClassOverrideCheckContext, errors: &mut Vec<ValidationError>) {
+    let ClassOverrideCheckContext {
+        config_key,
+        lang,
+        naming_lang,
+        class_value,
+        config,
+        type_defs,
+        enums,
+    } = context;
     let (candidates, facade_known) = emitted_class_names(lang, naming_lang, config, type_defs, enums);
     let simple_name = simple_class_name(class_value);
     if candidates.iter().any(|candidate| candidate == simple_name) {
@@ -758,13 +769,15 @@ lib_name = "widget"
         let mut errors = Vec::new();
 
         check_class_override(
-            "[e2e.call]",
-            "mystery_backend",
-            Language::Python,
-            "TotallyUnverifiable",
-            &config,
-            &type_defs,
-            &[],
+            ClassOverrideCheckContext {
+                config_key: "[e2e.call]",
+                lang: "mystery_backend",
+                naming_lang: Language::Python,
+                class_value: "TotallyUnverifiable",
+                config: &config,
+                type_defs: &type_defs,
+                enums: &[],
+            },
             &mut errors,
         );
 

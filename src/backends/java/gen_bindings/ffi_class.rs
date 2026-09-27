@@ -15,6 +15,7 @@ mod sync_functions;
 mod visitor_bridge;
 
 use conversion_internals::{BridgeParamContext, gen_convert_with_visitor_internal_method};
+use sync_functions::{SyncFunctionMethodParams, SyncFunctionMethodWithVisitorParams};
 use visitor_bridge::visitor_bridge_for_function;
 
 #[cfg(test)]
@@ -48,15 +49,17 @@ pub(crate) fn gen_sync_function_method(
 ) {
     sync_functions::gen_sync_function_method(
         out,
-        func,
-        prefix,
-        class_name,
-        opaque_types,
-        bridge_param_names,
-        bridge_type_aliases,
-        has_visitor_bridge,
-        clear_fn_handles,
-        capsule_types,
+        SyncFunctionMethodParams {
+            func,
+            prefix,
+            class_name,
+            opaque_types,
+            bridge_param_names,
+            bridge_type_aliases,
+            has_visitor_bridge,
+            clear_fn_handles,
+            capsule_types,
+        },
     );
 }
 
@@ -103,16 +106,18 @@ pub(crate) fn gen_main_class(
     for func in &api.functions {
         sync_functions::gen_sync_function_method_with_visitor(
             &mut body,
-            func,
-            prefix,
-            class_name,
-            &opaque_types,
-            bridge_param_names,
-            bridge_type_aliases,
-            has_visitor_bridge,
-            &clear_fn_handles,
-            visitor_bridge_for_function(func, config).as_ref(),
-            capsule_types,
+            SyncFunctionMethodWithVisitorParams {
+                func,
+                prefix,
+                class_name,
+                opaque_types: &opaque_types,
+                bridge_param_names,
+                bridge_type_aliases,
+                has_visitor_bridge,
+                clear_fn_handles: &clear_fn_handles,
+                visitor_bridge: visitor_bridge_for_function(func, config).as_ref(),
+                capsule_types,
+            },
         );
         body.push('\n');
 

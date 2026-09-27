@@ -29,16 +29,27 @@ struct SyncInvocation<'a> {
     is_clear_fn: bool,
 }
 
+struct SyncInvocationParams<'a> {
+    func: &'a FunctionDef,
+    prefix: &'a str,
+    class_name: &'a str,
+    opaque_types: &'a AHashSet<String>,
+    bridge_param_names: &'a HashSet<String>,
+    bridge_type_aliases: &'a HashSet<String>,
+    clear_fn_handles: &'a AHashMap<String, String>,
+}
+
 impl<'a> SyncInvocation<'a> {
-    fn new(
-        func: &'a FunctionDef,
-        prefix: &'a str,
-        class_name: &'a str,
-        opaque_types: &'a AHashSet<String>,
-        bridge_param_names: &HashSet<String>,
-        bridge_type_aliases: &HashSet<String>,
-        clear_fn_handles: &AHashMap<String, String>,
-    ) -> Self {
+    fn new(params: SyncInvocationParams<'a>) -> Self {
+        let SyncInvocationParams {
+            func,
+            prefix,
+            class_name,
+            opaque_types,
+            bridge_param_names,
+            bridge_type_aliases,
+            clear_fn_handles,
+        } = params;
         let (is_optional_return, dispatch_return_type) = match &func.return_type {
             TypeRef::Optional(inner) => (true, (**inner).clone()),
             other => (false, other.clone()),
@@ -195,22 +206,21 @@ fn ffi_handle(func: &FunctionDef, prefix: &str, clear_fn_handles: &AHashMap<Stri
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(super) struct SyncFunctionMethodParams<'a> {
+    pub(super) func: &'a FunctionDef,
+    pub(super) prefix: &'a str,
+    pub(super) class_name: &'a str,
+    pub(super) opaque_types: &'a AHashSet<String>,
+    pub(super) bridge_param_names: &'a HashSet<String>,
+    pub(super) bridge_type_aliases: &'a HashSet<String>,
+    pub(super) has_visitor_bridge: bool,
+    pub(super) clear_fn_handles: &'a AHashMap<String, String>,
+    pub(super) capsule_types: &'a HashMap<String, HostCapsuleTypeConfig>,
+}
+
 #[allow(dead_code)]
-pub(super) fn gen_sync_function_method(
-    out: &mut String,
-    func: &FunctionDef,
-    prefix: &str,
-    class_name: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
-    clear_fn_handles: &AHashMap<String, String>,
-    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
-) {
-    gen_sync_function_method_with_visitor(
-        out,
+pub(super) fn gen_sync_function_method(out: &mut String, params: SyncFunctionMethodParams<'_>) {
+    let SyncFunctionMethodParams {
         func,
         prefix,
         class_name,
@@ -219,40 +229,40 @@ pub(super) fn gen_sync_function_method(
         bridge_type_aliases,
         has_visitor_bridge,
         clear_fn_handles,
-        None,
         capsule_types,
-    );
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_sync_function_method_with_visitor(
-    out: &mut String,
-    func: &FunctionDef,
-    prefix: &str,
-    class_name: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
-    has_visitor_bridge: bool,
-    clear_fn_handles: &AHashMap<String, String>,
-    visitor_bridge: Option<&VisitorFunctionBridge>,
-    capsule_types: &HashMap<String, HostCapsuleTypeConfig>,
-) {
-    if let Some(capsule_config) = capsule_return_config(func, capsule_types) {
-        return gen_capsule_function_method(
-            out,
+    } = params;
+    gen_sync_function_method_with_visitor(
+        out,
+        SyncFunctionMethodWithVisitorParams {
             func,
             prefix,
             class_name,
             opaque_types,
             bridge_param_names,
             bridge_type_aliases,
-            capsule_config,
-        );
-    }
+            has_visitor_bridge,
+            clear_fn_handles,
+            visitor_bridge: None,
+            capsule_types,
+        },
+    );
+}
 
-    emit_regular_sync_method(
-        out,
+pub(super) struct SyncFunctionMethodWithVisitorParams<'a> {
+    pub(super) func: &'a FunctionDef,
+    pub(super) prefix: &'a str,
+    pub(super) class_name: &'a str,
+    pub(super) opaque_types: &'a AHashSet<String>,
+    pub(super) bridge_param_names: &'a HashSet<String>,
+    pub(super) bridge_type_aliases: &'a HashSet<String>,
+    pub(super) has_visitor_bridge: bool,
+    pub(super) clear_fn_handles: &'a AHashMap<String, String>,
+    pub(super) visitor_bridge: Option<&'a VisitorFunctionBridge>,
+    pub(super) capsule_types: &'a HashMap<String, HostCapsuleTypeConfig>,
+}
+
+pub(super) fn gen_sync_function_method_with_visitor(out: &mut String, params: SyncFunctionMethodWithVisitorParams<'_>) {
+    let SyncFunctionMethodWithVisitorParams {
         func,
         prefix,
         class_name,
@@ -262,22 +272,64 @@ pub(super) fn gen_sync_function_method_with_visitor(
         has_visitor_bridge,
         clear_fn_handles,
         visitor_bridge,
+        capsule_types,
+    } = params;
+
+    if let Some(capsule_config) = capsule_return_config(func, capsule_types) {
+        return gen_capsule_function_method(
+            out,
+            CapsuleFunctionMethodParams {
+                func,
+                prefix,
+                class_name,
+                opaque_types,
+                bridge_param_names,
+                bridge_type_aliases,
+                config: capsule_config,
+            },
+        );
+    }
+
+    emit_regular_sync_method(
+        out,
+        RegularSyncMethodParams {
+            func,
+            prefix,
+            class_name,
+            opaque_types,
+            bridge_param_names,
+            bridge_type_aliases,
+            has_visitor_bridge,
+            clear_fn_handles,
+            visitor_bridge,
+        },
     );
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_regular_sync_method(
-    out: &mut String,
-    func: &FunctionDef,
-    prefix: &str,
-    class_name: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
+struct RegularSyncMethodParams<'a> {
+    func: &'a FunctionDef,
+    prefix: &'a str,
+    class_name: &'a str,
+    opaque_types: &'a AHashSet<String>,
+    bridge_param_names: &'a HashSet<String>,
+    bridge_type_aliases: &'a HashSet<String>,
     has_visitor_bridge: bool,
-    clear_fn_handles: &AHashMap<String, String>,
-    visitor_bridge: Option<&VisitorFunctionBridge>,
-) {
+    clear_fn_handles: &'a AHashMap<String, String>,
+    visitor_bridge: Option<&'a VisitorFunctionBridge>,
+}
+
+fn emit_regular_sync_method(out: &mut String, params: RegularSyncMethodParams<'_>) {
+    let RegularSyncMethodParams {
+        func,
+        prefix,
+        class_name,
+        opaque_types,
+        bridge_param_names,
+        bridge_type_aliases,
+        has_visitor_bridge,
+        clear_fn_handles,
+        visitor_bridge,
+    } = params;
     // A `&mut T` DTO parameter on a unit-returning function cannot be bound as an owned
     // by-value parameter returning void: see `emit_writeback_return`'s doc comment (issue
     // #380). When this narrow shape applies, the method returns the updated `T` instead.
@@ -299,7 +351,7 @@ fn emit_regular_sync_method(
         emit_visitor_dispatch(out, func, bridge_param_names, bridge_type_aliases, visitor_bridge);
     }
     emit_try_and_marshalling(out, func, prefix, opaque_types, bridge_param_names, bridge_type_aliases);
-    let invocation = SyncInvocation::new(
+    let invocation = SyncInvocation::new(SyncInvocationParams {
         func,
         prefix,
         class_name,
@@ -307,7 +359,7 @@ fn emit_regular_sync_method(
         bridge_param_names,
         bridge_type_aliases,
         clear_fn_handles,
-    );
+    });
     if let Some(wb) = writeback {
         let handle_var = format!("c{}", to_java_name(&wb.name));
         let return_type_name = mut_writeback::writeback_type_name(wb).unwrap_or_default();
@@ -331,22 +383,31 @@ fn capsule_return_config<'a>(
     }
 }
 
+pub(super) struct CapsuleFunctionMethodParams<'a> {
+    pub(super) func: &'a FunctionDef,
+    pub(super) prefix: &'a str,
+    pub(super) class_name: &'a str,
+    pub(super) opaque_types: &'a AHashSet<String>,
+    pub(super) bridge_param_names: &'a HashSet<String>,
+    pub(super) bridge_type_aliases: &'a HashSet<String>,
+    pub(super) config: &'a HostCapsuleTypeConfig,
+}
+
 /// Generate a Java wrapper for a function returning a host-native capsule (Language) type.
 ///
 /// The exported C symbol returns the host runtime's raw grammar pointer.
 /// The wrapper converts parameters, calls the C function, and constructs the host `Language`
 /// from the raw pointer — never an opaque alef handle.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_capsule_function_method(
-    out: &mut String,
-    func: &FunctionDef,
-    prefix: &str,
-    class_name: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
-    config: &HostCapsuleTypeConfig,
-) {
+pub(super) fn gen_capsule_function_method(out: &mut String, params: CapsuleFunctionMethodParams<'_>) {
+    let CapsuleFunctionMethodParams {
+        func,
+        prefix,
+        class_name,
+        opaque_types,
+        bridge_param_names,
+        bridge_type_aliases,
+        config,
+    } = params;
     let Some(return_type) = required_capsule_return_type(out, config) else {
         return;
     };
@@ -480,13 +541,15 @@ mod capsule_tests {
         let mut out = String::new();
         gen_capsule_function_method(
             &mut out,
-            &func,
-            "tsp",
-            "LanguagePack",
-            &AHashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &cfg,
+            CapsuleFunctionMethodParams {
+                func: &func,
+                prefix: "tsp",
+                class_name: "LanguagePack",
+                opaque_types: &AHashSet::new(),
+                bridge_param_names: &HashSet::new(),
+                bridge_type_aliases: &HashSet::new(),
+                config: &cfg,
+            },
         );
         assert!(
             out.contains("io.github.example.jtreesitter.Language"),
@@ -505,13 +568,15 @@ mod capsule_tests {
         let mut out = String::new();
         gen_capsule_function_method(
             &mut out,
-            &func,
-            "tsp",
-            "LanguagePack",
-            &AHashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &cfg,
+            CapsuleFunctionMethodParams {
+                func: &func,
+                prefix: "tsp",
+                class_name: "LanguagePack",
+                opaque_types: &AHashSet::new(),
+                bridge_param_names: &HashSet::new(),
+                bridge_type_aliases: &HashSet::new(),
+                config: &cfg,
+            },
         );
         assert!(
             out.contains("ALEF ERROR"),
@@ -530,13 +595,15 @@ mod capsule_tests {
         let mut out = String::new();
         gen_capsule_function_method(
             &mut out,
-            &func,
-            "tsp",
-            "LanguagePack",
-            &AHashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &cfg,
+            CapsuleFunctionMethodParams {
+                func: &func,
+                prefix: "tsp",
+                class_name: "LanguagePack",
+                opaque_types: &AHashSet::new(),
+                bridge_param_names: &HashSet::new(),
+                bridge_type_aliases: &HashSet::new(),
+                config: &cfg,
+            },
         );
         assert!(
             out.contains("ALEF ERROR"),

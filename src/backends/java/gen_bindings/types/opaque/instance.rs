@@ -600,18 +600,27 @@ fn emit_instance_catch(out: &mut String, method: &MethodDef, symbols: &InstanceM
     ));
 }
 
+pub(super) struct InstanceMethodParams<'a> {
+    pub(super) method: &'a MethodDef,
+    pub(super) prefix: &'a str,
+    pub(super) owner_snake: &'a str,
+    pub(super) main_class: &'a str,
+    pub(super) enum_names: &'a AHashSet<String>,
+    pub(super) opaque_type_names: &'a AHashSet<String>,
+    pub(super) to_json_type_names: &'a AHashSet<String>,
+}
+
 /// Emit a non-streaming instance method on an opaque-handle owner.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_instance_method(
-    out: &mut String,
-    method: &MethodDef,
-    prefix: &str,
-    owner_snake: &str,
-    main_class: &str,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-    to_json_type_names: &AHashSet<String>,
-) {
+pub(super) fn gen_instance_method(out: &mut String, params: InstanceMethodParams) {
+    let InstanceMethodParams {
+        method,
+        prefix,
+        owner_snake,
+        main_class,
+        enum_names,
+        opaque_type_names,
+        to_json_type_names,
+    } = params;
     let symbols = instance_method_symbols(method, prefix, owner_snake, main_class);
     if !emit_instance_method_header(out, method, &symbols) {
         return;

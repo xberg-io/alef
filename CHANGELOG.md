@@ -60,6 +60,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole format rather than a re-wrap. The gate that doc justified is still correct for `.rs`; only
   the explanation was wrong.
 
+### Changed
+
+- **Paid off 16 more entries from the quality-debt baseline (#338).** 1222 findings across 647
+  files down to 1206 across 631 -- 29 individual `too-many-parameters` warnings, since several
+  files carried more than one over-long signature. Behaviour-preserving throughout: each offending
+  signature was bundled into a file-local params struct and destructured straight back to the
+  original local names, with no shared abstraction across backends that evolve independently.
+  Seven of the 23 candidate files were deliberately left alone rather than forced: four are
+  `E2eCodegen` trait methods whose params struct would have had to be threaded through ~24 backend
+  implementors, one has 19 call sites across unrelated backends, one's only external caller sits
+  in a file being changed concurrently, and `snippets/runner/batch.rs` carries an explicit
+  `#[expect(clippy::too_many_arguments, reason = ...)]` its author wrote on purpose. `poly.toml`'s
+  header was recomputed by parsing its own baseline block rather than hand-counting, and the two
+  now agree.
+
 ## [0.100.0] - 2026-09-27
 
 ### Added

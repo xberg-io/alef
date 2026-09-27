@@ -86,12 +86,14 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 });
             let meta = commands::release_metadata::compute(
                 &tag,
-                &targets,
-                git_ref.as_deref(),
-                &effective_event,
-                dry_run,
-                force_republish,
-                resolved_cfg_opt,
+                commands::release_metadata::ComputeReleaseMetadataInputs {
+                    targets_csv: &targets,
+                    git_ref: git_ref.as_deref(),
+                    event: &effective_event,
+                    dry_run,
+                    force_republish,
+                    config: resolved_cfg_opt,
+                },
             )?;
             crate::bin_cli::output::payload(meta.to_json()?);
             Ok(None)

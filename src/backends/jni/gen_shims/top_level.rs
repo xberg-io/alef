@@ -18,52 +18,78 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     let mut out = emit_jni_lib_header(&filtered_api, config, &package);
     emit_top_level_function_shims(
         &mut out,
-        &visible_functions,
-        config,
-        &package,
-        &bridge,
-        &opaque_types,
-        &capsule_types,
+        TopLevelFunctionShimsParams {
+            functions: &visible_functions,
+            config,
+            package: &package,
+            bridge: &bridge,
+            opaque_types: &opaque_types,
+            capsule_types: &capsule_types,
+        },
     );
     emit_jni_type_shims(
         &mut out,
-        &filtered_api,
-        config,
-        &excluded_functions,
-        &excluded_types,
-        &opaque_types,
-        &capsule_types,
-        &package,
-        &bridge,
+        JniTypeShimsParams {
+            api: &filtered_api,
+            config,
+            excluded_functions: &excluded_functions,
+            excluded_types: &excluded_types,
+            opaque_types: &opaque_types,
+            capsule_types: &capsule_types,
+            package: &package,
+            bridge: &bridge,
+        },
     );
     emit_trait_bridge_shims(&mut out, config, &filtered_api, &package, &bridge);
     out
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_jni_type_shims(
-    out: &mut String,
-    api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-    excluded_functions: &std::collections::HashSet<&str>,
-    excluded_types: &std::collections::HashSet<&str>,
-    opaque_types: &std::collections::HashSet<&str>,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
-    package: &str,
-    bridge: &str,
-) {
-    let client_types = jni_client_types(api, config, excluded_types);
-    emit_jni_client_type_shims(out, &client_types, api, config, package, bridge, excluded_functions);
-    emit_jni_value_type_shims(out, api, excluded_types, package, bridge);
-    emit_opaque_return_destructors(
-        out,
-        &client_types,
+struct JniTypeShimsParams<'a> {
+    api: &'a ApiSurface,
+    config: &'a ResolvedCrateConfig,
+    excluded_functions: &'a std::collections::HashSet<&'a str>,
+    excluded_types: &'a std::collections::HashSet<&'a str>,
+    opaque_types: &'a std::collections::HashSet<&'a str>,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+    package: &'a str,
+    bridge: &'a str,
+}
+
+fn emit_jni_type_shims(out: &mut String, params: JniTypeShimsParams) {
+    let JniTypeShimsParams {
         api,
         config,
+        excluded_functions,
+        excluded_types,
         opaque_types,
         capsule_types,
         package,
         bridge,
+    } = params;
+    let client_types = jni_client_types(api, config, excluded_types);
+    emit_jni_client_type_shims(
+        out,
+        JniClientTypeShimsParams {
+            client_types: &client_types,
+            api,
+            config,
+            package,
+            bridge,
+            excluded_functions,
+        },
+    );
+    emit_jni_value_type_shims(out, api, excluded_types, package, bridge);
+    emit_opaque_return_destructors(
+        out,
+        OpaqueReturnDestructorsParams {
+            client_types: &client_types,
+            api,
+            config,
+            opaque_types,
+            capsule_types,
+            package,
+            bridge,
+        },
     );
 }
 
@@ -233,16 +259,24 @@ pub(crate) fn jni_capsule_types(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_top_level_function_shims(
-    out: &mut String,
-    functions: &[crate::core::ir::FunctionDef],
-    config: &ResolvedCrateConfig,
-    package: &str,
-    bridge: &str,
-    opaque_types: &std::collections::HashSet<&str>,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
-) {
+struct TopLevelFunctionShimsParams<'a> {
+    functions: &'a [crate::core::ir::FunctionDef],
+    config: &'a ResolvedCrateConfig,
+    package: &'a str,
+    bridge: &'a str,
+    opaque_types: &'a std::collections::HashSet<&'a str>,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+}
+
+fn emit_top_level_function_shims(out: &mut String, params: TopLevelFunctionShimsParams) {
+    let TopLevelFunctionShimsParams {
+        functions,
+        config,
+        package,
+        bridge,
+        opaque_types,
+        capsule_types,
+    } = params;
     // The symbol is keyed by its resolved predicate because duplicate IR entries can represent the same re-export. ~keep
     let mut emitted_native_symbols: std::collections::HashSet<(String, Option<String>)> =
         std::collections::HashSet::new();
@@ -292,16 +326,24 @@ fn jni_client_types<'a>(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn emit_jni_client_type_shims(
-    out: &mut String,
-    client_types: &[&TypeDef],
-    api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-    package: &str,
-    bridge: &str,
-    excluded_functions: &std::collections::HashSet<&str>,
-) {
+struct JniClientTypeShimsParams<'a> {
+    client_types: &'a [&'a TypeDef],
+    api: &'a ApiSurface,
+    config: &'a ResolvedCrateConfig,
+    package: &'a str,
+    bridge: &'a str,
+    excluded_functions: &'a std::collections::HashSet<&'a str>,
+}
+
+fn emit_jni_client_type_shims(out: &mut String, params: JniClientTypeShimsParams) {
+    let JniClientTypeShimsParams {
+        client_types,
+        api,
+        config,
+        package,
+        bridge,
+        excluded_functions,
+    } = params;
     let opaque_types = jni_opaque_type_names(api);
     let context = ClientTypeShimContext {
         api,
@@ -334,6 +376,16 @@ fn emit_jni_value_type_shims(
     }
 }
 
+struct OpaqueReturnDestructorsParams<'a> {
+    client_types: &'a [&'a TypeDef],
+    api: &'a ApiSurface,
+    config: &'a ResolvedCrateConfig,
+    opaque_types: &'a std::collections::HashSet<&'a str>,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+    package: &'a str,
+    bridge: &'a str,
+}
+
 /// Destructor shims for opaque types that are reachable from Kotlin but never became a
 /// "client type" (`jni_client_types`, which already gets a destructor via
 /// [`emit_client_lifecycle_shims`]).
@@ -350,17 +402,16 @@ fn emit_jni_value_type_shims(
 /// "already has a destructor" -- it also covers streaming-adapter owners with no instance
 /// methods, which get their `nativeFree<Type>` from [`emit_client_lifecycle_shims`] instead --
 /// so nothing here ever emits a duplicate `#[no_mangle]` symbol. ~keep
-#[allow(clippy::too_many_arguments)]
-fn emit_opaque_return_destructors(
-    out: &mut String,
-    client_types: &[&TypeDef],
-    api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-    opaque_types: &std::collections::HashSet<&str>,
-    capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
-    package: &str,
-    bridge: &str,
-) {
+fn emit_opaque_return_destructors(out: &mut String, params: OpaqueReturnDestructorsParams) {
+    let OpaqueReturnDestructorsParams {
+        client_types,
+        api,
+        config,
+        opaque_types,
+        capsule_types,
+        package,
+        bridge,
+    } = params;
     let client_names = client_types.iter().map(|type_def| type_def.name.as_str()).collect();
     let visible_functions = crate::backends::kotlin::kotlin_visible_functions(api, config);
     let exclude_functions = crate::backends::kotlin::kotlin_exclude_functions(config);

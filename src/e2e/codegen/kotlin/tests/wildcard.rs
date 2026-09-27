@@ -1,6 +1,6 @@
 //! Kotlin bracket-wildcard assertion rendering tests, split out of `tests.rs`.
 
-use super::super::assertions::render_assertion;
+use super::super::assertions::{RenderAssertionContext, render_assertion};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 use std::collections::{HashMap, HashSet};
@@ -26,17 +26,19 @@ fn render_wildcard(field: &str, kotlin_android_style: bool) -> String {
     render_assertion(
         &mut out,
         &assertion,
-        "result",
-        "",
-        &wildcard_resolver(),
-        false,
-        false,
-        &HashSet::new(),
-        &HashSet::new(),
-        &HashMap::new(),
-        false,
-        kotlin_android_style,
-        true,
+        RenderAssertionContext {
+            result_var: "result",
+            class_name: "",
+            field_resolver: &wildcard_resolver(),
+            result_is_simple: false,
+            result_is_option: false,
+            enum_fields: &HashSet::new(),
+            json_scalar_fields: &HashSet::new(),
+            fields_c_types: &HashMap::new(),
+            is_streaming: false,
+            kotlin_android_style,
+            not_error_may_assert_presence: true,
+        },
     );
     out
 }

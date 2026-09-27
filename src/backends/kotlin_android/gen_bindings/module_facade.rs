@@ -48,14 +48,16 @@ pub(super) fn emit_module_kt(
         return;
     }
     facade_functions::emit_facade(
-        config,
-        kotlin_source_dir,
-        package,
+        facade_functions::FacadeParams {
+            config,
+            kotlin_source_dir,
+            package,
+            module_name: &module_name,
+            bridge_name: &bridge_name,
+            opaque_types: &opaque_type_names,
+            functions: &visible_functions,
+        },
         files,
-        &module_name,
-        &bridge_name,
-        &opaque_type_names,
-        &visible_functions,
     );
 }
 

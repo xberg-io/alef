@@ -59,13 +59,15 @@ fn capsule_method_emits_configured_host_type_and_construct_expr() {
     let mut out = String::new();
     gen_capsule_function_method(
         &mut out,
-        &func,
-        "tsp",
-        "LanguagePack",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        &cfg,
+        CapsuleFunctionMethodParams {
+            func: &func,
+            prefix: "tsp",
+            class_name: "LanguagePack",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            config: &cfg,
+        },
     );
     assert!(
         out.contains("io.github.example.jtreesitter.Language"),
@@ -90,13 +92,15 @@ fn capsule_method_registers_named_temporary_before_invocation() {
 
     gen_capsule_function_method(
         &mut out,
-        &func,
-        "tsp",
-        "LanguagePack",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        &cfg,
+        CapsuleFunctionMethodParams {
+            func: &func,
+            prefix: "tsp",
+            class_name: "LanguagePack",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            config: &cfg,
+        },
     );
 
     let registration = out
@@ -116,13 +120,15 @@ fn capsule_method_errors_when_host_type_empty() {
     let mut out = String::new();
     gen_capsule_function_method(
         &mut out,
-        &func,
-        "tsp",
-        "LanguagePack",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        &cfg,
+        CapsuleFunctionMethodParams {
+            func: &func,
+            prefix: "tsp",
+            class_name: "LanguagePack",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            config: &cfg,
+        },
     );
     assert!(
         out.contains("ALEF ERROR"),
@@ -141,13 +147,15 @@ fn capsule_method_errors_when_construct_expr_empty() {
     let mut out = String::new();
     gen_capsule_function_method(
         &mut out,
-        &func,
-        "tsp",
-        "LanguagePack",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        &cfg,
+        CapsuleFunctionMethodParams {
+            func: &func,
+            prefix: "tsp",
+            class_name: "LanguagePack",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            config: &cfg,
+        },
     );
     assert!(
         out.contains("ALEF ERROR"),
@@ -193,15 +201,17 @@ fn mut_dto_param_writes_back_the_mutated_value() {
     let mut out = String::new();
     gen_sync_function_method(
         &mut out,
-        &func,
-        "krz",
-        "SampleClient",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        false,
-        &AHashMap::new(),
-        &HashMap::new(),
+        SyncFunctionMethodParams {
+            func: &func,
+            prefix: "krz",
+            class_name: "SampleClient",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            has_visitor_bridge: false,
+            clear_fn_handles: &AHashMap::new(),
+            capsule_types: &HashMap::new(),
+        },
     );
 
     assert!(
@@ -267,15 +277,17 @@ fn immutable_dto_param_gets_no_writeback() {
     let mut out = String::new();
     gen_sync_function_method(
         &mut out,
-        &func,
-        "krz",
-        "SampleClient",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        false,
-        &AHashMap::new(),
-        &HashMap::new(),
+        SyncFunctionMethodParams {
+            func: &func,
+            prefix: "krz",
+            class_name: "SampleClient",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            has_visitor_bridge: false,
+            clear_fn_handles: &AHashMap::new(),
+            capsule_types: &HashMap::new(),
+        },
     );
 
     assert!(
@@ -302,15 +314,17 @@ fn owned_dto_param_is_unchanged() {
     let mut out = String::new();
     gen_sync_function_method(
         &mut out,
-        &func,
-        "krz",
-        "SampleClient",
-        &AHashSet::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        false,
-        &AHashMap::new(),
-        &HashMap::new(),
+        SyncFunctionMethodParams {
+            func: &func,
+            prefix: "krz",
+            class_name: "SampleClient",
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+            has_visitor_bridge: false,
+            clear_fn_handles: &AHashMap::new(),
+            capsule_types: &HashMap::new(),
+        },
     );
 
     assert!(

@@ -319,21 +319,35 @@ fn render_union_traversal_not_implemented_skip(out: &mut String, f: &str) {
     );
 }
 
+/// Inputs to [`resolve_kotlin_union_variant_binding`], grouped to keep the function under poly's
+/// `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+struct KotlinUnionVariantBindingInputs<'a> {
+    field_resolver: &'a FieldResolver,
+    prefix: &'a str,
+    variant_pascal: &'a str,
+    payload_field_name: &'a str,
+    payload_type: &'a str,
+    result_var: &'a str,
+    kotlin_android_style: bool,
+}
+
 /// Resolve the Kotlin-specific binding for a matched union variant: the `when` binding name, the
 /// container accessor to narrow, and the sealed-subclass property that carries the variant's
 /// payload (kotlin vs. kotlin_android accessor style differs; the payload property name is
 /// resolved from the IR via `kotlin_field_name_with_type`, the same helper the Kotlin binding
 /// backend itself uses to name it). Split out of `try_render_generic_union_assertion` to keep it
 /// under the file's function-length cap — verbatim extraction, no behavior change. ~keep
-fn resolve_kotlin_union_variant_binding(
-    field_resolver: &FieldResolver,
-    prefix: &str,
-    variant_pascal: &str,
-    payload_field_name: &str,
-    payload_type: &str,
-    result_var: &str,
-    kotlin_android_style: bool,
-) -> (String, String, String) {
+fn resolve_kotlin_union_variant_binding(inputs: KotlinUnionVariantBindingInputs) -> (String, String, String) {
+    let KotlinUnionVariantBindingInputs {
+        field_resolver,
+        prefix,
+        variant_pascal,
+        payload_field_name,
+        payload_type,
+        result_var,
+        kotlin_android_style,
+    } = inputs;
     let style = if kotlin_android_style {
         "kotlin_android"
     } else {
@@ -389,15 +403,16 @@ pub(super) fn try_render_generic_union_assertion(
     let payload_field_name = payload_field_name.to_string();
     let payload_type = payload_type.to_string();
 
-    let (variant_var, container, payload_field) = resolve_kotlin_union_variant_binding(
-        field_resolver,
-        &prefix,
-        &variant_pascal,
-        &payload_field_name,
-        &payload_type,
-        result_var,
-        kotlin_android_style,
-    );
+    let (variant_var, container, payload_field) =
+        resolve_kotlin_union_variant_binding(KotlinUnionVariantBindingInputs {
+            field_resolver,
+            prefix: &prefix,
+            variant_pascal: &variant_pascal,
+            payload_field_name: &payload_field_name,
+            payload_type: &payload_type,
+            result_var,
+            kotlin_android_style,
+        });
     let _ = writeln!(out, "        when (val {variant_var} = {container}) {{");
     let _ = writeln!(out, "            is {union_type}.{variant_pascal} -> {{");
     let field_is_collection =

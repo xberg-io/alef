@@ -33,17 +33,26 @@ struct FunctionProjection {
     emit_suspend_wrapper: bool,
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn emit_facade(
-    config: &ResolvedCrateConfig,
-    kotlin_source_dir: &Path,
-    package: &str,
-    files: &mut Vec<GeneratedFile>,
-    module_name: &str,
-    bridge_name: &str,
-    opaque_types: &HashSet<String>,
-    functions: &[&FunctionDef],
-) {
+pub(super) struct FacadeParams<'a> {
+    pub(super) config: &'a ResolvedCrateConfig,
+    pub(super) kotlin_source_dir: &'a Path,
+    pub(super) package: &'a str,
+    pub(super) module_name: &'a str,
+    pub(super) bridge_name: &'a str,
+    pub(super) opaque_types: &'a HashSet<String>,
+    pub(super) functions: &'a [&'a FunctionDef],
+}
+
+pub(super) fn emit_facade(params: FacadeParams, files: &mut Vec<GeneratedFile>) {
+    let FacadeParams {
+        config,
+        kotlin_source_dir,
+        package,
+        module_name,
+        bridge_name,
+        opaque_types,
+        functions,
+    } = params;
     let context = facade_context(config, bridge_name, opaque_types, functions);
     let imports = facade_imports(functions, &context);
     let mut body = template_env::render(

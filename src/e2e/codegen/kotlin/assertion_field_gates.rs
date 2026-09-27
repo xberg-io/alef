@@ -24,6 +24,19 @@ use crate::e2e::escape::escape_kotlin;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 
+/// Non-(out, assertion) inputs to [`try_render_field_shape_gates`], grouped to keep the function
+/// under poly's `too-many-parameters` limit. Field order matches the parameter order it
+/// replaces -- no behavior change.
+pub(super) struct FieldShapeGatesContext<'a> {
+    pub(super) field_resolver: &'a FieldResolver,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_simple: bool,
+    pub(super) is_streaming: bool,
+    pub(super) streaming_item_type: Option<&'a str>,
+    pub(super) kotlin_android_style: bool,
+    pub(super) fields_c_types: &'a std::collections::HashMap<String, String>,
+}
+
 /// Try every field-shape gate `render_assertion` consults, in order, before falling through to
 /// its generic scalar-assertion pipeline. Returns `true` (and has already written the full
 /// assertion) the moment one gate handles the fixture; `false` once every gate has declined,
@@ -32,18 +45,20 @@ use crate::e2e::fixture::Assertion;
 /// its own later, non-gate use -- the two never need to agree on anything but the same
 /// `kotlin_android_style` input, so recomputing it is simpler and safer than threading it
 /// through as a shared parameter. ~keep
-#[allow(clippy::too_many_arguments)]
 pub(super) fn try_render_field_shape_gates(
     out: &mut String,
     assertion: &Assertion,
-    field_resolver: &FieldResolver,
-    result_var: &str,
-    result_is_simple: bool,
-    is_streaming: bool,
-    streaming_item_type: Option<&str>,
-    kotlin_android_style: bool,
-    fields_c_types: &std::collections::HashMap<String, String>,
+    context: FieldShapeGatesContext,
 ) -> bool {
+    let FieldShapeGatesContext {
+        field_resolver,
+        result_var,
+        result_is_simple,
+        is_streaming,
+        streaming_item_type,
+        kotlin_android_style,
+        fields_c_types,
+    } = context;
     if try_render_streaming_usage_field_assertion(out, assertion, is_streaming, kotlin_android_style, fields_c_types) {
         return true;
     }

@@ -84,24 +84,35 @@ impl ReleaseMetadata {
     }
 }
 
+/// Inputs to [`compute`] beyond the release tag itself.
+pub struct ComputeReleaseMetadataInputs<'a> {
+    /// Comma-separated target list, or `"all"` / empty for everything.
+    pub targets_csv: &'a str,
+    /// Optional ref override (commit SHA, branch, or `refs/...`).
+    pub git_ref: Option<&'a str>,
+    /// GitHub event name (release / workflow_dispatch / repository_dispatch).
+    pub event: &'a str,
+    /// Workflow input.
+    pub dry_run: bool,
+    /// Workflow input.
+    pub force_republish: bool,
+    /// Optional `ResolvedCrateConfig`; when present, valid targets are expanded to
+    /// include languages present in `config.languages`.
+    pub config: Option<&'a ResolvedCrateConfig>,
+}
+
 /// Compute release metadata from inputs.
 ///
 /// - `tag` — release tag (must start with `v`).
-/// - `targets_csv` — comma-separated target list, or `"all"` / empty for everything.
-/// - `git_ref` — optional ref override (commit SHA, branch, or `refs/...`).
-/// - `event` — GitHub event name (release / workflow_dispatch / repository_dispatch).
-/// - `dry_run`, `force_republish` — workflow inputs.
-/// - `config` — optional `ResolvedCrateConfig`; when present, valid targets are expanded to
-///   include languages present in `config.languages`.
-pub fn compute(
-    tag: &str,
-    targets_csv: &str,
-    git_ref: Option<&str>,
-    event: &str,
-    dry_run: bool,
-    force_republish: bool,
-    config: Option<&ResolvedCrateConfig>,
-) -> Result<ReleaseMetadata> {
+pub fn compute(tag: &str, inputs: ComputeReleaseMetadataInputs) -> Result<ReleaseMetadata> {
+    let ComputeReleaseMetadataInputs {
+        targets_csv,
+        git_ref,
+        event,
+        dry_run,
+        force_republish,
+        config,
+    } = inputs;
     if !tag.starts_with('v') {
         anyhow::bail!("Tag must start with 'v' (got: {tag})");
     }
@@ -292,7 +303,18 @@ mod tests {
 
     #[test]
     fn compute_release_event_all_targets() {
-        let meta = compute("v4.1.0", "all", None, "release", false, false, None).unwrap();
+        let meta = compute(
+            "v4.1.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert_eq!(meta.tag, "v4.1.0");
         assert_eq!(meta.version, "4.1.0");
         assert_eq!(meta.npm_tag, "latest");
@@ -305,14 +327,36 @@ mod tests {
 
     #[test]
     fn compute_prerelease_tag() {
-        let meta = compute("v4.1.0-rc.1", "", None, "release", false, false, None).unwrap();
+        let meta = compute(
+            "v4.1.0-rc.1",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert!(meta.is_prerelease);
         assert_eq!(meta.npm_tag, "next");
     }
 
     #[test]
     fn compute_target_subset() {
-        let meta = compute("v4.0.0", "python,node", None, "workflow_dispatch", true, false, None).unwrap();
+        let meta = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "python,node",
+                git_ref: None,
+                event: "workflow_dispatch",
+                dry_run: true,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert!(meta.dry_run);
         assert!(meta.targets["python"]);
         assert!(meta.targets["node"]);
@@ -322,14 +366,36 @@ mod tests {
 
     #[test]
     fn compute_homebrew_implies_cli() {
-        let meta = compute("v4.0.0", "homebrew", None, "workflow_dispatch", false, false, None).unwrap();
+        let meta = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "homebrew",
+                git_ref: None,
+                event: "workflow_dispatch",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert!(meta.targets["homebrew"]);
         assert!(meta.targets["cli"]);
     }
 
     #[test]
     fn compute_scoop_implies_cli() {
-        let meta = compute("v4.0.0", "scoop", None, "workflow_dispatch", false, false, None).unwrap();
+        let meta = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "scoop",
+                git_ref: None,
+                event: "workflow_dispatch",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert!(meta.targets["scoop"]);
         assert!(meta.targets["cli"]);
     }
@@ -339,11 +405,33 @@ mod tests {
     /// Actions `if:` and would skip the job silently.
     #[test]
     fn json_output_has_release_scoop_both_ways() {
-        let enabled = compute("v1.0.0", "scoop", None, "release", false, false, None).unwrap();
+        let enabled = compute(
+            "v1.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "scoop",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         let val: serde_json::Value = serde_json::from_str(&enabled.to_json().unwrap()).unwrap();
         assert_eq!(val["release_scoop"], serde_json::json!(true));
 
-        let disabled = compute("v1.0.0", "python", None, "release", false, false, None).unwrap();
+        let disabled = compute(
+            "v1.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "python",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         let val: serde_json::Value = serde_json::from_str(&disabled.to_json().unwrap()).unwrap();
         assert_eq!(val["release_scoop"], serde_json::json!(false));
     }
@@ -351,7 +439,18 @@ mod tests {
     #[test]
     fn compute_ref_override_sha() {
         let sha = "a".repeat(40);
-        let meta = compute("v4.0.0", "all", Some(&sha), "workflow_dispatch", false, false, None).unwrap();
+        let meta = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: Some(&sha),
+                event: "workflow_dispatch",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert_eq!(meta.checkout_ref, "refs/heads/main");
         assert_eq!(meta.target_sha, sha);
         assert_eq!(meta.matrix_ref, "main");
@@ -361,12 +460,14 @@ mod tests {
     fn compute_ref_override_branch() {
         let meta = compute(
             "v4.0.0",
-            "all",
-            Some("my-branch"),
-            "workflow_dispatch",
-            false,
-            false,
-            None,
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: Some("my-branch"),
+                event: "workflow_dispatch",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
         )
         .unwrap();
         assert_eq!(meta.checkout_ref, "refs/heads/my-branch");
@@ -375,13 +476,33 @@ mod tests {
 
     #[test]
     fn compute_invalid_tag_no_v_prefix() {
-        let result = compute("4.0.0", "all", None, "release", false, false, None);
+        let result = compute(
+            "4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn compute_unknown_target_errors() {
-        let result = compute("v4.0.0", "unknown-target", None, "release", false, false, None);
+        let result = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "unknown-target",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        );
         assert!(result.is_err());
     }
 
@@ -393,7 +514,17 @@ mod tests {
     #[test]
     fn compute_targets_of_only_separators_errors_instead_of_silently_releasing_nothing() {
         for csv in [",,,", ",", " , , ", ",,"] {
-            let result = compute("v4.0.0", csv, None, "release", false, false, None);
+            let result = compute(
+                "v4.0.0",
+                ComputeReleaseMetadataInputs {
+                    targets_csv: csv,
+                    git_ref: None,
+                    event: "release",
+                    dry_run: false,
+                    force_republish: false,
+                    config: None,
+                },
+            );
             assert!(
                 result.is_err(),
                 "'--targets {csv}' has no real target tokens and must not silently resolve to \
@@ -406,14 +537,36 @@ mod tests {
     /// `release_any: false` -- only a CSV with no real tokens at all is rejected.
     #[test]
     fn compute_targets_none_still_succeeds_with_release_any_false() {
-        let meta = compute("v4.0.0", "none", None, "release", false, false, None).unwrap();
+        let meta = compute(
+            "v4.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "none",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         assert!(!meta.release_any);
         assert_eq!(meta.release_targets, "none");
     }
 
     #[test]
     fn json_output_has_all_fields() {
-        let meta = compute("v1.0.0", "all", None, "release", false, false, None).unwrap();
+        let meta = compute(
+            "v1.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         let json_str = meta.to_json().unwrap();
         let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         assert!(val["release_python"].as_bool().unwrap());
@@ -441,7 +594,18 @@ mod tests {
 
     #[test]
     fn new_languages_emit_release_flags() {
-        let meta = compute("v1.0.0", "all", None, "release", false, false, None).unwrap();
+        let meta = compute(
+            "v1.0.0",
+            ComputeReleaseMetadataInputs {
+                targets_csv: "all",
+                git_ref: None,
+                event: "release",
+                dry_run: false,
+                force_republish: false,
+                config: None,
+            },
+        )
+        .unwrap();
         let json_str = meta.to_json().unwrap();
         let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
         for lang in ["dart", "swift", "gleam", "zig", "kotlin", "kotlin_android"] {
@@ -453,7 +617,18 @@ mod tests {
     #[test]
     fn new_languages_individually_selectable() {
         for lang in ["dart", "swift", "gleam", "zig", "kotlin", "kotlin-android"] {
-            let meta = compute("v1.0.0", lang, None, "workflow_dispatch", false, false, None).unwrap();
+            let meta = compute(
+                "v1.0.0",
+                ComputeReleaseMetadataInputs {
+                    targets_csv: lang,
+                    git_ref: None,
+                    event: "workflow_dispatch",
+                    dry_run: false,
+                    force_republish: false,
+                    config: None,
+                },
+            )
+            .unwrap();
             assert!(
                 meta.targets.get(lang).copied().unwrap_or(false),
                 "{lang} should be enabled when --targets {lang}"

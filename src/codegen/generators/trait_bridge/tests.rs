@@ -67,15 +67,24 @@ fn make_type_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDe
     }
 }
 
-fn make_method(
-    name: &str,
+struct MakeMethodOptions<'a> {
     params: Vec<ParamDef>,
     return_type: TypeRef,
     is_async: bool,
     has_default_impl: bool,
-    trait_source: Option<&str>,
-    error_type: Option<&str>,
-) -> MethodDef {
+    trait_source: Option<&'a str>,
+    error_type: Option<&'a str>,
+}
+
+fn make_method(name: &str, options: MakeMethodOptions) -> MethodDef {
+    let MakeMethodOptions {
+        params,
+        return_type,
+        is_async,
+        has_default_impl,
+        trait_source,
+        error_type,
+    } = options;
     MethodDef {
         name: name.to_string(),
         params,

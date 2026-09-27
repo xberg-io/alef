@@ -27,9 +27,39 @@ fn test_trait_path_replaces_hyphens() {
 #[test]
 fn test_required_methods_filters_no_default_impl() {
     let methods = vec![
-        make_method("process", vec![], TypeRef::String, false, false, None, None),
-        make_method("initialize", vec![], TypeRef::Unit, false, true, None, None),
-        make_method("detect", vec![], TypeRef::String, false, false, None, None),
+        make_method(
+            "process",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                has_default_impl: false,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
+        make_method(
+            "initialize",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                has_default_impl: true,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
+        make_method(
+            "detect",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                has_default_impl: false,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
     ];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -43,9 +73,39 @@ fn test_required_methods_filters_no_default_impl() {
 #[test]
 fn test_optional_methods_filters_has_default_impl() {
     let methods = vec![
-        make_method("process", vec![], TypeRef::String, false, false, None, None),
-        make_method("initialize", vec![], TypeRef::Unit, false, true, None, None),
-        make_method("shutdown", vec![], TypeRef::Unit, false, true, None, None),
+        make_method(
+            "process",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                has_default_impl: false,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
+        make_method(
+            "initialize",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                has_default_impl: true,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
+        make_method(
+            "shutdown",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                has_default_impl: true,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
     ];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -330,30 +390,36 @@ fn vtable_slot_names_follow_rust_declaration_order() {
         vec![
             make_method(
                 "process_image",
-                vec![],
-                TypeRef::String,
-                false,
-                false,
-                None,
-                Some("Error"),
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: Some("Error"),
+                },
             ),
             make_method(
                 "backend_type",
-                vec![],
-                TypeRef::Named("OcrBackendType".into()),
-                false,
-                false,
-                None,
-                None,
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::Named("OcrBackendType".into()),
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: None,
+                },
             ),
             make_method(
                 "supported_languages",
-                vec![],
-                TypeRef::Vec(Box::new(TypeRef::String)),
-                false,
-                false,
-                None,
-                None,
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: None,
+                },
             ),
         ],
     );
@@ -381,16 +447,38 @@ fn vtable_slot_names_omit_only_super_trait_and_skipped_methods() {
         "OcrBackend",
         "mylib::OcrBackend",
         vec![
-            make_method("name", vec![], TypeRef::String, false, false, Some("Plugin"), None),
-            make_method("probe", vec![], TypeRef::String, false, false, None, None),
+            make_method(
+                "name",
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: Some("Plugin"),
+                    error_type: None,
+                },
+            ),
+            make_method(
+                "probe",
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: None,
+                },
+            ),
             make_method(
                 "backend_type",
-                vec![],
-                TypeRef::Named("OcrBackendType".into()),
-                false,
-                false,
-                None,
-                None,
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::Named("OcrBackendType".into()),
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: None,
+                },
             ),
         ],
     );
@@ -409,12 +497,14 @@ fn own_vtable_methods_keeps_a_method_returning_any_named_type() {
         "mylib::PostProcessor",
         vec![make_method(
             "processing_stage",
-            vec![],
-            TypeRef::Named("ProcessingStage".into()),
-            false,
-            false,
-            None,
-            None,
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::Named("ProcessingStage".into()),
+                is_async: false,
+                has_default_impl: false,
+                trait_source: None,
+                error_type: None,
+            },
         )],
     );
 

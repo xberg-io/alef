@@ -13,25 +13,39 @@ use std::fmt::Write as FmtWrite;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::Assertion;
 
+/// Non-(out, assertion) inputs to [`render_scalar_pipeline`], grouped to keep the function under
+/// poly's `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+pub(super) struct ScalarPipelineContext<'a> {
+    pub(super) field_resolver: &'a FieldResolver,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_simple: bool,
+    pub(super) result_is_option: bool,
+    pub(super) enum_fields: &'a std::collections::HashSet<String>,
+    pub(super) json_scalar_fields: &'a std::collections::HashSet<String>,
+    pub(super) fields_c_types: &'a std::collections::HashMap<String, String>,
+    pub(super) kotlin_android_style: bool,
+    pub(super) is_streaming: bool,
+    pub(super) not_error_may_assert_presence: bool,
+}
+
 /// Compute the scalar-pipeline context (`assertion_scalar_context::compute_scalar_context`) and
 /// immediately dispatch it (`render_scalar_assertion`) -- the single call `render_assertion`
 /// makes once every field-shape gate has declined, so it stays under the file's
 /// function-length cap. Verbatim orchestration, no behavior change. ~keep
-#[allow(clippy::too_many_arguments)]
-pub(super) fn render_scalar_pipeline(
-    out: &mut String,
-    assertion: &Assertion,
-    field_resolver: &FieldResolver,
-    result_var: &str,
-    result_is_simple: bool,
-    result_is_option: bool,
-    enum_fields: &std::collections::HashSet<String>,
-    json_scalar_fields: &std::collections::HashSet<String>,
-    fields_c_types: &std::collections::HashMap<String, String>,
-    kotlin_android_style: bool,
-    is_streaming: bool,
-    not_error_may_assert_presence: bool,
-) {
+pub(super) fn render_scalar_pipeline(out: &mut String, assertion: &Assertion, context: ScalarPipelineContext) {
+    let ScalarPipelineContext {
+        field_resolver,
+        result_var,
+        result_is_simple,
+        result_is_option,
+        enum_fields,
+        json_scalar_fields,
+        fields_c_types,
+        kotlin_android_style,
+        is_streaming,
+        not_error_may_assert_presence,
+    } = context;
     let (
         field_expr,
         string_field_expr,
@@ -57,19 +71,21 @@ pub(super) fn render_scalar_pipeline(
     render_scalar_assertion(
         out,
         assertion,
-        &field_expr,
-        &string_field_expr,
-        &nonnull_field_expr,
-        &string_expr,
-        field_is_optional,
-        field_is_collection,
-        field_is_long,
-        result_var,
-        result_is_simple,
-        result_is_option,
-        kotlin_android_style,
-        is_streaming,
-        not_error_may_assert_presence,
+        ScalarAssertionContext {
+            field_expr: &field_expr,
+            string_field_expr: &string_field_expr,
+            nonnull_field_expr: &nonnull_field_expr,
+            string_expr: &string_expr,
+            field_is_optional,
+            field_is_collection,
+            field_is_long,
+            result_var,
+            result_is_simple,
+            result_is_option,
+            kotlin_android_style,
+            is_streaming,
+            not_error_may_assert_presence,
+        },
     );
 }
 
@@ -98,78 +114,112 @@ const VALUE_ASSERTION_TYPES: &[&str] = &[
     "matches_regex",
 ];
 
+/// Non-(out, assertion) inputs to [`render_scalar_assertion`], grouped to keep the function under
+/// poly's `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+pub(super) struct ScalarAssertionContext<'a> {
+    pub(super) field_expr: &'a str,
+    pub(super) string_field_expr: &'a str,
+    pub(super) nonnull_field_expr: &'a str,
+    pub(super) string_expr: &'a str,
+    pub(super) field_is_optional: bool,
+    pub(super) field_is_collection: bool,
+    pub(super) field_is_long: bool,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_simple: bool,
+    pub(super) result_is_option: bool,
+    pub(super) kotlin_android_style: bool,
+    pub(super) is_streaming: bool,
+    pub(super) not_error_may_assert_presence: bool,
+}
+
 /// Dispatch on assertion type once every field-shape gate has declined and the scalar-pipeline
 /// context (`field_expr` and its derived string/non-null/enum-aware variants, plus the
 /// `field_is_*` shape flags) has been computed. Split into `render_value_arm` and
 /// `render_presence_arm` to keep this dispatcher itself under the file's function-length cap --
 /// the split point is exactly where `render_assertion`'s original single `match` already read as
 /// two families of arms; no behavior change.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn render_scalar_assertion(
-    out: &mut String,
-    assertion: &Assertion,
-    field_expr: &str,
-    string_field_expr: &str,
-    nonnull_field_expr: &str,
-    string_expr: &str,
-    field_is_optional: bool,
-    field_is_collection: bool,
-    field_is_long: bool,
-    result_var: &str,
-    result_is_simple: bool,
-    result_is_option: bool,
-    kotlin_android_style: bool,
-    is_streaming: bool,
-    not_error_may_assert_presence: bool,
-) {
+pub(super) fn render_scalar_assertion(out: &mut String, assertion: &Assertion, context: ScalarAssertionContext) {
+    let ScalarAssertionContext {
+        field_expr,
+        string_field_expr,
+        nonnull_field_expr,
+        string_expr,
+        field_is_optional,
+        field_is_collection,
+        field_is_long,
+        result_var,
+        result_is_simple,
+        result_is_option,
+        kotlin_android_style,
+        is_streaming,
+        not_error_may_assert_presence,
+    } = context;
     if VALUE_ASSERTION_TYPES.contains(&assertion.assertion_type.as_str()) {
         render_value_arm(
             out,
             assertion,
-            field_expr,
-            string_field_expr,
-            nonnull_field_expr,
-            string_expr,
-            field_is_optional,
-            field_is_collection,
-            field_is_long,
-            result_var,
-            result_is_simple,
+            ValueArmContext {
+                field_expr,
+                string_field_expr,
+                nonnull_field_expr,
+                string_expr,
+                field_is_optional,
+                field_is_collection,
+                field_is_long,
+                result_var,
+                result_is_simple,
+            },
         );
     } else {
         render_presence_arm(
             out,
             assertion,
-            field_expr,
-            string_field_expr,
-            field_is_collection,
-            field_is_optional,
-            result_var,
-            result_is_option,
-            kotlin_android_style,
-            is_streaming,
-            not_error_may_assert_presence,
+            PresenceArmContext {
+                field_expr,
+                string_field_expr,
+                field_is_collection,
+                field_is_optional,
+                result_var,
+                result_is_option,
+                kotlin_android_style,
+                is_streaming,
+                not_error_may_assert_presence,
+            },
         );
     }
+}
+
+/// Non-(out, assertion) inputs to [`render_value_arm`], grouped to keep the function under poly's
+/// `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+pub(super) struct ValueArmContext<'a> {
+    pub(super) field_expr: &'a str,
+    pub(super) string_field_expr: &'a str,
+    pub(super) nonnull_field_expr: &'a str,
+    pub(super) string_expr: &'a str,
+    pub(super) field_is_optional: bool,
+    pub(super) field_is_collection: bool,
+    pub(super) field_is_long: bool,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_simple: bool,
 }
 
 /// The field-expression-only half of the original `match`: every arm whose rendering depends
 /// only on the already-computed `field_expr` variants, not on `result_is_option`/`is_streaming`/
 /// presence-template concerns. ~keep
-#[allow(clippy::too_many_arguments)]
-fn render_value_arm(
-    out: &mut String,
-    assertion: &Assertion,
-    field_expr: &str,
-    string_field_expr: &str,
-    nonnull_field_expr: &str,
-    string_expr: &str,
-    field_is_optional: bool,
-    field_is_collection: bool,
-    field_is_long: bool,
-    result_var: &str,
-    result_is_simple: bool,
-) {
+fn render_value_arm(out: &mut String, assertion: &Assertion, context: ValueArmContext) {
+    let ValueArmContext {
+        field_expr,
+        string_field_expr,
+        nonnull_field_expr,
+        string_expr,
+        field_is_optional,
+        field_is_collection,
+        field_is_long,
+        result_var,
+        result_is_simple,
+    } = context;
     match assertion.assertion_type.as_str() {
         "equals" => render_equals_arm(out, assertion, field_is_long, string_expr, nonnull_field_expr),
         "contains" => render_contains_arm(out, assertion, field_is_collection, string_expr),
@@ -219,23 +269,36 @@ fn render_value_arm(
     }
 }
 
+/// Non-(out, assertion) inputs to [`render_presence_arm`], grouped to keep the function under
+/// poly's `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+pub(super) struct PresenceArmContext<'a> {
+    pub(super) field_expr: &'a str,
+    pub(super) string_field_expr: &'a str,
+    pub(super) field_is_collection: bool,
+    pub(super) field_is_optional: bool,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_option: bool,
+    pub(super) kotlin_android_style: bool,
+    pub(super) is_streaming: bool,
+    pub(super) not_error_may_assert_presence: bool,
+}
+
 /// The presence/misc half of the original `match`: `not_empty`/`is_empty` (which need
 /// `result_is_option`/`kotlin_android_style` for their Optional-vs-nullable presence templates),
 /// `not_error`/`error`/`method_result`, and the final catch-all panic. ~keep
-#[allow(clippy::too_many_arguments)]
-fn render_presence_arm(
-    out: &mut String,
-    assertion: &Assertion,
-    field_expr: &str,
-    string_field_expr: &str,
-    field_is_collection: bool,
-    field_is_optional: bool,
-    result_var: &str,
-    result_is_option: bool,
-    kotlin_android_style: bool,
-    is_streaming: bool,
-    not_error_may_assert_presence: bool,
-) {
+fn render_presence_arm(out: &mut String, assertion: &Assertion, context: PresenceArmContext) {
+    let PresenceArmContext {
+        field_expr,
+        string_field_expr,
+        field_is_collection,
+        field_is_optional,
+        result_var,
+        result_is_option,
+        kotlin_android_style,
+        is_streaming,
+        not_error_may_assert_presence,
+    } = context;
     match assertion.assertion_type.as_str() {
         "not_empty" | "is_empty" => render_empty_presence_arm(
             out,

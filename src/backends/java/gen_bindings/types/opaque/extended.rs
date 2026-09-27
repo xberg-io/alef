@@ -269,15 +269,24 @@ fn emit_unsupported_factory_marshalling(
     None
 }
 
-fn emit_static_factory_return(
-    out: &mut String,
-    method: &MethodDef,
-    class_name: &str,
-    symbols: &StaticFactorySymbols,
+struct StaticFactoryReturnParams<'a> {
+    method: &'a MethodDef,
+    class_name: &'a str,
+    symbols: &'a StaticFactorySymbols,
     call_args: Vec<String>,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-) {
+    enum_names: &'a AHashSet<String>,
+    opaque_type_names: &'a AHashSet<String>,
+}
+
+fn emit_static_factory_return(out: &mut String, params: StaticFactoryReturnParams) {
+    let StaticFactoryReturnParams {
+        method,
+        class_name,
+        symbols,
+        call_args,
+        enum_names,
+        opaque_type_names,
+    } = params;
     let cleanup = render_java_resource_cleanup(
         method,
         &symbols.prefix_upper,
@@ -298,17 +307,26 @@ fn emit_static_factory_return(
     ));
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_static_factory_method(
-    out: &mut String,
-    method: &MethodDef,
-    class_name: &str,
-    prefix: &str,
-    owner_snake: &str,
-    main_class: &str,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-) {
+pub(super) struct StaticFactoryMethodParams<'a> {
+    pub(super) method: &'a MethodDef,
+    pub(super) class_name: &'a str,
+    pub(super) prefix: &'a str,
+    pub(super) owner_snake: &'a str,
+    pub(super) main_class: &'a str,
+    pub(super) enum_names: &'a AHashSet<String>,
+    pub(super) opaque_type_names: &'a AHashSet<String>,
+}
+
+pub(super) fn gen_static_factory_method(out: &mut String, params: StaticFactoryMethodParams) {
+    let StaticFactoryMethodParams {
+        method,
+        class_name,
+        prefix,
+        owner_snake,
+        main_class,
+        enum_names,
+        opaque_type_names,
+    } = params;
     let symbols = static_factory_symbols(method, prefix, owner_snake, main_class);
     if !emit_static_factory_header(out, method, class_name, &symbols) {
         return;
@@ -324,12 +342,14 @@ pub(super) fn gen_static_factory_method(
     };
     emit_static_factory_return(
         out,
-        method,
-        class_name,
-        &symbols,
-        call_args,
-        enum_names,
-        opaque_type_names,
+        StaticFactoryReturnParams {
+            method,
+            class_name,
+            symbols: &symbols,
+            call_args,
+            enum_names,
+            opaque_type_names,
+        },
     );
 }
 

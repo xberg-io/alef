@@ -82,12 +82,14 @@ pub fn package_node(
     let metadata = package_metadata(config);
     let pkg_json = generate_sub_package_json(
         &sub_pkg_name,
-        version,
-        &dest_bin_name,
-        pkg_os,
-        pkg_cpu,
-        pkg_libc,
-        &metadata,
+        SubPackageJsonOptions {
+            version,
+            bin_file: &dest_bin_name,
+            os: pkg_os,
+            cpu: pkg_cpu,
+            libc: pkg_libc,
+            metadata: &metadata,
+        },
     );
     fs::write(platform_dir.join("package.json"), pkg_json)?;
 
@@ -160,15 +162,24 @@ fn package_metadata(config: &ResolvedCrateConfig) -> PackageMetadata {
     }
 }
 
-fn generate_sub_package_json(
-    name: &str,
-    version: &str,
-    bin_file: &str,
-    os: &str,
-    cpu: &str,
-    libc: Option<&str>,
-    metadata: &PackageMetadata,
-) -> String {
+struct SubPackageJsonOptions<'a> {
+    version: &'a str,
+    bin_file: &'a str,
+    os: &'a str,
+    cpu: &'a str,
+    libc: Option<&'a str>,
+    metadata: &'a PackageMetadata,
+}
+
+fn generate_sub_package_json(name: &str, options: SubPackageJsonOptions) -> String {
+    let SubPackageJsonOptions {
+        version,
+        bin_file,
+        os,
+        cpu,
+        libc,
+        metadata,
+    } = options;
     let libc_field = if let Some(l) = libc {
         format!(",\n  \"libc\": [\"{l}\"]")
     } else {
@@ -298,14 +309,16 @@ package_name = "@myorg/my-lib"
     fn sub_package_json_has_required_fields() {
         let json = generate_sub_package_json(
             "@scope/foo-linux-x64-gnu",
-            "1.0.0",
-            "foo.linux-x64-gnu.node",
-            "linux",
-            "x64",
-            Some("glibc"),
-            &PackageMetadata {
-                license: Some("MIT".to_string()),
-                repository_url: Some("git+https://github.com/scope/foo.git".to_string()),
+            SubPackageJsonOptions {
+                version: "1.0.0",
+                bin_file: "foo.linux-x64-gnu.node",
+                os: "linux",
+                cpu: "x64",
+                libc: Some("glibc"),
+                metadata: &PackageMetadata {
+                    license: Some("MIT".to_string()),
+                    repository_url: Some("git+https://github.com/scope/foo.git".to_string()),
+                },
             },
         );
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();

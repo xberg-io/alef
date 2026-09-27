@@ -323,7 +323,7 @@ fn unit_function(name: &str, params: Vec<ParamDef>) -> FunctionDef {
     }
 }
 
-fn shim_context<'a>(
+struct ShimContextInputs<'a> {
     type_paths: &'a HashMap<String, String>,
     unit_enum_names: &'a HashSet<&'a str>,
     tagged_enum_names: &'a HashSet<&'a str>,
@@ -331,7 +331,18 @@ fn shim_context<'a>(
     handle_returned_types: &'a HashSet<String>,
     capsule_types: &'a HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     opaque_types: &'a ahash::AHashSet<String>,
-) -> FunctionShimContext<'a> {
+}
+
+fn shim_context(inputs: ShimContextInputs<'_>) -> FunctionShimContext<'_> {
+    let ShimContextInputs {
+        type_paths,
+        unit_enum_names,
+        tagged_enum_names,
+        no_serde_names,
+        handle_returned_types,
+        capsule_types,
+        opaque_types,
+    } = inputs;
     FunctionShimContext {
         source_crate: "sample_crawler",
         type_paths,
@@ -352,15 +363,15 @@ fn mut_dto_param_returns_the_mirror_and_hands_back_the_mutation() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
@@ -392,15 +403,15 @@ fn immutable_borrow_dto_param_is_not_rewritten_as_writeback() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
     assert!(
@@ -418,15 +429,15 @@ fn owned_dto_param_is_byte_for_byte_unchanged() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
     assert_eq!(
@@ -444,15 +455,15 @@ fn mut_opaque_param_is_not_treated_as_writeback() {
     let capsule_types = std::collections::HashMap::new();
     let mut opaque_types = ahash::AHashSet::default();
     opaque_types.insert("Engine".to_string());
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
     assert!(
@@ -476,15 +487,15 @@ fn two_mut_dto_params_are_rejected_naming_the_function() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let error = emit_function_shim(&f, &context).expect_err("two `&mut` DTO params must be rejected");
     let message = error.to_string();
@@ -503,15 +514,15 @@ fn mut_dto_param_plus_a_return_value_is_rejected_naming_the_function() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let error = emit_function_shim(&f, &context)
         .expect_err("a `&mut` DTO param on a function that also returns a value must be rejected");
@@ -541,15 +552,15 @@ fn fallible_function_returning_u64_bridges_through_json_not_a_bare_u64() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
@@ -582,15 +593,15 @@ fn fallible_function_returning_i64_bridges_through_json_not_a_bare_i64() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
@@ -618,15 +629,15 @@ fn infallible_function_returning_u64_keeps_native_type() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
@@ -656,15 +667,15 @@ fn async_shim_spawns_the_future_and_blocks_only_on_the_join_handle() {
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 
@@ -715,15 +726,15 @@ fn infallible_async_function_still_gets_forced_result_return_for_the_join_error(
     let handle_returned_types = HashSet::new();
     let capsule_types = std::collections::HashMap::new();
     let opaque_types = ahash::AHashSet::default();
-    let context = shim_context(
-        &type_paths,
-        &empty_str,
-        &empty_str,
-        &empty_str,
-        &handle_returned_types,
-        &capsule_types,
-        &opaque_types,
-    );
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
 
     let shim = emit_function_shim(&f, &context).expect("emit_function_shim");
 

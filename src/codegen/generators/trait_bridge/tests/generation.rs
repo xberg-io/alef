@@ -140,12 +140,14 @@ fn test_gen_bridge_trait_impl_includes_impl_header() {
 fn test_gen_bridge_trait_impl_includes_method_signatures() {
     let methods = vec![make_method(
         "process",
-        vec![],
-        TypeRef::String,
-        false,
-        false,
-        None,
-        None,
+        MakeMethodOptions {
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: None,
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -159,12 +161,14 @@ fn test_gen_bridge_trait_impl_includes_method_signatures() {
 fn test_gen_bridge_trait_impl_includes_method_body_from_generator() {
     let methods = vec![make_method(
         "process",
-        vec![],
-        TypeRef::String,
-        false,
-        false,
-        None,
-        None,
+        MakeMethodOptions {
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: None,
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -181,12 +185,14 @@ fn test_gen_bridge_trait_impl_includes_method_body_from_generator() {
 fn test_gen_bridge_trait_impl_async_method_uses_async_body() {
     let methods = vec![make_method(
         "process_async",
-        vec![],
-        TypeRef::String,
-        true,
-        false,
-        None,
-        None,
+        MakeMethodOptions {
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: true,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: None,
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -206,15 +212,27 @@ fn test_gen_bridge_trait_impl_async_method_uses_async_body() {
 #[test]
 fn test_gen_bridge_trait_impl_filters_trait_source_methods() {
     let methods = vec![
-        make_method("own_method", vec![], TypeRef::String, false, false, None, None),
+        make_method(
+            "own_method",
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                has_default_impl: false,
+                trait_source: None,
+                error_type: None,
+            },
+        ),
         make_method(
             "inherited_method",
-            vec![],
-            TypeRef::String,
-            false,
-            false,
-            Some("other_crate::OtherTrait"),
-            None,
+            MakeMethodOptions {
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                has_default_impl: false,
+                trait_source: Some("other_crate::OtherTrait"),
+                error_type: None,
+            },
         ),
     ];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
@@ -240,12 +258,14 @@ fn test_gen_bridge_trait_impl_method_with_params() {
     ];
     let methods = vec![make_method(
         "process",
-        params,
-        TypeRef::String,
-        false,
-        false,
-        None,
-        None,
+        MakeMethodOptions {
+            params,
+            return_type: TypeRef::String,
+            is_async: false,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: None,
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -260,12 +280,14 @@ fn test_gen_bridge_trait_impl_method_with_params() {
 fn test_gen_bridge_trait_impl_return_type_with_error() {
     let methods = vec![make_method(
         "process",
-        vec![],
-        TypeRef::String,
-        false,
-        false,
-        None,
-        Some("MyError"),
+        MakeMethodOptions {
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: Some("MyError"),
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -345,12 +367,14 @@ fn test_gen_bridge_all_includes_constructor() {
 fn test_gen_bridge_all_includes_trait_impl() {
     let methods = vec![make_method(
         "process",
-        vec![],
-        TypeRef::String,
-        false,
-        false,
-        None,
-        None,
+        MakeMethodOptions {
+            params: vec![],
+            return_type: TypeRef::String,
+            is_async: false,
+            has_default_impl: false,
+            trait_source: None,
+            error_type: None,
+        },
     )];
     let trait_def = make_type_def("OcrBackend", "mylib::OcrBackend", methods);
     let config = make_trait_bridge_config(None, None);
@@ -474,39 +498,47 @@ fn ocr_like_trait() -> TypeDef {
         vec![
             make_method(
                 "process_image",
-                vec![make_param("image_bytes", TypeRef::Bytes, true)],
-                TypeRef::Named("ExtractionResult".to_string()),
-                true,
-                false,
-                None,
-                Some("MyError"),
+                MakeMethodOptions {
+                    params: vec![make_param("image_bytes", TypeRef::Bytes, true)],
+                    return_type: TypeRef::Named("ExtractionResult".to_string()),
+                    is_async: true,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: Some("MyError"),
+                },
             ),
             make_method(
                 "supports_language",
-                vec![],
-                TypeRef::Primitive(PrimitiveType::Bool),
-                false,
-                false,
-                None,
-                None,
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: false,
+                    has_default_impl: false,
+                    trait_source: None,
+                    error_type: None,
+                },
             ),
             make_method(
                 "supports_table_detection",
-                vec![],
-                TypeRef::Primitive(PrimitiveType::Bool),
-                false,
-                true,
-                None,
-                None,
+                MakeMethodOptions {
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: false,
+                    has_default_impl: true,
+                    trait_source: None,
+                    error_type: None,
+                },
             ),
             make_method(
                 "process_document",
-                vec![make_param("path", TypeRef::Path, true)],
-                TypeRef::Named("ExtractionResult".to_string()),
-                true,
-                true,
-                None,
-                Some("MyError"),
+                MakeMethodOptions {
+                    params: vec![make_param("path", TypeRef::Path, true)],
+                    return_type: TypeRef::Named("ExtractionResult".to_string()),
+                    is_async: true,
+                    has_default_impl: true,
+                    trait_source: None,
+                    error_type: Some("MyError"),
+                },
             ),
         ],
     )

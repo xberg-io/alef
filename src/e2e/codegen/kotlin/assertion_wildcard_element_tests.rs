@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::assertions::render_assertion;
+use super::assertions::{RenderAssertionContext, render_assertion};
 use crate::e2e::codegen::wildcard_element_fixture::{
     WILDCARD_FIELD, assert_container_accessor_appears_once, assert_element_relative, contains_assertion,
     envelope_resolver, report_resolver,
@@ -29,17 +29,19 @@ fn render(resolver: &FieldResolver) -> String {
     render_assertion(
         &mut out,
         &contains_assertion(WILDCARD_FIELD),
-        "result",
-        "SampleTest",
-        resolver,
-        false,
-        false,
-        &HashSet::new(),
-        &HashSet::new(),
-        &HashMap::new(),
-        false,
-        false,
-        false,
+        RenderAssertionContext {
+            result_var: "result",
+            class_name: "SampleTest",
+            field_resolver: resolver,
+            result_is_simple: false,
+            result_is_option: false,
+            enum_fields: &HashSet::new(),
+            json_scalar_fields: &HashSet::new(),
+            fields_c_types: &HashMap::new(),
+            is_streaming: false,
+            kotlin_android_style: false,
+            not_error_may_assert_presence: false,
+        },
     );
     out
 }

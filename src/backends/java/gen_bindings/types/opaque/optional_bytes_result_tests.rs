@@ -26,13 +26,15 @@ fn render(return_type: TypeRef) -> String {
     let mut out = String::new();
     gen_instance_method(
         &mut out,
-        &bytes_method(return_type),
-        "sample",
-        "registry",
-        "SampleRs",
-        &AHashSet::new(),
-        &AHashSet::new(),
-        &AHashSet::new(),
+        InstanceMethodParams {
+            method: &bytes_method(return_type),
+            prefix: "sample",
+            owner_snake: "registry",
+            main_class: "SampleRs",
+            enum_names: &AHashSet::new(),
+            opaque_type_names: &AHashSet::new(),
+            to_json_type_names: &AHashSet::new(),
+        },
     );
     out
 }

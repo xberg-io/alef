@@ -18,15 +18,26 @@ use super::json_to_csharp;
 /// the payload value itself) and `render_discriminated_scalar_assertion` (the per-assertion-type
 /// match) to stay under the file's function-length cap. Every statement below is a verbatim
 /// extraction from the original single function; no behavior changed.
+pub(super) struct DiscriminatedUnionAssertionContext<'a> {
+    pub(super) variant_var: &'a str,
+    pub(super) inner_field: &'a str,
+    pub(super) field_is_collection: bool,
+    pub(super) _result_is_vec: bool,
+    pub(super) assert_enum_fields: &'a std::collections::HashMap<String, String>,
+}
+
 pub(super) fn render_discriminated_union_assertion(
     out: &mut String,
     assertion: &Assertion,
-    variant_var: &str,
-    inner_field: &str,
-    field_is_collection: bool,
-    _result_is_vec: bool,
-    assert_enum_fields: &std::collections::HashMap<String, String>,
+    context: DiscriminatedUnionAssertionContext,
 ) {
+    let DiscriminatedUnionAssertionContext {
+        variant_var,
+        inner_field,
+        field_is_collection,
+        _result_is_vec,
+        assert_enum_fields,
+    } = context;
     if inner_field.is_empty() {
         render_bare_variant_payload_assertion(out, assertion, variant_var, field_is_collection);
         return;
@@ -213,11 +224,13 @@ pub(super) fn try_render_generic_union_assertion(
     render_discriminated_union_assertion(
         out,
         assertion,
-        &variant_var,
-        &suffix,
-        field_is_collection,
-        false,
-        assert_enum_fields,
+        DiscriminatedUnionAssertionContext {
+            variant_var: &variant_var,
+            inner_field: &suffix,
+            field_is_collection,
+            _result_is_vec: false,
+            assert_enum_fields,
+        },
     );
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "        else");
@@ -389,11 +402,13 @@ mod tests {
         render_discriminated_union_assertion(
             &mut out,
             &assertion,
-            "webVariant",
-            "entries",
-            resolver().union_variant_field_is_collection("details", "web", "entries"),
-            false,
-            &std::collections::HashMap::new(),
+            DiscriminatedUnionAssertionContext {
+                variant_var: "webVariant",
+                inner_field: "entries",
+                field_is_collection: resolver().union_variant_field_is_collection("details", "web", "entries"),
+                _result_is_vec: false,
+                assert_enum_fields: &std::collections::HashMap::new(),
+            },
         );
 
         assert_eq!(
@@ -414,11 +429,13 @@ mod tests {
         render_discriminated_union_assertion(
             &mut out,
             &assertion,
-            "webVariant",
-            "label",
-            resolver().union_variant_field_is_collection("details", "web", "label"),
-            false,
-            &std::collections::HashMap::new(),
+            DiscriminatedUnionAssertionContext {
+                variant_var: "webVariant",
+                inner_field: "label",
+                field_is_collection: resolver().union_variant_field_is_collection("details", "web", "label"),
+                _result_is_vec: false,
+                assert_enum_fields: &std::collections::HashMap::new(),
+            },
         );
 
         assert_eq!(

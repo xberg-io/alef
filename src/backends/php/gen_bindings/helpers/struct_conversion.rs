@@ -129,12 +129,14 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
         } else {
             let expr = gen_php_field_expr(
                 field,
-                typ.has_default,
-                &core_path,
-                enum_names,
-                untagged_data_enum_names,
-                enums,
-                core_import,
+                PhpFieldExprContext {
+                    typ_has_default: typ.has_default,
+                    core_path: &core_path,
+                    enum_names,
+                    untagged_data_enum_names,
+                    enums,
+                    core_import,
+                },
             );
             out.push_str(&crate::backends::php::template_env::render(
                 "php_struct_field_assignment.jinja",
@@ -161,15 +163,24 @@ pub(crate) fn gen_php_lossy_binding_to_core_fields(
 /// Compute the binding->core conversion expression for a single non-sanitized field.
 /// Extracted from `gen_php_lossy_binding_to_core_fields` to keep that function's
 /// complexity and nesting within limits; the resulting expression is unchanged.
-fn gen_php_field_expr(
-    field: &FieldDef,
+struct PhpFieldExprContext<'a> {
     typ_has_default: bool,
-    core_path: &str,
-    enum_names: &AHashSet<String>,
-    untagged_data_enum_names: &AHashSet<String>,
-    enums: &[EnumDef],
-    core_import: &str,
-) -> String {
+    core_path: &'a str,
+    enum_names: &'a AHashSet<String>,
+    untagged_data_enum_names: &'a AHashSet<String>,
+    enums: &'a [EnumDef],
+    core_import: &'a str,
+}
+
+fn gen_php_field_expr(field: &FieldDef, context: PhpFieldExprContext) -> String {
+    let PhpFieldExprContext {
+        typ_has_default,
+        core_path,
+        enum_names,
+        untagged_data_enum_names,
+        enums,
+        core_import,
+    } = context;
     let name = &field.name;
     if let Some(shape) = untagged_data_enum_shape(&field.ty, untagged_data_enum_names) {
         return untagged_data_enum_expr(name, shape, field.optional);
@@ -194,27 +205,38 @@ fn gen_php_field_expr(
     }
     gen_php_field_expr_by_type(
         &field.ty,
-        name,
-        field.optional,
-        field.is_boxed,
-        &field.core_wrapper,
-        typ_has_default,
-        core_path,
+        PhpFieldExprByTypeContext {
+            name,
+            optional: field.optional,
+            is_boxed: field.is_boxed,
+            core_wrapper: &field.core_wrapper,
+            has_default: typ_has_default,
+            core_path,
+        },
     )
 }
 
 /// Render the binding->core expression for a field's `TypeRef` shape, once the
 /// untagged-enum/direct-enum/vec-enum special cases have been ruled out.
 /// Extracted from `gen_php_field_expr`; each arm's emitted text is unchanged.
-fn gen_php_field_expr_by_type(
-    ty: &TypeRef,
-    name: &str,
+struct PhpFieldExprByTypeContext<'a> {
+    name: &'a str,
     optional: bool,
     is_boxed: bool,
-    core_wrapper: &CoreWrapper,
+    core_wrapper: &'a CoreWrapper,
     has_default: bool,
-    core_path: &str,
-) -> String {
+    core_path: &'a str,
+}
+
+fn gen_php_field_expr_by_type(ty: &TypeRef, context: PhpFieldExprByTypeContext) -> String {
+    let PhpFieldExprByTypeContext {
+        name,
+        optional,
+        is_boxed,
+        core_wrapper,
+        has_default,
+        core_path,
+    } = context;
     match ty {
         TypeRef::Primitive(p) if needs_i64_cast(p) => gen_php_primitive_cast_expr(name, optional, core_prim_str(p)),
         TypeRef::Primitive(_) => format!("self.{name}"),

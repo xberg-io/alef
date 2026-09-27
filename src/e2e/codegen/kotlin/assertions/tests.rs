@@ -2,7 +2,7 @@ use super::*;
 
 #[cfg(test)]
 mod strict_field_availability_marker_tests {
-    use super::render_assertion;
+    use super::{RenderAssertionContext, render_assertion};
     use crate::e2e::field_access::FieldResolver;
     use crate::e2e::fixture::Assertion;
     use std::collections::{HashMap, HashSet};
@@ -33,17 +33,19 @@ mod strict_field_availability_marker_tests {
         render_assertion(
             &mut out,
             &assertion,
-            "result",
-            "SampleClient",
-            &resolver,
-            false,
-            false,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            false,
-            false,
-            true,
+            RenderAssertionContext {
+                result_var: "result",
+                class_name: "SampleClient",
+                field_resolver: &resolver,
+                result_is_simple: false,
+                result_is_option: false,
+                enum_fields: &HashSet::new(),
+                json_scalar_fields: &HashSet::new(),
+                fields_c_types: &HashMap::new(),
+                is_streaming: false,
+                kotlin_android_style: false,
+                not_error_may_assert_presence: true,
+            },
         );
         assert!(out.contains("field 'nonexistent_field' not available"), "got: {out}");
     }
@@ -51,7 +53,7 @@ mod strict_field_availability_marker_tests {
 
 #[cfg(test)]
 mod is_true_optional_field_tests {
-    use super::render_assertion;
+    use super::{RenderAssertionContext, render_assertion};
     use crate::e2e::field_access::FieldResolver;
     use crate::e2e::fixture::Assertion;
     use std::collections::{HashMap, HashSet};
@@ -69,17 +71,19 @@ mod is_true_optional_field_tests {
         render_assertion(
             &mut out,
             assertion,
-            "result",
-            "SampleClient",
-            &resolver,
-            false,
-            false,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            false,
-            kotlin_android_style,
-            true,
+            RenderAssertionContext {
+                result_var: "result",
+                class_name: "SampleClient",
+                field_resolver: &resolver,
+                result_is_simple: false,
+                result_is_option: false,
+                enum_fields: &HashSet::new(),
+                json_scalar_fields: &HashSet::new(),
+                fields_c_types: &HashMap::new(),
+                is_streaming: false,
+                kotlin_android_style,
+                not_error_may_assert_presence: true,
+            },
         );
         out
     }
@@ -144,17 +148,19 @@ mod is_true_optional_field_tests {
         render_assertion(
             &mut out,
             &is_true_assertion("active"),
-            "result",
-            "SampleClient",
-            &resolver,
-            false,
-            false,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            false,
-            true,
-            true,
+            RenderAssertionContext {
+                result_var: "result",
+                class_name: "SampleClient",
+                field_resolver: &resolver,
+                result_is_simple: false,
+                result_is_option: false,
+                enum_fields: &HashSet::new(),
+                json_scalar_fields: &HashSet::new(),
+                fields_c_types: &HashMap::new(),
+                is_streaming: false,
+                kotlin_android_style: true,
+                not_error_may_assert_presence: true,
+            },
         );
         assert_eq!(out, "        assertTrue(result.active == true, \"expected true\")\n");
     }
@@ -170,7 +176,7 @@ mod is_true_optional_field_tests {
 /// than any consumer's real domain types.
 #[cfg(test)]
 mod union_traversal_tests {
-    use super::render_assertion;
+    use super::{RenderAssertionContext, render_assertion};
     use crate::core::ir::{EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
     use crate::e2e::field_access::FieldResolver;
     use crate::e2e::fixture::Assertion;
@@ -248,17 +254,19 @@ mod union_traversal_tests {
         render_assertion(
             &mut out,
             &assertion,
-            "result",
-            "SampleClient",
-            resolver,
-            false,
-            false,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            false,
-            kotlin_android_style,
-            true,
+            RenderAssertionContext {
+                result_var: "result",
+                class_name: "SampleClient",
+                field_resolver: resolver,
+                result_is_simple: false,
+                result_is_option: false,
+                enum_fields: &HashSet::new(),
+                json_scalar_fields: &HashSet::new(),
+                fields_c_types: &HashMap::new(),
+                is_streaming: false,
+                kotlin_android_style,
+                not_error_may_assert_presence: true,
+            },
         );
         out
     }
@@ -359,7 +367,7 @@ mod union_traversal_tests {
 
 #[cfg(test)]
 mod wildcard_tests {
-    use super::render_assertion;
+    use super::{RenderAssertionContext, render_assertion};
     use crate::e2e::field_access::FieldResolver;
     use crate::e2e::fixture::Assertion;
     use std::collections::{HashMap, HashSet};
@@ -380,17 +388,19 @@ mod wildcard_tests {
         render_assertion(
             &mut out,
             &assertion,
-            "result",
-            "SampleClient",
-            resolver,
-            false,
-            false,
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            false,
-            false,
-            true,
+            RenderAssertionContext {
+                result_var: "result",
+                class_name: "SampleClient",
+                field_resolver: resolver,
+                result_is_simple: false,
+                result_is_option: false,
+                enum_fields: &HashSet::new(),
+                json_scalar_fields: &HashSet::new(),
+                fields_c_types: &HashMap::new(),
+                is_streaming: false,
+                kotlin_android_style: false,
+                not_error_may_assert_presence: true,
+            },
         );
         out
     }
