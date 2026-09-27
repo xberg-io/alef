@@ -52,6 +52,11 @@ pub(super) fn render_test_file(
                     &f.input,
                 );
                 cc.args.iter().any(|a| a.arg_type == "mock_url")
+                    || f.assertions.iter().any(|a| {
+                        a.field
+                            .as_deref()
+                            .is_some_and(crate::e2e::codegen::mock_assertions::is_mock_virtual_field)
+                    })
             });
         if needs_envoy_for_binding {
             let _ = writeln!(out, "import envoy");
@@ -109,6 +114,20 @@ pub(super) fn render_test_file(
             needed_modules.insert("option");
         }
         for assertion in &fixture.assertions {
+            // `mock.*` needs its own import set: `gleam/int` always (the helper's `int.parse`),
+            // plus `gleam/httpc` / `gleam/http/request` / `gleam/string` only when the
+            // `has_http_fixtures` block above hasn't already emitted them directly (avoiding a
+            // duplicate `import` line, which Gleam rejects). ~keep
+            if let Some(f) = &assertion.field
+                && crate::e2e::codegen::mock_assertions::is_mock_virtual_field(f)
+            {
+                needed_modules.insert("int");
+                if !has_http_fixtures {
+                    needed_modules.insert("httpc");
+                    needed_modules.insert("http/request");
+                    needed_modules.insert("string");
+                }
+            }
             let needs_case_expr = assertion
                 .field
                 .as_deref()
@@ -219,6 +238,7 @@ pub(super) fn render_test_file(
         let _ = writeln!(out);
     }
 
+    let fixtures_start = out.len();
     for fixture in fixtures {
         if fixture.is_http_test() {
             render_http_test_case(&mut out, fixture);
@@ -245,6 +265,17 @@ pub(super) fn render_test_file(
             crate::e2e::codegen::error_path_assertions::emit(&mut out, fixture, "// ", "gleam");
         }
         let _ = writeln!(out);
+    }
+
+    // Append the once-per-suite mock-request-count helper as a top-level module-private function,
+    // gated on the rendered fixtures actually calling it, so a file with no `mock.*` assertion
+    // carries no dead helper (alef issue #443).
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("gleam")
+        && out[fixtures_start..].contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("gleam")
+    {
+        out.push('\n');
+        out.push_str(&rendered);
     }
 
     out

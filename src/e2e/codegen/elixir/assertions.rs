@@ -45,6 +45,17 @@ pub(super) fn render_assertion(
     returns_result: bool,
     not_error_may_assert_presence: bool,
 ) {
+    // `mock.*` resolves against the mock server's own request log (a harness property, not a
+    // struct field) through the once-per-suite helper `mock_assertions::render_helper` emits into
+    // the file (see `elixir::test_file::render_test_file`), so interception must run before every
+    // other branch below -- including the synthetic-field arms and the streaming-virtual-field
+    // branch, either of which would otherwise fall through to `field_resolver.is_valid_for_result`,
+    // misreporting `mock.requests.total` as `FieldSkip::NotAvailableOnResultType` (alef's own
+    // generator gap, misattributed to the fixture). ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
     if let Some(f) = &assertion.field {

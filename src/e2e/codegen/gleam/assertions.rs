@@ -4,6 +4,7 @@ use crate::e2e::fixture::Assertion;
 use heck::ToPascalCase;
 use std::fmt::Write as FmtWrite;
 
+use super::assertion_mock_capture::try_render_mock_capture_assertion;
 use super::values::{default_gleam_value_for_optional, json_to_gleam};
 
 #[allow(clippy::too_many_arguments)]
@@ -266,6 +267,14 @@ pub(super) fn render_assertion(
     result_is_array: bool,
     pkg_module: &str,
 ) {
+    // `mock.*` is not a field of any result type -- it must be intercepted before the
+    // `is_valid_for_result` gate below, or it gets misclassified as
+    // `FieldSkip::NotAvailableOnResultType` (blaming the fixture for alef's own generator gap).
+    // See `assertion_mock_capture`'s module doc.
+    if try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     if let Some(f) = &assertion.field
         && !f.is_empty()
         && !field_resolver.is_valid_for_result(f)

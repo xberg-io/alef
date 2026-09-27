@@ -1,5 +1,5 @@
 mod mix_exs_tests {
-    use super::super::project::render_mix_exs;
+    use super::super::project::{MixTestSurface, render_mix_exs};
     use crate::e2e::config::DependencyMode;
 
     /// When a project has mock-server fixtures (e.g. via `mock_response` or
@@ -14,10 +14,12 @@ mod mix_exs_tests {
             "sample_service",
             "1.4.0-rc.55",
             DependencyMode::Registry,
-            false, // has_http_tests
-            true,  // has_mock_server_tests
-            true,  // has_nif_tests
-            false, // uses_harness
+            MixTestSurface {
+                has_http_tests: false,
+                has_mock_server_tests: true,
+                has_nif_tests: true,
+                uses_harness: false,
+            },
         );
         assert!(
             output.contains(":finch,"),
@@ -41,10 +43,12 @@ mod mix_exs_tests {
             "sample_service",
             "../../packages/elixir",
             DependencyMode::Local,
-            false, // has_http_tests
-            false, // has_mock_server_tests
-            true,  // has_nif_tests
-            false, // uses_harness
+            MixTestSurface {
+                has_http_tests: false,
+                has_mock_server_tests: false,
+                has_nif_tests: true,
+                uses_harness: false,
+            },
         );
         assert!(
             !output.contains(":finch,"),

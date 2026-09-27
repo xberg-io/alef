@@ -68,14 +68,24 @@ pub(super) fn free_function_presence_gate(
         super::functions::emit_param_free(param, prefix, struct_names, opaque_creator_map, &mut teardown);
     }
     result_presence_gate(
-        &func.return_type,
-        None,
+        PresenceTarget {
+            return_type: &func.return_type,
+            receiver: None,
+        },
         primary_c_call,
         prefix,
         FUNCTION_INDENT,
         &indent_fragment(&teardown, FUNCTION_INDENT),
         error_type,
     )
+}
+
+/// The return shape and (optional) receiver identifying which companion presence check applies.
+/// Kept together because both feed [`result_presence_companion_exists`] as a single eligibility
+/// query, and grouping them keeps `result_presence_gate` at 6 parameters. ~keep
+pub(super) struct PresenceTarget<'a> {
+    pub(super) return_type: &'a TypeRef,
+    pub(super) receiver: Option<&'a ReceiverKind>,
 }
 
 /// Render the presence guard a Zig wrapper emits immediately before its primary C call, or `None`
@@ -86,9 +96,9 @@ pub(super) fn free_function_presence_gate(
 /// cannot disagree about arity, and the `_has_result` spelling still comes from
 /// [`result_presence_symbol`] so the suffix has exactly one definition.
 ///
-/// `receiver` is passed straight through to the eligibility authority: the companion re-invokes
-/// the underlying method to observe presence, which an owned receiver cannot survive because its
-/// first call already removed the handle from the registry.
+/// `target.receiver` is passed straight through to the eligibility authority: the companion
+/// re-invokes the underlying method to observe presence, which an owned receiver cannot survive
+/// because its first call already removed the handle from the registry.
 ///
 /// `cleanup` is the parameter teardown the wrapper would otherwise run after the call — the gate
 /// returns early, so it has to run it too. `error_type` is the wrapper's resolved Zig error set
@@ -96,15 +106,14 @@ pub(super) fn free_function_presence_gate(
 /// instead of silently claiming absence. Emitting it here is safe for
 /// `assert_error_set_covers_body` because the surrounding body already returns the same error.
 pub(super) fn result_presence_gate(
-    return_type: &TypeRef,
-    receiver: Option<&ReceiverKind>,
+    target: PresenceTarget<'_>,
     primary_c_call: &str,
     prefix: &str,
     indent: &str,
     cleanup: &str,
     error_type: Option<&str>,
 ) -> Option<String> {
-    if !result_presence_companion_exists(return_type, receiver) {
+    if !result_presence_companion_exists(target.return_type, target.receiver) {
         return None;
     }
 

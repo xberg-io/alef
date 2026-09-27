@@ -226,8 +226,30 @@ pub(super) fn render_test_file(
         }
     }
 
+    append_mock_capture_helper(&mut out);
+
     let _ = writeln!(out, "end");
     out
+}
+
+/// Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff `out`'s rendered
+/// test methods actually call it. Mirrors `java::test_file` / `kotlin::test_file`'s identical
+/// gate: a private function (`defp`) appended directly to the module body, ahead of the closing
+/// `end`, not gated behind `has_http` (a `mock.*` assertion can appear on a fixture that triggers
+/// neither `has_http` nor `has_mock_server_tests`). Split out of `render_test_file` to keep that
+/// function's cyclomatic complexity under the repo's limit.
+fn append_mock_capture_helper(out: &mut String) {
+    let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("elixir") else {
+        return;
+    };
+    if !out.contains(capture.helper_name) {
+        return;
+    }
+    let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("elixir") else {
+        return;
+    };
+    out.push('\n');
+    out.push_str(&rendered);
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::backends::ffi::type_map::result_presence_companion_exists;
 use crate::backends::zig::gen_bindings::functions::emit_function;
-use crate::backends::zig::gen_bindings::opaque_handles::emit_opaque_handle;
+use crate::backends::zig::gen_bindings::opaque_handles::{OpaqueHandleContext, emit_opaque_handle};
 use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 
 const PREFIX: &str = "sample";
@@ -84,10 +84,12 @@ fn render_method(method: &MethodDef) -> String {
     emit_opaque_handle(
         &ty,
         PREFIX,
-        &[],
-        &HashSet::new(),
-        &HashMap::new(),
-        &HashSet::new(),
+        &OpaqueHandleContext {
+            declared_errors: &[],
+            struct_names: &HashSet::new(),
+            streaming_item_types: &HashMap::new(),
+            enum_names: &HashSet::new(),
+        },
         &mut out,
     );
     out

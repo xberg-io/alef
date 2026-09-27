@@ -41,15 +41,17 @@ pub(super) fn render_scalar_pipeline(
         field_is_collection,
         field_is_long,
     ) = super::assertion_scalar_context::compute_scalar_context(
-        assertion,
-        field_resolver,
-        result_var,
-        result_is_simple,
-        result_is_option,
-        enum_fields,
-        json_scalar_fields,
-        fields_c_types,
-        kotlin_android_style,
+        &super::assertion_scalar_context::ScalarContextInputs {
+            assertion,
+            field_resolver,
+            result_var,
+            result_is_simple,
+            result_is_option,
+            enum_fields,
+            json_scalar_fields,
+            fields_c_types,
+            kotlin_android_style,
+        },
     );
 
     render_scalar_assertion(

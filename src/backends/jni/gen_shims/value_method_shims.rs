@@ -67,11 +67,31 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
     if method.error_type.is_some() {
         let mut ok_body = String::new();
         emit_return_marshal(&mut ok_body, &return_type, ret_null);
-        render_call_result_body(out, &call_expr, false, true, ret_null, &ok_body, "");
+        render_call_result_body(
+            out,
+            &call_expr,
+            &CallResultShape {
+                is_async: false,
+                has_error: true,
+                ret_null,
+                ok_body: &ok_body,
+                value_body: "",
+            },
+        );
     } else {
         let mut value_body = String::new();
         emit_return_marshal_with_indent(&mut value_body, &return_type, "    ", ret_null);
-        render_call_result_body(out, &call_expr, false, false, ret_null, "", &value_body);
+        render_call_result_body(
+            out,
+            &call_expr,
+            &CallResultShape {
+                is_async: false,
+                has_error: false,
+                ret_null,
+                ok_body: "",
+                value_body: &value_body,
+            },
+        );
     }
 }
 

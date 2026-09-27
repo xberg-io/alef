@@ -1038,6 +1038,7 @@ fn c_visitor_fixture_has_typed_call(fixture: &Fixture, e2e_config: &E2eConfig, i
     has_function && !info.options_type_name.is_empty()
 }
 
+mod assertion_mock_capture;
 mod assertions;
 mod call_patterns;
 #[cfg(test)]
@@ -1048,6 +1049,8 @@ mod collection_wildcard;
 mod docs_input;
 mod enum_field_inference;
 mod ffi_constructors;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 mod optional_arg;
 mod primitive_field_inference;
 mod project;
@@ -1132,6 +1135,11 @@ fn render_test_file(
     }
     let _ = writeln!(out, "#include \"test_runner.h\"");
     let _ = writeln!(out);
+    // Byte offset right after the fixed `#include` block, before any fixture body -- passed to
+    // `assertion_mock_capture::append_helper_if_referenced` below so it can insert the mock
+    // helper's own extra includes (sys/socket.h et al.) at the top of the file, not after the
+    // fixture bodies where the helper definition itself lands. ~keep
+    let includes_offset = out.len();
 
     // Extend the operator-declared `fields_c_types` with entries the IR itself proves are
     // enum-typed, before any per-fixture derivation runs. Neither input varies per fixture
@@ -1272,6 +1280,12 @@ fn render_test_file(
             let _ = writeln!(out);
         }
     }
+
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered test functions actually call it -- see `assertion_mock_capture::
+    // append_helper_if_referenced` for why C also needs extra `#include`s injected here, unlike
+    // every other wired backend.
+    assertion_mock_capture::append_helper_if_referenced(&mut out, includes_offset);
 
     Ok(out)
 }

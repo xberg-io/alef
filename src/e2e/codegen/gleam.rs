@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod constructors;
 mod http;
@@ -28,6 +29,8 @@ mod values;
 
 #[cfg(test)]
 mod enum_field_classification_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod tests;
 

@@ -455,9 +455,7 @@ impl Backend for JavaBackend {
                         &prefix,
                         &config.adapters,
                         &main_class,
-                        &enum_names,
-                        &opaque_type_names,
-                        &to_json_type_names,
+                        (&enum_names, &opaque_type_names, &to_json_type_names),
                     ),
                     generated_header: true,
                 });

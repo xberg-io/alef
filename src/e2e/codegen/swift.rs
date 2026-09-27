@@ -261,6 +261,7 @@ impl E2eCodegen for SwiftE2eCodegen {
 mod accessor_walk;
 mod accessors;
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod http;
 mod json_bridged_navigation;
@@ -300,6 +301,8 @@ mod json_bridged_traversal_tests;
 mod materialise_vec_optional_tests;
 #[cfg(test)]
 mod mixed_first_class_and_opaque_root_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod non_void_not_error_only_tests;
 #[cfg(test)]

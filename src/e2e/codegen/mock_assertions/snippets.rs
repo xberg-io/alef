@@ -87,6 +87,104 @@ pub(crate) const MOCK_CAPTURE_TABLE: &[(&str, MockCapture)] = &[
             helper_template: "java/mock_request_helper.java.jinja",
         },
     ),
+    (
+        "kotlin",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "kotlin/mock_request_helper.kt.jinja",
+        },
+    ),
+    (
+        "kotlin_android",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "kotlin/mock_request_helper.kt.jinja",
+        },
+    ),
+    (
+        "csharp",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "csharp/mock_request_helper.cs.jinja",
+        },
+    ),
+    (
+        "dart",
+        MockCapture {
+            // Leading underscore matches this backend's own privacy convention for a
+            // file-local generated test helper (`_httpClient`, `_serialized`, `_withRetry`,
+            // `_fixtureUrl`, `_sutUrl` in `dart/test_file.rs`), not a naming surface `centralized-
+            // naming` governs -- the helper is never a public binding identifier. ~keep
+            helper_name: "_alefMockRequestCount",
+            helper_template: "dart/mock_request_helper.dart.jinja",
+        },
+    ),
+    // WASM's e2e tests render through the exact same `typescript::render_test_file` /
+    // `assertions::mock_capture` code path as `"node"` (see that module's doc), running under the
+    // identical vitest-on-Node.js harness -- not a wasm sandbox. There is nothing WASM-specific to
+    // emit, so this row reuses `"node"`'s template verbatim, the same way `"kotlin_android"`
+    // reuses `"kotlin"`'s above. ~keep
+    (
+        "wasm",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "typescript/mock_request_helper.jinja",
+        },
+    ),
+    (
+        "swift",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "swift/mock_request_helper.swift.jinja",
+        },
+    ),
+    (
+        "zig",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "zig/mock_request_helper.zig.jinja",
+        },
+    ),
+    (
+        "gleam",
+        MockCapture {
+            // Snake_case matches this backend's own function-naming convention
+            // (`read_file_bytes`, `start_app` in `project.rs`), not specifically
+            // `rust`/`python`/`ruby`'s. ~keep
+            helper_name: "alef_mock_request_count",
+            helper_template: "gleam/mock_request_helper.gleam.jinja",
+        },
+    ),
+    (
+        "c",
+        MockCapture {
+            // Snake_case, `alef_` prefix -- matches this backend's own generated per-file test
+            // helper naming (`alef_json_get_string` etc. in `c/runner.rs`), not specifically
+            // `rust`'s. ~keep
+            helper_name: "alef_mock_request_count",
+            helper_template: "c/mock_request_helper.c.jinja",
+        },
+    ),
+    (
+        "r",
+        MockCapture {
+            // Leading-dot snake_case matches this backend's own generated private-helper naming
+            // (`.resolve_fixture`, `.alef_format_value` in
+            // `r/setup_fixtures.jinja`/`r/test_case.rs`), not specifically `rust`'s. ~keep
+            helper_name: ".alef_mock_request_count",
+            helper_template: "r/mock_request_helper.jinja",
+        },
+    ),
+    (
+        "elixir",
+        MockCapture {
+            // Snake_case matches this backend's own generated private-helper naming
+            // (`alef_e2e_item_texts`, `alef_e2e_format_to_string` in `elixir/test_file.rs`), not
+            // specifically `rust`'s. ~keep
+            helper_name: "alef_mock_request_count",
+            helper_template: "elixir/mock_request_helper.exs.jinja",
+        },
+    ),
 ];
 
 /// Look up `language`'s capture, or the gap when none is registered.
@@ -104,7 +202,26 @@ mod tests {
 
     #[test]
     fn the_wired_languages_resolve() {
-        for language in ["rust", "python", "node", "go", "ruby", "php", "java"] {
+        for language in [
+            "rust",
+            "python",
+            "node",
+            "go",
+            "ruby",
+            "php",
+            "java",
+            "kotlin",
+            "kotlin_android",
+            "csharp",
+            "dart",
+            "wasm",
+            "swift",
+            "zig",
+            "gleam",
+            "c",
+            "r",
+            "elixir",
+        ] {
             assert!(
                 mock_capture(language).is_ok(),
                 "expected a capture entry for {language}"
@@ -112,9 +229,13 @@ mod tests {
         }
     }
 
+    /// `php_ext` is structurally exempt, not merely "not wired yet": it renders no field-access
+    /// assertions at all (see `mock_assertions::mod`'s doc), so it can never gain a capture-table
+    /// row and is a stable choice here -- unlike `csharp`, which this scenario named until alef
+    /// issue #443 wired it. ~keep
     #[test]
     fn an_unwired_language_returns_the_gap() {
-        assert_eq!(mock_capture("csharp"), Err(MockCaptureGap));
+        assert_eq!(mock_capture("php_ext"), Err(MockCaptureGap));
     }
 
     /// `"typescript"` is a template-directory name, never a `language_name()` value -- pinning

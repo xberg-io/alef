@@ -73,6 +73,7 @@ use super::streaming_assertions::{StreamingFieldResolver, is_streaming_virtual_f
 
 /// Zig e2e code generator.
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod build;
 mod enum_field_config;
@@ -82,6 +83,8 @@ mod hash;
 mod http;
 #[cfg(test)]
 mod is_true_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod result_is_json_struct_ir_tests;
 mod result_shape;

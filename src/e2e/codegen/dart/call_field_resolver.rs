@@ -23,17 +23,32 @@ use crate::e2e::field_access::{DartFirstClassMap, FieldResolver};
 use crate::e2e::fixture::Fixture;
 use std::collections::{HashMap, HashSet};
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn build_call_field_resolver(
-    e2e_config: &E2eConfig,
-    call_config: &CallConfig,
-    fixture: &Fixture,
-    lang: &str,
-    dart_first_class_map: &DartFirstClassMap,
-    type_defs: &[crate::core::ir::TypeDef],
-    enums: &[crate::core::ir::EnumDef],
-    functions: &[crate::core::ir::FunctionDef],
-) -> FieldResolver {
+/// Inputs for [`build_call_field_resolver`], grouped to keep the function under the
+/// too-many-parameters limit without changing any of the values passed through. Mirrors the
+/// identically-named struct already used by `csharp/call_field_resolver.rs`,
+/// `php/call_field_resolver.rs`, and `kotlin/call_field_resolver.rs`.
+pub(super) struct CallFieldResolverInputs<'a> {
+    pub e2e_config: &'a E2eConfig,
+    pub call_config: &'a CallConfig,
+    pub fixture: &'a Fixture,
+    pub lang: &'a str,
+    pub dart_first_class_map: &'a DartFirstClassMap,
+    pub type_defs: &'a [crate::core::ir::TypeDef],
+    pub enums: &'a [crate::core::ir::EnumDef],
+    pub functions: &'a [crate::core::ir::FunctionDef],
+}
+
+pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> FieldResolver {
+    let CallFieldResolverInputs {
+        e2e_config,
+        call_config,
+        fixture,
+        lang,
+        dart_first_class_map,
+        type_defs,
+        enums,
+        functions,
+    } = inputs;
     // Merge per-language enum_fields from the Dart override into the effective enum set so that
     // fields like "status" (BatchStatus on BatchObject) are treated as enum-typed even when
     // they are not globally listed in fields_enum (they are context-dependent — BatchStatus on

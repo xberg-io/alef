@@ -773,6 +773,23 @@ fn verbatim_backends_public_type_name_no_longer_re_cases_an_already_pascal_case_
     }
 }
 
+/// Issue #467: `zig_error_variant_component` was moved off `public_host_identifier(Zig, Type,
+/// ...)` and onto `cased_public_type_name` so a genuinely uncased IR name (see
+/// `src/backends/zig/gen_bindings/errors.rs`) gets PascalCased again. That move must not disturb
+/// `public_host_identifier(Zig, Type, ...)` itself -- the path Zig's actual `pub const {typ.name}
+/// = struct` type declarations still go through -- which must keep leaving an irregular acronym
+/// run alone exactly as #455 fixed it. Pinned on Zig specifically (the backend #467 regressed),
+/// with the exact acronym example from the issue report.
+#[test]
+fn zig_public_type_name_still_leaves_an_irregular_acronym_run_alone_after_467() {
+    assert_eq!(
+        public_host_identifier(Language::Zig, PublicIdentifierKind::Type, "HTTPSProxyConfig"),
+        "HTTPSProxyConfig",
+        "Zig's `pub const {{typ.name}} = struct` declares the IR type name verbatim; a \
+         to_pascal_case() pre-step here would re-segment the acronym run, regressing #455"
+    );
+}
+
 /// Pins the exact pre-fix-vs-post-fix spelling for the case the issue was filed over, on two of
 /// the affected languages, so a regression back to the `to_pascal_case()` pre-step fails on a
 /// concrete wrong value (`RdFaChunk`), not just an equality-with-itself comparison.

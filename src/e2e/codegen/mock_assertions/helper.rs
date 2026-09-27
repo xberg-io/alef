@@ -61,6 +61,7 @@ mod tests {
             ("ruby", "alef_mock_request_count"),
             ("php", "alefMockRequestCount"),
             ("java", "alefMockRequestCount"),
+            ("csharp", "alefMockRequestCount"),
         ] {
             let rendered = render_helper(language).unwrap_or_else(|| panic!("{language} must render a helper"));
             assert!(
@@ -80,8 +81,11 @@ mod tests {
         assert_eq!(MOCK_ONE_PATH, "/__alef/requests/one");
     }
 
+    /// `php_ext` renders no field-access assertions at all (see `mock_assertions::mod`'s doc), so
+    /// it has no capture-table row and none is coming -- unlike `csharp`, which this scenario
+    /// named until alef issue #443 wired it.
     #[test]
     fn an_unwired_language_renders_nothing() {
-        assert!(render_helper("csharp").is_none());
+        assert!(render_helper("php_ext").is_none());
     }
 }

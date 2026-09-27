@@ -3,7 +3,7 @@
 //! full mechanism. Split into its own file per this repo's file-modularization convention (one
 //! concern, its own test module) rather than growing `call_field_resolver.rs` inline.
 
-use super::build_call_field_resolver;
+use super::{CallFieldResolverInputs, build_call_field_resolver};
 use crate::core::ir::{FieldDef, FunctionDef, TypeDef, TypeRef};
 use crate::e2e::config::{CallConfig, E2eConfig};
 use crate::e2e::field_access::DartFirstClassMap;
@@ -75,16 +75,16 @@ fn resolver_classifies_ir_only_optional_collection_leaf_without_config() {
         }],
         ..Fixture::default()
     };
-    let resolver = build_call_field_resolver(
-        &e2e_config,
-        &e2e_config.call,
-        &fixture,
-        "dart",
-        &DartFirstClassMap::default(),
-        &envelope_document_type_defs(),
-        &[],
-        &envelope_document_functions(),
-    );
+    let resolver = build_call_field_resolver(CallFieldResolverInputs {
+        e2e_config: &e2e_config,
+        call_config: &e2e_config.call,
+        fixture: &fixture,
+        lang: "dart",
+        dart_first_class_map: &DartFirstClassMap::default(),
+        type_defs: &envelope_document_type_defs(),
+        enums: &[],
+        functions: &envelope_document_functions(),
+    });
 
     assert!(
         resolver.is_optional("results[0].chunks"),

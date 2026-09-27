@@ -217,6 +217,14 @@ pub(super) fn render_json_assertion(
     field_resolver: &FieldResolver,
     uses_streaming: bool,
 ) {
+    // `mock.*` is harness state (the mock server's own request log), not a field of any result
+    // type -- intercept it before every other branch, including the streaming-virtual check
+    // right below, or it falls through to `FieldSkip::NotAvailableOnResultType` and blames the
+    // fixture for alef's own gap (see `mock_assertions::ensure_capture_declared`). ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Intercept streaming-virtual fields before the result-type validity check,
     // but ONLY when the test is actually using the streaming-virtual path.
     // When `uses_streaming = false` the `chunks` local is never declared, so
@@ -624,6 +632,14 @@ pub(super) fn render_assertion(
     result_is_option: bool,
     result_is_simple: bool,
 ) {
+    // `mock.*` is harness state, not a field of any result type -- intercept it before every
+    // other branch here too. `render_json_assertion` (above) and this function are two wholly
+    // independent entry points in this backend (see `assertion_mock_capture`'s module doc), so
+    // each needs its own interception at the very top. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Bare-result assertions on `?T` (Optional) translate to null-checks instead
     // of `.len`. Mirrors the same behaviour in kotlin.rs (bare_result_is_option).
     let bare_result_is_option = result_is_option && assertion.field.as_deref().filter(|f| !f.is_empty()).is_none();

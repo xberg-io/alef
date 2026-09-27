@@ -43,6 +43,15 @@ pub(super) fn render_assertion(
     assert_enum_fields: &std::collections::HashMap<String, String>,
     not_error_may_assert_presence: bool,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct field --
+    // intercept before EVERY other branch below, including the `result_is_bytes` special
+    // case immediately following, which would otherwise misclassify a `mock.*` field as a
+    // bare-result assertion.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Byte-buffer returns: emit length-based assertions instead of struct-field
     // accessors. The result is a `byte[]` and has no named fields like
     // `result.Audio` or `result.Content`.

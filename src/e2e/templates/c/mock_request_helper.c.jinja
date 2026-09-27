@@ -1,0 +1,142 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE `static` function using a raw POSIX socket (no libcurl dependency -- the generated
+   C test project links no HTTP client, and this backend is the one the mock server's plain-text
+   decimal body was designed for: a bare `strtol` over the response body needs no JSON parser).
+   `base_url` is always "http://<host>:<port>" (see rust::mock_server::binary -- MOCK_SERVER_URL
+   is always this shape), so the host/port split only needs to find the last ':' before any '/'.
+   Callers build `pathAndQuery` from "{{ total_path }}?prefix=<p>" (mock.requests.total) or
+   "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery.
+
+   `static` scopes this to one translation unit, matching every other per-file test helper this
+   backend emits (see c/runner.rs's `alef_json_get_string`), so multiple generated .c files never
+   collide. The extra `#include`s this needs (sys/socket.h, netdb.h, unistd.h) are injected by
+   `c::assertion_mock_capture::append_helper_if_referenced`, only when this helper is actually
+   referenced -- see that function's doc for why they cannot simply be unconditional.
+#}
+
+static int {{ helper_name }}(const char *base_url, const char *path_and_query) {
+    const char *host_start = base_url;
+    if (strncmp(host_start, "http://", 7) == 0) {
+        host_start += 7;
+    }
+    const char *slash = strchr(host_start, '/');
+    const char *colon = strrchr(host_start, ':');
+    if (colon != NULL && slash != NULL && colon > slash) {
+        colon = NULL;
+    }
+    size_t host_len;
+    if (colon != NULL) {
+        host_len = (size_t)(colon - host_start);
+    } else if (slash != NULL) {
+        host_len = (size_t)(slash - host_start);
+    } else {
+        host_len = strlen(host_start);
+    }
+    char host[256];
+    if (host_len == 0 || host_len >= sizeof(host)) {
+        fprintf(stderr, "{{ helper_name }}: unparseable host in '%s'\n", base_url);
+        exit(1);
+    }
+    memcpy(host, host_start, host_len);
+    host[host_len] = '\0';
+
+    char port[16];
+    strcpy(port, "80");
+    if (colon != NULL) {
+        const char *port_start = colon + 1;
+        size_t port_len = slash != NULL ? (size_t)(slash - port_start) : strlen(port_start);
+        if (port_len == 0 || port_len >= sizeof(port)) {
+            fprintf(stderr, "{{ helper_name }}: unparseable port in '%s'\n", base_url);
+            exit(1);
+        }
+        memcpy(port, port_start, port_len);
+        port[port_len] = '\0';
+    }
+
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *resolved = NULL;
+    int gai_error = getaddrinfo(host, port, &hints, &resolved);
+    if (gai_error != 0) {
+        fprintf(stderr, "{{ helper_name }}: getaddrinfo(%s:%s): %s\n", host, port, gai_strerror(gai_error));
+        exit(1);
+    }
+
+    int sock_fd = -1;
+    for (struct addrinfo *candidate = resolved; candidate != NULL; candidate = candidate->ai_next) {
+        sock_fd = socket(candidate->ai_family, candidate->ai_socktype, candidate->ai_protocol);
+        if (sock_fd == -1) {
+            continue;
+        }
+        if (connect(sock_fd, candidate->ai_addr, candidate->ai_addrlen) == 0) {
+            break;
+        }
+        close(sock_fd);
+        sock_fd = -1;
+    }
+    freeaddrinfo(resolved);
+    if (sock_fd == -1) {
+        fprintf(stderr, "{{ helper_name }}: connect to %s:%s failed\n", host, port);
+        exit(1);
+    }
+
+    char request[1024];
+    int request_len = snprintf(
+        request, sizeof(request),
+        "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path_and_query, host
+    );
+    if (request_len < 0 || (size_t)request_len >= sizeof(request)) {
+        fprintf(stderr, "{{ helper_name }}: request line too long for '%s'\n", path_and_query);
+        close(sock_fd);
+        exit(1);
+    }
+
+    size_t sent_total = 0;
+    while (sent_total < (size_t)request_len) {
+        ssize_t sent_now = send(sock_fd, request + sent_total, (size_t)request_len - sent_total, 0);
+        if (sent_now <= 0) {
+            fprintf(stderr, "{{ helper_name }}: send() failed\n");
+            close(sock_fd);
+            exit(1);
+        }
+        sent_total += (size_t)sent_now;
+    }
+
+    char response[4096];
+    size_t response_len = 0;
+    for (;;) {
+        if (response_len >= sizeof(response) - 1) {
+            fprintf(stderr, "{{ helper_name }}: response exceeded %zu bytes\n", sizeof(response) - 1);
+            close(sock_fd);
+            exit(1);
+        }
+        ssize_t received_now = recv(sock_fd, response + response_len, sizeof(response) - 1 - response_len, 0);
+        if (received_now < 0) {
+            fprintf(stderr, "{{ helper_name }}: recv() failed\n");
+            close(sock_fd);
+            exit(1);
+        }
+        if (received_now == 0) {
+            break;
+        }
+        response_len += (size_t)received_now;
+    }
+    close(sock_fd);
+    response[response_len] = '\0';
+
+    const char *body = strstr(response, "\r\n\r\n");
+    if (body == NULL) {
+        fprintf(stderr, "{{ helper_name }}: malformed HTTP response (no header terminator): %s\n", response);
+        exit(1);
+    }
+    body += 4;
+    return (int)strtol(body, NULL, 10);
+}

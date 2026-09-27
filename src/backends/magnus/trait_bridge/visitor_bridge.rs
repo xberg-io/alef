@@ -2,21 +2,31 @@ use crate::codegen::generators::trait_bridge::{bridge_param_type as param_type, 
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 
+/// Parameters for [`gen_visitor_bridge`], grouped to keep argument count under the lint limit.
+pub(super) struct VisitorBridgeCtx<'a> {
+    pub(super) trait_type: &'a TypeDef,
+    pub(super) bridge_cfg: &'a TraitBridgeConfig,
+    pub(super) struct_name: &'a str,
+    pub(super) trait_path: &'a str,
+    pub(super) core_crate: &'a str,
+    pub(super) type_paths: &'a std::collections::HashMap<String, String>,
+    pub(super) api: &'a ApiSurface,
+}
+
 /// Generate a visitor-style bridge wrapping a Magnus `magnus::Value`.
 ///
 /// Every trait method checks if the Ruby object responds to a snake_case method,
 /// then calls it via `funcall` and maps the return value to the configured result enum.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_visitor_bridge(
-    out: &mut String,
-    trait_type: &TypeDef,
-    bridge_cfg: &TraitBridgeConfig,
-    struct_name: &str,
-    trait_path: &str,
-    core_crate: &str,
-    type_paths: &std::collections::HashMap<String, String>,
-    api: &ApiSurface,
-) -> anyhow::Result<()> {
+pub(super) fn gen_visitor_bridge(out: &mut String, ctx: &VisitorBridgeCtx<'_>) -> anyhow::Result<()> {
+    let VisitorBridgeCtx {
+        trait_type,
+        bridge_cfg,
+        struct_name,
+        trait_path,
+        core_crate,
+        type_paths,
+        api,
+    } = ctx;
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
     let context_helper = crate::codegen::visitor_context::visitor_context_helper(
         api,

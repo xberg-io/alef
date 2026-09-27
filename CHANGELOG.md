@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **e2e: `mock.*` request-count assertions now render on every backend that has an assertion
+  surface (#443).** The remaining eleven -- kotlin, kotlin_android, csharp, dart, swift, zig, wasm,
+  gleam, c, elixir and r -- join the seven already wired, so no backend renders a counted
+  `MockCaptureNotSupported` skip any more. `brew`, `homebrew` and `php_ext` stay exempt because they
+  render no field assertions at all, and a test pins that the exempt set is exactly those three.
+  Every helper was compiled and run against a live HTTP server rather than string-matched: that is
+  what caught Swift rejecting an unqualified `static` member from instance context, which every
+  unit test had passed.
+- **e2e: a cross-backend matrix test for `mock.*` (#443).** The fan-out was not one interception
+  per backend. `c` needed **eight** -- including a raw-result path that silently *compiled*
+  `assert(result == 3)`, comparing a pointer against the mock count rather than skipping -- `zig`
+  three, one an unnamed inline `match` no function-name grep can find, and csharp and dart two
+  each. `cross_backend_matrix_tests` drives all 18 wired languages across four fixture shapes
+  (plain, streaming, bytes, mock-only), 72 cells, and requires the helper name to appear at least
+  twice so a definition emitted without a call site cannot pass. It catches a missed dispatch site
+  mechanically instead of relying on a per-backend audit.
+
 ### Fixed
 
+- **node/wasm: a `mock.*` assertion on a simple-result fixture rendered a skip instead of the
+  helper call (#443).** The interception sat after the `result_is_simple` gate, so the field never
+  reached it. Present since the reference wave; gleam had the same shape in its own pre-filter.
+- **zig: error-set tags lost their casing, so generated Zig named members its own error set does
+  not declare (#467).** #455 correctly stopped re-casing already-PascalCase type names but removed
+  the pre-step for callers whose input is genuinely uncased. `ErrorVariant.name` is the bare
+  extracted ident, so a snake_case variant emitted `connection_failed` where the set declared
+  `ConnectionFailed`. All three sites deriving that name -- the set declaration, the code dispatch
+  and the e2e snippet mirror -- now share the cased helper, and a test pins that the declaration
+  and the dispatch agree, which the previous coded-variant test could not catch because its
+  fixture names were already PascalCase.
 - **extract: a type declared in a private module and re-exported emitted an unreachable path, or
   was dropped entirely (#466).** `extract_module` derived a `mod x;` child's search directory from
   `source_path.parent()`, which is only correct when the declaring file is `mod.rs`/`lib.rs`. For
@@ -59,6 +89,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   three surfaces consistent. R has no alef-emitted host signature to diff against, so coverage is
   a docs test pairing negative assertions with positive ones, plus `test_streaming_r` pinning the
   adapter's eager-collect shape so the two cannot drift apart again.
+
+### Changed
+
+- **Paid off 16 `too-many-parameters` entries from the quality-debt baseline (#338).** 1238
+  findings across 663 files down to 1222 across 647. Behaviour-preserving throughout: each
+  offending signature was bundled into a file-local params struct, with no shared abstraction
+  across backends that evolve independently.
 
 ## [0.99.0] - 2026-09-27
 

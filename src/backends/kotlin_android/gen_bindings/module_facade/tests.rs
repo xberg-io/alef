@@ -160,11 +160,13 @@ fn capsule_type_gets_no_handle_wrapper_class_or_free_call() {
 
     super::handle_wrappers::emit_handle_wrappers(
         &api,
-        &config,
-        std::path::Path::new("src/main/kotlin"),
-        "dev.sample",
+        &super::handle_wrappers::HandleWrapperContext {
+            config: &config,
+            kotlin_source_dir: std::path::Path::new("src/main/kotlin"),
+            package: "dev.sample",
+            bridge_name: "SampleBridge",
+        },
         &mut files,
-        "SampleBridge",
         &visible_functions,
     );
 

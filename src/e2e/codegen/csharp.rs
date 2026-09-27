@@ -390,6 +390,7 @@ fn render_test_file(
             fixtures_body.push('\n');
         }
     }
+    assertion_mock_capture::append_helper_if_referenced(&mut fixtures_body);
 
     // Build visitor classes string
     let mut visitor_classes_str = String::new();
@@ -991,6 +992,7 @@ fn render_test_method(
     }
 }
 
+mod assertion_mock_capture;
 mod assertions;
 mod call_field_resolver;
 mod declared_error_value;
@@ -1143,6 +1145,8 @@ mod collection_is_empty_tests;
 mod enum_field_classification_tests;
 #[cfg(test)]
 mod fact_attribute_layout_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod not_error_presence_guard_tests;
 #[cfg(test)]

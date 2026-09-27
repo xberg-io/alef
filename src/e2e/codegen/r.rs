@@ -1,6 +1,7 @@
 //! R e2e test generator using testthat.
 
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod not_error_assertion;
 mod project;
@@ -9,6 +10,9 @@ mod test_case;
 mod test_file;
 mod values;
 mod visitor;
+
+#[cfg(test)]
+mod mock_capture_gate_tests;
 
 pub use stubs::emit_test_backend;
 
@@ -119,10 +123,12 @@ impl E2eCodegen for RCodegen {
                 &active,
                 result_is_simple,
                 result_is_r_list,
-                e2e_config,
-                config,
-                type_defs,
-                errors,
+                &test_file::TestFileContext {
+                    e2e_config,
+                    config,
+                    type_defs,
+                    errors,
+                },
             );
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),

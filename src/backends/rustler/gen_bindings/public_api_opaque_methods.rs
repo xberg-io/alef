@@ -8,22 +8,28 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 
-#[allow(clippy::too_many_arguments)]
+/// The per-crate naming/filter context `append_top_level_opaque_methods` needs, visible to its
+/// external caller in `public_api.rs` so it can build this once instead of passing five loose
+/// values positionally. ~keep
+pub(super) struct TopLevelOpaqueMethodsContext<'a> {
+    pub(super) exclude_types: &'a AHashSet<&'a str>,
+    pub(super) opaque_types: &'a AHashSet<String>,
+    pub(super) default_types: &'a AHashSet<String>,
+    pub(super) native_mod: &'a str,
+    pub(super) app_module: &'a str,
+}
+
 pub(super) fn append_top_level_opaque_methods(
     content: &mut String,
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     exclude_functions: &AHashSet<String>,
-    exclude_types: &AHashSet<&str>,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
-    native_mod: &str,
-    app_module: &str,
+    context: &TopLevelOpaqueMethodsContext<'_>,
 ) {
     let type_names: AHashSet<&str> = api
         .types
         .iter()
-        .filter(|typ| typ.is_opaque && !typ.is_trait && !exclude_types.contains(typ.name.as_str()))
+        .filter(|typ| typ.is_opaque && !typ.is_trait && !context.exclude_types.contains(typ.name.as_str()))
         .map(|typ| typ.name.as_str())
         .collect();
     let streaming_methods: AHashSet<String> = config
@@ -38,30 +44,40 @@ pub(super) fn append_top_level_opaque_methods(
         })
         .collect();
 
+    let method_context = OpaqueMethodEmitContext {
+        opaque_types: context.opaque_types,
+        default_types: context.default_types,
+        native_mod: context.native_mod,
+        app_module: context.app_module,
+    };
     for opaque_type in api.types.iter().filter(|typ| type_names.contains(typ.name.as_str())) {
         append_type_methods(
             content,
             opaque_type,
             &streaming_methods,
             exclude_functions,
-            opaque_types,
-            default_types,
-            native_mod,
-            app_module,
+            &method_context,
         );
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Groups the naming/emission context shared by [`append_type_methods`] and
+/// [`append_method_wrapper`] that would otherwise push them over the parameter-count lint. Local
+/// to this file: constructed once per crate by [`append_top_level_opaque_methods`] from its own
+/// (unchanged) parameter list. ~keep
+struct OpaqueMethodEmitContext<'a> {
+    opaque_types: &'a AHashSet<String>,
+    default_types: &'a AHashSet<String>,
+    native_mod: &'a str,
+    app_module: &'a str,
+}
+
 fn append_type_methods(
     content: &mut String,
     opaque_type: &TypeDef,
     streaming_methods: &AHashSet<String>,
     exclude_functions: &AHashSet<String>,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
-    native_mod: &str,
-    app_module: &str,
+    context: &OpaqueMethodEmitContext<'_>,
 ) {
     for method in opaque_type
         .methods
@@ -69,27 +85,15 @@ fn append_type_methods(
         .filter(|method| !exclude_functions.contains(method.name.as_str()))
         .filter(|method| !streaming_methods.contains(&format!("{}.{}", opaque_type.name, method.name)))
     {
-        append_method_wrapper(
-            content,
-            opaque_type,
-            method,
-            opaque_types,
-            default_types,
-            native_mod,
-            app_module,
-        );
+        append_method_wrapper(content, opaque_type, method, context);
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn append_method_wrapper(
     content: &mut String,
     opaque_type: &TypeDef,
     method: &MethodDef,
-    opaque_types: &AHashSet<String>,
-    default_types: &AHashSet<String>,
-    native_mod: &str,
-    app_module: &str,
+    context: &OpaqueMethodEmitContext<'_>,
 ) {
     let type_lower = opaque_type.name.to_lowercase();
     let method_name = method.name.to_snake_case();
@@ -98,10 +102,11 @@ fn append_method_wrapper(
     } else {
         format!("{type_lower}_{method_name}")
     };
-    let (definition_arguments, call_arguments) = method_arguments(method, opaque_types, default_types);
+    let (definition_arguments, call_arguments) = method_arguments(method, context.opaque_types, context.default_types);
     let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
     let returns_self = matches!(&method.return_type, TypeRef::Named(name) if name == &opaque_type.name);
-    let unwrap_result = method_deserialization_introduces_result(method, true, opaque_types, default_types);
+    let unwrap_result =
+        method_deserialization_introduces_result(method, true, context.opaque_types, context.default_types);
     content.push_str(&template_env::render(
         "elixir_top_level_opaque_method_wrapper.ex.jinja",
         minijinja::context! {
@@ -109,12 +114,12 @@ fn append_method_wrapper(
             func_name => &nif_function,
             def_args => &definition_arguments.join(", "),
             call_args => &call_arguments.join(", "),
-            native_mod => native_mod,
+            native_mod => context.native_mod,
             unwrap_result => unwrap_result,
             preserve_result => method.is_async || method.error_type.is_some(),
             returns_self => returns_self,
             has_receiver => method.receiver.is_some(),
-            app_module => app_module,
+            app_module => context.app_module,
             type_name => &opaque_type.name,
         },
     ));

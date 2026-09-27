@@ -26,6 +26,8 @@ use super::typescript::config::render_global_setup;
 
 #[cfg(test)]
 mod excluded_type_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 mod snippet;
 
 /// WebAssembly e2e code generator.

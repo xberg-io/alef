@@ -309,6 +309,13 @@ pub(super) fn render_streaming_test_function(
 /// pseudo-field references (`chunks`, `no_chunks_after_done`, ...)
 /// to the local aggregator variables built by [`render_streaming_test_function`].
 fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
+    // `mock.*` (alef issue #443) never reaches `assertions::render_assertion` for a streaming
+    // fixture -- this function is the split-dispatch path the issue's own intel table named `c`
+    // for. Intercept first, exactly like that shared oracle does. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     let field = assertion.field.as_deref().unwrap_or("");
 
     enum Kind {
@@ -413,6 +420,29 @@ mod emit_chat_stream_assertion_tests {
     use super::emit_chat_stream_assertion;
     use crate::e2e::codegen::assertion_type_skip::AssertionTypeSkip;
     use crate::e2e::fixture::Assertion;
+
+    /// The split-dispatch regression alef issue #443 names `c` for: this function never calls
+    /// `assertions::render_assertion`, so a streaming fixture asserting `mock.*` reaches ONLY
+    /// this dispatcher. Before the interception at the top of `emit_chat_stream_assertion`, a
+    /// `mock.*` field fell through to `Kind::Unsupported` (the `_` arm on `field`) and rendered
+    /// `FieldSkip::StreamingAssertionOnUnsupportedField` -- alef's own capture gap misreported as
+    /// a fixture authoring problem. ~keep
+    #[test]
+    fn a_mock_capture_assertion_intercepts_before_the_unsupported_field_fallback() {
+        let assertion = Assertion {
+            assertion_type: "equals".into(),
+            field: Some("mock.requests.total".into()),
+            value: Some(serde_json::json!(2)),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+        emit_chat_stream_assertion(&mut out, &assertion);
+        assert_eq!(
+            out,
+            "    assert(alef_mock_request_count(getenv(\"MOCK_SERVER_URL\"), \"/__alef/requests/total?prefix=\") == 2 && \"equals assertion failed\");\n",
+            "got: {out}"
+        );
+    }
 
     /// ~keep Before this change, a `count_min` on `chunks` whose fixture `value` was not a `u64`
     /// (here a string) rendered NOTHING: the `if let Some(n) = ...` guard had no `else`, so the

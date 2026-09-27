@@ -5,6 +5,7 @@ use super::stubs::test_backend_out_err_var_name;
 use super::visitor::{emit_visitor_test_body, resolve_zig_visitor_call_symbols};
 use super::*;
 use crate::core::hash::{self, CommentStyle};
+use crate::e2e::codegen::mock_assertions;
 
 #[path = "snippet_stream.rs"]
 mod snippet_stream;
@@ -186,6 +187,18 @@ pub(super) fn render_test_file(
             );
         }
         let _ = writeln!(out);
+    }
+
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered tests actually call it. It is a top-level, non-`pub` function appended directly
+    // to `out` -- matching this backend's own `allow_private_network()` top-level helper -- so
+    // it needs no import list change (see `zig/mock_request_helper.zig.jinja`).
+    if let Ok(capture) = mock_assertions::mock_capture("zig")
+        && out.contains(capture.helper_name)
+        && let Some(rendered) = mock_assertions::render_helper("zig")
+    {
+        out.push('\n');
+        out.push_str(&rendered);
     }
 
     out
@@ -408,6 +421,19 @@ fn render_test_fn(
         .iter()
         .any(|a| assertion_emits_code(a, field_resolver));
 
+    // `mock.*` assertions (alef issue #443) always emit code -- a real call into the once-per-
+    // suite helper, self-contained via its own internal allocator (see
+    // `assertion_mock_capture`'s module doc) -- but that code never references `result_var` or
+    // the GPA `allocator` binding. Deliberately kept SEPARATE from `assertion_emits_code`/
+    // `any_happy_emits_code` rather than folded into them: those two gate whether `result_var`
+    // and the GPA allocator get bound at all, and a fixture whose ONLY assertion is `mock.*`
+    // must render its call without ever binding either, or the binding sits unused -- a Zig
+    // compile error. ~keep
+    let has_mock_assertions = fixture
+        .assertions
+        .iter()
+        .any(|a| a.field.as_deref().is_some_and(mock_assertions::is_mock_virtual_field));
+
     // Pre-compute streaming-virtual path conditions.
     let has_streaming_virtual_assertions = fixture.assertions.iter().any(|a| {
         a.field
@@ -605,12 +631,21 @@ fn render_test_fn(
                 "    const _result_json = try {call_prefix}.{function_name}({args_str});"
             );
             let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
-            let has_bytes_assertions = fixture
-                .assertions
-                .iter()
-                .any(|a| matches!(a.assertion_type.as_str(), "not_empty" | "is_empty"));
+            // ~keep `mock.*` (alef issue #443) is a THIRD assertion-rendering site in this
+            // backend, distinct from `render_json_assertion`/`render_assertion` -- this whole
+            // bytes-result branch inline-matches `assertion_type` instead of delegating to
+            // either, so it needs its own interception too, or a mock.* fixture on a
+            // bytes-returning client-factory call falls through to the `_ =>` arm's
+            // "not implemented for zig bytes" comment, silently dropping the check.
+            let has_bytes_assertions = fixture.assertions.iter().any(|a| {
+                matches!(a.assertion_type.as_str(), "not_empty" | "is_empty")
+                    || a.field.as_deref().is_some_and(mock_assertions::is_mock_virtual_field)
+            });
             if has_bytes_assertions {
                 for assertion in &fixture.assertions {
+                    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+                        continue;
+                    }
                     match assertion.assertion_type.as_str() {
                         "not_empty" => {
                             let _ = writeln!(out, "    try testing.expect(_result_json.len > 0);");
@@ -718,13 +753,19 @@ fn render_test_fn(
                     "    const _result_json = try {call_prefix}.{function_name}({args_str});"
                 );
                 let _ = writeln!(out, "    defer std.heap.c_allocator.free(_result_json);");
-                if any_emits_code {
-                    let _ = writeln!(
-                        out,
-                        "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
-                    );
-                    let _ = writeln!(out, "    defer _parsed.deinit();");
-                    let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                // `has_mock_assertions` alone must still reach the assertion loop: `mock.*` needs
+                // no JSON parse (its helper call is self-contained), so only bind
+                // `_parsed`/`result_var` when a REAL field assertion needs them -- binding them
+                // for a mock-only fixture would leave both unused, a Zig compile error. ~keep
+                if any_emits_code || has_mock_assertions {
+                    if any_emits_code {
+                        let _ = writeln!(
+                            out,
+                            "    var _parsed = try std.json.parseFromSlice(std.json.Value, allocator, _result_json, .{{}});"
+                        );
+                        let _ = writeln!(out, "    defer _parsed.deinit();");
+                        let _ = writeln!(out, "    const {result_var} = &_parsed.value;");
+                    }
                     let mut assertions_body = String::new();
                     for assertion in &fixture.assertions {
                         render_json_assertion(&mut assertions_body, assertion, result_var, field_resolver, false);
@@ -745,12 +786,19 @@ fn render_test_fn(
                     let _ = writeln!(out, "    std.debug.print(\"{{s}}\\n\", .{{_result_json}});");
                 }
             }
-        } else if any_emits_code {
+        } else if any_emits_code || has_mock_assertions {
             let try_kw = if call_returns_error_union { "try " } else { "" };
-            let _ = writeln!(
-                out,
-                "    const {result_var} = {try_kw}{call_prefix}.{function_name}({args_str});"
-            );
+            // A mock-only fixture still needs the call made (the mock server logs the request
+            // regardless of assertions), but must not bind `result_var` -- `mock.*`'s own
+            // rendered comparison never references it, so binding it here would leave it unused. ~keep
+            if any_emits_code {
+                let _ = writeln!(
+                    out,
+                    "    const {result_var} = {try_kw}{call_prefix}.{function_name}({args_str});"
+                );
+            } else {
+                let _ = writeln!(out, "    _ = {try_kw}{call_prefix}.{function_name}({args_str});");
+            }
             let mut assertions_body = String::new();
             for assertion in &fixture.assertions {
                 render_assertion(

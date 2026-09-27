@@ -131,10 +131,12 @@ impl E2eCodegen for ElixirCodegen {
                 &pkg_atom,
                 &pkg_dep_ref,
                 e2e_config.dep_mode,
-                has_http_tests,
-                has_mock_server_tests,
-                has_nif_tests,
-                uses_harness,
+                project::MixTestSurface {
+                    has_http_tests,
+                    has_mock_server_tests,
+                    has_nif_tests,
+                    uses_harness,
+                },
             ),
             generated_header: false,
         });
@@ -256,6 +258,7 @@ impl E2eCodegen for ElixirCodegen {
 }
 
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod http;
 mod project;
@@ -276,6 +279,8 @@ mod enum_field_classification_tests;
 mod is_empty_collection_tests;
 #[cfg(test)]
 mod is_true_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod not_error_bare_option_underscoring_tests;
 #[cfg(test)]

@@ -22,6 +22,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift/void_not_error_async.jinja"),
     ),
     (
+        "swift/mock_request_helper.swift.jinja",
+        include_str!("templates/swift/mock_request_helper.swift.jinja"),
+    ),
+    (
         "kotlin_android/excluded_fixtures.kt.jinja",
         include_str!("templates/kotlin_android/excluded_fixtures.kt.jinja"),
     ),
@@ -78,6 +82,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/java/mock_request_helper.java.jinja"),
     ),
     (
+        "kotlin/mock_request_helper.kt.jinja",
+        include_str!("templates/kotlin/mock_request_helper.kt.jinja"),
+    ),
+    (
+        "csharp/mock_request_helper.cs.jinja",
+        include_str!("templates/csharp/mock_request_helper.cs.jinja"),
+    ),
+    (
+        "zig/mock_request_helper.zig.jinja",
+        include_str!("templates/zig/mock_request_helper.zig.jinja"),
+    ),
+    (
+        "gleam/mock_request_helper.gleam.jinja",
+        include_str!("templates/gleam/mock_request_helper.gleam.jinja"),
+    ),
+    (
         "typescript/typed_binding.jinja",
         include_str!("templates/typescript/typed_binding.jinja"),
     ),
@@ -131,6 +151,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "c/snippet_void_call.jinja",
         include_str!("templates/c/snippet_void_call.jinja"),
+    ),
+    (
+        "c/mock_request_helper.c.jinja",
+        include_str!("templates/c/mock_request_helper.c.jinja"),
     ),
     (
         "c/snippet_status_call.jinja",
@@ -244,6 +268,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "r/synthetic_assertion.jinja",
         include_str!("templates/r/synthetic_assertion.jinja"),
+    ),
+    (
+        "r/mock_request_helper.jinja",
+        include_str!("templates/r/mock_request_helper.jinja"),
     ),
     (
         "php/composer.json.jinja",
@@ -597,6 +625,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/elixir/test_helper_mock_server.exs.jinja"),
     ),
     (
+        "elixir/mock_request_helper.exs.jinja",
+        include_str!("templates/elixir/mock_request_helper.exs.jinja"),
+    ),
+    (
         "dart/app_harness.dart.jinja",
         include_str!("templates/dart/app_harness.dart.jinja"),
     ),
@@ -612,6 +644,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "dart/void_not_error_call.jinja",
         include_str!("templates/dart/void_not_error_call.jinja"),
+    ),
+    (
+        "dart/mock_request_helper.dart.jinja",
+        include_str!("templates/dart/mock_request_helper.dart.jinja"),
     ),
     (
         "swift/app_harness.swift.jinja",

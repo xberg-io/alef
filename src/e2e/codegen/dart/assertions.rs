@@ -67,6 +67,16 @@ pub(super) fn render_assertion_dart(
     result_is_simple: bool,
     field_resolver: &FieldResolver,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443) resolve against the mock server's
+    // own request log, never the FRB result type this function otherwise resolves fields
+    // against -- intercept before every other branch, including the `is_valid_for_result` guard
+    // immediately below (a `mock.*` field is never `is_valid_for_result`, so that guard would
+    // otherwise render it as `FieldSkip::NotAvailableOnDartResultType`, blaming the fixture for
+    // alef's own gap). ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Skip assertions on fields that don't exist on the dart result type. This must run
     // BEFORE the array-traversal and standard accessor paths since both emit code that
     // references the field — an unknown field path produces an `isn't defined` error.
@@ -725,6 +735,17 @@ pub(super) fn render_assertion_dart(
 ///
 /// Other assertion types are emitted as comments.
 pub(super) fn render_streaming_assertion_dart(out: &mut String, assertion: &Assertion, result_var: &str) {
+    // `mock.*` request-count virtual fields (alef issue #443) resolve against the mock server's
+    // own request log, never the streaming aggregator locals this function otherwise renders
+    // against -- intercept before any of that streaming-specific dispatch. `test_case.rs`'s
+    // `emit_call_and_assertions` dispatches EITHER here OR to `render_assertion_dart` per
+    // fixture, never both (`is_streaming` picks exactly one), so a streaming Dart fixture's
+    // `mock.*` assertion reaches this interception instead of `render_assertion_dart`'s own copy,
+    // which only ever sees non-streaming fixtures. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     match assertion.assertion_type.as_str() {
         "not_error" => {
             // `.toList()` would have thrown to fail the test on error; emit an

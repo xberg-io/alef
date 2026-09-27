@@ -36,6 +36,16 @@ pub(super) fn render_assertion(
     returns_void: bool,
     module_name: &str,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock server's
+    // own request log via the once-per-suite helper, never a struct field -- intercept before
+    // EVERY other branch below, including the streaming-virtual-field interception immediately
+    // following (a streaming fixture may still assert a `mock.*` count against the mock server's
+    // request log, not the collected `chunks` array) and the `result_is_option` handling further
+    // down. See `assertion_mock_capture`'s own doc for why this must come first. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // When the bare result is `Optional<T>` (no field path) the opaque class
     // exposed by swift-bridge has no `.toString()` method, so the usual
     // `.toString().isEmpty` pattern produces compile errors. Detect the

@@ -31,6 +31,8 @@ pub(crate) mod query;
 pub(crate) mod snippets;
 
 #[cfg(test)]
+mod cross_backend_matrix_tests;
+#[cfg(test)]
 mod tests;
 
 pub(crate) use helper::render_helper;

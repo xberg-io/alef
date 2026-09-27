@@ -19,22 +19,28 @@ pub(super) fn render_wildcard_assertion(
     napi_enum_tag: Option<&str>,
 ) {
     let guarded = format!("({array_accessor} ?? [])");
+    let element = WildcardElement {
+        guarded: &guarded,
+        elem_accessor,
+        field,
+        napi_enum_tag,
+    };
     match assertion.assertion_type.as_str() {
         "contains" => {
             if let Some(expected) = &assertion.value {
-                push_quantifier(out, &guarded, elem_accessor, expected, true, field, napi_enum_tag);
+                push_quantifier(out, &element, expected, true);
             }
         }
         "contains_all" => {
             if let Some(values) = &assertion.values {
                 for val in values {
-                    push_quantifier(out, &guarded, elem_accessor, val, true, field, napi_enum_tag);
+                    push_quantifier(out, &element, val, true);
                 }
             }
         }
         "not_contains" => {
             for expected in assertion.expected_values() {
-                push_quantifier(out, &guarded, elem_accessor, expected, false, field, napi_enum_tag);
+                push_quantifier(out, &element, expected, false);
             }
         }
         "not_empty" => {
@@ -54,23 +60,26 @@ pub(super) fn render_wildcard_assertion(
     }
 }
 
+/// The wildcard element context shared by every quantified check within one
+/// `render_wildcard_assertion` call: the guarded array expression, the per-element accessor, the
+/// source field (for skip messages), and the napi enum discriminant key when the element is a
+/// tagged union. Bundled so `push_quantifier` stays at 4 parameters. ~keep
+struct WildcardElement<'a> {
+    guarded: &'a str,
+    elem_accessor: &'a str,
+    field: &'a str,
+    napi_enum_tag: Option<&'a str>,
+}
+
 /// Push one quantified element check, or — when the expected value admits no sound element
 /// comparison — a visible skip instead of an assertion that would pass for the wrong reason.
-fn push_quantifier(
-    out: &mut String,
-    guarded: &str,
-    elem_accessor: &str,
-    expected: &serde_json::Value,
-    truth: bool,
-    field: &str,
-    napi_enum_tag: Option<&str>,
-) {
-    match element_predicate(elem_accessor, expected, napi_enum_tag) {
+fn push_quantifier(out: &mut String, element: &WildcardElement<'_>, expected: &serde_json::Value, truth: bool) {
+    match element_predicate(element.elem_accessor, expected, element.napi_enum_tag) {
         Some(predicate) => {
             let truth_literal = if truth { "true" } else { "false" };
             out.push_str(&render(minijinja::context! {
                 kind => "quantifier",
-                guarded => guarded,
+                guarded => element.guarded,
                 predicate => predicate,
                 truth => truth_literal,
             }));
@@ -78,7 +87,7 @@ fn push_quantifier(
         None => out.push_str(&render(minijinja::context! {
             kind => "unsupported_value",
             value_kind => value_kind(expected),
-            field => field,
+            field => element.field,
         })),
     }
 }

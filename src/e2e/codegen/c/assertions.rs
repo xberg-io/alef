@@ -1745,6 +1745,15 @@ pub(super) fn render_assertion(
     opaque_handle_locals: &HashMap<String, String>,
     wildcard_locals: &HashMap<String, (String, String)>,
 ) {
+    // `mock.*` (alef issue #443) resolves against the mock server's own request log, not a field
+    // of the result type -- intercept before every other branch, including the
+    // `is_valid_for_result` skip immediately below, which would otherwise misreport it as
+    // `FieldSkip::NotAvailableOnResultType`. See `assertion_mock_capture`'s module doc for the
+    // full inventory of call sites this backend needed. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field
         && !f.is_empty()

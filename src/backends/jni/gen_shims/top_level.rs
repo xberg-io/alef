@@ -303,17 +303,16 @@ fn emit_jni_client_type_shims(
     excluded_functions: &std::collections::HashSet<&str>,
 ) {
     let opaque_types = jni_opaque_type_names(api);
+    let context = ClientTypeShimContext {
+        api,
+        config,
+        package,
+        bridge,
+        exclude_functions: excluded_functions,
+        opaque_type_names: &opaque_types,
+    };
     for type_def in client_types {
-        emit_client_shims(
-            out,
-            type_def,
-            api,
-            config,
-            package,
-            bridge,
-            excluded_functions,
-            &opaque_types,
-        );
+        emit_client_shims(out, type_def, &context);
     }
 }
 

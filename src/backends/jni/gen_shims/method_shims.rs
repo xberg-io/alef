@@ -4,30 +4,28 @@ struct MethodReturnShape<'a> {
     optional_opaque: bool,
 }
 
+/// The receiver-identifying values `emit_method_shim`/`emit_method_shim_header` need alongside
+/// the method itself: which client type owns the handle and how it must be borrowed. Built once
+/// by the caller in `client_shims.rs` (which already computes these three values) and threaded
+/// through unchanged, keeping both functions' own parameter counts under the lint limit. ~keep
+struct MethodShimReceiver<'a> {
+    type_name: &'a str,
+    receiver_is_mut: bool,
+    receiver_owned: bool,
+}
+
 /// Emit a shim for an instance method on an opaque client type.
-#[allow(clippy::too_many_arguments)]
 fn emit_method_shim(
     out: &mut String,
     symbol: &str,
-    type_name: &str,
     method: &MethodDef,
-    receiver_is_mut: bool,
-    receiver_owned: bool,
+    receiver: &MethodShimReceiver<'_>,
     opaque_type_names: &std::collections::HashSet<&str>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
 ) {
     let shape = method_return_shape(&method.return_type, opaque_type_names, capsule_types);
     let return_null = method_return_null_value(&method.return_type, &shape);
-    emit_method_shim_header(
-        out,
-        symbol,
-        type_name,
-        method,
-        receiver_is_mut,
-        receiver_owned,
-        &shape,
-        return_null,
-    );
+    emit_method_shim_header(out, symbol, method, receiver, &shape, return_null);
     let call_args = emit_method_call_args(out, &method.params, return_null);
     let rust_method = method.name.replace('-', "_");
     let call_expression = method_call_expression(&rust_method, &call_args);
@@ -60,14 +58,11 @@ fn method_return_shape<'a>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_method_shim_header(
     out: &mut String,
     symbol: &str,
-    type_name: &str,
     method: &MethodDef,
-    receiver_is_mut: bool,
-    receiver_owned: bool,
+    receiver: &MethodShimReceiver<'_>,
     shape: &MethodReturnShape<'_>,
     return_null: &str,
 ) {
@@ -82,9 +77,9 @@ fn emit_method_shim_header(
     out.push_str(&template_env::render(
         "method_client_handle.rs.jinja",
         context! {
-            receiver_owned => receiver_owned,
-            receiver_is_mut => receiver_is_mut,
-            type_name => type_name,
+            receiver_owned => receiver.receiver_owned,
+            receiver_is_mut => receiver.receiver_is_mut,
+            type_name => receiver.type_name,
             ret_null => return_null,
         },
     ));
@@ -261,11 +256,13 @@ fn emit_method_return(
     render_call_result_body(
         out,
         call_expression,
-        method.is_async,
-        has_error,
-        return_null,
-        ok_body,
-        value_body,
+        &CallResultShape {
+            is_async: method.is_async,
+            has_error,
+            ret_null: return_null,
+            ok_body,
+            value_body,
+        },
     );
 }
 
@@ -323,27 +320,30 @@ fn capsule_owned_value(binding: &str, returns_ref: bool, returns_cow: bool) -> S
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_call_result_body(
-    out: &mut String,
-    call_expr: &str,
+/// The result-shaping values `render_call_result_body` needs alongside the call expression
+/// itself. Local to this (merged, `include!`-based) `gen_shims` module: shared by its three call
+/// sites here, in `function_shims.rs`, and in `value_method_shims.rs`, each of which already
+/// computes these values before rendering. ~keep
+struct CallResultShape<'a> {
     is_async: bool,
     has_error: bool,
-    ret_null: &str,
-    ok_body: &str,
-    value_body: &str,
-) {
+    ret_null: &'a str,
+    ok_body: &'a str,
+    value_body: &'a str,
+}
+
+fn render_call_result_body(out: &mut String, call_expr: &str, shape: &CallResultShape<'_>) {
     let async_call_expr = format!("runtime().block_on({call_expr})");
     out.push_str(&template_env::render(
         "call_result_body.rs.jinja",
         context! {
             call_expr => call_expr,
             async_call_expr => async_call_expr,
-            is_async => is_async,
-            has_error => has_error,
-            ret_null => ret_null,
-            ok_body => ok_body,
-            value_body => value_body,
+            is_async => shape.is_async,
+            has_error => shape.has_error,
+            ret_null => shape.ret_null,
+            ok_body => shape.ok_body,
+            value_body => shape.value_body,
         },
     ));
 }

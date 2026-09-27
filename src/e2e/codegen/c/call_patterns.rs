@@ -1,5 +1,6 @@
 //! C e2e special call-pattern test rendering.
 
+use crate::e2e::codegen::mock_assertions::is_mock_virtual_field;
 use crate::e2e::codegen::transform_json_keys_for_language;
 use crate::e2e::escape::escape_c;
 use crate::e2e::field_access::FieldResolver;
@@ -59,9 +60,14 @@ pub(super) fn render_engine_factory_test_function(
     // An assertion is "active" when it has a field that is valid for the result type.
     // Error-only assertions are NOT treated as active for the engine factory pattern
     // because C's kcrawl_scrape() doesn't replicate batch/validation error semantics.
+    // `mock.*` (alef issue #443) is never "valid for result type" -- it targets the mock
+    // server's own request log, not a field of the result -- so without the `is_mock_virtual_field`
+    // arm, a fixture whose ONLY assertion is `mock.*` would measure zero active assertions and
+    // take the soft-null-guard branch below, which renders no assertions at all: a silent full
+    // drop, worse than `FieldSkip::NotAvailableOnResultType`. ~keep
     let has_active_assertions = fixture.assertions.iter().any(|a| {
         if let Some(f) = &a.field {
-            !f.is_empty() && field_resolver.is_valid_for_result(f)
+            !f.is_empty() && (field_resolver.is_valid_for_result(f) || is_mock_virtual_field(f))
         } else {
             false
         }
@@ -252,6 +258,12 @@ pub(super) fn render_engine_factory_test_function(
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field
             && !f.is_empty()
+            // `field_resolver.is_valid_for_result` is permissive by default -- with no
+            // `result_fields`/IR anchoring configured (the common case) it returns `true` for
+            // ANY name, `mock.*` (alef issue #443) included, so it alone does not keep `mock.*`
+            // out of accessor-chain extraction. Caught by `mock_capture_regression_tests`
+            // exercising a realistically-permissive resolver instead of an empty one. ~keep
+            && !is_mock_virtual_field(f)
             && field_resolver.is_valid_for_result(f)
             && !accessed_fields.iter().any(|(k, _, _)| k == f)
         {
@@ -607,6 +619,13 @@ pub(super) fn render_bytes_test_function(
     // `out_len > 0`.
     let mut emitted_len_check = false;
     for assertion in &fixture.assertions {
+        // `mock.*` (alef issue #443) is not a pseudo-field of the byte buffer -- without this,
+        // any assertion type other than `not_error`/`not_empty`/`not_null` (every `mock.*`
+        // comparison included) fell into the catch-all "not meaningful on raw byte buffer"
+        // comment below. Intercept first. ~keep
+        if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+            continue;
+        }
         match assertion.assertion_type.as_str() {
             "not_error" => {
                 // Already covered by the status == 0 assertion above.
@@ -641,5 +660,7 @@ pub(super) fn render_bytes_test_function(
 
 #[cfg(test)]
 mod batch_url_regression_tests;
+#[cfg(test)]
+mod mock_capture_regression_tests;
 #[cfg(test)]
 mod namespace_strip_tests;

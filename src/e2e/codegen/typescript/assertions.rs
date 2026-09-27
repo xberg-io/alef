@@ -69,6 +69,21 @@ pub(super) fn render_assertion_with_streaming_item_type(
         return;
     }
 
+    // `mock.*` request-count virtual fields (alef issue #443) resolve against the mock server's
+    // own request log, never the call's actual result. Intercept before every result-shape gate
+    // below -- most importantly `result_is_simple`'s length-only dispatch just below, which would
+    // otherwise treat a `mock.requests.total equals 3` fixture on a `result_is_simple` call as a
+    // `count_equals` check on the RPC result's own length instead of a call to the mock helper.
+    // `render_synthetic_field_assertion` used to be where this was checked, but that dispatch
+    // sits AFTER the `result_is_simple` block, so a capture-table row without this earlier
+    // interception silently misroutes exactly the way alef issue #443 warns against. ~keep
+    if let Some(f) = assertion.field.as_deref()
+        && crate::e2e::codegen::mock_assertions::is_mock_virtual_field(f)
+        && mock_capture::render(out, assertion, f, lang)
+    {
+        return;
+    }
+
     // For simple-result methods (e.g., `speech` returning bytes/Buffer), every
     // field-based assertion targets the result itself — there is no struct to
     // access. Drop length-only assertions onto the result directly and skip
@@ -378,14 +393,10 @@ fn render_synthetic_field_assertion(
             ));
             true
         }
-        // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
-        // server's own request log via the once-per-suite helper, never a struct field.
-        // Checked ahead of the streaming arm below (order does not matter between the two --
-        // their field grammars are disjoint) and unconditionally, unlike streaming's `is_streaming`
-        // gate: a `mock.*` assertion is legal on either kind of fixture.
-        f if crate::e2e::codegen::mock_assertions::is_mock_virtual_field(f) => {
-            mock_capture::render(out, assertion, f, lang)
-        }
+        // `mock.*` fields are intercepted earlier, at the top of
+        // `render_assertion_with_streaming_item_type`, before the `result_is_simple` gate this
+        // dispatch sits after -- see that interception's comment. Never re-add an arm for them
+        // here; a field reaching this match has already had its chance to be a `mock.*` field.
         // Streaming virtual fields resolve against the `chunks` collected-list variable.
         // Skip the streaming interception entirely when the call has opted out
         // (`[e2e.calls.<name>] streaming = false`) — `chunks` then names a plain

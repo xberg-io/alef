@@ -1,6 +1,7 @@
 //! C e2e per-fixture test function rendering.
 
 use crate::core::config::ResolvedCrateConfig;
+use crate::e2e::codegen::mock_assertions::is_mock_virtual_field;
 use crate::e2e::codegen::transform_json_keys_for_language;
 use crate::e2e::escape::{escape_c, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
@@ -887,6 +888,11 @@ pub(super) fn render_test_function_impl(
         for assertion in &fixture.assertions {
             if let Some(f) = &assertion.field
                 && !f.is_empty()
+                // `mock.*` (alef issue #443) is not a field of the result type at all -- it
+                // must never enter accessor-chain extraction (which would either emit a bogus
+                // `{prefix}_{type}_mock(...)` call or `bail!` via `ensure_leaf_field_exists`).
+                // `assertions::render_assertion` renders it directly instead. ~keep
+                && !is_mock_virtual_field(f)
                 && !accessed_fields.iter().any(|(k, _, _)| k == f)
             {
                 // Strips virtual namespace prefixes (e.g. "interaction.action_results[0].x"
@@ -1115,6 +1121,14 @@ pub(super) fn render_test_function_impl(
 
         // Other assertions.
         for assertion in &fixture.assertions {
+            // `mock.*` (alef issue #443) targets the mock server's request log, never
+            // `result_var` -- this whole `match` is keyed off `result_var` and knows nothing
+            // about `assertion.field`, so without this it would (for e.g. `equals`) compare the
+            // raw scalar result against the mock count and compile a silently wrong assertion,
+            // not skip. Intercept first. ~keep
+            if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+                continue;
+            }
             match assertion.assertion_type.as_str() {
                 "not_error" | "error" => {} // handled above / not applicable
                 "not_empty" => {
@@ -1387,6 +1401,9 @@ pub(super) fn render_test_function_impl(
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field
             && !f.is_empty()
+            // See the identical guard's comment in the client-factory extraction loop above --
+            // `mock.*` (alef issue #443) must skip accessor-chain extraction entirely. ~keep
+            && !is_mock_virtual_field(f)
             && !accessed_fields.iter().any(|(k, _, _)| k == f)
         {
             // Strips virtual namespace prefixes (e.g. "interaction.action_results[0].x"
@@ -1857,3 +1874,7 @@ mod snippet_tests {
         assert!(body.contains("sample_chat_response_free(result);"), "{body}");
     }
 }
+
+#[cfg(test)]
+#[path = "test_function/mock_capture_raw_type_tests.rs"]
+mod mock_capture_raw_type_tests;

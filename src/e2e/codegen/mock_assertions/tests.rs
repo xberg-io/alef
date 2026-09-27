@@ -13,11 +13,14 @@ use super::{ensure_capture_declared, snippets};
 /// A real generator language name with no `mock.*` capture-table entry, for every test below.
 ///
 /// ~keep Must stay a language `snippets::MOCK_CAPTURE_TABLE` has no row for -- `go`, `ruby`,
-/// `php` and `java` all gained one in the alef #443 fan-out wave, so this constant has already
-/// had to move once. `the_scenario_language_really_has_no_capture` is the tripwire: it fails
-/// loudly the moment this drifts, rather than letting every other test in this file quietly stop
-/// proving anything.
-const UNWIRED_LANGUAGE: &str = "csharp";
+/// `php`, `java`, `kotlin`, `kotlin_android` and `csharp` all gained one across the alef #443
+/// fan-out waves, so this constant has already had to move twice. `homebrew` is chosen instead of
+/// another "not wired yet" language because it is structurally exempt: it renders no field-access
+/// assertions at all (see `mock_assertions::mod`'s doc), so it can never gain a capture-table row
+/// and this constant should not need to move again. `the_scenario_language_really_has_no_capture`
+/// is the tripwire: it fails loudly the moment this drifts, rather than letting every other test
+/// in this file quietly stop proving anything.
+const UNWIRED_LANGUAGE: &str = "homebrew";
 
 fn mock_total_fixture(id: &str) -> Fixture {
     Fixture {
@@ -136,7 +139,7 @@ fn an_acknowledged_gap_does_not_fail_generation() {
     fixture.assertions[0].skip = Some(AssertionSkip::Scoped(AssertionSkipDirective {
         languages: vec![UNWIRED_LANGUAGE.to_string()],
         kind: AssertionSkipKind::LanguageLimitation,
-        reason: Some("csharp capture not wired yet".to_string()),
+        reason: Some("homebrew capture not wired yet".to_string()),
     }));
     let groups = one_group(fixture);
     assert!(ensure_capture_declared(&groups, &included_e2e_config(), UNWIRED_LANGUAGE).is_ok());

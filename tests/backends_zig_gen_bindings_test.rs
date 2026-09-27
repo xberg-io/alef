@@ -1236,6 +1236,38 @@ fn coded_error_variants_still_dispatch_each_code_to_its_own_variant() {
     );
 }
 
+/// The error-set declaration (`errors.rs`) and the code->variant dispatch (`helpers.rs`) derive
+/// the same name independently. Both must apply the SAME casing, or the generated Zig dispatches
+/// to a member the error set does not declare and will not compile.
+///
+/// ~keep The pre-existing coded-variant test above cannot catch that: its fixture variants are
+/// already PascalCase (`NotFound`, `Timeout`), so both sites agree no matter which helper they
+/// use. This one feeds a genuinely snake_case `ErrorVariant.name` -- the bare extracted ident,
+/// which is what the real extractor produces -- and pins that BOTH sites PascalCase it. alef
+/// issue #467 shipped with the two disagreeing.
+#[test]
+fn snake_case_error_variant_is_pascal_cased_identically_in_the_set_and_the_dispatch() {
+    let mut api = demo_api_with_error_codes(Some((7, 9)));
+    api.errors[0].variants[0].name = "connection_failed".into();
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("ConnectionFailed,"),
+        "the error set must declare the PascalCase member: {content}"
+    );
+    assert!(
+        content.contains("7 => error.ConnectionFailed,"),
+        "the dispatch must name the SAME PascalCase member the set declares -- a snake_case \
+         `error.connection_failed` here names a non-member and fails to compile: {content}"
+    );
+    assert!(
+        !content.contains("error.connection_failed"),
+        "no dispatch arm may keep the raw snake_case ident: {content}"
+    );
+}
+
 /// A fallible function with a String parameter must also defer the free, so
 /// the sentinel buffer is alive across the C call AND the error-code check.
 #[test]

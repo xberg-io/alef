@@ -9,13 +9,22 @@ use crate::core::ir::{ApiSurface, FunctionDef, TypeDef};
 
 use super::super::assemble_kt_content;
 
+/// Shared, per-crate emission context for [`emit_handle_wrappers`] and [`emit_handle_wrapper`].
+/// Bundled purely to keep both functions under poly's `too-many-parameters` limit -- no behavior
+/// change, `files` stays a separate `&mut` output parameter since it accumulates across every
+/// handle type rather than describing one of them, and `api`/`visible_functions` stay direct
+/// parameters on `emit_handle_wrappers` since `emit_handle_wrapper` never needs them.
+pub(super) struct HandleWrapperContext<'a> {
+    pub(super) config: &'a ResolvedCrateConfig,
+    pub(super) kotlin_source_dir: &'a Path,
+    pub(super) package: &'a str,
+    pub(super) bridge_name: &'a str,
+}
+
 pub(super) fn emit_handle_wrappers(
     api: &ApiSurface,
-    config: &ResolvedCrateConfig,
-    kotlin_source_dir: &Path,
-    package: &str,
+    context: &HandleWrapperContext,
     files: &mut Vec<GeneratedFile>,
-    bridge_name: &str,
     visible_functions: &[&FunctionDef],
 ) {
     let client_types: HashSet<&str> = api
@@ -30,12 +39,14 @@ pub(super) fn emit_handle_wrappers(
         .filter(|type_def| type_def.is_opaque && !type_def.is_trait)
         .map(|type_def| type_def.name.as_str())
         .collect();
-    let exclude_functions: HashSet<String> = config
+    let exclude_functions: HashSet<String> = context
+        .config
         .kotlin_android
         .as_ref()
         .map(|android| android.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
-    let capsule_types = config
+    let capsule_types = context
+        .config
         .kotlin_android
         .as_ref()
         .map(|android| android.capsule_types.clone())
@@ -60,15 +71,7 @@ pub(super) fn emit_handle_wrappers(
         .map(|type_def| (type_def.name.as_str(), type_def))
         .collect();
     for (class_name, type_def) in handle_types {
-        emit_handle_wrapper(
-            config,
-            kotlin_source_dir,
-            package,
-            files,
-            bridge_name,
-            class_name,
-            type_def,
-        );
+        emit_handle_wrapper(context, files, class_name, type_def);
     }
 }
 
@@ -82,11 +85,8 @@ fn has_instance_methods(type_def: &TypeDef) -> bool {
 }
 
 fn emit_handle_wrapper(
-    config: &ResolvedCrateConfig,
-    kotlin_source_dir: &Path,
-    package: &str,
+    context: &HandleWrapperContext,
     files: &mut Vec<GeneratedFile>,
-    bridge_name: &str,
     class_name: &str,
     type_def: &TypeDef,
 ) {
@@ -95,19 +95,19 @@ fn emit_handle_wrapper(
     if !type_def.doc.is_empty() {
         emit_kdoc_pub(&mut body, &type_def.doc, "");
     }
-    append_handle_header(&mut body, class_name, bridge_name);
-    let adapters = streaming_adapters(config, class_name);
+    append_handle_header(&mut body, class_name, context.bridge_name);
+    let adapters = streaming_adapters(context.config, class_name);
     if !adapters.is_empty() {
         add_streaming_imports(&mut imports);
         append_streaming_mapper(&mut body);
         for adapter in adapters {
-            append_streaming_method(&mut body, adapter, class_name, bridge_name);
+            append_streaming_method(&mut body, adapter, class_name, context.bridge_name);
         }
     }
     body.push_str("}\n");
     files.push(GeneratedFile {
-        path: kotlin_source_dir.join(format!("{class_name}.kt")),
-        content: assemble_kt_content(package, &imports, &body),
+        path: context.kotlin_source_dir.join(format!("{class_name}.kt")),
+        content: assemble_kt_content(context.package, &imports, &body),
         generated_header: false,
     });
 }

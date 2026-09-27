@@ -8,10 +8,13 @@
 //! `test_case.rs`/`http_test.jinja`), so -- unlike the Python backend -- there is no sync/async
 //! split to thread through here: `await` is always valid.
 //!
-//! Only `"node"` has a `mock_assertions::snippets::mock_capture` entry; `"wasm"` (this file also
-//! backs the WASM generator) does not, so [`render`] returns `false` for it and the caller falls
-//! through to whatever WASM's own (pre-existing) field-refusal/skip handling does -- unchanged by
-//! this module, and out of the reference-backend wave's scope.
+//! `"node"` and `"wasm"` both have a `mock_assertions::snippets::mock_capture` entry -- the WASM
+//! e2e generator (`e2e::codegen::wasm`) renders its test files through this same
+//! `typescript::render_test_file` / `render_assertion` machinery (with `lang = "wasm"`), running
+//! under the identical vitest-on-Node.js harness `"node"` uses, so one template and one call site
+//! serve both. [`render`] returns `false` only for a language with no capture-table entry at all,
+//! in which case the caller falls through to whatever that language's own (pre-existing)
+//! field-refusal/skip handling does.
 
 use crate::e2e::codegen::mock_assertions::{build_path_and_query, mock_capture, parse_mock_field};
 use crate::e2e::fixture::Assertion;

@@ -85,14 +85,21 @@ ExUnit.start()
     }
 }
 
+/// Which kinds of e2e tests this generated suite contains, used to decide which optional mix
+/// deps (`:rustler` + its NIF loader, or `:finch` + `:req` + `:jason`) the manifest must declare.
+/// Bundled so `render_mix_exs` stays at 4 parameters. ~keep
+pub(super) struct MixTestSurface {
+    pub(super) has_http_tests: bool,
+    pub(super) has_mock_server_tests: bool,
+    pub(super) has_nif_tests: bool,
+    pub(super) uses_harness: bool,
+}
+
 pub(super) fn render_mix_exs(
     pkg_name: &str,
     pkg_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
-    has_http_tests: bool,
-    has_mock_server_tests: bool,
-    has_nif_tests: bool,
-    uses_harness: bool,
+    test_surface: MixTestSurface,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
@@ -114,7 +121,7 @@ pub(super) fn render_mix_exs(
     let mut deps: Vec<String> = Vec::new();
 
     // Add the binding NIF dependency when there are non-HTTP tests.
-    if has_nif_tests && !pkg_path.is_empty() {
+    if test_surface.has_nif_tests && !pkg_path.is_empty() {
         let pkg_atom = pkg_name;
         let nif_dep = match dep_mode {
             crate::e2e::config::DependencyMode::Local => {
@@ -152,7 +159,7 @@ pub(super) fn render_mix_exs(
     // Finch without the corresponding mix dep, producing
     // `(UndefinedFunctionError) function Finch.start_link/1 is undefined`
     // at `mix test`.
-    if has_http_tests || has_mock_server_tests || uses_harness {
+    if test_surface.has_http_tests || test_surface.has_mock_server_tests || test_surface.uses_harness {
         deps.push(format!("      {{:finch, \"{finch}\"}}", finch = tv::hex::FINCH));
         deps.push(format!("      {{:req, \"{req}\"}}", req = tv::hex::REQ));
         deps.push(format!("      {{:jason, \"{jason}\"}}", jason = tv::hex::JASON));

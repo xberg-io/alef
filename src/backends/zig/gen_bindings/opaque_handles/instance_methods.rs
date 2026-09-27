@@ -12,7 +12,7 @@ use super::params::{
     emit_method_param_conversion, emit_method_param_free, method_c_arg_names, method_param_needs_alloc,
     method_param_needs_from_json, param_zig_type_with_enums,
 };
-use crate::backends::zig::gen_bindings::result_presence::{METHOD_INDENT, result_presence_gate};
+use crate::backends::zig::gen_bindings::result_presence::{METHOD_INDENT, PresenceTarget, result_presence_gate};
 
 use super::render;
 use super::returns::method_unwrap_return_expr;
@@ -230,8 +230,10 @@ fn emit_method_body(
     // clears the crate's last-error slot on entry. Method parameter teardown emits nothing, so
     // the gate has no cleanup to carry. ~keep
     if let Some(gate) = result_presence_gate(
-        &method.return_type,
-        method.receiver.as_ref(),
+        PresenceTarget {
+            return_type: &method.return_type,
+            receiver: method.receiver.as_ref(),
+        },
         c_call,
         prefix,
         METHOD_INDENT,

@@ -21,7 +21,7 @@ use crate::codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeSpec, ge
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, TypeDef};
 use std::collections::{HashMap, HashSet};
-use visitor_bridge::gen_visitor_bridge;
+use visitor_bridge::{VisitorBridgeInputs, gen_visitor_bridge};
 
 /// The `exclude_languages` spellings that name this target: the language (`"python"`) and the
 /// backend (`"pyo3"`). Both are honoured so a consumer who names either one gets the same answer
@@ -123,17 +123,14 @@ pub(crate) fn gen_trait_bridge_with_absent_types(
     if is_visitor_bridge(trait_type, bridge_cfg) {
         let trait_path = trait_type.rust_path.replace('-', "_");
         let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
-        let code = gen_visitor_bridge(
-            trait_type,
-            bridge_cfg,
-            &struct_name,
-            &trait_path,
-            core_import,
-            &type_paths,
+        let visitor_inputs = VisitorBridgeInputs {
+            core_crate: core_import,
+            type_paths: &type_paths,
             api,
             pyclass_absent_types,
             core_to_binding_convertible_types,
-        )?;
+        };
+        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &visitor_inputs)?;
         Ok(BridgeOutput { imports: vec![], code })
     } else {
         // Python object (the `#[pyclass]`, built via the same `From<core::T>` conversion used for

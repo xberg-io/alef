@@ -10,6 +10,17 @@ use super::super::marshal::{ffi_param_args, marshal_param_to_ffi, opaque_lease_r
 use super::params_returns::return_type_name;
 use super::visitor_bridge::VisitorFunctionBridge;
 
+/// The three lookup sets used together to classify and marshal a visitor method's non-bridge
+/// parameters. Threaded as a unit through the visitor-method emission helpers below. `pub(super)`
+/// because `gen_convert_with_visitor_internal_method`'s call site in the parent module
+/// (`ffi_class.rs`) also constructs one, to keep that function's own parameter count under the
+/// lint limit.
+pub(super) struct BridgeParamContext<'a> {
+    pub(super) opaque_types: &'a AHashSet<String>,
+    pub(super) bridge_param_names: &'a HashSet<String>,
+    pub(super) bridge_type_aliases: &'a HashSet<String>,
+}
+
 fn effective_param_type(param: &crate::core::ir::ParamDef) -> TypeRef {
     if param.optional && !matches!(param.ty, TypeRef::Optional(_)) {
         TypeRef::Optional(Box::new(param.ty.clone()))
@@ -183,15 +194,12 @@ fn emit_visitor_cleanup(out: &mut String, prefix_upper: &str, exception_class: &
     out.push_str("    }\n");
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_visitor_method_open(
     out: &mut String,
     func: &FunctionDef,
     prefix: &str,
     exception_class: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
+    params: &BridgeParamContext<'_>,
     bridge: &VisitorFunctionBridge,
 ) {
     out.push_str(&crate::backends::java::template_env::render(
@@ -199,30 +207,40 @@ fn emit_visitor_method_open(
         minijinja::context! {
             return_type => java_return_type(&func.return_type),
             method_name => &bridge.internal_method_name,
-            params => visitor_method_params(func, bridge_param_names, bridge_type_aliases),
+            params => visitor_method_params(func, params.bridge_param_names, params.bridge_type_aliases),
             exception_class,
         },
     ));
     out.push_str("        try (var arena = Arena.ofShared();\n");
     out.push_str("             var nativeResources = new NativeResources();\n");
-    emit_visitor_resources(out, func, opaque_types, bridge_param_names, bridge_type_aliases);
+    emit_visitor_resources(
+        out,
+        func,
+        params.opaque_types,
+        params.bridge_param_names,
+        params.bridge_type_aliases,
+    );
     out.push_str("             var bridge = new VisitorBridge(");
     out.push_str(&bridge.options_param_java);
     out.push('.');
     out.push_str(&bridge.options_field_java);
     out.push_str("())) {\n");
-    emit_visitor_param_marshalling(out, func, prefix, opaque_types, bridge_param_names, bridge_type_aliases);
+    emit_visitor_param_marshalling(
+        out,
+        func,
+        prefix,
+        params.opaque_types,
+        params.bridge_param_names,
+        params.bridge_type_aliases,
+    );
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_visitor_operation(
     out: &mut String,
     func: &FunctionDef,
     prefix_upper: &str,
     options_set_handle: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
+    params: &BridgeParamContext<'_>,
     bridge: &VisitorFunctionBridge,
 ) {
     out.push_str(&crate::backends::java::template_env::render(
@@ -232,7 +250,10 @@ fn emit_visitor_operation(
     let ffi_handle = format!("NativeLib.{}_{}", prefix_upper, func.name.to_uppercase());
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_result_ptr_call.jinja",
-        minijinja::context! { ffi_handle, args => visitor_call_args(func, opaque_types, bridge_param_names, bridge_type_aliases) },
+        minijinja::context! {
+            ffi_handle,
+            args => visitor_call_args(func, params.opaque_types, params.bridge_param_names, params.bridge_type_aliases),
+        },
     ));
     out.push_str(&crate::backends::java::template_env::render(
         "ffi_options_free_conditional.jinja",
@@ -241,14 +262,11 @@ fn emit_visitor_operation(
     emit_visitor_result_conversion(out, func, prefix_upper);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_convert_with_visitor_internal_method(
     func: &FunctionDef,
     class_name: &str,
     prefix: &str,
-    opaque_types: &AHashSet<String>,
-    bridge_param_names: &HashSet<String>,
-    bridge_type_aliases: &HashSet<String>,
+    params: &BridgeParamContext<'_>,
     visitor_bridge: &VisitorFunctionBridge,
 ) -> String {
     let mut out = String::with_capacity(2048);
@@ -259,29 +277,11 @@ pub(super) fn gen_convert_with_visitor_internal_method(
         visitor_bridge.options_field_native.to_uppercase()
     );
     let exc = format!("{class_name}Exception");
-    emit_visitor_method_open(
-        &mut out,
-        func,
-        prefix,
-        &exc,
-        opaque_types,
-        bridge_param_names,
-        bridge_type_aliases,
-        visitor_bridge,
-    );
+    emit_visitor_method_open(&mut out, func, prefix, &exc, params, visitor_bridge);
     out.push('\n');
     emit_visitor_handle_setup(&mut out, &pu, &exc, visitor_bridge);
     super::error_catch::emit_visitor_operation_open(&mut out, &exc);
-    emit_visitor_operation(
-        &mut out,
-        func,
-        &pu,
-        &options_set_handle,
-        opaque_types,
-        bridge_param_names,
-        bridge_type_aliases,
-        visitor_bridge,
-    );
+    emit_visitor_operation(&mut out, func, &pu, &options_set_handle, params, visitor_bridge);
     emit_visitor_cleanup(&mut out, &pu, &exc);
 
     out
@@ -306,15 +306,12 @@ mod tests {
             options_field_native: "visitor".into(),
             internal_method_name: "convertWithVisitorInternal".into(),
         };
-        let generated = gen_convert_with_visitor_internal_method(
-            &func,
-            "SampleRs",
-            "sample",
-            &AHashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &bridge,
-        );
+        let params = BridgeParamContext {
+            opaque_types: &AHashSet::new(),
+            bridge_param_names: &HashSet::new(),
+            bridge_type_aliases: &HashSet::new(),
+        };
+        let generated = gen_convert_with_visitor_internal_method(&func, "SampleRs", "sample", &params, &bridge);
 
         let visitor_free = generated.find("SAMPLE_VISITOR_FREE.invoke").unwrap();
         let bridge_error = generated.find("bridge.rethrowVisitorError()").unwrap();

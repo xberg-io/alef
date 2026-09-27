@@ -221,22 +221,39 @@ pub(super) fn compute_field_is_collection(assertion: &Assertion, field_resolver:
     })
 }
 
+/// Inputs to [`compute_scalar_context`], grouped to keep the function under poly's
+/// `too-many-parameters` limit. Field order matches the parameter order it replaces -- no
+/// behavior change.
+pub(super) struct ScalarContextInputs<'a> {
+    pub(super) assertion: &'a Assertion,
+    pub(super) field_resolver: &'a FieldResolver,
+    pub(super) result_var: &'a str,
+    pub(super) result_is_simple: bool,
+    pub(super) result_is_option: bool,
+    pub(super) enum_fields: &'a std::collections::HashSet<String>,
+    pub(super) json_scalar_fields: &'a std::collections::HashSet<String>,
+    pub(super) fields_c_types: &'a std::collections::HashMap<String, String>,
+    pub(super) kotlin_android_style: bool,
+}
+
 /// Compute every scalar-pipeline context value `render_scalar_assertion` needs, in the same
 /// order `render_assertion` used to compute them inline. Bundles the six `compute_*`/`resolve_*`
 /// helpers above into the one call `render_assertion` makes, so it stays under the file's
 /// function-length cap -- verbatim orchestration, no behavior change. ~keep
-#[allow(clippy::too_many_arguments)]
 pub(super) fn compute_scalar_context(
-    assertion: &Assertion,
-    field_resolver: &FieldResolver,
-    result_var: &str,
-    result_is_simple: bool,
-    result_is_option: bool,
-    enum_fields: &std::collections::HashSet<String>,
-    json_scalar_fields: &std::collections::HashSet<String>,
-    fields_c_types: &std::collections::HashMap<String, String>,
-    kotlin_android_style: bool,
+    inputs: &ScalarContextInputs,
 ) -> (String, String, String, String, bool, bool, bool) {
+    let ScalarContextInputs {
+        assertion,
+        field_resolver,
+        result_var,
+        result_is_simple,
+        result_is_option,
+        enum_fields,
+        json_scalar_fields,
+        fields_c_types,
+        kotlin_android_style,
+    } = *inputs;
     let (field_is_enum, field_is_json_scalar, field_is_display_as_text) =
         compute_field_shape_flags(assertion, field_resolver, enum_fields, json_scalar_fields);
     let accessor_lang = if kotlin_android_style {

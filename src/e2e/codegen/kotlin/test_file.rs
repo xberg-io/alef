@@ -755,6 +755,7 @@ pub(super) fn render_test_file_inner(
         let _ = writeln!(out, "    }}");
     }
 
+    let fixtures_start = out.len();
     for fixture in fixtures {
         super::test_method::render_test_method(
             &mut out,
@@ -774,6 +775,24 @@ pub(super) fn render_test_file_inner(
             functions,
         )?;
         let _ = writeln!(out);
+    }
+
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered test methods actually call it. Mirrors `java::test_file`'s identical gate: a
+    // private member function appended directly to the class body, not gated behind any of the
+    // `needs_*` import flags above, since the helper uses fully-qualified `java.net.http` types
+    // and needs no import.
+    let mock_lang = if kotlin_android_style {
+        "kotlin_android"
+    } else {
+        "kotlin"
+    };
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture(mock_lang)
+        && out[fixtures_start..].contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper(mock_lang)
+    {
+        out.push('\n');
+        out.push_str(&rendered);
     }
 
     let _ = writeln!(out, "}}");

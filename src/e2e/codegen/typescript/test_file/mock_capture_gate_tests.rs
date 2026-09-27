@@ -5,8 +5,10 @@
 //! `render_test_file`) are tested SEPARATELY everywhere else in this codebase -- this drives the
 //! real `render_test_file` entry point so a fixture's call and the file's helper definition land
 //! in ONE rendered artifact, the only way to catch the two disagreeing about
-//! `capture.helper_name`. `mock_capture(lang)` only has a `"node"` entry (`"wasm"` is a deliberate
-//! gap -- see `mock_capture.rs`), so every case here renders with `lang = "node"`. ~keep
+//! `capture.helper_name`. `mock_capture(lang)` has entries for both `"node"` and `"wasm"` (alef
+//! issue #443's WASM wave); `render()` below is parameterized on `lang` so every case runs for
+//! both. See also `e2e::codegen::wasm::mock_capture_gate_tests` for the WASM-specific
+//! `result_is_simple` regression this shared renderer needed. ~keep
 
 use super::*;
 
@@ -29,10 +31,10 @@ fn fixture(assertions: Vec<crate::e2e::fixture::Assertion>) -> Fixture {
     }
 }
 
-fn render(fixture: &Fixture) -> String {
+fn render(lang: &str, fixture: &Fixture) -> String {
     let e2e_config = E2eConfig::default();
     render_test_file(
-        "node",
+        lang,
         "mock_capture",
         &[fixture],
         "",
@@ -52,48 +54,54 @@ fn render(fixture: &Fixture) -> String {
 }
 
 /// Covers both `mock.requests.total` and the bracketed `mock.requests["POST /v1/chat"]` key form
-/// on the same fixture -- cheap here since both share one rendered file. ~keep
+/// on the same fixture -- cheap here since both share one rendered file. Runs for both `"node"`
+/// and `"wasm"`: they share this exact renderer and the identical rendered helper, so one table
+/// covers both languages' capture-table rows in one assertion. ~keep
 #[test]
 fn a_mock_assertion_gets_both_its_call_and_the_helper_definition_in_one_file() {
-    let fixture = fixture(vec![
-        mock_assertion("mock.requests.total", "equals", serde_json::json!(1)),
-        mock_assertion(
-            r#"mock.requests["POST /v1/chat"]"#,
-            "greater_than_or_equal",
-            serde_json::json!(1),
-        ),
-    ]);
-    let out = render(&fixture);
+    for lang in ["node", "wasm"] {
+        let fixture = fixture(vec![
+            mock_assertion("mock.requests.total", "equals", serde_json::json!(1)),
+            mock_assertion(
+                r#"mock.requests["POST /v1/chat"]"#,
+                "greater_than_or_equal",
+                serde_json::json!(1),
+            ),
+        ]);
+        let out = render(lang, &fixture);
 
-    assert!(
-        out.contains(
-            "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/total?prefix=\")).toBe(1);"
-        ),
-        "expected the total-count call, got:\n{out}"
-    );
-    assert!(
-        out.contains(
-            "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/one?key=POST%20%2Fv1%2Fchat\")).toBeGreaterThanOrEqual(1);"
-        ),
-        "expected the bracketed-key call, got:\n{out}"
-    );
-    assert!(
-        out.contains("async function alefMockRequestCount(baseUrl: string, pathAndQuery: string): Promise<number> {"),
-        "expected the helper definition in the same file as the call, got:\n{out}"
-    );
+        assert!(
+            out.contains(
+                "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/total?prefix=\")).toBe(1);"
+            ),
+            "[{lang}] expected the total-count call, got:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/one?key=POST%20%2Fv1%2Fchat\")).toBeGreaterThanOrEqual(1);"
+            ),
+            "[{lang}] expected the bracketed-key call, got:\n{out}"
+        );
+        assert!(
+            out.contains("async function alefMockRequestCount(baseUrl: string, pathAndQuery: string): Promise<number> {"),
+            "[{lang}] expected the helper definition in the same file as the call, got:\n{out}"
+        );
+    }
 }
 
 /// Negative direction: an always-emit bug in the helper-definition gate would pass the positive
 /// test above, so a fixture with NO `mock.*` assertion must not reference or define the helper.
 #[test]
 fn a_file_with_no_mock_assertion_defines_no_helper() {
-    let fixture = fixture(vec![crate::e2e::fixture::Assertion {
-        assertion_type: "not_error".to_string(),
-        ..Default::default()
-    }]);
-    let out = render(&fixture);
-    assert!(
-        !out.contains("alefMockRequestCount"),
-        "a file with no mock.* assertion must not reference or define the helper, got:\n{out}"
-    );
+    for lang in ["node", "wasm"] {
+        let fixture = fixture(vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }]);
+        let out = render(lang, &fixture);
+        assert!(
+            !out.contains("alefMockRequestCount"),
+            "[{lang}] a file with no mock.* assertion must not reference or define the helper, got:\n{out}"
+        );
+    }
 }

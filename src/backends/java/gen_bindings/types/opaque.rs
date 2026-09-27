@@ -22,6 +22,20 @@ struct OpaqueClassMethods<'a> {
     static_factory_methods: Vec<&'a MethodDef>,
 }
 
+/// The three per-class naming values threaded through method-emission helpers together.
+struct ClassNamingContext<'a> {
+    prefix: &'a str,
+    type_snake: &'a str,
+    main_class: &'a str,
+}
+
+/// The three type-name sets consulted while rendering an opaque class's members.
+struct OpaqueTypeNameSets<'a> {
+    enum_names: &'a AHashSet<String>,
+    opaque_type_names: &'a AHashSet<String>,
+    to_json_type_names: &'a AHashSet<String>,
+}
+
 fn select_opaque_class_methods<'a>(typ: &'a TypeDef, adapters: &'a [AdapterConfig]) -> OpaqueClassMethods<'a> {
     let streaming_adapters: Vec<_> = adapters
         .iter()
@@ -56,31 +70,33 @@ fn select_opaque_class_methods<'a>(typ: &'a TypeDef, adapters: &'a [AdapterConfi
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn emit_opaque_class_methods(
     body: &mut String,
     methods: &OpaqueClassMethods<'_>,
     typ: &TypeDef,
-    prefix: &str,
-    type_snake: &str,
-    main_class: &str,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-    to_json_type_names: &AHashSet<String>,
+    naming: &ClassNamingContext<'_>,
+    type_names: &OpaqueTypeNameSets<'_>,
 ) {
     for adapter in &methods.streaming_adapters {
-        gen_streaming_method(body, adapter, prefix, type_snake, main_class, to_json_type_names);
+        gen_streaming_method(
+            body,
+            adapter,
+            naming.prefix,
+            naming.type_snake,
+            naming.main_class,
+            type_names.to_json_type_names,
+        );
     }
     for method in &methods.instance_methods {
         gen_instance_method(
             body,
             method,
-            prefix,
-            type_snake,
-            main_class,
-            enum_names,
-            opaque_type_names,
-            to_json_type_names,
+            naming.prefix,
+            naming.type_snake,
+            naming.main_class,
+            type_names.enum_names,
+            type_names.opaque_type_names,
+            type_names.to_json_type_names,
         );
     }
     for method in &methods.static_factory_methods {
@@ -88,11 +104,11 @@ fn emit_opaque_class_methods(
             body,
             method,
             &typ.name,
-            prefix,
-            type_snake,
-            main_class,
-            enum_names,
-            opaque_type_names,
+            naming.prefix,
+            naming.type_snake,
+            naming.main_class,
+            type_names.enum_names,
+            type_names.opaque_type_names,
         );
     }
 }
@@ -123,15 +139,12 @@ fn opaque_class_imports(body: &str, needs_helpers: bool, has_static_factories: b
     imports
 }
 
-#[allow(clippy::too_many_arguments)]
 fn render_opaque_class_body(
     typ: &TypeDef,
     prefix: &str,
     adapters: &[AdapterConfig],
     main_class: &str,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-    to_json_type_names: &AHashSet<String>,
+    type_names: &OpaqueTypeNameSets<'_>,
 ) -> (String, bool, bool) {
     let type_snake = typ.name.to_snake_case();
     let methods = select_opaque_class_methods(typ, adapters);
@@ -143,17 +156,12 @@ fn render_opaque_class_body(
         "opaque_handle_header.jinja",
         minijinja::context! { class_name => typ.name },
     ));
-    emit_opaque_class_methods(
-        &mut body,
-        &methods,
-        typ,
+    let naming = ClassNamingContext {
         prefix,
-        &type_snake,
+        type_snake: &type_snake,
         main_class,
-        enum_names,
-        opaque_type_names,
-        to_json_type_names,
-    );
+    };
+    emit_opaque_class_methods(&mut body, &methods, typ, &naming, type_names);
     let free_handle = format!("{}_{}_FREE", prefix.to_uppercase(), type_snake.to_uppercase());
     body.push_str(&crate::backends::java::template_env::render(
         "opaque_handle_close.jinja",
@@ -166,27 +174,27 @@ fn render_opaque_class_body(
     (body, needs_helpers, has_static_factories)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// `type_name_sets` is `(enum_names, opaque_type_names, to_json_type_names)`. A plain tuple
+/// (rather than exporting `OpaqueTypeNameSets` outside this module) keeps the type-name-set
+/// bundling local to `opaque.rs` while still letting external callers pass the three sets as one
+/// argument.
 pub(crate) fn gen_opaque_handle_class(
     package: &str,
     typ: &TypeDef,
     prefix: &str,
     adapters: &[AdapterConfig],
     main_class: &str,
-    enum_names: &AHashSet<String>,
-    opaque_type_names: &AHashSet<String>,
-    to_json_type_names: &AHashSet<String>,
+    type_name_sets: (&AHashSet<String>, &AHashSet<String>, &AHashSet<String>),
 ) -> String {
+    let (enum_names, opaque_type_names, to_json_type_names) = type_name_sets;
     let header = hash::header(CommentStyle::DoubleSlash);
-    let (body, needs_helpers, has_static_factories) = render_opaque_class_body(
-        typ,
-        prefix,
-        adapters,
-        main_class,
+    let type_names = OpaqueTypeNameSets {
         enum_names,
         opaque_type_names,
         to_json_type_names,
-    );
+    };
+    let (body, needs_helpers, has_static_factories) =
+        render_opaque_class_body(typ, prefix, adapters, main_class, &type_names);
     let imports = opaque_class_imports(&body, needs_helpers, has_static_factories);
     let mut out = crate::backends::java::template_env::render(
         "java_file_header.jinja",

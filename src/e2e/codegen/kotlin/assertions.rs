@@ -72,6 +72,15 @@ pub(super) fn render_assertion_with_streaming_context(
     kotlin_android_style: bool,
     not_error_may_assert_presence: bool,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct field --
+    // intercept before EVERY other branch below, including every field-shape gate
+    // `assertion_field_gates` runs (starting with `try_skip_field_not_available_on_result_type`),
+    // which would otherwise misclassify a `mock.*` field as absent from the result type. ~keep
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion, kotlin_android_style) {
+        return;
+    }
+
     if super::assertion_field_gates::try_render_field_shape_gates(
         out,
         assertion,

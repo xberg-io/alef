@@ -205,6 +205,7 @@ impl E2eCodegen for DartE2eCodegen {
     }
 }
 
+mod assertion_mock_capture;
 mod assertions;
 mod call_field_resolver;
 mod http;
@@ -225,6 +226,8 @@ mod collection_field_classification_tests;
 mod enum_field_classification_tests;
 #[cfg(test)]
 mod local_naming_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod mock_url_resolution_tests;
 #[cfg(test)]

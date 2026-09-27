@@ -35,11 +35,13 @@ pub(super) fn emit_module_kt(
 
     handle_wrappers::emit_handle_wrappers(
         api,
-        config,
-        kotlin_source_dir,
-        package,
+        &handle_wrappers::HandleWrapperContext {
+            config,
+            kotlin_source_dir,
+            package,
+            bridge_name: &bridge_name,
+        },
         files,
-        &bridge_name,
         &visible_functions,
     );
     if visible_functions.is_empty() {

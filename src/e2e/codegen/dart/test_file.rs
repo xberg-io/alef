@@ -87,7 +87,18 @@ pub(super) fn render_test_file(
         .get(lang)
         .and_then(|o| o.client_factory.as_deref())
         .is_some();
+    // A `mock.*` request-count assertion (alef issue #443) reads `_sutUrl()` through the
+    // once-per-suite capture helper the same way an HTTP fixture or a `mock_url` arg does, even
+    // when the fixture itself is a plain non-HTTP call with no `mock_url` arg of its own -- fold
+    // it into this same gate so the `dart:io`/`dart:convert` imports and the `_sutUrl()` spawn
+    // machinery below are guaranteed present whenever the mock-capture helper is emitted. ~keep
+    let has_mock_capture_assertions = fixtures.iter().any(|f| {
+        f.assertions
+            .iter()
+            .any(|a| a.field.as_deref().is_some_and(crate::e2e::codegen::mock_assertions::is_mock_virtual_field))
+    });
     let has_mock_url_refs = lang_client_factory
+        || has_mock_capture_assertions
         || fixtures.iter().any(|f| {
             // A `$mock_url` placeholder anywhere in the fixture input is rewritten to a
             // `_fixtureUrl(...)` call in the generated test body, so the helper (and the
@@ -338,6 +349,55 @@ pub(super) fn render_test_file(
         let _ = writeln!(out);
     }
 
+    // Render every fixture's test body into a separate buffer BEFORE deciding whether the
+    // once-per-suite mock-request-count helper (alef issue #443) is needed. Gating the helper's
+    // own emission on `fixture_bodies.contains(capture.helper_name)` -- rather than a separate
+    // assertion pre-scan that could drift from what the renderer actually emitted -- mirrors
+    // `ruby::spec_file::render_spec_file` / `java::test_file::render_test_file`: the call site and
+    // the helper definition are proven consistent by construction, and a fixture with no `mock.*`
+    // assertion leaves no dead, unreferenced helper in the file.
+    let mut fixture_bodies = String::new();
+    for fixture in fixtures {
+        super::test_case::render_test_case(
+            &mut fixture_bodies,
+            fixture,
+            super::test_case::DartTestCaseContext {
+                e2e_config,
+                lang,
+                bridge_class,
+                dart_first_class_map,
+                adapters,
+                config,
+                type_defs,
+                enums,
+                functions,
+                errors,
+                native_typed_dtos: false,
+                is_snippet: false,
+            },
+        );
+        // ~keep Dart's error path (`render_test_case`'s `expects_error` branches) emits
+        // `expectLater(..., throwsA(..))` and nothing else, so every other assertion on an
+        // error fixture — an `equals` against `error.status_code`, most often — leaves no trace
+        // in the generated test at all. The marker lands here, immediately after the emitted
+        // `test(...)` call inside `main()`, rather than inside the test body: the body is built
+        // in `test_case.rs`, which another change owns.
+        crate::e2e::codegen::error_path_assertions::emit(&mut fixture_bodies, fixture, "  // ", "dart");
+    }
+
+    // The helper is a top-level function (Dart test files have no enclosing class, unlike Java/
+    // Kotlin's private static method), so it must be declared at module level, before `void
+    // main() {` opens -- the same level `_httpClient`, `_serialized`, `_withRetry`, and
+    // `_sutUrl`/`_fixtureUrl` are already declared at, immediately below.
+    if let Some(helper) = crate::e2e::codegen::mock_assertions::mock_capture("dart")
+        .ok()
+        .filter(|capture| fixture_bodies.contains(capture.helper_name))
+        .and_then(|_| crate::e2e::codegen::mock_assertions::render_helper("dart"))
+    {
+        out.push_str(&helper);
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(out, "void main() {{");
 
     // Track whether RustLib.init() in `setUpAll` succeeded. When it fails (e.g. the
@@ -459,33 +519,10 @@ pub(super) fn render_test_file(
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
 
-    for fixture in fixtures {
-        super::test_case::render_test_case(
-            &mut out,
-            fixture,
-            super::test_case::DartTestCaseContext {
-                e2e_config,
-                lang,
-                bridge_class,
-                dart_first_class_map,
-                adapters,
-                config,
-                type_defs,
-                enums,
-                functions,
-                errors,
-                native_typed_dtos: false,
-                is_snippet: false,
-            },
-        );
-        // ~keep Dart's error path (`render_test_case`'s `expects_error` branches) emits
-        // `expectLater(..., throwsA(..))` and nothing else, so every other assertion on an
-        // error fixture — an `equals` against `error.status_code`, most often — leaves no trace
-        // in the generated test at all. The marker lands here, immediately after the emitted
-        // `test(...)` call inside `main()`, rather than inside the test body: the body is built
-        // in `test_case.rs`, which another change owns.
-        crate::e2e::codegen::error_path_assertions::emit(&mut out, fixture, "  // ", "dart");
-    }
+    // `fixture_bodies` was rendered earlier (before `void main() {` and the mock-capture helper
+    // decision above), so this is a plain append -- no fixture, whitespace, or branch condition
+    // changed by moving the render call site.
+    out.push_str(&fixture_bodies);
 
     let _ = writeln!(out, "}}");
     out

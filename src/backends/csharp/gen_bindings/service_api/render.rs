@@ -383,10 +383,12 @@ fn render_native_methods(
             api,
             prefix,
             service_snake,
-            &method.name.to_snake_case(),
-            "ulong",
-            "        ulong owner",
-            &method.params,
+            NativeDeclarationSpec {
+                suffix: &method.name.to_snake_case(),
+                return_type: "ulong",
+                base_params: "        ulong owner",
+                params: &method.params,
+            },
         );
     }
 }
@@ -407,10 +409,12 @@ fn render_native_registrations(
             api,
             prefix,
             service_snake,
-            &suffix,
-            "int",
-            BASE,
-            &registration.metadata_params,
+            NativeDeclarationSpec {
+                suffix: &suffix,
+                return_type: "int",
+                base_params: BASE,
+                params: &registration.metadata_params,
+            },
         );
         for variant in &registration.variants {
             render_native_declaration(
@@ -418,10 +422,12 @@ fn render_native_registrations(
                 api,
                 prefix,
                 service_snake,
-                &variant.name.to_snake_case(),
-                "int",
-                BASE,
-                &variant.signature_params,
+                NativeDeclarationSpec {
+                    suffix: &variant.name.to_snake_case(),
+                    return_type: "int",
+                    base_params: BASE,
+                    params: &variant.signature_params,
+                },
             );
         }
     }
@@ -444,33 +450,41 @@ fn render_native_entrypoints(
             api,
             prefix,
             service_snake,
-            &format!("ep_{}", entrypoint.method.to_snake_case()),
-            if opaque { "ulong" } else { "int" },
-            "        ulong owner",
-            &entrypoint.params,
+            NativeDeclarationSpec {
+                suffix: &format!("ep_{}", entrypoint.method.to_snake_case()),
+                return_type: if opaque { "ulong" } else { "int" },
+                base_params: "        ulong owner",
+                params: &entrypoint.params,
+            },
         );
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Bundles the per-declaration inputs to [`render_native_declaration`] that vary by call
+/// site, keeping the accumulator/context params (`out`, `api`, `prefix`, `service_snake`)
+/// separate since every caller already threads those through unchanged.
+struct NativeDeclarationSpec<'a> {
+    suffix: &'a str,
+    return_type: &'a str,
+    base_params: &'a str,
+    params: &'a [ParamDef],
+}
+
 fn render_native_declaration(
     out: &mut String,
     api: &ApiSurface,
     prefix: &str,
     service_snake: &str,
-    suffix: &str,
-    return_type: &str,
-    base_params: &str,
-    params: &[ParamDef],
+    spec: NativeDeclarationSpec,
 ) {
     out.push_str(&render(
         "service_pinvoke_declaration.jinja",
         minijinja::context! {
             dll_name => format!("{}_ffi", prefix.to_lowercase()),
-            return_type,
-            method_name => format!("{}_{}_{}", prefix.to_lowercase(), service_snake, suffix),
-            base_params,
-            param_lines => pinvoke_param_lines(params, api),
+            return_type => spec.return_type,
+            method_name => format!("{}_{}_{}", prefix.to_lowercase(), service_snake, spec.suffix),
+            base_params => spec.base_params,
+            param_lines => pinvoke_param_lines(spec.params, api),
         },
     ));
 }

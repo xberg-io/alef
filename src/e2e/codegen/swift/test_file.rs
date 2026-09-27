@@ -262,12 +262,13 @@ pub(super) fn render_test_file(
         let _ = writeln!(out);
     }
 
+    let mut fixtures_body = String::new();
     for fixture in fixtures {
         if fixture.is_http_test() {
-            http::render_http_test_method(&mut out, fixture);
+            http::render_http_test_method(&mut fixtures_body, fixture);
         } else {
             test_method::render_test_method(
-                &mut out,
+                &mut fixtures_body,
                 fixture,
                 e2e_config,
                 function_name,
@@ -284,9 +285,23 @@ pub(super) fn render_test_file(
                 errors,
             );
         }
-        let _ = writeln!(out);
+        let _ = writeln!(fixtures_body);
     }
 
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered test methods actually call it. The helper uses fully-qualified `Foundation`/
+    // `URLSession` types already unconditionally imported above -- unlike every `needs_*` import
+    // flag elsewhere in this backend, it needs no import list change -- and is appended directly
+    // to the class body, matching this backend's Java/Kotlin counterparts. ~keep
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("swift")
+        && fixtures_body.contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("swift")
+    {
+        fixtures_body.push('\n');
+        fixtures_body.push_str(&rendered);
+    }
+
+    out.push_str(&fixtures_body);
     let _ = writeln!(out, "}}");
     out
 }

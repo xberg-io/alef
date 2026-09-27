@@ -6,18 +6,29 @@ use std::collections::HashMap;
 #[cfg(test)]
 mod tests;
 
-#[allow(clippy::too_many_arguments)]
+/// The IR-derived inputs `gen_visitor_bridge` needs beyond the trait/bridge-config pair,
+/// grouped only to keep its own parameter count under the lint limit at its single call site
+/// (`trait_bridge.rs`). `pub(super)` (rather than file-private, unlike this module's other
+/// grouping structs) because that one call site lives in the parent module and must be able to
+/// construct it.
+pub(super) struct VisitorBridgeInputs<'a> {
+    pub(super) core_crate: &'a str,
+    pub(super) type_paths: &'a HashMap<String, String>,
+    pub(super) api: &'a ApiSurface,
+    pub(super) pyclass_absent_types: &'a ahash::AHashSet<String>,
+    pub(super) core_to_binding_convertible_types: &'a ahash::AHashSet<String>,
+}
+
 pub(super) fn gen_visitor_bridge(
     trait_type: &TypeDef,
     bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
-    core_crate: &str,
-    type_paths: &HashMap<String, String>,
-    api: &ApiSurface,
-    pyclass_absent_types: &ahash::AHashSet<String>,
-    core_to_binding_convertible_types: &ahash::AHashSet<String>,
+    inputs: &VisitorBridgeInputs<'_>,
 ) -> anyhow::Result<String> {
+    let core_crate = inputs.core_crate;
+    let type_paths = inputs.type_paths;
+    let api = inputs.api;
     let result_metadata = crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg)?;
     let context_helper = crate::codegen::visitor_context::visitor_context_helper(
         api,
@@ -26,7 +37,12 @@ pub(super) fn gen_visitor_bridge(
         crate::codegen::visitor_context::VisitorContextBackend::Pyo3,
     )?;
 
-    let binding_class = context_binding_class(api, bridge_cfg, pyclass_absent_types, core_to_binding_convertible_types);
+    let binding_class = context_binding_class(
+        api,
+        bridge_cfg,
+        inputs.pyclass_absent_types,
+        inputs.core_to_binding_convertible_types,
+    );
     let helper_fn = crate::backends::pyo3::template_env::render(
         "trait_bridge/nodecontext_to_py_object.jinja",
         minijinja::context! {
@@ -45,16 +61,14 @@ pub(super) fn gen_visitor_bridge(
     );
 
     let mut methods_code = String::new();
+    let method_context = VisitorMethodContext {
+        bridge_cfg,
+        type_paths,
+        struct_name,
+        result_metadata: &result_metadata,
+    };
     for method in crate::codegen::generators::trait_bridge::visitor_callback_methods(trait_type, bridge_cfg) {
-        gen_visitor_method(
-            &mut methods_code,
-            method,
-            trait_path,
-            bridge_cfg,
-            type_paths,
-            struct_name,
-            &result_metadata,
-        );
+        gen_visitor_method(&mut methods_code, method, &method_context);
     }
 
     let mut out = String::with_capacity(4096);
@@ -116,6 +130,16 @@ pub(crate) fn context_binding_class<'a>(
         .then_some(context_def)
 }
 
+/// The trait-bridge context shared by every generated visitor callback method: everything that
+/// stays constant across the loop in [`gen_visitor_bridge`], as opposed to `out` and `method`,
+/// which change on every call.
+struct VisitorMethodContext<'a> {
+    bridge_cfg: &'a TraitBridgeConfig,
+    type_paths: &'a HashMap<String, String>,
+    struct_name: &'a str,
+    result_metadata: &'a crate::codegen::visitor_result::VisitorResultMetadata,
+}
+
 /// Generate a single visitor-style trait method that tries Python dispatch, falls back to default.
 ///
 /// For each method the generated code:
@@ -123,17 +147,12 @@ pub(crate) fn context_binding_class<'a>(
 /// 2. If yes, calls the method with converted arguments and converts the Python return value
 ///    to the appropriate Rust return type.
 /// 3. If no (attribute absent), returns the configured default result variant.
-fn gen_visitor_method(
-    out: &mut String,
-    method: &MethodDef,
-    _trait_path: &str,
-    bridge_cfg: &TraitBridgeConfig,
-    type_paths: &HashMap<String, String>,
-    struct_name: &str,
-    result_metadata: &crate::codegen::visitor_result::VisitorResultMetadata,
-) {
+fn gen_visitor_method(out: &mut String, method: &MethodDef, context: &VisitorMethodContext<'_>) {
     use crate::core::ir::TypeRef;
 
+    let type_paths = context.type_paths;
+    let struct_name = context.struct_name;
+    let result_metadata = context.result_metadata;
     let name = &method.name;
 
     let mut sig_parts = vec!["&mut self".to_string()];
@@ -150,7 +169,7 @@ fn gen_visitor_method(
 
     let default_result_expr = crate::codegen::visitor_result::default_result_expr(&ret_ty, result_metadata);
     let VisitorPyArgs { setup, args: py_args } =
-        build_visitor_py_args(method, bridge_cfg, struct_name, name, &default_result_expr);
+        build_visitor_py_args(method, context.bridge_cfg, struct_name, name, &default_result_expr);
 
     let py_call = if py_args.is_empty() {
         format!("obj.call_method0(\"{name}\")")

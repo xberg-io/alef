@@ -6,6 +6,9 @@ use crate::backends::rustler::gen_bindings::public_api_args::{
     nif_arg, tagged_enum_param_map,
 };
 use crate::backends::rustler::gen_bindings::public_api_delegates::append_trait_bridge_delegates;
+use crate::backends::rustler::gen_bindings::public_api_opaque_methods::{
+    TopLevelOpaqueMethodsContext, append_top_level_opaque_methods,
+};
 use crate::backends::rustler::gen_bindings::public_api_render::render_public_nif_call;
 use crate::backends::rustler::gen_bindings::public_files::{self, PublicFileContext};
 use crate::backends::rustler::template_env;
@@ -734,16 +737,18 @@ pub(super) fn generate_public_api(
         content.push('\n');
     }
 
-    crate::backends::rustler::gen_bindings::public_api_opaque_methods::append_top_level_opaque_methods(
+    append_top_level_opaque_methods(
         &mut content,
         api,
         config,
         &exclude_functions,
-        &exclude_types,
-        &opaque_types,
-        &default_types,
-        &native_mod,
-        &app_module,
+        &TopLevelOpaqueMethodsContext {
+            exclude_types: &exclude_types,
+            opaque_types: &opaque_types,
+            default_types: &default_types,
+            native_mod: &native_mod,
+            app_module: &app_module,
+        },
     );
 
     let api_fn_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();

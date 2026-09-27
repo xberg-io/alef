@@ -1,0 +1,29 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: method name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE private static method using `System.Net.Http.HttpClient` -- already in every
+   generated test file's unconditional using-list (`test_file.rs`'s `using_imports` adds
+   `using System.Net.Http;` and `using System.Threading.Tasks;` for every fixture, not gated on
+   this helper), so this template adds no new `using` to gate on, matching this backend's Java
+   counterpart's own reasoning. Callers build `pathAndQuery` from "{{ total_path }}?prefix=<p>"
+   (mock.requests.total) or "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see
+   mock_assertions::model::MockQuery. Synchronous (`GetAwaiter().GetResult()`) rather than
+   `async`/`await`, since call sites embed it directly inside a synchronous `Assert.*` expression
+   -- xUnit test methods run outside any `SynchronizationContext`, so this cannot deadlock the
+   way the same pattern would on ASP.NET or a WPF/WinForms UI thread. ~keep
+#}
+
+    private static int {{ helper_name }}(string baseUrl, string pathAndQuery)
+    {
+        using var client = new HttpClient();
+        var body = client.GetStringAsync(baseUrl + pathAndQuery).GetAwaiter().GetResult().Trim();
+        if (!int.TryParse(body, out var count))
+        {
+            throw new InvalidOperationException($"{{ helper_name }}: non-integer response body: {body}");
+        }
+        return count;
+    }

@@ -232,9 +232,17 @@ pub(super) fn render_test_case(
     // look at the text this fixture's own assertion loop appends. ~keep
     let assertions_start = out.len();
     for assertion in &fixture.assertions {
+        // `mock.*` is not a field of the result type at all -- it resolves against the mock
+        // server's request log regardless of whether the call's result is "simple" -- so this
+        // gate must not swallow it before `render_assertion`'s own mock-capture interception ever
+        // runs. Without this exemption, a `result_is_simple` fixture asserting `mock.*` would be
+        // misclassified as `FieldSkip::NotAccessibleOnSimpleResultType` instead of resolving
+        // against the mock server, the same misattribution `assertion_mock_capture`'s module doc
+        // already rules out for the `is_valid_for_result` gate inside `render_assertion` itself.
         if result_is_simple
             && let Some(f) = &assertion.field
             && !f.is_empty()
+            && !crate::e2e::codegen::mock_assertions::is_mock_virtual_field(f)
         {
             let _ = writeln!(
                 out,

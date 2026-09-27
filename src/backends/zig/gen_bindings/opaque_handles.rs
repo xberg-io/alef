@@ -20,6 +20,17 @@ fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::zig::template_env::render(template_name, ctx)
 }
 
+/// The lookup context `emit_opaque_handle` needs beyond the type/prefix pair, grouped to keep its
+/// own parameter count under the lint limit. `pub(crate)` (matching `emit_opaque_handle` itself)
+/// because its call sites in `gen_bindings/mod.rs` and `gen_bindings/result_presence/tests.rs`
+/// also construct one.
+pub(crate) struct OpaqueHandleContext<'a> {
+    pub(crate) declared_errors: &'a [String],
+    pub(crate) struct_names: &'a HashSet<String>,
+    pub(crate) streaming_item_types: &'a HashMap<String, String>,
+    pub(crate) enum_names: &'a HashSet<String>,
+}
+
 /// Emit a top-level `pub fn create_<type_snake>(allocator, params...) !TypeName`
 /// constructor that wraps the `c.{prefix}_{type_snake}_new(...)` FFI symbol.
 pub(crate) fn emit_opaque_constructor(
@@ -41,15 +52,11 @@ pub(crate) fn emit_opaque_constructor(
 ///
 /// Static methods are emitted as top-level Zig functions that call the FFI constructor,
 /// e.g., `pub fn init(method: Method, path: []const u8) {TypeName}`.
-pub(crate) fn emit_opaque_handle(
-    ty: &TypeDef,
-    prefix: &str,
-    declared_errors: &[String],
-    struct_names: &HashSet<String>,
-    streaming_item_types: &HashMap<String, String>,
-    enum_names: &HashSet<String>,
-    out: &mut String,
-) {
+pub(crate) fn emit_opaque_handle(ty: &TypeDef, prefix: &str, context: &OpaqueHandleContext<'_>, out: &mut String) {
+    let declared_errors = context.declared_errors;
+    let struct_names = context.struct_names;
+    let streaming_item_types = context.streaming_item_types;
+    let enum_names = context.enum_names;
     let type_snake = AsSnakeCase(&ty.name).to_string();
     emit_streaming_structs(ty, prefix, declared_errors, streaming_item_types, &type_snake, out);
     emit_static_methods(ty, prefix, declared_errors, struct_names, enum_names, out);
@@ -157,10 +164,12 @@ mod tests {
         emit_opaque_handle(
             &ty,
             "sample",
-            &[],
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
+            &OpaqueHandleContext {
+                declared_errors: &[],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+            },
             &mut output,
         );
 
@@ -191,10 +200,12 @@ mod tests {
         emit_opaque_handle(
             &ty,
             "sample",
-            &[],
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
+            &OpaqueHandleContext {
+                declared_errors: &[],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+            },
             &mut output,
         );
 
@@ -221,10 +232,12 @@ mod tests {
         emit_opaque_handle(
             &ty,
             "sample",
-            &["RequestError".to_owned()],
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
+            &OpaqueHandleContext {
+                declared_errors: &["RequestError".to_owned()],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+            },
             &mut output,
         );
 
@@ -259,10 +272,12 @@ mod tests {
         emit_opaque_handle(
             &ty,
             "sample",
-            &[],
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
+            &OpaqueHandleContext {
+                declared_errors: &[],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+            },
             &mut output,
         );
 
@@ -307,10 +322,12 @@ mod tests {
         emit_opaque_handle(
             &ty,
             "sample",
-            &[],
-            &HashSet::new(),
-            &HashMap::new(),
-            &HashSet::new(),
+            &OpaqueHandleContext {
+                declared_errors: &[],
+                struct_names: &HashSet::new(),
+                streaming_item_types: &HashMap::new(),
+                enum_names: &HashSet::new(),
+            },
             &mut output,
         );
 

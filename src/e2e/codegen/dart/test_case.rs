@@ -284,16 +284,17 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
 
     // Build per-call field resolver using the effective field sets for this call. Extracted to
     // `call_field_resolver.rs` (this file is at the file-size ratchet's frozen ceiling).
-    let call_field_resolver = super::call_field_resolver::build_call_field_resolver(
-        e2e_config,
-        call_config,
-        fixture,
-        lang,
-        dart_first_class_map,
-        type_defs,
-        enums,
-        functions,
-    );
+    let call_field_resolver =
+        super::call_field_resolver::build_call_field_resolver(super::call_field_resolver::CallFieldResolverInputs {
+            e2e_config,
+            call_config,
+            fixture,
+            lang,
+            dart_first_class_map,
+            type_defs,
+            enums,
+            functions,
+        });
     let field_resolver = &call_field_resolver;
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())

@@ -17,6 +17,7 @@ use super::E2eCodegen;
 
 mod args;
 mod assertion_field_gates;
+mod assertion_mock_capture;
 mod assertion_scalar_context;
 mod assertion_scalar_dispatch;
 mod assertions;
@@ -39,6 +40,8 @@ mod assertion_wildcard_element_tests;
 mod collection_field_classification_tests;
 #[cfg(test)]
 mod enum_field_classification_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod optional_segment_len_tests;
 #[cfg(test)]

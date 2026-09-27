@@ -14,7 +14,7 @@ mod params_returns;
 mod sync_functions;
 mod visitor_bridge;
 
-use conversion_internals::gen_convert_with_visitor_internal_method;
+use conversion_internals::{BridgeParamContext, gen_convert_with_visitor_internal_method};
 use visitor_bridge::visitor_bridge_for_function;
 
 #[cfg(test)]
@@ -126,13 +126,16 @@ pub(crate) fn gen_main_class(
     if has_visitor_bridge {
         for func in &api.functions {
             if let Some(visitor_bridge) = visitor_bridge_for_function(func, config) {
+                let params = BridgeParamContext {
+                    opaque_types: &opaque_types,
+                    bridge_param_names,
+                    bridge_type_aliases,
+                };
                 body.push_str(&gen_convert_with_visitor_internal_method(
                     func,
                     class_name,
                     prefix,
-                    &opaque_types,
-                    bridge_param_names,
-                    bridge_type_aliases,
+                    &params,
                     &visitor_bridge,
                 ));
                 body.push('\n');

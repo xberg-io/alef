@@ -1,5 +1,5 @@
 use super::owned_params;
-use super::visitor_bridge::gen_visitor_bridge;
+use super::visitor_bridge::{VisitorBridgeCtx, gen_visitor_bridge};
 
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
 use crate::core::config::TraitBridgeConfig;
@@ -50,13 +50,15 @@ pub fn gen_trait_bridge(
         let mut out = String::with_capacity(8192);
         gen_visitor_bridge(
             &mut out,
-            trait_type,
-            bridge_cfg,
-            &struct_name,
-            &trait_path,
-            core_import,
-            &type_paths,
-            api,
+            &VisitorBridgeCtx {
+                trait_type,
+                bridge_cfg,
+                struct_name: &struct_name,
+                trait_path: &trait_path,
+                core_crate: core_import,
+                type_paths: &type_paths,
+                api,
+            },
         )?;
         Ok(out)
     } else {

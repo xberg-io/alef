@@ -30,6 +30,14 @@ pub(super) fn render_assertion(
     result_var: &str,
     context: &RAssertionContext<'_>,
 ) {
+    // `mock.*` virtual fields (alef issue #443) resolve against the generated mock server's own
+    // request log, not any field of the result -- intercept before every other branch, including
+    // the synthetic/derived-field dispatch right below and the `is_valid_for_result` gate further
+    // down, either of which would otherwise misclassify it. See
+    // `assertion_mock_capture`'s module doc.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct attribute accesses on the result.
     if let Some(f) = &assertion.field {

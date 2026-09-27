@@ -638,8 +638,8 @@ pub fn render_test_file(
 
     // The `mock.*` once-per-suite request-count helper (alef issue #443), gated on the same
     // reference-scan pattern as the helpers above: a helper defined but never called is dead
-    // code. `mock_capture(lang)` is `Err` for `lang == "wasm"` (only `"node"` is wired this
-    // wave), so this is a no-op for WASM files regardless of what they reference.
+    // code. `mock_capture(lang)` has entries for both `"node"` and `"wasm"` (they share this
+    // renderer and the same vitest-on-Node.js harness), so this fires for either language.
     if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture(lang)
         && super::snippet::references_identifier(&fixtures_body, capture.helper_name)
         && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper(lang)

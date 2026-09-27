@@ -16,7 +16,7 @@ mod types;
 use errors::emit_error_set;
 use functions::emit_function;
 use helpers::emit_helpers;
-use opaque_handles::{emit_opaque_constructor, emit_opaque_handle};
+use opaque_handles::{OpaqueHandleContext, emit_opaque_constructor, emit_opaque_handle};
 use types::{emit_enum, emit_type};
 
 fn zig_module_name(crate_name: &str) -> String {
@@ -372,10 +372,12 @@ impl Backend for ZigBackend {
             emit_opaque_handle(
                 ty,
                 &prefix,
-                &declared_errors,
-                &struct_names,
-                &streaming_item_types,
-                &enum_names,
+                &OpaqueHandleContext {
+                    declared_errors: &declared_errors,
+                    struct_names: &struct_names,
+                    streaming_item_types: &streaming_item_types,
+                    enum_names: &enum_names,
+                },
                 &mut content,
             );
             content.push('\n');

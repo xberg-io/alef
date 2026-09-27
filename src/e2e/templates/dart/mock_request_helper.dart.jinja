@@ -1,0 +1,28 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE top-level `Future<int>` function using `dart:io`'s `HttpClient` -- the same client
+   this backend's own HTTP fixture renderer already drives (`dart/http.rs`'s
+   `_httpClient.openUrl(...)` idiom), so this helper adds no new pubspec dependency:
+   `package:http` sits in `dev_dependencies` (`dart/project.rs::render_pubspec`) but no generated
+   test body ever imports it, and `dart:io` is a built-in SDK library requiring no dependency at
+   all. Callers build `pathAndQuery` from "{{ total_path }}?prefix=<p>" (mock.requests.total) or
+   "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery.
+   Every generated test body is already `async` (FRB v2 wraps every bridge call in a `Future`, per
+   `dart/test_case.rs`'s own doc comment), so every call site can `await` this helper directly.
+#}
+Future<int> {{ helper_name }}(String baseUrl, String pathAndQuery) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(Uri.parse('$baseUrl$pathAndQuery'));
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+    return int.parse(body.trim());
+  } finally {
+    client.close();
+  }
+}

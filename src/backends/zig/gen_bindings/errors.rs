@@ -1,11 +1,21 @@
 use crate::core::ir::ErrorDef;
 
+/// Case a Rust error-variant identifier into a Zig error-set tag.
+///
+/// This is deliberately *not* `public_host_identifier(Zig, PublicIdentifierKind::Type, ...)`.
+/// That path assumes (per issue #455) the input is already a PascalCase Rust IR *type* name and
+/// is now identity for Zig -- correct for `pub const {typ.name} = struct`, where `typ.name` is a
+/// real Rust struct/enum identifier. An error-variant identifier is not that: `ErrorVariant.name`
+/// is `v.ident.to_string()` (`src/extract/extractor/types.rs`), i.e. the bare Rust variant
+/// spelling with no host-language casing applied yet, and Zig error tags follow their own
+/// PascalCase convention independent of what casing the source enum used. Before #455 this call
+/// went through the same catch-all arm when it still applied `to_pascal_case()` unconditionally;
+/// #455 turned that arm into an identity mapping for real type names and, as a side effect, this
+/// caller stopped being cased at all (see issue #467). Routing through `cased_public_type_name`
+/// keeps this caller's pre-#455 behavior -- PascalCase an arbitrary input -- without reopening
+/// #455 for the type-name callers that must stay identity. ~keep
 fn zig_error_variant_component(name: &str) -> String {
-    crate::codegen::naming::public_host_identifier(
-        crate::core::config::Language::Zig,
-        crate::codegen::naming::PublicIdentifierKind::Type,
-        name,
-    )
+    crate::codegen::naming::cased_public_type_name(crate::core::config::Language::Zig, name)
 }
 
 pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
@@ -108,6 +118,25 @@ mod tests {
             message_template: template.map(str::to_string),
             ..ErrorVariant::default()
         }
+    }
+
+    /// Issue #467 regression: `zig_error_variant_component` used to route through
+    /// `public_host_identifier(Zig, Type, ...)`, which #455 turned into an identity mapping for
+    /// every catch-all-arm language including Zig. `ErrorVariant.name` is the raw
+    /// `v.ident.to_string()` extracted from source (`src/extract/extractor/types.rs`), so a
+    /// caller can hand this an uncased name; it must come back PascalCased, matching Zig's
+    /// idiomatic error-tag convention. ~keep
+    #[test]
+    fn zig_error_variant_component_pascal_cases_an_uncased_snake_case_name() {
+        assert_eq!(zig_error_variant_component("connection_failed"), "ConnectionFailed");
+    }
+
+    /// Companion to the test above: an input that is already a single PascalCase word must come
+    /// back unchanged, not merely "still PascalCase" -- an idempotence check that would pass
+    /// trivially if the function scrambled the name into some other PascalCase spelling.
+    #[test]
+    fn zig_error_variant_component_leaves_an_already_pascal_case_name_unchanged() {
+        assert_eq!(zig_error_variant_component("ConnectionFailed"), "ConnectionFailed");
     }
 
     // `emit_error_set` stopped emitting the `_from_ffi_msg_*` prefix-matcher in

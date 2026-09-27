@@ -463,6 +463,16 @@ fn emit_non_chat_stream_assertion(
     assertion: &Assertion,
     result_fields: &std::collections::HashSet<String>,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443) resolve against the mock server's
+    // own request log, never the streaming aggregator locals this function otherwise renders
+    // against -- intercept before any of that streaming-specific dispatch. This is one of TWO
+    // streaming call sites (see `emit_chat_stream_assertion` below and
+    // `assertion_mock_capture`'s module doc for why C# has two, not one): a generic (non-chat)
+    // streaming fixture's assertions reach this function, never `assertions::render_assertion`.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     let atype = assertion.assertion_type.as_str();
     if atype == "not_error" || atype == "error" {
         return;
@@ -569,6 +579,14 @@ so completion is not observable here",
 /// variable produced by `render_chat_stream_test_method`. Pseudo-fields like
 /// `chunks` / `stream_content` / `stream_complete` resolve to in-method locals.
 fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion) {
+    // `mock.*` request-count virtual fields (alef issue #443): this is the chat-completion
+    // streaming call site (see `emit_non_chat_stream_assertion` above for the generic-streaming
+    // one, and `assertion_mock_capture`'s module doc for why C# needs both) -- intercept before
+    // any chat-stream-specific dispatch, matching every other call site in this backend.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     let atype = assertion.assertion_type.as_str();
     if atype == "not_error" || atype == "error" {
         return;
@@ -749,6 +767,32 @@ mod strict_field_availability_marker_tests {
             "got: {out}"
         );
     }
+
+    /// Regression test for alef issue #443: without the `try_render_mock_capture_assertion`
+    /// interception at the top of `emit_non_chat_stream_assertion`, a `mock.*` field falls
+    /// through to the ordinary streaming-field-availability check just above and renders the
+    /// SAME `FieldSkip::StreamingAssertionOnUnsupportedField` marker the negative test above
+    /// pins for a genuinely unsupported field -- `mock.requests.total` would misreport as an
+    /// unsupported streaming field instead of resolving against the mock server's request log.
+    /// ~keep
+    #[test]
+    fn a_mock_capture_field_is_intercepted_before_the_generic_streaming_dispatch() {
+        let assertion = Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("mock.requests.total".to_string()),
+            value: Some(serde_json::json!(3)),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+
+        emit_non_chat_stream_assertion(&mut out, &assertion, &std::collections::HashSet::new());
+
+        assert_eq!(
+            out,
+            "        Assert.Equal(3, alefMockRequestCount(Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\", \"/__alef/requests/total?prefix=\"));\n",
+            "a mock.* field must resolve via the capture helper, not the streaming field-availability skip -- got: {out}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -850,6 +894,30 @@ mod emit_chat_stream_assertion_tests {
         assert_eq!(
             out, "        Assert.True(chunks.Count >= 2, \"expected at least 2 chunks\");\n",
             "got: {out}"
+        );
+    }
+
+    /// Regression test for alef issue #443: without the `try_render_mock_capture_assertion`
+    /// interception at the top of `emit_chat_stream_assertion`, `mock.*` has no matching `Kind`
+    /// in this function's own field/kind table, so it would fall to the generic
+    /// `FieldSkip::StreamingAssertionOnUnsupportedField` branch instead of resolving against the
+    /// mock server's request log -- a chat-completion streaming fixture asserting `mock.*` would
+    /// silently mis-render exactly like the generic-streaming path this file's other new test
+    /// pins for `emit_non_chat_stream_assertion`. ~keep
+    #[test]
+    fn a_mock_capture_field_is_intercepted_before_chat_stream_dispatch() {
+        let assertion = Assertion {
+            assertion_type: "greater_than_or_equal".to_string(),
+            field: Some(r#"mock.requests["POST /v1/chat"]"#.to_string()),
+            value: Some(serde_json::json!(2)),
+            ..Assertion::default()
+        };
+        let mut out = String::new();
+        emit_chat_stream_assertion(&mut out, &assertion);
+        assert_eq!(
+            out,
+            "        Assert.True(alefMockRequestCount(Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\", \"/__alef/requests/one?key=POST%20%2Fv1%2Fchat\") >= 2);\n",
+            "a mock.* field must resolve via the capture helper, not chat-stream field dispatch -- got: {out}"
         );
     }
 }

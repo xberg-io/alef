@@ -117,11 +117,13 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
                 let Some(error_code) = variant.error_code else {
                     continue;
                 };
-                let variant_name = crate::codegen::naming::public_host_identifier(
-                    Language::Zig,
-                    crate::codegen::naming::PublicIdentifierKind::Type,
-                    &variant.name,
-                );
+                // ~keep Must use the CASED helper, matching `errors.rs::zig_error_variant_component`
+                // exactly: this dispatch emits `error.{variant_name}` against the error set that
+                // file declares. `ErrorVariant.name` is the bare extracted ident, so it can be
+                // snake_case; if the two disagree on casing the generated Zig names a member the
+                // error set does not contain and fails to compile (alef issue #467).
+                let variant_name =
+                    crate::codegen::naming::cased_public_type_name(Language::Zig, &variant.name);
                 out.push_str(&format!("        {error_code} => error.{variant_name},\n"));
             }
             out.push_str("        else => error.UnknownFfiError,\n    };\n");

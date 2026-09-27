@@ -382,9 +382,7 @@ fn opaque_handle_close_is_idempotent_and_rejects_post_close_use() {
         "sample",
         &[],
         "SampleRs",
-        &AHashSet::default(),
-        &AHashSet::default(),
-        &AHashSet::default(),
+        (&AHashSet::default(), &AHashSet::default(), &AHashSet::default()),
     );
 
     assert!(out.contains("private MemorySegment handle;"), "{out}");

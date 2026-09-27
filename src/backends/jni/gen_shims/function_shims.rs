@@ -270,11 +270,13 @@ fn emit_function_return(
     render_call_result_body(
         out,
         call,
-        function.is_async,
-        has_error,
-        return_null,
-        ok_body,
-        value_body,
+        &CallResultShape {
+            is_async: function.is_async,
+            has_error,
+            ret_null: return_null,
+            ok_body,
+            value_body,
+        },
     );
 }
 

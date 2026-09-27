@@ -51,13 +51,37 @@ fn count_equals_is_an_alias_for_equals() {
     assert!(out.contains(".toBe(4)"), "got: {out}");
 }
 
-/// `"wasm"` has no capture-table entry -- `render` must decline (not panic, not write anything)
-/// so the caller falls through to WASM's own existing field handling.
+/// `"wasm"` shares `"node"`'s capture-table entry (same template, same helper name -- see
+/// `mock_assertions::snippets::MOCK_CAPTURE_TABLE`'s `"wasm"` row) because WASM's e2e tests render
+/// through this exact function under the identical vitest-on-Node.js harness. `render` must
+/// therefore emit byte-identical text for both languages. ~keep
 #[test]
-fn wasm_has_no_capture_and_is_left_untouched() {
+fn wasm_shares_nodes_capture_and_renders_identically() {
+    let assertion = mock_assertion("mock.requests.total", "equals", serde_json::json!(1));
+
+    let mut node_out = String::new();
+    assert!(render(&mut node_out, &assertion, "mock.requests.total", "node"));
+
+    let mut wasm_out = String::new();
+    assert!(render(&mut wasm_out, &assertion, "mock.requests.total", "wasm"));
+
+    assert_eq!(node_out, wasm_out, "wasm and node must render the identical mock-capture call");
+    assert_eq!(
+        wasm_out,
+        "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/total?prefix=\")).toBe(1);\n"
+    );
+}
+
+/// A language with no capture-table entry at all -- `render` must decline (not panic, not write
+/// anything) so the caller falls through to that language's own existing field handling.
+/// `"homebrew"` is structurally exempt from ever gaining a row (see
+/// `mock_assertions::tests::UNWIRED_LANGUAGE`'s doc), so this stays true rather than needing to
+/// move again the next time a language is wired.
+#[test]
+fn an_unwired_language_has_no_capture_and_is_left_untouched() {
     let assertion = mock_assertion("mock.requests.total", "equals", serde_json::json!(1));
     let mut out = String::new();
-    assert!(!render(&mut out, &assertion, "mock.requests.total", "wasm"));
+    assert!(!render(&mut out, &assertion, "mock.requests.total", "homebrew"));
     assert_eq!(out, "");
 }
 

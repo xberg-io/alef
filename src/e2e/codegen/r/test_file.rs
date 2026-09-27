@@ -8,16 +8,21 @@ use std::fmt::Write as FmtWrite;
 
 use super::test_case::render_test_case;
 
-#[allow(clippy::too_many_arguments)]
+/// Generation context threaded through to `render_test_case` for every fixture in the category —
+/// unchanged across the loop, so bundling it keeps `render_test_file` at 5 parameters. ~keep
+pub(super) struct TestFileContext<'a> {
+    pub(super) e2e_config: &'a E2eConfig,
+    pub(super) config: &'a ResolvedCrateConfig,
+    pub(super) type_defs: &'a [crate::core::ir::TypeDef],
+    pub(super) errors: &'a [crate::core::ir::ErrorDef],
+}
+
 pub(super) fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
     result_is_simple: bool,
     result_is_r_list: bool,
-    e2e_config: &E2eConfig,
-    config: &ResolvedCrateConfig,
-    type_defs: &[crate::core::ir::TypeDef],
-    errors: &[crate::core::ir::ErrorDef],
+    context: &TestFileContext<'_>,
 ) -> String {
     let mut out = String::new();
     out.push_str(&hash::e2e_header(CommentStyle::Hash));
@@ -28,12 +33,12 @@ pub(super) fn render_test_file(
         render_test_case(
             &mut out,
             fixture,
-            e2e_config,
+            context.e2e_config,
             result_is_simple,
             result_is_r_list,
-            config,
-            type_defs,
-            errors,
+            context.config,
+            context.type_defs,
+            context.errors,
         );
         // ~keep R's error path renders `expect_error(...)` and returns, so every other assertion
         // on an error fixture — most often an `equals` against `error.status_code` — leaves no
@@ -44,6 +49,18 @@ pub(super) fn render_test_file(
         if i + 1 < fixtures.len() {
             let _ = writeln!(out);
         }
+    }
+
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered fixtures actually call it (`assertion_mock_capture::try_render_mock_capture_assertion`
+    // writes a bare call to `capture.helper_name`, no qualifier). Appended after every fixture's
+    // test_that() block so it lands once per file, not once per fixture. ~keep
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("r")
+        && out.contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("r")
+    {
+        let _ = writeln!(out);
+        out.push_str(&rendered);
     }
 
     // Clean up trailing newlines.
@@ -58,7 +75,7 @@ pub(super) fn render_test_file(
 
 #[cfg(test)]
 mod error_path_marker_tests {
-    use super::render_test_file;
+    use super::{TestFileContext, render_test_file};
     use crate::core::config::ResolvedCrateConfig;
     use crate::e2e::config::E2eConfig;
     use crate::e2e::fixture::{Assertion, Fixture};
@@ -88,10 +105,12 @@ mod error_path_marker_tests {
             &[&fixture],
             false,
             false,
-            &e2e_config,
-            &ResolvedCrateConfig::default(),
-            &[],
-            errors,
+            &TestFileContext {
+                e2e_config: &e2e_config,
+                config: &ResolvedCrateConfig::default(),
+                type_defs: &[],
+                errors,
+            },
         )
     }
 

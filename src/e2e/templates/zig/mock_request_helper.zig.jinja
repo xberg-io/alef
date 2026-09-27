@@ -1,0 +1,57 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE private (non-`pub`) top-level function, matching this backend's existing
+   `allow_private_network()` top-level helper (see `zig/test_file.rs`), so it adds no new
+   `@import` -- `std` is already imported by every generated zig test file. Callers build
+   `pathAndQuery` from "{{ total_path }}?prefix=<p>" (mock.requests.total) or
+   "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery.
+
+   Uses `std.http.Client` with the same zig-0.16 `std.Io.Threaded` shape this backend's
+   `http.rs` (`render_call`) already relies on for every generated HTTP fixture test -- not a
+   raw socket parse -- so this helper tracks the one HTTP client idiom this backend has already
+   proven correct against the installed zig toolchain, rather than introducing a second,
+   untested one. It manages its own `std.heap.c_allocator` internally (the same allocator this
+   backend's `assertions.rs` already reaches for ad hoc JSON parsing with no externally-threaded
+   allocator, e.g. its `embeddings` synthetic-field path) so the call site stays the plain
+   two-argument shape every other backend's call site uses, with no GPA/allocator binding
+   required from the surrounding test body. Any failure panics (matching this backend's own
+   `emit_test_backend_register_call` convention of aborting loudly on an unexpected harness
+   failure) rather than returning an error union, so call sites need no `try`.
+#}
+
+fn {{ helper_name }}(baseUrl: []const u8, pathAndQuery: []const u8) u64 {
+    const allocator = std.heap.c_allocator;
+    var url_buf: [512]u8 = undefined;
+    const url = std.fmt.bufPrint(&url_buf, "{s}{s}", .{ baseUrl, pathAndQuery }) catch |err| {
+        std.debug.panic("{{ helper_name }}: building request url failed: {}", .{err});
+    };
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var http_client = std.http.Client{ .allocator = allocator, .io = io };
+    defer http_client.deinit();
+    var response_body = std.Io.Writer.Allocating.init(allocator);
+    defer response_body.deinit();
+
+    _ = http_client.fetch(.{
+        .location = .{ .url = url },
+        .method = .GET,
+        .extra_headers = &.{},
+        .keep_alive = false,
+        .redirect_behavior = .unhandled,
+        .response_writer = &response_body.writer,
+    }) catch |err| {
+        std.debug.panic("{{ helper_name }}: request failed: {}", .{err});
+    };
+
+    const body = std.mem.trim(u8, response_body.written(), " \t\r\n");
+    return std.fmt.parseInt(u64, body, 10) catch |err| {
+        std.debug.panic("{{ helper_name }}: parsing '{s}' failed: {}", .{ body, err });
+    };
+}
