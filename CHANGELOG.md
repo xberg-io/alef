@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **cli: `alef all` wrote Rust bindings before the `rustfmt.toml` that governs them, and rustfmt
+  resolved its config from the process cwd (#465).** The bindings stage runs before the scaffold
+  stage that emits `rustfmt.toml`, and `format_rust_content` passed `--config-path <dir>`
+  explicitly. That flag *disables* rustfmt's upward search and hard-errors on a miss --
+  `rustfmt --config-path /usr` exits 1 -- so on a project's first run the function took its
+  non-success arm and returned the binding **completely unformatted**. (The issue, and #458's own
+  module doc, both said it landed at rustfmt's default width of 100. Measured: it does not.) The
+  later `poly fmt --fix` pass then did the entire format rather than a re-wrap, which is why this
+  stayed invisible wherever poly is installed: running the pre-fix binary with poly off `PATH`
+  leaves a 615-column line in a generated `lib.rs`, and `cargo fmt --all` cannot catch it because
+  the generated crate is not in the root workspace. `rustfmt.toml` and `.clang-format` are now
+  written in a pre-pass before any `.rs` byte, and config resolution walks up from the file's own
+  directory, bounded by the project root, emitting `--config-path <file>` only when one is found.
+  The rustfmt child's own `current_dir` is pinned too, since reading from stdin it otherwise
+  searches from wherever the process happens to be. `poly.toml` is deliberately excluded from the
+  pre-pass: it is a merge target, and pre-writing it would record a merge baseline twice per run.
+
 - **extract/e2e: a fully-qualified `core_path` never matched, so adapter-handled methods also got a
   generic binding (#463).** Three call sites independently answered "does this adapter cover this
   method" and two of them compared `adapter.core_path` to a bare method name with exact string

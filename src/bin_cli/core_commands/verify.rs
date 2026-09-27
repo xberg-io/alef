@@ -709,7 +709,7 @@ fn frb_generated_drift(config: &crate::core::config::ResolvedCrateConfig, base_d
         return Vec::new();
     };
 
-    let canonical = pipeline::canonical_frb_generated(&lib_rs, &frb_generated, &frb_generated_path);
+    let canonical = pipeline::canonical_frb_generated(&lib_rs, &frb_generated, &frb_generated_path, base_dir);
     if canonical == frb_generated {
         return Vec::new();
     }
@@ -866,7 +866,8 @@ mod frb_generated_drift_tests {
         let config = dart_config("sample-lib");
         let base_dir = tempfile::tempdir().expect("tempdir");
         let frb_generated_path = write_frb_fixture(&config, base_dir.path(), LIB_RS, RAW_FROM_TOOL);
-        let canonical = crate::cli::pipeline::canonical_frb_generated(LIB_RS, RAW_FROM_TOOL, &frb_generated_path);
+        let canonical =
+            crate::cli::pipeline::canonical_frb_generated(LIB_RS, RAW_FROM_TOOL, &frb_generated_path, base_dir.path());
         std::fs::write(&frb_generated_path, &canonical).expect("write canonical frb_generated.rs");
 
         let drift = frb_generated_drift(&config, base_dir.path());

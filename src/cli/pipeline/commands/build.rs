@@ -678,7 +678,7 @@ pub fn run_post_build(
             } => {
                 let source_file = base_dir.join(crate_dir).join(source_path);
                 let target_file = base_dir.join(crate_dir).join(target_path);
-                frb_cfg_gates::run(&source_file, &target_file)?;
+                frb_cfg_gates::run(&source_file, &target_file, base_dir)?;
             }
             PostBuildStep::StageDartNatives { lib_stem } => {
                 let package_root = base_dir.join("packages/dart");
@@ -785,7 +785,7 @@ pub fn run_post_build(
                 )
                 .with_context(|| format!("failed to re-materialize swift-bridge files for '{binding_crate_name}'"))?;
                 if let Some(files) = materialized {
-                    crate::backends::swift::gen_bindings::bridge_artifacts::write_materialized_files(files)
+                    crate::backends::swift::gen_bindings::bridge_artifacts::write_materialized_files(files, base_dir)
                         .with_context(|| format!("failed to write swift-bridge files for '{binding_crate_name}'"))?;
                 }
                 info!("Re-materialized swift-bridge files for '{binding_crate_name}' from fresh build output");

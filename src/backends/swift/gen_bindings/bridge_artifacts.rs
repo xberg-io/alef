@@ -6,7 +6,7 @@ use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub(crate) mod umbrella_header;
 
@@ -268,13 +268,13 @@ pub(crate) fn emit_swift_bridge_files(
 /// `#include <stdbool.h>` line with a trailing space) therefore reached the committed
 /// `RustBridgeC.h`/`*.swift` files uncorrected until this normalized every line the same way the
 /// in-process placeholder path already does. ~keep
-pub(crate) fn write_materialized_files(files: Vec<GeneratedFile>) -> anyhow::Result<()> {
+pub(crate) fn write_materialized_files(files: Vec<GeneratedFile>, project_root: &Path) -> anyhow::Result<()> {
     for f in files {
         if let Some(parent) = f.path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| anyhow::anyhow!("failed to create directory {}: {e}", parent.display()))?;
         }
-        let normalized = crate::cli::pipeline::normalize_content(&f.path, &f.content);
+        let normalized = crate::cli::pipeline::normalize_content(project_root, &f.path, &f.content);
         std::fs::write(&f.path, &normalized)
             .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", f.path.display()))?;
     }

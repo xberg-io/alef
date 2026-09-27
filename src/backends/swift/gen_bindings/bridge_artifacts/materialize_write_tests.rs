@@ -31,11 +31,14 @@ fn strips_trailing_whitespace_from_every_line() {
     let content =
         "#ifndef RUST_BRIDGE_C_H\n#define RUST_BRIDGE_C_H\n\n#include <stdbool.h> \n#include <stdint.h>\n\n#endif\n";
 
-    write_materialized_files(vec![GeneratedFile {
-        path: path.clone(),
-        content: content.to_string(),
-        generated_header: false,
-    }])
+    write_materialized_files(
+        vec![GeneratedFile {
+            path: path.clone(),
+            content: content.to_string(),
+            generated_header: false,
+        }],
+        dir.path(),
+    )
     .expect("write materialized files");
 
     let written = read(&path);
@@ -58,11 +61,14 @@ fn ensures_a_single_trailing_newline() {
     let path = dir.path().join("Sources/RustBridge/Demo.swift");
     let content = "public struct Demo {}";
 
-    write_materialized_files(vec![GeneratedFile {
-        path: path.clone(),
-        content: content.to_string(),
-        generated_header: false,
-    }])
+    write_materialized_files(
+        vec![GeneratedFile {
+            path: path.clone(),
+            content: content.to_string(),
+            generated_header: false,
+        }],
+        dir.path(),
+    )
     .expect("write materialized files");
 
     let written = read(&path);
@@ -88,11 +94,14 @@ fn collapses_runs_of_blank_lines_to_the_non_markdown_cap_of_two() {
     let path = dir.path().join("Sources/RustBridgeC/RustBridgeC.h");
     let content = "#ifndef X\n#define X\n\n\n\n\n#endif\n";
 
-    write_materialized_files(vec![GeneratedFile {
-        path: path.clone(),
-        content: content.to_string(),
-        generated_header: false,
-    }])
+    write_materialized_files(
+        vec![GeneratedFile {
+            path: path.clone(),
+            content: content.to_string(),
+            generated_header: false,
+        }],
+        dir.path(),
+    )
     .expect("write materialized files");
 
     let written = read(&path);
@@ -119,11 +128,14 @@ fn creates_missing_parent_directories() {
         "precondition: parent must not exist yet"
     );
 
-    write_materialized_files(vec![GeneratedFile {
-        path: path.clone(),
-        content: "#endif\n".to_string(),
-        generated_header: false,
-    }])
+    write_materialized_files(
+        vec![GeneratedFile {
+            path: path.clone(),
+            content: "#endif\n".to_string(),
+            generated_header: false,
+        }],
+        dir.path(),
+    )
     .expect("write materialized files");
 
     assert!(

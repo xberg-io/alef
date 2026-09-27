@@ -64,7 +64,7 @@ fn adopted_seed_markers_survive_repeated_version_regeneration() {
                 assert_eq!(report.changed_count(), 1, "{writer:?}: {relative}");
                 let path = base.join(relative);
                 let actual = std::fs::read_to_string(&path).expect("read updated manifest");
-                let body = normalize_content(&path, &manifest_body(relative, version));
+                let body = normalize_content(base, &path, &manifest_body(relative, version));
                 assert_eq!(
                     actual,
                     write::ensure_generated_header(&path, &body),
@@ -84,7 +84,10 @@ fn new_seeds_remain_unmarked_and_refuse_later_version_changes() {
             assert_eq!(writer.write(base, relative, "1.0.0").changed_count(), 1);
             let path = base.join(relative);
             let original = std::fs::read_to_string(&path).expect("read new seed");
-            assert_eq!(original, normalize_content(&path, &manifest_body(relative, "1.0.0")));
+            assert_eq!(
+                original,
+                normalize_content(base, &path, &manifest_body(relative, "1.0.0"))
+            );
             let report = writer.write(base, relative, "1.0.1");
             assert_eq!(report.refused_paths.into_iter().collect::<Vec<_>>(), vec![path.clone()]);
             assert_eq!(std::fs::read_to_string(path).expect("read refused seed"), original);

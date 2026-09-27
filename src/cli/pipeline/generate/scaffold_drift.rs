@@ -108,9 +108,9 @@ fn differs_from_template(file: &GeneratedFile, base_dir: &Path) -> bool {
         return false;
     };
     let is_rust = file.path.extension().is_some_and(|ext| ext == "rs");
-    let generated = normalize_content(&file.path, &file.content);
+    let generated = normalize_content(base_dir, &file.path, &file.content);
     let on_disk = if is_rust {
-        format_rust_content(&full_path, &existing)
+        format_rust_content(base_dir, &full_path, &existing)
     } else {
         existing
     };

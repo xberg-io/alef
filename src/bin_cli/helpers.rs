@@ -128,7 +128,7 @@ pub(crate) fn generated_files_match_disk(
     base_dir: &std::path::Path,
 ) -> bool {
     lang_files.iter().all(|file| {
-        let normalized = crate::cli::pipeline::normalize_content(&file.path, &file.content);
+        let normalized = crate::cli::pipeline::normalize_content(base_dir, &file.path, &file.content);
         match std::fs::read_to_string(base_dir.join(&file.path)) {
             Ok(disk) => crate::core::hash::strip_hash_line(&disk) == crate::core::hash::strip_hash_line(&normalized),
             Err(_) => false,

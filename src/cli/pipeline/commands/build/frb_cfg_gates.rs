@@ -21,13 +21,19 @@ use std::path::Path;
 /// `write_files` path hashes against — is what makes those two alef commands agree on the
 /// committed bytes for identical input instead of disagreeing (alef #179): without it, `alef
 /// build` left the tool's raw ordering behind while `alef generate` normalized it away. ~keep
+///
+/// `project_root` bounds `normalize_content`'s rustfmt-config/edition lookups (alef #465) --
+/// both of this function's callers (`run`, below, and `bin_cli::core_commands::verify`'s
+/// `frb_generated_drift`) must pass the SAME root, or `alef build` and `alef verify` would
+/// disagree about which `rustfmt.toml` applies to this file. ~keep
 pub(crate) fn canonical_frb_generated(
     lib_rs_source: &str,
     frb_generated_source: &str,
     frb_generated_path: &Path,
+    project_root: &Path,
 ) -> String {
     let gated = crate::backends::dart::carry_lib_rs_cfg_gates_into_frb_generated(lib_rs_source, frb_generated_source);
-    crate::cli::pipeline::normalize_content(frb_generated_path, &gated)
+    crate::cli::pipeline::normalize_content(project_root, frb_generated_path, &gated)
 }
 
 /// Read `source_file` (the FRB facade's `lib.rs`) and `target_file` (`frb_generated.rs`), carry
@@ -35,7 +41,7 @@ pub(crate) fn canonical_frb_generated(
 ///
 /// A no-op when either file does not exist yet — mirrors every other `PostBuildStep` handler in
 /// `run_post_build`, which treats "nothing to check yet" as fine rather than an error.
-pub(super) fn run(source_file: &Path, target_file: &Path) -> anyhow::Result<()> {
+pub(super) fn run(source_file: &Path, target_file: &Path, project_root: &Path) -> anyhow::Result<()> {
     if !source_file.exists() || !target_file.exists() {
         tracing::debug!(
             "CarryFrbCfgGates source or target not found: {} / {}",
@@ -50,7 +56,7 @@ pub(super) fn run(source_file: &Path, target_file: &Path) -> anyhow::Result<()> 
     let target_content = std::fs::read_to_string(target_file)
         .with_context(|| format!("failed to read cfg-gate target {}", target_file.display()))?;
 
-    let canonical = canonical_frb_generated(&source_content, &target_content, target_file);
+    let canonical = canonical_frb_generated(&source_content, &target_content, target_file, project_root);
     if canonical != target_content {
         std::fs::write(target_file, &canonical)
             .with_context(|| format!("failed to write cfg-gated file {}", target_file.display()))?;
@@ -87,22 +93,15 @@ mod tests {
     /// own tolerance for a missing toolchain. ~keep
     #[test]
     fn canonical_frb_generated_converges_raw_and_formatted_import_order() {
-        // `format_rust_content` (reached via `normalize_content`) resolves rustfmt's
-        // `--config-path` against `std::env::current_dir()`, process-global shared state across
-        // every test thread in this binary. Without this lock, a sibling test that legitimately
-        // chdirs mid-run (`test_support::CwdGuard`) can point rustfmt at a directory that no
-        // longer exists by the time it runs, making rustfmt fail and `format_rust_content` fall
-        // back to its unformatted input -- silently turning this test's real assertion into a
-        // false failure that has nothing to do with `canonical_frb_generated` itself. See
-        // `test_support` module docs. ~keep
-        let _cwd_lock = crate::test_support::CWD_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-
+        // No `CWD_LOCK` here (alef #465): `canonical_frb_generated` now takes an explicit
+        // `project_root` instead of `format_rust_content` resolving rustfmt's config against
+        // `std::env::current_dir()`, so a sibling test's `test_support::CwdGuard` chdir can no
+        // longer race this one.
         if !crate::cli::pipeline::is_tool_available("rustfmt") {
             return;
         }
 
+        let project_root = tempfile::tempdir().expect("tempdir");
         let lib_rs = "pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n";
         let raw_from_tool = "use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};\n\
              fn wire__crate__add_impl() {}\n";
@@ -114,8 +113,8 @@ mod tests {
         );
 
         let path = Path::new("frb_generated.rs");
-        let from_raw = canonical_frb_generated(lib_rs, raw_from_tool, path);
-        let from_formatted = canonical_frb_generated(lib_rs, already_formatted, path);
+        let from_raw = canonical_frb_generated(lib_rs, raw_from_tool, path, project_root.path());
+        let from_formatted = canonical_frb_generated(lib_rs, already_formatted, path, project_root.path());
 
         assert_eq!(
             from_raw, from_formatted,
@@ -130,23 +129,20 @@ mod tests {
     /// reach a clean state instead of flagging every single run as drifted.
     #[test]
     fn canonical_frb_generated_is_idempotent() {
-        // Same cwd-race guard as `canonical_frb_generated_converges_raw_and_formatted_import_order`
-        // above -- see that test's comment. ~keep
-        let _cwd_lock = crate::test_support::CWD_LOCK
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-
+        // No `CWD_LOCK` here either (alef #465) -- see the comment on
+        // `canonical_frb_generated_converges_raw_and_formatted_import_order` above.
         if !crate::cli::pipeline::is_tool_available("rustfmt") {
             return;
         }
 
+        let project_root = tempfile::tempdir().expect("tempdir");
         let lib_rs = "pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n";
         let raw = "use flutter_rust_bridge::for_generated::{transform_result_dco, Lifetimeable, Lockable};\n\
                    fn wire__crate__add_impl() {}\n";
         let path = Path::new("frb_generated.rs");
 
-        let once = canonical_frb_generated(lib_rs, raw, path);
-        let twice = canonical_frb_generated(lib_rs, &once, path);
+        let once = canonical_frb_generated(lib_rs, raw, path, project_root.path());
+        let twice = canonical_frb_generated(lib_rs, &once, path, project_root.path());
 
         assert_eq!(
             once, twice,

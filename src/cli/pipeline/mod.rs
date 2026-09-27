@@ -35,7 +35,8 @@ pub use generate::{
     generate_stubs, generate_sweep_roots, managed_generated_files, managed_output_paths, normalize_content, readme,
     reconcile_managed_scaffold_manifests, report_refused_writes, report_user_owned_skips, scaffold,
     stampable_output_paths, sweep_manifest_orphans, sweep_orphans, targeted_e2e_sweep_roots, write_files,
-    write_files_report, write_scaffold_files, write_scaffold_files_report, write_scaffold_files_with_overwrite,
+    write_files_report, write_format_config_prepass, write_scaffold_files, write_scaffold_files_report,
+    write_scaffold_files_with_overwrite,
 };
 pub(crate) use generate::{
     apply_shebang_chmod, atomic_write, check_ffi_header_freshness, declared_user_owned, decode_base64_binary,

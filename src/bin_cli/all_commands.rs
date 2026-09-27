@@ -17,7 +17,8 @@ mod preflight;
 // that module's doc and `core_commands/generate.rs`'s use of it. ~keep
 pub(crate) mod stage_failures;
 use all_commands_run_setup::{
-    create_once_overwrite, refused_snippet_dir_paths, report_deferred_formatting, sync_registry_versions_before_all,
+    create_once_overwrite, previous_binding_ownership, refused_snippet_dir_paths, report_deferred_formatting,
+    sync_registry_versions_before_all,
 };
 use stage_failures::StageFailures;
 
@@ -220,19 +221,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // stage manifest `pipeline::generate` never touches, so reading it here -- before
                 // `pipeline::generate` runs -- returns last run's binding list untouched. See
                 // `binding_ownership`'s write-back below the sweep for the other half. ~keep
-                let previous_binding_ownership: std::collections::HashMap<crate::core::config::Language, Vec<PathBuf>> =
-                    languages
-                        .iter()
-                        .map(|language| {
-                            (
-                                *language,
-                                cache::read_stage_paths(
-                                    &resolved_cfg.name,
-                                    &format!("all-bindings-{language}-ownership"),
-                                ),
-                            )
-                        })
-                        .collect();
+                let previous_binding_ownership = previous_binding_ownership(&languages, &resolved_cfg.name);
+
+                // Ahead of the very first generated `.rs` byte below, so `format_rust_content`'s
+                // bounded rustfmt-config lookup finds a real `rustfmt.toml` on this project's
+                // first `alef all` run instead of falling back to rustfmt's own defaults for
+                // that one run -- alef #465. ~keep
+                pipeline::write_format_config_prepass(resolved_cfg, &languages, &base_dir)?;
 
                 tracing::info!("Generating bindings...");
                 let bindings = pipeline::generate(&api, resolved_cfg, &languages, clean, config_path, true)?;
@@ -513,7 +508,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             .iter()
                             .flat_map(|(_, fs)| {
                                 fs.iter().map(|f| {
-                                    let normalized = pipeline::normalize_content(&f.path, &f.content);
+                                    let normalized = pipeline::normalize_content(&base_dir, &f.path, &f.content);
                                     (
                                         base_dir.join(&f.path).display().to_string(),
                                         cache::hash_content(&normalized),
@@ -995,3 +990,7 @@ mod defer_tests;
 #[cfg(test)]
 #[path = "pyrefly_generated_package_tests.rs"]
 mod pyrefly_generated_package_tests;
+
+#[cfg(test)]
+#[path = "all_commands_rustfmt_order_tests.rs"]
+mod rustfmt_order_tests;

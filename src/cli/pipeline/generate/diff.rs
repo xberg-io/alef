@@ -45,14 +45,14 @@ pub fn diff_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) -> 
             } else {
                 file.content.clone()
             };
-            let generated = normalize_content(&file.path, &generated_content);
+            let generated = normalize_content(base_dir, &file.path, &generated_content);
             let generated = if file.generated_header {
                 super::write::ensure_generated_header(&file.path, &generated)
             } else {
                 generated
             };
             let on_disk = if is_rust {
-                format_rust_content(&full_path, &existing)
+                format_rust_content(base_dir, &full_path, &existing)
             } else {
                 existing
             };

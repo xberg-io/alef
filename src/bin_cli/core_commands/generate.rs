@@ -96,6 +96,11 @@ pub(crate) fn handle_generate(
         }
         cache::generation_record::mark_generation_in_progress(&base_dir, &resolved_cfg.name)?;
         let api = pipeline::extract(resolved_cfg, config_path, clean)?;
+        // Ahead of the very first generated `.rs` byte below, so `format_rust_content`'s bounded
+        // rustfmt-config lookup finds a real `rustfmt.toml` on this project's first `alef
+        // generate` run instead of falling back to rustfmt's own defaults for that one run --
+        // alef #465. ~keep
+        pipeline::write_format_config_prepass(resolved_cfg, &languages, &base_dir)?;
         let files = pipeline::generate(&api, resolved_cfg, &languages, clean, config_path, true)?;
         let regenerated_languages: std::collections::HashSet<_> = files.iter().map(|(language, _)| *language).collect();
         let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
@@ -172,7 +177,7 @@ pub(crate) fn handle_generate(
             let hashes: Vec<(String, String)> = lang_files
                 .iter()
                 .map(|f| {
-                    let normalized = pipeline::normalize_content(&f.path, &f.content);
+                    let normalized = pipeline::normalize_content(&base_dir, &f.path, &f.content);
                     (
                         base_dir.join(&f.path).display().to_string(),
                         cache::hash_content(&normalized),
@@ -246,7 +251,7 @@ pub(crate) fn handle_generate(
                     .iter()
                     .flat_map(|(_, fs)| {
                         fs.iter().map(|f| {
-                            let normalized = pipeline::normalize_content(&f.path, &f.content);
+                            let normalized = pipeline::normalize_content(&base_dir, &f.path, &f.content);
                             (
                                 base_dir.join(&f.path).display().to_string(),
                                 cache::hash_content(&normalized),

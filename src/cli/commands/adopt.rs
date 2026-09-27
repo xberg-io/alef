@@ -335,7 +335,7 @@ pub fn managed_outputs(files: &[crate::core::backend::GeneratedFile], base_dir: 
                     create_once: is_create_once_seed(file),
                 };
             }
-            let normalized = crate::cli::pipeline::normalize_content(&full_path, &file.content);
+            let normalized = crate::cli::pipeline::normalize_content(base_dir, &full_path, &file.content);
             let content = if file.generated_header {
                 crate::cli::pipeline::ensure_generated_header(&full_path, &normalized)
             } else {

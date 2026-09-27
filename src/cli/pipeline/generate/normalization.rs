@@ -1,7 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 /// Normalize content the same way `write_files` does before hashing.
+///
+/// `project_root` anchors every filesystem lookup `format_rust_content` performs (rustfmt
+/// config discovery, `Cargo.toml` edition detection) -- see that function's doc for why the
+/// process's current working directory must never be the source of truth for those lookups.
 ///
 /// Rust files go through rustfmt for canonical formatting, then through
 /// `normalize_whitespace` so trailing-whitespace and trailing-newline rules
@@ -12,9 +16,9 @@ use tracing::debug;
 /// rewrites the file post-finalisation, breaking `alef verify`).
 ///
 /// Non-rust files skip rustfmt and go straight to whitespace normalization.
-pub fn normalize_content(path: &Path, content: &str) -> String {
+pub fn normalize_content(project_root: &Path, path: &Path, content: &str) -> String {
     let pre = if path.extension().is_some_and(|ext| ext == "rs") {
-        format_rust_content(path, content)
+        format_rust_content(project_root, path, content)
     } else {
         content.to_string()
     };
@@ -85,21 +89,46 @@ fn normalize_whitespace_with_policy(content: &str, is_markdown: bool) -> String 
     result
 }
 
-/// Walk up from `path` to find the nearest `Cargo.toml` and read its
-/// `[package] edition = "YYYY"` value.  Returns `"2024"` if no `Cargo.toml`
-/// is found or the edition field is absent.
-pub(super) fn detect_crate_edition(path: &Path) -> String {
-    let start = if path.is_dir() {
-        path
+/// Resolve `path` to an absolute location under `project_root`.
+///
+/// Several callers pass a path already relative to `project_root` (e.g. a `GeneratedFile`'s
+/// own `path` field) while others pass one already joined onto it (`base_dir.join(&file.path)`).
+/// Both must resolve to the identical absolute location before any upward filesystem walk
+/// (rustfmt config discovery, `Cargo.toml` edition detection) runs, or the two forms silently
+/// disagree about where that walk starts -- see alef #465. An already-absolute `path` is
+/// returned unchanged (it may point outside `project_root` entirely; the bounded walks below
+/// are what refuse to escape it, not this helper). ~keep
+fn absolute_under(project_root: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        match path.parent() {
-            Some(p) => p,
-            None => return "2024".to_string(),
-        }
+        project_root.join(path)
+    }
+}
+
+/// Walk up from `path` to find the nearest `Cargo.toml` at or below `project_root` and read its
+/// `[package] edition = "YYYY"` value. Returns `"2024"` if no `Cargo.toml` is found within that
+/// bound or the edition field is absent.
+///
+/// The walk never climbs above `project_root`: an earlier revision walked all the way to the
+/// filesystem root, which could read a `Cargo.toml` belonging to a workspace *above* the
+/// consumer's own repo (this polyrepo's root, a CI checkout's parent, ...) and silently adopt
+/// its edition instead of the consumer's own. ~keep
+pub(super) fn detect_crate_edition(project_root: &Path, path: &Path) -> String {
+    let resolved = absolute_under(project_root, path);
+    let start = if resolved.is_dir() {
+        Some(resolved.as_path())
+    } else {
+        resolved.parent()
+    };
+    let Some(mut current) = start else {
+        return "2024".to_string();
     };
 
-    let mut current = start;
     loop {
+        if !current.starts_with(project_root) {
+            return "2024".to_string();
+        }
         let candidate = current.join("Cargo.toml");
         if candidate.is_file() {
             if let Ok(text) = std::fs::read_to_string(&candidate)
@@ -109,12 +138,14 @@ pub(super) fn detect_crate_edition(path: &Path) -> String {
             }
             return "2024".to_string();
         }
+        if current == project_root {
+            return "2024".to_string();
+        }
         match current.parent() {
             Some(parent) => current = parent,
-            None => break,
+            None => return "2024".to_string(),
         }
     }
-    "2024".to_string()
 }
 
 /// Parse the `edition = "YYYY"` value from the `[package]` section of a
@@ -143,26 +174,89 @@ pub(super) fn parse_package_edition(toml_text: &str) -> Option<String> {
     None
 }
 
+/// The nearest `rustfmt.toml`/`.rustfmt.toml` at or above `path` but at or below
+/// `project_root`, or `None` if neither file exists anywhere in that bounded range.
+///
+/// Bounded on both ends deliberately: the walk never starts outside `project_root` (a `path`
+/// argument pointing elsewhere is never used to go config-hunting in a foreign tree) and never
+/// climbs above it either (matching [`detect_crate_edition`]'s own bound, for the same reason --
+/// alef #465). `None` here means "the consumer genuinely has no rustfmt config", which
+/// [`format_rust_content`] must treat as "use rustfmt's own defaults", not as an error. ~keep
+fn rustfmt_config_file(project_root: &Path, path: &Path) -> Option<PathBuf> {
+    const CONFIG_FILE_NAMES: [&str; 2] = ["rustfmt.toml", ".rustfmt.toml"];
+
+    let resolved = absolute_under(project_root, path);
+    let start = if resolved.is_dir() {
+        Some(resolved.as_path())
+    } else {
+        resolved.parent()
+    };
+    let mut current = start?;
+
+    loop {
+        if !current.starts_with(project_root) {
+            return None;
+        }
+        for name in CONFIG_FILE_NAMES {
+            let candidate = current.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        if current == project_root {
+            return None;
+        }
+        current = current.parent()?;
+    }
+}
+
 /// Format a Rust source string by piping through `rustfmt`.
 ///
-/// The edition is detected from the nearest `Cargo.toml` above `path`,
-/// defaulting to `"2024"` when none is found.  `rustfmt` also discovers the
-/// project's `rustfmt.toml` from the working directory.
+/// The edition is detected from the nearest `Cargo.toml` at or below `project_root`
+/// (see [`detect_crate_edition`]), defaulting to `"2024"` when none is found. The rustfmt
+/// config is resolved the same way, bounded to `project_root` (see [`rustfmt_config_file`]):
+/// when a `rustfmt.toml`/`.rustfmt.toml` is found, its exact file is passed via
+/// `--config-path`; when none is found, the flag is omitted entirely rather than pointed at a
+/// directory with nothing in it.
+///
+/// That distinction matters: `--config-path <a directory containing no config, searched all
+/// the way up to the filesystem root>` is a hard error for rustfmt ("unable to find a config
+/// file for the given path"), not a fall-back to defaults -- passing `project_root`
+/// unconditionally here (the previous, buggy behaviour, keyed off `std::env::current_dir()`
+/// instead of `project_root`) made this function's non-success arm fire on every first
+/// `alef all` in a project with no committed `rustfmt.toml` yet, so the freshly generated
+/// bindings landed completely unformatted (alef #465). Omitting the flag when
+/// `rustfmt_config_file` finds nothing lets rustfmt fall back to its own built-in defaults
+/// instead.
+///
+/// The child process's working directory is pinned to `project_root` regardless of which
+/// branch above is taken. This is a second, independent line of defense against the same root
+/// cause: even with the flag omitted, rustfmt reading from stdin still performs its own
+/// upward config search starting from its process's current directory, so leaving that
+/// directory as whatever the *alef* process happened to be launched from would silently
+/// reintroduce ambient, cwd-dependent behaviour for the "no config found" case. Pinning it to
+/// `project_root` does not make the search perfectly hermetic (rustfmt can still climb above
+/// `project_root` looking for one if we omit `--config-path`, since rustfmt has no flag to
+/// disable config discovery outright), but it anchors the search at the consumer's own project
+/// instead of an unrelated directory, which is the actual complaint in alef #465. ~keep
 ///
 /// Returns the formatted content on success, or the original content if
 /// rustfmt is unavailable or fails (best-effort).
-pub fn format_rust_content(path: &Path, content: &str) -> String {
+pub fn format_rust_content(project_root: &Path, path: &Path, content: &str) -> String {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    let edition = detect_crate_edition(path);
-    let config_dir = std::env::current_dir().unwrap_or_default();
+    let edition = detect_crate_edition(project_root, path);
+    let config_file = rustfmt_config_file(project_root, path);
 
-    let mut child = match Command::new("rustfmt")
-        .arg("--edition")
-        .arg(&edition)
-        .arg("--config-path")
-        .arg(&config_dir)
+    let mut command = Command::new("rustfmt");
+    command.arg("--edition").arg(&edition);
+    if let Some(config_file) = &config_file {
+        command.arg("--config-path").arg(config_file);
+    }
+    command.current_dir(project_root);
+
+    let mut child = match command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

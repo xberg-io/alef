@@ -98,3 +98,26 @@ pub(crate) fn create_once_overwrite(clean: bool, clobber_create_once_seeds: bool
     let _ = clean;
     clobber_create_once_seeds
 }
+
+/// Last run's per-language binding ownership, read from the dedicated `all-bindings-{lang}
+/// -ownership` stage manifest -- extracted out of `handle`'s main loop purely for the
+/// file-modularization cap on `all_commands.rs` (alef #465), no behaviour change.
+///
+/// See the call site in `handle` for why this has to be read from that specific manifest and
+/// not from `<lang>.manifest`: `pipeline::generate` unconditionally overwrites the latter for
+/// every language it regenerates, so a "previous" read of it after that call would already be
+/// reading this run's own output. ~keep
+pub(crate) fn previous_binding_ownership(
+    languages: &[crate::core::config::Language],
+    crate_name: &str,
+) -> std::collections::HashMap<crate::core::config::Language, Vec<PathBuf>> {
+    languages
+        .iter()
+        .map(|language| {
+            (
+                *language,
+                crate::cli::cache::read_stage_paths(crate_name, &format!("all-bindings-{language}-ownership")),
+            )
+        })
+        .collect()
+}

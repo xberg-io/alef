@@ -570,7 +570,7 @@ pub fn write_files_report(files: &[(Language, Vec<GeneratedFile>)], base_dir: &P
         let (content, is_text) = if super::binary::is_base64_binary_output(&full_path) {
             (super::binary::decode_base64_binary(&full_path, &file.content)?, false)
         } else {
-            let normalized = normalize_content(&full_path, &file.content);
+            let normalized = normalize_content(base_dir, &full_path, &file.content);
             // A declared user-owned path is never stamped, including on the one write that
             // seeds it. A marker is a claim of alef authorship, and stamping the seed would
             // enrol a file alef has promised never to rewrite into `alef verify`'s

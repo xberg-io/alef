@@ -2,12 +2,15 @@
 mod adopted_seed_marker_tests;
 mod binary;
 mod diff;
+mod format_config;
 mod generation;
 mod header_freshness;
 #[cfg(test)]
 mod manifest_reconciliation_tests;
 mod normalization;
 mod orphans;
+#[cfg(test)]
+mod rustfmt_config_tests;
 mod scaffold;
 mod scaffold_drift;
 #[cfg(test)]
@@ -27,6 +30,7 @@ use std::path::Path;
 
 pub(crate) use binary::{decode_base64_binary, is_base64_binary_output};
 pub use diff::diff_files;
+pub use format_config::write_format_config_prepass;
 pub use generation::{generate, generate_public_api, generate_service_api, generate_stubs};
 pub(crate) use header_freshness::{check_ffi_header_freshness, ensure_ffi_header_freshness};
 pub use normalization::normalize_content;

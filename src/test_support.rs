@@ -99,6 +99,60 @@ impl Drop for SkipCommandsGuard {
     }
 }
 
+/// The single lock serializing every test in this crate that mutates the process-global `PATH`
+/// env var. Mirrors [`CWD_LOCK`]/[`SKIP_COMMANDS_LOCK`]'s rationale: `PATH` is re-read on every
+/// call to `cli::pipeline::format::is_tool_available` (`std::env::var_os("PATH")`), so a test
+/// that needs a specific tool to look absent for the duration of a real end-to-end pipeline run
+/// (alef #465's rustfmt-config-ordering regression coverage, which needs `poly` to look absent so
+/// its own later whole-tree formatting pass cannot paper over a write-time formatting bug) must
+/// not race a sibling test mutating the same env var concurrently. ~keep
+pub(crate) static PATH_LOCK: Mutex<()> = Mutex::new(());
+
+/// RAII guard that locks [`PATH_LOCK`] and rewrites the process `PATH` env var to drop every
+/// directory that contains an executable named `tool_name`, restoring the original value on
+/// drop -- including when the guarded scope panics.
+///
+/// Used to make `cli::pipeline::format::is_tool_available(tool_name)` report `false` for the
+/// guard's lifetime without actually uninstalling the tool from the machine running the test
+/// suite. Only removes directories that actually contain `tool_name`, so an unrelated tool
+/// (`cargo`, `rustfmt`, ...) installed under a different directory is unaffected.
+pub(crate) struct PathWithoutToolGuard {
+    _lock: MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl PathWithoutToolGuard {
+    /// Locks [`PATH_LOCK`] and rewrites `PATH` to exclude every directory containing
+    /// `tool_name`, returning a guard that restores the original value when dropped.
+    pub(crate) fn exclude(tool_name: &str) -> Self {
+        let lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let previous = std::env::var_os("PATH");
+        let filtered = previous
+            .as_ref()
+            .map(|path| {
+                let kept = std::env::split_paths(path).filter(|dir| !dir.join(tool_name).is_file());
+                std::env::join_paths(kept).unwrap_or_default()
+            })
+            .unwrap_or_default();
+        // SAFETY: `_lock` is held for the guard's entire lifetime, so no other thread in this
+        // process can be reading or writing `PATH` through this same guard type concurrently.
+        unsafe { std::env::set_var("PATH", &filtered) };
+        Self { _lock: lock, previous }
+    }
+}
+
+impl Drop for PathWithoutToolGuard {
+    fn drop(&mut self) {
+        // SAFETY: see `exclude`'s SAFETY comment -- `_lock` is still held here, during `Drop`.
+        unsafe {
+            match &self.previous {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+    }
+}
+
 /// The single lock serializing every test in this crate that spawns a REAL `cargo` subprocess
 /// (`cargo fmt --all`, `cargo sort -n -w`, `cargo sort --check`, ...) outside of alef's own
 /// `ALEF_SKIP_COMMANDS` skip mechanism.

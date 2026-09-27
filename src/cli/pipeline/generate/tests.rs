@@ -462,7 +462,7 @@ file_safety = { exclude = ["target/**"] }
     fn test_normalize_content_strips_trailing_whitespace_when_rustfmt_fails() {
         let path = PathBuf::from("packages/r/src/rust/src/lib.rs");
         let content = "extendr_module! {\n    fn convert(\n    \n        title: String = \"\",\n    );\n}\n";
-        let normalized = normalize_content(&path, content);
+        let normalized = normalize_content(std::path::Path::new("."), &path, content);
         for (i, line) in normalized.lines().enumerate() {
             assert_eq!(
                 line.trim_end(),
@@ -1010,7 +1010,7 @@ file_safety = { exclude = ["target/**"] }
         );
         assert_eq!(
             after_true,
-            normalize_content(&std::path::PathBuf::from("README.md"), compact_content),
+            normalize_content(base, &std::path::PathBuf::from("README.md"), compact_content),
             "alef readme and alef all must produce identical on-disk bytes for README files"
         );
     }
@@ -1059,16 +1059,17 @@ file_safety = { exclude = ["target/**"] }
         let src = base.join("src").join("lib.rs");
         std::fs::create_dir_all(src.parent().unwrap()).expect("mkdir src");
 
-        let edition = detect_crate_edition(&src);
+        let edition = detect_crate_edition(base, &src);
         assert_eq!(edition, "2021", "should detect edition 2021 from Cargo.toml");
     }
 
     #[test]
     fn test_detect_crate_edition_defaults_to_2024_when_no_cargo_toml() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let orphan = dir.path().join("orphan.rs");
+        let base = dir.path();
+        let orphan = base.join("orphan.rs");
 
-        let edition = detect_crate_edition(&orphan);
+        let edition = detect_crate_edition(base, &orphan);
         assert_eq!(edition, "2024", "should default to 2024 when no Cargo.toml found");
     }
 
@@ -1084,7 +1085,7 @@ file_safety = { exclude = ["target/**"] }
         .expect("write Cargo.toml");
 
         let src = base.join("lib.rs");
-        let edition = detect_crate_edition(&src);
+        let edition = detect_crate_edition(base, &src);
         assert_eq!(edition, "2024", "should default to 2024 when edition field absent");
     }
 
