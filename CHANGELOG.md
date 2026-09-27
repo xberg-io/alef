@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift: the generated in-tree `Package.swift` no longer imports Foundation, which a standalone
+  Swift toolchain cannot compile (#461).** Under swiftly 6.3.1 (targeting macosx28.0 against an
+  older host SDK) `import Foundation` alone provokes `unknown argument: '-target-arch-variant'`,
+  and any *use* of a Foundation type then fails outright: measured with a real
+  `swift package describe`, the old manifest exits **1** with `Invalid manifest` and `cannot
+  convert value of type 'String' to type 'NSString' in coercion`, while the new one exits **0**.
+  `#filePath`'s directory now comes from
+  `split(separator: "/", omittingEmptySubsequences: false)` -- the flag is load-bearing, since
+  without it the empty component before the leading `/` is dropped and the manifest silently
+  resolves libraries relative to the working directory, defeating the guarantee its own comment
+  promises. Removing the import also stranded `resolvedStaticLib`, which still called
+  `FileManager.fileExists` and would have shipped a manifest that did not compile at all; it now
+  uses POSIX `access` behind a `canImport(Darwin)` guard. Import cost was measured rather than
+  assumed: no import is fully clean, the POSIX import costs 8 tolerated SDK-skew warnings, and
+  Foundation is fatal. The tests read a comment-stripped copy of the manifest and name every
+  Foundation-only API, because the manifest's own prose contains every string worth grepping for
+  and a whole-content `contains` passes on the comment alone.
+
 - **verify: the markdown drift fast path was gated on poly backwards, which turned `main` red on
   Windows (#469).** #458 gated `.rs` and `.md` together on poly being installed, but the measured
   cause was `.rs`-only -- `alef all` writes Rust bindings before the scaffold stage emits

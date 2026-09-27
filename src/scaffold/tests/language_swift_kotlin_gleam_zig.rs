@@ -67,11 +67,6 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains("import Foundation"),
-        "Package.swift must import Foundation to resolve the absolute rpath; got: {}",
-        package_swift.content
-    );
-    assert!(
         package_swift
             .content
             .contains("func resolvedStaticLib(_ name: String) -> String"),
@@ -93,12 +88,52 @@ fn test_scaffold_swift() {
         "Package.swift must not rely on bare -rpath linking now that staticlibs are linked by explicit path; got: {}",
         package_swift.content
     );
+    // Every assertion below reads CODE ONLY. The manifest's own comments explain why Foundation
+    // is avoided and why `omittingEmptySubsequences: false` is load-bearing, so they contain
+    // every string worth asserting on -- a `content.contains(..)` over the whole manifest is
+    // satisfied by the prose alone and keeps passing after the code it describes is deleted.
+    // That is not hypothetical: it is the same defect that made a Rustler CI check vacuous here,
+    // and the agent implementing alef issue #461 hit it live when its own new comment tripped the
+    // `import Foundation` assertion. ~keep
+    let package_swift_code: String = package_swift
+        .content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     assert!(
-        package_swift
-            .content
-            .contains("let rustTargetDir = (#filePath as NSString)"),
-        "Package.swift must derive the target dir from the manifest path; got: {}",
-        package_swift.content
+        package_swift_code.contains("#filePath.split(separator: \"/\", omittingEmptySubsequences: false).dropLast()"),
+        "Package.swift must split #filePath with omittingEmptySubsequences: false. Without it the \
+         empty component before the leading \"/\" is dropped, `joined` yields a RELATIVE path, and \
+         the manifest silently stops resolving libraries independently of the working directory \
+         (`swift test` may chdir). An assertion that the path merely ends in /target passes on \
+         that broken form; got: {package_swift_code}"
+    );
+
+    // A standalone Swift 6.3.1 toolchain fails the whole manifest on `import Foundation` (measured:
+    // exit 1 plus a typecheck error, versus exit 0 for the POSIX import and a fully clean compile
+    // for no import). Naming every Foundation-only API the manifest has ever reached for makes
+    // this fail when a future edit reintroduces one, not only when it reintroduces the import --
+    // `resolvedStaticLib` kept calling `FileManager` after the import was first removed, which
+    // would have shipped a manifest that did not compile at all. ~keep
+    for foundation_api in [
+        "import Foundation",
+        "as NSString",
+        "FileManager",
+        "JSONEncoder",
+        "JSONDecoder",
+    ] {
+        assert!(
+            !package_swift_code.contains(foundation_api),
+            "Package.swift must not use the Foundation-only API `{foundation_api}`: a standalone \
+             Swift toolchain fails the manifest outright on Foundation; got: {package_swift_code}"
+        );
+    }
+    assert!(
+        package_swift_code.contains("access(release, F_OK) == 0"),
+        "Package.swift must answer its one file-existence question through POSIX `access`, the \
+         Foundation-free replacement for `FileManager.fileExists`; got: {package_swift_code}"
     );
     assert!(
         package_swift

@@ -87,7 +87,18 @@ pub(crate) fn scaffold_swift(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
-import Foundation
+// `resolvedStaticLib` below needs one file-existence check and nothing else. Foundation would
+// supply `FileManager`, but importing it makes a standalone Swift toolchain (swiftly 6.3.1,
+// targeting macosx28.0 against an older host SDK) fail the manifest outright -- measured:
+// Foundation exits 1 with a typecheck error, this POSIX import exits 0, and no import at all is
+// fully clean. The residual `-target-arch-variant` warnings under such a toolchain come from the
+// SDK skew itself, not from anything alef emits, and SwiftPM tolerates them. `access` is the
+// smallest dependency that answers the question (alef issue #461). ~keep
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 // NOTE: Run `cargo build -p {binding_crate}` and then rerun `alef generate`
 // before `swift build`. Alef materializes the swift-bridge Swift/C outputs into
@@ -97,8 +108,15 @@ import Foundation
 // Absolute path to the Cargo target dir, resolved from this manifest's own location so
 // library resolution is independent of the process working directory (`swift test` may
 // chdir into fixture dirs). `#filePath` is a compile-time literal, so computing this string
-// performs no filesystem access.
-let rustTargetDir = (#filePath as NSString).deletingLastPathComponent.appending("/../../target")
+// performs no filesystem access. `omittingEmptySubsequences: false` is load-bearing: `#filePath`
+// starts with "/", so dropping empty subsequences would drop that leading empty component and
+// `joined` would silently produce a relative path (no leading "/"), defeating the
+// process-working-directory independence this comment describes. Deliberately avoids Foundation:
+// under a standalone Swift toolchain, that module breaks `swiftc` outright (and any use of one
+// of its types, like the former `NSString` coercion here, then fails to typecheck too). ~keep
+let rustTargetDir =
+  #filePath.split(separator: "/", omittingEmptySubsequences: false).dropLast().joined(separator: "/")
+  + "/../../target"
 
 // Resolve the static archive for a Rust crate explicitly, preferring `release` over `debug`.
 // `crates/{binding_crate}` and the FFI crate both build `crate-type = ["cdylib", "staticlib"]`,
@@ -112,7 +130,7 @@ let rustTargetDir = (#filePath as NSString).deletingLastPathComponent.appending(
 func resolvedStaticLib(_ name: String) -> String {{
   let release = "\(rustTargetDir)/release/lib\(name).a"
   let debug = "\(rustTargetDir)/debug/lib\(name).a"
-  return FileManager.default.fileExists(atPath: release) ? release : debug
+  return access(release, F_OK) == 0 ? release : debug
 }}
 
 let package = Package(
