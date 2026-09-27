@@ -112,8 +112,17 @@ jobs:
           ruby-version: "4.0"
       - name: Install generated Ruby runtime dependency
         run: gem install sorbet-runtime --version 0.6.13506 --no-document
+      # Exact pin, not a floor: `template_versions::pypi::PYREFLY` sets the floor emitted into
+      # every generated consumer's own `pyproject.toml` dev dependency, but pyrefly is resolved
+      # from PATH here (`which::which("pyrefly")` in the pyo3 kwarg-unpack harness and the
+      # generated-package gate), so this line is the only thing that decides which pyrefly
+      # actually runs in CI. Alef issue #457: pyrefly's `strict` preset promotes `open-unpacking`
+      # from `Ignore` to `Error` only from 1.3.0 onward (1.2.0 and 1.2.1 report zero errors for
+      # the exact sabotaged input `kwarg_unpack_tests` checks), so this pin must never fall below
+      # `template_versions::pypi::PYREFLY`'s floor. `tests/ci_pyrefly_pin_gate.rs` asserts the two
+      # agree; bump both together. ~keep
       - name: Install generated Python type checker
-        run: uv tool install pyrefly==1.2.0
+        run: uv tool install pyrefly==1.3.1
       - name: Install generated TypeScript compiler
         run: npm install --global typescript@5.9.2
       # The C# identifier-grammar oracle (`ALEF_REQUIRE_DOTNET` below) needs a real `dotnet` on

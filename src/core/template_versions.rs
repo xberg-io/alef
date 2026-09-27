@@ -247,7 +247,14 @@ pub mod pypi {
 
     // Replaces mypy: pyrefly is a fast single-binary Rust type-checker, run as a
     // renovate: datasource=pypi depName=pyrefly
-    pub const PYREFLY: &str = ">=1.2.0";
+    //
+    // Floor raised from >=1.2.0 in response to alef issue #457: pyrefly 1.2.0 and 1.2.1 report
+    // zero errors for an open (non-PEP-728) kwargs `TypedDict` unpacked with `**helper(...)` even
+    // under `preset = "strict"` -- confirmed empirically by running both versions against the
+    // sabotaged fixture in `backends::pyo3::kwarg_unpack_tests` -- while `[open-unpacking]` fires
+    // correctly from 1.3.0 onward. A floor below 1.3.0 lets a generated package's own
+    // `pyrefly>=X` dev dependency resolve a version that silently cannot see this defect class. ~keep
+    pub const PYREFLY: &str = ">=1.3.0";
 
     // renovate: datasource=pypi depName=pytest
     pub const PYTEST: &str = ">=7.4";

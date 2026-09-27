@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **ci: the pyrefly negative control in `kwarg_unpack_tests` could not fire, hiding a defect class
+  on every CI run (#457).** CI hard-pinned `pyrefly==1.2.0` and had since 2026-08-29, while the
+  constant `template_versions::pypi::PYREFLY` only sets the floor emitted into a generated
+  consumer's own `pyproject.toml` -- the harness itself resolves pyrefly from `PATH`, so the two
+  were never connected. pyrefly's `strict` preset promotes `open-unpacking` from `Ignore` to
+  `Error` only from 1.3.0, confirmed by running 1.2.0/1.2.1/1.3.0/1.3.1 against the sabotaged
+  fixture, so under the pinned 1.2.0 the control reported `INFO 0 errors` and the suppression the
+  scaffolder emits was a no-op. The CI pin moves to 1.3.1, the emitted floor to `>=1.3.0`, and a
+  new `tests/ci_pyrefly_pin_gate.rs` asserts the pyrefly on `PATH` satisfies the registry floor so
+  the two cannot drift apart again, with a table test pinning the 1.2.x/1.3.x boundary
+  independently of any installed toolchain.
 - **docs: the R streaming page no longer promises incremental iteration the extendr adapter does not
   provide (#456).** `gen_r_body` eagerly drains the stream with `stream.collect::<Vec<_>>().await`
   and returns `serde_json::to_string(&chunks)` -- one `character` scalar holding the whole array --
