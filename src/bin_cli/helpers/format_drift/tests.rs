@@ -185,19 +185,31 @@ fn leaves_no_temp_file_behind_after_comparing() {
     );
 }
 
-/// alef#458: THE GATING LOGIC. [`render_predicts_final_bytes`]'s prediction for `.rs`/`.md` is
-/// only honest when `poly fmt --fix` ran during the write it predicts -- see the module doc's
-/// "Why the `.rs`/`.md` fast path also requires poly" section. Pure and host-independent (no
-/// subprocess, no real `poly` binary), so every combination this function has to get right is
+/// THE GATING LOGIC, and the asymmetry between the two predictable extensions is the whole
+/// point of the table below.
+///
+/// `.rs` is gated on poly (alef#458): `alef all` writes Rust bindings before the scaffold stage
+/// emits the `rustfmt.toml` that governs their width, so only the later `poly fmt --fix` pass
+/// leaves the bytes this prediction assumes.
+///
+/// `.md` is NOT gated (alef#469): nothing writes a markdown config late, so with poly absent the
+/// on-disk bytes are exactly what `normalize_content` produces and the prediction is byte-exact.
+/// alef#458 gated both extensions together on implementation symmetry rather than on a measured
+/// cause, which inverted `.md` -- it predicted where the prediction is approximate (poly present,
+/// rumdl having run, and alef modelling only its MD012 rule) and skipped where the prediction is
+/// perfect. That cost a real check: `drift_tests::drifted_marked_paths_reports_a_self_marking_\
+/// file_whose_body_no_longer_matches` went red on Windows CI, the one leg with no poly installed.
+///
+/// Pure and host-independent (no subprocess, no real `poly` binary), so every combination is
 /// provable on any machine regardless of what it has installed. ~keep
 #[test]
-fn render_predicts_final_bytes_is_gated_on_poly_availability() {
+fn render_predicts_final_bytes_gates_rust_on_poly_but_never_markdown() {
     let cases = [
         ("lib.rs", true, true),
         ("reference.md", true, true),
         ("pyproject.toml", true, false),
         ("lib.rs", false, false),
-        ("reference.md", false, false),
+        ("reference.md", false, true),
         ("pyproject.toml", false, false),
     ];
     for (name, poly_available, expected) in cases {

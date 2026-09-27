@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **verify: the markdown drift fast path was gated on poly backwards, which turned `main` red on
+  Windows (#469).** #458 gated `.rs` and `.md` together on poly being installed, but the measured
+  cause was `.rs`-only -- `alef all` writes Rust bindings before the scaffold stage emits
+  `rustfmt.toml`. Nothing writes a markdown config late, so for `.md` the gate predicted where the
+  prediction is weakest (poly present, rumdl having run, alef modelling only its MD012 rule) and
+  skipped where it is byte-exact (poly absent, disk bytes being exactly `normalize_content`'s own
+  output). That suppressed a real finding on `windows-latest`, the one CI leg with no poly --
+  excluded deliberately in `d4735b668` because poly's installer refuses to run there. `.md` is no
+  longer gated; `.rs` still is, until #465 fixes the ordering itself. Removing the skip is
+  strictly more checking. The gating table now pins both directions, so neither a collapse back to
+  `poly_available && (rs || md)` nor one to an unconditional `rs || md` can pass.
+- **verify: #458's module doc described a mechanism that does not exist (#469).** It said a
+  pre-`rustfmt.toml` write lands at rustfmt's default `max_width` of 100. It does not:
+  `format_rust_content` passes `--config-path <dir>` explicitly, which makes rustfmt exit 1 rather
+  than search upward, so the file lands **completely unformatted** and `poly fmt --fix` does the
+  whole format rather than a re-wrap. The gate that doc justified is still correct for `.rs`; only
+  the explanation was wrong.
+
 ## [0.100.0] - 2026-09-27
 
 ### Added

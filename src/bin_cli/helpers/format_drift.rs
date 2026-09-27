@@ -21,22 +21,35 @@
 //! `POLY_ELIXIR_EXCLUDE_GLOBS`/`POLY_CSHARP_EXCLUDE_GLOBS`) degrades to a plain content
 //! comparison for free, because running `poly fmt --fix` on such a file is a no-op.
 //!
-//! # Why the `.rs`/`.md` fast path also requires poly (alef#458)
+//! # Why the `.rs` fast path requires poly, and `.md` must not (alef#458, alef#469)
 //!
-//! [`render_predicts_final_bytes`]'s prediction is only honest about what `alef all` leaves on
-//! disk when `poly fmt --fix` actually ran during that write -- "final" bytes means *post*-poly.
-//! `alef all` writes Rust binding sources (`all_commands.rs`'s bindings stage) BEFORE its
-//! scaffold stage emits `rustfmt.toml`, so that first write is formatted at rustfmt's default
-//! `max_width` (100); only the later `poly fmt --fix` pass re-wraps it at the project's
-//! configured width (120) once `rustfmt.toml` exists. When poly is not installed, that
-//! re-wrap never happens and the default-width bytes are what's left on disk -- but this fast
-//! path re-renders with `normalize_content`, which resolves `rustfmt.toml` fresh from the
-//! current working directory (present by verify time) and so predicts the post-poly width
-//! regardless of whether poly ever actually ran. Gating the fast path on poly's own
-//! availability closes that gap: with poly absent, `.rs`/`.md` fall through to the same counted
-//! skip every other extension already gets, rather than a prediction that quietly assumes a
-//! pass this environment never ran. See `drifted_marked_paths_with`'s doc for how the count
-//! stays loud. ~keep
+//! For `.rs`, [`render_predicts_final_bytes`]'s prediction is only honest about what `alef all`
+//! leaves on disk when `poly fmt --fix` actually ran during that write -- "final" bytes means
+//! *post*-poly. `alef all` writes Rust binding sources (`all_commands.rs`'s bindings stage)
+//! BEFORE its scaffold stage emits `rustfmt.toml`. On a first run that file does not exist yet,
+//! and `format_rust_content` passes `--config-path <dir>` explicitly, which makes rustfmt exit 1
+//! rather than search upward:
+//!
+//! ```text
+//! $ printf 'fn x(){let y=1;}\n' | rustfmt --edition 2024 --config-path /usr
+//! Error: unable to find a config file for the given path: `/usr`
+//! ```
+//!
+//! so the binding lands on disk completely UNFORMATTED and the later `poly fmt --fix` does the
+//! whole format, not a re-wrap. (An earlier revision of this doc said the first write landed at
+//! rustfmt's default `max_width` of 100. That mechanism does not exist -- measured above. The
+//! gate it justified is still right for `.rs`; only the explanation was wrong. alef#465 tracks
+//! fixing the ordering itself, after which this gate can go.) This fast path re-renders with
+//! `normalize_content`, which resolves `rustfmt.toml` fresh and so predicts formatted bytes
+//! regardless of whether poly ever ran, hence the gate.
+//!
+//! **`.md` is deliberately NOT gated.** Nothing writes a markdown config late, so with poly
+//! absent the on-disk bytes are exactly `normalize_content`'s own output and the prediction is
+//! byte-exact; with poly present it is the *approximate* one, since alef models only rumdl's
+//! MD012. alef#458 gated both extensions on implementation symmetry rather than on a measured
+//! cause, which inverted markdown -- predicting where the prediction is weakest and skipping
+//! where it is perfect. That suppressed a real finding on the one CI leg with no poly
+//! installed. Keep the two extensions reasoned about separately. ~keep
 //!
 //! # Why the temp files live beside the real file, not in a scratch directory
 //!
@@ -336,10 +349,11 @@ fn drifted_marked_paths_with(
 /// [`real_formatter_drift_with`] and are counted as a loud, explicit skip instead of a silently wrong
 /// prediction. ~keep
 fn render_predicts_final_bytes(path: &Path, poly_available: bool) -> bool {
-    poly_available
-        && path
-            .extension()
-            .is_some_and(|extension| extension == "rs" || extension == "md")
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("rs") => poly_available,
+        Some("md") => true,
+        _ => false,
+    }
 }
 
 /// Print `alef verify`'s formatted-output drift coverage line.
