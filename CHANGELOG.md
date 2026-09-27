@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.99.0] - 2026-09-27
+
+### Added
+
+- **e2e: fan the `mock.*` request-count capture out to go, ruby, php and java (#443).** Each
+  backend now has its own `mock_assertions::snippets::mock_capture` table entry, an
+  `assertion_mock_capture` module wired into that backend's own assertion renderer, and a
+  once-per-suite helper (`alefMockRequestCount`/`alef_mock_request_count`, per language
+  convention) rendered only when a fixture's assertion actually calls it. Ruby needed two call
+  sites, not one: it routes a streaming fixture's assertions through
+  `streaming_assertion::emit_chat_stream_assertion`, a function that never calls
+  `assertions::render_assertion`, so `mock.*` is intercepted in both or a streaming Ruby fixture
+  would silently fall through. Wave 1 (`cd71185d8`) wired rust/python/node; this wave excludes
+  elixir (a sibling agent was concurrently editing `elixir/args.rs` for #453). Remaining unwired:
+  csharp, kotlin, kotlin_android, dart, swift, zig, c, gleam, r, wasm -- each still fails
+  generation loudly via `mock_assertions::ensure_capture_declared` for any fixture that asserts a
+  `mock.*` field against it, rather than silently mis-rendering.
+
 ### Changed (BREAKING)
 
 - **Generated Go streaming methods now take a leading `ctx context.Context` parameter (#448).**
@@ -142,22 +160,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alef never invokes; Rust and Gleam have no generated streaming adapter to compare against; and R
   has no alef-emitted signature text, though its adapter does eagerly collect a whole stream into
   one JSON string rather than the incremental iteration the page describes -- tracked separately.
-
-### Added
-
-- **e2e: fan the `mock.*` request-count capture out to go, ruby, php and java (#443).** Each
-  backend now has its own `mock_assertions::snippets::mock_capture` table entry, an
-  `assertion_mock_capture` module wired into that backend's own assertion renderer, and a
-  once-per-suite helper (`alefMockRequestCount`/`alef_mock_request_count`, per language
-  convention) rendered only when a fixture's assertion actually calls it. Ruby needed two call
-  sites, not one: it routes a streaming fixture's assertions through
-  `streaming_assertion::emit_chat_stream_assertion`, a function that never calls
-  `assertions::render_assertion`, so `mock.*` is intercepted in both or a streaming Ruby fixture
-  would silently fall through. Wave 1 (`cd71185d8`) wired rust/python/node; this wave excludes
-  elixir (a sibling agent was concurrently editing `elixir/args.rs` for #453). Remaining unwired:
-  csharp, kotlin, kotlin_android, dart, swift, zig, c, gleam, r, wasm -- each still fails
-  generation loudly via `mock_assertions::ensure_capture_declared` for any fixture that asserts a
-  `mock.*` field against it, rather than silently mis-rendering.
 
 ## [0.98.0] - 2026-09-27
 
