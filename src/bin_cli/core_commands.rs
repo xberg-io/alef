@@ -14,6 +14,7 @@ mod generate;
 mod verify;
 mod verify_dart_bridge;
 mod verify_flags;
+mod verify_informational;
 
 use verify_flags::refuse_unimplemented_verify_flags;
 

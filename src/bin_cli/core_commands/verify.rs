@@ -242,7 +242,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     let has_adoptable_frozen_files =
         crate::bin_cli::helpers::frozen::has_adoptable_frozen_files(&frozen_generated_files);
     // Report-only: see `verify_orphans`'s module doc for why this never deletes.
-    log_managed_surface(&all_managed_paths);
+    super::verify_informational::log_managed_surface(&all_managed_paths);
     let orphan_generated_files =
         verify_orphans::find_orphaned_generated_files(&base_dir, &all_managed_paths, &declared);
     let has_orphan_files = !orphan_generated_files.is_empty();
@@ -390,66 +390,11 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
         }
     }
 
-    // Informational only, printed unconditionally and never folded into the "up to
-    // date"/failure gates below: see `pipeline::generate::scaffold_drift`'s module doc.
-    // A create-once file differing from its template is the expected steady state for a
-    // hand-maintained file -- this only fires when the file's own git history rules out a
-    // consumer edit as the explanation, and even then there is no rerun that fixes it;
-    // only a human reviewing the current template can decide what to do. ~keep
-    if !create_once_template_drift.is_empty() {
-        crate::bin_cli::output::line(
-            "Create-once scaffold files that predate a template fix (informational -- these are \
-             user-owned after their first write, so alef never rewrites them; review the current \
-             template and hand-port the fix if it applies to your copy):",
-        );
-        for path in &create_once_template_drift {
-            crate::bin_cli::output::line(format_args!("  {path}"));
-        }
-    }
+    super::verify_informational::report_create_once_template_drift(&create_once_template_drift);
 
-    // The `verify` half of the escalation `cache::untracked_required_records`
-    // documents: write commands warn and keep going, verification must refuse. The
-    // query is already silent outside a git work tree and for a record that does not
-    // exist yet, so this never fires where "untracked" is unanswerable, nor on the
-    // run that legitimately creates the record. ~keep
-    let untracked_records = cache::untracked_required_records(&base_dir);
-    if !untracked_records.is_empty() {
-        crate::bin_cli::output::line(
-            "Required alef records are not tracked by git (alef writes these and depends on them \
-         being committed):",
-        );
-        for record in &untracked_records {
-            crate::bin_cli::output::line(format_args!("  {record} -- fix with: git add {record}"));
-        }
-    }
+    let untracked_records = super::verify_informational::report_untracked_records(&base_dir);
 
-    // Printed unconditionally, before the verdict and on every run including a clean one.
-    // Every finding above is a NEGATIVE claim, and a report made only of negative claims is
-    // indistinguishable from one that examined nothing -- which is exactly how consumer CI
-    // came to read a green `alef verify` as a whole-tree freshness gate when it is a claim
-    // about marker-carrying files only. See `verify_coverage`'s module doc. ~keep
-    let unmarked_seeds = crate::bin_cli::helpers::frozen::unmarked_create_once_seeds(&frozen_generated_files);
-    let drifted_seeds = crate::bin_cli::helpers::frozen::drifted_frozen_seeds(&frozen_generated_files);
-    // Printed unconditionally, ABOVE the verdict, and deliberately outside the exit-code gate
-    // below.
-    //
-    // Not fatal, and the cost of that choice is stated rather than hidden: a consumer whose
-    // frozen file is benign today would start failing CI on the upgrade that added this check,
-    // for a condition that predates the release and that no rerun of `alef generate` clears --
-    // which is precisely the trap `has_adoptable_frozen_files` was narrowed to escape when
-    // create-once seeds made verify unable to reach exit 0 at all. Buying strictness by
-    // re-breaking every consumer's gate is how a check gets routed around, and a routed-around
-    // check reports nothing.
-    //
-    // What replaces the exit code is that this can no longer be quiet. It prints on every run
-    // including a clean one, it names each file rather than counting it, and its count is
-    // restated in the coverage block, so it is visible to a reader of a PASSING run -- unlike
-    // the write-time refusal tally, which only ever appeared in a generate/build log nobody
-    // reads after the fact. A consumer who wants it fatal has a precise, local gate: declare
-    // the path `user_owned` (which removes it) or grep this heading in CI. ~keep
-    for line in crate::bin_cli::helpers::frozen::drifted_seed_report_lines(&frozen_generated_files) {
-        crate::bin_cli::output::line(line);
-    }
+    let (unmarked_seeds, drifted_seeds) = super::verify_informational::report_drifted_seeds(&frozen_generated_files);
     // Measured from the SAME managed surface the rest of this report is measured from, and with
     // the same matcher the write guards use, so the number cannot describe a different file set
     // than the one alef actually exempted. ~keep
@@ -464,27 +409,15 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             path.display()
         );
     }
-    // Paths at debug level, count in the report: one line per seed is 72 lines on a measured
-    // consumer tree, and there is no action any of them prompts -- but the count must never be
-    // invisible, which is what reporting them only inside the failure block amounted to. ~keep
-    for path in &unmarked_seeds {
-        tracing::debug!("unmarked create-once seed (contents not verified): {path}");
-    }
-    for line in super::super::verify_coverage::VerifyCoverage::measure(
-        &all_managed_paths,
-        &marked_paths,
+    super::verify_informational::report_coverage(super::verify_informational::CoverageParams {
+        all_managed_paths: &all_managed_paths,
+        marked_paths: &marked_paths,
         scan_coverage,
-        super::super::verify_coverage::VerifyCoverageCounts {
-            create_once_unmarked: unmarked_seeds.len(),
-            create_once_drifted: drifted_seeds.len(),
-            ephemeral_excluded: ephemeral_excluded_count,
-            declared_user_owned: declared_user_owned_count,
-        },
-    )
-    .report_lines()
-    {
-        crate::bin_cli::output::line(line);
-    }
+        unmarked_seeds: &unmarked_seeds,
+        drifted_seed_count: drifted_seeds.len(),
+        ephemeral_excluded_count,
+        declared_user_owned_count,
+    });
 
     if stale.is_empty()
         && !has_stale_crates
@@ -658,36 +591,6 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     super::ensure_generation_completed(&incomplete_crates, report_only)?;
     ensure_configured_snippet_directories_exist(&missing_snippet_roots, report_only)?;
     Ok(None)
-}
-
-/// Dump, at debug level, the exact path set the orphan report is diffed against.
-///
-/// An orphan finding is a *difference* between two sets, and only one of them is printed: the
-/// report names the files on disk and says nothing about the surface they were missing from.
-/// That makes the two most common explanations indistinguishable from the output alone -- a
-/// genuinely dropped emit, versus a managed surface that came back short because a stage failed
-/// or because the run was language-filtered -- and it is why an orphan report and `alef generate`'s
-/// own "unrecorded alef-marked file" warning can name different files without either being wrong:
-/// they are diffs against different sets (`collect_managed_surface` over every configured
-/// language here, versus this run's recorded output under one sweep root there, git-tracked-only
-/// and manifest-gated).
-///
-/// Printing the surface is what makes that difference checkable instead of arguable: run
-/// `alef verify -vv`, diff this list against the paths `alef generate` reports, and the gap names
-/// itself. Debug level, not info: it is one line per managed file on a consumer tree. ~keep
-fn log_managed_surface(managed_paths: &std::collections::HashSet<std::path::PathBuf>) {
-    if !tracing::enabled!(tracing::Level::DEBUG) {
-        return;
-    }
-    let mut paths: Vec<&std::path::PathBuf> = managed_paths.iter().collect();
-    paths.sort();
-    tracing::debug!(
-        "managed surface the orphan report is diffed against: {} path(s)",
-        paths.len()
-    );
-    for path in paths {
-        tracing::debug!("  managed: {}", path.display());
-    }
 }
 
 /// `config`'s Dart FRB `frb_generated.rs`, as a one-line drift report (`[<crate>] <path>`), if
