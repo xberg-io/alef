@@ -26,6 +26,17 @@ pub(super) fn emit_chat_stream_assertion(
     streaming_item_type: Option<&str>,
     stream_complete_is_derived: bool,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443) resolve against the mock
+    // server's own request log, never the streaming aggregator locals this function
+    // otherwise renders against -- intercept before any of that streaming-specific
+    // dispatch. This function is Ruby's ONLY assertion path for a streaming fixture
+    // (`examples::render_chat_stream_example` never calls `assertions::render_assertion`),
+    // so a `mock.*` assertion on a streaming Ruby fixture reaches this interception
+    // instead of `assertions.rs`'s own copy, which only ever sees non-streaming fixtures.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     let atype = assertion.assertion_type.as_str();
     if atype == "not_error" || atype == "error" {
         return;

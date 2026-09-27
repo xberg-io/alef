@@ -6,6 +6,7 @@
    - has_array_contains: bool - whether to emit alef_e2e_item_texts helper
    - has_http: bool - whether to emit mock_server_url helper
    - examples: list of pre-rendered example blocks
+   - mock_capture_helper: pre-rendered mock.* request-count helper method, or none (alef #443)
    - header: pre-rendered header from hash::header()
 #}
 {{ header }}# frozen_string_literal: true
@@ -27,6 +28,10 @@ RSpec.describe '{{ category }}' do
 {% if has_http %}
 
   let(:mock_server_url) { ENV.fetch('MOCK_SERVER_URL', 'http://localhost:8080') }
+{% endif %}
+{% if mock_capture_helper %}
+
+{{ mock_capture_helper }}
 {% endif %}
 {% for example in examples %}
 

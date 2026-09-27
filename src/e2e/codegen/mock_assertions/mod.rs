@@ -16,11 +16,14 @@
 //!   generation naming the fixture, rather than silently falling through to the wrong oracle (the
 //!   fate every backend's `render_assertion` has today, since none intercepts `mock.*` yet).
 //!
-//! `rust`, `python` and `node` wire the call site into their own assertion renderers (alef issue
-//! #443, the reference-backend wave): `rust::assertion_mock_capture`,
-//! `python::assertion_mock_capture`, `typescript::assertions::mock_capture`. Every other backend
-//! still renders the counted [`crate::e2e::codegen::field_skip::FieldSkip::MockCaptureNotSupported`]
-//! skip.
+//! `rust`, `python`, `node`, `go`, `ruby`, `php` and `java` wire the call site into their own
+//! assertion renderers (alef issue #443): `rust::assertion_mock_capture`,
+//! `python::assertion_mock_capture`, `typescript::assertions::mock_capture`,
+//! `go::assertion_mock_capture`, `ruby::assertion_mock_capture`, `php::assertion_mock_capture`,
+//! `java::assertion_mock_capture`. Every other backend has no
+//! `mock_assertions::snippets::mock_capture` entry, so `ensure_capture_declared` fails
+//! generation outright for any fixture that asserts a `mock.*` field against it, unless the
+//! fixture's own `skip` declaration acknowledges the gap for that language.
 
 pub(crate) mod helper;
 pub(crate) mod model;

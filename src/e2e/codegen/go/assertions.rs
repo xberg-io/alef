@@ -33,17 +33,27 @@ pub(super) struct AssertionRenderContext<'a> {
 /// 1. Synthetic chunk/embedding fields never resolve through `FieldResolver`.
 /// 2. Streaming virtual fields likewise resolve through the streaming accessor, not
 ///    `FieldResolver`, and only apply while a fixture is actually streaming.
-/// 3. The wildcard/availability router must run BEFORE ordinary field resolution: a
+/// 3. `mock.*` request-count virtual fields (alef issue #443) resolve against the mock
+///    server's own request log, never a struct field, and apply regardless of streaming.
+/// 4. The wildcard/availability router must run BEFORE ordinary field resolution: a
 ///    bracket-wildcard path (`links[].link_type`) that reached `resolve_assertion_target`
 ///    first would lower to its index-0 element and silently assert on one element only.
-/// 4. Only once all three have declined does `resolve_assertion_target` build the
-///    accessor expression an ordinary (non-synthetic, non-streaming, non-wildcard)
-///    assertion renders against.
+/// 5. Only once all four have declined does `resolve_assertion_target` build the
+///    accessor expression an ordinary (non-synthetic, non-streaming, non-mock,
+///    non-wildcard) assertion renders against.
 pub(super) fn render_assertion(out: &mut String, context: &AssertionRenderContext<'_>, assertion: &Assertion) {
     if render_synthetic_field_assertion(out, assertion, context) {
         return;
     }
     if render_streaming_field_assertion(out, assertion, context) {
+        return;
+    }
+
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct field --
+    // intercept before ordinary field resolution for the same reason streaming virtual
+    // fields do.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
         return;
     }
     if render_wildcard_or_unavailable_field(out, assertion, context) {

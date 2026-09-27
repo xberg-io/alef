@@ -232,6 +232,7 @@ impl E2eCodegen for RubyCodegen {
 }
 
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 #[cfg(test)]
 mod element_accessor_wildcard_tests;
@@ -254,6 +255,8 @@ pub use stubs::emit_test_backend;
 mod enum_field_classification_tests;
 #[cfg(test)]
 mod is_true_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod tests;
 

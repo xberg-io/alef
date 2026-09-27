@@ -36,31 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Documented Go and C# type names now match what the backends actually emit for an
-  already-PascalCase name with an irregular acronym run (#449).** `public_type_name`'s Go and C#
-  arms ran `heck::to_pascal_case()` on the name before applying `go_type_name`/`csharp_type_name`;
-  every real Go and C# backend call site passes the raw IR type name to those functions directly,
-  with no such pre-step. `heck::to_pascal_case()` re-segments an acronym run that is not in either
-  language's initialism list (`RDFaChunk` -> `RdFaChunk`), so `public_host_identifier` -- what
-  `src/docs` and the e2e call-class auditor use -- silently disagreed with the backend on names
-  like `IOError`, `JSONLD`, `SSRFPolicy`, `DBHandle`, `SQLiteDB`, and `GRPCClient`. Both arms now
-  call the backend's own naming primitive directly, matching it by construction. No backend in
-  `src/backends/go` or `src/backends/csharp` ever routed through `public_type_name` for its own
-  emitted code (they already called `go_type_name`/`csharp_type_name` directly), so this only
-  corrects generated documentation, not any already-shipped generated binding.
-- **elixir: a `bytes` argument passed directly to a generated function is now a raw binary, and a
-  single trailing optional argument is now passed positionally (#453).** Two e2e-generator
-  mismatches against the rustler facade. `try_push_bytes_value` emitted
-  `:binary.bin_to_list(...)` for every `bytes` value, but that integer-list shape exists for the
-  *nested struct field* path (#308), which crosses a `Jason.encode!` hop; a direct `bytes`
-  argument maps to a `rustler::Binary` NIF parameter, is never JSON-encoded
-  (`json_encode_param_indices` never marks a bytes param), and Rustler's `Binary` decoder rejects
-  a list with `ArgumentError`. Separately, optional arguments were always emitted in keyword-opts
-  form, but the backend only declares that facade at `trailing_keyword_count >= 2`
-  (`public_api.rs`); below the threshold it declares fixed positional arity clauses, so a keyword
-  list handed to a positional parameter failed to decode. Both call sites now mirror the
-  backend's own threshold. The #308 struct-field path is unchanged and still emits an integer list.
-
 - **java: typed errors no longer surface as "FFI call failed" (#454).** A generated error enum's
   base exception class extended bare `Exception` instead of the method exception
   (`<MainClass>Exception`), so the trailing `catch (<MainClass>Exception e) { throw e; }` guard on
@@ -81,6 +56,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   struct literal required to fully initialize it (E0063). A function-referenced feature name is
   now only removed when no field anywhere in the surface still needs it declared.
 
+- **elixir: a `bytes` argument passed directly to a generated function is now a raw binary, and a
+  single trailing optional argument is now passed positionally (#453).** Two e2e-generator
+  mismatches against the rustler facade. `try_push_bytes_value` emitted
+  `:binary.bin_to_list(...)` for every `bytes` value, but that integer-list shape exists for the
+  *nested struct field* path (#308), which crosses a `Jason.encode!` hop; a direct `bytes`
+  argument maps to a `rustler::Binary` NIF parameter, is never JSON-encoded
+  (`json_encode_param_indices` never marks a bytes param), and Rustler's `Binary` decoder rejects
+  a list with `ArgumentError`. Separately, optional arguments were always emitted in keyword-opts
+  form, but the backend only declares that facade at `trailing_keyword_count >= 2`
+  (`public_api.rs`); below the threshold it declares fixed positional arity clauses, so a keyword
+  list handed to a positional parameter failed to decode. Both call sites now mirror the
+  backend's own threshold. The #308 struct-field path is unchanged and still emits an integer list.
+
+- **Documented Go and C# type names now match what the backends actually emit for an
+  already-PascalCase name with an irregular acronym run (#449).** `public_type_name`'s Go and C#
+  arms ran `heck::to_pascal_case()` on the name before applying `go_type_name`/`csharp_type_name`;
+  every real Go and C# backend call site passes the raw IR type name to those functions directly,
+  with no such pre-step. `heck::to_pascal_case()` re-segments an acronym run that is not in either
+  language's initialism list (`RDFaChunk` -> `RdFaChunk`), so `public_host_identifier` -- what
+  `src/docs` and the e2e call-class auditor use -- silently disagreed with the backend on names
+  like `IOError`, `JSONLD`, `SSRFPolicy`, `DBHandle`, `SQLiteDB`, and `GRPCClient`. Both arms now
+  call the backend's own naming primitive directly, matching it by construction. No backend in
+  `src/backends/go` or `src/backends/csharp` ever routed through `public_type_name` for its own
+  emitted code (they already called `go_type_name`/`csharp_type_name` directly), so this only
+  corrects generated documentation, not any already-shipped generated binding.
+
 - **python: a generated free function no longer raises `RuntimeError` for every error kind
   (#452).** The trait-bridge and capsule call sites already convert a core `Result::Err` through
   the `{Error}_to_py_err` converter `gen_pyo3_error_converter` emits, so `except ParsingError:`
@@ -94,6 +95,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through it, and every other backend (and any pyo3 call site that leaves it unset) keeps today's
   conversion unchanged.
 
+### Added
+
+- **e2e: fan the `mock.*` request-count capture out to go, ruby, php and java (#443).** Each
+  backend now has its own `mock_assertions::snippets::mock_capture` table entry, an
+  `assertion_mock_capture` module wired into that backend's own assertion renderer, and a
+  once-per-suite helper (`alefMockRequestCount`/`alef_mock_request_count`, per language
+  convention) rendered only when a fixture's assertion actually calls it. Ruby needed two call
+  sites, not one: it routes a streaming fixture's assertions through
+  `streaming_assertion::emit_chat_stream_assertion`, a function that never calls
+  `assertions::render_assertion`, so `mock.*` is intercepted in both or a streaming Ruby fixture
+  would silently fall through. Wave 1 (`cd71185d8`) wired rust/python/node; this wave excludes
+  elixir (a sibling agent was concurrently editing `elixir/args.rs` for #453). Remaining unwired:
+  csharp, kotlin, kotlin_android, dart, swift, zig, c, gleam, r, wasm -- each still fails
+  generation loudly via `mock_assertions::ensure_capture_declared` for any fixture that asserts a
+  `mock.*` field against it, rather than silently mis-rendering.
 
 ## [0.98.0] - 2026-09-27
 

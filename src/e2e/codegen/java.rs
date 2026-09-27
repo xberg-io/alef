@@ -358,6 +358,7 @@ impl E2eCodegen for JavaCodegen {
 }
 
 mod args;
+mod assertion_mock_capture;
 mod assertion_wildcard;
 mod assertions;
 mod enum_lowering;
@@ -390,6 +391,8 @@ mod enum_field_classification_tests;
 mod enum_return_type_tests;
 #[cfg(test)]
 mod loop_binding_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod not_error_bare_option_tests;
 #[cfg(test)]

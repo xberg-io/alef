@@ -158,6 +158,13 @@ pub(super) fn render_assertion(
         }
     }
 
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct property --
+    // intercept before is_valid_for_result for the same reason streaming virtual fields do.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `$chunks` collected-list variable.
     // Only treat a field as streaming if the call is actually streaming.

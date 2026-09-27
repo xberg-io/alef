@@ -130,6 +130,18 @@ pub(super) fn render_test_file(
     // Merge trait-bridge imports into imports_use
     imports_use.extend(trait_bridge_imports);
 
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered test methods actually call it. PHP has no bare top-level functions inside a
+    // class-scoped file the way rust/python do, so this is a private method appended directly to
+    // `fixtures_body` -- the class body -- rather than a value the template inserts elsewhere.
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("php")
+        && fixtures_body.contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("php")
+    {
+        fixtures_body.push('\n');
+        fixtures_body.push_str(&rendered);
+    }
+
     crate::e2e::template_env::render(
         "php/test_file.jinja",
         minijinja::context! {

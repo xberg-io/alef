@@ -59,6 +59,34 @@ pub(crate) const MOCK_CAPTURE_TABLE: &[(&str, MockCapture)] = &[
             helper_template: "typescript/mock_request_helper.jinja",
         },
     ),
+    (
+        "go",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "go/mock_request_helper.go.jinja",
+        },
+    ),
+    (
+        "ruby",
+        MockCapture {
+            helper_name: "alef_mock_request_count",
+            helper_template: "ruby/mock_request_helper.rb.jinja",
+        },
+    ),
+    (
+        "php",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "php/mock_request_helper.php.jinja",
+        },
+    ),
+    (
+        "java",
+        MockCapture {
+            helper_name: "alefMockRequestCount",
+            helper_template: "java/mock_request_helper.java.jinja",
+        },
+    ),
 ];
 
 /// Look up `language`'s capture, or the gap when none is registered.
@@ -75,8 +103,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_three_wired_languages_resolve() {
-        for language in ["rust", "python", "node"] {
+    fn the_wired_languages_resolve() {
+        for language in ["rust", "python", "node", "go", "ruby", "php", "java"] {
             assert!(
                 mock_capture(language).is_ok(),
                 "expected a capture entry for {language}"
@@ -86,7 +114,7 @@ mod tests {
 
     #[test]
     fn an_unwired_language_returns_the_gap() {
-        assert_eq!(mock_capture("go"), Err(MockCaptureGap));
+        assert_eq!(mock_capture("csharp"), Err(MockCaptureGap));
     }
 
     /// `"typescript"` is a template-directory name, never a `language_name()` value -- pinning

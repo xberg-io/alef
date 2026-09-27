@@ -933,6 +933,7 @@ fn render_harness_main(_e2e_config: &E2eConfig, groups: &[FixtureGroup], go_modu
 }
 
 mod adapter_target_params;
+mod assertion_mock_capture;
 mod assertions;
 mod enum_literals;
 mod ir_signature;
@@ -958,6 +959,8 @@ mod assertion_wildcard_element_tests;
 mod file_dto_tests;
 #[cfg(test)]
 mod import_pruning_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod super_trait_synthesis_tests;
 #[cfg(test)]

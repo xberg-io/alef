@@ -38,6 +38,15 @@ pub(super) fn render_assertion(
     fractional_fields: &std::collections::HashSet<String>,
     not_error_may_assert_presence: bool,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct field --
+    // intercept before EVERY other branch below, including the `result_is_option`/
+    // `result_is_bytes` special cases immediately following, which would otherwise
+    // misclassify a `mock.*` field as a bare-result assertion.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // Bare-result is_empty / not_empty on Option<T> returns: the Java facade exposes
     // these as `@Nullable T` (via `.orElse(null)`) rather than `Optional<T>`, so the
     // template's `.isEmpty()` call would not compile for record types. Emit a

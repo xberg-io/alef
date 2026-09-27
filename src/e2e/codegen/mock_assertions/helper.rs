@@ -57,6 +57,10 @@ mod tests {
             ("rust", "alef_mock_request_count"),
             ("python", "_alef_mock_request_count"),
             ("node", "alefMockRequestCount"),
+            ("go", "alefMockRequestCount"),
+            ("ruby", "alef_mock_request_count"),
+            ("php", "alefMockRequestCount"),
+            ("java", "alefMockRequestCount"),
         ] {
             let rendered = render_helper(language).unwrap_or_else(|| panic!("{language} must render a helper"));
             assert!(
@@ -78,6 +82,6 @@ mod tests {
 
     #[test]
     fn an_unwired_language_renders_nothing() {
-        assert!(render_helper("go").is_none());
+        assert!(render_helper("csharp").is_none());
     }
 }

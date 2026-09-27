@@ -373,6 +373,7 @@ fn default_php_pkg_path(config: &ResolvedCrateConfig) -> String {
 }
 
 mod args;
+mod assertion_mock_capture;
 mod assertions;
 mod call_field_resolver;
 mod enum_variant_access;
@@ -398,5 +399,7 @@ mod assertion_wildcard_getter_tests;
 mod composer_autoload_tests;
 #[cfg(all(test, unix))]
 mod install_sh_execution_tests;
+#[cfg(test)]
+mod mock_capture_gate_tests;
 #[cfg(test)]
 mod tests;

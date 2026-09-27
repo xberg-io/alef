@@ -22,6 +22,15 @@ pub(super) fn render_assertion(
     fields_enum: &HashSet<String>,
     per_call_enum_fields: &HashMap<String, String>,
 ) {
+    // `mock.*` request-count virtual fields (alef issue #443): resolve against the mock
+    // server's own request log via the once-per-suite helper, never a struct attribute --
+    // intercept before EVERY other branch below, including the `result_is_simple`
+    // special case immediately following, which would otherwise swallow an unrecognized
+    // assertion type into its own `NotApplicableForSimpleResultType` skip.
+    if super::assertion_mock_capture::try_render_mock_capture_assertion(out, assertion) {
+        return;
+    }
+
     // For simple-result methods (e.g. `speech` returning bytes), every field-based
     // assertion targets the result itself — there's no struct to access. Drop
     // length-only assertions onto the result directly and skip anything else.

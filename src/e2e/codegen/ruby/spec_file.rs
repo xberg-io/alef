@@ -243,6 +243,17 @@ pub(super) fn render_spec_file(
         }
     }
 
+    // The `mock.*` once-per-suite request-count helper (alef issue #443) -- defined inside the
+    // `RSpec.describe` block, gated on whether any rendered example actually calls it, mirroring
+    // the `has_array_contains`/`alef_e2e_item_texts` precedent immediately above rather than
+    // threading a new entry through the top-of-file `requires` list (the helper's own `require`
+    // calls live in its body -- see `ruby/mock_request_helper.rb.jinja`).
+    let joined_examples = examples.join("\n");
+    let mock_capture_helper = crate::e2e::codegen::mock_assertions::mock_capture("ruby")
+        .ok()
+        .filter(|capture| joined_examples.contains(capture.helper_name))
+        .and_then(|_| crate::e2e::codegen::mock_assertions::render_helper("ruby"));
+
     let header = crate::core::hash::e2e_header(crate::core::hash::CommentStyle::Hash);
     crate::e2e::template_env::render(
         "ruby/test_file.jinja",
@@ -252,6 +263,7 @@ pub(super) fn render_spec_file(
             has_array_contains => has_array_contains,
             has_http => has_http,
             examples => examples,
+            mock_capture_helper => mock_capture_helper,
             header => header,
         },
     )

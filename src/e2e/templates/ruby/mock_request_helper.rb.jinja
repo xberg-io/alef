@@ -1,0 +1,23 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: function name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE method using only the standard library (net/http, uri), so it adds no new Gemfile
+   dependency -- the `require` calls live inside the method body, matching this file's existing
+   `alef_e2e_item_texts` helper precedent, rather than threading a new entry through the
+   top-of-file `requires` list. Callers build `path_and_query` from "{{ total_path }}?prefix=<p>"
+   (mock.requests.total) or "{{ one_path }}?key=<k>" (mock.requests["<k>"]) -- see
+   mock_assertions::model::MockQuery. Defined inside the `RSpec.describe` block, so every `it`
+   block in this file can call it directly.
+#}
+
+  def {{ helper_name }}(base_url, path_and_query)
+    require 'net/http'
+    require 'uri'
+    body = Net::HTTP.get_response(URI("#{base_url}#{path_and_query}")).body.to_s.strip
+    raise "{{ helper_name }}: non-integer response body #{body.inspect}" unless body.match?(/\A\d+\z/)
+    body.to_i
+  end

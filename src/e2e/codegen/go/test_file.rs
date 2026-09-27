@@ -145,6 +145,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
         });
 
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
+    // Shadowed below with `|| mock_helper_emitted` once the mock-request-count helper (alef
+    // issue #443) has decided whether it needs `net/http`/`io` too -- a fixture with a `mock.*`
+    // assertion but no HTTP test still needs both for the helper's own `http.Get`/`io.ReadAll`.
     let needs_http = has_http_fixtures;
     let needs_io = has_http_fixtures;
 
@@ -200,6 +203,25 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
         }
     }
 
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered bodies actually call it -- mirrors the identical `body.contains(...)` gate the
+    // rust/python/node reference-backend wave already uses (`rust::test_file::file_rendering`,
+    // `python::test_file`, `typescript::test_file::render`): a helper defined but never called
+    // is dead code `golangci-lint`'s unused-function check would flag. Prepended BEFORE every
+    // `needs_*` import flag below is computed, so the helper's own `strings.`/`fmt.` usage is
+    // counted by those flags' existing body scans; `net/http`, `io` and `strconv` are gated on
+    // `mock_helper_emitted` explicitly below since they have no other source in this backend
+    // that a body scan could safely generalize from (unlike `strings`/`fmt`, `http.`/`io.` are
+    // not otherwise scanned from the body at all -- see `needs_http`/`needs_io` below).
+    let mut mock_helper_emitted = false;
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("go")
+        && body.contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("go")
+    {
+        body = format!("{rendered}\n{body}");
+        mock_helper_emitted = true;
+    }
+
     let needs_assert = body.contains("assert.");
     // ~keep A fixture-level heuristic here previously predicted `os.` usage from is_http_test,
     // client_factory overrides, and mock_url/bytes-as-path args, then narrowed it with
@@ -222,8 +244,16 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     let needs_pkg = needs_pkg && body.contains(&format!("{import_alias}."));
     // Even when a fixture *could* need fmt (a CustomTemplate), it might be
     // emitted as a panic stub instead. Require the body to actually reference
-    // the package before importing it.
-    let needs_fmt = needs_fmt && body.contains("fmt.");
+    // the package before importing it. The mock-request-count helper (alef issue #443) is a
+    // second, independent source of `fmt.` usage the upfront `needs_fmt` prediction never
+    // accounts for, so it is OR'd in directly rather than folded into that prediction.
+    let needs_fmt = (needs_fmt && body.contains("fmt.")) || mock_helper_emitted;
+    // `net/http`/`io` have no prediction to narrow -- `has_http_fixtures` is already exact for
+    // the pre-existing HTTP-test caller, so the mock helper's own need is a plain OR.
+    let needs_http = needs_http || mock_helper_emitted;
+    let needs_io = needs_io || mock_helper_emitted;
+    // `strconv` has exactly one caller in this backend: the mock-request-count helper.
+    let needs_strconv = mock_helper_emitted;
 
     let _ = writeln!(out, "// E2e tests for category: {category}");
     let _ = writeln!(out, "package e2e_test");
@@ -254,6 +284,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     let _ = needs_filepath;
     if needs_reflect {
         let _ = writeln!(out, "\t\"reflect\"");
+    }
+    if needs_strconv {
+        let _ = writeln!(out, "\t\"strconv\"");
     }
     if needs_strings {
         let _ = writeln!(out, "\t\"strings\"");

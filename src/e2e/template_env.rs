@@ -62,6 +62,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust/mock_request_helper.rs.jinja"),
     ),
     (
+        "go/mock_request_helper.go.jinja",
+        include_str!("templates/go/mock_request_helper.go.jinja"),
+    ),
+    (
+        "ruby/mock_request_helper.rb.jinja",
+        include_str!("templates/ruby/mock_request_helper.rb.jinja"),
+    ),
+    (
+        "php/mock_request_helper.php.jinja",
+        include_str!("templates/php/mock_request_helper.php.jinja"),
+    ),
+    (
+        "java/mock_request_helper.java.jinja",
+        include_str!("templates/java/mock_request_helper.java.jinja"),
+    ),
+    (
         "typescript/typed_binding.jinja",
         include_str!("templates/typescript/typed_binding.jinja"),
     ),

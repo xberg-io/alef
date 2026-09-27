@@ -11,7 +11,13 @@ use crate::e2e::fixture::{Assertion, AssertionSkip, AssertionSkipDirective, Asse
 use super::{ensure_capture_declared, snippets};
 
 /// A real generator language name with no `mock.*` capture-table entry, for every test below.
-const UNWIRED_LANGUAGE: &str = "go";
+///
+/// ~keep Must stay a language `snippets::MOCK_CAPTURE_TABLE` has no row for -- `go`, `ruby`,
+/// `php` and `java` all gained one in the alef #443 fan-out wave, so this constant has already
+/// had to move once. `the_scenario_language_really_has_no_capture` is the tripwire: it fails
+/// loudly the moment this drifts, rather than letting every other test in this file quietly stop
+/// proving anything.
+const UNWIRED_LANGUAGE: &str = "csharp";
 
 fn mock_total_fixture(id: &str) -> Fixture {
     Fixture {
@@ -130,7 +136,7 @@ fn an_acknowledged_gap_does_not_fail_generation() {
     fixture.assertions[0].skip = Some(AssertionSkip::Scoped(AssertionSkipDirective {
         languages: vec![UNWIRED_LANGUAGE.to_string()],
         kind: AssertionSkipKind::LanguageLimitation,
-        reason: Some("go capture not wired yet".to_string()),
+        reason: Some("csharp capture not wired yet".to_string()),
     }));
     let groups = one_group(fixture);
     assert!(ensure_capture_declared(&groups, &included_e2e_config(), UNWIRED_LANGUAGE).is_ok());
@@ -142,9 +148,9 @@ fn an_acknowledged_gap_does_not_fail_generation() {
 fn an_acknowledgement_for_another_language_does_not_excuse_this_one() {
     let mut fixture = mock_total_fixture("mock_total_wrong_language_acknowledged");
     fixture.assertions[0].skip = Some(AssertionSkip::Scoped(AssertionSkipDirective {
-        languages: vec!["java".to_string()],
+        languages: vec!["kotlin".to_string()],
         kind: AssertionSkipKind::LanguageLimitation,
-        reason: Some("java capture not wired yet".to_string()),
+        reason: Some("kotlin capture not wired yet".to_string()),
     }));
     let groups = one_group(fixture);
     assert!(ensure_capture_declared(&groups, &included_e2e_config(), UNWIRED_LANGUAGE).is_err());
@@ -155,7 +161,7 @@ fn an_acknowledgement_for_another_language_does_not_excuse_this_one() {
 #[test]
 fn a_wired_language_never_needs_acknowledgement() {
     let groups = one_group(mock_total_fixture("mock_total_wired"));
-    for language in ["rust", "python", "node"] {
+    for language in ["rust", "python", "node", "go", "ruby", "php", "java"] {
         assert!(ensure_capture_declared(&groups, &included_e2e_config(), language).is_ok());
     }
 }

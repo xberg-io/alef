@@ -1,0 +1,26 @@
+{#- Once-per-suite mock-request-count helper (alef issue #443).
+
+   Context variables (see src/e2e/codegen/mock_assertions/helper.rs for the full contract):
+   - helper_name: method name
+   - total_path: mock server's total-count endpoint path
+   - one_path: mock server's single-key endpoint path
+
+   Emits ONE private method using only PHP core (file_get_contents with the `http://` stream
+   wrapper), so it adds no new composer.json dependency -- PHPUnit test methods call it as
+   `$this->{{ helper_name }}(...)`. Callers build `$pathAndQuery` from
+   "{{ total_path }}?prefix=<p>" (mock.requests.total) or "{{ one_path }}?key=<k>"
+   (mock.requests["<k>"]) -- see mock_assertions::model::MockQuery.
+#}
+
+    private function {{ helper_name }}(string $baseUrl, string $pathAndQuery): int
+    {
+        $body = @file_get_contents($baseUrl . $pathAndQuery);
+        if ($body === false) {
+            throw new \RuntimeException('{{ helper_name }}: request failed');
+        }
+        $trimmed = trim($body);
+        if (!ctype_digit($trimmed)) {
+            throw new \RuntimeException("{{ helper_name }}: non-integer response body: {$trimmed}");
+        }
+        return (int) $trimmed;
+    }

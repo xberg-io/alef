@@ -293,6 +293,19 @@ pub(super) fn render_test_file(
         }
     }
 
+    // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
+    // rendered test methods actually call it. The helper uses fully-qualified `java.net.http`
+    // types (see `java/mock_request_helper.java.jinja`), so -- unlike every `needs_*` import
+    // flag above -- it needs no import list change; it is a private static method appended
+    // directly to `fixtures_body` (the class body), matching this backend's PHP counterpart.
+    if let Ok(capture) = crate::e2e::codegen::mock_assertions::mock_capture("java")
+        && fixtures_body.contains(capture.helper_name)
+        && let Some(rendered) = crate::e2e::codegen::mock_assertions::render_helper("java")
+    {
+        fixtures_body.push('\n');
+        fixtures_body.push_str(&rendered);
+    }
+
     // Render template. `env` is a `BTreeMap`, so this already iterates in key order -- no
     // separate sort needed. ~keep
     let sorted_env: Vec<(String, String)> = e2e_config.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
