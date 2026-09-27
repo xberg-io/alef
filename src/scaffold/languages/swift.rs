@@ -115,8 +115,8 @@ import Glibc
 // under a standalone Swift toolchain, that module breaks `swiftc` outright (and any use of one
 // of its types, like the former `NSString` coercion here, then fails to typecheck too). ~keep
 let rustTargetDir =
-  #filePath.split(separator: "/", omittingEmptySubsequences: false).dropLast().joined(separator: "/")
-  + "/../../target"
+#filePath.split(separator: "/", omittingEmptySubsequences: false).dropLast().joined(separator: "/")
++ "/../../target"
 
 // Resolve the static archive for a Rust crate explicitly, preferring `release` over `debug`.
 // `crates/{binding_crate}` and the FFI crate both build `crate-type = ["cdylib", "staticlib"]`,
