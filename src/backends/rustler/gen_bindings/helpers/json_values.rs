@@ -106,7 +106,7 @@ const ELIXIR_RESERVED_WORDS: &[&str] = &[
 ];
 
 /// Ensure a parameter name does not collide with an Elixir reserved word.
-pub(in crate::backends::rustler::gen_bindings) fn elixir_safe_param_name(name: &str) -> String {
+pub(crate) fn elixir_safe_param_name(name: &str) -> String {
     let snake = name.to_snake_case();
     if ELIXIR_RESERVED_WORDS.contains(&snake.as_str()) {
         format!("{snake}_val")

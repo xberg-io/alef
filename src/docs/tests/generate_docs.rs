@@ -351,7 +351,9 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(!python.contains("-> str"));
 
     let typescript = doc_content(&files, "api-typescript");
-    assert!(typescript.contains("chatStream(req: ChatCompletionRequest): Promise<ChatStreamIterator>"));
+    assert!(typescript.contains(
+        "chatStream(req: ChatCompletionRequest): Promise<AsyncGenerator<ChatCompletionChunk, void, undefined>>"
+    ));
     assert!(typescript.contains("for await (const chunk of stream)"));
     assert!(!typescript.contains("Promise<string>"));
 
@@ -374,7 +376,7 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
 
     let zig = doc_content(&files, "api-zig");
     assert!(zig.contains(
-        "pub fn chat_stream(self: *DefaultClient, req: []const u8) (LiterLlmError||error{OutOfMemory})!ChatCompletionChunkStream"
+        "pub fn chat_stream(self: *DefaultClient, req: []const u8) (LiterLlmError||error{OutOfMemory,HandleClosed})!ChatCompletionChunkStream"
     ));
     assert!(zig.contains("while (try stream.next()) |chunk|"));
     assert!(!zig.contains("pub fn chatStream"));
@@ -413,7 +415,10 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(dart.contains("await for (final chunk in instance.chatStream(ChatCompletionRequest()))"));
 
     let php = doc_content(&files, "api-php");
-    assert!(php.contains("public function chatStream(ChatCompletionRequest $req): array"));
+    // ~keep #446: the real wrapper (`gen_php_streaming_method_wrapper`,
+    // `src/backends/php/gen_bindings/opaque_files.rs`) declares `: \\Generator`, never
+    // `array<string>` -- this assertion pinned the docs bug rather than the emitted shape.
+    assert!(php.contains("public function chatStream(ChatCompletionRequest $req): \\Generator"));
     assert!(php.contains("foreach ($instance->chatStream(new ChatCompletionRequest()) as $chunk)"));
     assert!(php.contains("var_dump($chunk);"));
 
@@ -422,9 +427,12 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(ruby.contains("**Returns:** `ChatStreamIterator`"));
 
     let elixir = doc_content(&files, "api-elixir");
-    // The rustler backend always names the receiver param `obj`, not `client`
-    // (`gen_bindings/helpers/conversions.rs`'s `def_args.push("obj".to_string())`).
-    assert!(elixir.contains("def chat_stream(obj, req)"));
+    // ~keep #446: `obj` is the NON-streaming method convention
+    // (`gen_bindings/helpers/conversions.rs`'s `def_args.push("obj".to_string())`). A STREAMING
+    // adapter goes through `elixir_streaming_unfold_wrapper.jinja`, which declares
+    // `def {{ stream_fn }}(client, {{ req_param }})` -- receiver `client`, request param named
+    // from the adapter config. This assertion previously pinned the wrong generator's convention.
+    assert!(elixir.contains("def chat_stream(client, req)"), "{elixir}");
     assert!(elixir.contains("**Returns:** `{:ok, Stream.t()}`"));
 
     let wasm = doc_content(&files, "api-wasm");
@@ -432,9 +440,7 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     assert!(wasm.contains("const chunk = await stream.next();"));
 
     let ffi = doc_content(&files, "api-c");
-    assert!(ffi.contains(
-        "struct LITERLLMLiterllmDefaultClientChatStreamStreamHandle * literllm_default_client_chat_stream_start"
-    ));
+    assert!(ffi.contains("LITERLLMAlefHandle literllm_default_client_chat_stream_start"));
 
     let rust = doc_content(&files, "api-rust");
     assert!(rust.contains(
@@ -450,7 +456,7 @@ fn streaming_adapter_docs_respect_skip_languages_canonical_names() {
 
     let typescript = doc_content(&files, "api-typescript");
     assert!(!typescript.contains("chatStream("));
-    assert!(!typescript.contains("Promise<ChatStreamIterator>"));
+    assert!(!typescript.contains("AsyncGenerator<ChatCompletionChunk"));
 
     let java = doc_content(&files, "api-java");
     assert!(

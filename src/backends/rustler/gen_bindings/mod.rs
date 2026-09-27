@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod cfg_variant_e2e_tests;
 mod functions;
-mod helpers;
+pub(crate) mod helpers;
 mod native;
 mod public_api;
 mod public_api_args;

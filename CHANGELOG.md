@@ -112,6 +112,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   swapping the transform: `cased_pascal_type_name` and `cased_public_type_name` keep the casing
   behavior for those callers unchanged, so only the already-PascalCase path became identity.
 
+- **docs: streaming signatures for Python, PHP, Node, Kotlin, Elixir, Zig and the FFI/C ABI no
+  longer disagree with the real generated code (#446).** `src/docs/language_pages/streaming.rs`
+  hand-builds each language's documented streaming signature independently of the backend that
+  emits it, so the two could drift silently -- and had:
+  - Python documented `async def`, but the real `.pyi` stub types a streaming method as plain
+    `def` (calling an async generator function returns the iterator synchronously; typing the
+    call as a coroutine would reject the `async for` the page's own example uses).
+  - PHP documented `array<string>`; the real wrapper returns `\Generator`.
+  - Node documented `Promise<{Adapter}Iterator>`; the real napi `.d.ts` declares
+    `Promise<AsyncGenerator<Item, void, undefined>>`. Wasm shared that match arm and was already
+    correct, so the arm was split.
+  - Kotlin documented a bare `Flow<T>`; the JVM and JNI emitters both declare the fully-qualified
+    `kotlinx.coroutines.flow.Flow<T>`, as the adjacent KotlinAndroid arm already did.
+  - Elixir documented `def {name}(obj, req)`; the streaming wrapper declares
+    `def {name}(client, {req_param})` -- `obj` is the non-streaming method convention, and the
+    request parameter is named from the adapter config. Both are now derived through the
+    backend's own `elixir_safe_param_name` rather than restated as literals.
+  - FFI/C documented a per-adapter `struct ...StreamHandle *`, a shape predating the handle-ABI
+    migration; the real start function returns the scalar `AlefHandle`, like its own parameters.
+  - Zig's documented error set omitted `HandleClosed`, which the emitted handle-liveness guard
+    can raise.
+
+  Thirteen parity tests (`tests/docs_<lang>_streaming_signature_parity_test.rs`) now drive the
+  real backend codegen and `docs::generate_docs` from one shared fixture and assert they agree,
+  extending the Go-only guard from #441/#448. Two pinned assertions in `docs/tests/generate_docs.rs`
+  were themselves asserting the bug and were corrected. Dart, R, Gleam and Rust stay unguarded for
+  structural reasons: Dart's caller-facing method comes from `flutter_rust_bridge_codegen`, which
+  alef never invokes; Rust and Gleam have no generated streaming adapter to compare against; and R
+  has no alef-emitted signature text, though its adapter does eagerly collect a whole stream into
+  one JSON string rather than the incremental iteration the page describes -- tracked separately.
+
 ### Added
 
 - **e2e: fan the `mock.*` request-count capture out to go, ruby, php and java (#443).** Each

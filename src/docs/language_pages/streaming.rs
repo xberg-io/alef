@@ -5,10 +5,24 @@ use crate::docs::examples::MethodExampleOverride;
 use crate::docs::examples::render_method_example_with_override;
 use crate::docs::naming::{func_name, lang_code_fence, method_name, to_camel_case, type_name};
 use crate::docs::signatures::{MethodSignatureOverride, render_method_signature_with_override};
+use crate::docs::type_mapping::FFI_HANDLE_TYPE_NAME;
 use crate::docs::{clean_doc, doc_type, template_env};
-use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
+use heck::{ToPascalCase, ToSnakeCase};
 
 use super::function_render::{push_errors, push_parameters_table, push_returns_with_override, push_version_annotation};
+
+/// The request parameter name the rustler streaming wrapper actually declares.
+///
+/// Mirrors `rustler::gen_bindings::public_api`'s derivation exactly (first configured adapter
+/// param through the backend's own `elixir_safe_param_name`, else `request`) rather than
+/// restating a literal, so the documented signature cannot drift from the emitted one. ~keep
+fn elixir_streaming_request_param(adapter: &AdapterConfig) -> String {
+    adapter
+        .params
+        .first()
+        .map(|p| crate::backends::rustler::gen_bindings::helpers::elixir_safe_param_name(&p.name))
+        .unwrap_or_else(|| "request".to_string())
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct MethodDocsOverride {
@@ -111,8 +125,17 @@ fn streaming_method_signature_override(
     let name = streaming_method_name(adapter, method, lang, ffi_prefix);
     let return_type = streaming_return_type(adapter, type_name_str, item_type, lang, ffi_prefix, false);
     let signature = match lang {
+        // ~keep #446: a streaming method's `.pyi` stub (`gen_method_stub`,
+        // `src/backends/pyo3/gen_stubs/classes.rs`) deliberately types it as plain `def`, never
+        // `async def`, even though the real generated wrapper (`adapter_streaming_wrapper.jinja`)
+        // IS an `async def ...: ... yield ...` async generator function -- calling an async
+        // generator function returns the iterator synchronously (no `await` needed), and typing
+        // the call as `async def -> AsyncIterator[T]` would type-check it as
+        // `Coroutine[Any, Any, AsyncIterator[T]]`, rejecting the exact `async for chunk in
+        // stream_method(...)` call (no `await`) both the real runtime shape and this page's OWN
+        // example (below) use.
         Language::Python => Some(format!(
-            "async def {}(self, req: {}) -> {}",
+            "def {}(self, req: {}) -> {}",
             adapter.name.to_snake_case(),
             first_param_type(method, lang, ffi_prefix),
             return_type
@@ -148,7 +171,17 @@ fn streaming_method_signature_override(
         )),
         // ~keep The rustler backend always names the receiver param `obj`, never `client`
         // (`gen_bindings/helpers/conversions.rs`'s `def_args.push("obj".to_string())`).
-        Language::Elixir => Some(format!("def {}(obj, req)", adapter.name.to_snake_case())),
+        // ~keep #446: the real wrapper is `elixir_streaming_unfold_wrapper.jinja`'s
+        // `def {{ stream_fn }}(client, {{ req_param }})` -- the receiver is literally `client`,
+        // not `obj`, and the request parameter takes its name from the adapter's first configured
+        // param (falling back to `request`), not a hardcoded `req`. Both are derived here the
+        // same way `rustler::gen_bindings::public_api` derives them, through the backend's own
+        // `elixir_safe_param_name`, so the two cannot drift apart again.
+        Language::Elixir => Some(format!(
+            "def {}(client, {})",
+            adapter.name.to_snake_case(),
+            elixir_streaming_request_param(adapter)
+        )),
         // ~keep Go streaming no longer returns a bare `<-chan Item`: issue #441 found that
         // shape indistinguishable from a mid-stream error, since a null next-chunk pointer
         // means either clean end-of-stream or failure and the channel just closes either way.
@@ -229,7 +262,20 @@ fn streaming_return_type(
     let item = type_name(item_type, lang, ffi_prefix);
     match lang {
         Language::Python => format!("AsyncIterator[{item}]"),
-        Language::Node | Language::Wasm => {
+        // ~keep #446: `gen_dts`'s streaming branch (`src/backends/napi/gen_bindings/errors.rs`)
+        // declares the class method's return type as `Promise<AsyncGenerator<Item, void,
+        // undefined>>` unconditionally -- there is no separate named iterator type the way
+        // Wasm's `#[wasm_bindgen]` method emits one. Node and Wasm are two different backends
+        // (napi vs wasm-bindgen) that happened to share this arm; they no longer agree.
+        Language::Node => {
+            let generator = format!("AsyncGenerator<{item}, void, undefined>");
+            if include_outer_result {
+                format!("Promise<{generator}>")
+            } else {
+                generator
+            }
+        }
+        Language::Wasm => {
             let iter = format!("{}Iterator", adapter.name.to_pascal_case());
             if include_outer_result {
                 format!("Promise<{iter}>")
@@ -238,7 +284,13 @@ fn streaming_return_type(
             }
         }
         Language::Ruby => format!("{}Iterator", adapter.name.to_pascal_case()),
-        Language::Php => "array<string>".to_string(),
+        // ~keep #446: `gen_php_streaming_method_wrapper`
+        // (`src/backends/php/gen_bindings/opaque_files.rs`) declares the streaming method's
+        // return type as `\Generator` (a PHP `Generator`, consumed with `foreach`), never
+        // `array<string>` -- there is no PHP `_start`/`_next`/`_free` handle here (PHP can't
+        // easily pass opaque types as function parameters), so the wrapper keeps the streaming
+        // loop on the class itself and returns the generator object directly.
+        Language::Php => "\\Generator".to_string(),
         Language::Elixir => "{:ok, Stream.t()}".to_string(),
         Language::Go => {
             // ~keep Mirrors the `Language::Go` arm of `streaming_method_signature_override`:
@@ -259,11 +311,16 @@ fn streaming_return_type(
         Language::Java => format!("java.util.stream.Stream<{item}>"),
         Language::Csharp => format!("IAsyncEnumerable<{item}>"),
         Language::Rust => format!("BoxFuture<'_, Result<BoxStream<'static, Result<{item}>>>>"),
-        Language::Kotlin => format!("Flow<{item}>"),
+        // ~keep #446: `kotlin_streaming_client_method.jinja` (and its JNI-emitter counterpart,
+        // `jni_streaming_client_method.jinja`) declares the fully-qualified
+        // `kotlinx.coroutines.flow.Flow<...>`, not the bare `Flow<...>` this used to say --
+        // matching the `Language::KotlinAndroid` arm just below, which already used the
+        // fully-qualified spelling for the same shared Kotlin/JNI emitter.
+        Language::Kotlin => format!("kotlinx.coroutines.flow.Flow<{item}>"),
         Language::KotlinAndroid => format!("kotlinx.coroutines.flow.Flow<{item}>"),
         Language::Swift => format!("AsyncThrowingStream<{item}, Error>"),
         Language::Dart => format!("Stream<{item}>"),
-        Language::Ffi | Language::C | Language::Jni => streaming_c_handle_type(adapter, type_name_str, ffi_prefix),
+        Language::Ffi | Language::C | Language::Jni => streaming_c_handle_type(ffi_prefix),
         Language::Zig => streaming_zig_return_type_placeholder(item_type, ffi_prefix),
         Language::R | Language::Gleam => item,
     }
@@ -280,7 +337,10 @@ fn streaming_zig_return_type(method: &MethodDef, item_type: &str, ffi_prefix: &s
         .as_deref()
         .map(|error| type_name(error, Language::Zig, ffi_prefix))
         .unwrap_or_else(|| "anyerror".to_string());
-    format!("({error_type}||error{{OutOfMemory}})!{stream_type}")
+    // ~keep #446: `opaque_stream_method.jinja`/`opaque_stream_struct.jinja` declare
+    // `error{OutOfMemory,HandleClosed}`, not just `error{OutOfMemory}` -- a stream handle that
+    // outlives its owning client's `deinit()` returns `error.HandleClosed`, not `OutOfMemory`.
+    format!("({error_type}||error{{OutOfMemory,HandleClosed}})!{stream_type}")
 }
 
 fn streaming_c_start_name(adapter: &AdapterConfig, method: &MethodDef, ffi_prefix: &str) -> String {
@@ -293,20 +353,16 @@ fn streaming_c_start_name(adapter: &AdapterConfig, method: &MethodDef, ffi_prefi
     )
 }
 
-/// The stream-handle struct is declared by alef itself, so its header name carries the prefix
-/// twice: cbindgen's `[export] prefix` (shouty) in front of the PascalCase-prefixed Rust struct
-/// name the FFI backend emits. For a crate whose `[ffi] prefix` is the single lowercase word
-/// `samplecrate`, the consumer's header spells the handle
-/// `SAMPLECRATESamplecrateDefaultClientChatStreamStreamHandle` — prefix shouted, then repeated
-/// in PascalCase, before the type/method pair. ~keep
-fn streaming_c_handle_type(adapter: &AdapterConfig, type_name_str: &str, ffi_prefix: &str) -> String {
-    format!(
-        "struct {}{}{}{}StreamHandle *",
-        ffi_prefix.to_shouty_snake_case(),
-        ffi_prefix.to_pascal_case(),
-        type_name_str.to_pascal_case(),
-        adapter.name.to_pascal_case()
-    )
+/// #446: under the handle-ABI migration, the real streaming `_start` function
+/// (`gen_stream_handle_functions`, `src/backends/ffi/gen_bindings/helpers.rs`) returns the bare
+/// scalar `AlefHandle` token, exactly like its own `client`/`req` parameters -- not a pointer to a
+/// per-adapter `struct {PREFIX}{Prefix}{Owner}{Adapter}StreamHandle` (the pre-migration shape this
+/// function used to hand-build). `type_name(FFI_HANDLE_TYPE_NAME, ..)` is the same single source
+/// of truth `doc_type`'s `TypeRef::Named` arm for Ffi/C already uses for the `client`/`req`
+/// params just below, and that `crate::codegen::c_consumer::handle_type` gives every other
+/// consumer backend. ~keep
+fn streaming_c_handle_type(ffi_prefix: &str) -> String {
+    type_name(FFI_HANDLE_TYPE_NAME, Language::Ffi, ffi_prefix)
 }
 
 fn streaming_c_start_signature(
@@ -316,7 +372,7 @@ fn streaming_c_start_signature(
     item_type: &str,
     ffi_prefix: &str,
 ) -> String {
-    let handle_type = streaming_c_handle_type(adapter, type_name_str, ffi_prefix);
+    let handle_type = streaming_c_handle_type(ffi_prefix);
     let start_name = streaming_c_start_name(adapter, method, ffi_prefix);
     // ~keep The client and request params are scalar `AlefHandle` tokens under the
     // handle-ABI migration (see FFI_HANDLE_TYPE_NAME in type_mapping.rs), not pointers
@@ -441,8 +497,9 @@ fn streaming_c_example(
     item_type: &str,
     ffi_prefix: &str,
 ) -> String {
+    let _ = type_name_str;
     let start_name = streaming_c_start_name(adapter, method, ffi_prefix);
-    let handle_type = streaming_c_handle_type(adapter, type_name_str, ffi_prefix);
+    let handle_type = streaming_c_handle_type(ffi_prefix);
     let prefix = ffi_prefix.to_snake_case();
     // Spelled exactly as `streaming_c_start_name` spells it, so `_start`, `_next` and `_free`
     // on one page cannot name three different owners. The fallback is unreachable rather than
@@ -598,7 +655,7 @@ mod tests {
         let adapter = make_adapter("chat_stream", "DefaultClient", "ChatChunk");
         let method = make_method("chat_stream", vec![], TypeRef::Unit, false, false, None);
         let example = streaming_c_example(&adapter, &method, "DefaultClient", "ChatChunk", TEST_PREFIX);
-        let expected = "struct HTMHtmDefaultClientChatStreamStreamHandle * stream = \
+        let expected = "HTMAlefHandle stream = \
                          htm_default_client_chat_stream_start(instance, req);\n\
                          while (stream != NULL) {\n    \
                          HTMChatChunk *chunk = htm_default_client_chat_stream_next(stream);\n    \
