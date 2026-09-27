@@ -86,6 +86,9 @@ fn resolve_external_use(
     // Scoped to this one extraction of the sibling crate into `ext_surface`: nothing outside
     // this function needs to compare against the external crate's serde defaults. ~keep
     let mut pending_serde_defaults = super::SerdeDefaultsByType::default();
+    // Scoped the same way: the sibling crate's own private-module bridging is independent of
+    // the host crate's, and merging the two sets would let an unrelated module name collide. ~keep
+    let mut ext_private_module_paths = ahash::AHashSet::new();
     super::extract_items(
         &file.items,
         &canonical,
@@ -96,7 +99,9 @@ fn resolve_external_use(
         visited,
         &mut rwa,
         &mut pending_serde_defaults,
+        &mut ext_private_module_paths,
     )?;
+    super::paths::validate_no_private_path_leaks(&ext_surface, crate_name, &ext_private_module_paths)?;
 
     let filter = collect_use_names(subtree);
 
@@ -266,6 +271,7 @@ pub(crate) fn extract_module(
     workspace_root: Option<&Path>,
     visited: &mut Vec<PathBuf>,
     pending_serde_defaults: &mut super::SerdeDefaultsByType,
+    private_module_paths: &mut ahash::AHashSet<String>,
 ) -> Result<()> {
     let mod_name = item_mod.ident.to_string();
 
@@ -279,6 +285,15 @@ pub(crate) fn extract_module(
     } else {
         format!("{module_path}::{mod_name}")
     };
+
+    // Recorded regardless of reexport kind: this module is only walked at all because *some*
+    // ancestor bridges it (see the `is_pub(&item_mod.vis) || is_reexported` gate in
+    // `extract_items`), but the bridge does not make the module itself public. Anything left
+    // pointing through this segment after extraction finishes is an unreachable path -- see
+    // `paths::validate_no_private_path_leaks`. ~keep
+    if !super::helpers::is_pub(&item_mod.vis) {
+        private_module_paths.insert(new_module_path.clone());
+    }
 
     let named_reexports = match reexport_kind {
         Some(ReexportKind::Names(names)) => Some(names),
@@ -302,9 +317,16 @@ pub(crate) fn extract_module(
             visited,
             &mut rwa,
             pending_serde_defaults,
+            private_module_paths,
         )?;
     } else {
-        let parent_dir = source_path.parent().unwrap_or_else(|| Path::new("."));
+        // The base directory for this module's own children -- NOT simply `source_path`'s
+        // parent directory. A 2018-edition "sibling" module file (`ssrf.rs`, `config.rs`, ...)
+        // owns a same-named subdirectory beside it, and a nested `mod x;` inside it resolves
+        // against THAT subdirectory, not against the sibling file's own parent. Using the plain
+        // parent directory here silently searched one level too shallow, so any `mod` declared
+        // inside a sibling-style file was never found at all (issue #466). ~keep
+        let parent_dir = super::paths::module_children_dir(source_path);
 
         let file_name = mod_name.strip_prefix("r#").unwrap_or(&mod_name);
 
@@ -338,6 +360,7 @@ pub(crate) fn extract_module(
                     visited,
                     &mut rwa2,
                     pending_serde_defaults,
+                    private_module_paths,
                 )?;
                 found = true;
                 break;

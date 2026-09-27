@@ -24,6 +24,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
     let mut visited = Vec::new();
     let mut rwa = ahash::AHashSet::new();
     let mut pending_serde_defaults = SerdeDefaultsByType::default();
+    let mut private_module_paths = ahash::AHashSet::new();
     extract_items(
         &file.items,
         Path::new("test.rs"),
@@ -34,8 +35,10 @@ fn extract_from_source(source: &str) -> ApiSurface {
         &mut visited,
         &mut rwa,
         &mut pending_serde_defaults,
+        &mut private_module_paths,
     )
     .unwrap();
+    paths::validate_no_private_path_leaks(&surface, "test_crate", &private_module_paths).unwrap();
     resolve_public_default_functions(&mut surface);
     resolve_newtypes(&mut surface);
     resolve_enum_field_defaults(&mut surface);

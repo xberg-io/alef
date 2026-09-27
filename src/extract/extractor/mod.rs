@@ -70,6 +70,10 @@ pub fn extract(
     // a struct and the manual `impl Default` that overwrites its fields' defaults may live in
     // different source files. ~keep
     let mut pending_serde_defaults: SerdeDefaultsByType = AHashMap::new();
+    // Every `crate`-relative module path walked only because an ancestor's `pub use` bridged it
+    // (never a genuinely `pub mod`). Spans the whole `sources` loop like `pending_serde_defaults`
+    // above, then backs the final `validate_no_private_path_leaks` sweep. ~keep
+    let mut private_module_paths: ahash::AHashSet<String> = ahash::AHashSet::new();
 
     type_resolver::reset_result_error_hints();
 
@@ -105,6 +109,7 @@ pub fn extract(
             &mut visited,
             &mut result_wrapping_aliases,
             &mut pending_serde_defaults,
+            &mut private_module_paths,
         )?;
 
         if !module_path.is_empty() {
@@ -171,6 +176,8 @@ pub fn extract(
         }
     }
 
+    paths::validate_no_private_path_leaks(&surface, crate_name, &private_module_paths)?;
+
     Ok(surface)
 }
 
@@ -210,6 +217,7 @@ fn extract_items(
     visited: &mut Vec<PathBuf>,
     result_wrapping_aliases: &mut ahash::AHashSet<String>,
     pending_serde_defaults: &mut SerdeDefaultsByType,
+    private_module_paths: &mut ahash::AHashSet<String>,
 ) -> Result<()> {
     let reexport_map = collect_reexport_map(items);
 
@@ -529,6 +537,7 @@ fn extract_items(
                         workspace_root,
                         visited,
                         pending_serde_defaults,
+                        private_module_paths,
                     )?;
                 }
             }

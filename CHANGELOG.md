@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extract: a type declared in a private module and re-exported emitted an unreachable path, or
+  was dropped entirely (#466).** `extract_module` derived a `mod x;` child's search directory from
+  `source_path.parent()`, which is only correct when the declaring file is `mod.rs`/`lib.rs`. For
+  the Rust 2018 sibling layout -- `ssrf.rs` owning `ssrf/`, `config.rs` owning `config/` -- that
+  searched one directory too shallow, so the child file was never found and extraction silently
+  returned nothing. Reported by a consumer whose generated FFI crate failed with 84
+  `error[E0433]` naming `crate::config::primitives::Type`, a path whose first two segments are
+  private modules. `apply_parent_reexport_shortening` had the same 2018-unaware blind spot. Both
+  now share one rule (`module_children_dir` and its inverse), so a type reachable only through a
+  `pub use` resolves to the shallowest fully public path. A new `validate_no_private_path_leaks`
+  pass fails the run, naming the offenders, rather than ever handing codegen a path that crosses a
+  private module. Verified by compiling real consumer crates against the emitted paths: the fixed
+  path builds, the pre-fix path fails with `error[E0603]: module 'types' is private`.
 - **verify: the fresh-render drift check reported freshly generated files as drifted whenever
   `poly` was absent (#458).** The `.rs`/`.md` fast path predicts `alef all`'s *final* bytes in
   memory, but "final" means post-`poly fmt --fix`, and that precondition was never checked. `alef
