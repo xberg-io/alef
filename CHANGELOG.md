@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extract/e2e: a fully-qualified `core_path` never matched, so adapter-handled methods also got a
+  generic binding (#463).** Three call sites independently answered "does this adapter cover this
+  method" and two of them compared `adapter.core_path` to a bare method name with exact string
+  equality. `core_path` is documented on `AdapterConfig` and in `schemas/alef.schema.json` as the
+  *full* Rust path, with a qualified example, so a consumer following the field's own contract
+  wrote `liter_llm::DefaultClient::chat_stream` and neither `mark_adapter_handled_methods` nor
+  `adapter_binds_method_for_language` matched it: `binding_excluded` stayed false and
+  `method_visible_in_lang`'s gate became a no-op, emitting both the adapter body and a generic
+  binding for the same method. The issue named two matchers; there were three. All now route
+  through one `adapter_covers_method` predicate that strips to the last `::` segment, honouring the
+  documented contract. `docs`'s extra `adapter.name` fallback stays local to `docs` rather than
+  being imported into the other two: every fixture in the repo spells `name`, `core_path`'s tail
+  and the method name identically, so there is no evidence it does any work and none of what it
+  should mean if it diverged.
+
 - **swift: the generated in-tree `Package.swift` no longer imports Foundation, which a standalone
   Swift toolchain cannot compile (#461).** Under swiftly 6.3.1 (targeting macosx28.0 against an
   older host SDK) `import Foundation` alone provokes `unknown argument: '-target-arch-variant'`,

@@ -63,14 +63,21 @@ pub(super) fn streaming_method_docs_override(
     })
 }
 
+/// Matches on `adapter.core_path`'s final segment via the shared
+/// [`crate::core::config::extras::adapter_method_name_matches`] predicate, plus a docs-only
+/// fallback on `adapter.name` itself.
+///
+/// The `adapter.name` arm is deliberately NOT part of the shared predicate: `mark_adapter_handled_methods`
+/// and `adapter_binds_method_for_language` answer "does this adapter's `core_path` (the
+/// documented full Rust path) identify this method", which `adapter.name` — the adapter's own,
+/// possibly-renamed public label — does not reliably answer. No fixture in this codebase
+/// configures an adapter whose `name` differs from its `core_path`'s final segment, so folding
+/// this arm into the shared predicate would be an unproven behavior change at the other two call
+/// sites; keeping it local here preserves this page's existing matching exactly. ~keep
 pub(super) fn streaming_adapter_matches_method(adapter: &AdapterConfig, method: &MethodDef) -> bool {
     let method_name = method.name.to_snake_case();
     adapter.name.to_snake_case() == method_name
-        || adapter
-            .core_path
-            .rsplit("::")
-            .next()
-            .is_some_and(|core_name| core_name.to_snake_case() == method_name)
+        || crate::core::config::extras::adapter_method_name_matches(adapter, &method_name)
 }
 
 pub(super) fn streaming_adapter_skips_method(

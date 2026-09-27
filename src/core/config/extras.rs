@@ -1,3 +1,4 @@
+use heck::ToSnakeCase;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -178,6 +179,42 @@ pub fn is_known_language(lang_str: &str) -> bool {
     Language::ALL.iter().any(|language| language.to_string() == lang_str)
 }
 
+/// Returns whether `adapter.owner_type` names `owner_type` exactly.
+pub(crate) fn adapter_owner_matches(adapter: &AdapterConfig, owner_type: &str) -> bool {
+    adapter.owner_type.as_deref() == Some(owner_type)
+}
+
+/// Returns whether `adapter.core_path`'s final `::`-delimited segment names `method_name`.
+///
+/// `core_path` is documented on [`AdapterConfig::core_path`] as the *fully-qualified* Rust path
+/// to the core function/method (e.g. `sample_markdown_rs::convert`), so a consumer following
+/// that contract writes a qualified path such as `liter_llm::DefaultClient::chat_stream` — not a
+/// bare method name. Comparing the whole string against a bare method name therefore never
+/// matches a config written the way the field's own doc comment tells consumers to write it;
+/// stripping to the last segment is what honours the documented contract. Both sides go through
+/// `to_snake_case` so a `core_path` segment spelled in a different case style still matches the
+/// IR's snake_case method name.
+pub(crate) fn adapter_method_name_matches(adapter: &AdapterConfig, method_name: &str) -> bool {
+    let method_name = method_name.to_snake_case();
+    adapter
+        .core_path
+        .rsplit("::")
+        .next()
+        .is_some_and(|segment| segment.to_snake_case() == method_name)
+}
+
+/// Returns whether `adapter` is the `[[crates.adapters]]` entry that handles
+/// `owner_type::method_name`.
+///
+/// This is the shared predicate every "does this adapter cover this method" call site must go
+/// through: `mark_adapter_handled_methods` (`cli/pipeline/extract/services.rs`) and
+/// `adapter_binds_method_for_language` (`e2e/snippets/exclusions.rs`) previously each answered
+/// this question with their own exact-tuple-equality comparison, which never matched a
+/// fully-qualified `core_path` as documented above.
+pub(crate) fn adapter_covers_method(adapter: &AdapterConfig, owner_type: &str, method_name: &str) -> bool {
+    adapter_owner_matches(adapter, owner_type) && adapter_method_name_matches(adapter, method_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +253,91 @@ mod tests {
         for language in Language::ALL {
             let name = language.to_string();
             assert!(is_known_language(&name), "{name} should be recognised");
+        }
+    }
+
+    fn adapter_for_parity(name: &str, owner_type: &str, core_path: &str) -> AdapterConfig {
+        AdapterConfig {
+            name: name.to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: core_path.to_string(),
+            params: Vec::new(),
+            returns: None,
+            error_type: None,
+            owner_type: Some(owner_type.to_string()),
+            item_type: None,
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: None,
+            skip_languages: Vec::new(),
+        }
+    }
+
+    /// Table-driven parity guard for [`adapter_covers_method`], the single predicate
+    /// `mark_adapter_handled_methods` (`cli/pipeline/extract/services.rs`) and
+    /// `adapter_binds_method_for_language` (`e2e/snippets/exclusions.rs`) both call
+    /// unconditionally, and that `docs::language_pages::streaming::streaming_adapter_matches_method`
+    /// calls as one arm of its own match (the other being a docs-only `adapter.name` fallback).
+    /// Before this predicate existed, each of those three sites carried its own
+    /// string-comparison logic and disagreed on every row below except the bare-name case. This
+    /// is the guard against them diverging again: any future edit to one caller that stops
+    /// routing through this function is invisible to this test, but any edit to the predicate
+    /// itself that breaks one of these documented cases is caught here.
+    #[test]
+    fn adapter_covers_method_parity_table() {
+        struct Case {
+            description: &'static str,
+            core_path: &'static str,
+            owner_type: &'static str,
+            queried_owner: &'static str,
+            queried_method: &'static str,
+            expected: bool,
+        }
+        let cases = [
+            Case {
+                description: "bare core_path equal to the method name",
+                core_path: "chat_stream",
+                owner_type: "DefaultClient",
+                queried_owner: "DefaultClient",
+                queried_method: "chat_stream",
+                expected: true,
+            },
+            Case {
+                description: "fully-qualified core_path, as AdapterConfig::core_path documents",
+                core_path: "liter_llm::DefaultClient::chat_stream",
+                owner_type: "DefaultClient",
+                queried_owner: "DefaultClient",
+                queried_method: "chat_stream",
+                expected: true,
+            },
+            Case {
+                description: "qualified core_path naming the right method but a different owner",
+                core_path: "liter_llm::DefaultClient::chat_stream",
+                owner_type: "DefaultClient",
+                queried_owner: "OtherClient",
+                queried_method: "chat_stream",
+                expected: false,
+            },
+            Case {
+                description: "non-matching method name entirely",
+                core_path: "liter_llm::DefaultClient::chat_stream",
+                owner_type: "DefaultClient",
+                queried_owner: "DefaultClient",
+                queried_method: "other_method",
+                expected: false,
+            },
+        ];
+
+        for case in cases {
+            let adapter = adapter_for_parity("chat_stream", case.owner_type, case.core_path);
+            let actual = adapter_covers_method(&adapter, case.queried_owner, case.queried_method);
+            assert_eq!(
+                actual, case.expected,
+                "{}: adapter_covers_method({:?}, {:?}, {:?}) should be {}",
+                case.description, adapter, case.queried_owner, case.queried_method, case.expected
+            );
         }
     }
 

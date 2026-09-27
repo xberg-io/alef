@@ -185,8 +185,123 @@ fn adapter_binds_method_for_language(
 ) -> bool {
     let lang_name = lang.to_string();
     crate_config.adapters.iter().any(|adapter| {
-        adapter.owner_type.as_deref() == Some(type_name)
-            && adapter.core_path == method_name
+        crate::core::config::extras::adapter_covers_method(adapter, type_name, method_name)
             && !adapter.skip_languages.contains(&lang_name)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{AdapterConfig, AdapterPattern};
+
+    fn streaming_adapter(owner_type: &str, core_path: &str, skip_languages: Vec<String>) -> AdapterConfig {
+        AdapterConfig {
+            name: "chat_stream".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: core_path.to_string(),
+            params: Vec::new(),
+            returns: None,
+            error_type: None,
+            owner_type: Some(owner_type.to_string()),
+            item_type: Some("ChatCompletionChunk".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: None,
+            skip_languages,
+        }
+    }
+
+    /// Regression for the bug this issue found: the pre-fix `adapter.core_path == method_name`
+    /// exact-string comparison never matched a fully-qualified `core_path`, the shape
+    /// [`crate::core::config::AdapterConfig::core_path`] documents as the expected one
+    /// (`liter_llm::DefaultClient::chat_stream`). A method that was in fact adapter-handled was
+    /// then treated as a genuine exclusion by
+    /// [`function_binding_excluded_for_language`], dropping it from the snippet coverage
+    /// ledger's `expected` set even though every backend still binds it.
+    #[test]
+    fn adapter_binds_method_for_language_matches_a_fully_qualified_core_path() {
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter(
+                "DefaultClient",
+                "liter_llm::DefaultClient::chat_stream",
+                Vec::new(),
+            )],
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(adapter_binds_method_for_language(
+            &config,
+            "DefaultClient",
+            "chat_stream",
+            Language::Python
+        ));
+    }
+
+    /// The bare `core_path` shape every existing fixture uses must keep matching exactly as
+    /// before.
+    #[test]
+    fn adapter_binds_method_for_language_matches_a_bare_core_path() {
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter("DefaultClient", "chat_stream", Vec::new())],
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(adapter_binds_method_for_language(
+            &config,
+            "DefaultClient",
+            "chat_stream",
+            Language::Python
+        ));
+    }
+
+    /// A qualified `core_path` naming the right method but a different owner type must not
+    /// match.
+    #[test]
+    fn adapter_binds_method_for_language_does_not_match_a_different_owner() {
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter(
+                "DefaultClient",
+                "liter_llm::DefaultClient::chat_stream",
+                Vec::new(),
+            )],
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(!adapter_binds_method_for_language(
+            &config,
+            "OtherClient",
+            "chat_stream",
+            Language::Python
+        ));
+    }
+
+    /// A language named in the adapter's own `skip_languages` still gets no binding surface
+    /// from the adapter, qualified `core_path` or not.
+    #[test]
+    fn adapter_binds_method_for_language_respects_skip_languages() {
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter(
+                "DefaultClient",
+                "liter_llm::DefaultClient::chat_stream",
+                vec!["python".to_string()],
+            )],
+            ..ResolvedCrateConfig::default()
+        };
+
+        assert!(!adapter_binds_method_for_language(
+            &config,
+            "DefaultClient",
+            "chat_stream",
+            Language::Python
+        ));
+        assert!(adapter_binds_method_for_language(
+            &config,
+            "DefaultClient",
+            "chat_stream",
+            Language::Node
+        ));
+    }
 }
