@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **docs: the R streaming page no longer promises incremental iteration the extendr adapter does not
+  provide (#456).** `gen_r_body` eagerly drains the stream with `stream.collect::<Vec<_>>().await`
+  and returns `serde_json::to_string(&chunks)` -- one `character` scalar holding the whole array --
+  but the page documented a per-item return type and an example iterating over chunks. R now
+  documents `character (a single JSON-encoded array of <Item>)` and shows a `jsonlite::fromJSON`
+  example that names the buffering. The `Language::R | Language::Gleam` arm was shared, so it is
+  now split: Gleam has no streaming adapter at all (`supports_streaming: false`, and
+  `build_adapter_bodies` is never called for it), so its streaming surfaces reuse the same
+  `// Phase 1: gleam backend ...` placeholder its method signature already emitted, making all
+  three surfaces consistent. R has no alef-emitted host signature to diff against, so coverage is
+  a docs test pairing negative assertions with positive ones, plus `test_streaming_r` pinning the
+  adapter's eager-collect shape so the two cannot drift apart again.
+
 ## [0.99.0] - 2026-09-27
 
 ### Added

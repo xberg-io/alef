@@ -448,6 +448,74 @@ fn streaming_adapter_docs_use_language_native_stream_types() {
     ));
 }
 
+/// Regression for issue #456: the real R adapter (`gen_r_body`, `src/adapters/streaming.rs`)
+/// eagerly drains the whole stream with `stream.collect::<Vec<_>>().await` and hands back a
+/// single `serde_json::to_string(&chunks)` -- one `character` scalar holding a JSON array, not
+/// an iterator. The page used to claim R yields `ChatCompletionChunk` items one at a time and
+/// showed a per-item iteration example; neither is true of the generated binding. This is a
+/// dedicated test (not folded into `streaming_adapter_docs_use_language_native_stream_types`)
+/// because that test's language list never included R or Gleam, which is exactly why this
+/// defect went uncaught.
+#[test]
+fn streaming_adapter_docs_r_reflects_the_eager_json_collect() {
+    let config = streaming_adapter_config("");
+    let api = streaming_adapter_api(&config);
+    let files = generate_docs(&api, &config, &[Language::R], "out").unwrap();
+
+    let r = doc_content(&files, "api-r");
+    // Negative half: nothing on the page may still imply per-item iteration or a bare item
+    // return type -- blanking the text would trivially satisfy this alone, so it is paired
+    // with the positive assertions below.
+    assert!(!r.contains("Iterate over"), "{r}");
+    assert!(!r.contains("**Returns:** `ChatCompletionChunk`"), "{r}");
+    // Positive half: the page must say what the binding actually does -- collect the whole
+    // stream into one JSON-encoded `character` scalar -- and show a caller decoding it with
+    // `jsonlite`, this codebase's established R JSON convention (see
+    // `sync_method_complex_return.jinja`).
+    assert!(
+        r.contains("**Returns:** `character (a single JSON-encoded array of ChatCompletionChunk)`"),
+        "{r}"
+    );
+    assert!(r.contains("chunks <- jsonlite::fromJSON(result)"), "{r}");
+    assert!(r.contains("collected into memory before this call returns"), "{r}");
+}
+
+/// Regression for issue #456: Gleam has no streaming adapter at all --
+/// `Capabilities::supports_streaming` is `false` (`backends/gleam/gen_bindings/mod.rs`) and
+/// `build_adapter_bodies` is never called with `Language::Gleam`. The page used to describe the
+/// same fake per-item iteration as R's (Gleam shared R's doc-generation arm even though the two
+/// backends have nothing in common here), which is a stronger lie for Gleam: R at least emits
+/// *something* for this method, Gleam emits nothing. The signature line already reused this
+/// codebase's established Gleam "not yet implemented" placeholder
+/// (`render_method_signature_with_override`'s own fallback, `signatures.rs`); the return type and
+/// example must reuse the same wording rather than a fabricated capability.
+#[test]
+fn streaming_adapter_docs_gleam_reports_no_streaming_support() {
+    let config = streaming_adapter_config("");
+    let api = streaming_adapter_api(&config);
+    let files = generate_docs(&api, &config, &[Language::Gleam], "out").unwrap();
+
+    let gleam = doc_content(&files, "api-gleam");
+    assert!(!gleam.contains("Iterate over"), "{gleam}");
+    assert!(!gleam.contains("**Returns:** `ChatCompletionChunk`"), "{gleam}");
+    assert!(
+        gleam.contains("**Returns:** `// Phase 1: gleam backend streaming not yet implemented`"),
+        "{gleam}"
+    );
+    assert!(
+        gleam.contains("// Phase 1: gleam backend streaming not yet implemented"),
+        "{gleam}"
+    );
+    // The signature line already fell back to this exact placeholder before this fix (it never
+    // had a streaming override for Gleam); pinned here so the three surfaces -- signature,
+    // returns, example -- read consistently rather than two of them being newly fixed while the
+    // third silently drifts.
+    assert!(
+        gleam.contains("// Phase 1: gleam backend method signature generation"),
+        "{gleam}"
+    );
+}
+
 #[test]
 fn streaming_adapter_docs_respect_skip_languages_canonical_names() {
     let config = streaming_adapter_config("skip_languages = [\"node\"]");

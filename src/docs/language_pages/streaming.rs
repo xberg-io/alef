@@ -322,7 +322,23 @@ fn streaming_return_type(
         Language::Dart => format!("Stream<{item}>"),
         Language::Ffi | Language::C | Language::Jni => streaming_c_handle_type(ffi_prefix),
         Language::Zig => streaming_zig_return_type_placeholder(item_type, ffi_prefix),
-        Language::R | Language::Gleam => item,
+        // ~keep #456: R's real adapter body (`gen_r_body`, `src/adapters/streaming.rs`) eagerly
+        // drains the whole stream with `stream.collect::<Vec<_>>().await` and returns
+        // `serde_json::to_string(&chunks)` -- one `character` scalar holding a JSON array, never
+        // an incremental value. The bare item type this used to print implied per-item iteration,
+        // which the real R wrapper cannot do: the whole stream is buffered before the call
+        // returns at all.
+        Language::R => format!("character (a single JSON-encoded array of {item})"),
+        // ~keep #456: Gleam has no streaming adapter at all -- `Capabilities::supports_streaming`
+        // is `false` (`backends/gleam/gen_bindings/mod.rs`) and `build_adapter_bodies` is never
+        // called with `Language::Gleam` (grep every call site: extendr, go, rustler, wasm, php,
+        // magnus, ffi, csharp, pyo3, napi -- never gleam), so this return type can never be
+        // backed by real generated code. Reuses the exact placeholder wording
+        // `render_method_signature_with_override`'s own Gleam fallback already prints for this
+        // same method's signature line (`signatures.rs`'s
+        // `Language::Gleam => "// Phase 1: {lang} backend method signature generation"`) rather
+        // than inventing new wording for a capability this backend does not have.
+        Language::Gleam => format!("// Phase 1: {lang} backend streaming not yet implemented"),
     }
 }
 
@@ -401,7 +417,6 @@ fn streaming_example(
 ) -> String {
     let method_name = streaming_method_name(adapter, method, lang, ffi_prefix);
     let req_value = streaming_request_sample(method, lang, ffi_prefix);
-    let item = type_name(item_type, lang, ffi_prefix);
     match lang {
         Language::Python => {
             format!("stream = instance.{method_name}({req_value})\nasync for chunk in stream:\n    print(chunk)")
@@ -457,9 +472,20 @@ fn streaming_example(
         Language::Zig => format!(
             "var stream = try instance.{method_name}(\"{{}}\");\ndefer stream.deinit();\nwhile (try stream.next()) |chunk| {{\n    _ = chunk;\n}}"
         ),
-        Language::R | Language::Gleam => {
-            format!("stream <- instance.{method_name}({req_value})\n# Iterate over {item} chunks.")
-        }
+        // ~keep #456: mirrors the `Language::R` arm of `streaming_return_type` -- the real
+        // adapter (`gen_r_body`) collects the whole stream and hands back one JSON-encoded
+        // `character` scalar, so a real caller parses it once rather than iterating chunks.
+        // `jsonlite` is already this codebase's established R JSON convention (see
+        // `sync_method_complex_return.jinja`'s "R callbacks return JSON-encoded strings ... via
+        // `jsonlite::toJSON`").
+        Language::R => format!(
+            "# The full stream is collected into memory before this call returns.\n\
+             result <- instance.{method_name}({req_value})\n\
+             chunks <- jsonlite::fromJSON(result)"
+        ),
+        // ~keep #456: see the `Language::Gleam` arm of `streaming_return_type` for why this
+        // reuses the same placeholder wording instead of a fabricated iteration example.
+        Language::Gleam => format!("// Phase 1: {lang} backend streaming not yet implemented"),
     }
 }
 

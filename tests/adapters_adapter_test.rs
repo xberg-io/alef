@@ -435,6 +435,82 @@ fn test_streaming_node() {
     );
 }
 
+/// Test Streaming adapter with R.
+///
+/// Regression for issue #456: unlike Python/Node above, R's adapter (`gen_r_body`) does not
+/// forward items incrementally at all -- it drains the whole stream into a `Vec` with
+/// `stream.collect::<Vec<_>>().await` and returns a single `serde_json::to_string(&chunks)`
+/// string once the stream completes. `src/docs/language_pages/streaming.rs` used to document
+/// R's streaming method as yielding items one at a time (the same text Python/Node get); this
+/// pins the real shape so the adapter cannot silently become incremental without the docs
+/// override in `streaming.rs`'s `Language::R` arms being revisited too.
+#[test]
+fn test_streaming_r() {
+    let mut config = make_config(vec![Language::R]);
+    config.adapters = vec![AdapterConfig {
+        name: "chat_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "chat_stream".to_string(),
+        params: vec![AdapterParam {
+            name: "req".to_string(),
+            ty: "StreamRequest".to_string(),
+            optional: false,
+        }],
+        returns: None,
+        error_type: Some("String".to_string()),
+        owner_type: Some("DefaultClient".to_string()),
+        item_type: Some("ChatCompletionChunk".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+
+        skip_languages: vec![],
+    }];
+
+    let bodies = build_adapter_bodies(&config, Language::R).expect("build failed");
+
+    assert!(
+        bodies.contains_key("DefaultClient.chat_stream"),
+        "Expected streaming method body. Keys: {:?}",
+        bodies.keys().collect::<Vec<_>>()
+    );
+    // `gen_r_body` returns `(body, None)` -- R has no separate iterator struct the way Python
+    // does. A struct key showing up here would mean R started emitting one, which is exactly
+    // the kind of change that must not land without revisiting the docs override too.
+    assert!(
+        !bodies.contains_key("DefaultClient.chat_stream.__stream_struct__"),
+        "R streaming should not produce a separate iterator struct"
+    );
+
+    let body = &bodies["DefaultClient.chat_stream"];
+
+    assert!(
+        body.contains(".collect::<Vec<_>>().await"),
+        "R streaming must eagerly collect the whole stream before returning. Got: {}",
+        body
+    );
+    assert!(
+        body.contains("serde_json::to_string(&chunks)"),
+        "R streaming must return one JSON-encoded string, not forward items. Got: {}",
+        body
+    );
+    // Negative half: none of the per-item forwarding machinery Python/Node use for real
+    // incremental streaming should appear here. Its presence would mean R had become
+    // incremental without the docs (which currently say it collects eagerly) being updated.
+    assert!(
+        !body.contains("tokio::sync::mpsc"),
+        "R streaming should not use an incremental mpsc forwarder. Got: {}",
+        body
+    );
+    assert!(
+        !body.contains("tokio::spawn"),
+        "R streaming should not spawn a background forwarding task. Got: {}",
+        body
+    );
+}
+
 /// Test FFI (C ABI) language with SyncFunction.
 /// FFI should generate C-compatible code with error handling.
 #[test]
