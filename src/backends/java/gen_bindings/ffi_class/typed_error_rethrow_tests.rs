@@ -13,7 +13,7 @@
 //! never saw a typed exception and the path was broken all the same. ~keep
 
 use crate::core::config::{BridgeBinding, HostCapsuleTypeConfig, ResolvedCrateConfig, TraitBridgeConfig};
-use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
+use crate::core::ir::{ApiSurface, ErrorDef, ErrorVariant, FunctionDef, ParamDef, TypeRef};
 use std::collections::{HashMap, HashSet};
 
 use super::gen_main_class;
@@ -83,6 +83,43 @@ fn check_last_error_throws_message_carrying_subclasses_inside_the_guarded_try() 
     assert!(
         generated.contains("private static void checkLastError() throws Throwable {"),
         "checkLastError() must stay a checked-throwing helper called from inside method bodies:\n{generated}"
+    );
+}
+
+/// Regression for #454: a taxonomy error whose enum name differs from the method exception
+/// (`SampleError` vs. `Sample`) must still produce an exception hierarchy the guard clause can
+/// actually catch. `checkLastError()` throws `ParsingException`, which extends
+/// `SampleErrorException` (`gen_java_error_types`'s base class for the `SampleError` enum) -- and
+/// that base class must itself extend the method exception `SampleException`, the same type the
+/// catch chain's typed guard (`catch (SampleException e) { throw e; }`) names. Without that link
+/// `ParsingException` is not a `SampleException` at all, the guard clause never matches it, and it
+/// falls through to the `catch (Throwable e)` wrap that replaces it with the placeholder "FFI call
+/// failed" message. ~keep
+#[test]
+fn error_enum_base_exception_extends_the_method_exception() {
+    let (api, _config, _capsule_types) = typed_error_surface();
+    let generated = generate_main_class();
+
+    assert!(
+        generated.contains("case 100 -> throw new ParsingException(msg);"),
+        "fixture must route the SampleError::Parsing variant through checkLastError()'s \
+         taxonomy switch:\n{generated}"
+    );
+
+    let error = api
+        .errors
+        .first()
+        .expect("fixture must declare a divergent-base error enum for #454 coverage");
+    let files = crate::codegen::error_gen::gen_java_error_types(error, "dev.sample", "Sample");
+    let (base_name, base_content) = &files[0];
+
+    assert_eq!(base_name, "SampleErrorException");
+    assert!(
+        base_content.contains("extends SampleException {"),
+        "SampleErrorException (the base of every SampleError variant exception, including \
+         ParsingException) must extend the method exception SampleException, otherwise the \
+         catch chain's typed guard can never match it and the caller always sees \"FFI call \
+         failed\" instead of the real native message:\n{base_content}"
     );
 }
 
@@ -187,6 +224,30 @@ fn typed_error_surface() -> (ApiSurface, ResolvedCrateConfig, HashMap<String, Ho
                 ..FunctionDef::default()
             },
         ],
+        // A real error enum whose class name diverges from every function's `SampleError` string
+        // above must still show up here: `error_type` on `FunctionDef` is documentation-only (it
+        // drives `@throws` javadoc), while `checkLastError()`'s taxonomy switch and the
+        // `gen_java_error_types` exception classes both key off `ApiSurface.errors`. Leaving this
+        // empty -- as the fixture used to -- means `error_taxonomy()` only ever contributes the
+        // three fixed infrastructure classes (`ConversionErrorException`, `CoreErrorException`,
+        // `PanicException`), which already extend the method exception, so the divergent-base
+        // defect this file exists to catch (#454) was structurally unreachable. ~keep
+        errors: vec![ErrorDef {
+            name: "SampleError".to_string(),
+            rust_path: "sample::SampleError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Parsing".to_string(),
+                error_code: Some(100),
+                is_unit: true,
+                ..ErrorVariant::default()
+            }],
+            doc: String::new(),
+            methods: Vec::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
         ..ApiSurface::default()
     };
 

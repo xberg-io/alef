@@ -557,9 +557,13 @@ fn test_gen_go_error_struct_no_methods() {
 #[test]
 fn test_gen_java_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp");
+    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp", "SampleApp");
     assert_eq!(files.len(), 1);
     let base = &files[0].1;
+    assert!(
+        base.contains("extends SampleAppException {"),
+        "base exception must extend the method exception: {base}"
+    );
     assert!(
         base.contains("private final int statusCode;"),
         "statusCode field: {base}"
@@ -597,9 +601,13 @@ fn test_gen_java_error_types_with_methods() {
 #[test]
 fn test_gen_java_error_types_no_methods() {
     let error = sample_error();
-    let files = gen_java_error_types(&error, "dev.sample_crate.test");
+    let files = gen_java_error_types(&error, "dev.sample_crate.test", "Sample");
     let base = &files[0].1;
     assert!(!base.contains("private final"), "no fields when no methods: {base}");
+    assert!(
+        base.contains("extends SampleException {"),
+        "base exception must extend the method exception: {base}"
+    );
     assert!(
         base.contains("public ConversionErrorException(final String message)"),
         "{base}"

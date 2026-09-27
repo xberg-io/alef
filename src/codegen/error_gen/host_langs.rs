@@ -152,10 +152,17 @@ fn to_pascal_case(s: &str) -> String {
 /// class followed by one per-variant exception.  The caller writes each to a
 /// separate `.java` file.
 ///
+/// `main_class` is the generated FFI class name (e.g. `Sample` for `SampleException`). The base
+/// exception extends `{main_class}Exception` rather than bare `Exception` so that every generated
+/// method's trailing `catch ({main_class}Exception e) { throw e; }` guard -- see
+/// `ffi_class::error_catch::emit_method_catch_chain` -- actually matches a typed error the enum
+/// throws, instead of falling through to the `catch (Throwable e)` clause that replaces it with
+/// the placeholder "FFI call failed" message and demotes the real detail to a nested cause. ~keep
+///
 /// When `error.methods` is non-empty, the base exception class gains private
 /// final fields, an extended constructor, and public getter methods for each
 /// whitelisted introspection method.  Variant classes delegate via `super(…)`.
-pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, String)> {
+pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
     let base_name = format!("{}Exception", error.name);
@@ -185,6 +192,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
         minijinja::context! {
             package => package,
             base_name => base_name.as_str(),
+            main_class => main_class,
             doc => !error.doc.is_empty(),
             doc_lines => doc_lines,
             methods => method_infos,

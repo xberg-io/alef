@@ -487,7 +487,7 @@ impl Backend for JavaBackend {
             .collect();
         let mut emitted_exception_names: AHashSet<String> = AHashSet::new();
         for error in &api.errors {
-            for (class_name, content) in crate::codegen::error_gen::gen_java_error_types(error, &package) {
+            for (class_name, content) in crate::codegen::error_gen::gen_java_error_types(error, &package, &main_class) {
                 if infrastructure_exception_names.contains(class_name.as_str()) {
                     continue;
                 }

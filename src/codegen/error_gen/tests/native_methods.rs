@@ -86,13 +86,15 @@ fn test_gen_go_error_types_stutter_strip() {
 #[test]
 fn test_gen_java_error_types() {
     let error = sample_error();
-    let files = gen_java_error_types(&error, "dev.sample_crate.test");
+    let files = gen_java_error_types(&error, "dev.sample_crate.test", "Sample");
     assert_eq!(files.len(), 4);
     assert_eq!(files[0].0, "ConversionErrorException");
     assert!(
         files[0]
             .1
-            .contains("public class ConversionErrorException extends Exception")
+            .contains("public class ConversionErrorException extends SampleException"),
+        "base exception must extend the method exception, not bare Exception: {}",
+        files[0].1
     );
     assert!(files[0].1.contains("package dev.sample_crate.test;"));
     assert_eq!(files[1].0, "ParseErrorException");

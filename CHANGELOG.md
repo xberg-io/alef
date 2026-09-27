@@ -61,6 +61,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list handed to a positional parameter failed to decode. Both call sites now mirror the
   backend's own threshold. The #308 struct-field path is unchanged and still emits an integer list.
 
+- **java: typed errors no longer surface as "FFI call failed" (#454).** A generated error enum's
+  base exception class extended bare `Exception` instead of the method exception
+  (`<MainClass>Exception`), so the trailing `catch (<MainClass>Exception e) { throw e; }` guard on
+  every generated FFI method never matched it, and the typed exception fell through to
+  `catch (Throwable e)`, which replaced it with a placeholder message and demoted the real detail
+  to a nested cause. The error base class now extends the method exception, so
+  `catch (ParsingException e)` (or any other typed catch) works and `getMessage()` carries the
+  native error text.
+
 
 ## [0.98.0] - 2026-09-27
 

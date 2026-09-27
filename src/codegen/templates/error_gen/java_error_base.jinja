@@ -10,7 +10,7 @@ package {{ package }};
 {% else %}
 /** Base exception for {{ base_name }}. */
 {% endif %}
-public class {{ base_name }} extends Exception {
+public class {{ base_name }} extends {{ main_class }}Exception {
   private static final long serialVersionUID = 1L;
 {% if has_methods %}
 {% for m in methods %}
