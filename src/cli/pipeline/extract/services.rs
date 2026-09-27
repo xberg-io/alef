@@ -76,7 +76,7 @@ mod tests {
 
     /// Regression for the bug this issue found: `core_path` is documented on
     /// [`AdapterConfig::core_path`] as a *fully-qualified* Rust path
-    /// (`liter_llm::DefaultClient::chat_stream`), but the pre-fix exact-tuple-equality match
+    /// (`sample_stream_rs::DefaultClient::chat_stream`), but the pre-fix exact-tuple-equality match
     /// compared that whole string against the bare `MethodDef::name` (`chat_stream`) and never
     /// matched. A consumer following the documented contract therefore got a method double-
     /// emitted (both the adapter body and the generic per-method binding), because
@@ -97,7 +97,7 @@ mod tests {
         let config = ResolvedCrateConfig {
             adapters: vec![streaming_adapter(
                 "DefaultClient",
-                "liter_llm::DefaultClient::chat_stream",
+                "sample_stream_rs::DefaultClient::chat_stream",
             )],
             ..ResolvedCrateConfig::default()
         };
@@ -158,7 +158,7 @@ mod tests {
         let config = ResolvedCrateConfig {
             adapters: vec![streaming_adapter(
                 "DefaultClient",
-                "liter_llm::DefaultClient::chat_stream",
+                "sample_stream_rs::DefaultClient::chat_stream",
             )],
             ..ResolvedCrateConfig::default()
         };

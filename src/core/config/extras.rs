@@ -188,7 +188,7 @@ pub(crate) fn adapter_owner_matches(adapter: &AdapterConfig, owner_type: &str) -
 ///
 /// `core_path` is documented on [`AdapterConfig::core_path`] as the *fully-qualified* Rust path
 /// to the core function/method (e.g. `sample_markdown_rs::convert`), so a consumer following
-/// that contract writes a qualified path such as `liter_llm::DefaultClient::chat_stream` — not a
+/// that contract writes a qualified path such as `sample_stream_rs::DefaultClient::chat_stream` — not a
 /// bare method name. Comparing the whole string against a bare method name therefore never
 /// matches a config written the way the field's own doc comment tells consumers to write it;
 /// stripping to the last segment is what honours the documented contract. Both sides go through
@@ -306,7 +306,7 @@ mod tests {
             },
             Case {
                 description: "fully-qualified core_path, as AdapterConfig::core_path documents",
-                core_path: "liter_llm::DefaultClient::chat_stream",
+                core_path: "sample_stream_rs::DefaultClient::chat_stream",
                 owner_type: "DefaultClient",
                 queried_owner: "DefaultClient",
                 queried_method: "chat_stream",
@@ -314,7 +314,7 @@ mod tests {
             },
             Case {
                 description: "qualified core_path naming the right method but a different owner",
-                core_path: "liter_llm::DefaultClient::chat_stream",
+                core_path: "sample_stream_rs::DefaultClient::chat_stream",
                 owner_type: "DefaultClient",
                 queried_owner: "OtherClient",
                 queried_method: "chat_stream",
@@ -322,7 +322,7 @@ mod tests {
             },
             Case {
                 description: "non-matching method name entirely",
-                core_path: "liter_llm::DefaultClient::chat_stream",
+                core_path: "sample_stream_rs::DefaultClient::chat_stream",
                 owner_type: "DefaultClient",
                 queried_owner: "DefaultClient",
                 queried_method: "other_method",

@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method" and two of them compared `adapter.core_path` to a bare method name with exact string
   equality. `core_path` is documented on `AdapterConfig` and in `schemas/alef.schema.json` as the
   *full* Rust path, with a qualified example, so a consumer following the field's own contract
-  wrote `liter_llm::DefaultClient::chat_stream` and neither `mark_adapter_handled_methods` nor
+  wrote `sample_stream_rs::DefaultClient::chat_stream` and neither `mark_adapter_handled_methods` nor
   `adapter_binds_method_for_language` matched it: `binding_excluded` stayed false and
   `method_visible_in_lang`'s gate became a no-op, emitting both the adapter body and a generic
   binding for the same method. The issue named two matchers; there were three. All now route

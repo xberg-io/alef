@@ -217,7 +217,7 @@ mod tests {
     /// Regression for the bug this issue found: the pre-fix `adapter.core_path == method_name`
     /// exact-string comparison never matched a fully-qualified `core_path`, the shape
     /// [`crate::core::config::AdapterConfig::core_path`] documents as the expected one
-    /// (`liter_llm::DefaultClient::chat_stream`). A method that was in fact adapter-handled was
+    /// (`sample_stream_rs::DefaultClient::chat_stream`). A method that was in fact adapter-handled was
     /// then treated as a genuine exclusion by
     /// [`function_binding_excluded_for_language`], dropping it from the snippet coverage
     /// ledger's `expected` set even though every backend still binds it.
@@ -226,7 +226,7 @@ mod tests {
         let config = ResolvedCrateConfig {
             adapters: vec![streaming_adapter(
                 "DefaultClient",
-                "liter_llm::DefaultClient::chat_stream",
+                "sample_stream_rs::DefaultClient::chat_stream",
                 Vec::new(),
             )],
             ..ResolvedCrateConfig::default()
@@ -264,7 +264,7 @@ mod tests {
         let config = ResolvedCrateConfig {
             adapters: vec![streaming_adapter(
                 "DefaultClient",
-                "liter_llm::DefaultClient::chat_stream",
+                "sample_stream_rs::DefaultClient::chat_stream",
                 Vec::new(),
             )],
             ..ResolvedCrateConfig::default()
@@ -285,7 +285,7 @@ mod tests {
         let config = ResolvedCrateConfig {
             adapters: vec![streaming_adapter(
                 "DefaultClient",
-                "liter_llm::DefaultClient::chat_stream",
+                "sample_stream_rs::DefaultClient::chat_stream",
                 vec!["python".to_string()],
             )],
             ..ResolvedCrateConfig::default()
