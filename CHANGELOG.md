@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.100.0] - 2026-09-27
+
 ### Added
 
 - **e2e: `mock.*` request-count assertions now render on every backend that has an assertion
