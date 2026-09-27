@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.101.0] - 2026-09-27
+
 ### Added
 
 - **`[crates.<lang>.dependency_versions]`: a consumer can now pin an alef-emitted dependency
