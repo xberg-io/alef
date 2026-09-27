@@ -306,21 +306,26 @@ fn go_streaming_signature_matches_backend_emitted_shape() {
     assert_eq!(backend_shape.return_type, "(*EngineCrawlStreamStream, error)");
 }
 
-/// Pins a real, pre-existing, narrower mismatch surfaced while building the parity guard above
-/// (flagged as worth pinning in issue #446, not something this change fixes): the backend and
-/// docs paths reach `crate::codegen::naming` differently for a type name that is already
-/// PascalCase Rust with an irregular acronym run. The backend calls `go_type_name(&typ.name)`
-/// directly on the Rust name; docs' `public_type_name` runs `heck::to_pascal_case()` on it
-/// first, and heck mis-segments `RDFa` -> `RdFa` (see `go_variant_name`'s doc comment in
-/// `src/codegen/naming/languages.rs`). Verified directly against both naming functions rather
-/// than through the full docs/backend pipelines, since it is a naming-primitive fact, not a
-/// codegen-shape one.
+/// Issue #449 fixed the mismatch pinned here previously: `src/docs/naming.rs::type_name`
+/// (via `public_type_name`) used to run `heck::to_pascal_case()` on a Go type name before
+/// calling `go_type_name`, while the backend calls `go_type_name(&typ.name)` directly on the
+/// already-PascalCase Rust name. `heck::to_pascal_case()` mis-segments an irregular acronym run
+/// (`RDFa` -> `RdFa`, see `go_variant_name`'s doc comment in `src/codegen/naming/languages.rs`),
+/// so docs and the backend disagreed on an already-PascalCase type name that contains one.
 ///
-/// If this ever starts passing on its own, `src/docs/naming.rs::type_name` (or the backend) has
-/// changed how it derives a Go type name -- treat that as news, not as this test being
-/// "fixed", and re-check whether the two sides genuinely agree now.
+/// `public_type_name`'s Go arm no longer applies that pre-step (it now calls
+/// `go_type_name(name)` directly, matching every real backend call site), so the two sides now
+/// agree here too. Verified directly against the naming primitive rather than through the full
+/// docs/backend pipelines, since it is a naming-primitive fact, not a codegen-shape one --
+/// `docs::naming::type_name` is `pub(crate)` and unreachable from an integration test.
+///
+/// If this ever starts failing, `public_type_name`'s Go arm has regained a pre-step that
+/// re-mangles an already-PascalCase name -- treat that as a regression of #449, not as this test
+/// needing updating.
 #[test]
-fn go_type_name_diverges_from_docs_public_type_name_on_irregular_acronym_run() {
+fn go_type_name_agrees_with_docs_public_type_name_on_irregular_acronym_run() {
+    use alef::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+
     let irregular = "RDFaChunk";
 
     let backend_type_name = alef::codegen::naming::go_type_name(irregular);
@@ -329,22 +334,19 @@ fn go_type_name_diverges_from_docs_public_type_name_on_irregular_acronym_run() {
         "backend must not re-segment an already-PascalCase acronym run"
     );
 
-    // Mirrors what `src/docs/naming.rs::type_name` does for `Language::Go` via
-    // `public_type_name`: `go_type_name(&name.to_pascal_case())`. `docs::naming::type_name` is
-    // `pub(crate)` and unreachable from an integration test, so the two public primitives it
-    // composes are exercised directly here.
-    use heck::ToPascalCase;
-    let docs_type_name = alef::codegen::naming::go_type_name(&irregular.to_pascal_case());
+    // Drives the actual shared authority `src/docs/naming.rs::type_name` calls for
+    // `Language::Go` (`public_casing` -> `public_type_name`, both `pub(crate)`/`pub(super)` and
+    // unreachable from an integration test): its public entry point `public_host_identifier`.
+    // Before #449 this returned `RdFaChunk` (heck's `to_pascal_case()` pre-step re-segmenting the
+    // acronym run); it now calls `go_type_name(name)` directly, matching the backend.
+    let docs_type_name = public_host_identifier(Language::Go, PublicIdentifierKind::Type, irregular);
 
-    assert_ne!(
+    assert_eq!(
         backend_type_name, docs_type_name,
-        "expected the known #446 divergence on an irregular acronym run: backend keeps \
-         {irregular} intact but docs' heck::to_pascal_case() pre-step mis-segments it to \
-         {docs_type_name}. If this assertion now fails, the two sides agree and this test \
-         (and the finding in issue #446) is stale -- do not just delete it."
+        "backend and docs must agree on an already-PascalCase acronym run after #449"
     );
     assert_eq!(
-        docs_type_name, "RdFaChunk",
-        "pin the exact mis-segmented spelling so a future change to heck's segmentation is visible"
+        docs_type_name, "RDFaChunk",
+        "pin the exact spelling both sides now emit"
     );
 }

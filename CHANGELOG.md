@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reading `stream.Err()` -- cancellation unblocks the forwarding goroutine, it does not publish
   the error by itself; only the channel close does.
 
+### Fixed
+
+- **Documented Go and C# type names now match what the backends actually emit for an
+  already-PascalCase name with an irregular acronym run (#449).** `public_type_name`'s Go and C#
+  arms ran `heck::to_pascal_case()` on the name before applying `go_type_name`/`csharp_type_name`;
+  every real Go and C# backend call site passes the raw IR type name to those functions directly,
+  with no such pre-step. `heck::to_pascal_case()` re-segments an acronym run that is not in either
+  language's initialism list (`RDFaChunk` -> `RdFaChunk`), so `public_host_identifier` -- what
+  `src/docs` and the e2e call-class auditor use -- silently disagreed with the backend on names
+  like `IOError`, `JSONLD`, `SSRFPolicy`, `DBHandle`, `SQLiteDB`, and `GRPCClient`. Both arms now
+  call the backend's own naming primitive directly, matching it by construction. No backend in
+  `src/backends/go` or `src/backends/csharp` ever routed through `public_type_name` for its own
+  emitted code (they already called `go_type_name`/`csharp_type_name` directly), so this only
+  corrects generated documentation, not any already-shipped generated binding.
+
 ## [0.98.0] - 2026-09-27
 
 ### Added

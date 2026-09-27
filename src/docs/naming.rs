@@ -590,10 +590,16 @@ mod tests {
     /// stop at `Url`. Picked `host.rs`'s answer (`to_go_name`/`go_type_name`) as correct across
     /// all three surfaces, since that is what the real Go backend
     /// (`crate::backends::go::gen_bindings::types::enums`, `type_map.rs`) actually emits.
+    ///
+    /// `type_name` takes a snake_case input here for `field_name`/`func_name` (real Rust
+    /// field/function names), but a real Rust *type* name is already PascalCase -- issue #449
+    /// removed `public_type_name`'s Go/C# `to_pascal_case()` pre-step because every real Go/C#
+    /// backend call site hands it an already-PascalCase IR name, never a snake_case one. `"BaseUrl"`
+    /// is the type-shaped input that pre-step's removal actually needs to be exercised against. ~keep
     #[test]
     fn test_go_field_type_and_func_names_apply_initialisms() {
         assert_eq!(field_name("base_url", Language::Go), "BaseURL");
-        assert_eq!(type_name("base_url", Language::Go, TEST_PREFIX), "BaseURL");
+        assert_eq!(type_name("BaseUrl", Language::Go, TEST_PREFIX), "BaseURL");
         assert_eq!(func_name("base_url", Language::Go, TEST_PREFIX), "BaseURL");
     }
 

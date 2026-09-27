@@ -101,8 +101,15 @@ fn public_parameter_name(lang: Language, name: &str) -> String {
 
 pub(super) fn public_type_name(lang: Language, name: &str) -> String {
     match lang {
-        Language::Go => go_type_name(&name.to_pascal_case()),
-        Language::Csharp => csharp_type_name(&name.to_pascal_case()),
+        // ~keep Go and C# type names are already PascalCase Rust IR names at every real call
+        // site (`go_type_name(&typ.name)` / `csharp_type_name(&typ.name)` in the backends
+        // themselves) -- an extra `heck::to_pascal_case()` pre-step re-segments an irregular
+        // acronym run (`RDFaChunk` -> `RdFaChunk`) that `go_type_name`/`csharp_type_name` would
+        // otherwise leave alone. See issue #449: KotlinAndroid is the one caller that legitimately
+        // passes a non-PascalCase (crate) name through this function, which is why the pre-step
+        // stays for every other arm below.
+        Language::Go => go_type_name(name),
+        Language::Csharp => csharp_type_name(name),
         Language::Python
         | Language::Node
         | Language::Ruby

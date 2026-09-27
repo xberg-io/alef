@@ -650,6 +650,71 @@ fn test_csharp_type_name_three_letter_acronyms() {
     assert_eq!(csharp_type_name("JSON"), "Json");
 }
 
+/// Issue #449: `public_type_name`'s Go and C# arms used to run `heck::to_pascal_case()` on the
+/// name *before* handing it to `go_type_name`/`csharp_type_name`. Every real Go/C# backend call
+/// site (`go_type_name(&typ.name)`, `csharp_type_name(&typ.name)`) passes the raw IR type name
+/// with no such pre-step, and `heck::to_pascal_case()` re-segments an irregular acronym run that
+/// is not in either language's initialism list (`RDFaChunk` -> `RdFaChunk`), so
+/// `public_host_identifier` (what `src/docs` and `crate::e2e::validate_call_class` use) silently
+/// disagreed with what the backend actually emits.
+///
+/// Table-driven over the acronym names measured for issue #449: for every one of them, the
+/// public host identifier for `PublicIdentifierKind::Type` must now be byte-identical to calling
+/// the backend's own naming primitive directly, for both Go and C#.
+#[test]
+fn go_and_csharp_public_type_name_matches_the_backend_naming_primitive_for_acronym_runs() {
+    let names = [
+        "IOError",
+        "RDFaChunk",
+        "JSONLD",
+        "SSRFPolicy",
+        "DBHandle",
+        "SQLiteDB",
+        "GRPCClient",
+        // Already round-trip correctly today because they ARE in Go's INITIALISMS list; kept
+        // here so a future change to the pre-step can't quietly break the cases that used to work.
+        "HTMLParser",
+        "URLPath",
+        "APIKey",
+        "HTTPResponse",
+    ];
+
+    for name in names {
+        assert_eq!(
+            public_host_identifier(Language::Go, PublicIdentifierKind::Type, name),
+            go_type_name(name),
+            "Go public type name must match go_type_name({name:?}) exactly"
+        );
+        assert_eq!(
+            public_host_identifier(Language::Csharp, PublicIdentifierKind::Type, name),
+            csharp_type_name(name),
+            "C# public type name must match csharp_type_name({name:?}) exactly"
+        );
+    }
+}
+
+/// Pins the exact pre-fix-vs-post-fix spelling for the case the issue was filed over, so a
+/// regression back to the `to_pascal_case()` pre-step fails on a concrete value, not just an
+/// equality-with-itself comparison.
+#[test]
+fn go_public_type_name_no_longer_mis_segments_an_irregular_acronym_run() {
+    assert_eq!(
+        public_host_identifier(Language::Go, PublicIdentifierKind::Type, "RDFaChunk"),
+        "RDFaChunk",
+        "must match what the Go backend actually emits, not heck's re-segmented RdFaChunk"
+    );
+}
+
+/// The constraint that makes the fix safe to scope to only the Go/C# arms:
+/// `kotlin_android_wrapper_object_name` is the one caller in the codebase that passes a
+/// non-PascalCase (crate) name through `public_type_name` -- it must keep going through the
+/// `to_pascal_case()` pre-step that the Kotlin/KotlinAndroid arm was left untouched.
+#[test]
+fn kotlin_android_wrapper_object_name_still_pascal_cases_a_kebab_case_crate_name() {
+    assert_eq!(kotlin_android_wrapper_object_name("sample-parser-rs"), "SampleParser");
+    assert_eq!(kotlin_android_wrapper_object_name("document_tools"), "DocumentTools");
+}
+
 /// `node_type_name` must be the identity function: the NAPI-RS `.d.ts` emitter never applies
 /// the Rust-side `Js` wrapper prefix to a TypeScript type name, on the declaration side or the
 /// reference side. Table-driven so a future accidental prefix-adding edit fails immediately.
