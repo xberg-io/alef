@@ -83,7 +83,16 @@ jobs:
       # failures on every OS this job runs, not a hypothetical. Pinned to the same release the
       # `generated-output-gate` job installs, so the two jobs can never disagree about which
       # poly version this repo's tests run against. ~keep
+      #
+      # Linux and macOS only: poly's installer refuses to run on Windows ("Windows detected.
+      # Use the PowerShell installer"), and the `Goldziher/poly@v0` action wraps that same
+      # `install.sh`, so requesting it on the Windows leg fails the job outright. Skipping it
+      # there is correct rather than a workaround: since alef#458 the drift check degrades to a
+      # counted, reported skip when poly is absent instead of inventing drift, so the Windows
+      # leg stays honest, and the real `poly fmt` comparison still executes on two of the three
+      # OSes every run. ~keep
       - name: Install poly
+        if: runner.os != 'Windows'
         uses: Goldziher/poly@v0
         with:
           version: v0.24.0

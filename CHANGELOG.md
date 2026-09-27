@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on any developer machine with poly installed. The fast path is now gated on poly's availability
   and falls into the same counted-skip bucket as every other extension, so the gap is reported
   loudly instead of inventing drift, and both tiers read one shared availability check so they
-  cannot disagree. `poly` is now installed in CI's `test` job, pinned to the release
-  `generated-output-gate` already uses, so the comparison actually executes there.
+  cannot disagree. `poly` is now installed in CI's `test` job on Linux and macOS, pinned to the release
+  `generated-output-gate` already uses, so the comparison actually executes there. Windows is
+  excluded deliberately: poly's installer refuses to run there, and the counted-skip path above
+  keeps that leg honest without it.
 - **ci: the pyrefly negative control in `kwarg_unpack_tests` could not fire, hiding a defect class
   on every CI run (#457).** CI hard-pinned `pyrefly==1.2.0` and had since 2026-08-29, while the
   constant `template_versions::pypi::PYREFLY` only sets the floor emitted into a generated
