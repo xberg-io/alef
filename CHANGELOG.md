@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.98.0] - 2026-09-27
+
 ### Added
 
 - A parity test pinning the documented Go streaming signature against the one the Go backend
@@ -17,30 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compares the extracted shape. Go only for now; the other languages this page covers remain
   unguarded.
 
-### Fixed
-
-- **A configured `[[adapters]] owner_type` containing an initialism emitted Go that does not
-  compile (#447).** `methods.rs` declares the receiver type, and the `<Recv><Method>Stream`
-  iterator from #441, by running the IR type name through `go_type_name`; `gen_adapter_wrapper`
-  used the raw config string. So `owner_type = "ApiClient"` declared `APIClient` and
-  `APIClientChatStreamStream` while the module-level wrapper referenced `ApiClient` and
-  `ApiClientChatStreamStream` -- two undefined identifiers. Values with no initialism
-  (`CrawlEngine`, `App`) were unaffected, which is why it went unnoticed. The receiver-parameter
-  half predates #441; #441 added the second divergent identifier. Now pinned by a real
-  `go build` of the generated package, since a string assertion on either emitter alone passes
-  while the two disagree.
-
-### Changed
-
-- The Go e2e harness's mock-server spawn-env block is emitted through a Minijinja template
-  (`go/mock_server_spawn_env.go.jinja`) instead of `writeln!`, as the `jinja-templates` rule
-  requires (#445). Both interpolation sites -- the `alt_host` override and the per-key `env`
-  forwarding loop -- moved together, since converting one and leaving the other as `writeln!`
-  would be worse than leaving both. Rendered output is byte-identical, verified by SHA-256
-  across four harness shapes. `src/e2e/codegen/go.rs` drops from 1003 to 991 lines, back under
-  the 1,000-line cap.
-
-### Added
 
 - **`mock.*` request-count assertions now work in the rust, python and node (typescript) e2e
   suites (#443, follow-up to #433).** `mock.requests.total` and `mock.requests["<METHOD> <path>"]`
@@ -49,23 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   table already existed but had no call site in any backend; these three now consume them. Every
   other backend is unchanged -- an unacknowledged `mock.*` assertion still fails generation via
   `mock_assertions::ensure_capture_declared`, which is a hard error, not a silent skip.
-
-### Fixed
-
-- **A generated python e2e suite using a `mock.*` assertion was missing its `import os` (#443).**
-  The `mock.*` call site reads `os.environ["MOCK_SERVER_URL"]`, but the `import os` decision was
-  built only from config flags -- client factory, http tests, `mock_url` arguments -- none of
-  which a plain `mock.requests.total` fixture sets. The import is now driven by a scan of the
-  rendered body, the way `import asyncio` and `import json` already are.
-
-### Changed
-
-- Paid off 10 single-rule entries from the `poly.toml` quality-debt baseline (#338): four
-  over-long functions split into named helpers and six over-wide parameter lists grouped into
-  local params structs, across the dart, ffi, java, jni, kotlin and magnus backends, the verify
-  coverage reporter, the version-manifest command and the snippet script validators. Behaviour
-  is unchanged -- every call site passes the same values in the same order, now by field name.
-  Baseline header is now 1238 findings across 663 files.
 
 ### Changed (BREAKING)
 
@@ -97,6 +58,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Err()` is only safe to read once `Chan()` has been ranged to completion; the channel close is
   what publishes the goroutine's write. The generated e2e Go tests and the `alef docs` Go
   streaming page emit the new shape as well.
+
+### Changed
+
+- The Go e2e harness's mock-server spawn-env block is emitted through a Minijinja template
+  (`go/mock_server_spawn_env.go.jinja`) instead of `writeln!`, as the `jinja-templates` rule
+  requires (#445). Both interpolation sites -- the `alt_host` override and the per-key `env`
+  forwarding loop -- moved together, since converting one and leaving the other as `writeln!`
+  would be worse than leaving both. Rendered output is byte-identical, verified by SHA-256
+  across four harness shapes. `src/e2e/codegen/go.rs` drops from 1003 to 991 lines, back under
+  the 1,000-line cap.
+
+
+- Paid off 10 single-rule entries from the `poly.toml` quality-debt baseline (#338): four
+  over-long functions split into named helpers and six over-wide parameter lists grouped into
+  local params structs, across the dart, ffi, java, jni, kotlin and magnus backends, the verify
+  coverage reporter, the version-manifest command and the snippet script validators. Behaviour
+  is unchanged -- every call site passes the same values in the same order, now by field name.
+  Baseline header is now 1238 findings across 663 files.
+
+### Fixed
+
+- **A configured `[[adapters]] owner_type` containing an initialism emitted Go that does not
+  compile (#447).** `methods.rs` declares the receiver type, and the `<Recv><Method>Stream`
+  iterator from #441, by running the IR type name through `go_type_name`; `gen_adapter_wrapper`
+  used the raw config string. So `owner_type = "ApiClient"` declared `APIClient` and
+  `APIClientChatStreamStream` while the module-level wrapper referenced `ApiClient` and
+  `ApiClientChatStreamStream` -- two undefined identifiers. Values with no initialism
+  (`CrawlEngine`, `App`) were unaffected, which is why it went unnoticed. The receiver-parameter
+  half predates #441; #441 added the second divergent identifier. Now pinned by a real
+  `go build` of the generated package, since a string assertion on either emitter alone passes
+  while the two disagree.
+
+
+- **A generated python e2e suite using a `mock.*` assertion was missing its `import os` (#443).**
+  The `mock.*` call site reads `os.environ["MOCK_SERVER_URL"]`, but the `import os` decision was
+  built only from config flags -- client factory, http tests, `mock_url` arguments -- none of
+  which a plain `mock.requests.total` fixture sets. The import is now driven by a scan of the
+  rendered body, the way `import asyncio` and `import json` already are.
 
 ## [0.97.1] - 2026-09-26
 
