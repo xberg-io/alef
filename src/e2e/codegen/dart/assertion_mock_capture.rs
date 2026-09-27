@@ -45,7 +45,10 @@ pub(super) fn try_render_mock_capture_assertion(out: &mut String, assertion: &As
     let path_and_query = build_path_and_query(&query);
     // Every generated test body is `async` (see `test_case.rs`'s own doc comment), so `await`ing
     // the helper's `Future<int>` directly inside the `expect(...)` argument list below compiles.
-    let expr = format!("await {}({MOCK_SERVER_URL_EXPR}, \"{path_and_query}\")", capture.helper_name);
+    let expr = format!(
+        "await {}({MOCK_SERVER_URL_EXPR}, \"{path_and_query}\")",
+        capture.helper_name
+    );
     render_mock_capture_comparison(out, assertion, field, &expr);
     true
 }
@@ -72,7 +75,10 @@ fn render_mock_capture_comparison(out: &mut String, assertion: &Assertion, field
     let escaped_field = escape_dart(field);
     match assertion_type {
         "equals" | "count_equals" => {
-            let _ = writeln!(out, "    expect({expr}, equals({n}), reason: 'expected {escaped_field} == {n}');");
+            let _ = writeln!(
+                out,
+                "    expect({expr}, equals({n}), reason: 'expected {escaped_field} == {n}');"
+            );
         }
         "not_equals" => {
             let _ = writeln!(
@@ -93,7 +99,10 @@ fn render_mock_capture_comparison(out: &mut String, assertion: &Assertion, field
             );
         }
         "less_than" => {
-            let _ = writeln!(out, "    expect({expr}, lessThan({n}), reason: 'expected {escaped_field} < {n}');");
+            let _ = writeln!(
+                out,
+                "    expect({expr}, lessThan({n}), reason: 'expected {escaped_field} < {n}');"
+            );
         }
         "less_than_or_equal" => {
             let _ = writeln!(

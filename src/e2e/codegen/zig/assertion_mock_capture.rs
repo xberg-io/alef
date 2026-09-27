@@ -48,10 +48,7 @@ pub(super) fn try_render_mock_capture_assertion(out: &mut String, assertion: &As
         panic!("Zig e2e generator: mock.* field '{field}' has no zig capture-table entry (mock_assertions::snippets)")
     });
     let path_and_query = build_path_and_query(&query);
-    let expr = format!(
-        "{}({MOCK_SERVER_URL_EXPR}, \"{path_and_query}\")",
-        capture.helper_name
-    );
+    let expr = format!("{}({MOCK_SERVER_URL_EXPR}, \"{path_and_query}\")", capture.helper_name);
     render_mock_capture_comparison(out, assertion, field, &expr);
     true
 }

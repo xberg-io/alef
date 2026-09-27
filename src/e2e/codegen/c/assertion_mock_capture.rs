@@ -23,7 +23,7 @@
 //! 4. `call_patterns::render_bytes_test_function` -- byte-buffer methods have their own bespoke
 //!    assertion loop that only understands `not_error`/`not_empty`/`not_null`; every other type,
 //!    `mock.*` included, previously fell into a "not meaningful on raw byte buffer" comment.
-//! 5 & 6. `test_function.rs`'s TWO per-fixture field-EXTRACTION loops (client-factory path and the
+//! 5. (and 6.) `test_function.rs`'s TWO per-fixture field-EXTRACTION loops (client-factory path and the
 //!    second/legacy path) have no `field_resolver.is_valid_for_result` guard at all, unlike (7)
 //!    below -- left alone, they walk `mock.requests.total` as if it were a real nested field path
 //!    and either emit a bogus `{prefix}_{type}_mock(...)` accessor call or `bail!` generation

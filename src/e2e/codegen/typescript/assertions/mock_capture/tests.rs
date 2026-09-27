@@ -65,7 +65,10 @@ fn wasm_shares_nodes_capture_and_renders_identically() {
     let mut wasm_out = String::new();
     assert!(render(&mut wasm_out, &assertion, "mock.requests.total", "wasm"));
 
-    assert_eq!(node_out, wasm_out, "wasm and node must render the identical mock-capture call");
+    assert_eq!(
+        node_out, wasm_out,
+        "wasm and node must render the identical mock-capture call"
+    );
     assert_eq!(
         wasm_out,
         "    expect(await alefMockRequestCount(`${process.env.MOCK_SERVER_URL}`, \"/__alef/requests/total?prefix=\")).toBe(1);\n"

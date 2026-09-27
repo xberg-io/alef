@@ -83,10 +83,7 @@ fn host_error_type(lang: &str, error_name: &str, variant: &ErrorVariant, errors:
         // ~keep `backends/zig/gen_bindings/helpers.rs` dispatches to this error-set member.
         "zig" => Some(format!(
             "error.{}",
-            crate::codegen::naming::cased_public_type_name(
-                crate::core::config::Language::Zig,
-                &variant.name,
-            )
+            crate::codegen::naming::cased_public_type_name(crate::core::config::Language::Zig, &variant.name,)
         )),
         _ => None,
     }

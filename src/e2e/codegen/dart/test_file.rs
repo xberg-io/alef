@@ -93,9 +93,11 @@ pub(super) fn render_test_file(
     // it into this same gate so the `dart:io`/`dart:convert` imports and the `_sutUrl()` spawn
     // machinery below are guaranteed present whenever the mock-capture helper is emitted. ~keep
     let has_mock_capture_assertions = fixtures.iter().any(|f| {
-        f.assertions
-            .iter()
-            .any(|a| a.field.as_deref().is_some_and(crate::e2e::codegen::mock_assertions::is_mock_virtual_field))
+        f.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(crate::e2e::codegen::mock_assertions::is_mock_virtual_field)
+        })
     });
     let has_mock_url_refs = lang_client_factory
         || has_mock_capture_assertions

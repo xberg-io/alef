@@ -83,7 +83,9 @@ fn a_mock_assertion_gets_both_its_call_and_the_helper_definition_in_one_file() {
             "[{lang}] expected the bracketed-key call, got:\n{out}"
         );
         assert!(
-            out.contains("async function alefMockRequestCount(baseUrl: string, pathAndQuery: string): Promise<number> {"),
+            out.contains(
+                "async function alefMockRequestCount(baseUrl: string, pathAndQuery: string): Promise<number> {"
+            ),
             "[{lang}] expected the helper definition in the same file as the call, got:\n{out}"
         );
     }
