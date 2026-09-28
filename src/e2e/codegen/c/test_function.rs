@@ -1045,31 +1045,60 @@ pub(super) fn render_test_function_impl(
     // uintptr_t) rather than an opaque handle pointer.
     if let Some(raw_type) = raw_c_result_type {
         // Build argument string. Void-arg functions pass nothing.
+        let mut arg_setup: Vec<String> = Vec::new();
+        let mut arg_cleanup: Vec<String> = Vec::new();
         let args_str = if args.is_empty() {
             String::new()
         } else {
             let optional_sentinel = |index: usize, arg: &crate::e2e::config::ArgMapping| {
                 resolve_optional_sentinel(target_params, &arg.name, index, &arg.arg_type).to_string()
             };
-            let parts: Vec<String> = args
-                .iter()
-                .enumerate()
-                .filter_map(|(index, arg)| {
-                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
-                    let val = fixture.input.get(field);
-                    match val {
-                        None if arg.optional => Some(optional_sentinel(index, arg)),
-                        None => None,
-                        Some(v) if v.is_null() && arg.optional => Some(optional_sentinel(index, arg)),
-                        Some(v) => Some(json_to_c(v)),
-                    }
-                })
-                .collect();
+            let mut parts: Vec<String> = Vec::new();
+            for (index, arg) in args.iter().enumerate() {
+                let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                let val = fixture.input.get(field);
+                // ~keep A `bytes` arg fills TWO C parameters -- `(const uint8_t *ptr, uintptr_t
+                // len)` -- mirroring the FFI generator's own `TypeRef::Bytes` -> `{name},
+                // {name}_len` convention (`backends/ffi/gen_bindings/types.rs`). Every other
+                // backend already special-cases `arg_type == "bytes"`; this path never did, so it
+                // fell through to `json_to_c`, which rendered the fixture's file-path string as a
+                // single bare C string literal and never emitted the length argument at all. ~keep
+                if arg.arg_type == "bytes" {
+                    let rendered = super::bytes_arg::render_bytes_arg(&arg.name, val, documentation_snippet);
+                    arg_setup.extend(rendered.setup);
+                    arg_cleanup.extend(rendered.cleanup);
+                    parts.push(rendered.ptr_expr);
+                    parts.push(rendered.len_expr);
+                    continue;
+                }
+                match val {
+                    None if arg.optional => parts.push(optional_sentinel(index, arg)),
+                    None => {}
+                    Some(v) if v.is_null() && arg.optional => parts.push(optional_sentinel(index, arg)),
+                    Some(v) => parts.push(json_to_c(v)),
+                }
+            }
             parts.join(", ")
         };
 
+        for line in &arg_setup {
+            let _ = writeln!(out, "    {line}");
+        }
+
         // Declare result variable.
         let _ = writeln!(out, "    {raw_type} {result_var} = {function_name}({args_str});");
+
+        for line in &arg_cleanup {
+            let _ = writeln!(out, "    {line}");
+        }
+
+        // ~keep A documentation snippet emits no assertions, so nothing reads `result` and the
+        // published C would warn under `-Wall` for anyone who copies it. Mark it deliberately
+        // unused rather than dropping the variable: the declaration is the part of the snippet
+        // that shows the caller what the function returns.
+        if documentation_snippet {
+            let _ = writeln!(out, "    (void){result_var};");
+        }
 
         // ~keep: early-return mirrors the client-factory/legacy opaque-handle
         // paths' expects_error handling so success-path assertions/cleanup below

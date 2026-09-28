@@ -1040,6 +1040,9 @@ fn c_visitor_fixture_has_typed_call(fixture: &Fixture, e2e_config: &E2eConfig, i
 
 mod assertion_mock_capture;
 mod assertions;
+mod bytes_arg;
+#[cfg(test)]
+mod bytes_len_arg_regression_tests;
 mod call_patterns;
 #[cfg(test)]
 mod client_factory_optional_arg_tests;
