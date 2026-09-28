@@ -117,10 +117,10 @@ fn strip_inline_attributes(s: &str) -> String {
                     depth += 1;
                 } else if bytes[j] == b']' {
                     depth -= 1;
-                    if depth == 0 {
-                        i = j + 1;
-                        break;
-                    }
+                }
+                if depth == 0 {
+                    i = j + 1;
+                    break;
                 }
                 j += 1;
             }
@@ -250,6 +250,27 @@ fn replace_static_lifetime(s: &str, replacement: &str) -> String {
     out
 }
 
+/// Scan from `start` for the byte offset of the `)` that closes the opening
+/// `(` already consumed by the caller, accounting for nested parens.
+fn find_matching_close_paren(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut j = start;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
 /// Replace `Some(x)` in prose with `the value (x)`.
 fn replace_some_calls(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -262,22 +283,7 @@ fn replace_some_calls(s: &str) -> String {
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
             if before_ok {
                 let arg_start = i + prefix.len();
-                let mut depth = 1usize;
-                let mut j = arg_start;
-                while j < bytes.len() {
-                    match bytes[j] {
-                        b'(' => depth += 1,
-                        b')' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                if depth == 0 && j < bytes.len() {
+                if let Some(j) = find_matching_close_paren(bytes, arg_start) {
                     let arg = &s[arg_start..j];
                     out.push_str("the value (");
                     out.push_str(arg);
@@ -395,22 +401,7 @@ fn strip_unwrap_expect(s: &str) -> String {
         // Match .expect(...).
         if bytes[i..].starts_with(b".expect(") {
             let arg_start = i + b".expect(".len();
-            let mut depth = 1usize;
-            let mut j = arg_start;
-            while j < bytes.len() {
-                match bytes[j] {
-                    b'(' => depth += 1,
-                    b')' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-                j += 1;
-            }
-            if depth == 0 {
+            if let Some(j) = find_matching_close_paren(bytes, arg_start) {
                 i = j + 1;
                 continue;
             }

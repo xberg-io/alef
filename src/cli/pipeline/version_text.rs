@@ -483,21 +483,8 @@ pub(super) fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Op
 
             let is_path_source = block.iter().any(|l| l.trim() == "source: path");
             if is_path_source {
-                for &bline in block {
-                    let trimmed = bline.trim();
-                    if trimmed.starts_with("version:") {
-                        let val = trimmed.trim_start_matches("version:").trim().trim_matches('"');
-                        if val != new_version {
-                            changed = true;
-                            let indent = &bline[..bline.len() - bline.trim_start().len()];
-                            result.push(format!("{indent}version: \"{new_version}\""));
-                        } else {
-                            result.push(bline.to_string());
-                        }
-                    } else {
-                        result.push(bline.to_string());
-                    }
-                }
+                let block_changed = rewrite_path_source_version(block, new_version, &mut result);
+                changed = changed || block_changed;
             } else {
                 for &bline in block {
                     result.push(bline.to_string());
@@ -519,6 +506,26 @@ pub(super) fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Op
         new_content
     };
     Some(new_content)
+}
+
+fn rewrite_path_source_version(block: &[&str], new_version: &str, result: &mut Vec<String>) -> bool {
+    let mut changed = false;
+    for &bline in block {
+        let trimmed = bline.trim();
+        if !trimmed.starts_with("version:") {
+            result.push(bline.to_string());
+            continue;
+        }
+        let val = trimmed.trim_start_matches("version:").trim().trim_matches('"');
+        if val == new_version {
+            result.push(bline.to_string());
+            continue;
+        }
+        changed = true;
+        let indent = &bline[..bline.len() - bline.trim_start().len()];
+        result.push(format!("{indent}version: \"{new_version}\""));
+    }
+    changed
 }
 
 /// Read the workspace license string (`[workspace.package].license`) from a

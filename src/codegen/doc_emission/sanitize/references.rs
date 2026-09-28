@@ -23,21 +23,7 @@ pub(super) fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
                     out.push_str(&converted);
                     out.push('`');
                     i = j + 2;
-                    if i < bytes.len() && bytes[i] == b'(' {
-                        let mut depth = 1usize;
-                        let mut k = i + 1;
-                        while k < bytes.len() && depth > 0 {
-                            match bytes[k] {
-                                b'(' => depth += 1,
-                                b')' => depth -= 1,
-                                _ => {}
-                            }
-                            k += 1;
-                        }
-                        if depth == 0 {
-                            i = k;
-                        }
-                    }
+                    i = skip_link_target(bytes, i);
                     found = true;
                     break;
                 }
@@ -73,40 +59,20 @@ pub(crate) fn wrap_bare_bracket_references(s: &str) -> String {
         if bytes[i] == b'[' {
             if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
                 let inner_start = i + 2;
-                let mut j = inner_start;
-                let mut found = false;
-                while j + 1 < bytes.len() {
-                    if bytes[j] == b'`' && bytes[j + 1] == b']' {
-                        let inner = &s[inner_start..j];
-                        out.push('`');
-                        out.push_str(&inner.replace("::", "."));
-                        out.push('`');
-                        i = j + 2;
-                        found = true;
-                        break;
-                    }
-                    j += 1;
-                }
-                if !found {
-                    i = advance_char(s, &mut out, i);
-                }
-            } else {
-                let search_start = i + 1;
-                if let Some(close_pos) = bytes[search_start..].iter().position(|&b| b == b']') {
-                    let bracket_end = search_start + close_pos;
-                    let inner = &s[search_start..bracket_end].trim();
-
-                    if is_identifier_like(inner) {
-                        out.push('`');
-                        out.push_str(&inner.replace("::", "."));
-                        out.push('`');
-                        i = bracket_end + 1;
-                    } else {
-                        i = advance_char(s, &mut out, i);
-                    }
+                if let Some(j) = find_backtick_bracket_close(bytes, inner_start) {
+                    let inner = &s[inner_start..j];
+                    out.push('`');
+                    out.push_str(&inner.replace("::", "."));
+                    out.push('`');
+                    i = j + 2;
                 } else {
                     i = advance_char(s, &mut out, i);
                 }
+            } else if let Some((replacement, new_i)) = bare_bracket_reference(bytes, s, i) {
+                out.push_str(&replacement);
+                i = new_i;
+            } else {
+                i = advance_char(s, &mut out, i);
             }
         } else {
             i = advance_char(s, &mut out, i);
@@ -256,6 +222,24 @@ fn link_target_is_url(bytes: &[u8], open: usize) -> bool {
         || target.starts_with("mailto:")
         || target.starts_with("www.")
         || target.starts_with('#')
+}
+
+/// Match a bare `[identifier]`-style reference starting at `i` (index of `[`)
+/// and, if found and identifier-like, return the backtick-wrapped, `::`-to-`.`
+/// converted replacement text alongside the index just past the `]`.
+fn bare_bracket_reference(bytes: &[u8], s: &str, i: usize) -> Option<(String, usize)> {
+    let search_start = i + 1;
+    let close_pos = bytes[search_start..].iter().position(|&b| b == b']')?;
+    let bracket_end = search_start + close_pos;
+    let inner = s[search_start..bracket_end].trim();
+    if !is_identifier_like(inner) {
+        return None;
+    }
+    let mut replacement = String::with_capacity(inner.len() + 2);
+    replacement.push('`');
+    replacement.push_str(&inner.replace("::", "."));
+    replacement.push('`');
+    Some((replacement, bracket_end + 1))
 }
 
 /// Return `true` if `s` looks like a Rust identifier, method call, or path.

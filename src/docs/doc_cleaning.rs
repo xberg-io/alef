@@ -949,16 +949,17 @@ fn collapse_adjacent_code_spans(doc: &str) -> String {
             let mut j = i + 1;
             let mut closed = false;
             while j < chars.len() {
-                if chars[j] == '`' {
-                    if chars.get(j + 1) == Some(&'`') && chars.get(j + 2) != Some(&'`') {
-                        j += 2;
-                        continue;
-                    }
-                    closed = true;
-                    break;
+                if chars[j] != '`' {
+                    content.push(chars[j]);
+                    j += 1;
+                    continue;
                 }
-                content.push(chars[j]);
-                j += 1;
+                if chars.get(j + 1) == Some(&'`') && chars.get(j + 2) != Some(&'`') {
+                    j += 2;
+                    continue;
+                }
+                closed = true;
+                break;
             }
             if closed {
                 result.push('`');

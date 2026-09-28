@@ -98,28 +98,23 @@ pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(set
 /// the fixture was generated from a trait bridge. Extracts the trait name from the
 /// fixture ID in the stub class name (e.g., register_document_extractor -> DocumentExtractor).
 fn extract_bridge_var_and_trait(line: &str) -> Option<(String, String)> {
-    if let Some(start) = line.find("const ") {
-        let after_const = &line[start + 6..];
-        if let Some(end) = after_const.find(" =") {
-            let var_name = after_const[..end].trim();
-            if var_name.starts_with("_bridge_") {
-                // Extract fixture ID from stub class name: _TestStub_{fixture_id}
-                // Pattern: new _TestStub_{fixture_id}()
-                if let Some(stub_start) = line.find("new _TestStub_") {
-                    let after_stub = &line[stub_start + 14..]; // len("new _TestStub_") == 14
-                    if let Some(paren_end) = after_stub.find("()") {
-                        let fixture_id = &after_stub[..paren_end];
-                        // Extract trait name from fixture ID
-                        // Example: register_document_extractor -> DocumentExtractor
-                        if let Some(trait_name) = extract_trait_from_fixture_id(fixture_id) {
-                            return Some((var_name.to_string(), trait_name));
-                        }
-                    }
-                }
-            }
-        }
+    let start = line.find("const ")?;
+    let after_const = &line[start + 6..];
+    let end = after_const.find(" =")?;
+    let var_name = after_const[..end].trim();
+    if !var_name.starts_with("_bridge_") {
+        return None;
     }
-    None
+    // Extract fixture ID from stub class name: _TestStub_{fixture_id}
+    // Pattern: new _TestStub_{fixture_id}()
+    let stub_start = line.find("new _TestStub_")?;
+    let after_stub = &line[stub_start + 14..]; // len("new _TestStub_") == 14
+    let paren_end = after_stub.find("()")?;
+    let fixture_id = &after_stub[..paren_end];
+    // Extract trait name from fixture ID
+    // Example: register_document_extractor -> DocumentExtractor
+    let trait_name = extract_trait_from_fixture_id(fixture_id)?;
+    Some((var_name.to_string(), trait_name))
 }
 
 /// Extract trait name from fixture ID.

@@ -125,30 +125,50 @@ fn expand_external_dto_roots(api: &ApiSurface, root_names: &[String]) -> AHashSe
         let current: Vec<String> = needed.iter().cloned().collect();
         for type_name in current {
             if let Some(typ) = all_types.get(&type_name) {
-                for field in &typ.fields {
-                    if field.binding_excluded {
-                        continue;
-                    }
-                    collect_named_types(&field.ty, &all_types, &all_enums, &mut needed, &mut changed);
-                }
+                collect_type_field_types(typ, &all_types, &all_enums, &mut needed, &mut changed);
             }
             if let Some(enm) = all_enums.get(&type_name) {
-                for variant in &enm.variants {
-                    if variant.binding_excluded {
-                        continue;
-                    }
-                    for field in &variant.fields {
-                        if field.binding_excluded {
-                            continue;
-                        }
-                        collect_named_types(&field.ty, &all_types, &all_enums, &mut needed, &mut changed);
-                    }
-                }
+                collect_enum_variant_types(enm, &all_types, &all_enums, &mut needed, &mut changed);
             }
         }
     }
 
     needed
+}
+
+fn collect_type_field_types(
+    typ: &TypeDef,
+    all_types: &AHashMap<String, &TypeDef>,
+    all_enums: &AHashMap<String, &EnumDef>,
+    needed: &mut AHashSet<String>,
+    changed: &mut bool,
+) {
+    for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
+        collect_named_types(&field.ty, all_types, all_enums, needed, changed);
+    }
+}
+
+fn collect_enum_variant_types(
+    enm: &EnumDef,
+    all_types: &AHashMap<String, &TypeDef>,
+    all_enums: &AHashMap<String, &EnumDef>,
+    needed: &mut AHashSet<String>,
+    changed: &mut bool,
+) {
+    for variant in &enm.variants {
+        if variant.binding_excluded {
+            continue;
+        }
+        for field in &variant.fields {
+            if field.binding_excluded {
+                continue;
+            }
+            collect_named_types(&field.ty, all_types, all_enums, needed, changed);
+        }
+    }
 }
 
 fn collect_named_types(

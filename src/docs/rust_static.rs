@@ -64,34 +64,7 @@ pub fn extract_mcp_surface(sources: &[PathBuf], declared: &[DeclaredMcpItem]) ->
                 let syn::ImplItem::Fn(method) = item else {
                     continue;
                 };
-                for attr_name in ["tool", "prompt", "resource"] {
-                    let Some(tokens) = attr_tokens(&method.attrs, attr_name) else {
-                        continue;
-                    };
-                    let name = quoted_value(&tokens, "name").unwrap_or_else(|| method.sig.ident.to_string());
-                    let description = quoted_value(&tokens, "description")
-                        .or_else(|| first_doc_paragraph(&method.attrs))
-                        .unwrap_or_default();
-                    let annotations = annotation_map(&tokens);
-                    let title = annotations
-                        .get("title")
-                        .cloned()
-                        .unwrap_or_else(|| name.replace('_', " ").to_title_case());
-                    let item = McpItem {
-                        name,
-                        title,
-                        description,
-                        handler: method.sig.ident.to_string(),
-                        params_type: method_params_type(method),
-                        annotations,
-                    };
-                    match attr_name {
-                        "tool" => surface.tools.push(item),
-                        "prompt" => surface.prompts.push(item),
-                        "resource" => surface.resources.push(item),
-                        _ => unreachable!(),
-                    }
-                }
+                collect_mcp_items_from_method(method, &mut surface);
             }
         }
     }
@@ -102,6 +75,39 @@ pub fn extract_mcp_surface(sources: &[PathBuf], declared: &[DeclaredMcpItem]) ->
     surface.prompts.sort_by(|left, right| left.name.cmp(&right.name));
     surface.resources.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(surface)
+}
+
+/// Scan a single `impl` method for `#[tool]`/`#[prompt]`/`#[resource]` attributes and push a
+/// resulting [`McpItem`] into the matching `surface` list for each one found.
+fn collect_mcp_items_from_method(method: &syn::ImplItemFn, surface: &mut McpSurface) {
+    for attr_name in ["tool", "prompt", "resource"] {
+        let Some(tokens) = attr_tokens(&method.attrs, attr_name) else {
+            continue;
+        };
+        let name = quoted_value(&tokens, "name").unwrap_or_else(|| method.sig.ident.to_string());
+        let description = quoted_value(&tokens, "description")
+            .or_else(|| first_doc_paragraph(&method.attrs))
+            .unwrap_or_default();
+        let annotations = annotation_map(&tokens);
+        let title = annotations
+            .get("title")
+            .cloned()
+            .unwrap_or_else(|| name.replace('_', " ").to_title_case());
+        let item = McpItem {
+            name,
+            title,
+            description,
+            handler: method.sig.ident.to_string(),
+            params_type: method_params_type(method),
+            annotations,
+        };
+        match attr_name {
+            "tool" => surface.tools.push(item),
+            "prompt" => surface.prompts.push(item),
+            "resource" => surface.resources.push(item),
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// Append `declared` config entries to the attribute-derived `surface`, one list per kind.

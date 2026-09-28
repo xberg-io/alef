@@ -183,6 +183,21 @@ fn dart_visitor_params(method: &str) -> &'static str {
     }
 }
 
+/// Consume a `{placeholder}` name from `chars`, positioned just past the opening `{`, stopping at
+/// (and consuming) the closing `}`.
+fn take_placeholder_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut name = String::new();
+    while let Some(&peek) = chars.peek() {
+        if peek == '}' {
+            chars.next();
+            break;
+        }
+        name.push(peek);
+        chars.next();
+    }
+    name
+}
+
 /// Render the Dart expression for a fixture-driven callback action.
 fn dart_action_body(method: &str, action: &CallbackAction, result_type: &str) -> String {
     if result_type == "VisitorResult" {
@@ -215,15 +230,7 @@ fn dart_action_body(method: &str, action: &CallbackAction, result_type: &str) ->
             while let Some(ch) = chars.next() {
                 match ch {
                     '{' => {
-                        let mut name = String::new();
-                        while let Some(&peek) = chars.peek() {
-                            if peek == '}' {
-                                chars.next();
-                                break;
-                            }
-                            name.push(peek);
-                            chars.next();
-                        }
+                        let name = take_placeholder_name(&mut chars);
                         interpolated.push_str("${");
                         interpolated.push_str(&name.to_lower_camel_case());
                         interpolated.push('}');

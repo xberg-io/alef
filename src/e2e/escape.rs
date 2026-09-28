@@ -297,6 +297,20 @@ pub fn ruby_regex_literal(value: &str) -> String {
     format!("/{escaped}/")
 }
 
+/// Consume a run of ASCII alphanumeric or `_` characters from `chars`, stopping (without
+/// consuming) at the first character that doesn't match.
+fn take_ident_chars(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut ident = String::new();
+    while let Some(&c) = chars.peek() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            ident.push(chars.next().unwrap());
+        } else {
+            break;
+        }
+    }
+    ident
+}
+
 /// Convert a `{param}` template string to a Ruby double-quoted string with `#{param}` interpolation.
 ///
 /// `{key}` placeholders are converted to `#{key}`. All other characters are escaped for
@@ -311,14 +325,7 @@ pub fn ruby_template_to_interpolation(template: &str) -> String {
                 let is_ident_start = chars.peek().is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
                 if is_ident_start {
                     // Collect the identifier
-                    let mut ident = String::new();
-                    while let Some(&c) = chars.peek() {
-                        if c.is_ascii_alphanumeric() || c == '_' {
-                            ident.push(chars.next().unwrap());
-                        } else {
-                            break;
-                        }
-                    }
+                    let ident = take_ident_chars(&mut chars);
                     if chars.peek() == Some(&'}') {
                         chars.next(); // consume '}'
                         out.push('#');
@@ -363,6 +370,12 @@ pub fn r_template_to_paste0(template: &str) -> String {
         Lit(String),
         Param(String),
     }
+    fn flush_lit(lit: &mut String, segments: &mut Vec<Seg>) {
+        if !lit.is_empty() {
+            segments.push(Seg::Lit(lit.clone()));
+            lit.clear();
+        }
+    }
     let mut segments: Vec<Seg> = Vec::new();
     let mut lit = String::new();
     let mut chars = template.chars().peekable();
@@ -370,20 +383,10 @@ pub fn r_template_to_paste0(template: &str) -> String {
         if ch == '{' {
             let is_ident_start = chars.peek().is_some_and(|&c| c.is_ascii_alphabetic() || c == '_');
             if is_ident_start {
-                let mut ident = String::new();
-                while let Some(&c) = chars.peek() {
-                    if c.is_ascii_alphanumeric() || c == '_' {
-                        ident.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
+                let ident = take_ident_chars(&mut chars);
                 if chars.peek() == Some(&'}') {
                     chars.next();
-                    if !lit.is_empty() {
-                        segments.push(Seg::Lit(lit.clone()));
-                        lit.clear();
-                    }
+                    flush_lit(&mut lit, &mut segments);
                     segments.push(Seg::Param(ident));
                     continue;
                 }

@@ -141,11 +141,12 @@ def main() -> None:
             continue
         if entry.name == "backends":
             for backend in sorted(entry.iterdir()):
-                if backend.is_dir():
-                    n = rewrite_module(backend, f"backends::{backend.name}")
-                    if n:
-                        print(f"backends/{backend.name}: rewrote {n} files")
-                    total += n
+                if not backend.is_dir():
+                    continue
+                n = rewrite_module(backend, f"backends::{backend.name}")
+                if n:
+                    print(f"backends/{backend.name}: rewrote {n} files")
+                total += n
         elif entry.name in TOP_LEVEL_MODULES:
             n = rewrite_module(entry, entry.name)
             if n:

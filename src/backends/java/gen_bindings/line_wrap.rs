@@ -226,33 +226,40 @@ fn split_annotations(body: &str) -> Option<Vec<String>> {
             idx += 1;
         }
         if idx < bytes.len() && bytes[idx] == b'(' {
-            let mut depth = 1;
-            let mut in_str = false;
             idx += 1;
-            while idx < bytes.len() && depth > 0 {
-                let b = bytes[idx];
-                if in_str {
-                    if b == b'\\' && idx + 1 < bytes.len() {
-                        idx += 2;
-                        continue;
-                    }
-                    if b == b'"' {
-                        in_str = false;
-                    }
-                } else {
-                    match b {
-                        b'"' => in_str = true,
-                        b'(' => depth += 1,
-                        b')' => depth -= 1,
-                        _ => {}
-                    }
-                }
-                idx += 1;
-            }
+            skip_balanced_parens(bytes, &mut idx);
         }
         tokens.push(body[start..idx].to_string());
     }
     Some(tokens)
+}
+
+/// Advance `idx` (positioned just past the opening `(`) to just past the matching closing `)`,
+/// honoring `\`-escaped characters inside `"`-quoted strings so an escaped quote or paren inside
+/// a string literal doesn't affect the depth count.
+fn skip_balanced_parens(bytes: &[u8], idx: &mut usize) {
+    let mut depth = 1;
+    let mut in_str = false;
+    while *idx < bytes.len() && depth > 0 {
+        let b = bytes[*idx];
+        if in_str {
+            if b == b'\\' && *idx + 1 < bytes.len() {
+                *idx += 2;
+                continue;
+            }
+            if b == b'"' {
+                in_str = false;
+            }
+        } else {
+            match b {
+                b'"' => in_str = true,
+                b'(' => depth += 1,
+                b')' => depth -= 1,
+                _ => {}
+            }
+        }
+        *idx += 1;
+    }
 }
 
 /// `FunctionDescriptor.of(ValueLayout.X, ValueLayout.Y, ...)` or

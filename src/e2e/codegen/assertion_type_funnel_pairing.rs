@@ -41,6 +41,16 @@ fn collect_rust_files(directory: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
+fn insert_explicit_path_declaration(
+    explicit_path: &mut Option<String>,
+    path: &Path,
+    declared: &mut std::collections::BTreeSet<PathBuf>,
+) {
+    let Some(relative) = explicit_path.take() else { return };
+    let Some(parent) = path.parent() else { return };
+    declared.insert(parent.join(relative));
+}
+
 /// Every file in `files` that some other file declares as `#[cfg(test)] mod <name>;`.
 ///
 /// ~keep [`blank_test_modules`] only recognises a test module written INLINE as
@@ -82,11 +92,7 @@ fn test_only_files(files: &[PathBuf]) -> std::collections::BTreeSet<PathBuf> {
                 }
                 saw_cfg_test = false;
                 if let Some(name) = trimmed.strip_prefix("mod ").and_then(|rest| rest.strip_suffix(';')) {
-                    if let Some(relative) = explicit_path.take()
-                        && let Some(parent) = path.parent()
-                    {
-                        declared.insert(parent.join(relative));
-                    }
+                    insert_explicit_path_declaration(&mut explicit_path, path, &mut declared);
                     declared.insert(directory.join(format!("{name}.rs")));
                     declared.insert(directory.join(name).join("mod.rs"));
                 }

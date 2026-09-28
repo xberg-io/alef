@@ -241,6 +241,21 @@ fn swift_visitor_param_is_optional(method: &str, snake_param: &str) -> bool {
     )
 }
 
+/// Consume a `{placeholder}` name from `chars`, positioned just past the opening `{`, stopping at
+/// (and consuming) the closing `}`.
+fn take_placeholder_name(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    let mut name = String::new();
+    while let Some(&peek) = chars.peek() {
+        if peek == '}' {
+            chars.next();
+            break;
+        }
+        name.push(peek);
+        chars.next();
+    }
+    name
+}
+
 /// Render the Swift expression for a fixture-driven callback action.
 ///
 /// Variant naming mirrors the swift-backend emission for simple result enums:
@@ -276,15 +291,7 @@ fn swift_action_body(action: &CallbackAction, method: &str, result_type: &str) -
             while let Some(ch) = chars.next() {
                 match ch {
                     '{' => {
-                        let mut name = String::new();
-                        while let Some(&peek) = chars.peek() {
-                            if peek == '}' {
-                                chars.next();
-                                break;
-                            }
-                            name.push(peek);
-                            chars.next();
-                        }
+                        let name = take_placeholder_name(&mut chars);
                         // Convert to camelCase to match Swift parameter names.
                         let is_optional = swift_visitor_param_is_optional(method, &name);
                         interpolated.push_str("\\(");

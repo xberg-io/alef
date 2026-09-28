@@ -47,6 +47,27 @@ fn replace_generic1(s: &str, name: &str, arg: &str, replacement: &str) -> String
     s.replace(&pattern, replacement)
 }
 
+/// Scan from `start` for the byte offset of the `>` that closes the opening
+/// `<` already consumed by the caller, accounting for nested angle brackets.
+fn find_matching_close_angle(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut j = start;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'<' => depth += 1,
+            b'>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
 /// Replace `Name<T>` → `f(T)` for an arbitrary inner type expression.
 ///
 /// Handles nested generics by counting angle-bracket depth.
@@ -65,22 +86,7 @@ where
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
             if before_ok {
                 let inner_start = i + pbytes.len();
-                let mut depth = 1usize;
-                let mut j = inner_start;
-                while j < bytes.len() {
-                    match bytes[j] {
-                        b'<' => depth += 1,
-                        b'>' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                if depth == 0 && j < bytes.len() {
+                if let Some(j) = find_matching_close_angle(bytes, inner_start) {
                     let inner = &s[inner_start..j];
                     out.push_str(&f(inner));
                     i = j + 1;
@@ -109,35 +115,26 @@ where
             let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
             if before_ok {
                 let inner_start = i + pbytes.len();
-                let mut depth = 1usize;
-                let mut j = inner_start;
-                while j < bytes.len() {
-                    match bytes[j] {
-                        b'<' => depth += 1,
-                        b'>' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                    j += 1;
-                }
-                if depth == 0 && j < bytes.len() {
-                    let inner = &s[inner_start..j];
-                    let split = split_on_comma_at_top_level(inner);
-                    if let Some((k, v)) = split {
-                        out.push_str(&f(k.trim(), v.trim()));
-                        i = j + 1;
-                        continue;
-                    }
+                if let Some((k, v, new_i)) = find_generic2_args(bytes, s, inner_start) {
+                    out.push_str(&f(k, v));
+                    i = new_i;
+                    continue;
                 }
             }
         }
         i = advance_char(s, &mut out, i);
     }
     out
+}
+
+/// Find the closing `>` from `inner_start` and split its contents on the
+/// top-level comma, returning the trimmed `(key, value)` args and the index
+/// just past the closing `>`.
+fn find_generic2_args<'a>(bytes: &[u8], s: &'a str, inner_start: usize) -> Option<(&'a str, &'a str, usize)> {
+    let j = find_matching_close_angle(bytes, inner_start)?;
+    let inner = &s[inner_start..j];
+    let (k, v) = split_on_comma_at_top_level(inner)?;
+    Some((k.trim(), v.trim(), j + 1))
 }
 
 /// Split `s` on the first comma that is at angle-bracket depth 0.

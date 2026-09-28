@@ -6,6 +6,7 @@
 //! rather than growing the already over-cap parent. See CLAUDE.md's `file-modularization` rule.
 
 use super::Fixture;
+use super::HttpFixture;
 use super::docs_only;
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
@@ -93,12 +94,7 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
                 // in all JSON string values so generators emit the expanded values.
                 expand_json_templates(&mut fixture.input);
                 if let Some(ref mut http) = fixture.http {
-                    for v in http.request.headers.values_mut() {
-                        *v = crate::e2e::escape::expand_fixture_templates(v);
-                    }
-                    if let Some(ref mut body) = http.request.body {
-                        expand_json_templates(body);
-                    }
+                    expand_http_fixture_templates(http);
                 }
                 fixtures.push(fixture);
             }
@@ -210,6 +206,16 @@ fn expand_json_templates(value: &mut serde_json::Value) {
             }
         }
         _ => {}
+    }
+}
+
+/// Expand fixture template expressions in an HTTP fixture's request headers and body.
+fn expand_http_fixture_templates(http: &mut HttpFixture) {
+    for v in http.request.headers.values_mut() {
+        *v = crate::e2e::escape::expand_fixture_templates(v);
+    }
+    if let Some(ref mut body) = http.request.body {
+        expand_json_templates(body);
     }
 }
 

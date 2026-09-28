@@ -37,18 +37,7 @@ pub(crate) fn generate_enum_variant_description(variant_name: &str) -> String {
         let chars: Vec<char> = variant_name.chars().collect();
         for (i, &c) in chars.iter().enumerate() {
             if c.is_uppercase() && !current.is_empty() {
-                let next_is_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
-                if next_is_lower && current.len() > 1 && current.chars().all(|ch| ch.is_uppercase()) {
-                    let last = current.pop().expect("current is non-empty");
-                    if !current.is_empty() {
-                        parts.push(current);
-                    }
-                    current = String::new();
-                    current.push(last);
-                } else {
-                    parts.push(current);
-                    current = String::new();
-                }
+                push_uppercase_boundary(&chars, i, &mut current, &mut parts);
             }
             current.push(c);
         }
@@ -76,6 +65,22 @@ pub(crate) fn generate_enum_variant_description(variant_name: &str) -> String {
             }
         }
         None => String::new(),
+    }
+}
+
+/// Handle an uppercase-letter boundary while splitting a PascalCase variant
+/// name into words: either peel a single trailing capital off an acronym run
+/// (e.g. `XMLParser` → `XML` + `Parser`) or close out the current word.
+fn push_uppercase_boundary(chars: &[char], i: usize, current: &mut String, parts: &mut Vec<String>) {
+    let next_is_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+    if next_is_lower && current.len() > 1 && current.chars().all(|ch| ch.is_uppercase()) {
+        let last = current.pop().expect("current is non-empty");
+        if !current.is_empty() {
+            parts.push(std::mem::take(current));
+        }
+        current.push(last);
+    } else {
+        parts.push(std::mem::take(current));
     }
 }
 

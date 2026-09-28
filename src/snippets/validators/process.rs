@@ -10,16 +10,16 @@ fn strip_ansi_codes(input: &str) -> String {
     let mut chars = input.chars();
 
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if matches!(chars.next(), Some('[')) {
-                for next in chars.by_ref() {
-                    if next == 'm' {
-                        break;
-                    }
+        if ch != '\u{1b}' {
+            result.push(ch);
+            continue;
+        }
+        if matches!(chars.next(), Some('[')) {
+            for next in chars.by_ref() {
+                if next == 'm' {
+                    break;
                 }
             }
-        } else {
-            result.push(ch);
         }
     }
 

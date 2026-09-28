@@ -118,21 +118,26 @@ fn find_map_segment(ty: &syn::Type) -> Option<&syn::PathSegment> {
             let name = seg.ident.to_string();
             match name.as_str() {
                 "HashMap" | "BTreeMap" | "AHashMap" | "IndexMap" | "FxHashMap" => Some(seg),
-                "Option" | "Box" | "Arc" | "Rc" => {
-                    if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
-                        for arg in &ab.args {
-                            if let syn::GenericArgument::Type(inner) = arg {
-                                return find_map_segment(inner);
-                            }
-                        }
-                    }
-                    None
-                }
+                "Option" | "Box" | "Arc" | "Rc" => find_map_segment_in_generic(seg),
                 _ => None,
             }
         }
         _ => None,
     }
+}
+
+/// Peel one generic argument from `seg` (e.g. the `T` in `Option<T>`) and recurse into it
+/// looking for a map segment.
+fn find_map_segment_in_generic(seg: &syn::PathSegment) -> Option<&syn::PathSegment> {
+    let syn::PathArguments::AngleBracketed(ab) = &seg.arguments else {
+        return None;
+    };
+    for arg in &ab.args {
+        if let syn::GenericArgument::Type(inner) = arg {
+            return find_map_segment(inner);
+        }
+    }
+    None
 }
 
 /// Returns true when `ty` is `Option<&T>` — i.e., the outer type is `Option` and its

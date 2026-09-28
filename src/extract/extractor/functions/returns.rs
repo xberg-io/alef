@@ -80,13 +80,22 @@ fn extract_pin_future_inner(segment: &syn::PathSegment) -> Option<(TypeRef, Opti
                 && let Some(inner_seg) = inner_path.path.segments.last()
                 && inner_seg.ident == "Box"
                 && let syn::PathArguments::AngleBracketed(box_args) = &inner_seg.arguments
+                && let Some(trait_obj) = find_box_trait_object(&box_args.args)
             {
-                for box_arg in &box_args.args {
-                    if let syn::GenericArgument::Type(syn::Type::TraitObject(trait_obj)) = box_arg {
-                        return extract_future_output_from_trait_obj(trait_obj);
-                    }
-                }
+                return extract_future_output_from_trait_obj(trait_obj);
             }
+        }
+    }
+    None
+}
+
+/// Find the first `dyn Trait` argument among a `Box<...>`'s generic arguments.
+fn find_box_trait_object(
+    box_args: &syn::punctuated::Punctuated<syn::GenericArgument, syn::token::Comma>,
+) -> Option<&syn::TypeTraitObject> {
+    for box_arg in box_args {
+        if let syn::GenericArgument::Type(syn::Type::TraitObject(trait_obj)) = box_arg {
+            return Some(trait_obj);
         }
     }
     None
@@ -201,18 +210,22 @@ fn is_cow_named_return(ty: &syn::Type) -> bool {
         && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
     {
         for arg in &args.args {
-            if let syn::GenericArgument::Type(inner) = arg {
-                match inner {
-                    syn::Type::Path(p) => {
-                        if let Some(seg) = p.path.segments.last() {
-                            return seg.ident != "str";
-                        }
-                    }
-                    syn::Type::Slice(_) => return false,
-                    _ => return true,
-                }
+            if let syn::GenericArgument::Type(inner) = arg
+                && let Some(verdict) = cow_named_inner_verdict(inner)
+            {
+                return verdict;
             }
         }
     }
     false
+}
+
+/// Verdict for a `Cow<'_, T>`'s inner type `T`: `true` when `T` is a named type,
+/// `false` for `str`/slice types, or `None` when `T` is an empty path (no verdict).
+fn cow_named_inner_verdict(inner: &syn::Type) -> Option<bool> {
+    match inner {
+        syn::Type::Path(p) => p.path.segments.last().map(|seg| seg.ident != "str"),
+        syn::Type::Slice(_) => Some(false),
+        _ => Some(true),
+    }
 }

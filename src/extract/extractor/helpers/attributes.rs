@@ -15,14 +15,8 @@ pub(crate) fn is_pub(vis: &syn::Visibility) -> bool {
 pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
-            if let Ok(nested) =
-                attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
-            {
-                for path in &nested {
-                    if path.is_ident(derive_name) || path.segments.last().is_some_and(|seg| seg.ident == derive_name) {
-                        return true;
-                    }
-                }
+            if derive_attr_has_name(attr, derive_name) {
+                return true;
             }
         } else if attr.path().is_ident("cfg_attr") {
             // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -33,6 +27,19 @@ pub(crate) fn has_derive(attrs: &[syn::Attribute], derive_name: &str) -> bool {
         }
     }
     false
+}
+
+/// Parse a `#[derive(...)]` attribute's argument list and check whether it contains a path
+/// matching `derive_name`. Returns `false` when the argument list fails to parse.
+fn derive_attr_has_name(attr: &syn::Attribute, derive_name: &str) -> bool {
+    let Ok(nested) =
+        attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
+    else {
+        return false;
+    };
+    nested
+        .iter()
+        .any(|path| path.is_ident(derive_name) || path.segments.last().is_some_and(|seg| seg.ident == derive_name))
 }
 
 /// Walk a `cfg_attr(condition, derive(Foo, Bar))` attribute structurally and check whether
@@ -683,20 +690,8 @@ pub(crate) fn extract_serde_container_conversion(attrs: &[syn::Attribute]) -> Se
 pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bool {
     for attr in attrs {
         if attr.path().is_ident("derive") {
-            if let Ok(nested) =
-                attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
-            {
-                for path in &nested {
-                    if path.segments.len() == segments.len()
-                        && path
-                            .segments
-                            .iter()
-                            .zip(segments.iter())
-                            .all(|(seg, expected)| seg.ident == expected)
-                    {
-                        return true;
-                    }
-                }
+            if derive_attr_has_path(attr, segments) {
+                return true;
             }
         } else if attr.path().is_ident("cfg_attr") {
             // #[cfg_attr(feature = "serde", derive(thiserror::Error))]
@@ -707,6 +702,25 @@ pub(crate) fn has_derive_path(attrs: &[syn::Attribute], segments: &[&str]) -> bo
         }
     }
     false
+}
+
+/// Parse a `#[derive(...)]` attribute's argument list and check whether it contains a path
+/// whose segments exactly match `segments`. Returns `false` when the argument list fails to
+/// parse.
+fn derive_attr_has_path(attr: &syn::Attribute, segments: &[&str]) -> bool {
+    let Ok(nested) =
+        attr.parse_args_with(syn::punctuated::Punctuated::<syn::Path, syn::token::Comma>::parse_terminated)
+    else {
+        return false;
+    };
+    nested.iter().any(|path| {
+        path.segments.len() == segments.len()
+            && path
+                .segments
+                .iter()
+                .zip(segments.iter())
+                .all(|(seg, expected)| seg.ident == expected)
+    })
 }
 
 /// Check if an enum derives `thiserror::Error` (or just `Error` from a `use thiserror::Error`).

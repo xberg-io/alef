@@ -78,6 +78,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
+# 1185 size/complexity findings across 610 files that predate these
 # 1206 size/complexity findings across 631 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
@@ -86,7 +87,6 @@ pylint_max_returns = 10
 # Do not add new paths here without a very good reason. ~keep
 "CHANGELOG.md" = ["file-too-long"]
 "scripts/collapse-workspace.py" = ["function-too-long", "nesting-too-deep"]
-"scripts/rewrite-crate-paths.py" = ["nesting-too-deep"]
 "src/adapters/streaming.rs" = ["function-too-long"]
 "src/backends/csharp/gen_bindings/enums.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/backends/csharp/gen_bindings/errors.rs" = ["function-too-long", "too-many-parameters"]
@@ -222,7 +222,6 @@ pylint_max_returns = 10
 "src/backends/go/trait_bridge/orchestration.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/java/gen_bindings/facade.rs" = ["function-too-long", "too-many-parameters"]
 "src/backends/java/gen_bindings/ffi_class.rs" = ["function-too-long", "too-many-parameters"]
-"src/backends/java/gen_bindings/line_wrap.rs" = ["nesting-too-deep"]
 "src/backends/java/gen_bindings/mod.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/backends/java/gen_bindings/native_lib.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/backends/java/gen_bindings/service_api.rs" = ["function-too-long"]
@@ -596,7 +595,6 @@ pylint_max_returns = 10
 "src/cli/pipeline/commands/build.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/pipeline/commands/test.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/pipeline/commands/test_apps.rs" = ["function-too-long"]
-"src/cli/pipeline/extract/external_types.rs" = ["nesting-too-deep"]
 "src/cli/pipeline/extract/filtering.rs" = ["function-too-long", "nesting-too-deep"]
 "src/cli/pipeline/extract/sanitizer.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/cli/pipeline/extract/tests.rs" = ["function-too-long"]
@@ -625,7 +623,6 @@ pylint_max_returns = 10
 "src/cli/pipeline/version_tests/swift_checksum.rs" = ["function-too-long"]
 "src/cli/pipeline/version_tests/swift_placeholder.rs" = ["function-too-long"]
 "src/cli/pipeline/version_tests/sync_versions.rs" = ["file-too-long", "function-too-long"]
-"src/cli/pipeline/version_text.rs" = ["nesting-too-deep"]
 "src/codegen/builder.rs" = ["function-too-long"]
 "src/codegen/cfg.rs" = ["cyclomatic-complexity", "file-too-long"]
 "src/codegen/config_gen/magnus.rs" = ["function-too-long"]
@@ -646,9 +643,6 @@ pylint_max_returns = 10
 "src/codegen/conversions/helpers/type_discovery.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/codegen/conversions/tests.rs" = ["file-too-long", "function-too-long"]
 "src/codegen/doc_emission/sanitize.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/codegen/doc_emission/sanitize/prose.rs" = ["nesting-too-deep"]
-"src/codegen/doc_emission/sanitize/references.rs" = ["nesting-too-deep"]
-"src/codegen/doc_emission/sanitize/type_wrappers.rs" = ["nesting-too-deep"]
 "src/codegen/doc_emission/sections.rs" = ["function-too-long"]
 "src/codegen/error_gen/host_langs.rs" = ["function-too-long"]
 "src/codegen/error_gen/napi_wasm.rs" = ["function-too-long"]
@@ -705,8 +699,6 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/core/validation/since_version.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/docs/descriptions.rs" = ["nesting-too-deep"]
-"src/docs/doc_cleaning.rs" = ["nesting-too-deep"]
 "src/docs/examples.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/docs/formatting.rs" = ["cyclomatic-complexity", "file-too-long", "function-too-long"]
 "src/docs/language_pages/enum_render.rs" = ["function-too-long"]
@@ -717,12 +709,10 @@ pylint_max_returns = 10
 "src/docs/language_pages/type_render.rs" = ["function-too-long"]
 "src/docs/mod.rs" = ["function-too-long", "too-many-parameters"]
 "src/docs/naming.rs" = ["function-too-long"]
-"src/docs/rust_static.rs" = ["nesting-too-deep"]
 "src/docs/shared_pages.rs" = ["function-too-long", "nesting-too-deep"]
 "src/docs/signatures.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/docs/snippet_summary.rs" = ["function-too-long"]
 "src/docs/type_mapping.rs" = ["function-too-long"]
-"src/e2e/codegen/assertion_type_funnel_pairing.rs" = ["nesting-too-deep"]
 "src/e2e/codegen/brew.rs" = ["function-too-long", "too-many-parameters"]
 "src/e2e/codegen/brew/category.rs" = [
   "cyclomatic-complexity",
@@ -776,7 +766,6 @@ pylint_max_returns = 10
 "src/e2e/codegen/dart/test_case.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/e2e/codegen/dart/test_file.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/e2e/codegen/dart/values.rs" = ["function-too-long"]
-"src/e2e/codegen/dart_visitors.rs" = ["nesting-too-deep"]
 "src/e2e/codegen/elixir.rs" = ["function-too-long", "too-many-parameters"]
 "src/e2e/codegen/elixir/assertions.rs" = [
   "cyclomatic-complexity",
@@ -978,7 +967,6 @@ pylint_max_returns = 10
 "src/e2e/codegen/swift/test_method.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/e2e/codegen/swift/tests.rs" = ["file-too-long"]
 "src/e2e/codegen/swift/values.rs" = ["function-too-long"]
-"src/e2e/codegen/swift_visitors.rs" = ["nesting-too-deep"]
 "src/e2e/codegen/typescript/assertions.rs" = [
   "cyclomatic-complexity",
   "file-too-long",
@@ -1000,7 +988,6 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/e2e/codegen/typescript/test_file/builders/tests.rs" = ["file-too-long"]
-"src/e2e/codegen/typescript/test_file/helpers.rs" = ["nesting-too-deep"]
 "src/e2e/codegen/typescript/test_file/http.rs" = ["cyclomatic-complexity", "function-too-long"]
 "src/e2e/codegen/typescript/test_file/render.rs" = [
   "cyclomatic-complexity",
@@ -1035,13 +1022,11 @@ pylint_max_returns = 10
   "too-many-parameters",
 ]
 "src/e2e/codegen/zig/visitor.rs" = ["function-too-long", "too-many-parameters"]
-"src/e2e/escape.rs" = ["nesting-too-deep"]
 "src/e2e/field_access/renderers.rs" = ["function-too-long"]
 "src/e2e/field_access/resolver/accessor.rs" = ["function-too-long"]
 "src/e2e/field_access/resolver/construct.rs" = ["too-many-parameters"]
 "src/e2e/field_access/tests.rs" = ["file-too-long"]
 "src/e2e/fixture.rs" = ["file-too-long", "nesting-too-deep"]
-"src/e2e/fixture/loader.rs" = ["nesting-too-deep"]
 "src/e2e/format.rs" = ["function-too-long"]
 "src/e2e/mod.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/e2e/snippets/mod.rs" = ["function-too-long", "too-many-parameters"]
@@ -1050,10 +1035,6 @@ pylint_max_returns = 10
 "src/e2e/validate.rs" = ["cyclomatic-complexity", "file-too-long", "function-too-long", "too-many-parameters"]
 "src/extract/extractor/defaults/mod.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/extract/extractor/functions/impl_blocks.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
-"src/extract/extractor/functions/params.rs" = ["nesting-too-deep"]
-"src/extract/extractor/functions/returns.rs" = ["nesting-too-deep"]
-"src/extract/extractor/helpers/attributes.rs" = ["nesting-too-deep"]
-"src/extract/extractor/helpers/field_types.rs" = ["nesting-too-deep"]
 "src/extract/extractor/helpers/rustdoc.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "src/extract/extractor/mod.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
 "src/extract/extractor/paths.rs" = ["cyclomatic-complexity", "function-too-long", "too-many-parameters"]
@@ -1095,7 +1076,6 @@ pylint_max_returns = 10
 "src/snippets/runner.rs" = ["function-too-long", "too-many-parameters"]
 "src/snippets/runner/batch.rs" = ["too-many-parameters"]
 "src/snippets/runner/failure_reporter.rs" = ["function-too-long"]
-"src/snippets/validators/process.rs" = ["nesting-too-deep"]
 "src/snippets/validators/python.rs" = ["cyclomatic-complexity", "function-too-long", "nesting-too-deep"]
 "tests/adapters_adapter_test.rs" = ["file-too-long"]
 "tests/backends_csharp_gen_bindings_test.rs" = ["file-too-long"]

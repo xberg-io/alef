@@ -18,15 +18,12 @@ pub(crate) fn syn_type_is_boxed(ty: &syn::Type) -> bool {
         && let Some(segment) = type_path.path.segments.last()
     {
         let ident = segment.ident.to_string();
-        if ident == "Box" {
-            if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                for arg in &args.args {
-                    if let syn::GenericArgument::Type(inner) = arg {
-                        if matches!(inner, syn::Type::TraitObject(_)) {
-                            return false;
-                        }
-                        return true;
-                    }
+        if ident == "Box"
+            && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+        {
+            for arg in &args.args {
+                if let syn::GenericArgument::Type(inner) = arg {
+                    return !matches!(inner, syn::Type::TraitObject(_));
                 }
             }
         } else if ident == "Option"
