@@ -1688,6 +1688,7 @@ fn make_api_wasm() -> ApiSurface {
 
 fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
     alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -1709,6 +1710,7 @@ fn make_plugin_bridge_cfg_wasm(trait_name: &str) -> alef::core::config::TraitBri
 
 fn make_visitor_bridge_cfg_wasm(trait_name: &str, type_alias: &str) -> alef::core::config::TraitBridgeConfig {
     alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -1892,6 +1894,7 @@ fn test_wasm_plugin_bridge_validates_required_methods() {
         ],
     );
     let bridge_cfg = alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Analyzer".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -2099,6 +2102,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Visitor".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -4555,6 +4559,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("test_lib::get_ocr_registry".to_string()),

@@ -39,6 +39,7 @@ fn csharp_config() -> ResolvedCrateConfig {
 
 fn bridge(trait_name: &str, register_fn: Option<&str>) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,

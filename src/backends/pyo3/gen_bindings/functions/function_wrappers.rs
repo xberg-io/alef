@@ -78,21 +78,14 @@ pub(super) fn emit_function_wrappers(
             sig_parts.push(format!("{}: {}", param.name, py_type));
         }
 
-        let options_field_visitor_kwarg: Option<(&str, &str, &str, Option<&str>)> = func.params.iter().find_map(|p| {
-            let type_name = match &p.ty {
-                crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                crate::core::ir::TypeRef::Optional(inner) => {
-                    if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
-                        Some(n.as_str())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }?;
-            let (kwarg_name, _field_name, type_alias) = options_field_bridges.get(type_name)?;
-            Some((p.name.as_str(), type_name, *kwarg_name, *type_alias))
-        });
+        // The SHARED predicate decides which functions gain the bridge keyword -- see the
+        // matching comment in `gen_stubs/functions.rs`. The facade, the `.pyi` and the
+        // `#[pyfunction]` must not each answer it separately (alef #476). ~keep
+        let options_field_visitor_kwarg: Option<(&str, &str, &str, Option<&str>)> =
+            crate::codegen::generators::trait_bridge::options_field_bridge_site(func, trait_bridges).and_then(|site| {
+                let (kwarg_name, _field_name, type_alias) = options_field_bridges.get(site.options_type)?;
+                Some((site.param.name.as_str(), site.options_type, *kwarg_name, *type_alias))
+            });
         if let Some((_, _, kwarg_name, type_alias)) = options_field_visitor_kwarg {
             let visitor_type = type_alias.unwrap_or("object");
             sig_parts.push(format!("{kwarg_name}: {visitor_type} | None = None"));

@@ -61,11 +61,25 @@ pub struct TraitBridgeConfig {
     #[serde(default)]
     pub register_extra_args: Option<String>,
     /// Language backends that should NOT generate this trait bridge.
-    /// Use backend names as they appear in `Backend::name()`, e.g. `["elixir", "wasm"]`.
-    /// When a backend's name is listed here, the bridge struct and all related code are
-    /// omitted from that backend's output.
+    ///
+    /// A target answers to its language name and, where they differ, to its backend's own
+    /// name: `["python"]` and `["pyo3"]` are the same exclusion, as are `node`/`napi`,
+    /// `ruby`/`magnus`, `elixir`/`rustler`, `r`/`extendr` and `c`/`ffi`. When a target is
+    /// listed here, the bridge struct and everything that references it — the wrapper
+    /// functions, the options setter, the registration surface — are omitted from that
+    /// target's output. An entry that names neither a language nor a backend is rejected at
+    /// config resolution rather than silently excluding nothing.
     #[serde(default)]
     pub exclude_languages: Vec<String>,
+    /// Free functions that should NOT gain this bridge's extra argument.
+    ///
+    /// Every generated function that takes the bridge's owning type picks up the bridge
+    /// keyword by default. List a function's Rust name here to leave it alone — a synchronous
+    /// diagnostic entry point, say, where a listener has no meaning. Mirrors the
+    /// `exclude_functions` key each `[crates.<lang>]` table already accepts, and is honoured
+    /// identically by the Rust wrapper, the host-language facade and the type stub.
+    #[serde(default)]
+    pub exclude_functions: Vec<String>,
     /// Methods that the FFI backend should NOT forward through the vtable.
     /// These methods fall back to the trait's default implementation.
     /// Useful for methods whose signatures involve trait-object references
@@ -80,6 +94,13 @@ pub struct TraitBridgeConfig {
     ///   struct that itself arrives as a function argument. Backends emit a host-language
     ///   field on that struct instead of a separate function parameter; the bridge object
     ///   is attached to `options.<field>` before the underlying core call.
+    ///
+    /// In both modes the host value must be an **object that provides the trait's methods by
+    /// name**. A bare callable (a Python `lambda`, a JS arrow function, a Ruby `proc`) is not
+    /// accepted: the bridge dispatches `obj.<method>(...)`, never `obj(...)`. Passing one is
+    /// rejected with an error naming the methods the object has to define — a method with a
+    /// Rust default would otherwise be skipped silently and the listener would simply never
+    /// fire.
     #[serde(default)]
     pub bind_via: BridgeBinding,
     /// IR type name that owns the bridge field when `bind_via = "options_field"` (e.g.,
@@ -118,6 +139,28 @@ pub enum BridgeBinding {
     FunctionParam,
     /// The bridge lives as a field on a configured options struct.
     OptionsField,
+}
+
+/// Backend spellings `exclude_languages` accepts in addition to every
+/// [`Language`](crate::core::config::Language) name.
+///
+/// A target that answers to two names — the language and the backend crate that emits it —
+/// honours either, so `exclude_languages = ["node"]` and `["napi"]` mean the same thing. Kept
+/// in lock-step with the backends' own `TARGET_SPELLINGS` constants by
+/// `tests/trait_bridge_exclude_language_spellings.rs`, which scans them out of the source
+/// rather than trusting this list. ~keep
+pub const BRIDGE_BACKEND_SPELLINGS: [&str; 5] = ["extendr", "magnus", "napi", "pyo3", "rustler"];
+
+/// Whether `name` is a spelling any backend answers to in `exclude_languages`.
+///
+/// An unrecognised entry disables nothing at all, and the symptom surfaces far away as a
+/// generated crate that does not compile — so it is rejected at config-resolution time
+/// instead (alef #476).
+pub fn is_known_bridge_language(name: &str) -> bool {
+    crate::core::config::Language::ALL
+        .iter()
+        .any(|language| language.to_string() == name)
+        || BRIDGE_BACKEND_SPELLINGS.contains(&name)
 }
 
 impl TraitBridgeConfig {
@@ -273,6 +316,48 @@ trait_name = "OcrBackend"
 "#;
         let cfg: TraitBridgeConfig = toml::from_str(toml_src).unwrap();
         assert!(cfg.associated_type_names().is_empty());
+    }
+
+    #[test]
+    fn exclude_functions_parses_and_defaults_to_empty() {
+        let cfg: TraitBridgeConfig = toml::from_str(&sample_toml("options_field")).unwrap();
+        assert!(cfg.exclude_functions.is_empty());
+
+        let with_exclusions: TraitBridgeConfig = toml::from_str(
+            r#"
+trait_name = "HtmlVisitor"
+bind_via = "options_field"
+options_type = "ConversionOptions"
+param_name = "visitor"
+exclude_functions = ["doctor", "version"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(with_exclusions.exclude_functions, vec!["doctor", "version"]);
+    }
+
+    #[test]
+    fn every_language_name_and_backend_spelling_is_a_known_exclude_target() {
+        for language in crate::core::config::Language::ALL {
+            let name = language.to_string();
+            assert!(
+                is_known_bridge_language(&name),
+                "`{name}` is a Language variant, so `exclude_languages` must accept it"
+            );
+        }
+        for spelling in BRIDGE_BACKEND_SPELLINGS {
+            assert!(is_known_bridge_language(spelling));
+        }
+    }
+
+    #[test]
+    fn a_misspelled_exclude_target_is_not_known() {
+        for typo in ["nodejs", "c#", "Python", "kotlin-android", ""] {
+            assert!(
+                !is_known_bridge_language(typo),
+                "`{typo}` must not pass as a known exclude target"
+            );
+        }
     }
 
     #[test]

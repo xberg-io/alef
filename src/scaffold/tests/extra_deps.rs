@@ -214,6 +214,7 @@ fn test_scaffold_elixir_cargo_deps_are_alphabetically_sorted() {
     let mut config = test_config();
     config.languages = vec![Language::Elixir];
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -260,6 +261,7 @@ fn test_scaffold_ruby_cargo_deps_are_alphabetically_sorted() {
     let mut config = test_config();
     config.languages = vec![Language::Ruby];
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -317,6 +319,7 @@ fn test_scaffold_r_cargo_deps_are_alphabetically_sorted() {
     let mut config = test_config();
     config.languages = vec![Language::R];
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,

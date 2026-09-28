@@ -307,6 +307,7 @@ fn trait_bridge_register_uses_c_vtable_helper_and_free_string_callback() {
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: None,
@@ -378,6 +379,7 @@ fn register_wrapper_deletes_the_handle_when_vtable_allocation_fails() {
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: None,
@@ -479,6 +481,7 @@ fn register_c_call_passes_vtable_by_value() {
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Backend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: None,
@@ -541,6 +544,7 @@ fn text_processor_interface_and_bridge_wrapper_emitted() {
         version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextProcessor".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: None,

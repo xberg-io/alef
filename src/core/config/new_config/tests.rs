@@ -951,6 +951,65 @@ exclude_languages = ["wasm", "elixir"]
     assert_eq!(resolved[0].trait_bridges[0].exclude_languages, vec!["wasm", "elixir"]);
 }
 
+/// Every backend answers to its own name as well as its language's, and
+/// `bridge_targets_language` documents exactly that -- but resolution used to reject the
+/// backend spelling, so the documented form was unusable. ~keep
+#[test]
+fn resolve_accepts_a_backend_spelling_in_trait_bridge_exclude_languages() {
+    for spelling in ["pyo3", "napi", "magnus", "rustler", "extendr"] {
+        let cfg: NewAlefConfig = toml::from_str(&format!(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["{spelling}"]
+"#
+        ))
+        .unwrap();
+        let resolved = cfg
+            .resolve()
+            .unwrap_or_else(|e| panic!("`{spelling}` is a documented backend spelling: {e:?}"));
+        assert!(!resolved[0].trait_bridges[0].is_active_for(spelling));
+    }
+}
+
+#[test]
+fn rejected_exclude_language_error_lists_both_name_families() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["nodejs"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    let ResolveError::InvalidConfig(message) = &err else {
+        panic!("expected InvalidConfig, got {err:?}");
+    };
+    assert!(
+        message.contains("`nodejs`"),
+        "must quote the offending entry: {message}"
+    );
+    assert!(
+        message.contains("kotlin_android") && message.contains("pyo3"),
+        "must list the language names and the backend spellings: {message}"
+    );
+}
+
 /// `resolve()` must not eagerly resolve `[[crates.source_crates]]` with `from_registry = true` --
 /// that shells out to `cargo metadata` (see `crate::core::config::registry`), a cost (and a
 /// failure mode) every subcommand paid for before this fix, including `alef publish package`,

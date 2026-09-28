@@ -183,6 +183,7 @@ mod tests {
 
     fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: None,
@@ -398,6 +399,7 @@ mod tests {
     fn gen_ffi_plugin_impl_generates_methods_with_super_trait() {
         let generator = make_generator();
         let bridge_cfg = TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "Backend".to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: None,
@@ -498,6 +500,7 @@ mod tests {
             lifetime_type_names: std::collections::HashSet::new(),
         };
         let bridge_cfg = TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "Backend".to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: None,

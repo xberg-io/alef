@@ -185,6 +185,7 @@ mod tests {
         };
 
         let bridge_cfg = TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "TextProcessor".to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: Some("sample_core::get_text_processor_registry".to_string()),

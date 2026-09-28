@@ -151,6 +151,7 @@ fn make_bridge_generator(core_import: &str) -> Pyo3BridgeGenerator {
 
 fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,

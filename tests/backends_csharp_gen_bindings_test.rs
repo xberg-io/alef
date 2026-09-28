@@ -3955,6 +3955,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
 
     config.trait_bridges = vec![
         alef::core::config::TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "TextBackend".to_string(),
             super_trait: None,
             registry_getter: None,
@@ -3973,6 +3974,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
             result_type: None,
         },
         alef::core::config::TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "PostProcessor".to_string(),
             super_trait: None,
             registry_getter: None,

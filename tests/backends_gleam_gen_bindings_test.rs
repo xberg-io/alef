@@ -523,6 +523,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
 
 fn make_bridge_cfg(trait_name: &str, register_fn: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: Some(format!("demo::get_{}_registry", trait_name.to_lowercase())),
@@ -549,6 +550,7 @@ fn make_bridge_cfg_full(
     clear_fn: Option<&str>,
 ) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: Some(format!("demo::get_{}_registry", trait_name.to_lowercase())),

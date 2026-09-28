@@ -554,6 +554,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "SyntaxWalker".to_string(),
         super_trait: None,
         registry_getter: None,

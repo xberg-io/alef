@@ -32,6 +32,7 @@ fn make_trait_def(name: &str) -> TypeDef {
 
 fn make_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         param_name: None,
         type_alias: None,

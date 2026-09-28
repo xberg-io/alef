@@ -210,6 +210,7 @@ fn make_async_method(name: &str) -> MethodDef {
 
 fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -231,6 +232,7 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
 
 fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -413,6 +415,7 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         vec![make_method("process", TypeRef::String, true, false)],
     );
     let cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),

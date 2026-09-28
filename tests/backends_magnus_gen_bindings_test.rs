@@ -1588,6 +1588,7 @@ mod trait_bridge {
 
     fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: None,
@@ -1680,6 +1681,7 @@ mod trait_bridge {
             acc
         });
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: Some("get_registry".to_string()),
@@ -2920,6 +2922,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
     };
 
     let cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,

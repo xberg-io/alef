@@ -442,6 +442,7 @@ mod tests {
 
     fn make_bridge_cfg_with_register(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: Some("my_lib::get_registry".to_string()),

@@ -301,6 +301,7 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -338,6 +339,7 @@ fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
         vec![make_trait_method("scan", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Scanner".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_scanner_registry".to_string()),
@@ -395,6 +397,7 @@ fn test_gen_trait_bridges_file_interface_includes_trait_methods_in_pascal_case()
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "ImageProcessor".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -439,6 +442,7 @@ fn test_gen_trait_bridges_file_interface_method_with_error_returns_tuple_or_erro
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Analyzer".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -480,6 +484,7 @@ fn test_gen_trait_bridges_file_generates_exported_trampolines() {
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -529,6 +534,7 @@ fn test_gen_trait_bridges_file_trampolines_retrieve_go_object_via_cgo_handle() {
         vec![make_trait_method("scan", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Scanner".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -570,6 +576,7 @@ fn test_trait_bridge_string_return_is_not_json_quoted() {
         vec![make_trait_method("scan", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Scanner".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -614,6 +621,7 @@ fn test_gen_trait_bridges_file_trampoline_converts_string_param_from_c() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Greeter".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -651,6 +659,7 @@ fn test_gen_trait_bridges_file_registration_fn_builds_vtable_and_calls_c_registe
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -704,6 +713,7 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         vec![make_trait_method("scan", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Scanner".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -757,6 +767,7 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -798,6 +809,7 @@ fn test_gen_trait_bridges_file_cgo_preamble_forward_declares_trampolines() {
         vec![make_trait_method("analyze", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Analyzer".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -841,6 +853,7 @@ fn test_generate_bindings_with_trait_bridge_emits_trait_bridges_go_file() {
         vec![make_trait_method("process", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -922,6 +935,7 @@ fn test_gen_trait_bridges_file_trampolines_recover_host_panics() {
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),

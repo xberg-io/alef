@@ -1308,6 +1308,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
 fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -1498,6 +1499,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
     let mut config = make_config();
     config.trait_bridges = vec![
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "OcrBackend".to_string(),
             super_trait: None,
             registry_getter: None,
@@ -1518,6 +1520,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             result_type: None,
         },
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "Validator".to_string(),
             super_trait: None,
             registry_getter: None,
@@ -1589,6 +1592,7 @@ fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
 
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -1708,6 +1712,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
 fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
         registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),

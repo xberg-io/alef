@@ -133,6 +133,7 @@ fn make_param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {
 
 fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -321,6 +322,7 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
 fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pattern() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -363,6 +365,7 @@ fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pa
 fn test_gen_trait_bridge_unregister_fn_is_generated() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -440,6 +443,7 @@ fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
 fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fields() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -494,6 +498,7 @@ fn test_gen_trait_bridge_with_super_trait_plugin_generates_vtable_lifecycle_fiel
 fn test_gen_trait_bridge_with_super_trait_plugin_generates_plugin_impl() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -603,6 +608,7 @@ fn test_gen_trait_bridge_bridge_struct_is_send_sync() {
 fn test_gen_trait_bridge_safety_comments_present() {
     let trait_def = make_trait_def("Processor", vec![make_method("run", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Processor".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -699,6 +705,7 @@ fn test_gen_trait_bridge_register_fn_validates_required_fn_ptrs() {
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Transform".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),

@@ -219,6 +219,7 @@ fn test_php_plugin_bridge_validates_required_methods() {
         ],
     );
     let bridge_cfg = alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Analyzer".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),

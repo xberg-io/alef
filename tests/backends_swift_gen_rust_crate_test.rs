@@ -982,6 +982,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
 fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
     let mut cfg = make_config();
     cfg.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -1395,6 +1396,7 @@ fn config_with_full_bridge(
 ) -> ResolvedCrateConfig {
     let mut cfg = make_config();
     cfg.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: Some("demo::plugins::registry::get_test_registry".to_string()),

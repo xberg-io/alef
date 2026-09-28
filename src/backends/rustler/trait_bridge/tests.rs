@@ -113,6 +113,7 @@ fn options_field_bridge_renders_visitor_setup_template() {
         ..FieldDef::default()
     };
     let bridge = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "RenderVisitor".to_string(),
         super_trait: None,
         registry_getter: None,

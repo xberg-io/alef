@@ -286,6 +286,7 @@ fn trait_bridge_vtable_builder_coverage() {
 
     let mut config = make_basic_config();
     config.trait_bridges.push(TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "PluginTrait".to_string(),
         super_trait: None,
         registry_getter: Some("demo::registry::get_plugin_registry".to_string()),
@@ -396,6 +397,7 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
     for trait_name in &trait_names {
         let snake = heck::AsSnakeCase(trait_name).to_string();
         config.trait_bridges.push(TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: None,
@@ -447,6 +449,7 @@ fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
 
     let mut config = make_basic_config();
     config.trait_bridges.push(TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "MissingTrait1".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -532,6 +535,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
 
     let mut config = make_basic_config();
     config.trait_bridges.push(TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("demo::Plugin".to_string()),
         registry_getter: Some("demo::registry::get_ocr_registry".to_string()),

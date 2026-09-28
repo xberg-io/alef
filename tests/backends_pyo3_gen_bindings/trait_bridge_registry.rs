@@ -8,6 +8,7 @@ fn test_gen_registration_fn_requires_register_fn_and_registry_getter() {
     let generator = make_bridge_generator("my_lib");
     let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "MyTrait".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -52,6 +53,7 @@ fn test_gen_registration_fn_validates_required_methods() {
     let optional_method = make_method_def("describe", vec![], TypeRef::String, false, false, true);
     let trait_def = make_trait_def("Backend", "my_lib::Backend", vec![required_method, optional_method]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Backend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -112,6 +114,7 @@ fn test_gen_registration_fn_calls_registry_getter() {
         vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Processor".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::registry::get_processors".to_string()),
@@ -167,6 +170,7 @@ fn test_gen_unregistration_fn_emits_typed_pyfunction_when_configured() {
         vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::plugins::registry::get_text_backend_registry".to_string()),
@@ -220,6 +224,7 @@ fn test_gen_unregistration_fn_returns_empty_when_unset() {
         vec![make_method_def("run", vec![], TypeRef::Unit, false, true, false)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: None,
         registry_getter: None,

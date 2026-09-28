@@ -291,6 +291,7 @@ fn make_api_php() -> ApiSurface {
 
 fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef::core::config::TraitBridgeConfig {
     alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -312,6 +313,7 @@ fn make_plugin_bridge_cfg_php(trait_name: &str) -> alef::core::config::TraitBrid
 
 fn make_visitor_bridge_cfg_php(trait_name: &str, type_alias: &str) -> alef::core::config::TraitBridgeConfig {
     alef::core::config::TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,

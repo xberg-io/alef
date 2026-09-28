@@ -125,6 +125,7 @@ fn simple_trait_def() -> TypeDef {
 
 fn simple_bridge_config() -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "MyTrait".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -309,6 +310,7 @@ fn test_gen_bridge_all_includes_imports_struct_and_trait_impl() {
 fn test_gen_bridge_all_includes_registration_fn_when_configured() {
     let trait_def = simple_trait_def();
     let bridge_config = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "MyTrait".to_string(),
         super_trait: None,
         registry_getter: None,

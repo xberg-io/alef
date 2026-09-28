@@ -22,6 +22,7 @@ fn test_trait_bridge_string_param_emitted_as_string_not_interface() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Backend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -65,6 +66,7 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -160,6 +162,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -240,6 +243,7 @@ fn test_trait_bridge_substitutes_excluded_named_types_with_json_raw_message() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Renderer".to_string(),
         super_trait: None,
         registry_getter: Some("get_renderer_registry".to_string()),
@@ -284,6 +288,7 @@ fn test_trait_bridge_dedup_snake_case_unregister_functions() {
         vec![make_trait_method("process_image", vec![], TypeRef::String, true)],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -338,6 +343,7 @@ fn test_trait_bridge_unmarshals_config_into_concrete_type() {
         )],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("get_ocr_registry".to_string()),

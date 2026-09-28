@@ -62,6 +62,7 @@ fn method(name: &str, return_type: TypeRef, error_type: Option<&str>) -> MethodD
 
 fn bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         param_name: None,
         type_alias: None,

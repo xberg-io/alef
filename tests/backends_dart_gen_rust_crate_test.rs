@@ -774,6 +774,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
 fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
         registry_getter: None,
@@ -1020,6 +1021,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
@@ -1133,6 +1135,7 @@ fn lib_rs_skips_ordinary_lifecycle_functions_when_trait_bridge_manages_them() {
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),
@@ -1245,6 +1248,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Validator".to_string(),
         super_trait: None,
         registry_getter: Some("demo_crate::plugins::registry::get_validator_registry".to_string()),
@@ -1302,6 +1306,7 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
     };
     let mut config = make_config();
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("demo_crate::plugins::registry::get_ocr_backend_registry".to_string()),

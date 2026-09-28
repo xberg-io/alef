@@ -537,6 +537,7 @@ mod tests {
 
     fn make_bridge_cfg() -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "TestTrait".to_string(),
             super_trait: None,
             registry_getter: None,

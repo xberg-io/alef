@@ -227,7 +227,20 @@ pub fn gen_stubs(
         .map(|t| t.name.clone())
         .collect();
 
-    let options_field_bridges: OptionsFieldBridges<'_> = trait_bridges
+    // Language-filtered before anything reads it: a bridge that excludes python must not
+    // reach the stub either, or the `.pyi` documents a keyword the binding never emits. ~keep
+    let active_bridges: Vec<TraitBridgeConfig> = trait_bridges
+        .iter()
+        .filter(|b| {
+            crate::codegen::generators::trait_bridge::bridge_targets_language(
+                b,
+                &crate::backends::pyo3::trait_bridge::TARGET_SPELLINGS,
+            )
+        })
+        .cloned()
+        .collect();
+
+    let options_field_bridges: OptionsFieldBridges<'_> = active_bridges
         .iter()
         .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
         .filter_map(|b| {
@@ -408,6 +421,7 @@ pub fn gen_stubs(
             &bridge_param_names,
             &capsule_names,
             &options_field_bridges,
+            &active_bridges,
             &streaming_return_types,
             &opaque_types,
         ));

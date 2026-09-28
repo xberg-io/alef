@@ -186,6 +186,7 @@ fn test_bridge_has_drop_impl_for_free_user_data() {
 fn test_super_trait_generates_plugin_impl() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: None,
@@ -235,6 +236,7 @@ fn test_super_trait_generates_plugin_impl() {
 fn test_register_fn_generates_extern_c() {
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
         registry_getter: Some("sample_crate::registry::get_ocr".to_string()),
@@ -287,6 +289,7 @@ fn test_register_fn_generates_extern_c() {
 fn test_register_fn_validates_name_null() {
     let trait_def = make_trait_def("MyTrait", vec![make_method("do_thing", TypeRef::Unit, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "MyTrait".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -335,6 +338,7 @@ fn test_register_fn_validates_required_fn_ptrs() {
         ],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Transform".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -377,6 +381,7 @@ fn test_register_fn_validates_required_fn_ptrs() {
 fn test_safety_comments_present() {
     let trait_def = make_trait_def("Processor", vec![make_method("run", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Processor".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_registry".to_string()),

@@ -40,6 +40,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
     };
     let mut config = make_config("my_lib");
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),

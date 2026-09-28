@@ -246,6 +246,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_hyphenated_c
         excluded_default_features: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -311,6 +312,7 @@ fn test_scaffold_elixir_trait_bridge_registers_genserver_pid_and_plugin_name() {
         excluded_default_features: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("demo_markup::get_registry".to_string()),
@@ -385,6 +387,7 @@ fn test_scaffold_elixir_trait_bridge_module_name_is_pascal_case_for_multi_word_c
         excluded_default_features: Vec::new(),
     });
     config.trait_bridges = vec![TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Parser".to_string(),
         super_trait: None,
         registry_getter: None,

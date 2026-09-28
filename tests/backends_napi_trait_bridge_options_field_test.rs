@@ -6,6 +6,7 @@ use alef::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 
 fn options_field_bridge_config() -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,

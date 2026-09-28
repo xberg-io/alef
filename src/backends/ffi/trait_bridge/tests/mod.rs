@@ -77,6 +77,7 @@ fn sample_api() -> ApiSurface {
 
 fn sample_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
         registry_getter: None,

@@ -73,6 +73,7 @@ fn make_bridge(
     result_type: Option<&str>,
 ) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HtmlVisitor".to_string(),
         super_trait: None,
         registry_getter: None,
@@ -138,9 +139,9 @@ fn find_bridge_param_skips_options_field_bridges() {
     );
 }
 
-#[test]
-fn find_bridge_field_detects_field_via_alias() {
-    let opts_type = TypeDef {
+/// An options struct carrying the bridge field, shared by the tests below.
+fn options_type_with_visitor_field() -> TypeDef {
+    TypeDef {
         name: "ConversionOptions".to_string(),
         rust_path: "mylib::ConversionOptions".to_string(),
         original_rust_path: String::new(),
@@ -172,7 +173,62 @@ fn find_bridge_field_detects_field_via_alias() {
         has_lifetime_params: false,
         has_private_fields: false,
         version: Default::default(),
-    };
+    }
+}
+
+/// The one predicate every emitter asks must drop an excluded function, and the strict
+/// field-resolving variant layered on it must drop it too -- otherwise the `#[pyfunction]`
+/// and the `.pyi` disagree about the same config key. ~keep
+#[test]
+fn exclude_functions_removes_the_site_from_both_predicates() {
+    let opts_type = options_type_with_visitor_field();
+    let func = make_func(
+        "doctor",
+        vec![make_param(
+            "options",
+            TypeRef::Named("ConversionOptions".to_string()),
+            false,
+        )],
+    );
+    let mut bridge = make_bridge(
+        Some("VisitorHandle"),
+        Some("visitor"),
+        BridgeBinding::OptionsField,
+        Some("ConversionOptions"),
+        None,
+        None,
+        None,
+    );
+
+    assert!(
+        crate::codegen::generators::trait_bridge::options_field_bridge_site(&func, std::slice::from_ref(&bridge))
+            .is_some(),
+        "control: without an exclusion the site must be found, or the assertion below proves nothing"
+    );
+    assert!(find_bridge_field(&func, std::slice::from_ref(&opts_type), std::slice::from_ref(&bridge)).is_some());
+
+    bridge.exclude_functions = vec!["doctor".to_string()];
+    assert!(
+        crate::codegen::generators::trait_bridge::options_field_bridge_site(&func, std::slice::from_ref(&bridge))
+            .is_none(),
+        "`doctor` is excluded, so the shared predicate must not report a site"
+    );
+    assert!(
+        find_bridge_field(&func, std::slice::from_ref(&opts_type), std::slice::from_ref(&bridge)).is_none(),
+        "`find_bridge_field` layers on the shared predicate, so it must agree"
+    );
+
+    bridge.exclude_functions = vec!["a_different_function".to_string()];
+    assert!(
+        crate::codegen::generators::trait_bridge::options_field_bridge_site(&func, std::slice::from_ref(&bridge))
+            .is_some(),
+        "an exclusion naming another function must not affect this one"
+    );
+}
+
+#[test]
+fn find_bridge_field_detects_field_via_alias() {
+    let opts_type = options_type_with_visitor_field();
     let func = make_func(
         "convert",
         vec![

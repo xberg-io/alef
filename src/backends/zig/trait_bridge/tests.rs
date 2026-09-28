@@ -76,6 +76,7 @@ fn make_param(name: &str, ty: TypeRef) -> ParamDef {
 
 fn make_bridge_cfg(trait_name: &str, super_trait: Option<&str>) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: super_trait.map(|s| s.to_string()),
         registry_getter: None,

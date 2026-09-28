@@ -1306,6 +1306,7 @@ mod trait_bridge {
 
     fn make_plugin_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: Some("my_lib::get_registry".to_string()),
@@ -1327,6 +1328,7 @@ mod trait_bridge {
 
     fn make_visitor_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
             registry_getter: None,
@@ -1493,6 +1495,7 @@ mod trait_bridge {
             vec![make_method("process", TypeRef::String, true, false)],
         );
         let cfg = TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "TextBackend".to_string(),
             super_trait: Some("Plugin".to_string()),
             registry_getter: Some("my_lib::get_registry".to_string()),

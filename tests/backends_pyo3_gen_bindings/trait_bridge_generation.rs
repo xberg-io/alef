@@ -8,6 +8,7 @@ fn test_gen_trait_bridge_produces_non_empty_output_for_plugin_pattern() {
     let method = make_method_def("process", vec![], TypeRef::String, false, true, false);
     let trait_def = make_trait_def("TextBackend", "my_lib::TextBackend", vec![method]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_ocr_registry".to_string()),
@@ -60,6 +61,7 @@ fn test_gen_trait_bridge_wrapper_struct_has_required_fields() {
     let method = make_method_def("run", vec![], TypeRef::Unit, false, true, false);
     let trait_def = make_trait_def("Worker", "my_lib::Worker", vec![method]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "Worker".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_workers".to_string()),
@@ -107,6 +109,7 @@ fn test_gen_trait_bridge_generates_registration_fn_when_configured() {
     let method = make_method_def("infer", vec![], TypeRef::String, false, true, false);
     let trait_def = make_trait_def("InferenceBackend", "my_lib::InferenceBackend", vec![method]);
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "InferenceBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_inference_registry".to_string()),
@@ -166,6 +169,7 @@ fn test_gen_trait_bridge_with_sync_and_async_required_methods() {
         vec![sync_method, async_method],
     );
     let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "HybridBackend".to_string(),
         super_trait: None,
         registry_getter: Some("my_lib::get_hybrid_registry".to_string()),

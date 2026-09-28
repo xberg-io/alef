@@ -505,6 +505,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
     });
     config.trait_bridges = vec![
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "TextBackend".to_string(),
             super_trait: None,
             registry_getter: Some("test_lib::get_ocr_registry".to_string()),
@@ -525,6 +526,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             ffi_skip_methods: Vec::new(),
         },
         TraitBridgeConfig {
+            exclude_functions: Vec::new(),
             trait_name: "EmbeddingBackend".to_string(),
             super_trait: None,
             registry_getter: Some("test_lib::get_embedding_registry".to_string()),

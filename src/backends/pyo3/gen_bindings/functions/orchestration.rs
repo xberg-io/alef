@@ -33,6 +33,22 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
 ) -> String {
     use crate::core::ir::TypeRef;
 
+    // Language-filtered once, at the top: everything below -- the keyword the facade adds,
+    // the imports it emits, the register/unregister wrappers it skips -- must agree with the
+    // `#[pyfunction]` set PyO3 actually wrote, and that set already honours
+    // `exclude_languages` (alef #476). ~keep
+    let trait_bridges: Vec<crate::core::config::TraitBridgeConfig> = trait_bridges
+        .iter()
+        .filter(|b| {
+            crate::codegen::generators::trait_bridge::bridge_targets_language(
+                b,
+                &crate::backends::pyo3::trait_bridge::TARGET_SPELLINGS,
+            )
+        })
+        .cloned()
+        .collect();
+    let trait_bridges = trait_bridges.as_slice();
+
     let bridge_param_names: ahash::AHashSet<&str> =
         trait_bridges.iter().filter_map(|b| b.param_name.as_deref()).collect();
 

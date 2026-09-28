@@ -2,7 +2,8 @@ use super::{
     OptionsFieldBridges, is_python_builtin_name, python_safe_name, qualify_parameter_type, substitute_capsule_type,
 };
 use crate::backends::pyo3::type_map::python_type;
-use crate::core::ir::{FunctionDef, TypeRef};
+use crate::core::config::TraitBridgeConfig;
+use crate::core::ir::FunctionDef;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function_stub(
@@ -10,6 +11,7 @@ pub(super) fn gen_function_stub(
     bridge_param_names: &std::collections::HashSet<&str>,
     capsule_names: &std::collections::HashSet<&str>,
     options_field_bridges: &OptionsFieldBridges<'_>,
+    trait_bridges: &[TraitBridgeConfig],
     streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
     opaque_types: &ahash::AHashSet<String>,
 ) -> String {
@@ -39,18 +41,14 @@ pub(super) fn gen_function_stub(
         })
         .collect();
 
-    let bridge_kwarg = func.params.iter().find_map(|p| {
-        let type_name = match &p.ty {
-            TypeRef::Named(n) => Some(n.as_str()),
-            TypeRef::Optional(inner) => match inner.as_ref() {
-                TypeRef::Named(n) => Some(n.as_str()),
-                _ => None,
-            },
-            _ => None,
-        }?;
-        let (kwarg_name, type_alias, trait_name) = options_field_bridges.get(type_name)?;
-        Some((*kwarg_name, *type_alias, *trait_name))
-    });
+    // Which functions gain the bridge keyword is the SHARED predicate's answer, never a
+    // second walk of `func.params`: the `.pyi` stub, the `api.py` facade, the `#[pyfunction]`
+    // wrapper and the FFI wrapper all ask it, so a bridge's `exclude_functions` (and
+    // `exclude_languages`) cannot be honoured by three of them and missed by the fourth
+    // (alef #476). `options_field_bridges` supplies only the display names. ~keep
+    let bridge_kwarg = crate::codegen::generators::trait_bridge::options_field_bridge_site(func, trait_bridges)
+        .and_then(|site| options_field_bridges.get(site.options_type))
+        .map(|(kwarg_name, type_alias, trait_name)| (*kwarg_name, *type_alias, *trait_name));
     if let Some((kwarg_name, type_alias, trait_name)) = bridge_kwarg {
         let visitor_type = trait_name.or(type_alias).unwrap_or("object");
         params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
@@ -122,7 +120,7 @@ pub(super) fn gen_function_stub(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::ParamDef;
+    use crate::core::ir::{ParamDef, TypeRef};
 
     #[test]
     fn free_function_parameter_named_bytes_qualifies_its_builtin_annotation() {
@@ -142,6 +140,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &OptionsFieldBridges::default(),
+            &[],
             &std::collections::HashMap::new(),
             &ahash::AHashSet::new(),
         );
@@ -171,6 +170,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &OptionsFieldBridges::default(),
+            &[],
             &streaming_return_types,
             &ahash::AHashSet::new(),
         );
@@ -201,6 +201,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &OptionsFieldBridges::default(),
+            &[],
             &std::collections::HashMap::new(),
             &ahash::AHashSet::new(),
         );
@@ -236,6 +237,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &OptionsFieldBridges::default(),
+            &[],
             &std::collections::HashMap::new(),
             &ahash::AHashSet::new(),
         );
@@ -270,6 +272,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &OptionsFieldBridges::default(),
+            &[],
             &std::collections::HashMap::new(),
             &ahash::AHashSet::new(),
         );

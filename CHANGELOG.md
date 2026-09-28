@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A trait bridge can name the functions it does NOT attach to, via `[[crates.trait_bridges]]
+  exclude_functions` (#476).** Every generated function taking the bridge's owning config struct
+  picked up the bridge keyword, a synchronous diagnostic entry point where a listener means
+  nothing included, and there was no way to say otherwise. Four separate predicates answered
+  "does this function take the config" -- the shared `find_bridge_field`, the `.pyi` stub's own
+  map walk, the `api.py` facade's, and the FFI wrapper's -- and none of them knew a function
+  name, so teaching them one at a time would have shipped a stub that disagrees with the
+  `#[pyfunction]` it describes. They now all call one predicate,
+  `trait_bridge::options_field_bridge_sites`, which applies the `exclude_languages` and
+  `exclude_functions` gates in exactly one place; a regression test asserts the
+  `#[pyfunction]`, the `.pyi` and `api.py` agree, and fails if any one of them is taught
+  separately. `TraitBridgeConfig` is `#[serde(deny_unknown_fields)]`, so a config using the new
+  key is a hard parse error on an older alef binary. `exclude_languages` also now accepts the
+  backend spellings every backend's own `TARGET_SPELLINGS` already honoured (`pyo3`, `napi`,
+  `magnus`, `rustler`, `extendr`): config resolution validated against `Language` names alone,
+  so the documented `exclude_languages = ["pyo3"]` produced a config that would not resolve at
+  all. A new gate scans the constants out of the backend sources and fails if a target answers
+  to a spelling the validator rejects.
+
 - **A standing compile oracle reads the JavaScript glue wasm-bindgen emits for alef's generated
   wasm crate.** Every other wasm check in this repo asserts on generated Rust *source text*, and
   that is structurally blind to the defect class #470, #472 and #473 all belong to: a by-value

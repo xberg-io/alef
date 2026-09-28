@@ -271,13 +271,22 @@ impl NewAlefConfig {
 
         for trait_bridge in &krate.trait_bridges {
             for lang in &trait_bridge.exclude_languages {
-                if !is_known_language(lang.as_str()) {
+                // `is_known_language` alone rejected `pyo3`/`napi`/`magnus`/`rustler`/
+                // `extendr`, the backend spellings every backend's own `TARGET_SPELLINGS` and
+                // `bridge_targets_language`'s doc both promise are honoured -- so the only
+                // way to exclude a backend by its own name was a config that would not
+                // resolve. The two now answer the same question (alef #476). The valid-name
+                // list is derived, not retyped, so it cannot drift from the enum again. ~keep
+                if !super::trait_bridge::is_known_bridge_language(lang.as_str()) {
                     return Err(ResolveError::InvalidConfig(format!(
                         "crate `{}`: trait bridge `{}` has unknown language `{}` in \
-                         exclude_languages; valid names are: python, node, ruby, php, elixir, \
-                         wasm, ffi, go, java, csharp, r, rust, kotlin, kotlin_android, swift, \
-                         dart, gleam, zig, c, jni",
-                        krate.name, trait_bridge.trait_name, lang
+                         exclude_languages; valid language names are: {}; backend spellings \
+                         are: {}",
+                        krate.name,
+                        trait_bridge.trait_name,
+                        lang,
+                        Language::all_names_joined(),
+                        super::trait_bridge::BRIDGE_BACKEND_SPELLINGS.join(", "),
                     )));
                 }
             }

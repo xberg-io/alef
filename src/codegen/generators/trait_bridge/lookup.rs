@@ -1,5 +1,5 @@
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 
 pub fn bridge_handle_path(api: &ApiSurface, bridge: &TraitBridgeConfig, core_import: &str) -> String {
     let alias = bridge.type_alias.as_deref().unwrap_or(&bridge.trait_name);
@@ -98,69 +98,151 @@ pub struct BridgeFieldMatch<'a> {
     pub bridge: &'a TraitBridgeConfig,
 }
 
-/// Find the first function parameter whose IR type carries a bridge field
-/// (`bind_via = "options_field"`).
+/// A function parameter that carries an `options_field` bridge's owning struct.
 ///
-/// For each function parameter whose IR type is `Named(N)` or `Optional<Named(N)>`,
-/// look up `N` in `types`. If `N` matches any bridge's `options_type`, search its
-/// fields for one whose name matches the bridge's resolved options field (or whose
-/// type's `Named` alias matches the bridge's `type_alias`). Returns the first match.
+/// Produced by [`options_field_bridge_sites`], the one predicate every emitter asks. It
+/// deliberately stops short of resolving the owning struct's *field*: that needs the
+/// `ApiSurface`'s `TypeDef` list, which the `.pyi` stub, the `api.py` facade and the FFI
+/// wrapper emitter do not all have, and none of them needs it.
+#[derive(Debug, Clone, Copy)]
+pub struct OptionsFieldBridgeSite<'a> {
+    /// Index of the function parameter that carries the owning struct.
+    pub param_index: usize,
+    /// The parameter itself.
+    pub param: &'a ParamDef,
+    /// IR type name of the parameter, with any `Option<>` wrapper unwrapped.
+    pub options_type: &'a str,
+    /// True if the param is `Option<TypeName>` rather than `TypeName`.
+    pub param_is_optional: bool,
+    /// The bridge configuration that produced the match.
+    pub bridge: &'a TraitBridgeConfig,
+}
+
+/// A `Named(N)` / `Optional<Named(N)>` type reference reduced to `(N, was_optional)`.
+fn unwrap_named(ty: &TypeRef) -> Option<(&str, bool)> {
+    match ty {
+        TypeRef::Named(n) => Some((n.as_str(), false)),
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                Some((n.as_str(), true))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Whether `bridge` attaches to the generated function named `func_name`.
+///
+/// `exclude_functions` names the functions that must NOT gain the bridge's extra keyword —
+/// a synchronous diagnostic entry point where a listener is meaningless, for instance.
+pub fn bridge_covers_function(bridge: &TraitBridgeConfig, func_name: &str) -> bool {
+    !bridge.exclude_functions.iter().any(|excluded| excluded == func_name)
+}
+
+/// Every parameter of `func` that carries an `options_field` bridge's owning struct.
+///
+/// **This is the single predicate that answers "does this function take the bridge's config".**
+/// The `.pyi` stub, the `api.py` facade, the `#[pyfunction]` wrapper and the FFI wrapper each
+/// used to answer it with their own copy of the same walk; four copies meant four chances to
+/// ship a stub that disagrees with the binding it describes. Emitters pass an already
+/// language-filtered bridge list, so the `exclude_languages` and `exclude_functions` gates are
+/// applied in exactly one place too. ~keep
+pub fn options_field_bridge_sites<'a, I>(func: &'a FunctionDef, bridges: I) -> Vec<OptionsFieldBridgeSite<'a>>
+where
+    I: IntoIterator<Item = &'a TraitBridgeConfig>,
+{
+    let candidates: Vec<&'a TraitBridgeConfig> = bridges
+        .into_iter()
+        .filter(|bridge| bridge.bind_via == BridgeBinding::OptionsField)
+        .filter(|bridge| bridge_covers_function(bridge, &func.name))
+        .collect();
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sites = Vec::new();
+    for (param_index, param) in func.params.iter().enumerate() {
+        let Some((type_name, param_is_optional)) = unwrap_named(&param.ty) else {
+            continue;
+        };
+        for bridge in &candidates {
+            if bridge.options_type.as_deref() != Some(type_name) {
+                continue;
+            }
+            sites.push(OptionsFieldBridgeSite {
+                param_index,
+                param,
+                options_type: type_name,
+                param_is_optional,
+                bridge,
+            });
+        }
+    }
+    sites
+}
+
+/// The first parameter of `func` that carries an `options_field` bridge's owning struct.
+pub fn options_field_bridge_site<'a, I>(func: &'a FunctionDef, bridges: I) -> Option<OptionsFieldBridgeSite<'a>>
+where
+    I: IntoIterator<Item = &'a TraitBridgeConfig>,
+{
+    options_field_bridge_sites(func, bridges).into_iter().next()
+}
+
+/// Find the first function parameter whose IR type carries a bridge field
+/// (`bind_via = "options_field"`), resolving the owning struct's field definition.
+///
+/// Layered on [`options_field_bridge_sites`] so it cannot disagree with the other emitters
+/// about *which functions* carry a bridge; it adds only the stricter requirement that the
+/// owning struct and its bridge field are actually present in `types`. When a site matches but
+/// its field does not resolve, that is logged rather than passed over silently — it is exactly
+/// the shape where the Rust wrapper and the host-language stub drift apart. ~keep
 ///
 /// Bridges configured with `bind_via = "function_param"` are skipped — those go
 /// through [`find_bridge_param`] instead.
 pub fn find_bridge_field<'a>(
-    func: &FunctionDef,
+    func: &'a FunctionDef,
     types: &'a [TypeDef],
     bridges: &'a [TraitBridgeConfig],
 ) -> Option<BridgeFieldMatch<'a>> {
-    fn unwrap_named(ty: &TypeRef) -> Option<(&str, bool)> {
-        match ty {
-            TypeRef::Named(n) => Some((n.as_str(), false)),
-            TypeRef::Optional(inner) => {
-                if let TypeRef::Named(n) = inner.as_ref() {
-                    Some((n.as_str(), true))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    for (idx, param) in func.params.iter().enumerate() {
-        let Some((type_name, is_optional)) = unwrap_named(&param.ty) else {
+    for site in options_field_bridge_sites(func, bridges) {
+        let Some(type_def) = types.iter().find(|t| t.name == site.options_type) else {
+            tracing::debug!(
+                function = %func.name,
+                options_type = %site.options_type,
+                "options-field bridge skipped: the owning struct is absent from the API surface"
+            );
             continue;
         };
-        let Some(type_def) = types.iter().find(|t| t.name == type_name) else {
-            continue;
-        };
-        for bridge in bridges {
-            if bridge.bind_via != BridgeBinding::OptionsField {
-                continue;
-            }
-            if bridge.options_type.as_deref() != Some(type_name) {
-                continue;
-            }
-            let field_name = bridge.resolved_options_field();
-            for field in &type_def.fields {
-                let matches_name = field_name.is_some_and(|n| field.name == n);
-                let matches_alias = bridge
+        let field_name = site.bridge.resolved_options_field();
+        let matched = type_def.fields.iter().find(|field| {
+            field_name.is_some_and(|n| field.name == n)
+                || site
+                    .bridge
                     .type_alias
                     .as_deref()
-                    .is_some_and(|alias| field_type_matches_alias(&field.ty, alias));
-                if matches_name || matches_alias {
-                    return Some(BridgeFieldMatch {
-                        param_index: idx,
-                        param_name: param.name.clone(),
-                        options_type: type_name.to_string(),
-                        param_is_optional: is_optional,
-                        field_name: field.name.clone(),
-                        field,
-                        bridge,
-                    });
-                }
-            }
-        }
+                    .is_some_and(|alias| field_type_matches_alias(&field.ty, alias))
+        });
+        let Some(field) = matched else {
+            tracing::warn!(
+                function = %func.name,
+                options_type = %site.options_type,
+                trait_name = %site.bridge.trait_name,
+                "options-field bridge skipped: the configured field is absent from the owning struct"
+            );
+            continue;
+        };
+        return Some(BridgeFieldMatch {
+            param_index: site.param_index,
+            param_name: site.param.name.clone(),
+            options_type: site.options_type.to_string(),
+            param_is_optional: site.param_is_optional,
+            field_name: field.name.clone(),
+            field,
+            bridge: site.bridge,
+        });
     }
     None
 }

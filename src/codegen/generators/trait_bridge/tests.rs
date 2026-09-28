@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 fn make_trait_bridge_config(super_trait: Option<&str>, register_fn: Option<&str>) -> TraitBridgeConfig {
     TraitBridgeConfig {
+        exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: super_trait.map(str::to_string),
         registry_getter: None,
