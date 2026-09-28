@@ -904,6 +904,16 @@ fn run_run_command(
         .stderr(std::process::Stdio::piped());
     frb_cache::configure(&mut command, cmd, cache_scope)?;
 
+    // The post-build step is routinely the longest thing in a consumer's CI job -- a cold Swift
+    // release build measured 40 minutes -- and until alef#481 nothing recorded what it ran.
+    // Establishing why that build recompiled took a full CI-log forensic pass that this one line
+    // would have made unnecessary, because the invocation was simply absent from the log. ~keep
+    info!(
+        command = cmd,
+        args = %args.join(" "),
+        cwd = %base_dir.display(),
+        "running post-build command"
+    );
     let mut child = match GroupChild::spawn(&mut command) {
         Ok(child) => child,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {

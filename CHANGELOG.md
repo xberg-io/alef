@@ -187,6 +187,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A post-build command is now logged before it runs**, with its arguments and working
+  directory. The post-build step is routinely the longest thing in a consumer's CI job -- a cold
+  Swift release build has been measured at 40 minutes -- and nothing recorded what it invoked, so
+  establishing why one of those builds recompiled took a full CI-log forensic pass over a run whose
+  own command line was absent from the log (#481).
+
 - **`FieldResolver`'s three seven-argument constructors are now builder methods.**
   `new_with_php_getters`, `new_with_swift_first_class` and `new_with_dart_first_class` each
   duplicated `new_with_error_aliases`'s entire struct literal only to set one extra field, so each
