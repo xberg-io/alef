@@ -9,7 +9,9 @@ use crate::docs::type_mapping::FFI_HANDLE_TYPE_NAME;
 use crate::docs::{clean_doc, doc_type, template_env};
 use heck::{ToPascalCase, ToSnakeCase};
 
-use super::function_render::{push_errors, push_parameters_table, push_returns_with_override, push_version_annotation};
+use super::function_render::{
+    ReturnsRender, push_errors, push_parameters_table, push_returns_with_override, push_version_annotation,
+};
 
 /// The request parameter name the rustler streaming wrapper actually declares.
 ///
@@ -618,12 +620,14 @@ pub(super) fn render_method(
     push_parameters_table(&mut out, &method.params, &param_docs, lang, ffi_prefix, api);
     push_returns_with_override(
         &mut out,
-        &method.return_type,
-        docs_override.as_ref().map(|override_| override_.return_type.as_str()),
-        method.error_type.as_deref(),
-        lang,
-        ffi_prefix,
-        api,
+        &ReturnsRender {
+            return_type: &method.return_type,
+            return_type_override: docs_override.as_ref().map(|override_| override_.return_type.as_str()),
+            error_type: method.error_type.as_deref(),
+            lang,
+            ffi_prefix,
+            api,
+        },
     );
     push_errors(
         &mut out,

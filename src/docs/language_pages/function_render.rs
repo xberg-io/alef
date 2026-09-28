@@ -170,6 +170,15 @@ pub(super) fn push_parameters_table(
     out.push('\n');
 }
 
+pub(super) struct ReturnsRender<'a> {
+    pub return_type: &'a TypeRef,
+    pub return_type_override: Option<&'a str>,
+    pub error_type: Option<&'a str>,
+    pub lang: Language,
+    pub ffi_prefix: &'a str,
+    pub api: &'a ApiSurface,
+}
+
 pub(super) fn push_returns(
     out: &mut String,
     return_type: &TypeRef,
@@ -178,18 +187,29 @@ pub(super) fn push_returns(
     ffi_prefix: &str,
     api: &ApiSurface,
 ) {
-    push_returns_with_override(out, return_type, None, error_type, lang, ffi_prefix, api);
+    push_returns_with_override(
+        out,
+        &ReturnsRender {
+            return_type,
+            return_type_override: None,
+            error_type,
+            lang,
+            ffi_prefix,
+            api,
+        },
+    );
 }
 
-pub(super) fn push_returns_with_override(
-    out: &mut String,
-    return_type: &TypeRef,
-    return_type_override: Option<&str>,
-    error_type: Option<&str>,
-    lang: Language,
-    ffi_prefix: &str,
-    api: &ApiSurface,
-) {
+pub(super) fn push_returns_with_override(out: &mut String, render: &ReturnsRender<'_>) {
+    let &ReturnsRender {
+        return_type,
+        return_type_override,
+        error_type,
+        lang,
+        ffi_prefix,
+        api,
+    } = render;
+
     if matches!(return_type, TypeRef::Unit) {
         if let Some(override_ty) = return_type_override {
             out.push_str(&template_env::render(
@@ -384,12 +404,14 @@ This function is intentionally excluded from language bindings."#
         let mut out = String::new();
         push_returns_with_override(
             &mut out,
-            &TypeRef::Unit,
-            Some("StreamHandle"),
-            Some("StreamError"),
-            Language::C,
-            TEST_PREFIX,
-            &ApiSurface::default(),
+            &ReturnsRender {
+                return_type: &TypeRef::Unit,
+                return_type_override: Some("StreamHandle"),
+                error_type: Some("StreamError"),
+                lang: Language::C,
+                ffi_prefix: TEST_PREFIX,
+                api: &ApiSurface::default(),
+            },
         );
         assert!(out.contains("StreamHandle"), "{out}");
         assert!(!out.contains("int32_t"), "{out}");

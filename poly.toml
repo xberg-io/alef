@@ -78,7 +78,7 @@ pylint_max_returns = 10
 "src/e2e/codegen/python/lint_clean_python_tests.rs" = ["lazy-ignore"]
 "src/scaffold/languages/poly.rs" = ["cyclomatic-complexity", "function-too-long", "lazy-ignore"]
 # --- quality-debt baseline (generated) ---
-# 1185 size/complexity findings across 610 files that predate these
+# 1184 size/complexity findings across 609 files that predate these
 # 1206 size/complexity findings across 631 files that predate these
 # metrics. Listed per file rather than switching the rules off, so the metrics still
 # fire on every file NOT listed here -- new code stays covered, and each path below is
@@ -703,7 +703,6 @@ pylint_max_returns = 10
 "src/docs/formatting.rs" = ["cyclomatic-complexity", "file-too-long", "function-too-long"]
 "src/docs/language_pages/enum_render.rs" = ["function-too-long"]
 "src/docs/language_pages/excludes.rs" = ["cyclomatic-complexity", "function-too-long"]
-"src/docs/language_pages/function_render.rs" = ["too-many-parameters"]
 "src/docs/language_pages/mod.rs" = ["function-too-long"]
 "src/docs/language_pages/streaming.rs" = ["function-too-long", "too-many-parameters"]
 "src/docs/language_pages/type_render.rs" = ["function-too-long"]
