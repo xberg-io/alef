@@ -26,8 +26,10 @@ pub(super) fn render_pubspec(
     };
 
     let sdk = crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT;
+    let marker = crate::core::hash::SELF_MARKING_HEADER_LINE_HASH;
     format!(
-        r#"name: e2e_dart
+        r#"{marker}
+name: e2e_dart
 version: 0.1.0
 publish_to: none
 

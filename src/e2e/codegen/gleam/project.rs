@@ -32,8 +32,10 @@ envoy = "{envoy}""#
         }
     };
 
+    let marker = crate::core::hash::SELF_MARKING_HEADER_LINE_HASH;
     format!(
-        r#"name = "e2e_gleam"
+        r#"{marker}
+name = "e2e_gleam"
 version = "0.1.0"
 target = "erlang"
 

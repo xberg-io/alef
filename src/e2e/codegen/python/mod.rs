@@ -83,7 +83,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         // The conftest + tests/ subdirectory are sufficient for pytest.
         files.push(GeneratedFile {
             path: output_base.join("tests").join("__init__.py"),
-            content: "\n".to_string(),
+            content: format!("{}\n", crate::core::hash::SELF_MARKING_HEADER_LINE_HASH),
             generated_header: false,
         });
 

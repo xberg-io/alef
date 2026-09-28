@@ -152,16 +152,21 @@ impl E2eCodegen for ElixirCodegen {
         // formatting fail whenever `deps/` has not been fetched.
         files.push(GeneratedFile {
             path: output_base.join(".formatter.exs"),
-            content: "[\n  inputs: [\"{mix,.formatter}.exs\", \"{config,lib,test}/**/*.{ex,exs}\"],\n  \
-                      line_length: 140\n]\n"
-                .to_string(),
+            content: format!(
+                "{}\n[\n  inputs: [\"{{mix,.formatter}}.exs\", \"{{config,lib,test}}/**/*.{{ex,exs}}\"],\n  \
+                 line_length: 140\n]\n",
+                crate::core::hash::SELF_MARKING_HEADER_LINE_HASH
+            ),
             generated_header: false,
         });
 
         // Generate lib/e2e_elixir.ex — required so the mix project compiles.
         files.push(GeneratedFile {
             path: output_base.join("lib").join("e2e_elixir.ex"),
-            content: "defmodule E2eElixir do\n  @moduledoc false\nend\n".to_string(),
+            content: format!(
+                "{}\ndefmodule E2eElixir do\n  @moduledoc false\nend\n",
+                crate::core::hash::SELF_MARKING_HEADER_LINE_HASH
+            ),
             generated_header: false,
         });
 

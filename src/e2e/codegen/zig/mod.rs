@@ -505,24 +505,30 @@ impl E2eCodegen for ZigE2eCodegen {
                 .unwrap_or(1),
             GeneratedFile {
                 path: output_base.join("build.zig"),
-                content: render_build_zig(
-                    &test_filenames,
-                    &pkg_name,
-                    &module_name,
-                    &config.ffi_lib_name(),
-                    &config.ffi_crate_path(),
-                    ZigBuildFlags {
-                        has_file_fixtures,
-                        needs_mock_server,
-                    },
-                    &e2e_config.test_documents_relative_from(0),
-                    e2e_config.dep_mode,
-                    use_platform_registry_deps,
-                    &e2e_config.env,
-                    &zig_capsule_deps,
-                    e2e_config.extra_system_libs_for("zig"),
-                    &e2e_config.alt_host,
-                ),
+                // ~keep Stamped here rather than inside `render_build_zig`: that renderer has four
+                // separate return points (three empty-suite early returns plus the main builder),
+                // so a marker added in one of them is a marker missing from the other three --
+                // exactly the per-site hole `generated_marker_coverage_tests` exists to close.
+                content: crate::core::hash::SELF_MARKING_HEADER_LINE.to_owned()
+                    + "\n\n"
+                    + &render_build_zig(
+                        &test_filenames,
+                        &pkg_name,
+                        &module_name,
+                        &config.ffi_lib_name(),
+                        &config.ffi_crate_path(),
+                        ZigBuildFlags {
+                            has_file_fixtures,
+                            needs_mock_server,
+                        },
+                        &e2e_config.test_documents_relative_from(0),
+                        e2e_config.dep_mode,
+                        use_platform_registry_deps,
+                        &e2e_config.env,
+                        &zig_capsule_deps,
+                        e2e_config.extra_system_libs_for("zig"),
+                        &e2e_config.alt_host,
+                    ),
                 generated_header: false,
             },
         );

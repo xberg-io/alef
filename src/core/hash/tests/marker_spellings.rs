@@ -22,7 +22,8 @@
 //! [`all_known_marker_texts`]. ~keep
 
 use crate::core::hash::{
-    CITATION_CFF_HEADER_LINE, SELF_MARKING_HEADER_LINE, STANDARD_HEADER_LINE, SWIFT_C_UMBRELLA_HEADER_MARKER,
+    CITATION_CFF_HEADER_LINE, SELF_MARKING_HEADER_LINE, SELF_MARKING_HEADER_LINE_HASH, STANDARD_HEADER_LINE,
+    SWIFT_C_UMBRELLA_HEADER_MARKER,
 };
 
 /// Marker spellings hoisted into named Rust constants because a real production call site
@@ -32,6 +33,7 @@ const RUST_CONSTANT_MARKERS: &[&str] = &[
     SWIFT_C_UMBRELLA_HEADER_MARKER,
     CITATION_CFF_HEADER_LINE,
     SELF_MARKING_HEADER_LINE,
+    SELF_MARKING_HEADER_LINE_HASH,
 ];
 
 /// `.jinja` templates that hardcode their own alef marker line rather than receiving one via a

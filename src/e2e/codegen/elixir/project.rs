@@ -102,6 +102,8 @@ pub(super) fn render_mix_exs(
     test_surface: MixTestSurface,
 ) -> String {
     let mut out = String::new();
+    let _ = writeln!(out, "{}", crate::core::hash::SELF_MARKING_HEADER_LINE_HASH);
+    let _ = writeln!(out);
     let _ = writeln!(out, "defmodule E2eElixir.MixProject do");
     let _ = writeln!(out, "  use Mix.Project");
     let _ = writeln!(out);

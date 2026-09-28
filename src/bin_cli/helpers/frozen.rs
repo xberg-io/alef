@@ -360,6 +360,14 @@ pub(crate) fn drifted_seed_report_lines(frozen: &[FrozenFile]) -> Vec<String> {
             drifted.len()
         ),
         "  Preview: alef adopt <path>".to_owned(),
+        // ~keep The preview is a real dry run, but printing it alone is what sent the reporter of
+        // alef #474 straight into `alef adopt --write`, which bails on a create-once seed
+        // (`cli::commands::adopt::batch`). Naming the flag the write actually needs -- next to the
+        // two remedies that carry no clobber risk -- is the difference between a hint and a wall.
+        "  Note: `alef adopt --write` refuses a create-once seed; adopting one anyway needs \
+         --clobber-create-once-seeds, which consents to alef overwriting it on the next \
+         overwriting regen"
+            .to_owned(),
         "  Fix: delete the file, or declare it in `[workspace.ownership] user_owned`".to_owned(),
     ];
     for path in drifted {

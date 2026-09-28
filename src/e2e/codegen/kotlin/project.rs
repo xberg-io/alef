@@ -80,8 +80,11 @@ pub(crate) fn render_build_gradle(
     } else {
         String::new()
     };
+    let marker = crate::core::hash::SELF_MARKING_HEADER_LINE;
     format!(
-        r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+        r#"{marker}
+
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
     kotlin("jvm") version "{kotlin_plugin}"
