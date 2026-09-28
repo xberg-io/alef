@@ -3,6 +3,7 @@
 
 pub mod backend;
 pub mod cache_dir;
+pub mod cargo_target_dir;
 pub mod config;
 pub mod error;
 pub mod extension;

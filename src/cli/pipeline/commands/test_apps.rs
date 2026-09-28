@@ -140,60 +140,21 @@ fn has_mock_server_bin(manifest_path: &std::path::Path) -> anyhow::Result<bool> 
 /// `build.target-dir`, or workspace membership redirects the build output elsewhere, and it
 /// never adds `EXE_SUFFIX`, so it silently misses the binary on Windows.
 ///
-/// Mirrors the `cargo metadata` shell-out in `crate::core::config::registry`.
-///
-/// `cargo_target_dir` is the `CARGO_TARGET_DIR` the build ran under, injected into the
-/// `cargo metadata` child explicitly (same shape as `build::frb_cache`) so a caller never has to
-/// mutate the process environment to make the resolution follow a redirected target dir.
+/// `cargo_target_dir` is the `CARGO_TARGET_DIR` the build ran under, handed to
+/// [`crate::core::cargo_target_dir::resolve`] so it reaches the `cargo metadata` child
+/// explicitly (same shape as `build::frb_cache`) and a caller never has to mutate the process
+/// environment to make the resolution follow a redirected target dir.
 ///
 /// # Errors
 ///
 /// Returns an error when `cargo metadata` fails to run or exits non-zero, or when its JSON
-/// output cannot be parsed (see [`mock_server_binary_path_from_metadata`]).
+/// output cannot be parsed.
 fn mock_server_binary_path(
     manifest_path: &Path,
     cargo_target_dir: Option<&std::ffi::OsStr>,
 ) -> anyhow::Result<PathBuf> {
-    let mut command = std::process::Command::new("cargo");
-    command
-        .args(["metadata", "--format-version", "1", "--no-deps", "--manifest-path"])
-        .arg(manifest_path);
-    if let Some(target_dir) = cargo_target_dir {
-        command.env("CARGO_TARGET_DIR", target_dir);
-    }
-    let output = command.output().with_context(|| {
-        format!(
-            "failed to run `cargo metadata --manifest-path {}`",
-            manifest_path.display()
-        )
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "`cargo metadata --manifest-path {}` failed: {}",
-            manifest_path.display(),
-            stderr.trim()
-        );
-    }
-
-    let json = String::from_utf8_lossy(&output.stdout);
-    mock_server_binary_path_from_metadata(&json)
-        .with_context(|| format!("resolving mock-server binary path for {}", manifest_path.display()))
-}
-
-/// Pure function: parse `cargo metadata --format-version 1` JSON and join the release
-/// mock-server binary's path onto its `target_directory`, appending `EXE_SUFFIX`.
-///
-/// Kept separate from [`mock_server_binary_path`] so this logic is unit-testable without
-/// running cargo.
-fn mock_server_binary_path_from_metadata(metadata_json: &str) -> anyhow::Result<PathBuf> {
-    let metadata: serde_json::Value =
-        serde_json::from_str(metadata_json).context("failed to parse cargo metadata JSON")?;
-    let target_directory = metadata["target_directory"]
-        .as_str()
-        .context("cargo metadata JSON missing `target_directory`")?;
-    Ok(Path::new(target_directory)
+    let target_directory = crate::core::cargo_target_dir::resolve(manifest_path, cargo_target_dir)?;
+    Ok(target_directory
         .join("release")
         .join(format!("mock-server{}", std::env::consts::EXE_SUFFIX)))
 }
@@ -862,37 +823,6 @@ mod mock_server_binary_path_tests {
                 .status()
                 .is_ok_and(|status| status.success())
         })
-    }
-
-    #[test]
-    fn resolves_release_binary_path_from_an_external_target_directory() {
-        let json = r#"{"target_directory": "/var/tmp/some-external-target"}"#;
-        let path = mock_server_binary_path_from_metadata(json).unwrap();
-        assert_eq!(
-            path,
-            PathBuf::from(format!(
-                "/var/tmp/some-external-target/release/mock-server{}",
-                std::env::consts::EXE_SUFFIX
-            ))
-        );
-    }
-
-    #[test]
-    fn errors_when_target_directory_is_missing() {
-        let err = mock_server_binary_path_from_metadata(r#"{"packages": []}"#).unwrap_err();
-        assert!(
-            format!("{err:#}").contains("missing `target_directory`"),
-            "unexpected error: {err:#}"
-        );
-    }
-
-    #[test]
-    fn errors_on_invalid_json() {
-        let err = mock_server_binary_path_from_metadata("not json").unwrap_err();
-        assert!(
-            format!("{err:#}").contains("failed to parse cargo metadata JSON"),
-            "unexpected error: {err:#}"
-        );
     }
 
     /// End-to-end: builds a tiny throwaway crate under a custom `CARGO_TARGET_DIR` and asserts

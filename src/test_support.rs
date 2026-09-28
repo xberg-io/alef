@@ -214,6 +214,57 @@ impl RealCargoGuard {
     }
 }
 
+/// The single lock serializing every test in this crate that mutates the process-global
+/// `CARGO_TARGET_DIR` env var. Mirrors [`CWD_LOCK`]/[`SKIP_COMMANDS_LOCK`]'s rationale for a
+/// third process-global resource.
+///
+/// The resource became load-bearing when `core::cargo_target_dir` started asking `cargo metadata`
+/// where build output really goes (alef #477): cargo honours an inherited `CARGO_TARGET_DIR`, so
+/// any fixture that plants fake build output under its own tempdir resolves to the *test
+/// runner's* target directory instead the moment the suite is run with that variable exported --
+/// and finds nothing there. Measured: `cargo test --lib post_build_format_order_tests` under
+/// `CARGO_TARGET_DIR=<repo>/target` failed all three swift-bridge fixtures with
+/// `searched <repo>/target/{release,debug}/build/test-lib-swift-*/out`. ~keep
+pub(crate) static CARGO_TARGET_DIR_LOCK: Mutex<()> = Mutex::new(());
+
+/// RAII guard that locks [`CARGO_TARGET_DIR_LOCK`] and unsets `CARGO_TARGET_DIR` for its
+/// lifetime, restoring whatever it held before on drop -- including when the guarded scope
+/// panics.
+///
+/// Makes a tempdir fixture project hermetic: with the variable gone, cargo resolves the fixture's
+/// target directory from the fixture's own tree (its `.cargo/config.toml`, else
+/// `<fixture>/target`), which is where the fixture planted its build output. See
+/// [`CARGO_TARGET_DIR_LOCK`] for the failure this closes.
+pub(crate) struct ClearedCargoTargetDirGuard {
+    _lock: MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl ClearedCargoTargetDirGuard {
+    /// Locks [`CARGO_TARGET_DIR_LOCK`] and removes `CARGO_TARGET_DIR` from the environment,
+    /// returning a guard that restores it when dropped.
+    pub(crate) fn clear() -> Self {
+        let lock = CARGO_TARGET_DIR_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let previous = std::env::var_os("CARGO_TARGET_DIR");
+        // SAFETY: `_lock` is held for the guard's entire lifetime, so no other thread in this
+        // process can be reading or writing `CARGO_TARGET_DIR` through this same guard type
+        // concurrently.
+        unsafe { std::env::remove_var("CARGO_TARGET_DIR") };
+        Self { _lock: lock, previous }
+    }
+}
+
+impl Drop for ClearedCargoTargetDirGuard {
+    fn drop(&mut self) {
+        // SAFETY: see `clear`'s SAFETY comment -- `_lock` is still held here, during `Drop`.
+        unsafe {
+            if let Some(value) = &self.previous {
+                std::env::set_var("CARGO_TARGET_DIR", value);
+            }
+        }
+    }
+}
+
 /// The single lock serializing every test in this crate that spawns a REAL `mvn` subprocess
 /// against [`maven_local_repo_dir`].
 ///

@@ -777,18 +777,11 @@ pub fn run_post_build(
                 package_root,
             } => {
                 let package_root = base_dir.join(package_root);
-                let materialized = crate::backends::swift::gen_bindings::bridge_artifacts::emit_swift_bridge_files(
-                    "",
+                crate::backends::swift::gen_bindings::bridge_artifacts::materialize_from_build_output(
                     binding_crate_name,
                     &package_root,
-                    true,
-                )
-                .with_context(|| format!("failed to re-materialize swift-bridge files for '{binding_crate_name}'"))?;
-                if let Some(files) = materialized {
-                    crate::backends::swift::gen_bindings::bridge_artifacts::write_materialized_files(files, base_dir)
-                        .with_context(|| format!("failed to write swift-bridge files for '{binding_crate_name}'"))?;
-                }
-                info!("Re-materialized swift-bridge files for '{binding_crate_name}' from fresh build output");
+                    base_dir,
+                )?;
             }
             PostBuildStep::VerifyFrbBridgeCoverage {
                 facade_path,

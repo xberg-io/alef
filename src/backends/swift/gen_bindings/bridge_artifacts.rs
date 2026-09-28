@@ -10,13 +10,24 @@ use std::path::{Path, PathBuf};
 
 pub(crate) mod umbrella_header;
 
-pub(crate) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
+/// The directory cargo actually writes build output into for the workspace the process cwd sits
+/// in, or `None` when no ancestor carries a `Cargo.lock` to anchor the search.
+///
+/// Resolved through [`crate::core::cargo_target_dir`] rather than joined as
+/// `workspace_root/"target"`: a host that redirects output via `CARGO_TARGET_DIR` or a
+/// `.cargo/config.toml` `build.target-dir` otherwise leaves every scan below matching nothing,
+/// which is indistinguishable from an unbuilt crate (alef #477). ~keep
+fn swift_bridge_target_root() -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     let workspace_root = std::iter::once(cwd.clone())
         .chain(cwd.ancestors().skip(1).map(|p| p.to_path_buf()))
         .take(8)
         .find(|p| p.join("Cargo.lock").exists())?;
-    let target = workspace_root.join("target");
+    Some(crate::core::cargo_target_dir::for_workspace_root(&workspace_root))
+}
+
+pub(crate) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
+    let target = swift_bridge_target_root()?;
 
     let crate_prefix = format!("{binding_crate_name}-");
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
@@ -277,6 +288,75 @@ pub(crate) fn write_materialized_files(files: Vec<GeneratedFile>, project_root: 
         let normalized = crate::cli::pipeline::normalize_content(project_root, &f.path, &f.content);
         std::fs::write(&f.path, &normalized)
             .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", f.path.display()))?;
+    }
+    Ok(())
+}
+
+/// How many files a real materialization writes: `SwiftBridgeCore.swift`,
+/// `{binding_crate}.swift` and `RustBridgeC.h`. The placeholder branch of
+/// [`emit_swift_bridge_files`] also returns `Some`, of the header alone, so the count -- not
+/// `Option::is_some` -- is what separates "copied fresh build output" from "wrote a stand-in".
+const MATERIALIZED_TRIO_LEN: usize = 3;
+
+/// Run `PostBuildStep::MaterializeSwiftBridge`: read swift-bridge's own build output and write the
+/// trio it produces into `package_root`.
+///
+/// Reports what was actually written, and fails when build output that was expected is missing.
+/// Before this existed the caller logged one unconditional success line outside the `if let` that
+/// guarded the write, so all three outcomes -- trio copied, placeholder written, nothing written
+/// at all -- rendered as the same line and exit 0, which is how alef #477 (`CARGO_TARGET_DIR`
+/// pointing outside the project) shipped stale committed bridge files while claiming to have
+/// refreshed them.
+///
+/// The three outcomes are told apart by [`emit_swift_bridge_files`]'s return value alone, and the
+/// distinction that matters is *not* "is Swift configured" -- this step only exists in a build
+/// plan the Swift backend built, so a Swift package is configured by construction. It is "has
+/// this crate ever been built here":
+///
+/// - `Some(trio)`: fresh output found and copied. The success line, with its count.
+/// - `Some(placeholder)`: no build output *and* no populated committed header, i.e. a project's
+///   first generation before `{binding_crate_name}` has ever been compiled. Legitimate, and
+///   deliberately not an error -- `core::backend`'s
+///   `materialize_swift_bridge_does_not_claim_trio_members_it_never_wrote` pins that this is the
+///   normal first-run state.
+/// - `None`: either a populated header is already committed but this run found no build output,
+///   or the output directory exists with part of the four-file set missing. Both mean a build
+///   that was supposed to have run did not leave usable output where this step looks, which is
+///   exactly #477's shape -- so both are errors now. ~keep
+pub(crate) fn materialize_from_build_output(
+    binding_crate_name: &str,
+    package_root: &Path,
+    project_root: &Path,
+) -> anyhow::Result<()> {
+    let materialized = emit_swift_bridge_files("", binding_crate_name, package_root, true).map_err(|e| {
+        anyhow::anyhow!("failed to re-materialize swift-bridge files for '{binding_crate_name}': {e:#}")
+    })?;
+    let Some(files) = materialized else {
+        let searched = swift_bridge_target_root()
+            .map(|root| root.display().to_string())
+            .unwrap_or_else(|| "<no Cargo.lock found above the current directory>".to_owned());
+        anyhow::bail!(
+            "no usable swift-bridge build output for '{binding_crate_name}': searched \
+             {searched}/{{release,debug}}/build/{binding_crate_name}-*/out for SwiftBridgeCore.swift, \
+             SwiftBridgeCore.h, {binding_crate_name}/{binding_crate_name}.swift and \
+             {binding_crate_name}/{binding_crate_name}.h. The committed files under {} were left unchanged. \
+             Build '{binding_crate_name}' (its build script populates OUT_DIR) and run alef under the same \
+             cargo target directory as that build",
+            package_root.display()
+        );
+    };
+    let written = files.len();
+    write_materialized_files(files, project_root)
+        .map_err(|e| anyhow::anyhow!("failed to write swift-bridge files for '{binding_crate_name}': {e:#}"))?;
+    if written == MATERIALIZED_TRIO_LEN {
+        tracing::info!(
+            "Re-materialized {written} swift-bridge files for '{binding_crate_name}' from fresh build output"
+        );
+    } else {
+        tracing::info!(
+            "Wrote {written} placeholder swift-bridge file(s) for '{binding_crate_name}': the crate has not been \
+             built here yet, so no swift-bridge build output exists to copy"
+        );
     }
     Ok(())
 }

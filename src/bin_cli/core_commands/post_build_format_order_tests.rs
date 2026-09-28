@@ -130,8 +130,15 @@ fn write_fixture_workspace(root: &Path) {
 /// `SwiftBridgeCore.swift` marker file inside `out/`, so a hand-built directory with the right
 /// shape is indistinguishable from a real one to the code under test.
 fn seed_fake_swift_bridge_build_output(root: &Path) {
-    let out_dir = root
-        .join("target/release/build")
+    seed_fake_swift_bridge_build_output_in(&root.join("target"));
+}
+
+/// [`seed_fake_swift_bridge_build_output`] against an arbitrary cargo target root, so a fixture
+/// can plant the build output somewhere the project directory does not contain -- which is the
+/// whole point of the alef #477 coverage below.
+fn seed_fake_swift_bridge_build_output_in(target_root: &Path) {
+    let out_dir = target_root
+        .join("release/build")
         .join(format!("{BINDING_CRATE_NAME}-fakehash/out"));
     let binding_out_dir = out_dir.join(BINDING_CRATE_NAME);
     std::fs::create_dir_all(&binding_out_dir).expect("create fake swift-bridge out dir");
@@ -161,7 +168,20 @@ fn header_path(root: &Path) -> std::path::PathBuf {
 /// still runs immediately after and finds the fake `out/` directory `seed_fake_swift_bridge_build_output`
 /// planted. Guarded by `SkipCommandsGuard` because `ALEF_SKIP_COMMANDS` is process-global. ~keep
 fn run_generate(root: &Path) {
+    try_generate(root).expect("alef generate must succeed against the fixture");
+}
+
+/// [`run_generate`] without the success assertion, for the cases that must fail.
+///
+/// `ClearedCargoTargetDirGuard` makes the fixture hermetic: since alef #477,
+/// `find_swift_bridge_out_dir` asks `cargo metadata` where build output goes, and cargo honours
+/// an inherited `CARGO_TARGET_DIR` -- so a suite run with that variable exported would send every
+/// fixture here looking in the test runner's own target directory instead of the tempdir where
+/// it planted its fake `out/`. Clearing it leaves cargo to resolve the fixture's own tree, which
+/// is what `point_cargo_at_an_external_target_dir` then redirects via `.cargo/config.toml`. ~keep
+fn try_generate(root: &Path) -> anyhow::Result<()> {
     let _skip_guard = SkipCommandsGuard::set("cargo");
+    let _target_dir_guard = crate::test_support::ClearedCargoTargetDirGuard::clear();
     let _cwd = crate::test_support::CwdGuard::enter(root);
     let context = DispatchContext {
         config_path: root.join("alef.toml"),
@@ -177,7 +197,7 @@ fn run_generate(root: &Path) {
         },
         &context,
     )
-    .expect("alef generate must succeed against the fixture");
+    .map(|_| ())
 }
 
 /// The regression test itself: `alef generate` must leave the post-build-owned header both
@@ -339,6 +359,8 @@ fn write_all_fixture_workspace(root: &Path) {
 /// Run `alef all` against `root`. `ALEF_SKIP_COMMANDS=cargo` for the same reason as
 /// [`run_generate`]: no real toolchain build is available or wanted here.
 ///
+/// `ClearedCargoTargetDirGuard` is held for the same reason as in [`try_generate`].
+///
 /// `ALEF_SKIP_COMMANDS` does not reach `alef all`'s own full-regen `converge_full_regen`
 /// residuals (`cargo fmt --all`, `cargo sort -n -w`), which run for real whenever `root` has a
 /// Cargo.toml -- this fixture does. `RealCargoGuard` serializes that against every other test in
@@ -348,6 +370,7 @@ fn write_all_fixture_workspace(root: &Path) {
 fn run_all(root: &Path) {
     let _cargo_lock = crate::test_support::RealCargoGuard::acquire();
     let _skip_guard = SkipCommandsGuard::set("cargo");
+    let _target_dir_guard = crate::test_support::ClearedCargoTargetDirGuard::clear();
     let _cwd = crate::test_support::CwdGuard::enter(root);
     let context = DispatchContext {
         config_path: root.join("alef.toml"),
@@ -698,4 +721,125 @@ fn all_records_the_materialized_swift_bridge_trio_in_the_binding_ownership_manif
              this root -- manifest contents:\n{manifest}"
         );
     }
+}
+
+/// A committed `RustBridgeC.h` that `umbrella_header::is_populated` accepts (it references a
+/// `__swift_bridge__$` symbol), carrying a marker no fresh materialization can reproduce.
+///
+/// Both properties are load-bearing. "Populated" is what sends `emit_swift_bridge_files` down its
+/// `Ok(None)` branch when no build output is found -- the exact path alef #477's reporter hit --
+/// rather than down the placeholder branch a never-built project takes. The marker is what makes
+/// staleness observable: the fake build output below declares `DemoOpaque`, so a header that
+/// still carries `REPRO-477` after a run was not refreshed, whatever the run logged. ~keep
+const STALE_COMMITTED_HEADER: &str = "#ifndef RUST_BRIDGE_C_H\n\
+                                      #define RUST_BRIDGE_C_H\n\
+                                      \n\
+                                      // REPRO-477 stale marker\n\
+                                      void __swift_bridge__$stale_marker(void);\n\
+                                      \n\
+                                      #endif /* RUST_BRIDGE_C_H */\n";
+
+fn write_stale_committed_header(root: &Path) {
+    let header = header_path(root);
+    std::fs::create_dir_all(header.parent().expect("header has a parent")).expect("create RustBridgeC dir");
+    std::fs::write(&header, STALE_COMMITTED_HEADER).expect("write stale committed header");
+}
+
+/// Point the fixture's cargo at a target directory outside the project, the way alef #477's
+/// reporter did.
+///
+/// A `.cargo/config.toml` `build.target-dir` is used rather than exporting `CARGO_TARGET_DIR`:
+/// the env var is process-global and `cargo test` runs every test in one process, so setting it
+/// here would redirect the build output of every concurrent test that spawns cargo -- the leak
+/// `cli::pipeline::commands::test_apps`' `resolves_binary_built_under_a_custom_cargo_target_dir`
+/// documents having already been bitten by. The config file is confined to this fixture tree.
+///
+/// It is also the stronger probe of the two: `CARGO_TARGET_DIR` is readable without cargo, so a
+/// resolver that merely consulted the environment would satisfy it. Only asking `cargo metadata`
+/// finds a `build.target-dir`. Cargo discovers that file by walking up from the process cwd, not
+/// from `--manifest-path`, which is why this only works under `try_generate`'s `CwdGuard`. ~keep
+fn point_cargo_at_an_external_target_dir(root: &Path, external_target: &Path) {
+    std::fs::create_dir_all(root.join(".cargo")).expect("create .cargo dir");
+    std::fs::write(
+        root.join(".cargo/config.toml"),
+        format!("[build]\ntarget-dir = \"{}\"\n", external_target.display()),
+    )
+    .expect("write .cargo/config.toml");
+}
+
+/// Regression for alef #477: `MaterializeSwiftBridge` must read swift-bridge's build output from
+/// the directory cargo actually writes to, not from a hard-coded `<workspace root>/target`.
+///
+/// Before the fix, `find_swift_bridge_out_dir` joined `"target"` onto the ancestor that carries
+/// `Cargo.lock`. With the output redirected elsewhere that scan matched nothing, the already
+/// populated committed header sent `emit_swift_bridge_files` to `Ok(None)`, nothing was written,
+/// and the caller logged `Re-materialized swift-bridge files ... from fresh build output` anyway
+/// -- exit 0, files stale. ~keep
+#[test]
+fn generate_materializes_from_an_external_cargo_target_dir() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    let external = tempfile::tempdir().expect("tempdir for the external cargo target dir");
+    let external_target = external
+        .path()
+        .canonicalize()
+        .unwrap_or_else(|_| external.path().to_path_buf());
+
+    write_fixture_workspace(&root);
+    write_stale_committed_header(&root);
+    point_cargo_at_an_external_target_dir(&root, &external_target);
+    seed_fake_swift_bridge_build_output_in(&external_target);
+    assert!(
+        !root.join("target").exists(),
+        "sanity: the project must have no `target/` of its own, or the old hard-coded join would \
+         find the output anyway and this test could not fail"
+    );
+
+    run_generate(&root);
+
+    let header = std::fs::read_to_string(header_path(&root)).expect("the header must still exist after generate");
+    assert!(
+        !header.contains("REPRO-477"),
+        "the stale committed header survived a run that reported success -- the build output \
+         under {} was never read. Header:\n{header}",
+        external_target.display()
+    );
+    assert!(
+        header.contains("DemoOpaque"),
+        "the header must carry the declarations from the external build output. Header:\n{header}"
+    );
+    let core_swift = root.join("packages/swift/Sources/RustBridge/SwiftBridgeCore.swift");
+    assert!(
+        core_swift.is_file(),
+        "the rest of the trio must be materialized from the external target dir too; {} is missing",
+        core_swift.display()
+    );
+}
+
+/// The other half of alef #477: when build output that was expected is missing, the step must
+/// fail instead of logging success over an untouched tree.
+///
+/// A populated committed header is what marks this crate as one that *has* been built here
+/// before, so "no build output found" is a broken run rather than a first generation. The
+/// placeholder-writing first-generation case stays a success and is pinned separately by
+/// `core::backend`'s `materialize_swift_bridge_does_not_claim_trio_members_it_never_wrote`. ~keep
+#[test]
+fn generate_fails_when_expected_swift_bridge_build_output_is_missing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    write_fixture_workspace(&root);
+    write_stale_committed_header(&root);
+
+    let error = try_generate(&root).expect_err("generate must fail when the expected build output is missing");
+
+    let rendered = format!("{error:#}");
+    assert!(
+        rendered.contains("no usable swift-bridge build output"),
+        "the failure must name the missing build output rather than some unrelated error: {rendered}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(header_path(&root)).expect("the header must still exist"),
+        STALE_COMMITTED_HEADER,
+        "a failed materialization must leave the committed header exactly as it found it"
+    );
 }

@@ -919,7 +919,7 @@ fn read_swift_bridge_headers(binding_crate_name: &str) -> Option<(String, String
         .chain(cwd.ancestors().skip(1).map(|p| p.to_path_buf()))
         .take(8)
         .find(|p| p.join("Cargo.lock").exists())?;
-    let target = workspace_root.join("target");
+    let target = crate::core::cargo_target_dir::for_workspace_root(&workspace_root);
 
     let crate_prefix = format!("{}-", binding_crate_name);
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;

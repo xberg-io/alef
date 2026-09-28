@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Swift post-build step read build output from `./target` and reported success when it
+  found nothing.** `find_swift_bridge_out_dir` (and scaffold's `read_swift_bridge_headers`)
+  joined `"target"` onto the ancestor carrying `Cargo.lock`, so a host that redirects cargo's
+  output -- `CARGO_TARGET_DIR`, or a `.cargo/config.toml` `build.target-dir` -- left the scan
+  matching nothing. `MaterializeSwiftBridge` then logged `Re-materialized swift-bridge files ...
+  from fresh build output` from outside the `if let` that guarded the write, so a run that wrote
+  nothing exited 0 with the same line and left the committed `RustBridgeC.h`,
+  `SwiftBridgeCore.swift` and `{crate}.swift` stale. Both lookups now resolve the target
+  directory through `cargo metadata`'s `target_directory` (the new `core::cargo_target_dir`,
+  which `cli::pipeline::commands::test_apps` routes its mock-server lookup through too), the log
+  line reports what was actually written, and build output that was expected but is missing is
+  an error instead of a success. A project's first generation, which legitimately has nothing to
+  copy and writes the placeholder header, stays a success.
 - **A failed snippet validation left every reference page `alef docs` had just written without
   its `alef:hash:` stamp.** `core_commands::docs` propagated `docs_result` with `?` between the
   write and the `finalize_hashes` call, so a run that wrote the pages and then failed validation
