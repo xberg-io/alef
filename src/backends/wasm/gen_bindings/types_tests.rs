@@ -211,7 +211,8 @@ fn gen_struct_methods_skips_method_wrapper_when_field_getter_already_emitted() {
 fn convert_constructor_params_keeps_shorthand_for_single_word_field() {
     let field_names = vec!["provider".to_string()];
 
-    let (_params, assignments) = convert_constructor_params_to_camel_case("provider: String", "provider", &field_names);
+    let (_params, assignments) =
+        convert_constructor_params_to_camel_case("provider: String", "provider", &field_names, &AHashSet::default());
 
     assert_eq!(
         assignments, "provider",
@@ -227,7 +228,7 @@ fn convert_constructor_params_renames_multi_word_field() {
     let field_names = vec!["chunk_size".to_string()];
 
     let (_params, assignments) =
-        convert_constructor_params_to_camel_case("chunk_size: u32", "chunk_size", &field_names);
+        convert_constructor_params_to_camel_case("chunk_size: u32", "chunk_size", &field_names, &AHashSet::default());
 
     assert_eq!(assignments, "chunk_size: chunkSize");
 }

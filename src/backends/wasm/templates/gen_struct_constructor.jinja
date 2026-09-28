@@ -1,0 +1,10 @@
+{% for line in doc_lines %}
+/// {{ line }}
+{% endfor %}
+{% for attr in attrs %}
+{{ attr }}
+{% endfor %}
+#[wasm_bindgen(constructor)]
+pub fn new({{ param_list }}) -> {{ struct_name }} {
+    {{ struct_name }} { {{ assignments }} }
+}

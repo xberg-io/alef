@@ -1,12 +1,16 @@
-//! alef#470 and #473: accessors for a field whose type is a generated wasm-bindgen class.
+//! alef#470, #472, #473: every place a generated wasm binding takes a handle to a class.
 //!
 //! wasm-bindgen lowers a by-value exported-struct argument through `__destroy_into_raw()`, so a
-//! by-value setter kills the handle the caller assigned. Two emitters mint such a setter: the
-//! struct one (#470) and the tagged-data-enum payload one (#473). These tests pin the borrow
-//! that replaces it and the `clear{Field}()` companion that restores clearing, since
-//! `Option<&T>` has no `OptionFromWasmAbi` impl and the borrowed setter cannot accept `null`.
+//! by-value parameter kills the handle the caller passed. Three emitters take one: the struct
+//! setter (#470), the tagged-data-enum payload setter (#473) and the struct constructor (#472).
+//! These tests pin the borrow that replaces it where a borrow is expressible, the
+//! `clear{Field}()` companion that restores clearing (`Option<&T>` has no `OptionFromWasmAbi`
+//! impl, so the borrowed setter cannot accept `null`), and -- just as deliberately -- the
+//! constructor position where a borrow is *not* expressible and the consumed argument is
+//! documented instead.
 //!
 //! These are source-text assertions and cannot see the defect itself: pre-fix output compiles.
+//! `backends::wasm::wasm_bindgen_js_oracle` is the check that reads the emitted JS.
 
 use alef::backends::wasm::WasmBackend;
 use alef::core::backend::Backend;
@@ -157,6 +161,38 @@ fn layer_enum() -> EnumDef {
     }
 }
 
+/// A struct that does NOT derive `Default`, so `shared::constructor_parts` types its required
+/// parameters by their own type rather than `Option<T>`.
+fn render_options_type() -> TypeDef {
+    TypeDef {
+        name: "RenderOptions".to_string(),
+        rust_path: "test_lib::RenderOptions".to_string(),
+        fields: vec![
+            field("palette", named("Palette"), false),
+            field("title", TypeRef::String, false),
+            field("fallback_palette", named("Palette"), true),
+        ],
+        is_clone: true,
+        ..Default::default()
+    }
+}
+
+/// The same shape with `#[derive(Default)]`, which routes the constructor through
+/// `shared::config_constructor_parts_inner` and makes every parameter `Option<T>`.
+fn defaulted_options_type() -> TypeDef {
+    TypeDef {
+        name: "DefaultedOptions".to_string(),
+        rust_path: "test_lib::DefaultedOptions".to_string(),
+        fields: vec![
+            field("palette", named("Palette"), false),
+            field("title", TypeRef::String, false),
+        ],
+        is_clone: true,
+        has_default: true,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn class_typed_setters_borrow_instead_of_consuming() {
     let content = generated_lib_rs(vec![palette_type(), handle_type(), theme_type()]);
@@ -272,5 +308,61 @@ fn tagged_enum_payload_setter_respects_a_type_override() {
     assert!(
         !content.contains("pub fn clear_palette("),
         "no clear companion for a field that is not class-backed;\n{content}"
+    );
+}
+
+/// alef#472, the half that is fixable: a required class-typed parameter of a struct that does
+/// not derive `Default` is borrowed, and the struct literal stores a clone.
+#[test]
+fn constructor_borrows_required_class_typed_arguments() {
+    let content = generated_lib_rs(vec![palette_type(), render_options_type()]);
+
+    assert!(
+        content.contains("pub fn new(palette: &WasmPalette, title: String, fallbackPalette: Option<WasmPalette>)"),
+        "the required class-typed parameter must be borrowed;\n{content}"
+    );
+    assert!(
+        content.contains("palette: palette.clone()"),
+        "a borrowed parameter has to be cloned into the struct literal;\n{content}"
+    );
+}
+
+/// alef#472, the half that is NOT fixable, pinned so nobody "fixes" it into code that cannot
+/// compile. `shared::config_constructor_parts_inner` types every parameter of a
+/// `#[derive(Default)]` struct as `Option<T>`, and `Option<&T>` has no `OptionFromWasmAbi` impl,
+/// so no parameter here is borrowable at all. The generated rustdoc is the only warning the
+/// consumer gets, so it is part of the contract.
+#[test]
+fn defaulted_struct_constructor_still_consumes_its_argument_and_says_so() {
+    let content = generated_lib_rs(vec![palette_type(), defaulted_options_type()]);
+
+    assert!(
+        content.contains("pub fn new(palette: Option<WasmPalette>, title: Option<String>)"),
+        "a `#[derive(Default)]` constructor takes Option<T>, which cannot be borrowed;\n{content}"
+    );
+    assert!(
+        content.contains("/// Consumes `palette`."),
+        "the consumed argument must be named in the generated rustdoc;\n{content}"
+    );
+    assert!(
+        content.contains("setter borrows and leaves the caller's handle alive."),
+        "the doc must point the consumer at the setter that does not consume;\n{content}"
+    );
+}
+
+/// The optional parameter of an otherwise-borrowable constructor hits the same wall, and is
+/// documented by the same rustdoc. A constructor that consumes nothing gets no such doc.
+#[test]
+fn only_a_constructor_that_consumes_a_handle_carries_the_warning() {
+    let consuming = generated_lib_rs(vec![palette_type(), render_options_type()]);
+    assert!(
+        consuming.contains("/// Consumes `fallbackPalette`."),
+        "the optional class-typed parameter is still consumed and must say so;\n{consuming}"
+    );
+
+    let clean = generated_lib_rs(vec![palette_type()]);
+    assert!(
+        !clean.contains("/// Consumes "),
+        "a constructor with no class-typed parameter must carry no consumption warning;\n{clean}"
     );
 }

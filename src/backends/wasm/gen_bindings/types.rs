@@ -5,7 +5,7 @@ use crate::codegen::builder::ImplBuilder;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name, shared};
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{EnumDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use heck::ToPascalCase;
 
@@ -508,6 +508,7 @@ pub(super) fn gen_struct_methods(
             exclude_types,
             prefix,
             &tagged_data_enum_names,
+            &class_type_names,
         ));
         // The wasm wrapper always has a Default impl — either #[derive(Default)] or the
         if !typ.methods.iter().any(|m| m.name == "default") {
@@ -590,6 +591,7 @@ fn convert_constructor_params_to_camel_case(
     param_list: &str,
     assignments: &str,
     field_names: &[String],
+    borrowed: &AHashSet<String>,
 ) -> (String, String) {
     let field_to_camel: std::collections::HashMap<String, String> = field_names
         .iter()
@@ -606,7 +608,8 @@ fn convert_constructor_params_to_camel_case(
             }
             if let Some((name, ty)) = trimmed.split_once(':') {
                 let camel_name = to_node_name(name.trim());
-                Some(format!("{}: {}", camel_name, ty.trim()))
+                let borrow = if borrowed.contains(name.trim()) { "&" } else { "" };
+                Some(format!("{}: {}{}", camel_name, borrow, ty.trim()))
             } else {
                 Some(trimmed.to_string())
             }
@@ -626,16 +629,27 @@ fn convert_constructor_params_to_camel_case(
                     let field_trimmed = field_name.trim();
                     let rhs_trimmed = rhs.trim();
                     let (leading_ident, suffix) = split_leading_ident(rhs_trimmed);
-                    if let Some(camel_rhs) = field_to_camel.get(leading_ident) {
-                        format!("{}: {}{}", field_trimmed, camel_rhs, suffix)
+                    // A borrowed parameter is `&Wasm{Type}`, so the struct literal has to store
+                    // a clone -- mirroring what `gen_class_field_setter.jinja` does. ~keep
+                    let clone = if borrowed.contains(field_trimmed) && suffix.is_empty() {
+                        ".clone()"
                     } else {
-                        format!("{}: {}", field_trimmed, rhs_trimmed)
+                        ""
+                    };
+                    if let Some(camel_rhs) = field_to_camel.get(leading_ident) {
+                        format!("{}: {}{}{}", field_trimmed, camel_rhs, suffix, clone)
+                    } else {
+                        format!("{}: {}{}", field_trimmed, rhs_trimmed, clone)
                     }
                 } else {
                     assignment.to_string()
                 }
             } else {
                 let field_name = assignment.trim();
+                if borrowed.contains(field_name) {
+                    let camel_name = field_to_camel.get(field_name).map_or(field_name, String::as_str);
+                    return format!("{field_name}: {camel_name}.clone()");
+                }
                 match field_to_camel.get(field_name) {
                     // Only emit `field: camelVar` when the rename actually changes the
                     // identifier; single-word fields (snake == camel) stay shorthand. ~keep
@@ -665,6 +679,7 @@ fn gen_new_method(
     exclude_types: &[String],
     prefix: &str,
     tagged_data_enum_names: &AHashSet<String>,
+    class_type_names: &AHashSet<String>,
 ) -> String {
     use super::field_references_excluded_type;
     use crate::codegen::shared::constructor_parts;
@@ -697,20 +712,89 @@ fn gen_new_method(
         constructor_parts(&filtered_fields, &map_fn)
     };
 
+    let borrowed = borrowable_constructor_fields(typ, &filtered_fields, mapper, class_type_names);
     let (param_list_camel, assignments_camel) =
-        convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names);
+        convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names, &borrowed);
 
     let field_count = filtered_fields.iter().filter(|f| f.cfg.is_none()).count();
-    let allow_attrs = if field_count > 7 {
-        "#[allow(clippy::too_many_arguments)]\n#[allow(non_snake_case)]\n"
-    } else {
-        "#[allow(non_snake_case)]\n"
-    };
+    let mut attrs = Vec::new();
+    if field_count > 7 {
+        attrs.push("#[allow(clippy::too_many_arguments)]");
+    }
+    attrs.push("#[allow(non_snake_case)]");
 
-    format!(
-        "{allow_attrs}#[wasm_bindgen(constructor)]\npub fn new({param_list_camel}) -> {prefix}{} {{\n    {prefix}{} {{ {assignments_camel} }}\n}}",
-        typ.name, typ.name
+    crate::backends::wasm::template_env::render(
+        "gen_struct_constructor",
+        minijinja::context! {
+            doc_lines => consumed_argument_doc(&filtered_fields, mapper, class_type_names, &borrowed),
+            attrs => attrs,
+            param_list => param_list_camel,
+            assignments => assignments_camel,
+            struct_name => format!("{prefix}{}", typ.name),
+        },
     )
+    .trim_end()
+    .to_string()
+}
+
+/// The fields whose constructor parameter can be taken as `&Wasm{Type}` instead of by value.
+///
+/// wasm-bindgen lowers a by-value exported-struct argument through `__destroy_into_raw()`, so
+/// `new Options(palette, ...)` leaves the caller's `palette` handle dead (alef#472). A borrow is
+/// passed as a plain `__wbg_ptr` read and leaves it alive.
+///
+/// Only a *required* parameter of a struct that does not derive `Default` qualifies, and that is
+/// a wasm-bindgen limit rather than a conservative choice: `Option<&T>` has no
+/// `OptionFromWasmAbi` impl, so an optional parameter cannot be borrowed at all -- and
+/// `shared::config_constructor_parts_inner`, the arm taken when `typ.has_default`, types *every*
+/// parameter as `Option<T>`, required ones included. A `#[derive(Default)]` options struct
+/// therefore has no borrowable constructor parameter whatsoever. That remaining half of alef#472
+/// is tracked separately; `consumed_argument_doc` is what tells the consumer about it. ~keep
+fn borrowable_constructor_fields(
+    typ: &TypeDef,
+    fields: &[FieldDef],
+    mapper: &WasmMapper,
+    class_type_names: &AHashSet<String>,
+) -> AHashSet<String> {
+    if typ.has_default {
+        return AHashSet::default();
+    }
+    fields
+        .iter()
+        .filter(|f| !f.optional && f.cfg.is_none() && !matches!(f.ty, TypeRef::Optional(_)))
+        .filter(|f| types_helpers::class_backed_field_type(f, mapper, class_type_names).is_some())
+        .map(|f| f.name.clone())
+        .collect()
+}
+
+/// Rustdoc naming each class-typed argument this constructor still consumes, or nothing when it
+/// consumes none.
+///
+/// The consumed arguments are exactly the class-typed ones `borrowable_constructor_fields`
+/// could not take by reference. Saying so on the generated constructor is the only warning a
+/// consumer gets before their handle dies: the JS is valid, the failure is a
+/// `null pointer passed to rust` at the *next* use of the argument, far from this call. ~keep
+fn consumed_argument_doc(
+    fields: &[FieldDef],
+    mapper: &WasmMapper,
+    class_type_names: &AHashSet<String>,
+    borrowed: &AHashSet<String>,
+) -> Vec<String> {
+    let consumed: Vec<String> = fields
+        .iter()
+        .filter(|f| !borrowed.contains(&f.name))
+        .filter(|f| types_helpers::class_backed_field_type(f, mapper, class_type_names).is_some())
+        .map(|f| format!("`{}`", to_node_name(&f.name)))
+        .collect();
+    if consumed.is_empty() {
+        return Vec::new();
+    }
+    vec![
+        format!("Consumes {}.", consumed.join(", ")),
+        "wasm-bindgen lowers an optional exported-struct argument through `__destroy_into_raw()`,".to_string(),
+        "so that handle is dead once this returns. Assign the property instead -- the generated".to_string(),
+        "setter borrows and leaves the caller's handle alive.".to_string(),
+    ]
 }
 
 /// Generate a `default()` static factory method.

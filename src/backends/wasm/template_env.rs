@@ -179,6 +179,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/gen_class_field_clear.jinja"),
     ),
     (
+        "gen_struct_constructor",
+        include_str!("templates/gen_struct_constructor.jinja"),
+    ),
+    (
         "gen_payload_field_getter",
         include_str!("templates/gen_payload_field_getter.jinja"),
     ),

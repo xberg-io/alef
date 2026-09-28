@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   about which types are emitted as classes at all. Both are now threaded from the real
   configuration. The payload getter and setter are emitted through Minijinja templates rather
   than `format!`.
+- **wasm: the generated constructor consumed its class-typed arguments, and now says so where it
+  still must (#472, partially).** A required, non-optional class-typed parameter of a struct that
+  does not derive `Default` is now taken as `&Wasm{Type}` and cloned into the struct literal, so
+  `new Options(palette, ...)` leaves the caller's `palette` alive. Two positions cannot be fixed
+  and are documented instead of silently broken: `Option<&T>` has no `OptionFromWasmAbi` impl, so
+  an optional parameter cannot be borrowed, and `shared::config_constructor_parts_inner` -- the
+  arm taken for a `#[derive(Default)]` struct -- types *every* parameter as `Option<T>`, required
+  ones included, so an options struct that derives `Default` has no borrowable parameter at all.
+  A constructor that still consumes a class-typed argument now carries generated rustdoc naming
+  it and pointing at the setter, which borrows. The wasm backend is the only caller of
+  `codegen::shared::constructor_parts`, so nothing outside this backend changes.
+
 - **The Swift post-build step read build output from `./target` and reported success when it
   found nothing.** `find_swift_bridge_out_dir` (and scaffold's `read_swift_bridge_headers`)
   joined `"target"` onto the ancestor carrying `Cargo.lock`, so a host that redirects cargo's
