@@ -236,7 +236,7 @@ fn format_language(
     }
 
     // Residual: `mix format` is the SOLE formatter for `.ex`/`.exs` — the poly
-    // pass above excludes them (see `POLY_ELIXIR_EXCLUDE_GLOBS`), so without
+    // pass above excludes them (see `format::owner::POLY_EXCLUDE_GLOBS`), so without
     // this the generated Elixir suite is never formatted at all and ships with
     // the emitter's unwrapped long lines.
     if lang == "elixir" {

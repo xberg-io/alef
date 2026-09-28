@@ -10,6 +10,23 @@
 
 use super::*;
 
+/// A minimal resolved config for the drift tests: no `[crates.e2e]` block, so
+/// `formatting_owner` never reaches its override branch and every path is classified by poly
+/// coverage and the residual table alone -- which is what these tests are about. ~keep
+fn drift_test_config() -> crate::core::config::ResolvedCrateConfig {
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["rust"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("valid config");
+    cfg.resolve().expect("resolvable").remove(0)
+}
+
 /// Test-only convenience wrapper around [`real_formatter_drift_with`], bound to the real
 /// [`crate::cli::pipeline::is_tool_available`] -- production has no call site for this exact
 /// binding since alef#458 threads a single `is_available` closure through both
@@ -56,6 +73,8 @@ fn skips_and_counts_every_candidate_when_poly_is_unavailable() {
             compared: 0,
             skipped_missing_formatter: 2,
             skipped_staging_error: 0,
+            skipped_no_faithful_prediction: 0,
+            matched_render_exactly: 0,
         },
         "every candidate must be counted as skipped, never silently dropped, when poly is absent"
     );
@@ -103,6 +122,8 @@ fn catches_a_toml_file_whose_rendered_value_genuinely_differs_from_disk() {
             compared: 1,
             skipped_missing_formatter: 0,
             skipped_staging_error: 0,
+            skipped_no_faithful_prediction: 0,
+            matched_render_exactly: 0,
         }
     );
 }
@@ -185,41 +206,49 @@ fn leaves_no_temp_file_behind_after_comparing() {
     );
 }
 
-/// THE GATING LOGIC: exactly two extensions are predictable, and neither of them depends on
-/// `poly` being installed -- the function takes no availability argument at all any more.
+/// [`render_predicts_final_bytes`]'s contract, which is deliberately ASYMMETRIC between the two
+/// extensions -- see the module doc for the measured alef#478 evidence.
 ///
-/// `.rs` was gated on poly by alef#458 for a real cause that alef#465 removed: `alef all` used
-/// to write Rust bindings before the scaffold stage emitted the `rustfmt.toml` that governs
-/// them, so only the later `poly fmt --fix` pass left the bytes this prediction assumes. The
-/// pre-pass now writes that config ahead of the bindings stage, which
-/// [`rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`] measures end to end against
-/// a real `alef all` run with `poly` off `PATH`.
+/// `.rs` is cleared unconditionally. `normalize_content` runs a REAL `rustfmt`
+/// (`format_rust_content`), not an imitation of one, and alef#465 removed the ordering bug that
+/// used to make the prediction wrong on a first run --
+/// [`rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`] measures that end to end
+/// against a real `alef all` with `poly` off `PATH`.
 ///
-/// `.md` was never gated (alef#469): nothing writes a markdown config late, so with poly absent
-/// the on-disk bytes are exactly what `normalize_content` produces and the prediction is
-/// byte-exact. alef#458 gated both extensions together on implementation symmetry rather than
-/// on a measured cause, which inverted `.md` -- it predicted where the prediction is
-/// approximate (poly present, rumdl having run, and alef modelling only its MD012 rule) and
-/// skipped where the prediction is perfect. That cost a real check:
-/// `drift_tests::drifted_marked_paths_reports_a_self_marking_file_whose_body_no_longer_matches`
-/// went red on Windows CI, the one leg with no poly installed.
+/// `.md` is cleared ONLY when poly is absent. alef models exactly one rumdl rule, a blank-line
+/// cap matched to MD012 -- and the poly config alef itself generates DISABLES MD012 while
+/// leaving the rules that actually reshape alef's markdown enabled. Measured in a consumer: a
+/// cold `alef readme` and `alef docs` left 29 pages differing from committed, every one of them
+/// reconciled exactly by a real `poly fmt --fix`. Predicting them in memory reported all 29 as
+/// drifted against a tree the writer was a correct fixed point for. With poly absent nothing
+/// reformats the page after alef writes it, so the prediction is exact again and the fast path
+/// is kept for that case only.
+///
+/// alef#458 originally gated both extensions TOGETHER on implementation symmetry rather than on
+/// a measured cause, and got both halves wrong in opposite directions. Keep them reasoned about
+/// separately. ~keep
 ///
 /// Pure and host-independent (no subprocess, no real `poly` binary), so every case is provable
 /// on any machine regardless of what it has installed. ~keep
 #[test]
-fn render_predicts_final_bytes_clears_rust_and_markdown_and_nothing_else() {
+fn render_predicts_final_bytes_clears_rust_always_and_markdown_only_without_poly() {
     let cases = [
-        ("lib.rs", true),
-        ("reference.md", true),
-        ("pyproject.toml", false),
-        ("bindings.go", false),
-        ("noextension", false),
+        ("lib.rs", true, true),
+        ("reference.md", false, true),
+        ("pyproject.toml", false, false),
+        ("bindings.go", false, false),
+        ("noextension", false, false),
     ];
-    for (name, expected) in cases {
+    for (name, with_poly, without_poly) in cases {
         assert_eq!(
-            render_predicts_final_bytes(std::path::Path::new(name)),
-            expected,
-            "render_predicts_final_bytes({name:?}) must be {expected}"
+            render_predicts_final_bytes(std::path::Path::new(name), true),
+            with_poly,
+            "render_predicts_final_bytes({name:?}) with poly present must be {with_poly}"
+        );
+        assert_eq!(
+            render_predicts_final_bytes(std::path::Path::new(name), false),
+            without_poly,
+            "render_predicts_final_bytes({name:?}) with poly absent must be {without_poly}"
         );
     }
 }
@@ -247,7 +276,12 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
     let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path());
     std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
 
-    let (drifted, stats) = drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &|_tool| false);
+    let (drifted, stats) = drifted_marked_paths_with(
+        std::slice::from_ref(&file),
+        dir.path(),
+        &drift_test_config(),
+        &|_tool| false,
+    );
 
     assert!(
         drifted.is_empty(),
@@ -255,8 +289,12 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
     );
     assert_eq!(
         stats,
-        FormatDriftStats::default(),
-        "a fast-path file must never be counted as a real-formatter skip just because poly is absent"
+        FormatDriftStats {
+            matched_render_exactly: 1,
+            ..FormatDriftStats::default()
+        },
+        "a fast-path file must be counted as settled against the render, never as a real-formatter \
+         skip just because poly is absent"
     );
 
     let changed = vec![crate::core::backend::GeneratedFile {
@@ -265,7 +303,7 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
         generated_header: true,
     }];
 
-    let (drifted, stats) = drifted_marked_paths_with(&changed, dir.path(), &|_tool| false);
+    let (drifted, stats) = drifted_marked_paths_with(&changed, dir.path(), &drift_test_config(), &|_tool| false);
 
     assert_eq!(
         drifted,

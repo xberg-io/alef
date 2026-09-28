@@ -9,7 +9,7 @@
 //! therefore stamped Rust no formatter had canonicalised, and the next whole-tree pass made
 //! that stamp stale.
 //!
-//! Elixir deliberately does NOT gain this property: `POLY_ELIXIR_EXCLUDE_GLOBS` keeps poly away
+//! Elixir deliberately does NOT gain this property: `format::owner::POLY_EXCLUDE_GLOBS` keeps poly away
 //! from `.ex`/`.exs` entirely, because poly's Elixir engine misindents mix-canonical output and
 //! then reports its own output `--check`-clean. That exclusion is correct, and this fixture
 //! stays on Python so it never encodes an argument against it. ~keep

@@ -6,6 +6,23 @@
 
 use super::*;
 
+/// A minimal resolved config for the drift tests: no `[crates.e2e]` block, so
+/// `formatting_owner` never reaches its override branch and every path is classified by poly
+/// coverage and the residual table alone -- which is what these tests are about. ~keep
+fn drift_test_config() -> crate::core::config::ResolvedCrateConfig {
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["rust"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("valid config");
+    cfg.resolve().expect("resolvable").remove(0)
+}
+
 fn gen_file(rel: &str, content: &str) -> crate::core::backend::GeneratedFile {
     crate::core::backend::GeneratedFile {
         path: std::path::PathBuf::from(rel),
@@ -49,7 +66,7 @@ fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
     std::fs::write(dir.path().join("lib.rs"), &old_rendered[0].content).unwrap();
     let files = vec![gen_file("lib.rs", "pub fn greet() -> &'static str { \"new\" }\n")];
 
-    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
 
     assert_eq!(
         drifted,
@@ -74,7 +91,7 @@ fn drifted_marked_paths_is_silent_once_the_marked_file_matches_the_fresh_render(
     std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
     let files = vec![file];
 
-    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
     assert!(drifted.is_empty());
 }
 
@@ -86,7 +103,7 @@ fn drifted_marked_paths_ignores_a_file_that_carries_no_marker_at_all() {
     std::fs::write(dir.path().join("lib.rs"), "pub fn greet() {}\n").unwrap();
     let files = vec![gen_file("lib.rs", "pub fn greet() { /* changed */ }\n")];
 
-    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
     assert!(drifted.is_empty());
 }
 
@@ -113,7 +130,7 @@ fn drifted_marked_paths_now_catches_a_toml_file_via_the_real_poly_fmt_pass() {
     .unwrap();
     let files = vec![gen_file("pyproject.toml", "[project]\nname=\"new\"\n")];
 
-    let (drifted, stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
 
     assert_eq!(
         drifted,
@@ -155,7 +172,7 @@ fn drifted_marked_paths_is_silent_once_a_toml_file_matches_the_real_formatters_o
     std::fs::remove_file(&scratch).ok();
     let files = vec![gen_file("pyproject.toml", rendered_raw)];
 
-    let (drifted, stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
 
     assert!(
         drifted.is_empty(),
@@ -193,7 +210,7 @@ fn drifted_marked_paths_reports_a_self_marking_file_whose_body_no_longer_matches
         &format!("{header}Describes `greet`, which says hi warmly.\n"),
     )];
 
-    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
 
     assert_eq!(
         drifted,
@@ -214,6 +231,136 @@ fn drifted_marked_paths_is_silent_once_a_self_marking_file_matches() {
     std::fs::write(dir.path().join("reference.md"), &content).unwrap();
     let files = vec![gen_file_unheadered("reference.md", &content)];
 
-    let (drifted, _stats) = drifted_marked_paths(&files, dir.path());
+    let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
     assert!(drifted.is_empty());
+}
+
+/// A resolved config carrying a `[crates.e2e.format]` override for `dart`, so the override tier
+/// of `formatting_owner` can be exercised end to end through `drifted_marked_paths`.
+fn e2e_override_config() -> crate::core::config::ResolvedCrateConfig {
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["rust"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "run"
+
+[crates.e2e.format]
+dart = "cd {dir} && dart format ."
+"#,
+    )
+    .expect("valid config");
+    cfg.resolve().expect("resolvable").remove(0)
+}
+
+/// THE alef#478 REGRESSION, with its own anti-vacuity control in the same call.
+///
+/// Two marked files, one `drifted_marked_paths` call, opposite expected verdicts:
+///
+/// - `pyproject.toml` is excluded from poly by the fixture's own `poly.toml`, so nothing alef
+///   runs reformats it and the raw render IS the bytes on disk. It must be SILENT. Before the
+///   `formatting_owner` seam this file was reported drifted on every run forever: the check
+///   staged `.alef-verify-drift-<rand>.toml` beside it, and because poly's excludes are keyed on
+///   the file's NAME the sibling escaped the `**/pyproject.toml` entry, came back
+///   taplo-reformatted, and no longer matched the (correctly unformatted) disk copy. In a real
+///   consumer that mechanism produced 197 findings against a tree two consecutive `alef all`
+///   runs left byte-identical.
+/// - `lib.rs` genuinely differs from its fresh render. It must be REPORTED.
+///
+/// Asserting both in one call is deliberate. A "fix" that simply stopped reporting anything
+/// would satisfy the first assertion alone, and every other test in this file that checks for
+/// silence -- so silence is only evidence when something in the same tree is still heard. ~keep
+#[test]
+fn a_poly_excluded_path_is_silent_while_a_genuinely_drifted_one_is_still_reported() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("poly.toml"),
+        "[discovery]\nexclude = [\"**/pyproject.toml\"]\n",
+    )
+    .unwrap();
+
+    // Deliberately NOT taplo-canonical (`name=` with no spaces): poly would reformat it if it
+    // ever saw it, which is exactly what makes this a real test of the exclusion rather than of
+    // a file poly happens to agree with. ~keep
+    let excluded_render = "[project]\nname=\"same\"\n";
+    let excluded = gen_file("pyproject.toml", excluded_render);
+    let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&excluded), dir.path());
+    std::fs::write(dir.path().join("pyproject.toml"), &rendered[0].content).unwrap();
+
+    let header = crate::core::hash::header(crate::core::hash::CommentStyle::DoubleSlash);
+    std::fs::write(
+        dir.path().join("lib.rs"),
+        format!("{header}\npub fn greet() -> &'static str {{\n    \"old\"\n}}\n"),
+    )
+    .unwrap();
+    let drifted_rs = gen_file("lib.rs", "pub fn greet() -> &'static str {\n    \"new\"\n}\n");
+
+    let files = vec![excluded, drifted_rs];
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
+
+    assert_eq!(
+        drifted,
+        vec![dir.path().join("lib.rs").display().to_string()],
+        "exactly the genuinely-drifted file must be reported: the poly-excluded one is not \
+         reformatted by anything alef runs, so its raw render IS its disk content"
+    );
+    assert_eq!(
+        stats.matched_render_exactly, 1,
+        "only the excluded file MATCHED the render; the drifted one was settled against the render \
+         too but did not match, which is why it is in `drifted` above and not counted here"
+    );
+    assert_eq!(
+        stats.compared, 0,
+        "no temp copy may be staged for a path poly never reaches -- `alef verify` is read-only, \
+         and unconditional staging wrote 2156 temp files into one consumer's tree per run"
+    );
+}
+
+/// The same shape for the other tier alef cannot predict: a `[crates.e2e.format]` override
+/// REPLACES the poly pass for its language (`e2e::format::format_language` returns early), so
+/// alef runs opaque user shell over the file and has no honest byte-level prediction for it.
+///
+/// It must be COUNTED, never silently passed and never reported as drift. The counter is the
+/// whole point: a verify that quietly checks nothing is this repository's dominant defect, so
+/// the report has to say how many files it could not speak for. ~keep
+#[test]
+fn a_file_owned_by_an_e2e_format_override_is_counted_rather_than_judged() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("e2e/dart/test")).unwrap();
+    let header = crate::core::hash::header(crate::core::hash::CommentStyle::DoubleSlash);
+    std::fs::write(
+        dir.path().join("e2e/dart/test/smoke_test.dart"),
+        format!("{header}\nvoid main() {{}}\n"),
+    )
+    .unwrap();
+    // Content that genuinely differs from disk, so a silent pass cannot be mistaken for the
+    // file simply being up to date.
+    let files = vec![gen_file(
+        "e2e/dart/test/smoke_test.dart",
+        "void main() { print('x'); }\n",
+    )];
+
+    let (drifted, stats) = drifted_marked_paths(&files, dir.path(), &e2e_override_config());
+
+    assert!(
+        drifted.is_empty(),
+        "alef cannot predict what `dart format` leaves on disk, so it must not claim drift: {drifted:?}"
+    );
+    assert_eq!(
+        stats.skipped_no_faithful_prediction, 1,
+        "the path must be COUNTED as unexaminable, not dropped"
+    );
+    assert_eq!(stats.compared, 0);
+    assert_eq!(stats.matched_render_exactly, 0);
 }

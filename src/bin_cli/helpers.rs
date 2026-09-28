@@ -5,7 +5,7 @@ pub(crate) use frozen::FrozenFile;
 use frozen::frozen_managed_paths;
 
 mod format_drift;
-pub(crate) use format_drift::report_format_drift_coverage;
+pub(crate) use format_drift::{FormatDriftStats, report_format_drift_coverage};
 
 mod post_build;
 use post_build::run_required_post_builds;
@@ -439,25 +439,12 @@ pub(crate) struct MissingAndFrozenFiles {
     /// Absolute paths of alef-marked files that already exist on disk but whose bytes no longer
     /// match what this run's fresh render (`surface`) would produce — see [`drifted_marked_paths`]. ~keep
     pub(crate) drifted: Vec<String>,
-    /// How many marked files [`drifted_marked_paths`] actually compared through a real `poly fmt
-    /// --fix` pass this run -- see [`format_drift::real_formatter_drift_with`]'s module doc. Normally
-    /// every non-`.rs`/`.md` candidate, but alef#458 routes `.rs`/`.md` here too whenever poly is
-    /// unavailable: their own fast, in-memory prediction is honest only when `poly fmt --fix`
-    /// actually ran (see [`format_drift::drifted_marked_paths`]'s doc), so without poly they fall
-    /// back to this same real-formatter tier rather than trusting a prediction this environment
-    /// never validated. Reported by `alef verify` alongside [`Self::format_drift_skipped`] so a
-    /// missing `poly` shows up as a loud, counted gap rather than a silent pass. ~keep
-    pub(crate) format_drift_compared: usize,
-    /// How many of those same candidates [`drifted_marked_paths`] had to skip because `poly` is
-    /// not installed on this machine -- never folded into [`Self::format_drift_compared`], and
-    /// never treated as "no drift found": a skip answers a different question than a comparison
-    /// does. Includes every `.rs`/`.md` candidate too when poly is absent, for the same alef#458
-    /// reason noted on [`Self::format_drift_compared`]. ~keep
-    pub(crate) format_drift_skipped: usize,
-    /// How many candidates could not be staged as a temp copy at all (read-only checkout,
-    /// permission-denied directory). Separate from [`Self::format_drift_skipped`] because the
-    /// remedy differs and blaming a missing `poly` for a read-only tree misdirects the reader. ~keep
-    pub(crate) format_drift_staging_errors: usize,
+    /// Everything [`drifted_marked_paths`] was able to say about this crate's candidates, and
+    /// everything it could not -- see [`format_drift::FormatDriftStats`], whose fields carry the
+    /// per-counter rationale. Held as the one struct rather than unpacked into parallel `usize`
+    /// fields so a new counter cannot be added to the comparison and silently dropped on the way
+    /// to the report. ~keep
+    pub(crate) format_drift_stats: format_drift::FormatDriftStats,
     /// Absolute paths of every file this crate's configuration would produce this run, from the
     /// same `surface` `missing`/`frozen` are derived from -- deliberately every path, not only
     /// [`crate::cli::pipeline::managed_output_paths`]'s marker-carrying subset: a self-marking
@@ -527,15 +514,13 @@ pub(crate) fn find_missing_and_frozen_generated_files(
     ));
     let (missing, missing_gitignored) =
         super::verify_gitignore::split_missing_by_gitignore(base_dir, &missing_managed_paths(&surface, base_dir));
-    let (drifted, format_drift_stats) = drifted_marked_paths(&surface, base_dir);
+    let (drifted, format_drift_stats) = drifted_marked_paths(&surface, base_dir, config);
     let mut result = MissingAndFrozenFiles {
         missing,
         missing_gitignored,
         frozen: frozen_managed_paths(&surface, base_dir, &rewritten_output_roots(config, base_dir)),
         drifted,
-        format_drift_compared: format_drift_stats.compared,
-        format_drift_skipped: format_drift_stats.skipped_missing_formatter,
-        format_drift_staging_errors: format_drift_stats.skipped_staging_error,
+        format_drift_stats,
         managed_paths,
         stage_failures: stage_failures
             .into_iter()

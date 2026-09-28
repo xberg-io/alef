@@ -25,6 +25,28 @@ pub(super) fn run_formatter(command: &str, args: &[&str], work_dir: &Path) -> an
     Ok(())
 }
 
+/// Run `poly` and return its stdout, for the one caller that reads a machine-readable payload
+/// rather than only an exit status (`owner::PolyCoverage::probe`, which parses
+/// `poly fmt --check --format json`).
+///
+/// Accepts exit code **1** as success, and that is not a leniency: `poly fmt --check` exits 1
+/// whenever any file WOULD change, which on a real tree is the ordinary case. Treating 1 as
+/// failure would discard a perfectly good JSON payload every time the tree was not already
+/// pristine, and the probe would silently degrade to "coverage unknown" exactly when it had the
+/// most to say. A crashed or missing poly still errors, because the payload is what is read --
+/// `serde_json` rejects an empty or truncated body rather than yielding an empty coverage set.
+/// Mirrors [`super::poly_format_exit_code_is_success`]'s contract for the same binary. ~keep
+pub(super) fn run_poly_capturing(args: &[&str], work_dir: &Path) -> anyhow::Result<String> {
+    let output = crate::core::tool_command("poly")
+        .args(args)
+        .current_dir(work_dir)
+        .output()?;
+    if !matches!(output.status.code(), Some(0 | 1)) {
+        return Err(formatter_failure(&output));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 pub(super) fn formatter_failure(output: &Output) -> anyhow::Error {
     anyhow::anyhow!(
         "formatter exited with code {:?}: {}",

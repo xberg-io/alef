@@ -1,6 +1,8 @@
+mod owner;
 mod scope;
 mod stamp_gate;
 
+pub(crate) use owner::{FormattingOwner, PolyCoverage, formatting_owner, push_poly_format_excludes};
 pub(crate) use scope::{languages_owning_changed_paths, poly_paths, unowned_changed_paths};
 pub(crate) use stamp_gate::generated_tree_needs_formatting;
 pub use stamp_gate::unstamp_before_formatting;
@@ -97,7 +99,7 @@ struct RequiredFormatter {
 /// `cargo-sort` is required only when a language whose residual pass runs
 /// `cargo sort` is generated (wasm, ffi, ruby, elixir, r). `mix` is required only
 /// when Elixir is generated: poly's own pass excludes `.ex`/`.exs` files (see
-/// [`POLY_ELIXIR_EXCLUDE_GLOBS`]) because its pure-Rust Elixir formatter misindents
+/// [`owner::POLY_EXCLUDE_GLOBS`]) because its pure-Rust Elixir formatter misindents
 /// them, so `mix format` is the sole formatter for that output and its absence
 /// must not pass unnoticed.
 fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
@@ -143,7 +145,7 @@ fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
 /// missing tool and how to install it so the operator can restore deterministic
 /// output. `mix` in particular has no fallback: unlike the other residuals it is
 /// the *sole* formatter for `.ex`/`.exs` output (poly is deliberately excluded,
-/// see [`POLY_ELIXIR_EXCLUDE_GLOBS`]), so a missing `mix` means generated Elixir
+/// see [`owner::POLY_EXCLUDE_GLOBS`]), so a missing `mix` means generated Elixir
 /// source is left completely unformatted, not merely under-formatted.
 pub fn warn_missing_formatters(languages: &[Language]) {
     let missing: Vec<RequiredFormatter> = required_formatters(languages)
@@ -173,7 +175,7 @@ pub fn warn_missing_formatters(languages: &[Language]) {
 /// package directory, followed by that language's residual native pass for the
 /// project-wide tools poly cannot wrap (wasm/ruby/elixir/R native crate sort, plus
 /// `mix format` for Elixir's `.ex`/`.exs` source — poly is excluded from those,
-/// see [`POLY_ELIXIR_EXCLUDE_GLOBS`]).
+/// see [`owner::POLY_EXCLUDE_GLOBS`]).
 ///
 /// Best-effort: a missing `poly` binary, a poly error, or a missing residual tool
 /// is logged as a warning and never aborts the generate command.
@@ -339,7 +341,7 @@ const MAX_POLY_FMT_PASSES: u32 = 3;
 /// the workspace regardless of which languages this run generated.
 ///
 /// `.ex`/`.exs` output is handled outside this loop entirely: poly's own pass
-/// excludes them (see [`POLY_ELIXIR_EXCLUDE_GLOBS`]), so [`run_elixir_mix_format`]
+/// excludes them (see [`owner::POLY_EXCLUDE_GLOBS`]), so [`run_elixir_mix_format`]
 /// runs once, after the loop settles, regardless of whether poly converged --
 /// the two concerns are independent and neither blocks the other.
 ///
@@ -383,7 +385,7 @@ fn converge_full_regen(base_dir: &Path, pass: &mut FormatPass<'_>) {
 /// only to detect convergence inside [`converge_full_regen_formatting`]'s loop.
 ///
 /// Excludes the same Elixir globs as [`poly_format`] (see
-/// [`POLY_ELIXIR_EXCLUDE_GLOBS`]): without this, the check would judge
+/// [`owner::POLY_EXCLUDE_GLOBS`]): without this, the check would judge
 /// `mix format`'s correct output by poly's own (incompatible) Elixir formatting
 /// opinion and never report clean, spinning the convergence loop to its cap on
 /// every full regen that generates Elixir.
@@ -485,61 +487,17 @@ pub(crate) fn poly_lint_with(base_dir: &Path, is_available: &dyn Fn(&str) -> boo
     }
 }
 
-/// Glob patterns excluded from every poly `fmt` invocation, `--fix` and `--check`
-/// alike (see [`poly_format`] and [`poly_fmt_is_clean`]): `.ex`/`.exs` sources are
-/// formatted solely by `mix format` (see `language_residuals`'s `Language::Elixir`
-/// arm and [`run_elixir_mix_format`]).
-///
-/// poly's pure-Rust Elixir formatter misindents constructs that `mix format`
-/// emits correctly — multi-line struct/map field continuation collapses from
-/// mix's canonical 10-space width to flush-left 2-space, and `|>` pipe
-/// continuation drops from 6 spaces to 4 — and then reports its own corrupted
-/// output as `--check`-clean, so no freshness gate ever catches the drift.
-/// Excluding poly from `.ex`/`.exs` entirely, rather than reformatting after it,
-/// avoids that same class of bug recurring: a `--check` pass that still
-/// considers itself authoritative over files it no longer formats.
-///
-/// Anchored with a bare `**/` prefix (no `packages/elixir/` path component) so
-/// the same glob excludes correctly regardless of which root poly is given: the
-/// repo root on a full regen, or the `packages/elixir` package directory itself
-/// on a partial regen.
-const POLY_ELIXIR_EXCLUDE_GLOBS: [&str; 2] = ["**/*.ex", "**/*.exs"];
-
-/// C# source, excluded from poly for a different reason than Elixir: not corruption, but
-/// *irreproducibility*.
-///
-/// Poly delegates `.cs` to an external `clang-format`, whose output is not stable across its own
-/// versions. Two machines on identical alef and identical poly commit different bytes for the same
-/// generated file — clang-format 18.1.8 and 23.1.0 each reproduce a different committed blob,
-/// differing in nullable-switch layout — so the freshness gate fails for a reason no consumer can
-/// see in its own diff, and the remedy looks like "pin clang-format in every consumer's CI".
-///
-/// alef already emits C# in the layout `dotnet format whitespace` accepts, and
-/// `generated_csharp_uses_formatter_stable_layout` asserts exactly that against the real formatter.
-/// So the emission is already canonical, and letting a second formatter reflow it afterwards can
-/// only move it off that contract — differently per version. Excluding poly leaves the committed
-/// bytes equal to what alef emits, which is the same on every machine.
-///
-/// Excluding rather than reformatting-after, for the reason the Elixir globs above give: a
-/// `--check` pass that still considers itself authoritative over files it no longer formats is the
-/// bug class, not the fix. Anchored with a bare `**/` for the same root-independence reason. ~keep
-const POLY_CSHARP_EXCLUDE_GLOBS: [&str; 1] = ["**/*.cs"];
-
-/// Append `--exclude <glob>` for every glob poly must not format: [`POLY_ELIXIR_EXCLUDE_GLOBS`]
-/// and [`POLY_CSHARP_EXCLUDE_GLOBS`].
-fn push_poly_format_excludes(args: &mut Vec<String>) {
-    for glob in POLY_ELIXIR_EXCLUDE_GLOBS.iter().chain(POLY_CSHARP_EXCLUDE_GLOBS.iter()) {
-        args.push("--exclude".to_owned());
-        args.push((*glob).to_owned());
-    }
-}
+// The poly `--exclude` globs and their rationale now live in `owner`, the single declaration
+// this pass and `alef verify`'s drift check both read -- see that module's doc for why
+// `.ex`/`.exs` and `.cs` are excluded, and for the alef#478 defect that having two answers to
+// "what formats this path" produced. `push_poly_format_excludes` is re-exported above. ~keep
 
 /// Format `paths` by invoking the `poly` CLI (`poly fmt --fix`), rewriting changed
 /// files in place. `config_start` is poly's working directory; it walks up from
 /// there for `poly.toml`. Best-effort: a missing `poly` binary or a non-zero exit
 /// is logged and never propagated (matching the per-language formatter contract).
 ///
-/// Excludes `.ex`/`.exs` (see [`POLY_ELIXIR_EXCLUDE_GLOBS`]) so `mix format`
+/// Excludes `.ex`/`.exs` (see [`owner::POLY_EXCLUDE_GLOBS`]) so `mix format`
 /// remains their sole formatter.
 ///
 /// Executable permission bits are snapshotted before the pass and restored after:
@@ -734,7 +692,7 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// Elixir is the one exception with two residual concerns: the `cargo sort` for
 /// its out-of-workspace native NIF crate, *and* `mix format` for its `.ex`/`.exs`
 /// source. Poly's own Elixir engine is excluded from formatting those files at
-/// all (see [`POLY_ELIXIR_EXCLUDE_GLOBS`]) because it misindents constructs `mix
+/// all (see [`owner::POLY_EXCLUDE_GLOBS`]) because it misindents constructs `mix
 /// format` emits correctly and then reports its own corrupted output as
 /// `--check`-clean — so unlike every other language here, Elixir has no
 /// poly-formatted fallback and a missing `mix` (flagged loudly by
@@ -811,7 +769,7 @@ fn mix_deps_get(work_dir: PathBuf) -> ResidualStep {
 }
 
 /// Construct a `mix format` residual step — the sole formatter for `.ex`/`.exs`
-/// output (poly's own pass excludes them, see [`POLY_ELIXIR_EXCLUDE_GLOBS`]).
+/// output (poly's own pass excludes them, see [`owner::POLY_EXCLUDE_GLOBS`]).
 fn mix_format(work_dir: PathBuf) -> ResidualStep {
     ResidualStep {
         command: "mix".to_owned(),
@@ -891,7 +849,7 @@ fn is_tool_available_on(tool: &str, path_var: Option<std::ffi::OsString>) -> boo
 
 #[path = "format/external_formatter.rs"]
 mod external_formatter;
-use external_formatter::{formatter_failure, resolve_crate_dir, run_formatter};
+use external_formatter::{formatter_failure, resolve_crate_dir, run_formatter, run_poly_capturing};
 
 #[cfg(test)]
 mod scope_tests;

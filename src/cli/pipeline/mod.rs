@@ -24,11 +24,12 @@ pub use commands::{
 };
 pub(crate) use commands::{build_with_environment, canonical_frb_generated};
 pub use extract::extract;
-pub use format::{format_generated, format_generated_reporting, unstamp_before_formatting, warn_missing_formatters};
 pub(crate) use format::{
-    format_generated_reporting_with_extra_paths, generated_tree_needs_formatting, install_poly_hooks,
-    is_tool_available, languages_owning_changed_paths, poly_format, poly_format_strict, unowned_changed_paths,
+    FormattingOwner, PolyCoverage, format_generated_reporting_with_extra_paths, formatting_owner,
+    generated_tree_needs_formatting, install_poly_hooks, is_tool_available, languages_owning_changed_paths,
+    poly_format, poly_format_strict, unowned_changed_paths,
 };
+pub use format::{format_generated, format_generated_reporting, unstamp_before_formatting, warn_missing_formatters};
 pub use generate::{
     WriteReport, collect_alef_headered_paths, diff_files, finalize_hashes, finalize_hashes_after_tree_format,
     finalize_hashes_sweeping, find_create_once_template_drift, generate, generate_public_api, generate_service_api,

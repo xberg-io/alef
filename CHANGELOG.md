@@ -27,6 +27,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef verify` no longer claims drift for paths alef's own formatters never touch (#478).** The
+  drift check held its own one-line answer to "what formats this path" -- `poly fmt`, always,
+  applied to a temp sibling of the real file -- and it was wrong in three ways at once. poly's
+  excludes are keyed on a file's NAME, so `.alef-verify-drift-<rand>.toml` escaped the
+  `**/Cargo.toml` entry that excludes the real manifest; trees poly's discovery prunes (a
+  gitignored directory, or a bare `e2e/**` glob that also prunes `src/test/java/io/<org>/e2e/`)
+  were formatted on the temp copy but not on disk; and the formatters alef runs *itself* --
+  `cargo sort -n -w`, `mix format`, a `[crates.e2e.format]` override that replaces the poly pass
+  outright -- were not modelled at all. In one consumer that manufactured **197** findings against
+  a tree two consecutive `alef all` runs left byte-identical, with **zero** overlap against the
+  set `alef all` rewrites. A new `cli::pipeline::format::owner` seam now answers that question
+  once, for the writer and the drift check alike, so adding a residual formatter or a new exclude
+  automatically withdraws the check's claim instead of manufacturing findings no consumer can
+  clear. Coverage is resolved by asking poly (`fmt --check --format json`) rather than by
+  reimplementing gitignore and glob matching.
+- **`alef verify` no longer predicts markdown it cannot predict (#478).** `.md` took an in-memory
+  fast path justified by alef modelling rumdl's MD012 -- but the poly config alef itself generates
+  **disables MD012**, while leaving enabled every rule that actually reshapes alef's markdown
+  (MD032 on all 11 of one consumer's generated READMEs, MD038 on 17 of its 18 reference pages).
+  A cold `alef readme`/`alef docs` followed by the real `poly fmt --fix` reproduces the committed
+  bytes exactly, so the writer was a correct fixed point and the check was wrong about all 29
+  pages. `.md` now goes through the real formatter whenever poly is present, and keeps the fast
+  path only when poly is absent -- where nothing reformats the file and the prediction is exact.
+  `.rs` keeps the fast path unconditionally: `normalize_content` runs a real `rustfmt`.
+- **`alef verify` now reports what it could not check.** Paths alef reformats with a tool whose
+  output it does not model are counted into a new `skipped_no_faithful_prediction` and named in
+  the coverage line, rather than silently passed. Temp-file staging is also confined to paths poly
+  actually owns -- the unconditional version wrote 2156 temp files into one consumer's working
+  tree per run, in a command documented as read-only.
+
 - **wasm: a tagged-data-enum payload setter destroyed the handle it was given (#473).** The
   second of the two emitters that mint `#[wasm_bindgen]` field accessors had the defect #470
   fixed in the first: `obj.palette = handle` was lowered through `__destroy_into_raw()`, so the

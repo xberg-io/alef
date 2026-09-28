@@ -61,7 +61,7 @@ mod tests {
     /// Regression for alef #126: `alef fmt` used to run a bespoke `poly_fmt` +
     /// `run_cargo_sort_residuals` pass that never invoked `mix format` at all --
     /// `.ex`/`.exs` source is excluded from poly's own pass (see
-    /// `POLY_ELIXIR_EXCLUDE_GLOBS`) and `mix` is the sole formatter for it, so that old
+    /// `format::owner::POLY_EXCLUDE_GLOBS`) and `mix` is the sole formatter for it, so that old
     /// path left every `alef fmt`-only run's Elixir output completely unformatted. `fmt`
     /// must now reach the same converged state `alef all` does, which includes running
     /// `mix format`.
