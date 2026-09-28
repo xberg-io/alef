@@ -55,6 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The post-build command timeout is 3600s, up from 1800s.** A cold-cache `cargo build
+  --release` for the Swift binding crate against a full polyglot feature set legitimately runs
+  close to 30 minutes, so the old budget sat within a minute of the step's own duration and
+  killed real builds that were still making progress. The doc comment that pointed at
+  `[build_commands.<lang>].timeout_seconds` as the per-language escape hatch was also stale:
+  0.82.0 removed that table from the schema, so no `alef.toml` can raise the ceiling and this
+  constant is the only one a consumer gets.
+
 - **Nine e2e-generated project files gained a one-line provenance-marker header.** The first
   `alef e2e generate` after upgrading rewrites `build.gradle.kts` (Kotlin and Kotlin/Android),
   `mix.exs`, `.formatter.exs`, `lib/e2e_elixir.ex`, `gleam.toml`, `pubspec.yaml`, `build.zig`

@@ -849,14 +849,21 @@ fn rewrite_wasm_package_json_name(path: &Path, new_name: &str) -> anyhow::Result
 /// considers it hung and kills it. Cold-cache `cargo build --release` for the
 /// swift binding crate against a polyglot project's full feature set
 /// legitimately takes 10-20 minutes; FRB codegen on a warm cache finishes in
-/// under a minute. 30 minutes accommodates both without false-positiving
-/// slow first-runs on cold CI caches.
+/// under a minute.
 ///
-/// A consumer whose cold Swift release build genuinely exceeds this (a large workspace can run
-/// well past 30 minutes while still making progress -- alef #364) overrides it per language via
-/// `[build_commands.<lang>].timeout_seconds` in `alef.toml`; see that field's doc comment. This
-/// constant remains the ceiling whenever that field is unset. ~keep
-const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1800);
+/// 30 minutes did not accommodate both, and the measurement that shows it is a pair of
+/// `E2E (swift)` runs one commit apart in a downstream polyglot consumer: the green one's
+/// post-build step reported
+/// `Finished release profile [optimized] target(s) in 29m 00s` -- 60 seconds inside the old
+/// 1800s budget -- and the next one was killed at exactly 1800s with no change to any path that
+/// feeds the Swift build graph. A budget that lands within a minute of the step's own duration
+/// censors the measurement rather than catching a hang: the step's true cost is unknowable while
+/// the ceiling sits on top of it. 3600s leaves that headroom.
+///
+/// `[build_commands.<lang>].timeout_seconds` was the per-language escape hatch (alef #364), but
+/// 0.82.0 removed that table from the schema, so no real `alef.toml` can raise this any more --
+/// this constant is the only ceiling a consumer actually gets. ~keep
+const RUN_COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Execute a `RunCommand` post-build step.
 ///
