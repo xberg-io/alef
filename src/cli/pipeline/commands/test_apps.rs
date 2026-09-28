@@ -851,13 +851,22 @@ mod mock_server_binary_path_tests {
         // The target dir travels on the child commands only. Exporting `CARGO_TARGET_DIR`
         // process-wide here leaked into every concurrent test that spawns cargo (the napi
         // fixtures compiled into this tempdir and lost it mid-link when the test finished). ~keep
-        let status = std::process::Command::new("cargo")
+        // Captured, not inherited: this build has been observed to lose to a full disk under
+        // parallel load, and `.status()` reports that as a bare non-zero with cargo's reason
+        // written to a stderr nobody reads -- a flake indistinguishable from a real regression
+        // in the resolver under test. The panic carries cargo's own words instead. ~keep
+        let output = std::process::Command::new("cargo")
             .args(["build", "--release", "--manifest-path"])
             .arg(&manifest_path)
             .env("CARGO_TARGET_DIR", target_dir.path())
-            .status()
+            .output()
             .expect("run cargo build");
-        assert!(status.success(), "cargo build for the throwaway crate failed");
+        assert!(
+            output.status.success(),
+            "cargo build for the throwaway crate failed ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
 
         let resolved = mock_server_binary_path(&manifest_path, Some(target_dir.path().as_os_str()))
             .expect("resolve mock-server binary path");
