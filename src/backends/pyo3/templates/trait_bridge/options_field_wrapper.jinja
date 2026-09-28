@@ -6,6 +6,21 @@
 {{ signature_prefix }}{{ sig_str }}{{ signature_suffix }}
 {% endif %}
 pub fn {{ func_name }}{{ lifetime }}({{ params_str }}) -> {{ ret }} {
+{% if check_bridge_object %}
+    if let Some(obj) = {{ visitor_kwarg }}.as_ref() {
+        let provides_any = Python::attach(|py| {
+            let bound = obj.bind(py);
+            [{% for name in bridge_method_names %}"{{ name }}", {% endfor %}]
+                .iter()
+                .any(|name| bound.hasattr(*name).unwrap_or(false))
+        });
+        if !provides_any {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "`{{ visitor_kwarg }}` must be an object that defines at least one `{{ trait_name }}` method ({{ bridge_method_list }}); a bare callable is not accepted, because the bridge calls the methods by name",
+            ));
+        }
+    }
+{% endif %}
     let {{ visitor_kwarg }}_object: Option<pyo3::Py<pyo3::PyAny>> = {{ visitor_kwarg }}{% if field_fallback %}.or_else(|| {
         {{ field_access }}.map(|v| Python::attach(|py| (*v.inner).clone_ref(py)))
     }){% endif %};

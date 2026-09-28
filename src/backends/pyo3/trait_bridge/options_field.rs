@@ -255,6 +255,14 @@ pub fn gen_bridge_field_function(
         String::new()
     };
 
+    // A bare callable satisfies no `hasattr`, so without this the bridge either falls back to
+    // the trait's Rust default (the listener silently never fires) or raises a bare
+    // `AttributeError` from deep inside a generated method. The check needs somewhere to put a
+    // `PyErr`, so it is emitted only for a wrapper that already returns `PyResult` -- an
+    // infallible sync function keeps the old behaviour. ~keep
+    let bridge_method_names: Vec<String> = bridge_cfg.resolve_methods(api).iter().map(|m| m.name.clone()).collect();
+    let check_bridge_object = !bridge_method_names.is_empty() && (is_async || func.error_type.is_some());
+
     // The bridge wrapper has two constructors: the visitor shape returns `Self`, every other
     // shape returns `PyResult<Self>` (it validates the host object's required methods). The
     // wrapper used to bind the constructor's return value directly and cast it to the handle
@@ -304,7 +312,11 @@ pub fn gen_bridge_field_function(
             core_call => core_call,
             err_conv => err_conv.clone().unwrap_or_default(),
             err_try => if err_conv.is_some() { "?" } else { "" },
+            check_bridge_object => check_bridge_object,
             ctor_suffix => ctor_suffix,
+            trait_name => &bridge_cfg.trait_name,
+            bridge_method_list => bridge_method_names.join(", "),
+            bridge_method_names => bridge_method_names,
         },
     )
 }

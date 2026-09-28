@@ -170,6 +170,23 @@ fn every_wrapper_reads_the_fallback_off_its_own_parameter_name() {
 }
 
 #[test]
+fn a_bare_callable_is_rejected_by_name_instead_of_being_skipped() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let api = extract(dir.path());
+    let lib = lib_rs(&api, &config_with(""));
+    let body = wrapper_body(&lib, "execute").expect("execute wrapper");
+
+    assert!(
+        body.contains("bound.hasattr(*name).unwrap_or(false)") && body.contains("\"on_step\", "),
+        "the wrapper must check the host object provides a `ProgressListener` method; body:\n{body}"
+    );
+    assert!(
+        body.contains("PyTypeError::new_err") && body.contains("a bare callable is not accepted"),
+        "the rejection must name the rule, not surface as a bare AttributeError; body:\n{body}"
+    );
+}
+
+#[test]
 fn excluding_python_emits_no_wrapper_and_no_bridge_reference() {
     let dir = tempfile::tempdir().expect("tempdir");
     let api = extract(dir.path());
