@@ -94,7 +94,8 @@ pub enum PostBuildStep {
     /// Copy the just-built C FFI shared library (and its header, if present) into this
     /// backend's native-library directory (`crate::publish::ffi_stage::stage_ffi`).
     ///
-    /// Backends with `build_dep: BuildDependency::Ffi` (Go, Java, C#) link against a cdylib
+    /// Backends with `build_dep: BuildDependency::Ffi` (go, java, csharp, kotlin,
+    /// kotlin_android, jni, zig, and dart in FFI style) link against a cdylib
     /// their own build tool never places on disk itself — `cargo build` for the `-ffi` crate
     /// does, into `target/{release,debug}/`, a location none of `go build`/`mvn`/`dotnet build`
     /// know about. Without this step, that directory only ever gets staged by `alef test --e2e`

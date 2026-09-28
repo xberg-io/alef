@@ -549,10 +549,20 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
 
     let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
 
-    let has_options_field_bridge = config
+    // Every options-field emission below reads this ONE list. It is filtered by
+    // `targets_ffi` here, at the single point where the FFI backend decides the bridge exists
+    // at all: before alef #476 the flag, the per-function wrapper and the
+    // `{prefix}_options_set_{field}` setter each scanned `config.trait_bridges` unfiltered
+    // while only the bridge struct itself honoured `exclude_languages`, so `exclude_languages
+    // = ["c"]` emitted a setter calling a `{Prefix}{Trait}Bridge` no pass ever wrote -- and
+    // that breaks every backend linked through FFI, not just C. ~keep
+    let ffi_options_field_bridges: Vec<&crate::core::config::TraitBridgeConfig> = config
         .trait_bridges
         .iter()
-        .any(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField);
+        .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
+        .filter(|b| crate::backends::ffi::trait_bridge::targets_ffi(b))
+        .collect();
+    let has_options_field_bridge = !ffi_options_field_bridges.is_empty();
 
     let ffi_exclude_functions: ahash::AHashSet<String> = config
         .ffi
@@ -586,7 +596,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
         if has_options_field_bridge
             && let Some((options_param, options_type_name)) =
-                options_field_bridge_for_function(func, &config.trait_bridges)
+                options_field_bridge_for_function(func, ffi_options_field_bridges.iter().copied())
             && let Some(wrapper) = crate::backends::ffi::gen_bridge_field::gen_function_with_options_field_bridge(
                 prefix,
                 &core_import,
@@ -640,10 +650,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             .map(|t| (t.name.as_str(), t))
             .collect();
 
-        for bridge_cfg in &config.trait_bridges {
-            if bridge_cfg.bind_via != crate::core::config::BridgeBinding::OptionsField {
-                continue;
-            }
+        for bridge_cfg in &ffi_options_field_bridges {
             let Some(trait_def) = trait_map.get(bridge_cfg.trait_name.as_str()) else {
                 continue;
             };
@@ -668,16 +675,12 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
 
         if visitor_callbacks_enabled {
-            let visitor_trait_def = config
-                .trait_bridges
-                .iter()
-                .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
-                .find_map(|b| {
-                    trait_map
-                        .get(b.trait_name.as_str())
-                        .copied()
-                        .map(|trait_def| (trait_def, b))
-                });
+            let visitor_trait_def = ffi_options_field_bridges.iter().copied().find_map(|b| {
+                trait_map
+                    .get(b.trait_name.as_str())
+                    .copied()
+                    .map(|trait_def| (trait_def, b))
+            });
             if let Some((vtd, bridge_cfg)) = visitor_trait_def {
                 builder.add_item(&crate::backends::ffi::gen_visitor::gen_visitor_bindings_with_api(
                     prefix,

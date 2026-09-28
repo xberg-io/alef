@@ -46,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The FFI crate honours `exclude_languages` on every options-field emission, not just the
+  bridge struct (#476).** Four sites in `backends/ffi/gen_bindings/lib_rs.rs` decided whether a
+  `bind_via = "options_field"` bridge exists and only the last one -- the bridge struct and
+  vtable -- was gated. With `"c"` or `"ffi"` in `exclude_languages` the crate still emitted a
+  `{prefix}_options_set_{field}` setter and a per-function wrapper naming a
+  `{Prefix}{Trait}Bridge` and a `{prefix}_{trait}_bridge_new` that no pass had written. That is
+  a link failure for the eight backends carrying `BuildDependency::Ffi` -- go, java, csharp,
+  kotlin, kotlin_android, jni, zig, and dart in FFI style -- not only for a C consumer; the doc
+  on that variant still named three of them and now names all eight. All four sites now read
+  one `targets_ffi`-filtered list.
+
 - **`alef verify` no longer claims drift for paths alef's own formatters never touch (#478).** The
   drift check held its own one-line answer to "what formats this path" -- `poly fmt`, always,
   applied to a temp sibling of the real file -- and it was wrong in three ways at once. poly's

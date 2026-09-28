@@ -95,21 +95,21 @@ pub(super) fn has_trait_bridge_param(func: &FunctionDef, trait_bridges: &[TraitB
     })
 }
 
-pub(super) fn options_field_bridge_for_function<'a>(
+/// The parameter carrying an options-field bridge's owning struct, if any.
+///
+/// Delegates to the shared [`options_field_bridge_site`] predicate so the FFI wrapper cannot
+/// disagree with the pyo3 wrapper, the `.pyi` stub or the `api.py` facade about which
+/// functions gain a bridge — including the `exclude_functions` gate. Callers pass an
+/// already `targets_ffi`-filtered bridge list. ~keep
+pub(super) fn options_field_bridge_for_function<'a, I>(
     func: &'a FunctionDef,
-    trait_bridges: &'a [TraitBridgeConfig],
-) -> Option<(&'a ParamDef, &'a str)> {
-    trait_bridges
-        .iter()
-        .filter(|bridge| bridge.bind_via == BridgeBinding::OptionsField)
-        .find_map(|bridge| {
-            let options_type = bridge.options_type.as_deref()?;
-            let options_param = func
-                .params
-                .iter()
-                .find(|param| named_type_ref(&param.ty) == Some(options_type))?;
-            Some((options_param, options_type))
-        })
+    trait_bridges: I,
+) -> Option<(&'a ParamDef, &'a str)>
+where
+    I: IntoIterator<Item = &'a TraitBridgeConfig>,
+{
+    let site = crate::codegen::generators::trait_bridge::options_field_bridge_site(func, trait_bridges)?;
+    Some((site.param, site.options_type))
 }
 
 pub(super) fn function_param_bridge_for_visitor_callbacks<'a>(
