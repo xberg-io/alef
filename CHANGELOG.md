@@ -140,6 +140,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A constructor that still consumes a class-typed argument now carries generated rustdoc naming
   it and pointing at the setter, which borrows. The wasm backend is the only caller of
   `codegen::shared::constructor_parts`, so nothing outside this backend changes.
+- **wasm: the generated constructor's remaining ownership transfer is a documented contract, not
+  an open defect (#479).** Measured with the wasm-bindgen JS-glue oracle rather than argued: for a
+  `#[derive(Default)]` struct every generated parameter is already `Option<T>`, so the emitted
+  `.d.ts` declares `constructor(palette?: WasmPalette | null, ...)` -- `new Options()` with no
+  arguments already type-checks, `default()` is already emitted, and every field including the
+  class-typed one already has a setter that borrows (#470). `default()` plus setters therefore
+  reaches every state the constructor can, and alef's own e2e TypeScript builder has never called
+  a `Wasm*` constructor at all. Removing the parameters would change a published signature while
+  breaking the one pattern that is *correct* today -- passing a freshly built value, for which
+  taking ownership is wasm-bindgen's ordinary and desirable lowering. So the resolution is the
+  documentation: the generated rustdoc now states the ownership contract positively ("Takes
+  ownership of `palette`"), says that passing a fresh value is fine, and names `default()` plus
+  the borrowed setter as the way to keep a handle you already hold. Both the doc and the
+  completeness of that alternative path are pinned by tests, and the compile oracle pins the two
+  surviving `__destroy_into_raw` positions as the intended contract rather than a backlog item.
 
 - **The Swift post-build step read build output from `./target` and reported success when it
   found nothing.** `find_swift_bridge_out_dir` (and scaffold's `read_swift_bridge_headers`)

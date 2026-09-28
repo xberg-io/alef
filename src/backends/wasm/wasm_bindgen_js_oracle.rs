@@ -355,8 +355,11 @@ fn generated_bindings_do_not_destroy_handles_the_caller_still_owns() {
         vec![
             // `#[derive(Default)]` makes every generated parameter `Option<T>`
             // (`shared::config_constructor_parts_inner`), and `Option<&T>` has no
-            // `OptionFromWasmAbi` impl, so no parameter here is borrowable. Tracked as the
-            // remaining half of alef#472. ~keep
+            // `OptionFromWasmAbi` impl, so no parameter here is borrowable. Closed as a
+            // documented limitation in alef#479: this is wasm-bindgen's ordinary ownership
+            // transfer, the generated rustdoc says so, and `default()` plus the borrowed
+            // setters already reach every state the constructor can. These two entries are
+            // therefore the intended contract, not a backlog item. ~keep
             "WasmDefaultedOptions.constructor consumes `palette`".to_string(),
             // Same wall, reached through the optional parameter of an otherwise-borrowable
             // constructor. ~keep

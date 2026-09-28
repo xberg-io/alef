@@ -333,7 +333,7 @@ fn constructor_borrows_required_class_typed_arguments() {
 /// so no parameter here is borrowable at all. The generated rustdoc is the only warning the
 /// consumer gets, so it is part of the contract.
 #[test]
-fn defaulted_struct_constructor_still_consumes_its_argument_and_says_so() {
+fn defaulted_struct_constructor_still_takes_ownership_and_says_so() {
     let content = generated_lib_rs(vec![palette_type(), defaulted_options_type()]);
 
     assert!(
@@ -341,28 +341,53 @@ fn defaulted_struct_constructor_still_consumes_its_argument_and_says_so() {
         "a `#[derive(Default)]` constructor takes Option<T>, which cannot be borrowed;\n{content}"
     );
     assert!(
-        content.contains("/// Consumes `palette`."),
-        "the consumed argument must be named in the generated rustdoc;\n{content}"
+        content.contains("/// Takes ownership of `palette`."),
+        "the owned argument must be named in the generated rustdoc;\n{content}"
     );
     assert!(
-        content.contains("setter borrows and leaves the caller's handle alive."),
-        "the doc must point the consumer at the setter that does not consume;\n{content}"
+        content.contains("the generated setter borrows and leaves your handle alive."),
+        "the doc must point the consumer at the setter that does not take ownership;\n{content}"
+    );
+}
+
+/// The resolution of alef#479, pinned so it is not rediscovered as a bug.
+///
+/// A `#[derive(Default)]` struct's constructor cannot borrow any class-typed argument, and
+/// dropping the parameter would change a published signature. It needs no fix because the safe
+/// path is already fully generated: an arg-free `default()` factory, a `new()` whose every
+/// parameter is `Option<T>` and therefore omittable from JS, and a borrowed setter per
+/// class-typed field. `default()` plus setters reaches every state the constructor can.
+#[test]
+fn a_defaulted_struct_already_has_a_complete_ownership_safe_construction_path() {
+    let content = generated_lib_rs(vec![palette_type(), defaulted_options_type()]);
+
+    assert!(
+        content.contains("pub fn default() -> WasmDefaultedOptions"),
+        "the arg-free factory is half of the safe path;\n{content}"
+    );
+    assert!(
+        content.contains("pub fn set_palette(&mut self, value: &WasmPalette)"),
+        "the borrowed setter is the other half, and it must reach the class-typed field;\n{content}"
+    );
+    assert!(
+        content.contains("pub fn set_title(&mut self, value: String)"),
+        "every other field must be reachable by setter too, or the path is not complete;\n{content}"
     );
 }
 
 /// The optional parameter of an otherwise-borrowable constructor hits the same wall, and is
-/// documented by the same rustdoc. A constructor that consumes nothing gets no such doc.
+/// documented by the same rustdoc. A constructor that owns nothing gets no such doc.
 #[test]
-fn only_a_constructor_that_consumes_a_handle_carries_the_warning() {
+fn only_a_constructor_that_takes_a_handle_carries_the_ownership_note() {
     let consuming = generated_lib_rs(vec![palette_type(), render_options_type()]);
     assert!(
-        consuming.contains("/// Consumes `fallbackPalette`."),
-        "the optional class-typed parameter is still consumed and must say so;\n{consuming}"
+        consuming.contains("/// Takes ownership of `fallbackPalette`."),
+        "the optional class-typed parameter is still taken by value and must say so;\n{consuming}"
     );
 
     let clean = generated_lib_rs(vec![palette_type()]);
     assert!(
-        !clean.contains("/// Consumes "),
-        "a constructor with no class-typed parameter must carry no consumption warning;\n{clean}"
+        !clean.contains("/// Takes ownership of "),
+        "a constructor with no class-typed parameter must carry no ownership note;\n{clean}"
     );
 }

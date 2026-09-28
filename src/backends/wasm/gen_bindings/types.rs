@@ -767,13 +767,20 @@ fn borrowable_constructor_fields(
         .collect()
 }
 
-/// Rustdoc naming each class-typed argument this constructor still consumes, or nothing when it
-/// consumes none.
+/// Rustdoc stating the ownership contract for each class-typed argument this constructor takes
+/// by value, or nothing when it takes none.
 ///
-/// The consumed arguments are exactly the class-typed ones `borrowable_constructor_fields`
-/// could not take by reference. Saying so on the generated constructor is the only warning a
-/// consumer gets before their handle dies: the JS is valid, the failure is a
-/// `null pointer passed to rust` at the *next* use of the argument, far from this call. ~keep
+/// These are exactly the class-typed parameters `borrowable_constructor_fields` could not take
+/// by reference, and taking ownership of them is wasm-bindgen's ordinary lowering for a by-value
+/// exported-struct argument, not a defect: passing a freshly built value is correct and is what
+/// a constructor argument is normally for. It becomes a trap only for a handle the caller still
+/// holds, where the failure is a `null pointer passed to rust` at the *next* use, far from this
+/// call -- so the doc names the safe alternative rather than only the hazard.
+///
+/// This text is the resolution of alef#479: there is no non-breaking way to remove the
+/// ownership transfer (`Option<&T>` has no `OptionFromWasmAbi` impl, and dropping the parameter
+/// changes a published constructor signature), and `default()` plus the borrowed setters #470
+/// added is already a complete construction path. Keep it accurate rather than deleting it. ~keep
 fn consumed_argument_doc(
     fields: &[FieldDef],
     mapper: &WasmMapper,
@@ -790,10 +797,11 @@ fn consumed_argument_doc(
         return Vec::new();
     }
     vec![
-        format!("Consumes {}.", consumed.join(", ")),
-        "wasm-bindgen lowers an optional exported-struct argument through `__destroy_into_raw()`,".to_string(),
-        "so that handle is dead once this returns. Assign the property instead -- the generated".to_string(),
-        "setter borrows and leaves the caller's handle alive.".to_string(),
+        format!("Takes ownership of {}.", consumed.join(", ")),
+        "wasm-bindgen lowers a by-value class argument through `__destroy_into_raw()`, so each".to_string(),
+        "of those handles is dead once this returns. Passing a freshly built value is fine. To".to_string(),
+        "keep a handle you already hold, build with `default()` and assign the property instead:".to_string(),
+        "the generated setter borrows and leaves your handle alive.".to_string(),
     ]
 }
 
