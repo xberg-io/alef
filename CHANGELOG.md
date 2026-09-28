@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A failed snippet validation left every reference page `alef docs` had just written without
+  its `alef:hash:` stamp.** `core_commands::docs` propagated `docs_result` with `?` between the
+  write and the `finalize_hashes` call, so a run that wrote the pages and then failed validation
+  -- a host missing one snippet toolchain, a strict-mode bail -- exited 1 with the pages on disk
+  and bare. `alef verify` claims a file by the marker in its leading lines, so it then reported
+  them drifted although the text was correct, and the state was self-sustaining: the scaffold
+  writer no-ops on unchanged content, so no later run re-entered the path that would stamp them.
+  The failure is now deferred into the same `StageFailures` type `alef all` (task #186) and
+  `alef generate` (task #546) already use: the stamp runs, the remaining crates are still
+  processed, and the run still exits 1 with the validation error unchanged. Stage-hash caching
+  is still skipped for a crate whose docs stage failed.
+
 ## [0.102.0] - 2026-09-28
 
 ### Fixed

@@ -547,6 +547,7 @@ fn docs_skip_snippet_validation_flag_bypasses_the_real_validator() {
         validated_err.to_string().contains("snippet validation failed"),
         "expected a snippet-validation failure naming the invalid JSON, got: {validated_err:#}"
     );
+    assert_reference_pages_are_stamped(&root, "the failing run above already wrote these pages (alef#475)");
 
     super::handle(
         Commands::Docs {
@@ -561,4 +562,78 @@ fn docs_skip_snippet_validation_flag_bypasses_the_real_validator() {
          snippet's validator -- its failure above proves this fixture reaches the validator \
          when it runs, so success here can only mean the compile-validation step was skipped",
     );
+}
+
+/// Every `docs/reference/*.md` page on disk under `root` must carry an `alef:hash:` line.
+///
+/// `alef verify` claims a file by the marker in its leading lines and then holds it to its
+/// embedded stamp (`helpers::stale_among`), so a written-but-unstamped page reads as
+/// permanently drifted. The page count is asserted first on purpose: an empty
+/// `docs/reference` would otherwise satisfy a bare "all pages are stamped" loop without
+/// examining a single file. ~keep
+fn assert_reference_pages_are_stamped(root: &Path, context: &str) {
+    let reference_dir = root.join("docs/reference");
+    let mut pages: Vec<std::path::PathBuf> = std::fs::read_dir(&reference_dir)
+        .unwrap_or_else(|error| panic!("{} must exist: {error}", reference_dir.display()))
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    pages.sort();
+    assert!(
+        !pages.is_empty(),
+        "no reference pages were written to {} -- the stamping assertion below would examine \
+         nothing ({context})",
+        reference_dir.display()
+    );
+
+    let unstamped: Vec<String> = pages
+        .iter()
+        .filter(|path| {
+            let content = std::fs::read_to_string(path).unwrap_or_default();
+            crate::core::hash::content_has_alef_marker(&content) && !content.contains("alef:hash:")
+        })
+        .map(|path| path.display().to_string())
+        .collect();
+    assert!(
+        unstamped.is_empty(),
+        "{} of {} alef-marked reference page(s) carry no `alef:hash:` line, so `alef verify` \
+         reports them drifted forever ({context}): {}",
+        unstamped.len(),
+        pages.len(),
+        unstamped.join(", ")
+    );
+}
+
+/// The healthy-run control for [`assert_reference_pages_are_stamped`]: with no snippet
+/// configuration to fail on, `alef docs` succeeds and every page it writes is already stamped,
+/// so the sibling assertion in
+/// [`docs_skip_snippet_validation_flag_bypasses_the_real_validator`] is measuring the failure
+/// path specifically and not a stamp that was never written on any path.
+///
+/// Scoped to "is the `alef:hash:` line present" and nothing further. Whether those bytes also
+/// survive a `poly fmt` pass unchanged is a separate question about the markdown format
+/// prediction (`helpers::format_drift`), which this says nothing about. ~keep
+#[test]
+fn a_successful_docs_run_stamps_every_reference_page() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
+    write_diff_fixture_workspace(&root);
+    let _cwd = crate::test_support::CwdGuard::enter(&root);
+
+    let context = DispatchContext {
+        config_path: root.join("alef.toml"),
+        crate_filter: Vec::new(),
+    };
+    super::handle(
+        Commands::Docs {
+            lang: None,
+            output: None,
+            skip_snippet_validation: false,
+        },
+        &context,
+    )
+    .expect("a docs run with no snippet configuration has nothing to fail on");
+
+    assert_reference_pages_are_stamped(&root, "a successful `alef docs` run");
 }
