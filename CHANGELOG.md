@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A bridge object that defines none of the trait's methods is rejected by name instead of
+  being silently skipped (#476).** The bridge dispatches `obj.<method>(...)`, so a bare Python
+  callable satisfies no `hasattr` check: for a method carrying a Rust default the default ran
+  and the listener simply never fired, and for one without a default the caller got a bare
+  `AttributeError` raised from inside a generated method. The emitted wrapper now raises a
+  `TypeError` naming the trait and the methods the object has to define, and the rule is
+  documented on `bind_via` (and therefore in the JSON schema). An infallible synchronous
+  wrapper has nowhere to put a `PyErr` and keeps the previous behaviour.
+
 - **The pyo3 wrapper for an `options_field` trait bridge compiles (#476).** Three independent
   defects in one emitted function, none of which any test could see: `gen_bridge_field_function`
   had no direct coverage at all, because the only pyo3 options-field test sets `functions:
