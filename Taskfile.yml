@@ -116,7 +116,10 @@ tasks:
   lint:file-size:tighten:
     desc: "Rewrite tests/file_size_baseline.txt from the working tree (run after splitting a file)"
     cmds:
-      - UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --nocapture
+      # `--ignored` is load-bearing while the ratchet's tests carry #[ignore]: without it
+      # this task reports `test result: ok. 0 passed; 4 ignored` and rewrites nothing, which is
+      # indistinguishable from a successful regeneration (alef#482).
+      - UPDATE_FILE_SIZE_BASELINE=1 cargo test --test file_size_ratchet -- --ignored --nocapture
 
   set-version:
     desc: "Set package version (usage: task set-version -- 0.18.0 or 0.18.0-rc.1)"

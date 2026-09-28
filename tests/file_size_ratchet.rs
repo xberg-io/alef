@@ -206,6 +206,14 @@ const HEADER: &str = "\
 # Never raise a number in this file to make a build pass. Split the file instead.
 # Regenerate after a split with: task lint:file-size:tighten
 #
+# THE RATCHET IS CURRENTLY DISABLED -- every test in tests/file_size_ratchet.rs carries an
+# #[ignore]. While it was off this file drifted badly: on 2026-09-28, 54 of its 82 entries had
+# grown past their recorded ceiling by 4,675 lines in total, and a further 30 in-scope files had
+# crossed the cap without ever being baselined. This file was regenerated that day, so its
+# numbers are today\'s sizes, not the ceilings the ratchet originally froze. Re-enabling it will
+# therefore grandfather that drift rather than recover it -- see alef#482 for the decision and
+# alef#338 for paying the debt down.
+#
 # <path> <ceiling>
 ";
 
