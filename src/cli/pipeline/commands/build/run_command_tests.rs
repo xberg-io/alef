@@ -1,6 +1,28 @@
 use super::*;
 use crate::test_support::SkipCommandsGuard;
 
+/// The ceiling has to stay clear of the duration it is meant to bound, not sit on it.
+///
+/// A consumer's Swift post-build `cargo build --release` reported
+/// `Finished release profile [optimized] target(s) in 29m 00s` on the last run that passed --
+/// 60 seconds inside the then-current 1800s ceiling -- and was killed at exactly 1800s on the
+/// next commit, which touched no path feeding that build graph. A ceiling that close to the
+/// step's own cost reports a hang that is really just a cold cache, and censors the duration it
+/// was supposed to let you read. This pins the headroom rather than the number: lowering the
+/// constant back under the measured cost is the regression. ~keep
+#[test]
+fn run_command_timeout_leaves_headroom_over_the_longest_measured_post_build() {
+    const MEASURED_SWIFT_POST_BUILD: std::time::Duration = std::time::Duration::from_secs(29 * 60);
+
+    assert!(
+        super::RUN_COMMAND_TIMEOUT >= MEASURED_SWIFT_POST_BUILD * 2,
+        "RUN_COMMAND_TIMEOUT is {:?}, which leaves no headroom over the {:?} a real consumer's \
+         Swift post-build already takes",
+        super::RUN_COMMAND_TIMEOUT,
+        MEASURED_SWIFT_POST_BUILD,
+    );
+}
+
 #[test]
 fn run_run_command_succeeds_for_echo() {
     let _guard = SkipCommandsGuard::set("");
@@ -100,11 +122,11 @@ fn run_run_command_reports_false_when_the_tool_is_not_on_path() {
     );
 }
 
-/// `run_run_command` used to enforce a bare module constant (`RUN_COMMAND_TIMEOUT`, 1800s) with
+/// `run_run_command` used to enforce a bare module constant (`RUN_COMMAND_TIMEOUT`) with
 /// no way to shorten or lengthen it per call -- this proves the `timeout` parameter this fix
 /// adds is actually honored by the kill loop, not merely accepted and ignored. A `sleep 3` run
 /// under a 1-second ceiling must be killed at ~1s, not run to completion and not wait for the
-/// unrelated 1800s default still in force elsewhere in this file. ~keep
+/// unrelated module default still in force elsewhere in this file. ~keep
 #[test]
 fn run_run_command_is_killed_at_a_shorter_than_default_timeout() {
     let _guard = SkipCommandsGuard::set("");
@@ -117,7 +139,7 @@ fn run_run_command_is_killed_at_a_shorter_than_default_timeout() {
     let error = result.expect_err("a sleep 3 under a 1s ceiling must time out");
     assert!(
         error.to_string().contains("exceeded 1s timeout"),
-        "error should name the configured 1s ceiling, not the 1800s default: {error:#}"
+        "error should name the configured 1s ceiling, not the module default: {error:#}"
     );
     crate::test_support::assert_elapsed_under(
         "must be killed at the configured 1s ceiling rather than running to completion",
@@ -175,7 +197,7 @@ fn configured_build_command_timeout_reaches_the_post_build_run_command_step() {
     let message = format!("{error:#}");
     assert!(message.contains("exceeded 1s timeout"), "got: {message}");
     crate::test_support::assert_elapsed_under(
-        "the configured 1s ceiling must fire before the sleep completes or the 1800s default would",
+        "the configured 1s ceiling must fire before the sleep completes or the module default would",
         elapsed,
         std::time::Duration::from_secs(3),
     );

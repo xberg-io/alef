@@ -132,14 +132,16 @@ pub struct BuildCommandConfig {
     pub build_release: Option<StringOrVec>,
     /// Ceiling in seconds for this language's post-build `RunCommand` step (e.g. Swift's
     /// `cargo build --release` for the swift-bridge crate). `None` keeps alef's built-in
-    /// ceiling (`RUN_COMMAND_TIMEOUT` in `cli::pipeline::commands::build`, 1800s). No built-in
+    /// ceiling (`RUN_COMMAND_TIMEOUT` in `cli::pipeline::commands::build`, 3600s). No built-in
     /// default ever sets this to `Some` (see `build_defaults::default_build_config`) -- alef #364
     /// added it as a per-language `alef.toml` escape hatch for a Swift `cargo build --release`
     /// that legitimately ran past 30 minutes, and 0.82.0's removal of `[build_commands.<lang>]`
     /// took that escape hatch away: the only remaining way to set this field is this crate's own
     /// `#[cfg(test)]` build-orchestration hook (see
     /// [`crate::core::config::ResolvedCrateConfig::build_commands`]), so every real build is now
-    /// bound by the hardcoded 1800s ceiling with no override. Only governs a post-build
+    /// bound by that one hardcoded ceiling with no override -- which is why it was raised to
+    /// 3600s after a consumer's Swift post-build landed 60 seconds inside the old 1800s. Only
+    /// governs a post-build
     /// `RunCommand` step; the `build`/`build_release` commands above run unbounded. ~keep
     pub timeout_seconds: Option<u64>,
 }
