@@ -59,6 +59,40 @@ impl Language {
         Self::Jni,
     ];
 
+    /// The spellings `exclude_languages` accepts for this target: its own name, plus the
+    /// backend crate that emits it where those differ.
+    ///
+    /// Mirrors each backend's own `TARGET_SPELLINGS` const. A caller that has a `Language`
+    /// rather than a specific backend -- the generation pipeline's per-language prune is the
+    /// motivating one -- cannot reach those consts, and asking only the language name would
+    /// miss `exclude_languages = ["pyo3"]`. Kept in lock-step with the backends by
+    /// `tests/trait_bridge_exclude_language_spellings.rs`, which scans the consts out of the
+    /// source rather than trusting this match. ~keep
+    pub fn bridge_spellings(self) -> &'static [&'static str] {
+        match self {
+            Self::Python => &["python", "pyo3"],
+            Self::Node => &["node", "napi"],
+            Self::Ruby => &["ruby", "magnus"],
+            Self::Elixir => &["elixir", "rustler"],
+            Self::R => &["r", "extendr"],
+            Self::Ffi => &["ffi", "c"],
+            Self::Php => &["php"],
+            Self::Wasm => &["wasm"],
+            Self::Go => &["go"],
+            Self::Java => &["java"],
+            Self::Csharp => &["csharp"],
+            Self::Rust => &["rust"],
+            Self::Kotlin => &["kotlin"],
+            Self::KotlinAndroid => &["kotlin_android"],
+            Self::Swift => &["swift"],
+            Self::Dart => &["dart"],
+            Self::Gleam => &["gleam"],
+            Self::Zig => &["zig"],
+            Self::C => &["c"],
+            Self::Jni => &["jni"],
+        }
+    }
+
     /// Comma-joined canonical names of every `Language` variant, derived from [`Self::ALL`]
     /// and [`Display`](std::fmt::Display) rather than a second hand-typed list. Used to build
     /// "valid names are: ..." validation messages so they cannot drift from the enum they

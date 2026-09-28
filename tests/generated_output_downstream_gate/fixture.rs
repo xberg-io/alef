@@ -371,15 +371,13 @@ repository = "https://github.com/example/toolkit"
 license = "MIT"
 authors = ["Example Author <author@example.invalid>"]
 
-# ~keep `execute` is async and takes `RunOptions`, whose `on_progress` field the node binding
-# still carries even though this bridge excludes node -- an excluded language keeps the FIELD,
-# only the bridge is suppressed (tracked separately from alef #476, which fixes the emissions
-# that reference a bridge nothing wrote). A JS-object-backed field makes `JsRunOptions`
-# non-`Send`, and napi requires an async function's arguments to be `Send`. Dropping the one
-# async function from the node surface keeps this gate honest about what is fixed here rather
-# than papering over the open defect with a fixture that avoids the shape entirely.
-[crates.node]
-exclude_functions = ["execute"]
+# ~keep `execute` is async and takes `RunOptions`, whose `on_progress` field node no longer
+# carries: this bridge excludes node, and the per-language carrier prune (alef #480) drops the
+# field from every language the bridge does not target. That is what makes `JsRunOptions`
+# `Send` again, which napi requires of an async function's arguments. Until #480 this fixture
+# had to remove `execute` from the node surface entirely; the gate compiling it here is the
+# proof the prune reaches napi, so do not reintroduce a `[crates.node] exclude_functions`
+# workaround without re-checking that.
 
 [crates.ffi.capsule_types.Language]
 into_raw_type = "toolkit::RawLanguage"

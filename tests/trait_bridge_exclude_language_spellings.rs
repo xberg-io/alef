@@ -88,3 +88,43 @@ fn every_backend_target_spelling_is_accepted_by_exclude_languages() {
         distinct.len()
     );
 }
+
+/// The per-language carrier prune asks `Language::bridge_spellings`, not a backend's own
+/// `TARGET_SPELLINGS`, because the generation pipeline has a `Language` and cannot reach the
+/// backend consts (three are private). That makes `bridge_spellings` a hand-written second
+/// copy of the same fact, and a copy that drifts is worse than no copy at all: a spelling
+/// missing from it means `exclude_languages = ["pyo3"]` suppresses the bridge but silently
+/// fails to prune the carrier field, which is the #480 defect wearing the #476 costume.
+///
+/// Asserted as a union rather than per backend on purpose -- mapping a source directory back
+/// to a `Language` would be a third hand-written copy of the same mapping. ~keep
+#[test]
+fn every_backend_target_spelling_is_reachable_from_language_bridge_spellings() {
+    use alef::core::config::Language;
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/backends");
+    let spellings = declared_spellings(&root);
+    assert!(
+        spellings.len() >= 14,
+        "the TARGET_SPELLINGS scan found nothing to check, so this test examined nothing"
+    );
+
+    let reachable: std::collections::BTreeSet<&str> = Language::ALL
+        .iter()
+        .flat_map(|language| language.bridge_spellings().iter().copied())
+        .collect();
+    assert!(
+        reachable.len() >= 14,
+        "expected at least 14 spellings across every Language, got {} -- {reachable:?}",
+        reachable.len()
+    );
+
+    for (file, spelling) in &spellings {
+        assert!(
+            reachable.contains(spelling.as_str()),
+            "`{spelling}` is declared in {file} as a target this backend answers to, but no \
+             `Language::bridge_spellings()` lists it -- `exclude_languages = [\"{spelling}\"]` \
+             would suppress the bridge and still leave its carrier field on the binding"
+        );
+    }
+}

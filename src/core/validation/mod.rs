@@ -228,6 +228,22 @@ impl<'a> ValidatedApiSurface<'a> {
         if fatal { Err(report) } else { Ok(Self { api }) }
     }
 
+    /// Re-wrap a surface **derived from an already-validated one** without revalidating.
+    ///
+    /// # Precondition
+    ///
+    /// `api` must be the output of a transform that can only *remove* from a surface this
+    /// type already accepted. Validation reports errors about what a surface contains, so a
+    /// subtractive transform cannot introduce one; an additive or rewriting transform can,
+    /// and must go back through [`Self::new_with_bridged_traits`].
+    ///
+    /// The one caller is the generation pipeline's per-language carrier prune, which marks
+    /// fields `binding_excluded` and changes nothing else. Revalidating there instead would
+    /// re-emit every diagnostic once per target language on an ordinary run. ~keep
+    pub(crate) fn from_subtractive_projection(api: &'a ApiSurface) -> Self {
+        Self { api }
+    }
+
     pub fn api(&self) -> &'a ApiSurface {
         self.api
     }

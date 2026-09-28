@@ -323,6 +323,25 @@ impl Backend for Pyo3Backend {
             })
             .map(|typ| typ.name.clone())
             .collect();
+        // The constructor emitter re-types the bridge's carrier field as a bridge parameter,
+        // so reading the raw `config.trait_bridges` here made it do that for a bridge pyo3
+        // does not emit. Harmless on its own -- the declaration it produced matched the one
+        // the ordinary field walk emits -- but once the per-language prune marks the carrier
+        // `binding_excluded`, the mirror loses the field while `#[new]` keeps assigning it:
+        // `error[E0560]: struct RunOptions has no field named on_progress` (alef #480). Same
+        // filtered list the wrapper and stub passes already use. ~keep
+        let constructor_bridges: Vec<crate::core::config::TraitBridgeConfig> = config
+            .trait_bridges
+            .iter()
+            .filter(|bridge| {
+                crate::codegen::generators::trait_bridge::bridge_targets_language(
+                    bridge,
+                    &crate::backends::pyo3::trait_bridge::TARGET_SPELLINGS,
+                )
+            })
+            .cloned()
+            .collect();
+
         for typ in api
             .types
             .iter()
@@ -507,7 +526,7 @@ impl Backend for Pyo3Backend {
                     &mapper,
                     type_cfg,
                     renames_ref,
-                    &config.trait_bridges,
+                    &constructor_bridges,
                     type_cfg.never_skip_cfg_field_names,
                     api,
                 );

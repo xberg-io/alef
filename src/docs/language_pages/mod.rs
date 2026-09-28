@@ -43,7 +43,13 @@ pub(super) fn generate_lang_doc(
     // twice, byte-identical, because `render_function` never reads `cfg` — the only field that
     // differed between the two entries. ~keep
     let filtered_api = api.with_cfg_filtered_deep(&enabled_features).with_deduped_functions();
-    let api = &filtered_api;
+    // Docs is a second generator, not a view of the first: it reaches `render_type` with the raw
+    // surface, so without the same per-language carrier prune the backends get, this page
+    // documents a config field the binding no longer has -- the exact
+    // two-generators-disagree shape (alef #480). `render_type` already routes non-Rust field
+    // rendering through `binding_fields`, so marking the carrier here is all it takes. ~keep
+    let pruned = crate::codegen::generators::trait_bridge::language_surface(&filtered_api, &config.trait_bridges, lang);
+    let api = pruned.as_ref().unwrap_or(&filtered_api);
 
     let lang_display = lang_display_name(lang);
     let version = &api.version;

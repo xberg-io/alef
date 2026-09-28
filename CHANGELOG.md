@@ -46,6 +46,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`exclude_languages` on a trait bridge now removes the bridge's carrier FIELD from the
+  excluded language, not just the bridge (#480).** An excluded backend kept the field on its
+  config DTO while losing the bridge that made it constructible, so node exposed a field it
+  could not convert, elixir a type it could not represent, dart omitted it from the mirror but
+  still needed it, and python advertised `on_progress: ProgressHandle | None` on a class with no
+  constructor reachable from Python. Marking the field `alef(skip)` was rejected outright, so
+  there was no way to hide it. The generation pipeline now derives a per-language `ApiSurface`
+  that marks an inactive bridge's carrier `binding_excluded`, which every emitter already
+  honours through `codegen::shared::binding_fields` -- so all 4 generation entry points, and the
+  language reference docs, agree without touching any of the ~170 field-reading call sites. The
+  prune is narrow by design: only an `options_field` bridge's carrier, only for a language that
+  bridge excludes. Language-scoped `exclude_types`/`exclude_functions` are unchanged.
+  `ValidatedApiSurface` gained a `pub(crate)` constructor for the derived surface rather than
+  revalidating once per language, which would have re-emitted every diagnostic N times on an
+  ordinary run; its precondition -- the transform may only remove -- is documented at its single
+  call site. Folded in with it: the pyo3 constructor emitter read the unfiltered bridge list, so
+  once the carrier was pruned the mirror lost the field while `#[new]` kept assigning it
+  (`error[E0560]`). That read has no effect without the prune, which is why it ships here and
+  not as a defect fix of its own.
+
 - **A bridge object that defines none of the trait's methods is rejected by name instead of
   being silently skipped (#476).** The bridge dispatches `obj.<method>(...)`, so a bare Python
   callable satisfies no `hasattr` check: for a method carrying a Rust default the default ran

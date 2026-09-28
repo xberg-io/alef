@@ -80,6 +80,14 @@ fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, St
 /// differ by exactly those names. Only the function retain is reproduced: the sibling projection
 /// step (`project_docs_without_unreachable_foreign_variants`) rewrites doc lines only and cannot
 /// change what `collect_cfg_features` finds. ~keep
+///
+/// The per-language carrier prune (alef #480) is deliberately **not** reproduced here, and that
+/// is load-bearing rather than an omission: it only sets `binding_excluded` on a field, and
+/// `codegen::cfg::collect_cfg_gates` reads every `field.cfg` without consulting
+/// `binding_excluded` at all. Both sides therefore see the same feature set whether or not the
+/// prune ran, so they stay in lock-step by construction and this pass needs no language
+/// dimension. Teaching `collect_cfg_gates` to skip excluded fields would break that and this
+/// function would then have to take the target language too. ~keep
 fn project_binding_surface(api: &ApiSurface) -> ApiSurface {
     let mut projected = api.clone();
     projected.functions.retain(|function| !function.binding_excluded);

@@ -5,6 +5,7 @@
 //! to provide language-specific dispatch logic; the shared functions in this module
 //! handle the structural boilerplate.
 
+mod carrier_prune;
 mod delegates;
 mod formatting;
 mod generator;
@@ -14,6 +15,7 @@ mod spec;
 mod trait_impl;
 mod wrapper;
 
+pub use carrier_prune::{language_surface, prune_inactive_bridge_carriers, validated_language_surface};
 pub use delegates::{default_delegate_name, forwarded_defaulted_methods, gen_bridge_default_delegates};
 pub use formatting::{
     TraitMethodSig, bridge_param_type, format_param_type, format_param_type_with_lifetimes, format_return_type,
