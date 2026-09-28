@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.0] - 2026-09-28
+
 ### Added
 
 - **A trait bridge can name the functions it does NOT attach to, via `[[crates.trait_bridges]]
