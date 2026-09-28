@@ -1,6 +1,9 @@
-//! Accumulates `alef all` stage failures across the whole run so one rejected fixture, one
-//! backend's post-build failure, or one crate's snippet-coverage gap can never deny every other
-//! stage -- and every other crate -- its regeneration (task #186).
+//! Accumulates stage failures across a whole run so one rejected fixture, one backend's
+//! post-build failure, or one crate's snippet-coverage gap can never deny every other stage --
+//! and every other crate -- its regeneration (task #186).
+//!
+//! Shared by `alef all` (task #186), `alef generate` (task #546) and `alef docs` (alef#475), so
+//! nothing it emits may name a single command: the same line is printed under all three. ~keep
 //!
 //! Before this existed, a failure in the pre-flight snippet-coverage check or in a crate's
 //! post-build processing propagated with `?`/`return Err` immediately, which meant: (a) codegen
@@ -26,7 +29,7 @@ impl StageFailures {
     /// is carried through to [`Self::into_result`] verbatim, `.context(...)` chain and all, when
     /// this turns out to be the only recorded failure -- see that method's doc comment.
     pub(crate) fn record(&mut self, label: &str, error: anyhow::Error) {
-        tracing::error!("{label} failed -- continuing with the remaining `alef all` stages: {error:#}");
+        tracing::error!("{label} failed -- continuing with the remaining stages: {error:#}");
         self.entries.push((label.to_string(), error));
     }
 
@@ -47,7 +50,7 @@ impl StageFailures {
             }
             _ => {
                 let mut message = format!(
-                    "alef all finished with {} stage failure(s); every stage that could still run did, \
+                    "finished with {} stage failure(s); every stage that could still run did, \
                      and wrote its output -- fix each failure below, then re-run:",
                     self.entries.len()
                 );

@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`StageFailures` no longer claims every deferred failure came from `alef all`.** The type is
+  shared by `alef all`, `alef generate` and `alef docs`, but its per-failure log line read
+  `continuing with the remaining \`alef all\` stages` and its multi-failure summary opened
+  `alef all finished with N stage failure(s)`, so two of the three commands reported a command
+  the operator had not run. Both lines now name no command.
+
 - **The post-build command timeout is 3600s, up from 1800s.** A cold-cache `cargo build
   --release` for the Swift binding crate against a full polyglot feature set legitimately runs
   close to 30 minutes, so the old budget sat within a minute of the step's own duration and

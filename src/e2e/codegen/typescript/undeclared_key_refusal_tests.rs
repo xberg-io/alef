@@ -5,7 +5,7 @@
 //! `E2eCodegen::generate`, so a single consumer `options_type` misconfiguration aborted the whole
 //! `alef all` process at exit 101: every other backend's e2e codegen, every later crate and every
 //! later stage (README, docs, snippet validation) silently never ran. A sibling post-build failure
-//! in the same run degraded gracefully -- "continuing with the remaining `alef all` stages" --
+//! in the same run degraded gracefully -- "continuing with the remaining stages" --
 //! because it travelled as an `anyhow::Error`. This suite pins the refusal onto that same path.
 //!
 //! Isolation from sibling backends is already pinned by
