@@ -5299,3 +5299,108 @@ fn plain_enum_json_name_matches_serde_wire_format() {
         );
     }
 }
+
+/// Regression for the `super(message)` constructor mismatch: `error_gen/java_error_base.jinja`
+/// generates `{{ base_name }}(final String message) { super(message); }` unconditionally, so the
+/// root exception class `exception_class.jinja` emits (`{{ class_name }}Exception`, extended
+/// directly by every error's base exception) must declare a matching single-`String` constructor.
+/// It previously declared only `(int, String)` and `(String, Throwable)`, so every generated error
+/// hierarchy failed `javac` with "no suitable constructor found" -- see GH error dispatch notes.
+///
+/// This asserts the RELATIONAL invariant rather than grepping for the new constructor's text: for
+/// every generated class whose constructor body is exactly `super(<param>);` with a single String
+/// parameter, the class it `extends` must itself declare a single-String constructor. A text grep
+/// for `(final String message)` would pass even if the fix landed on the wrong class, or if a
+/// future template introduced the same mismatch under a different class name. ~keep
+#[test]
+fn every_single_string_super_call_has_a_matching_parent_constructor() {
+    let backend = JavaBackend;
+    let config = make_test_config("dev.example");
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        functions: vec![FunctionDef {
+            name: "load".to_string(),
+            rust_path: "test_lib::load".to_string(),
+            error_type: Some("XbergError".to_string()),
+            ..Default::default()
+        }],
+        errors: vec![ErrorDef {
+            name: "XbergError".to_string(),
+            rust_path: "test_lib::XbergError".to_string(),
+            variants: vec![ErrorVariant {
+                name: "LoadError".to_string(),
+                error_code: None,
+                message_template: Some("load failed".to_string()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                is_tuple: false,
+                doc: "Load error.".to_string(),
+            }],
+            original_rust_path: String::new(),
+            doc: "Xberg errors.".to_string(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        ..Default::default()
+    };
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("error hierarchy generation should succeed");
+
+    let class_re = regex::Regex::new(r"class (\w+)(?: extends (\w+))?").unwrap();
+    let ctor_re = regex::Regex::new(r"(\w+)\(final String (\w+)\)\s*\{\s*super\((\w+)\);").unwrap();
+    let ctor_decl_re = |class: &str| regex::Regex::new(&format!(r"{class}\(final String \w+\)")).unwrap();
+
+    let mut extends: std::collections::HashMap<String, Option<String>> = std::collections::HashMap::new();
+    let mut content_by_class: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for file in &files {
+        if let Some(caps) = class_re.captures(&file.content) {
+            let class_name = caps[1].to_string();
+            let parent = caps.get(2).map(|m| m.as_str().to_string());
+            extends.insert(class_name.clone(), parent);
+            content_by_class.insert(class_name, file.content.clone());
+        }
+    }
+
+    let mut checked_single_string_super_calls = 0usize;
+    for (class_name, content) in &content_by_class {
+        for caps in ctor_re.captures_iter(content) {
+            let ctor_owner = &caps[1];
+            if ctor_owner != class_name {
+                continue;
+            }
+            checked_single_string_super_calls += 1;
+
+            let parent = extends.get(class_name).and_then(|p| p.as_ref()).unwrap_or_else(|| {
+                panic!("{class_name} calls super(message) with one String arg but declares no parent class")
+            });
+
+            // A parent outside our generated set (e.g. `Exception` itself) is a JDK class whose
+            // `(String)` constructor is a documented fact, not something this generator emits --
+            // only generated parents are in scope for the relational check.
+            let Some(parent_content) = content_by_class.get(parent) else {
+                continue;
+            };
+
+            assert!(
+                ctor_decl_re(parent).is_match(parent_content),
+                "{class_name} calls a single-String super(...), but its parent {parent} declares no \
+                 single-String constructor:\n{parent_content}"
+            );
+        }
+    }
+
+    assert!(
+        checked_single_string_super_calls >= 2,
+        "expected to find single-String super() calls in the generated error hierarchy (base \
+         exception extending the root exception, and variant exception extending the base), \
+         found {checked_single_string_super_calls}"
+    );
+}
