@@ -118,6 +118,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/function_wrapper.jinja"),
     ),
     (
+        "trait_bridge/options_field_wrapper.jinja",
+        include_str!("templates/trait_bridge/options_field_wrapper.jinja"),
+    ),
+    (
         "trait_bridge/impl_header.jinja",
         include_str!("templates/trait_bridge/impl_header.jinja"),
     ),

@@ -245,6 +245,47 @@ pub trait DocumentProcessor: Send + Sync {
 
     fn supported_mime_types(&self) -> &[&str];
 }
+
+/// A SECOND bridged trait, for the `options_field` binding mode, and deliberately not
+/// `DocumentProcessor`: that one returns a native enum (`preferred_mode -> Mode`) from a
+/// bridged method, which the pyo3 trait-bridge generator cannot convert -- see the `~keep`
+/// note on `exclude_languages` in `FIXTURE_ALEF_TOML`. Reusing it here would fail with that
+/// unrelated E0277 long before any options-field behaviour was reached. One method, unit
+/// return, one `String` parameter: the smallest shape pyo3 can bridge end to end. ~keep
+pub trait ProgressListener: Send + Sync {
+    fn on_step(&self, label: String);
+}
+
+/// The handle the bridge installs on `RunOptions::on_progress`.
+pub type ProgressHandle = std::sync::Arc<std::sync::Mutex<dyn ProgressListener + Send + Sync>>;
+
+/// The config struct the bridge attaches to. `on_progress` is `#[serde(skip)]` because a
+/// trait object has no serde representation; the binding still has to carry the field, which
+/// is what makes this the `options_field` shape rather than a plain parameter. ~keep
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct RunOptions {
+    pub retries: u32,
+    #[serde(skip)]
+    pub on_progress: Option<ProgressHandle>,
+}
+
+/// The ASYNC half of the options-field coverage. Every other public free function in this
+/// fixture is synchronous, so without this the emitted wrapper's `pyo3_async_runtimes`
+/// `future_into_py` path -- and the `.await` inside it -- is never compiled at all. The bug
+/// this catches returned the un-awaited future from a function declared to return
+/// `PyResult<Bound<'py, PyAny>>` (alef #476). ~keep
+pub async fn execute(input: String, settings: RunOptions) -> Result<String, String> {
+    let _ = (input, settings);
+    Ok("done".to_string())
+}
+
+/// The SYNC half, taking the same **required** (not `Option<...>`) config. The wrapper used
+/// to pattern-match `Some`/`None` against this parameter regardless of the signature it had
+/// just emitted, an E0308 the clippy lane is the only thing that catches. ~keep
+pub fn inspect(settings: RunOptions) -> Result<String, String> {
+    let _ = settings;
+    Ok("ok".to_string())
+}
 "#;
 
 // A FOREIGN crate (a `[[crates.source_crates]].roots` merge target, not a file the `toolkit`
@@ -330,6 +371,16 @@ repository = "https://github.com/example/toolkit"
 license = "MIT"
 authors = ["Example Author <author@example.invalid>"]
 
+# ~keep `execute` is async and takes `RunOptions`, whose `on_progress` field the node binding
+# still carries even though this bridge excludes node -- an excluded language keeps the FIELD,
+# only the bridge is suppressed (tracked separately from alef #476, which fixes the emissions
+# that reference a bridge nothing wrote). A JS-object-backed field makes `JsRunOptions`
+# non-`Send`, and napi requires an async function's arguments to be `Send`. Dropping the one
+# async function from the node surface keeps this gate honest about what is fixed here rather
+# than papering over the open defect with a fixture that avoids the shape entirely.
+[crates.node]
+exclude_functions = ["execute"]
+
 [crates.ffi.capsule_types.Language]
 into_raw_type = "toolkit::RawLanguage"
 c_return_type = "RawLanguage"
@@ -360,6 +411,38 @@ trait_name = "DocumentProcessor"
 exclude_languages = [
   "ffi",
   "python",
+  "wasm",
+  "jni",
+  "kotlin_android",
+  "java",
+  "ruby",
+  "php",
+  "elixir",
+  "swift",
+  "go",
+  "csharp",
+]
+
+# The options-field bridge, python-only. Two things ride on this entry being here:
+#
+# 1. `execute` and `inspect` both take `RunOptions`, so the pyo3 crate this gate compiles
+#    contains the emitted `#[pyfunction]` wrapper for an async AND a sync function whose
+#    config parameter is required -- the exact pair whose wrapper did not type-check.
+# 2. Every other gate language is excluded, so the ffi crate the gate ALSO compiles must
+#    contain no `toolkit_options_set_on_progress` and no `ToolkitProgressListenerBridge`.
+#    Three of the four ffi emission sites ignored `exclude_languages` and emitted a setter
+#    calling a bridge no pass wrote, which is a link failure for every backend that goes
+#    through ffi, not just C. ~keep
+[[crates.trait_bridges]]
+trait_name = "ProgressListener"
+type_alias = "ProgressHandle"
+param_name = "on_progress"
+bind_via = "options_field"
+options_type = "RunOptions"
+options_field = "on_progress"
+exclude_languages = [
+  "ffi",
+  "node",
   "wasm",
   "jni",
   "kotlin_android",

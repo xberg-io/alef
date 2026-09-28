@@ -1,6 +1,35 @@
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
 
+/// Whether the owning struct's bridge field survives into the Python binding's own DTO.
+///
+/// Only then can the wrapper fall back to a handle the caller set on the options object
+/// itself; without the field there is nothing to read. `cfg`-gated fields are excluded for the
+/// same reason the binding omits them. ~keep
+fn bridge_field_reaches_binding(api: &ApiSurface, bridge_cfg: &TraitBridgeConfig, field_name: &str) -> bool {
+    let Some(options_type) = bridge_cfg.options_type.as_deref() else {
+        return false;
+    };
+    api.types
+        .iter()
+        .filter(|t| t.name == options_type)
+        .flat_map(|t| t.fields.iter())
+        .any(|f| f.cfg.is_none() && f.name == field_name)
+}
+
+/// The expression that reads an already-set bridge handle off the options argument.
+///
+/// Two shapes, because the parameter is `Option<Options>` in one case and a bare `Options` in
+/// the other; emitting the `Option` shape unconditionally is what made the required-parameter
+/// wrapper fail to compile (alef #476). ~keep
+fn options_field_access(options_param: &str, field_name: &str, param_is_optional: bool) -> String {
+    if param_is_optional {
+        format!("{options_param}.as_ref().and_then(|o| o.{field_name}.as_ref())")
+    } else {
+        format!("{options_param}.{field_name}.as_ref()")
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_field_function(
     api: &ApiSurface,
@@ -16,24 +45,43 @@ pub fn gen_bridge_field_function(
     use crate::codegen::generators::AsyncPattern;
     use crate::core::ir::TypeRef;
 
-    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
+    let bridge_struct = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
     let options_param = &bridge_match.param_name;
     let options_type = &bridge_match.options_type;
     let field_name = &bridge_match.field_name;
-    let param_is_optional = bridge_match.param_is_optional;
 
-    let func_needs_py = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
-    let lifetime = if func_needs_py { "<'py>" } else { "" };
+    // One answer to "is the options argument optional", used by the Rust signature, the serde
+    // prelude, the `#[pyo3(signature = ...)]` list and the handle-injection body alike. The
+    // three used to be spelled three different ways, and the body's spelling assumed `Option`
+    // even when the signature had just declared a bare type (alef #476). ~keep
+    let mut seen_optional = false;
+    let optional_flags: Vec<bool> = func
+        .params
+        .iter()
+        .map(|p| {
+            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+                seen_optional = true;
+            }
+            seen_optional
+        })
+        .collect();
+    let options_is_optional = optional_flags
+        .get(bridge_match.param_index)
+        .copied()
+        .unwrap_or(bridge_match.param_is_optional);
+
+    let is_async = func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
+    let lifetime = if is_async { "<'py>" } else { "" };
 
     let mut sig_parts = Vec::new();
-    if func_needs_py {
+    if is_async {
         sig_parts.push("py: Python<'py>".to_string());
     }
-    for p in func.params.iter() {
-        let ty = if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+    for (p, is_optional) in func.params.iter().zip(&optional_flags) {
+        let ty = if *is_optional {
             format!("Option<{}>", mapper.map_type(&p.ty))
         } else {
             mapper.map_type(&p.ty)
@@ -44,25 +92,18 @@ pub fn gen_bridge_field_function(
 
     let params_str = sig_parts.join(", ");
     let return_type = mapper.map_type(&func.return_type);
-    let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
-    let ret = if func_needs_py {
+    let ret = if is_async {
         "PyResult<Bound<'py, PyAny>>".to_string()
     } else {
-        ret
+        mapper.wrap_return(&return_type, func.error_type.is_some())
     };
 
-    let visitor_wrap = format!(
-        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n        \
-         let bridge = {struct_name}::new(v);\n        \
-         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
-         }});"
-    );
-
     let serde_err_conv = ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))";
-    let serde_bindings: String = func
+    let serde_bindings: Vec<String> = func
         .params
         .iter()
-        .filter(|p| {
+        .zip(&optional_flags)
+        .filter(|(p, _)| {
             if p.name == *options_param {
                 return false;
             }
@@ -79,7 +120,7 @@ pub fn gen_bridge_field_function(
             };
             named.is_some_and(|n| !opaque_types.contains(n))
         })
-        .map(|p| {
+        .map(|(p, is_optional)| {
             let name = &p.name;
             let core_type_name = match &p.ty {
                 TypeRef::Named(n) => n.clone(),
@@ -93,46 +134,22 @@ pub fn gen_bridge_field_function(
                 _ => String::new(),
             };
             let core_path = format!("{core_import}::{core_type_name}");
-            if p.optional || matches!(&p.ty, TypeRef::Optional(_)) {
+            if *is_optional {
                 format!(
-                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{\n        \
-                     let json = serde_json::to_string(&v){serde_err_conv}?;\n        \
-                     serde_json::from_str(&json){serde_err_conv}\n    \
-                     }}).transpose()?;\n    "
+                    "let {name}_core: Option<{core_path}> = {name}.map(|v| {{ \
+                     let json = serde_json::to_string(&v){serde_err_conv}?; \
+                     serde_json::from_str(&json){serde_err_conv} }}).transpose()?;"
                 )
             } else {
                 format!(
-                    "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?;\n    \
-                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){serde_err_conv}?;\n    "
+                    "let {name}_json = serde_json::to_string(&{name}){serde_err_conv}?; \
+                     let {name}_core: {core_path} = serde_json::from_str(&{name}_json){serde_err_conv}?;"
                 )
             }
         })
         .collect();
 
     let core_options_type = format!("{core_import}::{options_type}");
-    let options_core_binding = if param_is_optional {
-        format!(
-            "let {options_param}_core: Option<{core_options_type}> = {options_param}.map(|v| v.into());\n    \
-             // Inject the visitor handle: upgrade existing options or construct defaults.\n    \
-             let {options_param}_core: Option<{core_options_type}> = if let Some(handle) = {visitor_kwarg}_handle {{\n        \
-             let mut opts = {options_param}_core.unwrap_or_default();\n        \
-             opts.{field_name} = Some(handle);\n        \
-             Some(opts)\n    \
-             }} else {{\n        \
-             {options_param}_core\n    \
-             }};"
-        )
-    } else {
-        format!(
-            "let mut {options_param}_core: {core_options_type} = match &{options_param} {{\n        \
-             Some(opts) => opts.clone().into(),\n        \
-             None => {core_options_type}::default(),\n    \
-             }};\n    \
-             if let Some(handle) = {visitor_kwarg}_handle {{\n        \
-             {options_param}_core.{field_name} = Some(handle);\n    \
-             }}"
-        )
-    };
 
     let call_args: Vec<String> = func
         .params
@@ -184,49 +201,35 @@ pub fn gen_bridge_field_function(
     };
     let core_call = format!("{core_fn_path}({call_args_str})");
 
-    let return_wrap = match &func.return_type {
+    let wrap_expr = |var: &str| match &func.return_type {
         TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-            format!("{name} {{ inner: std::sync::Arc::new(val) }}")
+            Some(format!("{name} {{ inner: std::sync::Arc::new({var}) }}"))
         }
-        TypeRef::Named(_) => "val.into()".to_string(),
-        TypeRef::String | TypeRef::Bytes => "val.into()".to_string(),
-        _ => "val".to_string(),
+        TypeRef::Named(_) | TypeRef::String | TypeRef::Bytes => Some(format!("{var}.into()")),
+        _ => None,
     };
+    let sync_return_wrap = wrap_expr("val");
+    let async_return_wrap = wrap_expr("result");
 
-    let body = if let Some(ref error_type) = func.error_type {
-        let core_err_conv = if error_type.contains("::") || error_type == "Error" {
+    let err_conv = func.error_type.as_ref().map(|error_type| {
+        if error_type.contains("::") || error_type == "Error" {
             if error_converters.len() == 1 {
                 format!(".map_err({})", error_converters[0])
             } else {
                 ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
             }
         } else {
-            let snake_error = {
-                let mut s = String::with_capacity(error_type.len() + 4);
-                for (i, c) in error_type.chars().enumerate() {
-                    if c.is_uppercase() {
-                        if i > 0 {
-                            s.push('_');
-                        }
-                        s.push(c.to_ascii_lowercase());
-                    } else {
-                        s.push(c);
-                    }
-                }
-                s
-            };
-            format!(".map_err({snake_error}_to_py_err)")
-        };
-        if return_wrap == "val" {
-            format!("{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}{core_err_conv}")
-        } else {
-            format!(
-                "{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}.map(|val| {return_wrap}){core_err_conv}"
-            )
+            // Fall back to the generic conversion when no `{error}_to_py_err` was emitted --
+            // naming one that does not exist is an E0425 in the generated crate. Mirrors the
+            // same guard in `bridge_methods.rs`. ~keep
+            let converter = format!("{}_to_py_err", crate::codegen::naming::pascal_to_snake(error_type));
+            if error_converters.contains(&converter) {
+                format!(".map_err({converter})")
+            } else {
+                ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
+            }
         }
-    } else {
-        format!("{visitor_wrap}\n    {serde_bindings}{options_core_binding}\n    {core_call}")
-    };
+    });
 
     let attr_inner = cfg
         .function_attr
@@ -234,30 +237,43 @@ pub fn gen_bridge_field_function(
         .trim_start_matches('[')
         .trim_end_matches(']');
 
-    let mut sig_str = String::new();
-    if cfg.needs_signature {
-        // #[pyo3(signature = (...))] — all params from the IR plus the extra visitor kwarg.
-        let mut seen_optional = false;
-        let mut sig_items: Vec<String> = func
-            .params
+    let sig_str = if cfg.needs_signature {
+        func.params
             .iter()
-            .map(|p| {
-                if p.optional {
-                    seen_optional = true;
-                }
-                if p.optional || seen_optional {
+            .zip(&optional_flags)
+            .map(|(p, is_optional)| {
+                if *is_optional {
                     format!("{}=None", p.name)
                 } else {
                     p.name.clone()
                 }
             })
-            .collect();
-        sig_items.push(format!("{visitor_kwarg}=None"));
-        sig_str = sig_items.join(", ");
-    }
-    let func_name = &func.name;
+            .chain(std::iter::once(format!("{visitor_kwarg}=None")))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        String::new()
+    };
+
+    // The bridge wrapper has two constructors: the visitor shape returns `Self`, every other
+    // shape returns `PyResult<Self>` (it validates the host object's required methods). The
+    // wrapper used to bind the constructor's return value directly and cast it to the handle
+    // type, which is an E0277 for the fallible shape. An infallible wrapper has nowhere to
+    // put the `PyErr`, so it surfaces as a panic -- pyo3 turns that into a
+    // `PanicException` the caller can actually read, which is the point. ~keep
+    let ctor_is_fallible = crate::codegen::generators::trait_bridge::find_trait_def(bridge_cfg, api)
+        .is_none_or(|trait_def| !crate::backends::pyo3::trait_bridge::is_visitor_bridge(trait_def, bridge_cfg));
+    let ctor_suffix = match (ctor_is_fallible, is_async || func.error_type.is_some()) {
+        (false, _) => String::new(),
+        (true, true) => "?".to_string(),
+        (true, false) => format!(
+            ".expect(\"`{visitor_kwarg}` does not provide the `{}` methods the bridge calls\")",
+            bridge_cfg.trait_name
+        ),
+    };
+
     crate::backends::pyo3::template_env::render(
-        "trait_bridge/function_wrapper.jinja",
+        "trait_bridge/options_field_wrapper.jinja",
         minijinja::context! {
             has_error => func.error_type.is_some(),
             attr_inner => attr_inner,
@@ -265,11 +281,30 @@ pub fn gen_bridge_field_function(
             signature_prefix => cfg.signature_prefix,
             sig_str => sig_str,
             signature_suffix => cfg.signature_suffix,
-            func_name => func_name,
+            func_name => &func.name,
             lifetime => lifetime,
             params_str => params_str,
             ret => ret,
-            body => body,
+            visitor_kwarg => visitor_kwarg,
+            handle_path => handle_path,
+            bridge_struct => bridge_struct,
+            field_fallback => bridge_field_reaches_binding(api, bridge_cfg, field_name),
+            field_access => options_field_access(options_param, field_name, options_is_optional),
+            serde_bindings => serde_bindings,
+            options_param => options_param,
+            options_is_optional => options_is_optional,
+            core_options_type => core_options_type,
+            field_name => field_name,
+            is_async => is_async,
+            is_unit => matches!(func.return_type, TypeRef::Unit),
+            needs_wrapped_binding => sync_return_wrap.is_some(),
+            sync_return_wrap => sync_return_wrap.unwrap_or_else(|| "val".to_string()),
+            async_return_wrap => async_return_wrap.unwrap_or_else(|| "result".to_string()),
+            return_type => return_type,
+            core_call => core_call,
+            err_conv => err_conv.clone().unwrap_or_default(),
+            err_try => if err_conv.is_some() { "?" } else { "" },
+            ctor_suffix => ctor_suffix,
         },
     )
 }

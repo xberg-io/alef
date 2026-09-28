@@ -46,6 +46,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pyo3 wrapper for an `options_field` trait bridge compiles (#476).** Three independent
+  defects in one emitted function, none of which any test could see: `gen_bridge_field_function`
+  had no direct coverage at all, because the only pyo3 options-field test sets `functions:
+  vec![]`. An async core call was declared to return a Python awaitable and then invoked
+  without `.await`, returning the bare future; a **required** config parameter was matched as
+  `Some`/`None` against the non-`Option` type the signature had just declared (E0308); and the
+  handle fallback was spliced in afterwards by a whole-file text pass that hardcoded the
+  identifier `options` and patched only the *first* match in the file, so with two functions
+  taking the config exactly one wrapper was patched, order-dependently. The fallback now lives
+  in `gen_bridge_field_function`, which knows the real parameter name; the wrapper's three
+  spellings of "is this parameter optional" are one; the async path mirrors the working
+  non-bridge one (`future_into_py` with `.await` inside); and the whole body moved from
+  `format!` into a Minijinja template, as the `jinja-templates` rule requires. The
+  language filter that the pyo3 marker-class loop already applied now also gates the wrapper,
+  so a bridge excluding `"python"` no longer emits a `#[pyfunction]` referencing a
+  `Py<Trait>Bridge` that was never written. The downstream-output gate's fixture gained an
+  async and a sync free function over a required config struct, so `cargo clippy -D warnings`
+  compiles this wrapper for the first time -- removing the `.await` again turns the gate red.
+
 - **The FFI crate honours `exclude_languages` on every options-field emission, not just the
   bridge struct (#476).** Four sites in `backends/ffi/gen_bindings/lib_rs.rs` decided whether a
   `bind_via = "options_field"` bridge exists and only the last one -- the bridge struct and

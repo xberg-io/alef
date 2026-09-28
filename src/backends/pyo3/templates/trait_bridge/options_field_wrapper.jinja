@@ -1,0 +1,58 @@
+{% if has_error %}
+#[allow(clippy::missing_errors_doc)]
+{% endif %}
+#[{{ attr_inner }}]
+{% if needs_signature %}
+{{ signature_prefix }}{{ sig_str }}{{ signature_suffix }}
+{% endif %}
+pub fn {{ func_name }}{{ lifetime }}({{ params_str }}) -> {{ ret }} {
+    let {{ visitor_kwarg }}_object: Option<pyo3::Py<pyo3::PyAny>> = {{ visitor_kwarg }}{% if field_fallback %}.or_else(|| {
+        {{ field_access }}.map(|v| Python::attach(|py| (*v.inner).clone_ref(py)))
+    }){% endif %};
+    let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = match {{ visitor_kwarg }}_object {
+        Some(obj) => {
+            let bridge = {{ bridge_struct }}::new(obj){{ ctor_suffix }};
+            Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }})
+        }
+        None => None,
+    };
+{% for binding in serde_bindings %}
+    {{ binding }}
+{% endfor %}
+{% if options_is_optional %}
+    let {{ options_param }}_core: Option<{{ core_options_type }}> = {{ options_param }}.map(|v| v.into());
+    let {{ options_param }}_core: Option<{{ core_options_type }}> = if let Some(handle) = {{ visitor_kwarg }}_handle {
+        let mut opts = {{ options_param }}_core.unwrap_or_default();
+        opts.{{ field_name }} = Some(handle);
+        Some(opts)
+    } else {
+        {{ options_param }}_core
+    };
+{% else %}
+    let mut {{ options_param }}_core: {{ core_options_type }} = {{ options_param }}.into();
+    if let Some(handle) = {{ visitor_kwarg }}_handle {
+        {{ options_param }}_core.{{ field_name }} = Some(handle);
+    }
+{% endif %}
+{% if is_async %}
+    pyo3_async_runtimes::tokio::future_into_py(py, async move {
+{% if is_unit %}
+        {{ core_call }}.await{{ err_conv }}{{ err_try }};
+        Ok(())
+{% elif needs_wrapped_binding %}
+        let result = {{ core_call }}.await{{ err_conv }}{{ err_try }};
+        let wrapped_result: {{ return_type }} = {{ async_return_wrap }};
+        Ok(wrapped_result)
+{% else %}
+        let result = {{ core_call }}.await{{ err_conv }}{{ err_try }};
+        Ok(result)
+{% endif %}
+    })
+{% elif not has_error %}
+    {{ core_call }}
+{% elif needs_wrapped_binding %}
+    {{ core_call }}.map(|val| {{ sync_return_wrap }}){{ err_conv }}
+{% else %}
+    {{ core_call }}{{ err_conv }}
+{% endif %}
+}
