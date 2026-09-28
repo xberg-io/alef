@@ -1,4 +1,10 @@
 use super::{gen_enum, gen_tagged_enum_binding_to_core, gen_tagged_enum_core_to_binding};
+use crate::backends::wasm::type_map::WasmMapper;
+
+/// The override-free mapper every fixture here shares; `gen_enum` reads its `prefix`.
+fn mapper(prefix: &str) -> WasmMapper {
+    WasmMapper::new(std::collections::HashMap::new(), prefix.to_string())
+}
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 
 /// The payload structs [`make_tagged_tuple_enum`]'s variants wrap (`System(SystemMessage)`,
@@ -60,7 +66,7 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
 #[test]
 fn gen_enum_produces_wasm_bindgen_attribute() {
     let e = make_enum("Color", &["Red", "Green", "Blue"]);
-    let result = gen_enum(&e, "Wasm", "", &std::collections::HashSet::new(), &[]);
+    let result = gen_enum(&e, &mapper("Wasm"), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(result.contains("#[wasm_bindgen]"));
     assert!(result.contains("pub enum WasmColor"));
     assert!(!result.contains("js_name = \"Color\""));
@@ -134,7 +140,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
         version: Default::default(),
     };
 
-    let output = gen_enum(&e, "Wasm", "", &std::collections::HashSet::new(), &[]);
+    let output = gen_enum(&e, &mapper("Wasm"), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(
         output.contains("pub struct WasmFormatMetadata"),
         "a payload-carrying default-tagged enum must become a discriminator struct, \
@@ -169,7 +175,7 @@ fn default_tagged_data_enum_preserves_custom_string_variant_payload_round_trip()
 #[test]
 fn gen_enum_empty_variants_no_panic() {
     let e = make_enum("Empty", &[]);
-    let result = gen_enum(&e, "", "", &std::collections::HashSet::new(), &[]);
+    let result = gen_enum(&e, &mapper(""), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(result.contains("pub enum Empty"));
     assert!(!result.contains("to_api_str"));
 }
@@ -178,7 +184,7 @@ fn gen_enum_empty_variants_no_panic() {
 fn gen_enum_to_api_str_snake_case() {
     let mut e = make_enum("FinishReason", &["Stop", "ToolCalls", "Length", "ContentFilter"]);
     e.serde_rename_all = Some("snake_case".to_string());
-    let result = gen_enum(&e, "Wasm", "", &std::collections::HashSet::new(), &[]);
+    let result = gen_enum(&e, &mapper("Wasm"), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(result.contains("pub fn to_api_str(self) -> &'static str"));
     assert!(result.contains("Self::Stop => \"stop\""));
     assert!(result.contains("Self::ToolCalls => \"tool_calls\""));
@@ -191,7 +197,7 @@ fn gen_enum_to_api_str_explicit_rename_overrides_rename_all() {
     let mut e = make_enum("Role", &["User", "Assistant"]);
     e.serde_rename_all = Some("snake_case".to_string());
     e.variants[0].serde_rename = Some("human".to_string());
-    let result = gen_enum(&e, "Wasm", "", &std::collections::HashSet::new(), &[]);
+    let result = gen_enum(&e, &mapper("Wasm"), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(result.contains("Self::User => \"human\""));
     assert!(result.contains("Self::Assistant => \"assistant\""));
 }
@@ -199,7 +205,7 @@ fn gen_enum_to_api_str_explicit_rename_overrides_rename_all() {
 #[test]
 fn gen_enum_to_api_str_no_rename_all_uses_variant_name() {
     let e = make_enum("Status", &["Active", "Inactive"]);
-    let result = gen_enum(&e, "", "", &std::collections::HashSet::new(), &[]);
+    let result = gen_enum(&e, &mapper(""), "", &std::collections::HashSet::new(), &[], &[]);
     assert!(result.contains("Self::Active => \"Active\""));
     assert!(result.contains("Self::Inactive => \"Inactive\""));
 }
@@ -236,7 +242,7 @@ fn gen_enum_declares_host_cfg_variant_unconditionally_when_feature_configured() 
     };
     let configured: std::collections::HashSet<&str> = ["extended-mode"].into_iter().collect();
 
-    let output = gen_enum(&enum_def, "Wasm", "core_crate", &configured, &[]);
+    let output = gen_enum(&enum_def, &mapper("Wasm"), "core_crate", &configured, &[], &[]);
 
     assert!(
         !output.contains("#[cfg("),
@@ -283,7 +289,7 @@ fn gen_enum_omits_host_cfg_variant_entirely_when_feature_not_configured() {
     };
     let configured: std::collections::HashSet<&str> = ["other-feature"].into_iter().collect();
 
-    let output = gen_enum(&enum_def, "Wasm", "core_crate", &configured, &[]);
+    let output = gen_enum(&enum_def, &mapper("Wasm"), "core_crate", &configured, &[], &[]);
 
     assert!(
         !output.contains("#[cfg("),
@@ -328,7 +334,7 @@ fn gen_enum_keeps_foreign_cfg_variant_unconditionally_regardless_of_configured_f
     };
     let configured: std::collections::HashSet<&str> = ["other-feature"].into_iter().collect();
 
-    let output = gen_enum(&enum_def, "Wasm", "core_crate", &configured, &[]);
+    let output = gen_enum(&enum_def, &mapper("Wasm"), "core_crate", &configured, &[], &[]);
 
     assert!(
         !output.contains("#[cfg("),
@@ -752,7 +758,7 @@ fn gen_tagged_enum_as_struct_positional_field_setter_snake_case() {
         serde_content: Some("payload".to_string()),
         ..make_tagged_tuple_enum()
     };
-    let result = gen_tagged_enum_as_struct(&e, "Wasm", &[]);
+    let result = gen_tagged_enum_as_struct(&e, &mapper("Wasm"), &[], &[]);
 
     assert!(
         !result.contains("fn set__0("),
@@ -790,7 +796,7 @@ fn gen_tagged_enum_unit_variant_emits_tagged_union() {
     e.variants[0].fields.clear();
     e.variants[0].is_tuple = false;
 
-    let result = gen_tagged_enum_as_struct(&e, "Wasm", &[]);
+    let result = gen_tagged_enum_as_struct(&e, &mapper("Wasm"), &[], &[]);
 
     // Must emit a #[wasm_bindgen] struct with a discriminator field ("kind" or similar).
     assert!(
@@ -872,7 +878,7 @@ fn gen_tagged_enum_as_struct_degrades_mixed_named_field_to_js_value() {
     use super::gen_tagged_enum_as_struct;
 
     let e = make_tagged_struct_enum_with_mixed_field();
-    let result = gen_tagged_enum_as_struct(&e, "Wasm", &[]);
+    let result = gen_tagged_enum_as_struct(&e, &mapper("Wasm"), &[], &[]);
 
     assert!(
         result.contains("pub(crate) model: Option<JsValue>,"),
@@ -942,7 +948,12 @@ fn gen_tagged_enum_binding_to_core_uses_serde_for_mixed_named_field() {
 fn should_not_emit_a_positional_js_accessor_for_a_flattened_newtype_variant() {
     use super::gen_tagged_enum_as_struct;
 
-    let result = gen_tagged_enum_as_struct(&make_tagged_tuple_enum(), "Wasm", &make_tagged_tuple_enum_types());
+    let result = gen_tagged_enum_as_struct(
+        &make_tagged_tuple_enum(),
+        &mapper("Wasm"),
+        &make_tagged_tuple_enum_types(),
+        &[],
+    );
 
     assert!(
         !result.contains("js_name = \"0\""),
@@ -978,7 +989,7 @@ fn should_keep_the_positional_js_accessor_for_representations_serde_does_not_fla
     };
 
     for (case, enum_def) in [("adjacent", adjacent), ("external", external)] {
-        let result = gen_tagged_enum_as_struct(&enum_def, "Wasm", &[]);
+        let result = gen_tagged_enum_as_struct(&enum_def, &mapper("Wasm"), &[], &[]);
         assert!(
             result.contains("js_name = \"0\"") && result.contains("fn field_0("),
             "{case} tagging keeps a real key for the payload;\nactual:\n{result}"

@@ -1,17 +1,26 @@
-//! alef#470: accessors for a struct field whose type is a generated wasm-bindgen class.
+//! alef#470 and #473: accessors for a field whose type is a generated wasm-bindgen class.
 //!
 //! wasm-bindgen lowers a by-value exported-struct argument through `__destroy_into_raw()`, so a
-//! by-value setter kills the handle the caller assigned. These tests pin the borrow that replaces
-//! it and the `clear{Field}()` companion that restores clearing for an optional field, since
+//! by-value setter kills the handle the caller assigned. Two emitters mint such a setter: the
+//! struct one (#470) and the tagged-data-enum payload one (#473). These tests pin the borrow
+//! that replaces it and the `clear{Field}()` companion that restores clearing, since
 //! `Option<&T>` has no `OptionFromWasmAbi` impl and the borrowed setter cannot accept `null`.
+//!
+//! These are source-text assertions and cannot see the defect itself: pre-fix output compiles.
 
 use alef::backends::wasm::WasmBackend;
 use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::{ApiSurface, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
 fn resolved_wasm_config() -> alef::core::config::ResolvedCrateConfig {
-    let cfg: NewAlefConfig = toml::from_str(
+    resolved_wasm_config_with("")
+}
+
+/// `extra` is appended to the `[crates.wasm]` table, so a test can add `type_overrides` or
+/// `exclude_types` without repeating the whole document.
+fn resolved_wasm_config_with(extra: &str) -> alef::core::config::ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(&format!(
         r#"
 [workspace]
 languages = ["wasm"]
@@ -21,8 +30,9 @@ name = "test-lib"
 sources = ["src/lib.rs"]
 
 [crates.wasm]
-"#,
-    )
+{extra}
+"#
+    ))
     .expect("test config must parse");
     cfg.resolve().expect("test config must resolve").remove(0)
 }
@@ -98,20 +108,53 @@ fn guarded_theme_type() -> TypeDef {
 }
 
 fn generated_lib_rs(types: Vec<TypeDef>) -> String {
+    generated_lib_rs_for(types, Vec::new(), &resolved_wasm_config())
+}
+
+fn generated_lib_rs_for(
+    types: Vec<TypeDef>,
+    enums: Vec<EnumDef>,
+    config: &alef::core::config::ResolvedCrateConfig,
+) -> String {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "1.0.0".to_string(),
         types,
+        enums,
         ..Default::default()
     };
     WasmBackend
-        .generate_bindings(&api, &resolved_wasm_config())
+        .generate_bindings(&api, config)
         .expect("wasm generation should succeed")
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
         .expect("lib.rs must be generated")
         .content
         .clone()
+}
+
+/// A tagged data enum whose payload carries a class-typed field alongside a plain one.
+fn layer_enum() -> EnumDef {
+    EnumDef {
+        name: "Layer".to_string(),
+        rust_path: "test_lib::Layer".to_string(),
+        serde_tag: Some("kind".to_string()),
+        variants: vec![
+            EnumVariant {
+                name: "Solid".to_string(),
+                fields: vec![
+                    field("palette", named("Palette"), false),
+                    field("label", TypeRef::String, false),
+                ],
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Blank".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }
 }
 
 #[test]
@@ -177,5 +220,57 @@ fn clear_companion_stands_down_on_an_ident_the_type_already_mints() {
     assert!(
         !content.contains("self.renderer = None;"),
         "the surviving `clear_renderer` must be the consumer's method, not alef's companion;\n{content}"
+    );
+}
+
+/// alef#473: the second accessor emitter. A payload field whose type is a generated class must
+/// borrow exactly like the struct setter does, and -- because a payload field is *always* an
+/// `Option`, whatever the variant declared -- every class-typed one needs a clear companion.
+#[test]
+fn tagged_enum_payload_setters_borrow_class_typed_arguments() {
+    let content = generated_lib_rs_for(vec![palette_type()], vec![layer_enum()], &resolved_wasm_config());
+
+    for expected in [
+        "pub fn set_palette(&mut self, value: &WasmPalette)",
+        "self.palette = Some(value.clone());",
+        "#[wasm_bindgen(js_name = \"clearPalette\")]",
+        "pub fn clear_palette(&mut self)",
+    ] {
+        assert!(content.contains(expected), "missing `{expected}`;\n{content}");
+    }
+    assert!(
+        !content.contains("pub fn set_palette(&mut self, value: Option<WasmPalette>)"),
+        "no payload setter may take a class-typed argument by value;\n{content}"
+    );
+    assert!(
+        content.contains("pub fn set_label(&mut self, value: Option<String>)"),
+        "a payload field that is not a generated class keeps the mapped by-value setter;\n{content}"
+    );
+    assert!(
+        !content.contains("pub fn clear_label("),
+        "a non-class payload field keeps a nullable setter, so it needs no companion;\n{content}"
+    );
+}
+
+/// The payload emitter used to build its own override-free `WasmMapper`, which made
+/// `class_backed_field_type`'s override guard inert: a `type_overrides` entry redirects the field
+/// to a type that is not a generated class, and borrowing it is an `E0412`. Threading the real
+/// mapper is what this pins.
+#[test]
+fn tagged_enum_payload_setter_respects_a_type_override() {
+    let config = resolved_wasm_config_with("type_overrides = { Palette = \"JsValue\" }");
+    let content = generated_lib_rs_for(vec![palette_type()], vec![layer_enum()], &config);
+
+    assert!(
+        content.contains("pub fn set_palette(&mut self, value: Option<JsValue>)"),
+        "an overridden name is not a generated class, so its setter keeps the mapped type;\n{content}"
+    );
+    assert!(
+        !content.contains("value: &JsValue") && !content.contains("value: &WasmPalette"),
+        "nothing may be borrowed when the override redirected the type;\n{content}"
+    );
+    assert!(
+        !content.contains("pub fn clear_palette("),
+        "no clear companion for a field that is not class-backed;\n{content}"
     );
 }

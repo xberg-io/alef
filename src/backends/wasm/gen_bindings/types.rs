@@ -15,7 +15,7 @@ use super::methods::gen_method;
 #[path = "types_accessors.rs"]
 mod types_accessors;
 #[path = "types_helpers.rs"]
-mod types_helpers;
+pub(in crate::backends::wasm::gen_bindings) mod types_helpers;
 #[path = "types_unit_enum.rs"]
 mod types_unit_enum;
 

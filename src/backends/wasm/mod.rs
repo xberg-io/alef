@@ -9,7 +9,7 @@
 pub(crate) mod gen_bindings;
 mod template_env;
 pub mod trait_bridge;
-mod type_map;
+pub(crate) mod type_map;
 
 pub use gen_bindings::WasmBackend;
 pub(crate) use gen_bindings::{WasmCallability, docs_ts_type_for_untagged_enum, wasm_callability};

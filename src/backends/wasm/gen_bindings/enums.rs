@@ -10,6 +10,12 @@ use crate::codegen::naming::{to_node_name, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 
 use super::functions::emit_rustdoc;
+use super::types::types_helpers::class_backed_field_type;
+
+#[path = "enums_accessors.rs"]
+mod enums_accessors;
+
+use enums_accessors::PayloadField;
 
 /// True if this enum is a serde-tagged data enum (`#[serde(tag = "...")]` with variant fields).
 /// These are emitted as a flat wasm-bindgen struct with a discriminator field and the union of
@@ -376,12 +382,25 @@ fn flattened_only_field_names<'a>(enum_def: &'a EnumDef, types: &[TypeDef]) -> s
 /// This mirrors the NAPI backend's `gen_tagged_enum_as_object` path. The corresponding
 /// `From<Wasm{Enum}> for core::{Enum}` (and reverse) impls are emitted by
 /// `gen_tagged_enum_binding_to_core` / `gen_tagged_enum_core_to_binding`.
-pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str, types: &[TypeDef]) -> String {
+pub(super) fn gen_tagged_enum_as_struct(
+    enum_def: &EnumDef,
+    mapper: &WasmMapper,
+    types: &[TypeDef],
+    exclude_types: &[String],
+) -> String {
+    let prefix = mapper.prefix.as_str();
     let js_name = format!("{prefix}{}", enum_def.name);
     let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
     let tag_field_ident = escape_rust_keyword(tag_field);
     let tag_js_name = to_node_name(tag_field);
-    let mapper = WasmMapper::new(std::collections::HashMap::new(), prefix.to_string());
+    // Mirrors `types::gen_struct_methods`: every non-trait, non-excluded type becomes a
+    // `#[wasm_bindgen]` class, and `class_backed_field_type` needs the same set here or the two
+    // emitters disagree about which payload field is a borrowable handle. ~keep
+    let class_type_names: AHashSet<String> = types
+        .iter()
+        .filter(|t| !t.is_trait && !exclude_types.contains(&t.name))
+        .map(|t| t.name.clone())
+        .collect();
 
     let mut lines = vec![];
     let doc = emit_rustdoc(&enum_def.doc);
@@ -403,13 +422,14 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str, types:
         .map(|f| f.name.clone())
         .collect();
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut field_entries: Vec<(String, String)> = Vec::new();
+    let mut field_entries: Vec<PayloadField> = Vec::new();
     for variant in &enum_def.variants {
         for field in &variant.fields {
             if !seen.insert(field.name.clone()) {
                 continue;
             }
-            let field_ty = if mixed.contains(&field.name) || tuple_vec_fields.contains(&field.name) {
+            let degraded = mixed.contains(&field.name) || tuple_vec_fields.contains(&field.name);
+            let field_ty = if degraded {
                 "Option<JsValue>".to_string()
             } else {
                 let mapped = mapper.map_type(&field.ty);
@@ -419,9 +439,20 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str, types:
                     format!("Option<{mapped}>")
                 }
             };
-            field_entries.push((field.name.clone(), field_ty.clone()));
+            // A field the payload struct degraded to `Option<JsValue>` is not stored as a
+            // generated class however its own `TypeRef` reads, so it is never borrowable. ~keep
+            let class_type = if degraded {
+                None
+            } else {
+                class_backed_field_type(field, mapper, &class_type_names)
+            };
             let escaped = escape_rust_keyword(&field.name);
             lines.push(format!("    pub(crate) {escaped}: {field_ty},"));
+            field_entries.push(PayloadField {
+                field: field.clone(),
+                binding_type: field_ty,
+                class_type,
+            });
         }
     }
     lines.push("}".to_string());
@@ -450,40 +481,17 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str, types:
         "    pub fn {setter_ident_escaped}(&mut self, value: String) {{ self.{tag_field_ident} = value; }}"
     ));
 
+    // serde flattens these variants' payloads into the tag object, so the `"0"` key a positional
+    // field's accessor advertised exists on no wire form of this enum. The struct field itself
+    // stays — both `From` impls read it — it just gets no JS property. ~keep
     let flattened_only = flattened_only_field_names(enum_def, types);
-    for (name, ty) in &field_entries {
-        // serde flattens this variant's payload into the tag object, so the `"0"` key a
-        // positional field's accessor advertised exists on no wire form of this enum. The struct
-        // field itself stays — both `From` impls read it — it just gets no JS property. ~keep
-        if flattened_only.contains(name.as_str()) {
-            continue;
-        }
-        let js_name_for_field = to_node_name(name);
-        let field_name = name.as_str();
-        let rust_getter_ident = if field_name.starts_with('_')
-            && field_name.len() > 1
-            && field_name[1..].chars().all(|c| c.is_ascii_digit())
-        {
-            format!("field_{}", &field_name[1..])
-        } else {
-            escape_rust_keyword(field_name)
-        };
-        let rust_setter_ident = format!("set_{rust_getter_ident}");
-        let struct_field_ident = escape_rust_keyword(field_name);
-        lines.push(String::new());
-        lines.push(format!(
-            "    #[wasm_bindgen(getter, js_name = \"{js_name_for_field}\")]"
-        ));
-        lines.push(format!(
-            "    pub fn {rust_getter_ident}(&self) -> {ty} {{ self.{struct_field_ident}.clone() }}"
-        ));
-        lines.push(format!(
-            "    #[wasm_bindgen(setter, js_name = \"{js_name_for_field}\")]"
-        ));
-        lines.push(format!(
-            "    pub fn {rust_setter_ident}(&mut self, value: {ty}) {{ self.{struct_field_ident} = value; }}"
-        ));
-    }
+    let reserved_idents =
+        enums_accessors::reserved_payload_idents(&tag_field_ident, &setter_ident_escaped, &field_entries);
+    lines.extend(enums_accessors::gen_payload_accessors(
+        &field_entries,
+        &flattened_only,
+        &reserved_idents,
+    ));
     lines.push("}".to_string());
 
     lines.join("\n")
@@ -840,13 +848,15 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
 /// never a `#[cfg(...)]` attribute on the variant itself. ~keep
 pub(crate) fn gen_enum(
     enum_def: &EnumDef,
-    prefix: &str,
+    mapper: &WasmMapper,
     core_import: &str,
     configured_features: &std::collections::HashSet<&str>,
     types: &[TypeDef],
+    exclude_types: &[String],
 ) -> String {
+    let prefix = mapper.prefix.as_str();
     if is_tagged_data_enum(enum_def, types) {
-        return gen_tagged_enum_as_struct(enum_def, prefix, types);
+        return gen_tagged_enum_as_struct(enum_def, mapper, types, exclude_types);
     }
 
     let js_name = format!("{prefix}{}", enum_def.name);

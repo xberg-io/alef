@@ -255,7 +255,8 @@ pub(super) fn gen_setter(
             "gen_class_field_setter",
             minijinja::context! {
                 js_name_attr => js_name_attr,
-                field_name => field.name,
+                setter_ident => format!("set_{}", field.name),
+                field_ident => field.name,
                 class_type => class_type,
                 optional => stores_option(field),
             },
@@ -314,7 +315,8 @@ pub(super) fn gen_clear_method(
             "gen_class_field_clear",
             minijinja::context! {
                 js_name => to_node_name(&rust_ident),
-                field_name => field.name,
+                clear_ident => rust_ident,
+                field_ident => field.name,
             },
         )
         .trim_end()

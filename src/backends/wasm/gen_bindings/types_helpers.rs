@@ -105,7 +105,7 @@ pub(super) fn optional_inner(ty: &TypeRef) -> &TypeRef {
 /// name the backend emits as a `#[wasm_bindgen]` struct. Returns `None` when a `type_overrides`
 /// entry redirects the name somewhere else (`JsValue`, `String`, ...): the accessor then has to
 /// keep using the mapper's rendering, because no such class exists to borrow. ~keep
-pub(super) fn class_backed_field_type(
+pub(in crate::backends::wasm::gen_bindings) fn class_backed_field_type(
     field: &FieldDef,
     mapper: &WasmMapper,
     class_type_names: &AHashSet<String>,

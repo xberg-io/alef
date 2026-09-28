@@ -580,10 +580,11 @@ impl Backend for WasmBackend {
             } else if !enums::is_json_passthrough_data_enum(enum_def, &api.types) {
                 builder.add_item(&gen_enum(
                     enum_def,
-                    &prefix,
+                    &mapper,
                     &core_import,
                     &configured_features_set,
                     &api.types,
+                    &exclude_types,
                 ));
             }
         }

@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm: a tagged-data-enum payload setter destroyed the handle it was given (#473).** The
+  second of the two emitters that mint `#[wasm_bindgen]` field accessors had the defect #470
+  fixed in the first: `obj.palette = handle` was lowered through `__destroy_into_raw()`, so the
+  caller's handle was dead on its next use. A payload field whose type is a generated wasm class
+  now takes `&Wasm{Type}` and stores `Some(value.clone())`, and gets a `clear{Field}()`
+  companion -- unconditionally, not just for an optional field, because a payload struct stores
+  *every* field as an `Option` and `Option<&T>` has no `OptionFromWasmAbi` impl, so the borrowed
+  setter cannot accept `null`. Two latent disagreements between the two emitters are closed
+  alongside it: the payload emitter built its own override-free `WasmMapper`, which made the
+  `type_overrides` guard in `class_backed_field_type` inert (an overridden name would have been
+  treated as a borrowable class), and it never saw `exclude_types`, so the two emitters disagreed
+  about which types are emitted as classes at all. Both are now threaded from the real
+  configuration. The payload getter and setter are emitted through Minijinja templates rather
+  than `format!`.
 - **The Swift post-build step read build output from `./target` and reported success when it
   found nothing.** `find_swift_bridge_out_dir` (and scaffold's `read_swift_bridge_headers`)
   joined `"target"` onto the ancestor carrying `Cargo.lock`, so a host that redirects cargo's

@@ -96,9 +96,13 @@ fn declared_members(enum_def: &EnumDef) -> Vec<String> {
     }
     let source = crate::backends::wasm::gen_bindings::enums::gen_enum(
         enum_def,
-        WASM_TYPE_PREFIX,
+        &crate::backends::wasm::type_map::WasmMapper::new(
+            std::collections::HashMap::new(),
+            WASM_TYPE_PREFIX.to_string(),
+        ),
         CORE_CRATE,
         &std::collections::HashSet::new(),
+        &[],
         &[],
     );
     let header = format!("pub enum {WASM_TYPE_PREFIX}{} {{", enum_def.name);

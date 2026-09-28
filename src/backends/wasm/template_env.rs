@@ -178,6 +178,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "gen_class_field_clear",
         include_str!("templates/gen_class_field_clear.jinja"),
     ),
+    (
+        "gen_payload_field_getter",
+        include_str!("templates/gen_payload_field_getter.jinja"),
+    ),
+    (
+        "gen_payload_field_setter",
+        include_str!("templates/gen_payload_field_setter.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
