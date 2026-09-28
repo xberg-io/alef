@@ -103,15 +103,15 @@ mod json_bridged_count_tests {
             json_bridged_field_names: HashSet::from([field_name.to_string()]),
             ..SwiftFirstClassMap::default()
         };
-        FieldResolver::new_with_swift_first_class(
+        FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::from([field_name.to_string()]),
             &HashSet::new(),
             &HashMap::new(),
-            swift_first_class_map,
         )
+        .with_swift_first_class_map(swift_first_class_map)
     }
 
     /// The confirmed-recoverable case: `results[0].chunks` is both a known array field (per
@@ -335,15 +335,15 @@ mod mixed_map_then_vec_tests {
             json_bridged_field_names: HashSet::from(["labels".to_string()]),
             ..SwiftFirstClassMap::default()
         };
-        FieldResolver::new_with_swift_first_class(
+        FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            swift_first_class_map,
         )
+        .with_swift_first_class_map(swift_first_class_map)
     }
 
     /// The confirmed-safe direction: when the swift-bridge scan positively classifies `labels`

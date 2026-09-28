@@ -43,15 +43,15 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
     } = inputs;
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
     let call_root_type = resolve_declared_result_type(call_config, lang, CallIr { functions, type_defs });
-    FieldResolver::new_with_php_getters(
+    FieldResolver::new_with_error_aliases(
         e2e_config.effective_fields(call_config),
         e2e_config.effective_fields_optional(call_config),
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         &HashSet::new(),
         &HashMap::new(),
-        per_call_getter_map.clone(),
     )
+    .with_php_getter_map(per_call_getter_map.clone())
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
     .with_ir_collection_map(FieldResolver::ir_collection_fields(type_defs), call_root_type.clone())
     .with_ir_result_fields(FieldResolver::ir_result_field_facts(type_defs, lang), call_root_type)

@@ -157,59 +157,23 @@ impl FieldResolver {
         }
     }
 
-    /// Create a new resolver that also knows which PHP fields need getter-method syntax.
+    /// Attach `php_getter_map`, the classification of which PHP fields need getter-method
+    /// syntax.
     ///
-    /// `php_getter_map` carries a per-`(type_name, field_name)` classification: the PHP
-    /// accessor renderer emits `->getCamelCase()` when `(owner_type, field)` is
-    /// recorded as needing a getter, and `->camelCase` property syntax otherwise.
-    /// This matches the ext-php-rs 0.15.x behaviour where `#[php(getter)]` is used for
-    /// non-scalar fields (Named structs, `Vec<Named>`, Map, etc.) while `#[php(prop)]` is
-    /// used for scalar-compatible fields.
+    /// Carries a per-`(type_name, field_name)` classification: the PHP accessor renderer
+    /// emits `->getCamelCase()` when `(owner_type, field)` is recorded as needing a getter,
+    /// and `->camelCase` property syntax otherwise. This matches the ext-php-rs 0.15.x
+    /// behaviour where `#[php(getter)]` is used for non-scalar fields (Named structs,
+    /// `Vec<Named>`, Map, etc.) while `#[php(prop)]` is used for scalar-compatible fields.
     ///
     /// Keying by (type, field) — not bare field name — is essential because the same
     /// field name can have different scalarness on different types. The map also carries
     /// per-type field→nested-type mappings so the renderer can walk a path like
     /// `outer.inner.content` through the IR, advancing the current-type cursor at each
     /// segment.
-    pub fn new_with_php_getters(
-        fields: &HashMap<String, String>,
-        optional: &HashSet<String>,
-        result_fields: &HashSet<String>,
-        array_fields: &HashSet<String>,
-        method_calls: &HashSet<String>,
-        error_field_aliases: &HashMap<String, String>,
-        php_getter_map: PhpGetterMap,
-    ) -> Self {
-        Self {
-            aliases: fields.clone(),
-            optional_fields: optional.clone(),
-            config_declared_optional_fields: optional.clone(),
-            result_fields: result_fields.clone(),
-            array_fields: array_fields.clone(),
-            enum_fields: HashSet::new(),
-            method_calls: method_calls.clone(),
-            error_field_aliases: error_field_aliases.clone(),
-            php_getter_map,
-            variant_accessors: VariantAccessorMap::default(),
-            swift_first_class_map: SwiftFirstClassMap::default(),
-            dart_first_class_map: DartFirstClassMap::default(),
-            display_as_text_fields: HashSet::new(),
-            ir_reachable_fields: HashSet::new(),
-            ir_known_excluded_fields: HashSet::new(),
-            wire_optional_fields: HashSet::new(),
-            ir_enum_map: IrEnumMap::default(),
-            wasm_untagged_enum_names: HashSet::new(),
-            napi_tagged_object_enums: HashMap::new(),
-            napi_flattened_newtype_variants: HashMap::new(),
-            java_wrapper_enum_names: HashSet::new(),
-            ruby_hash_serialized_enum_names: HashSet::new(),
-            ir_collection_map: IrCollectionMap::default(),
-            non_string_scalar_collection_fields: HashMap::new(),
-            ir_result_field_map: IrResultFieldMap::default(),
-            result_is_byte_payload: false,
-            python_typeddict_map: PythonTypedDictMap::default(),
-            python_map_value_edges: HashMap::new(),
-        }
+    pub fn with_php_getter_map(mut self, php_getter_map: PhpGetterMap) -> Self {
+        self.php_getter_map = php_getter_map;
+        self
     }
 
     /// Return a clone of this resolver with the Swift first-class map's
@@ -228,94 +192,19 @@ impl FieldResolver {
         clone
     }
 
-    /// Create a new resolver that also knows the Swift first-class/opaque
-    /// classification per IR type. Mirrors `new_with_php_getters` but for the
-    /// Swift `render_swift_with_first_class_map` path.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_swift_first_class(
-        fields: &HashMap<String, String>,
-        optional: &HashSet<String>,
-        result_fields: &HashSet<String>,
-        array_fields: &HashSet<String>,
-        method_calls: &HashSet<String>,
-        error_field_aliases: &HashMap<String, String>,
-        swift_first_class_map: SwiftFirstClassMap,
-    ) -> Self {
-        Self {
-            aliases: fields.clone(),
-            optional_fields: optional.clone(),
-            config_declared_optional_fields: optional.clone(),
-            result_fields: result_fields.clone(),
-            array_fields: array_fields.clone(),
-            enum_fields: HashSet::new(),
-            method_calls: method_calls.clone(),
-            error_field_aliases: error_field_aliases.clone(),
-            php_getter_map: PhpGetterMap::default(),
-            variant_accessors: VariantAccessorMap::default(),
-            swift_first_class_map,
-            dart_first_class_map: DartFirstClassMap::default(),
-            display_as_text_fields: HashSet::new(),
-            ir_reachable_fields: HashSet::new(),
-            ir_known_excluded_fields: HashSet::new(),
-            wire_optional_fields: HashSet::new(),
-            ir_enum_map: IrEnumMap::default(),
-            wasm_untagged_enum_names: HashSet::new(),
-            napi_tagged_object_enums: HashMap::new(),
-            napi_flattened_newtype_variants: HashMap::new(),
-            java_wrapper_enum_names: HashSet::new(),
-            ruby_hash_serialized_enum_names: HashSet::new(),
-            ir_collection_map: IrCollectionMap::default(),
-            non_string_scalar_collection_fields: HashMap::new(),
-            ir_result_field_map: IrResultFieldMap::default(),
-            result_is_byte_payload: false,
-            python_typeddict_map: PythonTypedDictMap::default(),
-            python_map_value_edges: HashMap::new(),
-        }
+    /// Attach `swift_first_class_map`, the Swift first-class/opaque classification per IR
+    /// type. Mirrors `with_php_getter_map` but for the Swift
+    /// `render_swift_with_first_class_map` path.
+    pub fn with_swift_first_class_map(mut self, swift_first_class_map: SwiftFirstClassMap) -> Self {
+        self.swift_first_class_map = swift_first_class_map;
+        self
     }
 
-    /// Create a new resolver that also knows the Dart stringy field
-    /// classification per IR type (for aggregating text accessors in contains
-    /// assertions on `Vec<T>` fields).
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_dart_first_class(
-        fields: &HashMap<String, String>,
-        optional: &HashSet<String>,
-        result_fields: &HashSet<String>,
-        array_fields: &HashSet<String>,
-        method_calls: &HashSet<String>,
-        error_field_aliases: &HashMap<String, String>,
-        dart_first_class_map: DartFirstClassMap,
-    ) -> Self {
-        Self {
-            aliases: fields.clone(),
-            optional_fields: optional.clone(),
-            config_declared_optional_fields: optional.clone(),
-            result_fields: result_fields.clone(),
-            array_fields: array_fields.clone(),
-            enum_fields: HashSet::new(),
-            method_calls: method_calls.clone(),
-            error_field_aliases: error_field_aliases.clone(),
-            php_getter_map: PhpGetterMap::default(),
-            variant_accessors: VariantAccessorMap::default(),
-            swift_first_class_map: SwiftFirstClassMap::default(),
-            dart_first_class_map,
-            display_as_text_fields: HashSet::new(),
-            ir_reachable_fields: HashSet::new(),
-            ir_known_excluded_fields: HashSet::new(),
-            wire_optional_fields: HashSet::new(),
-            ir_enum_map: IrEnumMap::default(),
-            wasm_untagged_enum_names: HashSet::new(),
-            napi_tagged_object_enums: HashMap::new(),
-            napi_flattened_newtype_variants: HashMap::new(),
-            java_wrapper_enum_names: HashSet::new(),
-            ruby_hash_serialized_enum_names: HashSet::new(),
-            ir_collection_map: IrCollectionMap::default(),
-            non_string_scalar_collection_fields: HashMap::new(),
-            ir_result_field_map: IrResultFieldMap::default(),
-            result_is_byte_payload: false,
-            python_typeddict_map: PythonTypedDictMap::default(),
-            python_map_value_edges: HashMap::new(),
-        }
+    /// Attach `dart_first_class_map`, the Dart stringy field classification per IR type
+    /// (for aggregating text accessors in contains assertions on `Vec<T>` fields).
+    pub fn with_dart_first_class_map(mut self, dart_first_class_map: DartFirstClassMap) -> Self {
+        self.dart_first_class_map = dart_first_class_map;
+        self
     }
 
     /// Return a clone of this resolver with the Dart first-class map's

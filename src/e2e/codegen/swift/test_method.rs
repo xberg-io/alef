@@ -101,15 +101,7 @@ pub(super) fn render_test_method(
 
     // Build per-call field resolver using the effective field sets for this call.
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
-    let call_field_resolver = FieldResolver::new_with_swift_first_class(
-        e2e_config.effective_fields(call_config),
-        e2e_config.effective_fields_optional(call_config),
-        e2e_config.effective_result_fields(call_config),
-        e2e_config.effective_fields_array(call_config),
-        e2e_config.effective_fields_method_calls(call_config),
-        &HashMap::new(),
-        swift_first_class_map.clone(),
-    )
+    let call_field_resolver = FieldResolver::new_with_error_aliases(e2e_config.effective_fields(call_config), e2e_config.effective_fields_optional(call_config), e2e_config.effective_result_fields(call_config), e2e_config.effective_fields_array(call_config), e2e_config.effective_fields_method_calls(call_config), &HashMap::new()).with_swift_first_class_map(swift_first_class_map.clone())
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
     .with_enum_fields(effective_enum_fields)
     .with_ir_enum_map(FieldResolver::ir_enum_fields(type_defs, enums), call_root_type.clone())

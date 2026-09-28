@@ -160,15 +160,20 @@ pub(super) fn render_snippet_body_with_ir(
         .collect::<Vec<_>>();
     imported_types.sort_unstable();
     imported_types.dedup();
-    let field_resolver = crate::e2e::field_access::FieldResolver::new_with_php_getters(
+    let field_resolver = crate::e2e::field_access::FieldResolver::new_with_error_aliases(
         e2e_config.effective_fields(call),
         e2e_config.effective_fields_optional(call),
         e2e_config.effective_result_fields(call),
         e2e_config.effective_fields_array(call),
         e2e_config.effective_fields_method_calls(call),
         &HashMap::new(),
-        super::types::build_php_getter_map(type_defs, enums, call, e2e_config.effective_result_fields(call)),
-    );
+    )
+    .with_php_getter_map(super::types::build_php_getter_map(
+        type_defs,
+        enums,
+        call,
+        e2e_config.effective_result_fields(call),
+    ));
     let presentation = crate::e2e::codegen::presentation::resolve_with(
         fixture,
         e2e_config,

@@ -124,10 +124,10 @@ fn byte_payload_flag_overrides_even_a_fully_anchored_struct_result() {
     assert_eq!(resolver.result_field_oracle_knows("title"), Some(false));
 }
 
-/// Every existing constructor (`new`, `new_with_error_aliases`, `new_with_php_getters`,
-/// `new_with_swift_first_class`, `new_with_dart_first_class`) must default the flag to `false`,
-/// so every resolver built before this flag existed keeps its exact prior behaviour unless a
-/// call site opts in explicitly.
+/// Every existing constructor (`new`, `new_with_error_aliases`) and builder
+/// (`with_php_getter_map`, `with_swift_first_class_map`, `with_dart_first_class_map`) must
+/// default the flag to `false`, so every resolver built before this flag existed keeps its
+/// exact prior behaviour unless a call site opts in explicitly.
 #[test]
 fn the_flag_defaults_to_false_and_is_purely_additive() {
     let resolver = resolver_anchored_at_envelope();

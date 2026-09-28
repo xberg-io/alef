@@ -334,15 +334,15 @@ mod tests {
             "precondition: Metadata::format's getter must be Optional<RustString>"
         );
 
-        let resolver = FieldResolver::new_with_swift_first_class(
+        let resolver = FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            map,
-        );
+        )
+        .with_swift_first_class_map(map);
         let mut out = String::new();
 
         let rendered = render_json_bridged_navigated_assertion(
@@ -435,15 +435,15 @@ mod tests {
             "precondition: ChunkingResult::chunks must be JSON-bridged on the real IR map"
         );
 
-        let resolver = FieldResolver::new_with_swift_first_class(
+        let resolver = FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            map,
-        );
+        )
+        .with_swift_first_class_map(map);
         let mut out = String::new();
 
         let rendered = render_json_bridged_navigated_assertion(
@@ -471,15 +471,15 @@ mod tests {
             json_bridged_field_names: HashSet::from([field_name.to_string()]),
             ..SwiftFirstClassMap::default()
         };
-        FieldResolver::new_with_swift_first_class(
+        FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::from([field_name.to_string()]),
             &HashSet::new(),
             &HashMap::new(),
-            swift_first_class_map,
         )
+        .with_swift_first_class_map(swift_first_class_map)
     }
 
     fn assertion(assertion_type: &str, field: &str, value: Option<serde_json::Value>) -> Assertion {

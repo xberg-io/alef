@@ -46,15 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A bridge object that defines none of the trait's methods is rejected by name instead of
-  being silently skipped (#476).** The bridge dispatches `obj.<method>(...)`, so a bare Python
-  callable satisfies no `hasattr` check: for a method carrying a Rust default the default ran
-  and the listener simply never fired, and for one without a default the caller got a bare
-  `AttributeError` raised from inside a generated method. The emitted wrapper now raises a
-  `TypeError` naming the trait and the methods the object has to define, and the rule is
-  documented on `bind_via` (and therefore in the JSON schema). An infallible synchronous
-  wrapper has nowhere to put a `PyErr` and keeps the previous behaviour.
-
 - **The pyo3 wrapper for an `options_field` trait bridge compiles (#476).** Three independent
   defects in one emitted function, none of which any test could see: `gen_bridge_field_function`
   had no direct coverage at all, because the only pyo3 options-field test sets `functions:
@@ -186,6 +177,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   means, alongside the two remedies that carry no clobber risk.
 
 ### Changed
+
+- **`FieldResolver`'s three seven-argument constructors are now builder methods.**
+  `new_with_php_getters`, `new_with_swift_first_class` and `new_with_dart_first_class` each
+  duplicated `new_with_error_aliases`'s entire struct literal only to set one extra field, so each
+  is gone in favour of `with_php_getter_map`, `with_swift_first_class_map` and
+  `with_dart_first_class_map` chained onto `new_with_error_aliases`. Every call site keeps the same
+  six leading arguments in the same order. The removed constructors were `pub`, so this is a
+  breaking change for anything calling them from outside the crate.
+
+- **23 entries of the `poly.toml` size/complexity baseline are paid off**, taking its header from
+  1206 findings across 631 files to 1183 across 608. Twenty-one are `nesting-too-deep`, resolved by
+  inverting conditionals into guard clauses and extracting file-local private helpers -- all purely
+  function-internal. The other two are `too-many-parameters`. No behaviour changes: the suite
+  reports the same 13050 passing tests before and after.
 
 - **`StageFailures` no longer claims every deferred failure came from `alef all`.** The type is
   shared by `alef all`, `alef generate` and `alef docs`, but its per-failure log line read

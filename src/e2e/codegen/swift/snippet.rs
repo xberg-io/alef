@@ -146,15 +146,15 @@ pub(super) fn render_with_ir(
     let presentation = if expects_error || call.returns_void {
         Vec::new()
     } else {
-        let field_resolver = crate::e2e::field_access::FieldResolver::new_with_swift_first_class(
+        let field_resolver = crate::e2e::field_access::FieldResolver::new_with_error_aliases(
             e2e_config.effective_fields(call),
             e2e_config.effective_fields_optional(call),
             e2e_config.effective_result_fields(call),
             e2e_config.effective_fields_array(call),
             e2e_config.effective_fields_method_calls(call),
             &std::collections::HashMap::new(),
-            first_class_map.clone(),
-        );
+        )
+        .with_swift_first_class_map(first_class_map.clone());
         crate::e2e::codegen::presentation::resolve_with(
             fixture,
             e2e_config,

@@ -344,15 +344,15 @@ fn contains_against_vec_dto_aggregates_stringy_accessors() {
         stringy_fields_by_type,
         ..SwiftFirstClassMap::default()
     };
-    let resolver = FieldResolver::new_with_swift_first_class(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &arrays,
         &HashSet::new(),
         &HashMap::new(),
-        map,
     )
+    .with_swift_first_class_map(map)
     .with_swift_root_type(Some("ProcessResult".to_string()));
 
     let line = swift_stringy_aggregator_contains_assert(Some("imports"), "result", &resolver, "\"os\"")
@@ -407,15 +407,15 @@ fn contains_aggregator_skips_when_only_one_stringy_field() {
         stringy_fields_by_type,
         ..SwiftFirstClassMap::default()
     };
-    let resolver = FieldResolver::new_with_swift_first_class(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &arrays,
         &HashSet::new(),
         &HashMap::new(),
-        map,
     )
+    .with_swift_first_class_map(map)
     .with_swift_root_type(Some("Root".to_string()));
     assert!(
         swift_stringy_aggregator_contains_assert(Some("tags"), "result", &resolver, "\"x\"").is_none(),

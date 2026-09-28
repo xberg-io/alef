@@ -560,15 +560,15 @@ mod tests {
             getters: HashMap::from([("ProcessResult".to_string(), HashSet::from([field.to_string()]))]),
             ..PhpGetterMap::default()
         };
-        FieldResolver::new_with_php_getters(
+        FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &optional,
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            getter_map,
         )
+        .with_php_getter_map(getter_map)
     }
 
     fn is_true_assertion(field: &str) -> Assertion {

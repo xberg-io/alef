@@ -163,15 +163,15 @@ fn a_subscript_with_no_closing_bracket_refuses_instead_of_returning_a_partial_re
 /// `SwiftFirstClassMap` never does.
 #[test]
 fn mixed_optional_map_then_vec_reaches_the_registered_skip_via_render_assertion() {
-    let resolver = FieldResolver::new_with_swift_first_class(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::from(["labels.items".to_string()]),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        SwiftFirstClassMap::default(),
-    );
+    )
+    .with_swift_first_class_map(SwiftFirstClassMap::default());
     let assertion = Assertion {
         assertion_type: "equals".to_string(),
         field: Some("labels[key].items[0]".to_string()),

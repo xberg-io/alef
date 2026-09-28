@@ -66,15 +66,15 @@ fn getter_map() -> PhpGetterMap {
 }
 
 fn resolver() -> FieldResolver {
-    FieldResolver::new_with_php_getters(
+    FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        getter_map(),
     )
+    .with_php_getter_map(getter_map())
 }
 
 fn render(resolver: &FieldResolver) -> String {
@@ -120,15 +120,15 @@ fn wildcard_element_getter_is_resolved_against_the_element_type_not_the_result_t
 fn wildcard_element_stays_a_property_when_the_element_type_has_no_getter_for_it() {
     let mut map = getter_map();
     map.getters.insert(ELEMENT_TYPE.to_string(), HashSet::new());
-    let resolver = FieldResolver::new_with_php_getters(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
-    );
+    )
+    .with_php_getter_map(map);
 
     let rendered = render(&resolver);
     assert_eq!(

@@ -168,15 +168,15 @@ fn swift_json_navigation_skips_a_generalised_variant_segment() {
         json_bridged_field_names: HashSet::from(["payload".to_string()]),
         ..SwiftFirstClassMap::default()
     };
-    let resolver = FieldResolver::new_with_swift_first_class(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        swift_first_class_map,
     )
+    .with_swift_first_class_map(swift_first_class_map)
     .with_ir_enum_map(
         FieldResolver::ir_enum_fields(&type_defs, &enums),
         Some("Envelope".to_string()),
@@ -203,15 +203,15 @@ fn swift_json_navigation_keeps_the_variant_segment_when_tagging_is_adjacent() {
         json_bridged_field_names: HashSet::from(["payload".to_string()]),
         ..SwiftFirstClassMap::default()
     };
-    let resolver = FieldResolver::new_with_swift_first_class(
+    let resolver = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        swift_first_class_map,
     )
+    .with_swift_first_class_map(swift_first_class_map)
     .with_ir_enum_map(
         FieldResolver::ir_enum_fields(&type_defs, &enums),
         Some("Envelope".to_string()),

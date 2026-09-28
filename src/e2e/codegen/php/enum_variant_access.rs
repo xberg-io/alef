@@ -363,15 +363,15 @@ mod tests {
         let getter_map =
             super::super::types::build_php_getter_map(&type_defs, &enums, &CallConfig::default(), &result_fields);
         let (reachable, excluded, optional) = FieldResolver::ir_field_sets(&type_defs);
-        let resolver = FieldResolver::new_with_php_getters(
+        let resolver = FieldResolver::new_with_error_aliases(
             &HashMap::new(),
             &HashSet::new(),
             &result_fields,
             &HashSet::new(),
             &HashSet::new(),
             &HashMap::new(),
-            getter_map.clone(),
         )
+        .with_php_getter_map(getter_map.clone())
         .with_ir_fields(reachable, excluded, optional);
         let assertion = Assertion {
             assertion_type: assertion_type.to_string(),

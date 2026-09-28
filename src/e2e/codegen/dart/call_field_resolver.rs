@@ -62,15 +62,7 @@ pub(super) fn build_call_field_resolver(inputs: CallFieldResolverInputs<'_>) -> 
     let call_root_type = resolve_declared_result_type(call_config, lang, CallIr { functions, type_defs });
 
     let (ir_reachable_fields, ir_known_excluded_fields, ir_optional_fields) = FieldResolver::ir_field_sets(type_defs);
-    FieldResolver::new_with_dart_first_class(
-        e2e_config.effective_fields(call_config),
-        e2e_config.effective_fields_optional(call_config),
-        e2e_config.effective_result_fields(call_config),
-        e2e_config.effective_fields_array(call_config),
-        e2e_config.effective_fields_method_calls(call_config),
-        &HashMap::new(),
-        dart_first_class_map.clone(),
-    )
+    FieldResolver::new_with_error_aliases(e2e_config.effective_fields(call_config), e2e_config.effective_fields_optional(call_config), e2e_config.effective_result_fields(call_config), e2e_config.effective_fields_array(call_config), e2e_config.effective_fields_method_calls(call_config), &HashMap::new()).with_dart_first_class_map(dart_first_class_map.clone())
     .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone())
     .with_dart_root_type(super::dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()))
     .with_enum_fields(effective_enum_fields)

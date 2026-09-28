@@ -517,15 +517,15 @@ fn make_php_getter_resolver() -> FieldResolver {
         root_type: Some("Root".to_string()),
         all_fields: HashMap::new(),
     };
-    FieldResolver::new_with_php_getters(
+    FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
     )
+    .with_php_getter_map(map)
 }
 
 #[test]
@@ -559,15 +559,15 @@ fn render_php_nested_non_scalar_uses_getter_then_property() {
         root_type: Some("Root".to_string()),
         all_fields: HashMap::new(),
     };
-    let r = FieldResolver::new_with_php_getters(
+    let r = FieldResolver::new_with_error_aliases(
         &fields,
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
-    );
+    )
+    .with_php_getter_map(map);
     // `metadata` → `->getMetadata()`, then `title` (scalar on returned object) → `->title`
     assert_eq!(r.accessor("title", "php", "$result"), "$result->getMetadata()->title");
 }
@@ -584,15 +584,15 @@ fn render_php_array_field_uses_getter_when_non_scalar() {
         root_type: Some("Root".to_string()),
         all_fields: HashMap::new(),
     };
-    let r = FieldResolver::new_with_php_getters(
+    let r = FieldResolver::new_with_error_aliases(
         &fields,
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
-    );
+    )
+    .with_php_getter_map(map);
     assert_eq!(r.accessor("first_link", "php", "$result"), "$result->getLinks()[0]");
 }
 
@@ -638,24 +638,24 @@ fn render_php_with_getters_distinguishes_same_field_name_on_different_types() {
         root_type: Some("B".to_string()),
         all_fields,
     };
-    let r_a = FieldResolver::new_with_php_getters(
+    let r_a = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map_a,
-    );
-    let r_b = FieldResolver::new_with_php_getters(
+    )
+    .with_php_getter_map(map_a);
+    let r_b = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map_b,
-    );
+    )
+    .with_php_getter_map(map_b);
     assert_eq!(r_a.accessor("content", "php", "$a"), "$a->getContent()");
     assert_eq!(r_b.accessor("content", "php", "$b"), "$b->content");
 }
@@ -690,15 +690,15 @@ fn render_php_with_getters_chains_through_correct_type() {
         root_type: Some("Outer".to_string()),
         all_fields,
     };
-    let r = FieldResolver::new_with_php_getters(
+    let r = FieldResolver::new_with_error_aliases(
         &fields,
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
-    );
+    )
+    .with_php_getter_map(map);
     assert_eq!(
         r.accessor("nested_content", "php", "$result"),
         "$result->getInner()->content"
@@ -1358,15 +1358,15 @@ fn render_php_needs_getter_returns_false_when_owner_has_no_getter_entry() {
     assert!(map.needs_getter(None, "content"));
 
     // Confirm end-to-end accessor rendering matches.
-    let r = FieldResolver::new_with_php_getters(
+    let r = FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        map,
-    );
+    )
+    .with_php_getter_map(map);
     assert_eq!(r.accessor("content", "php", "$result"), "$result->content");
 }
 

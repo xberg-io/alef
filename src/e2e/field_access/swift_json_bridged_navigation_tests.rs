@@ -12,15 +12,15 @@ fn resolver_with_json_bridged_field(field_name: &str) -> FieldResolver {
         json_bridged_field_names: HashSet::from([field_name.to_string()]),
         ..SwiftFirstClassMap::default()
     };
-    FieldResolver::new_with_swift_first_class(
+    FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        swift_first_class_map,
     )
+    .with_swift_first_class_map(swift_first_class_map)
 }
 
 fn ir_field(name: &str, ty: TypeRef) -> FieldDef {
@@ -324,15 +324,15 @@ fn resolver_anchored_on_extraction_result(root_type: Option<&str>) -> FieldResol
         root_type: root_type.map(str::to_string),
         ..SwiftFirstClassMap::default()
     };
-    FieldResolver::new_with_swift_first_class(
+    FieldResolver::new_with_error_aliases(
         &HashMap::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        swift_first_class_map,
     )
+    .with_swift_first_class_map(swift_first_class_map)
     .with_ir_enum_map(format_metadata_ir_enum_map(), root_type.map(str::to_string))
 }
 

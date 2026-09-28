@@ -37,7 +37,7 @@ pub struct FieldResolver {
     /// name to whether THAT field on THAT type requires `->getCamelCase()` syntax
     /// (because the field's mapped PHP type is non-scalar and ext-php-rs emits a
     /// `#[php(getter)]` method) rather than `->camelCase` property access.
-    /// Populated by `new_with_php_getters`; empty by default.
+    /// Populated by `with_php_getter_map`; empty by default.
     ///
     /// Keying by (type, field) — not bare field name — is required because two
     /// different types can declare the same field name with different scalarness

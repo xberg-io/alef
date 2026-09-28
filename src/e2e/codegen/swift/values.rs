@@ -774,15 +774,7 @@ mod tests {
         let mut map = build_swift_first_class_map(&type_defs, &enums, &E2eConfig::default(), &CallConfig::default());
         map.root_type = Some("ExtractedDocument".to_string());
 
-        let resolver = FieldResolver::new_with_swift_first_class(
-            &HashMap::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashSet::new(),
-            &HashMap::new(),
-            map,
-        )
+        let resolver = FieldResolver::new_with_error_aliases(&HashMap::new(), &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashSet::new(), &HashMap::new()).with_swift_first_class_map(map)
         // The internally-tagged skip decision reads `ir_enum_map.tagged_enum_wire`, which
         // `SwiftFirstClassMap` does not carry -- production wiring anchors it the same way in
         // `presentation.rs`. ~keep

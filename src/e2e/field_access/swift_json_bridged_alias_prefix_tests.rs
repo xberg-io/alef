@@ -26,15 +26,15 @@ fn resolver_with_document_hop_alias() -> FieldResolver {
         json_bridged_field_names,
         ..SwiftFirstClassMap::default()
     };
-    FieldResolver::new_with_swift_first_class(
+    FieldResolver::new_with_error_aliases(
         &fields,
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashSet::new(),
         &HashMap::new(),
-        swift_first_class_map,
     )
+    .with_swift_first_class_map(swift_first_class_map)
 }
 
 /// The traversal-prefix caller (used to write the e2e generator's skip comment, and to clamp a
