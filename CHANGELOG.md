@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.102.0] - 2026-09-28
+
+### Fixed
+
+- **The Java backend emitted a binding that could not compile at all.** `exception_class.jinja`
+  generated the root exception class (`{crate}RsException`) with only `(int code, String message)`
+  and `(String message, Throwable cause)` constructors, while `error_gen/java_error_base.jinja`
+  unconditionally generates `{BaseName}(final String message) { super(message); }` for a class that
+  extends it. Every generated error hierarchy therefore failed `javac` with "no suitable
+  constructor found" -- in xberg that was four classes, and it took 142 Java documentation
+  snippets down with it. The missing single-`String` constructor is now emitted, setting
+  `code = -1` as the cause-taking constructor already did. Only the musl CI legs run `javac`, so
+  this had been shipping since the 0.89.0 regeneration without a gate catching it.
+- **A `bytes` argument rendered one C argument short of the real signature.** The C backend's
+  raw-scalar-result path built its argument list without checking `arg.arg_type`, so a `bytes`
+  argument fell through to `json_to_c` and emitted the fixture's file path as a single C string
+  literal; the length parameter that the FFI generator always emits after a `&[u8]` (`{name}`
+  then `{name}_len`) was never emitted at all. xberg's four `pdf_page_count` snippets each failed
+  to compile with "too few arguments to function". Every other language backend already branched
+  on `arg_type == "bytes"`; the C path now does too, reading the file into a buffer and passing
+  `(ptr, len)`, so any byte-taking C function is fixed rather than just that one.
+- **A C documentation snippet declared a result variable it never used**, which warns under
+  `-Wall` for anyone who copies it. A documentation snippet emits no assertions, so the variable
+  is now marked deliberately unused; the declaration stays, because it is the part of the snippet
+  that shows the caller what the function returns.
+
 ## [0.101.0] - 2026-09-27
 
 ### Added
