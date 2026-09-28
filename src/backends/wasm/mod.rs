@@ -11,5 +11,8 @@ mod template_env;
 pub mod trait_bridge;
 pub(crate) mod type_map;
 
+#[cfg(test)]
+mod wasm_bindgen_js_oracle;
+
 pub use gen_bindings::WasmBackend;
 pub(crate) use gen_bindings::{WasmCallability, docs_ts_type_for_untagged_enum, wasm_callability};

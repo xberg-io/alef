@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A standing compile oracle reads the JavaScript glue wasm-bindgen emits for alef's generated
+  wasm crate.** Every other wasm check in this repo asserts on generated Rust *source text*, and
+  that is structurally blind to the defect class #470, #472 and #473 all belong to: a by-value
+  exported-struct argument compiles cleanly and only the JS shim shows it being lowered through
+  `__destroy_into_raw()`. The existing wasm lane in the generated-output gate compiles the
+  emitted crate for the host under `cargo clippy -D warnings` and would have passed green on the
+  pre-#470 bug. `backends::wasm::wasm_bindgen_js_oracle` instead extracts a fixture crate,
+  generates its bindings, builds them for `wasm32-unknown-unknown`, runs the real `wasm-bindgen`
+  CLI and asserts the exact set of arguments the emitted JS destroys -- so a new consumed handle
+  is a failure and the two positions wasm-bindgen gives no way to avoid are a line someone had
+  to write. Gated through `ToolchainGate::WASM_BINDGEN`, so a machine without the CLI counts a
+  skip rather than reporting a pass; CI installs the CLI on all three legs, sets
+  `ALEF_REQUIRE_WASM_BINDGEN`, and requires `wasm-bindgen` in the toolchain census. The fixture
+  pins its generated crate to the CLI's own version, because wasm-bindgen aborts on a
+  crate/CLI schema mismatch and alef's emitted `wasm-bindgen = "0.2"` resolves ahead of it.
+
 ### Fixed
 
 - **wasm: a tagged-data-enum payload setter destroyed the handle it was given (#473).** The

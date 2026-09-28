@@ -89,6 +89,22 @@ pub(crate) const RUBY: ToolchainGate = ToolchainGate {
     require_env: "ALEF_REQUIRE_RUBY",
 };
 
+/// The `wasm-bindgen` CLI, needed by the fixture that reads the JS glue wasm-bindgen emits for
+/// alef's generated wasm crate.
+///
+/// The CLI is a separate artifact from the `wasm-bindgen` crate the generated `Cargo.toml`
+/// depends on, and the two must agree exactly -- the CLI aborts on a schema-version mismatch
+/// rather than degrading. The fixture therefore reads this binary's own version and pins the
+/// crate to it, so whichever CLI a runner installed is the one the fixture builds against.
+/// `rust-toolchain.toml` already carries `wasm32-unknown-unknown` on every leg; the CLI does
+/// not ship with it, so CI installs it explicitly and sets `ALEF_REQUIRE_WASM_BINDGEN`. ~keep
+pub(crate) const WASM_BINDGEN: ToolchainGate = ToolchainGate {
+    name: "wasm-bindgen",
+    binary: "wasm-bindgen",
+    version_arg: "--version",
+    require_env: "ALEF_REQUIRE_WASM_BINDGEN",
+};
+
 /// Per-toolchain attempt/execution counts for this test binary.
 #[derive(Clone, Copy, Default)]
 struct Tally {

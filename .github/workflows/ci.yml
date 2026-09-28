@@ -146,6 +146,18 @@ jobs:
         run: uv tool install pyrefly==1.3.1
       - name: Install generated TypeScript compiler
         run: npm install --global typescript@5.9.2
+      # `rust-toolchain.toml` already carries `wasm32-unknown-unknown` on every leg, but the
+      # wasm-bindgen CLI is a separate artifact and nothing here installed it before this step.
+      # `backends::wasm::wasm_bindgen_js_oracle` is the only check in this repo that reads what
+      # wasm-bindgen actually EMITS for alef's output rather than the Rust source alef wrote --
+      # the defect it guards (a by-value exported-struct argument lowered through
+      # `__destroy_into_raw()`) compiles cleanly and is invisible to every string assertion.
+      # No version is pinned here on purpose: the fixture reads this binary's own version and
+      # pins its generated crate to it, because the CLI aborts on a schema mismatch. ~keep
+      - name: Install the wasm-bindgen CLI
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli
       # The C# identifier-grammar oracle (`ALEF_REQUIRE_DOTNET` below) needs a real `dotnet` on
       # PATH; nothing else in this job installed one before this step existed.
       - uses: actions/setup-dotnet@v6
@@ -201,6 +213,10 @@ jobs:
           # regression executes real Ruby under `sorbet-runtime`, and a leg that installed Ruby
           # must run it rather than count a skip as a pass.
           ALEF_REQUIRE_RUBY: "1"
+          # Paired with the `Install the wasm-bindgen CLI` step above: the JS-glue oracle is the
+          # only fixture that can see a consumed-handle regression, so a leg that installed the
+          # CLI must run it rather than count a skip as a pass.
+          ALEF_REQUIRE_WASM_BINDGEN: "1"
         # `--no-fail-fast` is load-bearing, not tidiness: without it cargo stops after the
         # first failing *target*, so every integration binary ordered after it never runs and
         # its result is indistinguishable from a pass. A stale assertion in
@@ -230,9 +246,9 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "macOS" ]; then
-            scripts/toolchain-census.sh --require go --require ruby --require swift
+            scripts/toolchain-census.sh --require go --require ruby --require swift --require wasm-bindgen
           else
-            scripts/toolchain-census.sh --require go --require ruby
+            scripts/toolchain-census.sh --require go --require ruby --require wasm-bindgen
           fi
 
   # Runs the consumer's own toolchain gate over a tree alef emits, in a scratch directory.
