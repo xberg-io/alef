@@ -7,8 +7,8 @@
 //! `r/args.rs`, `swift/args.rs`, `zig/args.rs`, `elixir/args.rs`, `rust/args.rs`,
 //! `gleam/args.rs`) already special-cases `arg_type == "bytes"`; the C free-function/raw-result
 //! path had no such branch at all, so it rendered the fixture's file-path string as a bare C
-//! string literal and dropped the length argument entirely -- `xberg_pdf_page_count`'s
-//! generated snippet passed one argument to a two-argument-past-`self` C export.
+//! string literal and dropped the length argument entirely, so a generated snippet passed one
+//! argument where the export declares a pointer and a length.
 
 use crate::e2e::escape::escape_c;
 

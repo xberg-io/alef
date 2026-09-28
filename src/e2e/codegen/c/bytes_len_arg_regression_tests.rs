@@ -3,8 +3,8 @@
 //! `bytes_arg`'s module doc). Before the fix, a `type = "bytes"` arg reached `json_to_c` like any
 //! other value, so a fixture-relative file path rendered as a bare `const char *` string literal
 //! and the length parameter every other backend already emits was never written at all --
-//! `xberg_pdf_page_count("pdf/sample_contract.pdf", NULL)` against a header declaring
-//! `xberg_pdf_page_count(const uint8_t *pdf_bytes, uintptr_t pdf_bytes_len, const char *password)`.
+//! `sample_pdf_page_count("pdf/sample_contract.pdf", NULL)` against a header declaring
+//! `sample_pdf_page_count(const uint8_t *pdf_bytes, uintptr_t pdf_bytes_len, const char *password)`.
 
 use super::snippet_regressions::compile_snippet;
 use super::*;
@@ -66,7 +66,7 @@ fn render_pdf_page_count_snippet(input: serde_json::Value) -> String {
 }
 
 /// The reproducer: a bare file-path string used to render as a single `const char *` argument,
-/// which is one argument short of `xberg_pdf_page_count`'s real three-parameter C signature.
+/// which is one argument short of the real three-parameter C signature for a bytes-taking call.
 #[test]
 fn a_bytes_typed_argument_emits_a_pointer_and_length_pair() {
     let rendered = render_pdf_page_count_snippet(serde_json::json!({ "pdf_bytes": "pdf/sample_contract.pdf" }));
