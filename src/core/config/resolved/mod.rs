@@ -222,6 +222,14 @@ pub struct ResolvedCrateConfig {
 }
 
 impl ResolvedCrateConfig {
+    // ~keep Applicability belongs on the resolved config so backend emitters cannot drift on
+    // language/backend aliases such as `python`/`pyo3` or `ruby`/`magnus`.
+    pub fn trait_bridges_for(&self, language: Language) -> impl Iterator<Item = &TraitBridgeConfig> {
+        self.trait_bridges.iter().filter(move |bridge| {
+            crate::codegen::generators::trait_bridge::bridge_targets_language(bridge, language.bridge_spellings())
+        })
+    }
+
     /// The rebased view of [`Self::source_crates`]: for each entry with `from_registry = true`,
     /// `sources` rebased against that crate's actual location in the cargo registry (everything
     /// else is returned unchanged). Resolved on first call and cached for the lifetime of this
@@ -289,5 +297,38 @@ impl ResolvedCrateConfig {
     #[must_use]
     pub fn target_enabled(&self, triple: &str) -> bool {
         crate::publish::platform::target_triple_enabled(&self.targets, triple)
+    }
+}
+
+#[cfg(test)]
+mod trait_bridge_applicability_tests {
+    use super::*;
+
+    fn bridge(name: &str, excluded: &[&str]) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: name.to_owned(),
+            exclude_languages: excluded.iter().map(|value| (*value).to_owned()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn trait_bridges_for_filters_language_and_backend_spellings() {
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![
+                bridge("Active", &[]),
+                bridge("ByLanguage", &["python"]),
+                bridge("ByBackend", &["pyo3"]),
+                bridge("OtherTarget", &["go"]),
+            ],
+            ..Default::default()
+        };
+
+        let names: Vec<_> = config
+            .trait_bridges_for(Language::Python)
+            .map(|bridge| bridge.trait_name.as_str())
+            .collect();
+
+        assert_eq!(names, ["Active", "OtherTarget"]);
     }
 }

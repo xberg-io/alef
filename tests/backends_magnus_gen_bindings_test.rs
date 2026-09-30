@@ -40,6 +40,68 @@ gem_name = "test_lib"
 }
 
 #[test]
+fn excluded_ruby_function_param_bridge_emits_no_wrapper_reference() {
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Listener".to_string(),
+            rust_path: "test_lib::Listener".to_string(),
+            is_trait: true,
+            methods: vec![MethodDef {
+                name: "on_event".to_string(),
+                return_type: TypeRef::Unit,
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "run".to_string(),
+            rust_path: "test_lib::run".to_string(),
+            params: vec![ParamDef {
+                name: "listener".to_string(),
+                ty: TypeRef::Named("ListenerHandle".to_string()),
+                ..Default::default()
+            }],
+            return_type: TypeRef::Unit,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut bridge = alef::core::config::TraitBridgeConfig {
+        trait_name: "Listener".to_string(),
+        type_alias: Some("ListenerHandle".to_string()),
+        param_name: Some("listener".to_string()),
+        ..Default::default()
+    };
+    let generate = |bridge: alef::core::config::TraitBridgeConfig| {
+        let mut config = make_config();
+        config.trait_bridges = vec![bridge];
+        MagnusBackend
+            .generate_bindings(&api, &config)
+            .expect("generate magnus bindings")
+            .into_iter()
+            .find(|file| file.path.ends_with("lib.rs"))
+            .expect("generated magnus lib.rs")
+            .content
+    };
+
+    let active = generate(bridge.clone());
+    assert!(
+        active.contains("RbListenerBridge") && active.contains("fn run"),
+        "the control must exercise the function-param wrapper emitter:\n{active}"
+    );
+
+    bridge.exclude_languages = vec!["magnus".to_string()];
+    let excluded = generate(bridge);
+    assert!(
+        !excluded.contains("RbListenerBridge"),
+        "an excluded bridge must leave no Ruby wrapper reference behind:\n{excluded}"
+    );
+}
+
+#[test]
 fn test_basic_generation() {
     let backend = MagnusBackend;
 

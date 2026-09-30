@@ -146,6 +146,7 @@ impl Backend for MagnusBackend {
 
         let mapper = MagnusMapper;
         let core_import = config.core_import_name();
+        let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Ruby).cloned().collect();
         // This binding's own configured feature set (already expanded through the core crate's
         // `[features]` graph), used to decide whether a FOREIGN-owned cfg-gated enum variant is
         // provably unreachable for this binding -- see
@@ -475,7 +476,7 @@ impl Backend for MagnusBackend {
                     continue;
                 }
                 let bridge_param =
-                    crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges);
+                    crate::backends::magnus::trait_bridge::find_bridge_param(func, &active_trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
                     let item = crate::backends::magnus::trait_bridge::gen_bridge_function(
                         api,
@@ -490,7 +491,7 @@ impl Backend for MagnusBackend {
                     let item = prepend_cfg(func.cfg.as_deref(), item);
                     builder.add_item(&item);
                 } else if let Some((options_param_idx, bridge_cfg)) =
-                    crate::backends::magnus::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                    crate::backends::magnus::trait_bridge::find_options_field_binding(func, &active_trait_bridges)
                 {
                     let item = crate::backends::magnus::trait_bridge::gen_options_field_bridge_function(
                         api,

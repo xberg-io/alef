@@ -3,7 +3,7 @@ use super::helpers::{c_callback_return_type, c_trampoline_signature, method_with
 use super::registration::{gen_clear_fn, gen_unregistration_fn};
 use super::wrapper::{gen_bridge_wrapper, gen_interface_method};
 use crate::backends::go::c_symbols;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeDef};
 use heck::ToPascalCase;
@@ -70,7 +70,7 @@ pub fn gen_trait_bridges_file(
     ));
     out.push('\n');
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Go) {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             let pascal = bridge_cfg.trait_name.to_pascal_case();
             for method in trait_def
@@ -128,9 +128,8 @@ pub fn gen_trait_bridges_file(
         }
     }
 
-    for bridge_cfg in &config.trait_bridges {
-        if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go")
-            && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
+    for bridge_cfg in config.trait_bridges_for(Language::Go) {
+        if api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
             && let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name)
         {
             let trait_pascal = trait_def.name.to_pascal_case();
@@ -187,9 +186,9 @@ pub fn gen_trait_bridges_file(
     out.push_str(")\n");
     out.push('\n');
 
-    let has_trait_bridges = config.trait_bridges.iter().any(|cfg| {
-        !cfg.exclude_languages.iter().any(|lang| lang == "go") && api.types.iter().any(|t| t.name == cfg.trait_name)
-    });
+    let has_trait_bridges = config
+        .trait_bridges_for(Language::Go)
+        .any(|cfg| api.types.iter().any(|t| t.name == cfg.trait_name));
 
     if has_trait_bridges {
         out.push_str("// handleRegistry tracks cgo.Handles by name to ensure proper cleanup on unregister.\n");
@@ -202,10 +201,8 @@ pub fn gen_trait_bridges_file(
         out.push('\n');
 
         out.push_str("var (\n");
-        for bridge_cfg in &config.trait_bridges {
-            if !bridge_cfg.exclude_languages.iter().any(|lang| lang == "go")
-                && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
-            {
+        for bridge_cfg in config.trait_bridges_for(Language::Go) {
+            if api.types.iter().any(|t| t.name == bridge_cfg.trait_name) {
                 let trait_snake = super::helpers::registry_var_stem(&bridge_cfg.trait_name);
                 out.push_str(&crate::backends::go::template_env::render(
                     "handle_registry_var.jinja",
@@ -252,10 +249,7 @@ pub fn gen_trait_bridges_file(
         out.push('\n');
     }
 
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg.exclude_languages.iter().any(|lang| lang == "go") {
-            continue;
-        }
+    for bridge_cfg in config.trait_bridges_for(Language::Go) {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             let trait_snake = heck::AsSnakeCase(&trait_def.name).to_string();
             gen_trait_bridge(

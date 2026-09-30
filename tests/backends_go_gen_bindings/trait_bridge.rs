@@ -333,6 +333,50 @@ fn test_gen_trait_bridges_file_produces_go_interface() {
 }
 
 #[test]
+fn excluded_go_bridge_emits_no_trampoline_or_interface_reference() {
+    let trait_type = make_trait_type(
+        "OcrBackend",
+        vec![make_trait_method("process", vec![], TypeRef::String, true)],
+    );
+    let mut bridge_cfg = TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        register_fn: Some("register_ocr_backend".to_string()),
+        bind_via: BridgeBinding::FunctionParam,
+        ..Default::default()
+    };
+    let api = make_api_with_type(trait_type);
+
+    let active = gen_trait_bridges_file(
+        &api,
+        &make_config_with_bridges(vec![bridge_cfg.clone()]),
+        "testlib",
+        "krz",
+        "test.h",
+        "../ffi",
+        "..",
+    );
+    assert!(
+        active.contains("goOcrBackendProcess") && active.contains("type OcrBackend interface"),
+        "the control must exercise both the trampoline and interface emitters:\n{active}"
+    );
+
+    bridge_cfg.exclude_languages = vec!["go".to_string()];
+    let excluded = gen_trait_bridges_file(
+        &api,
+        &make_config_with_bridges(vec![bridge_cfg]),
+        "testlib",
+        "krz",
+        "test.h",
+        "../ffi",
+        "..",
+    );
+    assert!(
+        !excluded.contains("OcrBackend") && !excluded.contains("goOcrBackendProcess"),
+        "an excluded bridge must leave no Go reference behind:\n{excluded}"
+    );
+}
+
+#[test]
 fn test_gen_trait_bridges_file_interface_includes_plugin_lifecycle_methods() {
     let trait_type = make_trait_type(
         "Scanner",

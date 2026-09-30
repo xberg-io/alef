@@ -249,6 +249,7 @@ impl Backend for CsharpBackend {
         let namespace = config.csharp_namespace();
         let prefix = config.ffi_prefix();
         let lib_name = config.ffi_lib_name();
+        let csharp_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Csharp).cloned().collect();
 
         let bridge_param_names: HashSet<String> = config
             .trait_bridges
@@ -316,7 +317,7 @@ impl Backend for CsharpBackend {
                 &bridge_param_names,
                 &bridge_type_aliases,
                 has_visitor_callbacks,
-                &config.trait_bridges,
+                &csharp_trait_bridges,
                 &streaming_methods,
                 &streaming_methods_meta,
                 &exclude_functions,

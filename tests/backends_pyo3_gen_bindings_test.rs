@@ -189,6 +189,55 @@ fn make_api_surface() -> ApiSurface {
         unsupported_public_items: Vec::new(),
     }
 }
+
+#[test]
+fn excluded_python_function_param_bridge_emits_no_wrapper_reference() {
+    let mut api = make_api_surface();
+    api.types.push(make_trait_def(
+        "Listener",
+        "my_lib::Listener",
+        vec![make_method_def("on_event", vec![], TypeRef::Unit, false, false, false)],
+    ));
+    api.functions.push(FunctionDef {
+        name: "run".to_string(),
+        rust_path: "my_lib::run".to_string(),
+        params: vec![make_param_def(
+            "listener",
+            TypeRef::Named("ListenerHandle".to_string()),
+            false,
+        )],
+        return_type: TypeRef::Unit,
+        ..Default::default()
+    });
+    let mut bridge = make_bridge_cfg("Listener");
+    bridge.type_alias = Some("ListenerHandle".to_string());
+    bridge.param_name = Some("listener".to_string());
+
+    let generate = |bridge: TraitBridgeConfig| {
+        let mut config = make_config();
+        config.trait_bridges = vec![bridge];
+        Pyo3Backend
+            .generate_bindings(&api, &config)
+            .expect("generate pyo3 bindings")
+            .into_iter()
+            .find(|file| file.path.ends_with("lib.rs"))
+            .expect("generated pyo3 lib.rs")
+            .content
+    };
+
+    let active = generate(bridge.clone());
+    assert!(
+        active.contains("PyListenerBridge") && active.contains("pub fn run"),
+        "the control must exercise the function-param wrapper emitter:\n{active}"
+    );
+
+    bridge.exclude_languages = vec!["pyo3".to_string()];
+    let excluded = generate(bridge);
+    assert!(
+        !excluded.contains("PyListenerBridge"),
+        "an excluded bridge must leave no Python wrapper reference behind:\n{excluded}"
+    );
+}
 #[path = "backends_pyo3_gen_bindings/adapters_and_serde.rs"]
 mod adapters_and_serde;
 #[path = "backends_pyo3_gen_bindings/alef44_api.rs"]

@@ -40,6 +40,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
 ) -> String {
     let core_import = config.core_import_name();
     let enabled_features = crate::codegen::cfg::enabled_features_for_language(config, Language::Ruby);
+    let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Ruby).cloned().collect();
     let mut lines = vec![
         "#[magnus::init]".to_string(),
         "fn ruby_init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
@@ -300,9 +301,9 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             continue;
         }
         let has_bridge_param =
-            crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
+            crate::backends::magnus::trait_bridge::find_bridge_param(func, &active_trait_bridges).is_some();
         let has_options_field_binding =
-            crate::backends::magnus::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
+            crate::backends::magnus::trait_bridge::find_options_field_binding(func, &active_trait_bridges).is_some();
 
         let is_default_config_func = last_param_is_default_struct(func, api);
 
