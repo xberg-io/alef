@@ -294,7 +294,8 @@ dart = "cd {dir} && dart format ."
 ///   taplo-reformatted, and no longer matched the (correctly unformatted) disk copy. In a real
 ///   consumer that mechanism produced 197 findings against a tree two consecutive `alef all`
 ///   runs left byte-identical.
-/// - `lib.rs` genuinely differs from its fresh render. It must be REPORTED.
+/// - `lib.rs` genuinely differs from its fresh render after the real poly pass. It must be
+///   REPORTED, and counted as the one formatter-backed comparison.
 ///
 /// Asserting both in one call is deliberate. A "fix" that simply stopped reporting anything
 /// would satisfy the first assertion alone, and every other test in this file that checks for
@@ -342,9 +343,9 @@ fn a_poly_excluded_path_is_silent_while_a_genuinely_drifted_one_is_still_reporte
          too but did not match, which is why it is in `drifted` above and not counted here"
     );
     assert_eq!(
-        stats.compared, 0,
-        "no temp copy may be staged for a path poly never reaches -- `alef verify` is read-only, \
-         and unconditional staging wrote 2156 temp files into one consumer's tree per run"
+        stats.compared, 1,
+        "only the Rust path poly owns may be staged; no temp copy may be staged for the excluded \
+         TOML path poly never reaches"
     );
 }
 
