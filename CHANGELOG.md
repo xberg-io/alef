@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.2] - 2026-09-30
+
+### Fixed
+
+- **A partial regen no longer reformats files poly's config excludes.** `poly` matches its
+  `[discovery] exclude` with gitignore semantics relative to the root it is handed. The partial
+  regen passed each changed language's package directory as its own root, so a root-anchored
+  exclude such as `crates/*-node/**` stopped matching and poly reformatted output the repo's
+  config excludes it from (a napi `index.d.ts`, for one). `alef verify`, which probes from the
+  repo root where the exclude does match, then reported every such file as permanent drift that no
+  regeneration could clear. The partial pass now formats from the repo root, exactly like the
+  full-regen pass, so the writer's notion of poly's coverage equals the reader's.
+
 ## [0.103.1] - 2026-09-30
 
 ### Fixed
