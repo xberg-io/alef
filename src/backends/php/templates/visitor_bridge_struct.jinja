@@ -3,10 +3,6 @@ pub struct {{ struct_name }} {
     cached_name: String,
 }
 
-// SAFETY: PHP objects are used only within their originating request context.
-unsafe impl Send for {{ struct_name }} {}
-unsafe impl Sync for {{ struct_name }} {}
-
 impl Clone for {{ struct_name }} {
     fn clone(&self) -> Self {
         Self {

@@ -16,6 +16,10 @@ use minijinja::context;
 ///   collected registrations list and any entrypoint params, builds the native
 ///   service, and drives it.
 pub(in crate::backends::php::gen_bindings) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+    if api.services.iter().any(|service| !service.registrations.is_empty()) {
+        return crate::backends::php::trait_bridge::disabled_code();
+    }
+
     let core_import = config.core_import_name();
     let mut out = String::new();
 

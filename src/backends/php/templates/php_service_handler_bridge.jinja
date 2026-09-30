@@ -14,11 +14,6 @@ impl {{ bridge_name }} {
     }
 }
 
-// SAFETY: The bridge holds only a usize (immutable, Copy).
-// PHP handler registry lookup is thread-safe via thread-local RefCell.
-impl Send for {{ bridge_name }} {}
-impl Sync for {{ bridge_name }} {}
-
 impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
     fn {{ dispatch_name }}(
         &self{{ extra_param }},

@@ -31,6 +31,16 @@ use std::path::PathBuf;
 pub(super) use php::gen_service_php;
 pub(super) use rust::gen_service_rs;
 
+pub(super) fn reject_unsafe_handler_bridges(api: &ApiSurface) -> anyhow::Result<()> {
+    if let Some(service) = api.services.iter().find(|service| !service.registrations.is_empty()) {
+        anyhow::bail!(
+            "PHP service `{}` is disabled because its handler registrations retain request-bound Zend callables behind Send + Sync Rust trait objects; remove PHP from the crate's languages or remove the service handler registrations",
+            service.name
+        );
+    }
+    Ok(())
+}
+
 /// Generate all service-API files for the PHP backend.
 ///
 /// Returns up to two `GeneratedFile`s per non-empty service list:

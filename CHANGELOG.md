@@ -24,11 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- PHP trait bridges now fail generation unless the bridge excludes PHP. Generated bridges retained
+- PHP trait bridges and service handler callbacks now fail generation. Generated bridges retained
   request-owned Zend values inside Rust `Send + Sync` trait objects, allowing a callback or final
   reference release to occur on another thread or after the originating PHP request ended. Ordinary
-  ext-php-rs bindings remain supported; add `exclude_languages = ["php"]` to a cross-language trait
-  bridge until a request-scoped, origin-thread dispatcher is available.
+  ext-php-rs bindings and services without handler registrations remain supported; add
+  `exclude_languages = ["php"]` to a cross-language trait bridge until a request-scoped,
+  origin-thread dispatcher is available.
 
 ## [0.103.2] - 2026-09-30
 

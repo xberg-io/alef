@@ -24,7 +24,3 @@ impl {{ wrapper }} {
         }
     }
 }
-
-// SAFETY: PHP objects are used only within their originating request context.
-unsafe impl Send for {{ wrapper }} {}
-unsafe impl Sync for {{ wrapper }} {}

@@ -1,7 +1,6 @@
 mod bridge_function;
 mod generator;
 mod interfaces;
-mod visitor;
 
 pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 pub use bridge_function::gen_bridge_function;
@@ -10,6 +9,12 @@ pub use interfaces::{gen_registration_interface, gen_visitor_interface, visitor_
 
 use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
+
+pub(crate) const DISABLED_MESSAGE: &str = "PHP callback bridges are disabled because Zend values are request-thread-bound and cannot safely implement Send or Sync; exclude PHP from this bridge";
+
+pub(crate) fn disabled_code() -> String {
+    format!("compile_error!({DISABLED_MESSAGE:?});")
+}
 
 /// The `exclude_languages` spellings that name this target. PHP has no second spelling — the
 /// language and the backend are both `"php"` — but the gate is expressed as a list so it reads

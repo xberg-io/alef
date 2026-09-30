@@ -20,9 +20,3 @@ impl {{ wrapper }} {
         }
     }
 }
-
-// SAFETY: PHP is single-threaded within a request context.
-// The raw pointer to ZendObject is only used within a single PHP request
-// and is never accessed concurrently from multiple threads.
-unsafe impl Send for {{ wrapper }} {}
-unsafe impl Sync for {{ wrapper }} {}

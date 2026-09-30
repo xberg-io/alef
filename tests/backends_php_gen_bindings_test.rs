@@ -166,29 +166,6 @@ fn make_method_php(name: &str, return_type: TypeRef, has_error: bool, has_defaul
     }
 }
 
-fn make_async_method_php(name: &str, return_type: TypeRef) -> MethodDef {
-    MethodDef {
-        name: name.to_string(),
-        params: vec![],
-        return_type,
-        is_async: true,
-        is_static: false,
-        error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
-        doc: String::new(),
-        receiver: Some(ReceiverKind::Ref),
-        cfg: None,
-        sanitized: false,
-        trait_source: None,
-        returns_ref: false,
-        returns_cow: false,
-        return_newtype_wrapper: None,
-        has_default_impl: false,
-        binding_excluded: false,
-        binding_exclusion_reason: None,
-        version: Default::default(),
-    }
-}
-
 fn make_node_context_php() -> TypeDef {
     TypeDef {
         name: "NodeContext".to_string(),

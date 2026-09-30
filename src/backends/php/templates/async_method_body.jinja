@@ -4,7 +4,6 @@ let cached_name = self.cached_name.clone();
 let {{ param_name }} = {{ param_name }}.to_string();
 {% endfor %}
 
-// SAFETY: PHP objects are single-threaded within a request.
 // Use block_in_place if already in a tokio context; otherwise use block_on.
 if let Ok(handle) = tokio::runtime::Handle::try_current() {
     tokio::task::block_in_place(|| {

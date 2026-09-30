@@ -5,12 +5,10 @@
 
 use minijinja::context;
 
-use crate::codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec, gen_bridge_all};
+use crate::codegen::generators::trait_bridge::{BridgeOutput, TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, TypeDef, TypeRef};
 use std::collections::HashMap;
-
-use super::visitor::gen_visitor_bridge;
 
 /// PHP-specific trait bridge generator.
 /// Implements code generation for bridging PHP objects to Rust traits.
@@ -143,6 +141,10 @@ impl PhpBridgeGenerator {
 }
 
 impl TraitBridgeGenerator for PhpBridgeGenerator {
+    fn disabled_error(&self) -> Option<&'static str> {
+        Some(super::DISABLED_MESSAGE)
+    }
+
     fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         Some(format!(
             "{{\n    let __class = self.inner.object().and_then(|object| object.get_class_name().ok()).unwrap_or_default();\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
@@ -348,82 +350,65 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
-    trait_type: &TypeDef,
-    bridge_cfg: &TraitBridgeConfig,
-    core_import: &str,
-    error_type: &str,
-    error_constructor: &str,
-    api: &ApiSurface,
+    _trait_type: &TypeDef,
+    _bridge_cfg: &TraitBridgeConfig,
+    _core_import: &str,
+    _error_type: &str,
+    _error_constructor: &str,
+    _api: &ApiSurface,
 ) -> BridgeOutput {
-    let type_paths: HashMap<String, String> = api
-        .types
-        .iter()
-        .map(|t| (t.name.clone(), t.rust_path.replace('-', "_")))
-        .chain(
-            api.enums
-                .iter()
-                .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
-        )
-        .chain(
-            api.excluded_type_paths
-                .iter()
-                .map(|(name, path)| (name.clone(), path.replace('-', "_"))),
-        )
-        .collect();
-
-    let is_visitor_bridge = bridge_cfg.type_alias.is_some()
-        && bridge_cfg.register_fn.is_none()
-        && bridge_cfg.super_trait.is_none()
-        && bridge_cfg.context_type.is_some()
-        && bridge_cfg.result_type.is_some()
-        && trait_type.methods.iter().all(|m| m.has_default_impl);
-
-    if is_visitor_bridge {
-        let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
-        let trait_path = trait_type.rust_path.replace('-', "_");
-        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths, api);
-
-        BridgeOutput { imports: vec![], code }
-    } else {
-        // backends consult. For such params the bridge hands PHP the binding's native `#[php_class]`
-        let struct_param_types =
-            crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
-        // references to `#[php_class]` types, so the generated bridge extracts `&Binding` and
-        let struct_return_types =
-            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api);
-        let forwardable_defaulted =
-            crate::codegen::generators::trait_bridge::forwardable_defaulted_method_names(trait_type, api);
-        let generator = PhpBridgeGenerator {
-            core_import: core_import.to_string(),
-            type_paths: type_paths.clone(),
-            error_type: error_type.to_string(),
-            struct_param_types,
-            struct_return_types,
-            forwardable_defaulted,
-        };
-        let lifetime_type_names: std::collections::HashSet<String> = api
-            .types
-            .iter()
-            .filter(|t| t.has_lifetime_params)
-            .map(|t| t.name.clone())
-            .collect();
-        let spec = TraitBridgeSpec {
-            trait_def: trait_type,
-            bridge_config: bridge_cfg,
-            core_import,
-            wrapper_prefix: "Php",
-            type_paths,
-            lifetime_type_names,
-            error_type: error_type.to_string(),
-            error_constructor: error_constructor.to_string(),
-        };
-        gen_bridge_all(&spec, &generator)
+    BridgeOutput {
+        imports: Vec::new(),
+        code: super::disabled_code(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_generator_fails_closed_through_generic_entrypoint() {
+        let generator = PhpBridgeGenerator {
+            core_import: "sample_core".to_string(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_string(),
+            struct_param_types: std::collections::HashSet::new(),
+            struct_return_types: std::collections::HashSet::new(),
+            forwardable_defaulted: std::collections::HashSet::new(),
+        };
+        let trait_def = crate::core::ir::TypeDef {
+            name: "Handler".to_string(),
+            rust_path: "sample_core::Handler".to_string(),
+            is_trait: true,
+            is_opaque: true,
+            ..Default::default()
+        };
+        let bridge = crate::core::config::TraitBridgeConfig {
+            trait_name: "Handler".to_string(),
+            ..Default::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge,
+            core_import: "sample_core",
+            wrapper_prefix: "Php",
+            type_paths: HashMap::new(),
+            lifetime_type_names: std::collections::HashSet::new(),
+            error_type: "SampleError".to_string(),
+            error_constructor: "SampleError::from({msg})".to_string(),
+        };
+        let output = crate::codegen::generators::trait_bridge::gen_bridge_all(&spec, &generator);
+        assert!(output.imports.is_empty());
+        assert!(output.code.contains("compile_error!"));
+        for forbidden in ["Zval", "unsafe impl Send", "unsafe impl Sync", "Arc<dyn", "Arc::new"] {
+            assert!(
+                !output.code.contains(forbidden),
+                "unsafe token `{forbidden}` in: {}",
+                output.code
+            );
+        }
+    }
 
     #[test]
     fn presence_check_emitted_only_for_forwardable_defaulted_methods() {
