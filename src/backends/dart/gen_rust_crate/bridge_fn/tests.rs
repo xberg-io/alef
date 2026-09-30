@@ -385,6 +385,56 @@ fn dto_unsigned_offsets_are_checked_before_fallible_core_call() {
 }
 
 #[test]
+fn direct_and_optional_dto_unsigned_fields_are_checked_before_conversion() {
+    let finding = TypeDef {
+        name: "Finding".to_string(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "start".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Usize),
+            optional: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    for (parameter_type, expected_binding) in [
+        (TypeRef::Named("Finding".to_string()), "let item = &finding;"),
+        (
+            TypeRef::Optional(Box::new(TypeRef::Named("Finding".to_string()))),
+            "if let Some(item) = &finding",
+        ),
+    ] {
+        let function = FunctionDef {
+            name: "redact_one".to_string(),
+            rust_path: "sample_crate::redact_one".to_string(),
+            params: vec![make_param("finding", parameter_type, false, false, false)],
+            return_type: TypeRef::Unit,
+            error_type: Some("Error".to_string()),
+            ..FunctionDef::default()
+        };
+        let mut generated = String::new();
+        emit_bridge_fn(
+            &mut generated,
+            &function,
+            "sample_crate",
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::from(["Finding".to_string()]),
+            &std::collections::HashSet::new(),
+            &[],
+            std::slice::from_ref(&finding),
+        )
+        .expect("emit bridge");
+
+        assert!(generated.contains(expected_binding), "{generated}");
+        assert!(generated.contains("usize::try_from(value)"), "{generated}");
+        assert!(
+            generated.contains("Finding.start is outside the valid usize range"),
+            "{generated}"
+        );
+    }
+}
+
+#[test]
 fn unsigned_dto_does_not_change_an_infallible_public_signature() {
     let f = FunctionDef {
         name: "rank".to_string(),

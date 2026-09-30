@@ -274,13 +274,8 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     let dep_block = dep_entries.join("\n");
     let _ = extra_deps_section;
 
-    // Forwards feature names that a `#[cfg(feature = "X")]` on a *type/field/enum* (never a
-    // function — those are handled unconditionally above and excluded here) could still
-    // reference, keeping such names known to Cargo's `[features]` table. PHP's own struct/enum
-    // codegen currently drops cfg'd-out fields and variants outright rather than emitting a
-    // `#[cfg]` for them, but declaring the passthrough keeps this backend consistent with the
-    // other binding backends that share `collect_cfg_features` and protects against a future
-    // codegen change that starts emitting such a `#[cfg]`.
+    // Public cfg-owned features remain forwarding entries even though PHP emits functions
+    // unconditionally and enables the required core features itself. ~keep
     let core_dep_name = &config.name;
     let cfg_forwarding: String = {
         // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
