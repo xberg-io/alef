@@ -4,8 +4,18 @@ use tracing::info;
 
 pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
     let api_crate_name = api.crate_name.replace('-', "_");
-    let known_types: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    let known_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let known_types: AHashSet<String> = api
+        .types
+        .iter()
+        .flat_map(|item| [item.name.clone(), item.rust_path.replace('-', "_")])
+        .filter(|name| !name.is_empty())
+        .collect();
+    let known_enums: AHashSet<String> = api
+        .enums
+        .iter()
+        .flat_map(|item| [item.name.clone(), item.rust_path.replace('-', "_")])
+        .filter(|name| !name.is_empty())
+        .collect();
 
     let known_type_paths = rust_paths_by_name(api.types.iter().map(|t| (&t.name, &t.rust_path)));
     let known_enum_paths = rust_paths_by_name(api.enums.iter().map(|e| (&e.name, &e.rust_path)));

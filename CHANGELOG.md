@@ -25,7 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   examples embedded in table cells become valid inline code, prose headings receive their required
   blank lines, unlabelled fences are marked as Rust, and sentence spacing matches rumdl (#484).
 - Rust reference docs now preserve original parameter types for APIs excluded from generated
-  bindings and emit type-correct enum values in generated examples instead of string placeholders.
+  bindings, including qualified paths, and emit type-correct enum values in generated examples
+  instead of string placeholders. Rust-only definitions remain absent from binding docs,
+  scaffolding, extensions, and dependency-feature inference.
 
 ### Security
 

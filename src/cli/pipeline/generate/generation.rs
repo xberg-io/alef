@@ -19,15 +19,10 @@ fn project_binding_api(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<ApiSurface> {
-    let mut projected = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
+    let projected = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
         api, config, languages,
     )?;
-    projected.functions.retain(|function| !function.binding_excluded);
-    projected.types.retain(|type_def| !type_def.binding_excluded);
-    projected.enums.retain(|enum_def| !enum_def.binding_excluded);
-    projected.errors.retain(|error_def| !error_def.binding_excluded);
-    super::super::extract::sanitize_binding_projection(&mut projected);
-    Ok(projected)
+    Ok(crate::codegen::binding_projection::project_owned(projected))
 }
 
 /// `write_cache` controls whether a freshly generated language's output paths are

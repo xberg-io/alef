@@ -33,7 +33,7 @@ const IR_CACHE_SCHEMA_VERSION: &str = "ir-cache-v3";
 /// Normalize references after Rust-only definitions have been removed from a binding projection.
 /// ~keep The source surface is sanitized while those definitions are intentionally still present,
 /// so projecting them out creates a second boundary where formerly-known names can become unknown.
-pub(super) fn sanitize_binding_projection(api: &mut ApiSurface) {
+pub(crate) fn sanitize_binding_projection(api: &mut ApiSurface) {
     sanitize_unknown_types(api);
 }
 

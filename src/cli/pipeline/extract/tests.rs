@@ -504,6 +504,7 @@ mod external_type_roots;
 mod fixed_size_arrays;
 mod ir_cache_version_salt;
 mod param_provenance;
+mod qualified_rust_doc_params;
 mod redundant_exclude_entries;
 
 fn make_unsupported_method(type_name: &str, method_name: &str) -> crate::core::ir::UnsupportedPublicItem {

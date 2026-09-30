@@ -11,10 +11,10 @@ pub(crate) fn rust_original_param_sample(param: &ParamDef, lang: Language, api: 
     })?;
     let short_name = original.rsplit("::").next().unwrap_or(original);
 
-    if let Some(enum_def) = api.enums.iter().find(|enum_def| enum_def.rust_path == original) {
+    if let Some(enum_def) = uniquely_qualified_match(&api.enums, original, &api.crate_name, |item| &item.rust_path) {
         return Some(enum_sample(enum_def, original));
     }
-    if let Some(type_def) = api.types.iter().find(|type_def| type_def.rust_path == original) {
+    if let Some(type_def) = uniquely_qualified_match(&api.types, original, &api.crate_name, |item| &item.rust_path) {
         return Some(default_or_placeholder(original, type_def.has_default));
     }
     let live_enums: Vec<_> = api
@@ -37,6 +37,24 @@ pub(crate) fn rust_original_param_sample(param: &ParamDef, lang: Language, api: 
         return Some(default_or_placeholder(original, type_def.has_default));
     }
     Some("todo!()".to_string())
+}
+
+fn uniquely_qualified_match<'a, T>(
+    items: &'a [T],
+    original: &str,
+    crate_name: &str,
+    rust_path: impl Fn(&T) -> &String,
+) -> Option<&'a T> {
+    let normalized_crate = crate_name.replace('-', "_");
+    let crate_relative = original.strip_prefix("crate::").unwrap_or(original);
+    let mut matches = items.iter().filter(|item| {
+        let path = rust_path(item).replace('-', "_");
+        path == original
+            || path == format!("{normalized_crate}::{crate_relative}")
+            || (original.contains("::") && path.strip_prefix(&format!("{normalized_crate}::")) == Some(original))
+    });
+    let found = matches.next()?;
+    matches.next().is_none().then_some(found)
 }
 
 fn enum_sample(enum_def: &crate::core::ir::EnumDef, original: &str) -> String {

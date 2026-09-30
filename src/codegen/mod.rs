@@ -3,6 +3,7 @@
 
 pub(crate) mod template_env;
 
+pub(crate) mod binding_projection;
 pub mod builder;
 pub mod c_consumer;
 pub mod cfg;

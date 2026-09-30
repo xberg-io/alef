@@ -80,6 +80,35 @@ fn binding_reference_still_normalizes_a_borrowed_function_param() {
     );
 }
 
+#[test]
+fn binding_reference_sanitizes_a_visible_param_whose_rust_type_is_excluded() {
+    let mut api = make_minimal_api("1.0.0");
+    api.enums = vec![EnumDef {
+        name: "RustOnlyPolicy".to_string(),
+        rust_path: "mylib::RustOnlyPolicy".to_string(),
+        binding_excluded: true,
+        ..Default::default()
+    }];
+    api.functions = vec![make_function(
+        "describe",
+        vec![make_param(
+            "policy",
+            TypeRef::Named("RustOnlyPolicy".to_string()),
+            false,
+        )],
+        TypeRef::Unit,
+        false,
+        None,
+    )];
+
+    let (_, python) = rust_and_python_pages(&api);
+    assert!(
+        python.contains("def describe(policy: str) -> None"),
+        "binding docs must match the sanitized binding signature: {python}"
+    );
+    assert!(!python.contains("RustOnlyPolicy"), "Rust-only type leaked: {python}");
+}
+
 fn api_with_mutating_trait_method() -> ApiSurface {
     let mut api = make_minimal_api("1.0.0");
     let mut processor = empty_type("DocumentProcessor");

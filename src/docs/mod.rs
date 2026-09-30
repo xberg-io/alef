@@ -79,18 +79,10 @@ fn canonical_docs_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> ApiSurf
     // the union above cannot be trusted to mean "nothing is enabled" -- fall back to the
     // unfiltered surface rather than let an empty set filter every cfg-gated item out. ~keep
     if !has_configured_language {
-        return binding_visible_api(api.clone());
+        return crate::codegen::binding_projection::project(api);
     }
     let enabled_features: HashSet<&str> = canonical_features.iter().map(String::as_str).collect();
-    binding_visible_api(api.with_cfg_filtered_deep(&enabled_features))
-}
-
-fn binding_visible_api(mut api: ApiSurface) -> ApiSurface {
-    api.functions.retain(|function| !function.binding_excluded);
-    api.types.retain(|type_def| !type_def.binding_excluded);
-    api.enums.retain(|enum_def| !enum_def.binding_excluded);
-    api.errors.retain(|error_def| !error_def.binding_excluded);
-    api
+    crate::codegen::binding_projection::project_owned(api.with_cfg_filtered_deep(&enabled_features))
 }
 
 /// Generate API reference documentation for the given languages.
@@ -105,6 +97,7 @@ pub fn generate_docs(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
     let ffi_prefix = &config.ffi_prefix().to_pascal_case();
+    let binding_api = crate::codegen::binding_projection::project(api);
 
     for &lang in languages {
         // `Language::C` is an e2e consumer target, not a generated binding, and
@@ -119,8 +112,13 @@ pub fn generate_docs(
         if matches!(lang, Language::C | Language::Jni) {
             continue;
         }
+        let language_api = if lang == Language::Rust { api } else { &binding_api };
         files.push(language_pages::generate_lang_doc(
-            api, config, lang, output_dir, ffi_prefix,
+            language_api,
+            config,
+            lang,
+            output_dir,
+            ffi_prefix,
         )?);
     }
 
