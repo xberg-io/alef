@@ -386,6 +386,8 @@ mod tests {
         };
         let bridge = crate::core::config::TraitBridgeConfig {
             trait_name: "Handler".to_string(),
+            register_fn: Some("register_handler".to_string()),
+            registry_getter: Some("sample_core::get_handlers".to_string()),
             ..Default::default()
         };
         let spec = TraitBridgeSpec {
@@ -407,6 +409,22 @@ mod tests {
                 "unsafe token `{forbidden}` in: {}",
                 output.code
             );
+        }
+
+        let components = [
+            crate::codegen::generators::trait_bridge::gen_bridge_wrapper_struct(&spec, &generator),
+            crate::codegen::generators::trait_bridge::gen_bridge_trait_impl(&spec, &generator),
+            crate::codegen::generators::trait_bridge::gen_bridge_registration_fn(&spec, &generator)
+                .expect("disabled registration must emit an explicit error"),
+        ];
+        for component in components {
+            assert!(component.contains("compile_error!"));
+            for forbidden in ["Zval", "unsafe impl Send", "unsafe impl Sync", "Arc<dyn", "Arc::new"] {
+                assert!(
+                    !component.contains(forbidden),
+                    "unsafe token `{forbidden}` in: {component}"
+                );
+            }
         }
     }
 

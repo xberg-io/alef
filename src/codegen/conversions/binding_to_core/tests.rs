@@ -673,6 +673,10 @@ fn lifetime_type_enum_string_field_reports_php_exception_instead_of_panicking() 
         "the parse failure must be reported to PHP as a catchable exception, got:\n{out}"
     );
     assert!(
+        !out.contains("let _ ="),
+        "unit-returning throw must be called directly:\n{out}"
+    );
+    assert!(
         out.contains("html_to_markdown_rs::NodeType::Text"),
         "the conversion must still return a valid Self via the known fallback variant, got:\n{out}"
     );
@@ -709,6 +713,10 @@ fn lifetime_type_optional_enum_string_field_falls_back_to_none_and_reports_excep
     assert!(
         out.contains("ext_php_rs::exception::PhpException::from_message") && out.contains(".throw()"),
         "a parse failure on an optional field must still be reported to PHP, not silently dropped, got:\n{out}"
+    );
+    assert!(
+        !out.contains("let _ ="),
+        "unit-returning throw must be called directly:\n{out}"
     );
     assert!(
         out.contains("None"),

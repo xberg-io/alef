@@ -139,6 +139,12 @@ pub trait TraitBridgeGenerator {
     }
 }
 
+pub(super) fn disabled_code(generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    generator
+        .disabled_error()
+        .map(|message| format!("compile_error!({message:?});"))
+}
+
 pub struct BridgeOutput {
     /// Import paths (e.g., `"std::sync::Arc"`) — callers should add via `builder.add_import()`.
     pub imports: Vec<String>,
@@ -152,10 +158,10 @@ pub struct BridgeOutput {
 /// Returns [`BridgeOutput`] with imports separated from code so callers can
 /// route imports through `builder.add_import()` (which deduplicates).
 pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> BridgeOutput {
-    if let Some(message) = generator.disabled_error() {
+    if let Some(code) = disabled_code(generator) {
         return BridgeOutput {
             imports: Vec::new(),
-            code: format!("compile_error!({message:?});"),
+            code,
         };
     }
     let imports = generator.bridge_imports();
