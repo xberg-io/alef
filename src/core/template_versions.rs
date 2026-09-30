@@ -523,7 +523,7 @@ pub mod hex {
     pub const RUSTLER: &str = "~> 0.38";
 
     // renovate: datasource=hex depName=rustler_precompiled
-    pub const RUSTLER_PRECOMPILED: &str = "~> 0.9";
+    pub const RUSTLER_PRECOMPILED: &str = "~> 0.10";
 
     // renovate: datasource=hex depName=credo
     pub const CREDO: &str = "~> 1.7";
@@ -532,7 +532,7 @@ pub mod hex {
     pub const EX_DOC: &str = "~> 0.40";
 
     // renovate: datasource=hex depName=finch
-    pub const FINCH: &str = "~> 0.23";
+    pub const FINCH: &str = "~> 0.24";
 
     // renovate: datasource=hex depName=req
     pub const REQ: &str = "~> 0.7";
