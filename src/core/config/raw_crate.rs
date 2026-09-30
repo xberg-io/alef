@@ -211,9 +211,12 @@ pub struct RawCrateConfig {
     pub services: Vec<ServiceConfig>,
     #[serde(default)]
     pub handler_contracts: Vec<HandlerContractConfig>,
-    /// Raw-JSON collection parameters whose generated bridge deserializers must enforce a
-    /// sibling numeric limit while streaming the JSON sequence. ~keep
+    // This metadata is consumed by multiple bindings, so keep it on the crate rather than in a
+    // backend-specific config. ~keep
     #[serde(default)]
+    #[schemars(
+        description = "Raw-JSON collection parameters whose generated bridge deserializers enforce a sibling numeric limit while streaming the JSON sequence."
+    )]
     pub json_parameter_limits: Vec<JsonParameterLimitConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,

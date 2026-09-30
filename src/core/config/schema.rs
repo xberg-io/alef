@@ -187,6 +187,14 @@ mod tests {
             schema.pointer("/$defs/JsonParameterLimitConfig/properties/default_max/minimum"),
             Some(&json!(1))
         );
+        let description = schema
+            .pointer("/$defs/RawCrateConfig/properties/json_parameter_limits/description")
+            .and_then(serde_json::Value::as_str)
+            .expect("bounded JSON configuration has a user-facing description");
+        assert!(
+            !description.contains("~keep"),
+            "schema description leaked an internal marker"
+        );
     }
 
     /// An alef version bump alone must be distinguishable from a config-surface change: it is the

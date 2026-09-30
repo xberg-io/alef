@@ -5764,7 +5764,7 @@
         },
         "json_parameter_limits": {
           "default": [],
-          "description": "Raw-JSON collection parameters whose generated bridge deserializers must enforce a\nsibling numeric limit while streaming the JSON sequence. ~keep",
+          "description": "Raw-JSON collection parameters whose generated bridge deserializers enforce a sibling numeric limit while streaming the JSON sequence.",
           "items": {
             "$ref": "#/$defs/JsonParameterLimitConfig"
           },
