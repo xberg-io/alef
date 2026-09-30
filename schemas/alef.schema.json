@@ -3808,6 +3808,33 @@
       },
       "type": "object"
     },
+    "JsonParameterLimitConfig": {
+      "additionalProperties": false,
+      "description": "Bounds deserialization of one raw-JSON collection parameter before the generated bridge\nallocates the complete collection. ~keep",
+      "properties": {
+        "default_max": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "function": {
+          "type": "string"
+        },
+        "max_parameter": {
+          "type": "string"
+        },
+        "parameter": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "function",
+        "parameter",
+        "max_parameter",
+        "default_max"
+      ],
+      "type": "object"
+    },
     "KotlinAndroidConfig": {
       "additionalProperties": false,
       "description": "Configuration for the dedicated Kotlin/Android backend (`alef-backend-kotlin-android`).\n\nDistinct from [`crate::core::config::languages::KotlinConfig`] (Kotlin/JVM). When a crate targets the\n`kotlin_android` language slug, this struct controls the emitted\n`build.gradle.kts`, `AndroidManifest.xml`, namespace, Maven publish\ncoordinates, ABI list, and the bundled Java facade emitted into\n`src/main/java/` so the AAR is self-contained.",
@@ -5735,6 +5762,14 @@
             }
           ],
           "default": null
+        },
+        "json_parameter_limits": {
+          "default": [],
+          "description": "Raw-JSON collection parameters whose generated bridge deserializers must enforce a\nsibling numeric limit while streaming the JSON sequence. ~keep",
+          "items": {
+            "$ref": "#/$defs/JsonParameterLimitConfig"
+          },
+          "type": "array"
         },
         "kotlin": {
           "anyOf": [

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[[crates.json_parameter_limits]]` lets generated raw-JSON collection bridges enforce a
+  runtime limit while streaming input, before allocating or parsing the complete collection.
+
+### Fixed
+
+- Generated Node declarations retain runtime parameter order and report omitted
+  required-after-optional arguments as invalid input instead of panicking.
+- Generated Java, JNI, Kotlin, and Dart bindings preserve optional unsigned zero values and
+  reject negative or out-of-range signed carriers, including Dart DTO offsets.
+- Generated PHP Cargo manifests retain cfg-referenced public features and their default forwarding
+  entries when those features gate functions or types.
+- Rust API examples wrap optional argument samples in `Some(...)`.
+
 ## [0.103.2] - 2026-09-30
 
 ### Fixed

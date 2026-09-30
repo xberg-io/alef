@@ -89,7 +89,7 @@ pub(super) fn config(root: &Path, enabled: bool) -> ResolvedCrateConfig {
 
 #[test]
 fn shared_function_feature_remains_unconditionally_core_owned() {
-    let features = crate::scaffold::languages::php::php_declared_features(&surface(true), &[], &[]);
+    let features = crate::scaffold::languages::php::php_declared_features(&surface(true), &[]);
     assert!(features.is_empty(), "{features:?}");
 }
 
@@ -97,7 +97,7 @@ fn shared_function_feature_remains_unconditionally_core_owned() {
 fn function_only_feature_is_not_made_toggleable() {
     let mut api = surface(true);
     api.enums.clear();
-    assert!(crate::scaffold::languages::php::php_declared_features(&api, &[], &[]).is_empty());
+    assert!(crate::scaffold::languages::php::php_declared_features(&api, &[]).is_empty());
 }
 
 pub(super) fn write_fixture(root: &Path, enabled: bool, target: Option<bool>, opt_in: bool, aggregate: bool) {

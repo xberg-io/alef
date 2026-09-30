@@ -313,12 +313,9 @@ impl<'a> ConversionConfig<'a> {
     ///
     /// `Unreachable` requires that NONE of the feature names this specific field's own gate
     /// mentions are declared. For PHP (the only caller that passes `Some` here), that cannot
-    /// happen for a field gate reached through the normal codegen path: every name any struct
-    /// field's cfg predicate mentions, anywhere in the API surface, is unconditionally folded
-    /// into `declared_features` by construction --
-    /// `scaffold::languages::php::php_declared_features` only ever removes a name that is
-    /// referenced *exclusively* by a top-level function's cfg (`php_function_referenced_feature_names`)
-    /// and never a name a field also needs (`php_field_referenced_feature_names`). This is NOT the
+    /// happen for a field gate reached through the normal codegen path: every cfg feature name in
+    /// the API surface is unconditionally folded into `declared_features` by
+    /// `scaffold::languages::php::php_declared_features`. This is NOT the
     /// same claim as "the same feature set `never_skip_cfg_field_names` used" -- that field-keep
     /// decision is checked against a wider, separately-computed closure
     /// (`enabled_features_for_language`), and the two sets disagreeing is exactly what let

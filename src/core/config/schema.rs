@@ -167,6 +167,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn schema_exposes_bounded_json_parameter_configuration() {
+        let schema = alef_config_schema("1.2.3").expect("schema generation succeeds");
+
+        assert_eq!(
+            schema.pointer("/$defs/RawCrateConfig/properties/json_parameter_limits/items/$ref"),
+            Some(&json!("#/$defs/JsonParameterLimitConfig"))
+        );
+        for property in ["function", "parameter", "max_parameter", "default_max"] {
+            assert!(
+                schema
+                    .pointer(&format!("/$defs/JsonParameterLimitConfig/properties/{property}"))
+                    .is_some(),
+                "missing schema property {property}"
+            );
+        }
+    }
+
     /// An alef version bump alone must be distinguishable from a config-surface change: it is the
     /// only difference a consumer's vendored copy picks up on the overwhelming majority of
     /// upgrades, and it changes no answer their editor gives about `alef.toml`. ~keep

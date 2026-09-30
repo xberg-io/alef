@@ -325,13 +325,8 @@ default_features = false
 }
 
 #[test]
-fn test_scaffold_php_keeps_configured_function_feature_public_and_defaulted() {
-    let config = minimal_config_from_toml(
-        r#"
-[crates.php]
-features = ["redaction"]
-"#,
-    );
+fn test_scaffold_php_keeps_function_feature_public_and_defaulted_without_surface_filter() {
+    let config = minimal_config_from_toml("[crates.php]");
     let api = crate::core::ir::ApiSurface {
         crate_name: "my-lib".to_string(),
         version: "0.1.0".to_string(),
