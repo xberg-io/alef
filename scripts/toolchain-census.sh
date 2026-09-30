@@ -79,20 +79,35 @@ fi | awk -v required="$required" '
       }
     }
   }
-  NF == 4 {
-    attempted[$1] += $2
-    executed[$1] += $3
-    absent[$1] += $4
-    seen[$1] = 1
+  NF != 4 && NF != 5 {
+    printf "toolchain-census: invalid row with %d columns: %s\n", NF, $0
+    malformed = 1
+    next
   }
-  NF == 5 {
+  {
+    numeric = 1
+    for (column = 2; column <= NF; column++) {
+      if ($column !~ /^[0-9]+$/) { numeric = 0 }
+    }
+    if (!numeric) {
+      printf "toolchain-census: non-numeric count in row: %s\n", $0
+      malformed = 1
+      next
+    }
+    row_unusable = NF == 5 ? $5 : 0
+    if ($2 != $3 + $4 + row_unusable) {
+      printf "toolchain-census: inconsistent outcome total in row: %s\n", $0
+      malformed = 1
+      next
+    }
     attempted[$1] += $2
     executed[$1] += $3
     absent[$1] += $4
-    unusable[$1] += $5
+    unusable[$1] += row_unusable
     seen[$1] = 1
   }
   END {
+    if (malformed) { exit 1 }
     failures = 0
     count = 0
     for (name in seen) { count++ }
@@ -110,7 +125,7 @@ fi | awk -v required="$required" '
       if (is_required[name] && total == 0) {
         printf "  <-- FAILED: nothing ran\n"
         failures++
-      } else if (is_required[name] && missed > 0) {
+      } else if (is_required[name] && ran != total) {
         printf "  <-- FAILED: %d absent and %d unusable on a platform that installs %s\n", missing, broken, name
         failures++
       } else if (ran == 0 && broken > 0) {

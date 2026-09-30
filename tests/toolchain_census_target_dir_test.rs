@@ -111,6 +111,40 @@ fn required_unusable_toolchain_fails_with_the_unusable_count() {
 }
 
 #[test]
+fn inconsistent_outcome_total_is_rejected_even_for_an_optional_toolchain() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "go", 2, 1, 0, 0);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap()], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+}
+
+#[test]
+fn required_toolchain_fails_unless_every_attempt_executed() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "go", 2, 1, 1, 0);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap(), "--require", "go"], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+}
+
+#[test]
+fn malformed_numeric_census_row_is_rejected() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    std::fs::create_dir_all(&census_dir).expect("create census dir");
+    std::fs::write(census_dir.join("malformed.tsv"), "go\ttwo\t1\t1\t0\n").expect("write malformed row");
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap()], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+}
+
+#[test]
 fn default_dir_under_a_custom_cargo_target_dir_empty_fails_a_required_toolchain() {
     let target_dir = tempfile::tempdir().expect("tempdir for CARGO_TARGET_DIR");
     // Nothing is written under `<target_dir>/toolchain-census` at all.
