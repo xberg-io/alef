@@ -37,6 +37,7 @@ pub use normalization::normalize_content;
 pub use orphans::{
     collect_alef_headered_paths, generate_sweep_roots, sweep_manifest_orphans, sweep_orphans, targeted_e2e_sweep_roots,
 };
+pub(crate) use scaffold::merge_managed_toml_preview;
 pub use scaffold::{readme, reconcile_managed_scaffold_manifests, scaffold};
 pub use scaffold_drift::find_create_once_template_drift;
 pub(crate) use user_owned::declared_user_owned;

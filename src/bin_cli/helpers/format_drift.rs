@@ -47,13 +47,11 @@
 //! That is true for `.rs` and **false for `.md`**, and alef#458 got here by reasoning about
 //! implementation symmetry instead of measuring each one.
 //!
-//! `.rs` keeps the fast path. `normalize_content` runs a REAL `rustfmt` (`format_rust_content`),
-//! not an imitation of one. alef#465 also fixed the ordering bug that used to make the
-//! prediction wrong on a first run -- `rustfmt.toml` is now written by
-//! [`crate::cli::pipeline::write_format_config_prepass`] ahead of the bindings stage, so the
-//! first write is already rustfmt-formatted -- and
-//! `tests::rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly` drives a real
-//! from-scratch `alef all` with `poly` removed from `PATH` and asserts byte equality. ~keep
+//! `.rs` keeps the fast path only when poly is absent. `normalize_content` runs a REAL `rustfmt`
+//! (`format_rust_content`), so that prediction is exact when no later formatter runs. With poly
+//! present, however, the writer gives poly the final word and verification must do the same:
+//! consumer configuration can make poly's Rust pass differ from the in-memory normalization.
+//! alef#465 still proves the no-poly case end to end with a real from-scratch `alef all`. ~keep
 //!
 //! `.md` loses it whenever poly is present. alef models exactly one rumdl rule: a blank-line cap
 //! matched to **MD012** (`normalize_whitespace_with_policy`). The poly config alef itself
@@ -340,12 +338,17 @@ fn drifted_marked_paths_with(
 ) -> (Vec<String>, FormatDriftStats) {
     let poly_available = is_available("poly");
     let coverage = PolyCoverage::probe(&poly_probe_roots(config, base_dir), base_dir);
+    let declared = crate::cli::pipeline::declared_user_owned(base_dir)
+        .unwrap_or_else(|_| crate::core::config::UserOwnedPaths::none());
     let mut drifted = Vec::new();
     let mut real_format_candidates = Vec::new();
     let mut unpredictable = 0usize;
     let mut matched_render = 0usize;
     for file in files {
         let full_path = base_dir.join(&file.path);
+        if declared.matches(base_dir, &full_path) {
+            continue;
+        }
         let Ok(existing) = std::fs::read_to_string(&full_path) else {
             continue;
         };
@@ -356,7 +359,7 @@ fn drifted_marked_paths_with(
         if crate::cli::pipeline::is_base64_binary_output(&file.path) {
             continue;
         }
-        let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(file), base_dir);
+        let rendered = managed_output_for_drift(file, &existing, base_dir);
         let Some(output) = rendered.into_iter().next() else {
             continue;
         };
@@ -401,6 +404,34 @@ fn drifted_marked_paths_with(
     (drifted, stats)
 }
 
+/// Prepare the bytes the writer would compare for drift, including the TOML merge that preserves
+/// consumer-owned entries and comments in managed manifests such as `poly.toml`. ~keep
+fn managed_output_for_drift(
+    file: &crate::core::backend::GeneratedFile,
+    existing: &str,
+    base_dir: &Path,
+) -> Vec<crate::cli::commands::adopt::ManagedOutput> {
+    let mut prepared = file.clone();
+    if file.generated_header && file.path == Path::new("poly.toml") {
+        prepared.content = match crate::cli::pipeline::generate::merge_managed_toml_preview(
+            existing,
+            &file.content,
+            base_dir,
+            &file.path,
+        ) {
+            Ok(content) => content,
+            Err(error) => {
+                tracing::warn!(
+                    path = %file.path.display(),
+                    "could not preview managed TOML merge while checking drift: {error:#}"
+                );
+                file.content.clone()
+            }
+        };
+    }
+    crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&prepared), base_dir)
+}
+
 /// The roots to ask poly about, matching the roots alef's own formatting pass hands it.
 ///
 /// `base_dir` is what [`crate::cli::pipeline::converge_full_regen_formatting`] formats on a full
@@ -426,7 +457,8 @@ fn poly_probe_roots(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<PathBu
 /// Whether [`crate::cli::pipeline::normalize_content`]'s in-memory normalization is a faithful
 /// PREDICTION of the bytes `alef generate`/`alef all` actually leave on disk at `path`.
 ///
-/// `.rs`: yes, unconditionally. `normalize_content` runs a real `rustfmt`, not an imitation.
+/// `.rs`: only when poly is absent. `normalize_content` runs a real `rustfmt`, but poly owns the
+/// final bytes when installed and may apply different project configuration.
 ///
 /// `.md`: only when poly is ABSENT. With poly present, rumdl reformats the page afterwards and
 /// alef models only its MD012 rule -- which the poly config alef itself generates has DISABLED,
@@ -437,7 +469,7 @@ fn poly_probe_roots(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<PathBu
 /// than from an extension list. ~keep
 fn render_predicts_final_bytes(path: &Path, poly_available: bool) -> bool {
     match path.extension().and_then(|extension| extension.to_str()) {
-        Some("rs") => true,
+        Some("rs") => !poly_available,
         Some("md") => !poly_available,
         _ => false,
     }

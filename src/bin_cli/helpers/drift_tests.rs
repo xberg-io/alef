@@ -51,13 +51,9 @@ fn gen_file_unheadered(rel: &str, content: &str) -> crate::core::backend::Genera
 /// `generated_header: true`-inserts-a-comment-header shape this test is about; the self-marking
 /// shape gets its own pair of tests below.
 ///
-/// Deliberately UNGUARDED on `poly` (alef#465, repinning alef#458): the `.rs` fast path this
-/// test exercises no longer consults poly at all, because the pre-pass that writes
-/// `rustfmt.toml` ahead of the bindings stage makes the first on-disk write already
-/// rustfmt-formatted -- measured by
-/// `format_drift::tests::rust_binding_bytes_on_disk_match_a_fresh_render_with_no_poly`. The old
-/// `is_tool_available("poly")` early return here meant this test proved nothing on the one CI
-/// leg with no poly installed; it is the coverage the gate was suppressing. ~keep
+/// With poly present this runs the real formatter tier; without it the no-poly Rust fast path
+/// remains covered by `format_drift::tests::drifted_marked_paths_compares_an_rs_candidate_on_the_
+/// fast_path_when_poly_is_unavailable`. ~keep
 #[test]
 fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -93,6 +89,31 @@ fn drifted_marked_paths_is_silent_once_the_marked_file_matches_the_fresh_render(
 
     let (drifted, _stats) = drifted_marked_paths(&files, dir.path(), &drift_test_config());
     assert!(drifted.is_empty());
+}
+
+#[test]
+fn drifted_marked_paths_ignores_a_declared_user_owned_file_even_when_it_still_has_an_old_marker() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("test")).expect("test directory");
+    std::fs::write(
+        dir.path().join("alef.toml"),
+        "[workspace]\nlanguages = [\"rust\"]\n\
+         [workspace.ownership]\nuser_owned = [\"test/manual.rs\"]\n\
+         [[crates]]\nname = \"sample\"\nsources = [\"src/lib.rs\"]\n",
+    )
+    .expect("ownership config");
+    let old_file = gen_file("test/manual.rs", "pub fn manual() -> u8 { 1 }\n");
+    let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&old_file), dir.path());
+    std::fs::write(dir.path().join("test/manual.rs"), &rendered[0].content).expect("marked legacy file");
+    let fresh = vec![gen_file("test/manual.rs", "pub fn manual() -> u8 { 2 }\n")];
+
+    let (drifted, stats) = drifted_marked_paths(&fresh, dir.path(), &drift_test_config());
+
+    assert!(
+        drifted.is_empty(),
+        "a declared user-owned path is outside alef's drift verdict"
+    );
+    assert_eq!(stats, FormatDriftStats::default());
 }
 
 /// An unmarked pre-existing file is `frozen_managed_paths`'s condition, not this one's --
