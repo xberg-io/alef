@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.1] - 2026-09-30
+
+### Fixed
+
+- `alef verify --exit-code` now predicts the same final Rust and managed-TOML bytes as generation:
+  Rust outputs pass through the real poly formatter when poly owns them, while merge-managed TOML
+  preserves consumer entries and provenance comments instead of being compared with a raw scaffold.
+  The generated-content drift walk also excludes paths declared in `[workspace.ownership]`, matching
+  the writer and the hash-verification walk.
+
 ## [0.103.0] - 2026-09-28
 
 ### Added

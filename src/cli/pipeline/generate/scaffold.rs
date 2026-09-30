@@ -494,7 +494,7 @@ pub(super) fn merge_managed_toml(
 /// committed provenance record, but never writes a new snapshot back. Safe
 /// to call from multiple threads concurrently (only reads shared, committed
 /// `.alef-toml-merge-provenance.toml` state).
-pub(super) fn merge_managed_toml_preview(
+pub(crate) fn merge_managed_toml_preview(
     existing: &str,
     generated: &str,
     base_dir: &Path,
