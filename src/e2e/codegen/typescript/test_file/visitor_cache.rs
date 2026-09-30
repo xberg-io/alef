@@ -16,8 +16,7 @@ pub(super) fn wasm_visitor_binding(
     fallback_options_type: Option<&str>,
 ) -> Option<WasmVisitorBinding> {
     let bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Wasm)
         .find(|bridge| bridge.options_type.is_some() && bridge.resolved_options_field().is_some())?;
     let wasm_prefix = config.wasm_type_prefix();
     let options_type = fallback_options_type
