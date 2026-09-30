@@ -74,9 +74,32 @@ fn binding_excluded_enum_metadata_survives_through_rust_docs() {
     strip_binding_excluded(&mut api).expect("strip binding exclusions");
     sanitize_unknown_types(&mut api);
 
+    let retained = api
+        .enums
+        .iter()
+        .find(|enum_def| enum_def.name == "CaptionAltTextPolicy")
+        .expect("Rust-only enum metadata must remain typed in the source surface");
+    assert!(retained.binding_excluded);
+    assert_eq!(retained.variants[0].name, "Preserve");
     assert!(
-        api.enums.iter().all(|enum_def| enum_def.name != "CaptionAltTextPolicy"),
-        "the excluded enum must stay out of binding emitters"
+        api.types.iter().all(|type_def| type_def.name != "CaptionAltTextPolicy"),
+        "enum must not also be extracted as a type: {:?}",
+        api.types
+    );
+    assert!(
+        retained.variants.iter().all(|variant| variant.fields.is_empty()),
+        "fixture variants must retain their unit shape: {:?}",
+        retained.variants
+    );
+    assert_eq!(api.functions[0].params[0].original_type, None);
+    assert_eq!(
+        api.functions[0].params[0].ty,
+        TypeRef::Named("CaptionAltTextPolicy".to_string())
+    );
+    let serialized = serde_json::to_string(&api).expect("serialize extracted API");
+    assert!(
+        !serialized.contains("alef-rust-doc-type") && !serialized.contains("\\u0000"),
+        "public extraction JSON must not contain a hidden metadata payload: {serialized}"
     );
 
     let config: crate::core::config::NewAlefConfig = toml::from_str(

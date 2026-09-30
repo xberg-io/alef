@@ -271,7 +271,7 @@ fn render_args_with_api(params: &[ParamDef], lang: Language, ffi_prefix: &str, a
 }
 
 fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &ApiSurface) -> String {
-    let mut value = crate::docs::rust_param_samples::rust_original_param_sample(param, lang, ffi_prefix, api)
+    let mut value = crate::docs::rust_param_samples::rust_original_param_sample(param, lang, api)
         .unwrap_or_else(|| sample_value(&param.ty, lang, ffi_prefix));
     // ~keep The Rust page documents the crate itself, so a borrowed param has to be *passed*
     // borrowed or the example will not compile against the signature printed directly above it.

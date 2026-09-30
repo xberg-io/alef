@@ -155,44 +155,7 @@ pub struct ApiSurface {
     pub unresolved_modules: Vec<UnresolvedModuleDeclaration>,
 }
 
-/// Construction facts retained for Rust reference examples after a type is removed from the
-/// generated binding surface. ~keep
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) struct RustDocType {
-    pub name: String,
-    pub rust_path: String,
-    pub has_default: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_unit_variant: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unit_variants: Vec<String>,
-}
-
 impl ApiSurface {
-    // ~keep Reuse the serialized internal-name set as a private sidecar instead of adding a public
-    // `ApiSurface` field (which would break downstream struct literals). The NUL-prefixed records
-    // cannot collide with legal Rust trait identifiers, and trait filtering uses exact lookup.
-    const RUST_DOC_TYPE_PREFIX: &'static str = "\0alef-rust-doc-type:";
-
-    pub(crate) fn retain_rust_doc_type(&mut self, type_def: RustDocType) {
-        let encoded = serde_json::to_string(&type_def).expect("RustDocType serialization cannot fail");
-        self.excluded_trait_names
-            .insert(format!("{}{encoded}", Self::RUST_DOC_TYPE_PREFIX));
-    }
-
-    pub(crate) fn retained_rust_doc_types(&self) -> impl Iterator<Item = RustDocType> + '_ {
-        self.excluded_trait_names.iter().filter_map(|entry| {
-            let payload = entry.strip_prefix(Self::RUST_DOC_TYPE_PREFIX)?;
-            match serde_json::from_str(payload) {
-                Ok(type_def) => Some(type_def),
-                Err(error) => {
-                    tracing::warn!(%error, "ignoring invalid retained Rust docs type metadata");
-                    None
-                }
-            }
-        })
-    }
-
     pub(crate) const FFI_ERROR_CODE_NONE: u32 = 0;
     pub(crate) const FFI_ERROR_CODE_CONVERSION: u32 = 1;
     pub(crate) const FFI_ERROR_CODE_UNKNOWN: u32 = 2;
@@ -416,25 +379,6 @@ mod tests {
             cfg: cfg.map(str::to_string),
             ..FunctionDef::default()
         }
-    }
-
-    #[test]
-    fn retained_rust_doc_type_survives_api_surface_serialization() {
-        let expected = RustDocType {
-            name: "CaptionAltTextPolicy".to_string(),
-            rust_path: "xberg::CaptionAltTextPolicy".to_string(),
-            has_default: true,
-            default_unit_variant: Some("Preserve".to_string()),
-            unit_variants: vec!["Preserve".to_string(), "Replace".to_string()],
-        };
-        let mut surface = ApiSurface::default();
-        surface.retain_rust_doc_type(expected.clone());
-
-        let serialized = serde_json::to_string(&surface).expect("serialize API surface");
-        let restored: ApiSurface = serde_json::from_str(&serialized).expect("deserialize API surface");
-
-        assert_eq!(restored.retained_rust_doc_types().collect::<Vec<_>>(), vec![expected]);
-        assert!(!restored.excluded_trait_names.contains("CaptionAltTextPolicy"));
     }
 
     #[test]

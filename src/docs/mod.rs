@@ -79,10 +79,18 @@ fn canonical_docs_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> ApiSurf
     // the union above cannot be trusted to mean "nothing is enabled" -- fall back to the
     // unfiltered surface rather than let an empty set filter every cfg-gated item out. ~keep
     if !has_configured_language {
-        return api.clone();
+        return binding_visible_api(api.clone());
     }
     let enabled_features: HashSet<&str> = canonical_features.iter().map(String::as_str).collect();
-    api.with_cfg_filtered_deep(&enabled_features)
+    binding_visible_api(api.with_cfg_filtered_deep(&enabled_features))
+}
+
+fn binding_visible_api(mut api: ApiSurface) -> ApiSurface {
+    api.functions.retain(|function| !function.binding_excluded);
+    api.types.retain(|type_def| !type_def.binding_excluded);
+    api.enums.retain(|enum_def| !enum_def.binding_excluded);
+    api.errors.retain(|error_def| !error_def.binding_excluded);
+    api
 }
 
 /// Generate API reference documentation for the given languages.

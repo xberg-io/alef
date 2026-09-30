@@ -3,7 +3,7 @@
 //! every other language page is built from.
 
 use super::*;
-use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, RustDocType};
+use crate::core::ir::{EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, ReceiverKind};
 
 fn borrowed_param(name: &str, type_name: &str) -> ParamDef {
     ParamDef {
@@ -125,13 +125,13 @@ fn rust_reference_renders_a_mutably_borrowed_trait_method_param() {
 fn rust_reference_example_passes_borrowed_params_borrowed() {
     let (rust, _) = rust_and_python_pages(&api_with_mutating_trait_method());
     assert!(
-        rust.contains("instance.process(&mut Document::default(), &TextOptions::default());"),
+        rust.contains("instance.process(&mut todo!(), &todo!());"),
         "the example must compile against the signature printed above it; got:\n{rust}"
     );
 
     let (rust, python) = rust_and_python_pages(&api_with_borrowed_function());
     assert!(
-        rust.contains(r#"convert("value", &TextOptions::default())"#),
+        rust.contains(r#"convert("value", &todo!())"#),
         "a free function's example must borrow what its signature borrows; got:\n{rust}"
     );
     assert!(
@@ -211,55 +211,53 @@ fn binding_reference_still_omits_a_rust_only_field() {
 
 fn api_with_rust_only_enum_param() -> ApiSurface {
     let mut api = make_minimal_api("1.0.0");
-    api.retain_rust_doc_type(RustDocType {
-        name: "CaptionAltTextPolicy".to_string(),
-        rust_path: "mylib::CaptionAltTextPolicy".to_string(),
-        has_default: true,
-        default_unit_variant: Some("Preserve".to_string()),
-        unit_variants: vec!["Preserve".to_string(), "Replace".to_string()],
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "FallbackPolicy".to_string(),
-        rust_path: "mylib::FallbackPolicy".to_string(),
-        has_default: false,
-        default_unit_variant: None,
-        unit_variants: vec!["First".to_string(), "Second".to_string()],
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "FieldOnlyPolicy".to_string(),
-        rust_path: "mylib::FieldOnlyPolicy".to_string(),
-        has_default: true,
-        default_unit_variant: None,
-        unit_variants: Vec::new(),
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "RustOnlyOptions".to_string(),
-        rust_path: "mylib::RustOnlyOptions".to_string(),
-        has_default: true,
-        default_unit_variant: None,
-        unit_variants: Vec::new(),
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "OpaqueToken".to_string(),
-        rust_path: "mylib::OpaqueToken".to_string(),
-        has_default: false,
-        default_unit_variant: None,
-        unit_variants: Vec::new(),
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "QualifiedPolicy".to_string(),
-        rust_path: "mylib::one::QualifiedPolicy".to_string(),
-        has_default: false,
-        default_unit_variant: Some("One".to_string()),
-        unit_variants: vec!["One".to_string()],
-    });
-    api.retain_rust_doc_type(RustDocType {
-        name: "QualifiedPolicy".to_string(),
-        rust_path: "mylib::two::QualifiedPolicy".to_string(),
-        has_default: false,
-        default_unit_variant: Some("Two".to_string()),
-        unit_variants: vec!["Two".to_string()],
-    });
+    api.enums = vec![
+        rust_only_enum(
+            "CaptionAltTextPolicy",
+            "mylib::CaptionAltTextPolicy",
+            true,
+            &[("Preserve", true), ("Replace", false)],
+        ),
+        rust_only_enum(
+            "FallbackPolicy",
+            "mylib::FallbackPolicy",
+            false,
+            &[("First", false), ("Second", false)],
+        ),
+        EnumDef {
+            name: "FieldOnlyPolicy".to_string(),
+            rust_path: "mylib::FieldOnlyPolicy".to_string(),
+            has_default: true,
+            binding_excluded: true,
+            variants: vec![EnumVariant {
+                name: "Data".to_string(),
+                is_default: true,
+                fields: vec![FieldDef::default()],
+                ..EnumVariant::default()
+            }],
+            ..EnumDef::default()
+        },
+        rust_only_enum(
+            "QualifiedPolicy",
+            "mylib::one::QualifiedPolicy",
+            false,
+            &[("One", true)],
+        ),
+        rust_only_enum(
+            "QualifiedPolicy",
+            "mylib::two::QualifiedPolicy",
+            false,
+            &[("Two", true)],
+        ),
+    ];
+    let mut options = empty_type("RustOnlyOptions");
+    options.rust_path = "mylib::RustOnlyOptions".to_string();
+    options.has_default = true;
+    options.binding_excluded = true;
+    let mut token = empty_type("OpaqueToken");
+    token.rust_path = "mylib::OpaqueToken".to_string();
+    token.binding_excluded = true;
+    api.types = vec![options, token];
 
     let mut policy_param = make_param("policy", TypeRef::String, false);
     policy_param.sanitized = true;
@@ -316,6 +314,24 @@ fn api_with_rust_only_enum_param() -> ApiSurface {
     api
 }
 
+fn rust_only_enum(name: &str, rust_path: &str, has_default: bool, variants: &[(&str, bool)]) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: rust_path.to_string(),
+        has_default,
+        binding_excluded: true,
+        variants: variants
+            .iter()
+            .map(|(name, is_default)| EnumVariant {
+                name: (*name).to_string(),
+                is_default: *is_default,
+                ..EnumVariant::default()
+            })
+            .collect(),
+        ..EnumDef::default()
+    }
+}
+
 fn sanitized_param(name: &str, original_type: &str, optional: bool) -> ParamDef {
     let mut param = make_param(name, TypeRef::String, optional);
     param.sanitized = true;
@@ -356,9 +372,14 @@ fn rust_reference_restores_a_rust_only_enum_function_param_and_example() {
         "non-enum source types need a valid default or typed placeholder; got:\n{rust}"
     );
     assert!(
-        rust.contains("qualified_policy(QualifiedPolicy::Two);"),
+        rust.contains("qualified_policy(mylib::two::QualifiedPolicy::Two);"),
         "a qualified original type must select the exact retained path before the ambiguous short name; got:\n{rust}"
     );
+    let qualified_call = rust
+        .lines()
+        .find(|line| line.starts_with("qualified_policy("))
+        .expect("qualified example call");
+    syn::parse_str::<syn::Expr>(qualified_call.trim_end_matches(';')).expect("qualified example must parse as Rust");
     assert!(
         rust.contains("ambiguous_policy(todo!());"),
         "an ambiguous short type name must not select arbitrary construction metadata; got:\n{rust}"

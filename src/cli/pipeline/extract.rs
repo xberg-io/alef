@@ -28,7 +28,14 @@ use type_helpers::{
 };
 use validation::validate_extracted_api;
 
-const IR_CACHE_SCHEMA_VERSION: &str = "ir-cache-v2";
+const IR_CACHE_SCHEMA_VERSION: &str = "ir-cache-v3";
+
+/// Normalize references after Rust-only definitions have been removed from a binding projection.
+/// ~keep The source surface is sanitized while those definitions are intentionally still present,
+/// so projecting them out creates a second boundary where formerly-known names can become unknown.
+pub(super) fn sanitize_binding_projection(api: &mut ApiSurface) {
+    sanitize_unknown_types(api);
+}
 
 pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) -> anyhow::Result<ApiSurface> {
     if let Some(parent) = config_path.parent() {

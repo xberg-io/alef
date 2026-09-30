@@ -11,10 +11,9 @@ use tracing::info;
 
 /// Project the source IR to the surface binding backends may emit.
 ///
-/// The extracted surface deliberately retains functions marked binding_excluded because Rust
-/// documentation and e2e tests call the source crate directly. Binding backends must receive a
-/// view without those functions, preserving the same output boundary the extraction sanitizer
-/// enforced before Rust-only consumers needed the signatures. ~keep
+/// The extracted surface deliberately retains items marked binding_excluded because Rust
+/// documentation describes the source crate directly. Binding backends must receive a view
+/// without those items, preserving the output boundary at this explicit projection. ~keep
 fn project_binding_api(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -24,6 +23,10 @@ fn project_binding_api(
         api, config, languages,
     )?;
     projected.functions.retain(|function| !function.binding_excluded);
+    projected.types.retain(|type_def| !type_def.binding_excluded);
+    projected.enums.retain(|enum_def| !enum_def.binding_excluded);
+    projected.errors.retain(|error_def| !error_def.binding_excluded);
+    super::super::extract::sanitize_binding_projection(&mut projected);
     Ok(projected)
 }
 
@@ -375,7 +378,7 @@ mod tests {
     use crate::core::extension::{Extension, ExtensionConfig};
 
     #[test]
-    fn binding_projection_hides_rust_only_functions_without_mutating_source_ir() {
+    fn binding_projection_hides_all_rust_only_items_without_mutating_source_ir() {
         let hidden = crate::core::ir::FunctionDef {
             name: "internal_helper".to_string(),
             binding_excluded: true,
@@ -383,10 +386,36 @@ mod tests {
         };
         let visible = crate::core::ir::FunctionDef {
             name: "public_api".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "policy".to_string(),
+                ty: crate::core::ir::TypeRef::Named("CaptionAltTextPolicy".to_string()),
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let api = ApiSurface {
             functions: vec![hidden, visible],
+            types: vec![crate::core::ir::TypeDef {
+                name: "RustOnlyOptions".to_string(),
+                binding_excluded: true,
+                ..Default::default()
+            }],
+            enums: vec![crate::core::ir::EnumDef {
+                name: "CaptionAltTextPolicy".to_string(),
+                binding_excluded: true,
+                ..Default::default()
+            }],
+            errors: vec![crate::core::ir::ErrorDef {
+                name: "RustOnlyError".to_string(),
+                rust_path: "crate::RustOnlyError".to_string(),
+                original_rust_path: String::new(),
+                variants: Vec::new(),
+                doc: String::new(),
+                methods: Vec::new(),
+                binding_excluded: true,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
             ..Default::default()
         };
 
@@ -406,6 +435,13 @@ mod tests {
             2,
             "source IR must remain available to Rust consumers"
         );
+        assert!(projected.types.is_empty() && projected.enums.is_empty() && projected.errors.is_empty());
+        assert_eq!(projected.functions[0].params[0].ty, crate::core::ir::TypeRef::String);
+        assert_eq!(
+            projected.functions[0].params[0].original_type.as_deref(),
+            Some("CaptionAltTextPolicy")
+        );
+        assert_eq!((api.types.len(), api.enums.len(), api.errors.len()), (1, 1, 1));
     }
 
     /// A `--lang`-filtered run must not be reported as a missing-FFI configuration.
