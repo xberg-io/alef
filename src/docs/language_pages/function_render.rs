@@ -2,7 +2,9 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef, VersionAnnotation};
 use crate::docs::descriptions::generate_param_description;
 use crate::docs::doc_cleaning::{clean_doc_inline, demote_headings_to_start_at, extract_param_docs};
+#[cfg(test)]
 use crate::docs::examples::render_function_example;
+use crate::docs::examples::render_function_example_with_api;
 use crate::docs::formatting::{doc_type_with_optional, escape_table_cell, format_error_phrase};
 use crate::docs::naming::{field_name, func_name, lang_code_fence};
 use crate::docs::rust_types::rust_param_type;
@@ -103,7 +105,13 @@ pub(super) fn render_function(
     ));
     out.push('\n');
 
-    out.push_str(&render_function_example(func, lang, ffi_prefix, &api.crate_name));
+    out.push_str(&render_function_example_with_api(
+        func,
+        lang,
+        ffi_prefix,
+        &api.crate_name,
+        api,
+    ));
 
     push_parameters_table(&mut out, &func.params, &param_docs, lang, ffi_prefix, api);
 

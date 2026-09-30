@@ -18,9 +18,21 @@ use crate::docs::type_mapping::doc_type;
 /// ambiguity toward `Option<&T>`, the shape `option_inner_is_ref` exists to detect and by far
 /// the more common Rust API. ~keep
 pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
-    let element_borrow = param.vec_inner_is_ref;
-    let inner = rust_borrowed_type(&param.ty, param.is_ref, param.is_mut, element_borrow, ffi_prefix);
-    if param.optional {
+    let inner = match param.original_type.as_deref() {
+        Some(original) if param.is_ref => {
+            let borrow = if param.is_mut { "&mut " } else { "&" };
+            format!("{borrow}{original}")
+        }
+        Some(original) => original.to_string(),
+        None => rust_borrowed_type(
+            &param.ty,
+            param.is_ref,
+            param.is_mut,
+            param.vec_inner_is_ref,
+            ffi_prefix,
+        ),
+    };
+    if param.optional && !inner.starts_with("Option<") {
         format!("Option<{inner}>")
     } else {
         inner

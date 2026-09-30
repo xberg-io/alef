@@ -3,7 +3,7 @@
 //! every other language page is built from.
 
 use super::*;
-use crate::core::ir::{MethodDef, ParamDef, ReceiverKind};
+use crate::core::ir::{EnumDef, EnumVariant, MethodDef, ParamDef, ReceiverKind};
 
 fn borrowed_param(name: &str, type_name: &str) -> ParamDef {
     ParamDef {
@@ -206,5 +206,89 @@ fn binding_reference_still_omits_a_rust_only_field() {
     assert!(
         !python.contains("pool"),
         "an `alef(skip)` field must never reach a binding page; got:\n{python}"
+    );
+}
+
+fn api_with_rust_only_enum_param() -> ApiSurface {
+    let mut api = make_minimal_api("1.0.0");
+    let mut policy = EnumDef {
+        name: "CaptionAltTextPolicy".to_string(),
+        has_default: true,
+        variants: vec![
+            EnumVariant {
+                name: "Preserve".to_string(),
+                is_default: true,
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Replace".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    policy.binding_excluded = true;
+
+    let mut policy_param = make_param("policy", TypeRef::String, false);
+    policy_param.sanitized = true;
+    policy_param.original_type = Some("CaptionAltTextPolicy".to_string());
+
+    let mut function = make_function(
+        "extract_with_caption_alt_text_policy",
+        vec![policy_param],
+        TypeRef::Unit,
+        true,
+        None,
+    );
+    function.binding_excluded = true;
+
+    let mut optional_policy_param = make_param("policy", TypeRef::String, true);
+    optional_policy_param.sanitized = true;
+    optional_policy_param.original_type = Some("CaptionAltTextPolicy".to_string());
+    let mut optional_function = make_function(
+        "serve_with_caption_alt_text_policy",
+        vec![optional_policy_param],
+        TypeRef::Unit,
+        true,
+        None,
+    );
+    optional_function.binding_excluded = true;
+
+    api.enums = vec![policy];
+    api.functions = vec![function, optional_function];
+    api
+}
+
+#[test]
+fn rust_reference_restores_a_rust_only_enum_function_param_and_example() {
+    let (rust, _) = rust_and_python_pages(&api_with_rust_only_enum_param());
+    assert!(
+        rust.contains("pub async fn extract_with_caption_alt_text_policy(policy: CaptionAltTextPolicy)"),
+        "the Rust signature must use the source enum type; got:\n{rust}"
+    );
+    assert!(
+        rust.contains("extract_with_caption_alt_text_policy(CaptionAltTextPolicy::Preserve).await;"),
+        "the Rust example must pass a real enum variant; got:\n{rust}"
+    );
+    assert!(
+        rust.contains("pub async fn serve_with_caption_alt_text_policy(policy: Option<CaptionAltTextPolicy>)"),
+        "the Rust signature must preserve optionality around the source enum; got:\n{rust}"
+    );
+    assert!(
+        rust.contains("serve_with_caption_alt_text_policy(Some(CaptionAltTextPolicy::Preserve)).await;"),
+        "the Rust example must wrap an optional enum value in Some; got:\n{rust}"
+    );
+    assert!(
+        !rust.contains("policy: String") && !rust.contains("extract_with_caption_alt_text_policy(\"value\")"),
+        "binding placeholders must not reach the Rust reference; got:\n{rust}"
+    );
+}
+
+#[test]
+fn binding_reference_still_omits_a_rust_only_enum_function() {
+    let (_, python) = rust_and_python_pages(&api_with_rust_only_enum_param());
+    assert!(
+        !python.contains("extract_with_caption_alt_text_policy"),
+        "a binding-excluded Rust function must stay absent from binding docs; got:\n{python}"
     );
 }
