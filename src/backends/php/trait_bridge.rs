@@ -26,6 +26,13 @@ pub fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &Tra
     config.trait_bridges_for(Language::Php)
 }
 
+pub(crate) fn reject_unsafe_bridges(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
+    if let Some(bridge) = active_bridges(config).next() {
+        anyhow::bail!(bridge.php_safety_error());
+    }
+    Ok(())
+}
+
 /// The trait a bridge wraps, when PHP emits that bridge at all.
 ///
 /// PHP emits its consumer-facing wrapper class from `generate_public_api` and the `…Api`

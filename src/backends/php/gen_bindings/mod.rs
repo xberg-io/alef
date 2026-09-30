@@ -53,6 +53,7 @@ impl Backend for PhpBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -66,6 +67,7 @@ impl Backend for PhpBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -78,6 +80,7 @@ impl Backend for PhpBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -90,6 +93,7 @@ impl Backend for PhpBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -116,6 +120,12 @@ impl Backend for PhpBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> Vec<TraitBridgeRegistrationSurface> {
+        if crate::backends::php::trait_bridge::active_bridges(config)
+            .next()
+            .is_some()
+        {
+            return Vec::new();
+        }
         use crate::backends::php::naming::{php_bridge_method_name, php_public_class_name};
 
         let class_name = php_public_class_name(&config.php_extension_name());

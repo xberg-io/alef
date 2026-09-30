@@ -68,6 +68,12 @@ fn validate_dart_library_name(config: &ResolvedCrateConfig) -> Result<(), AlefEr
 /// before generation while permitting a Ruby-only bridge to delegate lifecycle and locking.
 fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
     for bridge in config.all_trait_bridges() {
+        // ~keep ext-php-rs deliberately leaves Zval !Send + !Sync because Zend refcounts are
+        // non-atomic. Every generated trait bridge retains a request-bound Zend object while the
+        // Rust trait may move, call, or drop it on another thread or after request shutdown.
+        if config.targets(Language::Php) && bridge.is_active_for("php") {
+            return Err(AlefError::Config(bridge.php_safety_error()));
+        }
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
             let unsupported_languages = config
                 .languages
@@ -661,5 +667,114 @@ register_fn = "register_sample_plugin"
             error.to_string().contains("active language(s): python"),
             "error must identify the unsupported active language: {error}"
         );
+    }
+
+    fn php_bridge_config(bridge: &str) -> ResolvedCrateConfig {
+        resolve_first(&format!(
+            r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "SamplePlugin"
+{bridge}
+"#
+        ))
+    }
+
+    #[test]
+    fn php_rejects_every_zend_object_trait_bridge_shape() {
+        let cases = [
+            (
+                "registry",
+                r#"super_trait = "Plugin"
+register_fn = "register_sample_plugin"
+registry_getter = "sample_core::plugins::registry""#,
+            ),
+            ("direct host registration", r#"register_fn = "register_sample_plugin""#),
+            (
+                "function parameter",
+                r#"type_alias = "SamplePluginHandle"
+param_name = "plugin"
+bind_via = "function_param""#,
+            ),
+            (
+                "options field",
+                r#"type_alias = "SamplePluginHandle"
+param_name = "plugin"
+bind_via = "options_field"
+options_type = "SampleOptions"
+options_field = "plugin""#,
+            ),
+            (
+                "visitor",
+                r#"type_alias = "VisitorHandle"
+param_name = "visitor"
+context_type = "NodeContext"
+result_type = "VisitResult""#,
+            ),
+        ];
+
+        for (shape, bridge) in cases {
+            let config = php_bridge_config(bridge);
+            let error = match validate_resolved(&config) {
+                Ok(()) => panic!("PHP {shape} bridge unexpectedly validated"),
+                Err(error) => error,
+            };
+            assert!(
+                error
+                    .to_string()
+                    .contains("PHP trait bridge `SamplePlugin` is disabled"),
+                "{shape} must fail at the Zend lifetime safety gate: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn php_trait_bridge_exclusion_is_the_explicit_escape_hatch() {
+        let config = php_bridge_config(
+            r#"super_trait = "Plugin"
+register_fn = "register_sample_plugin"
+registry_getter = "sample_core::plugins::registry"
+exclude_languages = ["php"]"#,
+        );
+
+        validate_resolved(&config).expect("an explicitly PHP-excluded bridge emits no Zend wrapper");
+    }
+
+    #[test]
+    fn non_php_trait_bridge_and_ordinary_php_crate_remain_valid() {
+        let non_php = resolve_first(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "SamplePlugin"
+type_alias = "SamplePluginHandle"
+param_name = "plugin"
+"#,
+        );
+        validate_resolved(&non_php).expect("the safety gate is specific to PHP Zend values");
+
+        let ordinary_php = resolve_first(
+            r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+"#,
+        );
+        validate_resolved(&ordinary_php).expect("ordinary PHP binding generation remains supported");
     }
 }

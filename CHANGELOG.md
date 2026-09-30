@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries when those features gate functions or types.
 - Rust API examples wrap optional argument samples in `Some(...)`.
 
+### Security
+
+- PHP trait bridges now fail generation unless the bridge excludes PHP. Generated bridges retained
+  request-owned Zend values inside Rust `Send + Sync` trait objects, allowing a callback or final
+  reference release to occur on another thread or after the originating PHP request ended. Ordinary
+  ext-php-rs bindings remain supported; add `exclude_languages = ["php"]` to a cross-language trait
+  bridge until a request-scoped, origin-thread dispatcher is available.
+
 ## [0.103.2] - 2026-09-30
 
 ### Fixed

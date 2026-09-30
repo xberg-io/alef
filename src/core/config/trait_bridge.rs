@@ -174,6 +174,15 @@ impl TraitBridgeConfig {
         !self.exclude_languages.iter().any(|excluded| excluded == language)
     }
 
+    pub(crate) fn php_safety_error(&self) -> String {
+        format!(
+            "PHP trait bridge `{}` is disabled: generated wrappers cannot safely retain \
+             request-bound Zend values behind Rust Send + Sync trait objects. Add `php` to this \
+             bridge's `exclude_languages`, or remove PHP from the crate's languages.",
+            self.trait_name
+        )
+    }
+
     /// Resolve the field name on `options_type` that holds this bridge.
     ///
     /// Falls back to [`Self::param_name`] when [`Self::options_field`] is unset, matching
