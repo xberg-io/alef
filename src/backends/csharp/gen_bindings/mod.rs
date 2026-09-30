@@ -251,18 +251,16 @@ impl Backend for CsharpBackend {
         let lib_name = config.ffi_lib_name();
         let csharp_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Csharp).cloned().collect();
 
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
+        let bridge_param_names: HashSet<String> = csharp_trait_bridges
             .iter()
             .filter_map(|b| b.param_name.clone())
             .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
+        let bridge_type_aliases: HashSet<String> = csharp_trait_bridges
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
         let has_visitor_callbacks = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false);
-        let bridge_associated_types = config.bridge_associated_types();
+        let bridge_associated_types = config.bridge_associated_types_for(Language::Csharp);
 
         let streaming_methods: HashSet<String> = config
             .adapters
@@ -393,7 +391,7 @@ impl Backend for CsharpBackend {
                 &streaming_methods,
                 &streaming_methods_meta,
                 &exclude_functions,
-                &config.trait_bridges,
+                &csharp_trait_bridges,
                 &all_opaque_type_names,
                 &config.adapters,
                 &capsule_types,
@@ -402,10 +400,9 @@ impl Backend for CsharpBackend {
         });
 
         if has_visitor_callbacks {
-            let visitor_bridge_cfg = config.trait_bridges.iter().find(|b| {
-                b.bind_via == crate::core::config::BridgeBinding::OptionsField
-                    && b.is_active_for(&Language::Csharp.to_string())
-            });
+            let visitor_bridge_cfg = csharp_trait_bridges
+                .iter()
+                .find(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField);
             let trait_map: std::collections::HashMap<&str, &crate::core::ir::TypeDef> = api
                 .types
                 .iter()
@@ -435,10 +432,9 @@ impl Backend for CsharpBackend {
             stale_candidates.extend(stale_visitor_filenames(config));
         }
 
-        if !config.trait_bridges.is_empty() {
+        if !csharp_trait_bridges.is_empty() {
             let trait_defs: Vec<_> = api.types.iter().filter(|t| t.is_trait).collect();
-            let bridges: Vec<_> = config
-                .trait_bridges
+            let bridges: Vec<_> = csharp_trait_bridges
                 .iter()
                 .filter_map(|cfg| {
                     let trait_name = cfg.trait_name.clone();
@@ -592,7 +588,7 @@ impl Backend for CsharpBackend {
                         &custom_converter_enums,
                         &lang_rename_all,
                         &bridge_type_aliases,
-                        &config.trait_bridges,
+                        &csharp_trait_bridges,
                         &exception_class_name,
                         &excluded_types,
                         &tagged_union_enums,

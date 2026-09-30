@@ -136,7 +136,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         let mut registered_field_names: ahash::AHashSet<&str> = ahash::AHashSet::default();
         if !typ.is_opaque {
             for field in binding_fields(&typ.fields) {
-                if is_thread_unsafe_field(field, &config.trait_bridges) {
+                if is_thread_unsafe_field(field, &active_trait_bridges) {
                     continue;
                 }
                 registered_field_names.insert(field.name.as_str());
@@ -344,7 +344,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         });
     }
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in &active_trait_bridges {
         if crate::backends::magnus::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
             continue;
         }

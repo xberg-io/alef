@@ -327,7 +327,7 @@ impl Backend for MagnusBackend {
             api,
             &default_types,
             &|ty: &crate::core::ir::TypeRef| mapper.map_type(ty),
-            &config.trait_bridges,
+            &active_trait_bridges,
         );
 
         let needs_default_timeout = api
@@ -414,7 +414,7 @@ impl Backend for MagnusBackend {
                     &module_name,
                     &core_import,
                     has_explicit_impl_default,
-                    &config.trait_bridges,
+                    &active_trait_bridges,
                     delegate_deserialize,
                 ));
                 if generates_default {
@@ -425,7 +425,7 @@ impl Backend for MagnusBackend {
                 } else if has_explicit_impl_default {
                     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
                     if let Some(impl_str) =
-                        classes::gen_struct_default_impl_explicit(typ, &map_fn, &config.trait_bridges, &default_types)
+                        classes::gen_struct_default_impl_explicit(typ, &map_fn, &active_trait_bridges, &default_types)
                     {
                         builder.add_item(&prepend_cfg(typ_cfg, impl_str));
                     }
@@ -438,7 +438,7 @@ impl Backend for MagnusBackend {
                         &opaque_types,
                         &core_import,
                         has_explicit_impl_default,
-                        &config.trait_bridges,
+                        &active_trait_bridges,
                         &generated_default_types,
                     ),
                 ));
@@ -471,7 +471,7 @@ impl Backend for MagnusBackend {
             if !is_reserved_fn(&func.name) && !exclude_functions.contains(func.name.as_str()) {
                 if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
                     &func.name,
-                    &config.trait_bridges,
+                    &active_trait_bridges,
                 ) {
                     continue;
                 }
@@ -528,8 +528,8 @@ impl Backend for MagnusBackend {
             builder.add_item(&streaming::gen_streaming_module_function(adapter));
         }
 
-        if !config.trait_bridges.is_empty() {
-            let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
+        if !active_trait_bridges.is_empty() {
+            let needs_async_trait = active_trait_bridges.iter().any(|bridge_cfg| {
                 api.types
                     .iter()
                     .find(|t| t.is_trait && t.name == bridge_cfg.trait_name)
@@ -540,7 +540,7 @@ impl Backend for MagnusBackend {
             }
         }
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in &active_trait_bridges {
             if let Some(trait_type) = crate::backends::magnus::trait_bridge::active_bridge_trait(bridge_cfg, api) {
                 let bridge_code = crate::backends::magnus::trait_bridge::gen_trait_bridge(
                     trait_type,
@@ -580,13 +580,13 @@ impl Backend for MagnusBackend {
             if is_strict && input_types.contains(&typ.name) {
                 builder.add_item(&prepend_cfg(
                     typ_cfg,
-                    classes::gen_from_binding_to_core_filtered(typ, &core_import, &config.trait_bridges),
+                    classes::gen_from_binding_to_core_filtered(typ, &core_import, &active_trait_bridges),
                 ));
             }
             if is_relaxed {
                 builder.add_item(&prepend_cfg(
                     typ_cfg,
-                    classes::gen_from_core_to_binding_filtered(typ, &core_import, &opaque_types, &config.trait_bridges),
+                    classes::gen_from_core_to_binding_filtered(typ, &core_import, &opaque_types, &active_trait_bridges),
                 ));
             }
         }
@@ -767,7 +767,7 @@ impl Backend for MagnusBackend {
             &gem_name,
             emit_docstrings,
             &streaming_return_types,
-            &config.trait_bridges,
+            &config.trait_bridges_for(Language::Ruby).cloned().collect::<Vec<_>>(),
             &client_constructor_types,
         );
 

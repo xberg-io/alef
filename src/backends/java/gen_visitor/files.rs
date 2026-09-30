@@ -1,7 +1,7 @@
 //! Individual Java file generators: result enum, visitor interface, VisitorBridge.
 
 use crate::codegen::naming::{to_class_name, to_java_name};
-use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig};
+use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, MethodDef, PrimitiveType, TypeDef, TypeRef};
 
@@ -40,10 +40,9 @@ pub(super) fn resolve_visitor_generation(
     config: &ResolvedCrateConfig,
     _class_name: &str,
 ) -> Option<VisitorGeneration> {
-    let bridge = config.trait_bridges.iter().find(|bridge| {
-        bridge.bind_via == BridgeBinding::OptionsField
-            && !bridge.exclude_languages.contains(&Language::Java.to_string())
-    })?;
+    let bridge = config
+        .trait_bridges_for(crate::core::config::Language::Java)
+        .find(|bridge| bridge.bind_via == BridgeBinding::OptionsField)?;
 
     let Some(context_type) = bridge.context_type.as_deref() else {
         tracing::warn!(

@@ -458,11 +458,23 @@ fn rustler_reports_nothing_when_the_bridge_excludes_either_spelling_of_the_targe
         config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
 
         let surfaces = RustlerBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+        let bindings = generated_text(&RustlerBackend, &config);
+        let public_api = generated_public_api_text(&RustlerBackend, &config);
 
         assert!(
             surfaces.is_empty(),
             "`exclude_languages = [\"{excluded}\"]` suppresses the Elixir delegates, so nothing \
              is left to document; got {surfaces:?}"
+        );
+        for symbol in [REGISTER_FN, UNREGISTER_FN, CLEAR_FN] {
+            assert!(
+                !bindings.contains(symbol) && !public_api.contains(symbol),
+                "`exclude_languages = [\"{excluded}\"]` leaked `{symbol}` into Rustler output"
+            );
+        }
+        assert!(
+            !bindings.contains("visitor_reply"),
+            "an excluded-only bridge must not enable Rustler visitor NIF scaffolding"
         );
     }
 }
@@ -588,12 +600,19 @@ fn extendr_reports_nothing_when_the_bridge_excludes_either_spelling_of_the_targe
         config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
 
         let surfaces = ExtendrBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+        let generated = generated_text(&ExtendrBackend, &config);
 
         assert!(
             surfaces.is_empty(),
             "`exclude_languages = [\"{excluded}\"]` suppresses the `#[extendr]` items, so \
              nothing is left to document; got {surfaces:?}"
         );
+        for symbol in [REGISTER_FN, UNREGISTER_FN, CLEAR_FN] {
+            assert!(
+                !generated.contains(symbol),
+                "`exclude_languages = [\"{excluded}\"]` leaked `{symbol}` into extendr output"
+            );
+        }
     }
 }
 

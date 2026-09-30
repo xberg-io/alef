@@ -46,7 +46,7 @@ pub(super) fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow
         api,
         &prefix,
         &exclude_functions,
-        &config.trait_bridges,
+        &config.trait_bridges_for(Language::Node).cloned().collect::<Vec<_>>(),
         &capsule_types,
         &streaming_item_types,
         &default_types,

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig};
 use crate::core::ir::{EnumDef, TypeDef};
 
 pub(crate) struct GoEmissionFacts<'a> {
@@ -120,13 +120,14 @@ pub(crate) fn excluded_type_names(config: &ResolvedCrateConfig, types: &[TypeDef
 }
 
 pub(crate) fn visitor_owned_type_names(config: &ResolvedCrateConfig) -> HashSet<String> {
-    let has_bridge_parameter = config.trait_bridges.iter().any(|bridge| bridge.param_name.is_some());
+    let has_bridge_parameter = config
+        .trait_bridges_for(Language::Go)
+        .any(|bridge| bridge.param_name.is_some());
     let has_options_bridge = config
-        .trait_bridges
-        .iter()
-        .any(|bridge| bridge.bind_via == BridgeBinding::OptionsField && bridge.is_active_for("go"));
+        .trait_bridges_for(Language::Go)
+        .any(|bridge| bridge.bind_via == BridgeBinding::OptionsField);
     if has_bridge_parameter || has_options_bridge {
-        config.bridge_associated_types()
+        config.bridge_associated_types_for(Language::Go)
     } else {
         HashSet::new()
     }

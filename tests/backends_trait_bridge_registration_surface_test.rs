@@ -264,6 +264,36 @@ package = "io.sample.core"
 }
 
 #[test]
+fn java_emits_no_bridge_when_the_target_is_excluded() {
+    let mut config = config_with_bridge(
+        r#"
+[workspace]
+languages = ["ffi", "java"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "sample"
+
+[crates.java]
+package = "io.sample.core"
+"#,
+    );
+    config.trait_bridges[0].exclude_languages = vec!["java".to_owned()];
+
+    let surfaces = JavaBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+    let generated = generated_text(&JavaBackend, &config);
+
+    assert!(surfaces.is_empty(), "an excluded Java bridge must report no surface");
+    assert!(
+        !generated.contains("SamplePluginBridge"),
+        "an excluded Java bridge must emit no bridge class references"
+    );
+}
+
+#[test]
 fn kotlin_android_surface_names_the_fixed_bridge_object_methods() {
     let config = config_with_bridge(
         r#"

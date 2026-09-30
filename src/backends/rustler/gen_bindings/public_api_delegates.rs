@@ -122,7 +122,7 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
         api_fn_names,
         native_mod,
     } = ctx;
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(crate::core::config::Language::Elixir) {
         let Some(trait_def) = crate::backends::rustler::trait_bridge::active_bridge_trait(bridge_cfg, api) else {
             continue;
         };
@@ -209,29 +209,33 @@ pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
                 }
                 _ => None,
             };
-            config.trait_bridges.iter().any(|b| {
-                let is_function_param = b.param_name.as_deref() == Some(p.name.as_str())
-                    || named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false);
-                let is_options_field = b.bind_via == BridgeBinding::OptionsField
-                    && named.is_some_and(|n| b.options_type.as_deref() == Some(n));
-                is_function_param || is_options_field
-            })
+            config
+                .trait_bridges_for(crate::core::config::Language::Elixir)
+                .any(|b| {
+                    let is_function_param = b.param_name.as_deref() == Some(p.name.as_str())
+                        || named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false);
+                    let is_options_field = b.bind_via == BridgeBinding::OptionsField
+                        && named.is_some_and(|n| b.options_type.as_deref() == Some(n));
+                    is_function_param || is_options_field
+                })
         })
     });
 
     if has_visitor_bridges {
-        let visitor_result_metadata = config.trait_bridges.iter().find_map(|bridge_cfg| {
-            match crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg) {
-                Ok(metadata) => Some(metadata),
-                Err(err) => {
-                    tracing::warn!(
-                        "gen_bindings(rustler): skip visitor helper metadata for trait bridge `{}`: {err}",
-                        bridge_cfg.trait_name
-                    );
-                    None
+        let visitor_result_metadata = config
+            .trait_bridges_for(crate::core::config::Language::Elixir)
+            .find_map(|bridge_cfg| {
+                match crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg) {
+                    Ok(metadata) => Some(metadata),
+                    Err(err) => {
+                        tracing::warn!(
+                            "gen_bindings(rustler): skip visitor helper metadata for trait bridge `{}`: {err}",
+                            bridge_cfg.trait_name
+                        );
+                        None
+                    }
                 }
-            }
-        });
+            });
         if let Some(visitor_result_metadata) = visitor_result_metadata {
             let unit_result_variants = visitor_result_metadata
                 .unit_variants

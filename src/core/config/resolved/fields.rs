@@ -145,6 +145,16 @@ impl ResolvedCrateConfig {
         set
     }
 
+    pub fn bridge_associated_types_for(&self, language: Language) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        for bridge in self.trait_bridges_for(language) {
+            for name in bridge.associated_type_names() {
+                set.insert(name.to_string());
+            }
+        }
+        set
+    }
+
     /// Attempt to read the resolved version string from the configured `version_from` file.
     ///
     /// Returns `None` if the file cannot be read or the version cannot be found.

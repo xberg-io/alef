@@ -438,13 +438,7 @@ pub(crate) fn gen_native_lib(
     let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
     let mut emitted_clear_handles: AHashSet<String> = AHashSet::new();
 
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .contains(&crate::core::config::Language::Java.to_string())
-        {
-            continue;
-        }
+    for bridge_cfg in config.trait_bridges_for(crate::core::config::Language::Java) {
         if has_visitor_pattern && bridge_cfg.bind_via == BridgeBinding::OptionsField {
             continue;
         }

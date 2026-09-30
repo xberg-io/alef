@@ -147,22 +147,24 @@ pub(super) fn generate_public_api(
         tagged_enums_used.extend(tagged_enum_params.values().map(|param| param.enum_name.clone()));
 
         let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
-            config.trait_bridges.iter().any(|b| {
-                b.param_name.as_deref() == Some(p.name.as_str()) || {
-                    let named = match &p.ty {
-                        crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                        crate::core::ir::TypeRef::Optional(inner) => {
-                            if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
-                                Some(n.as_str())
-                            } else {
-                                None
+            config
+                .trait_bridges_for(crate::core::config::Language::Elixir)
+                .any(|b| {
+                    b.param_name.as_deref() == Some(p.name.as_str()) || {
+                        let named = match &p.ty {
+                            crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                            crate::core::ir::TypeRef::Optional(inner) => {
+                                if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
                             }
-                        }
-                        _ => None,
-                    };
-                    named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
-                }
-            })
+                            _ => None,
+                        };
+                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                    }
+                })
         });
 
         let options_field_bridge: Option<(usize, String)> = func.params.iter().enumerate().find_map(|(idx, p)| {
@@ -177,16 +179,18 @@ pub(super) fn generate_public_api(
                 }
                 _ => None,
             };
-            config.trait_bridges.iter().find_map(|b| {
-                if b.bind_via == BridgeBinding::OptionsField
-                    && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
-                {
-                    let field = b.resolved_options_field().unwrap_or("visitor").to_string();
-                    Some((idx, field))
-                } else {
-                    None
-                }
-            })
+            config
+                .trait_bridges_for(crate::core::config::Language::Elixir)
+                .find_map(|b| {
+                    if b.bind_via == BridgeBinding::OptionsField
+                        && type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                    {
+                        let field = b.resolved_options_field().unwrap_or("visitor").to_string();
+                        Some((idx, field))
+                    } else {
+                        None
+                    }
+                })
         });
 
         let visitor_bridge_idx =

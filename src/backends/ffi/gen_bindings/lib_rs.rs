@@ -88,6 +88,10 @@ fn field_getter_is_reachable(
 }
 
 pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> anyhow::Result<String> {
+    let active_trait_bridges: Vec<_> = config
+        .trait_bridges_for(crate::core::config::Language::Ffi)
+        .cloned()
+        .collect();
     let mut builder = RustFileBuilder::new().with_generated_header();
     builder.add_inner_attribute("allow(dead_code, unused_imports, unused_mut, noop_method_call)");
     builder.add_inner_attribute("allow(unsafe_op_in_unsafe_fn, unsafe_attr_outside_unsafe)");
@@ -313,7 +317,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             if !field.sanitized
                 && !field.binding_excluded
                 && !crosses_borrowed_handle_boundary(&field.ty, &borrowed_handle_types)
-                && field_getter_is_reachable(typ, field, &config.trait_bridges)
+                && field_getter_is_reachable(typ, field, &active_trait_bridges)
             {
                 emitted_field_names.insert(field.name.as_str());
                 builder.add_item(&gen_field_accessor(
@@ -557,11 +561,9 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     // while only the bridge struct itself honoured `exclude_languages`, so `exclude_languages
     // = ["c"]` emitted a setter calling a `{Prefix}{Trait}Bridge` no pass ever wrote -- and
     // that breaks every backend linked through FFI, not just C. ~keep
-    let ffi_options_field_bridges: Vec<&crate::core::config::TraitBridgeConfig> = config
-        .trait_bridges
+    let ffi_options_field_bridges: Vec<&crate::core::config::TraitBridgeConfig> = active_trait_bridges
         .iter()
         .filter(|b| b.bind_via == crate::core::config::BridgeBinding::OptionsField)
-        .filter(|b| crate::backends::ffi::trait_bridge::targets_ffi(b))
         .collect();
     let has_options_field_bridge = !ffi_options_field_bridges.is_empty();
 
@@ -589,10 +591,10 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         {
             continue;
         }
-        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &active_trait_bridges) {
             continue;
         }
-        if visitor_callbacks_enabled && func.sanitized && has_trait_bridge_param(func, &config.trait_bridges) {
+        if visitor_callbacks_enabled && func.sanitized && has_trait_bridge_param(func, &active_trait_bridges) {
             continue;
         }
         if has_options_field_bridge
@@ -701,7 +703,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             }
         }
     } else if visitor_callbacks_enabled {
-        let configured_bridge = function_param_bridge_for_visitor_callbacks(api, &config.trait_bridges);
+        let configured_bridge = function_param_bridge_for_visitor_callbacks(api, &active_trait_bridges);
         if let Some((bridge_cfg, visitor_function)) = configured_bridge {
             let visitor_trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
             if let Some(vtd) = visitor_trait_def {
@@ -741,7 +743,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         }
     }
 
-    if !config.trait_bridges.is_empty() {
+    if !active_trait_bridges.is_empty() {
         builder.add_import("std::ffi::c_void");
         builder.add_import("std::sync::Arc");
 
@@ -757,10 +759,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         let error_type_name = config.error_type_name();
         let error_constructor = config.error_constructor_expr();
         let plugin_error_constructor = config.ffi_plugin_error_constructor();
-        for bridge_cfg in &config.trait_bridges {
-            if !crate::backends::ffi::trait_bridge::targets_ffi(bridge_cfg) {
-                continue;
-            }
+        for bridge_cfg in &active_trait_bridges {
             if visitor_callbacks_enabled
                 && bridge_cfg.bind_via == crate::core::config::BridgeBinding::OptionsField
                 && bridge_cfg.register_fn.is_none()

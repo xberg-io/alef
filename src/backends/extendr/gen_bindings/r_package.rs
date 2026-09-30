@@ -1,6 +1,6 @@
 use super::{cfg_registration, options, r_wrappers};
 use crate::core::backend::GeneratedFile;
-use crate::core::config::{ResolvedCrateConfig, resolve_output_dir};
+use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::ApiSurface;
 use std::path::PathBuf;
@@ -50,13 +50,14 @@ pub(super) fn generate_public_api(
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
     let core_import = config.core_import_name();
+    let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::R).cloned().collect();
     let wrappers_content = r_wrappers::gen_extendr_wrappers_r(
         api,
         &package_name,
         &input_type_names,
         &trait_bridge_fns,
         &r_exclude_functions,
-        &config.trait_bridges,
+        &active_trait_bridges,
         &core_import,
     );
     files.push(GeneratedFile {
@@ -70,7 +71,7 @@ pub(super) fn generate_public_api(
         &package_name,
         &trait_bridge_fns,
         &r_exclude_functions,
-        &config.trait_bridges,
+        &active_trait_bridges,
     );
     files.push(GeneratedFile {
         path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),

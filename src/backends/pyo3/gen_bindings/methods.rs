@@ -16,6 +16,10 @@ pub fn init_async_runtime() -> PyResult<()> {
 
 /// Generate the module initialization function.
 pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+    let active_trait_bridges: Vec<_> = config
+        .trait_bridges_for(crate::core::config::Language::Python)
+        .cloned()
+        .collect();
     let mut lines = vec![
         "#[pymodule]".to_string(),
         format!("pub fn {module_name}(m: &Bound<'_, PyModule>) -> PyResult<()> {{"),
@@ -121,7 +125,7 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     }
 
     // name (declared via `#[pyclass(name = "<Trait>")]` in mod.rs) still matches the trait so
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in &active_trait_bridges {
         if crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
             continue;
         }
@@ -138,17 +142,17 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         lines.push(format!("    m.add_function(wrap_pyfunction!({}, m)?)?;", func.name));
     }
 
-    for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(&config.trait_bridges, api) {
+    for register_fn in crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(&active_trait_bridges, api) {
         lines.push(format!("    m.add_function(wrap_pyfunction!({register_fn}, m)?)?;"));
     }
     // it under the bare `unregister_*` name via `#[pyo3(name = ...)]`. Without this
-    for unregister_fn in crate::backends::pyo3::trait_bridge::collect_bridge_unregister_fns(&config.trait_bridges, api)
+    for unregister_fn in crate::backends::pyo3::trait_bridge::collect_bridge_unregister_fns(&active_trait_bridges, api)
     {
         lines.push(format!(
             "    m.add_function(wrap_pyfunction!(_alef_{unregister_fn}, m)?)?;"
         ));
     }
-    for clear_fn in crate::backends::pyo3::trait_bridge::collect_bridge_clear_fns(&config.trait_bridges, api) {
+    for clear_fn in crate::backends::pyo3::trait_bridge::collect_bridge_clear_fns(&active_trait_bridges, api) {
         lines.push(format!("    m.add_function(wrap_pyfunction!(_alef_{clear_fn}, m)?)?;"));
     }
 

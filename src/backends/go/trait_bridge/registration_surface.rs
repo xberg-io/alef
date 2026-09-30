@@ -4,7 +4,7 @@
 //! `GoBackend::trait_bridge_registration_surface` reports them, so both spell the names here.
 
 use crate::core::backend::TraitBridgeRegistrationSurface;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use heck::ToPascalCase;
 
@@ -42,13 +42,14 @@ pub(crate) fn clear_fn_name(clear_fn: &str) -> String {
 /// exclude `go`, and its trait must be present in the `ApiSurface` — that lookup deliberately
 /// does not require `is_trait`, matching the emitter. ~keep
 pub fn registration_surface(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<TraitBridgeRegistrationSurface> {
-    if !config.trait_bridges.iter().any(|bridge| bridge.register_fn.is_some()) {
+    if !config
+        .trait_bridges_for(Language::Go)
+        .any(|bridge| bridge.register_fn.is_some())
+    {
         return Vec::new();
     }
     config
-        .trait_bridges
-        .iter()
-        .filter(|bridge| bridge.is_active_for("go"))
+        .trait_bridges_for(Language::Go)
         .filter_map(|bridge| {
             let trait_def = api.types.iter().find(|t| t.name == bridge.trait_name)?;
             Some(TraitBridgeRegistrationSurface {

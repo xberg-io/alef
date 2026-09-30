@@ -80,6 +80,10 @@ impl Backend for Pyo3Backend {
         // wrapper, so two same-named entries would otherwise produce duplicate `#[pyfunction]`
         let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
         let api = &deduped_api;
+        let active_trait_bridges: Vec<crate::core::config::TraitBridgeConfig> = config
+            .trait_bridges_for(crate::core::config::Language::Python)
+            .cloned()
+            .collect();
 
         // should store them as `Option<Py<PyAny>>` with `#[serde(skip)]` so the visitor can
         let mut trait_type_names: ahash::AHashSet<String> = api
@@ -88,7 +92,7 @@ impl Backend for Pyo3Backend {
             .filter(|t| t.is_trait)
             .map(|t| t.name.clone())
             .collect();
-        for bridge in &config.trait_bridges {
+        for bridge in &active_trait_bridges {
             if crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge, api).is_none() {
                 continue;
             }
@@ -330,11 +334,6 @@ impl Backend for Pyo3Backend {
         // `binding_excluded`, the mirror loses the field while `#[new]` keeps assigning it:
         // `error[E0560]: struct RunOptions has no field named on_progress` (alef #480). Same
         // filtered list the wrapper and stub passes already use. ~keep
-        let active_trait_bridges: Vec<crate::core::config::TraitBridgeConfig> = config
-            .trait_bridges_for(crate::core::config::Language::Python)
-            .cloned()
-            .collect();
-
         for typ in api
             .types
             .iter()
@@ -648,7 +647,7 @@ impl Backend for Pyo3Backend {
         }
 
         // Trait marker classes — emit empty #[pyclass] structs for plugin traits so they can be
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in &active_trait_bridges {
             if crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
                 continue;
             }
@@ -660,8 +659,8 @@ impl Backend for Pyo3Backend {
             builder.add_item(&marker_class);
         }
 
-        if !config.trait_bridges.is_empty() {
-            let needs_async_trait = config.trait_bridges.iter().any(|bridge_cfg| {
+        if !active_trait_bridges.is_empty() {
+            let needs_async_trait = active_trait_bridges.iter().any(|bridge_cfg| {
                 api.types
                     .iter()
                     .find(|t| t.is_trait && t.name == bridge_cfg.trait_name)
@@ -692,7 +691,7 @@ impl Backend for Pyo3Backend {
                     options_module => format!("{}.options", config.python_module_name()),
                 },
             ));
-            for bridge_cfg in &config.trait_bridges {
+            for bridge_cfg in &active_trait_bridges {
                 if let Some(trait_type) = crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge_cfg, api) {
                     let bridge = crate::backends::pyo3::trait_bridge::gen_trait_bridge_with_absent_types(
                         trait_type,

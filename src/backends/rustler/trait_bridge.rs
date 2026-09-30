@@ -28,7 +28,7 @@ pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 pub use bridge_functions::{gen_bridge_field_function, gen_bridge_function};
 pub use generator::{RustlerBridgeGenerator, gen_trait_bridge};
 
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
 
 /// The `exclude_languages` spellings that name this target: the language (`"elixir"`) and the
@@ -43,7 +43,7 @@ pub fn targets_rustler(bridge: &TraitBridgeConfig) -> bool {
 
 /// The configured bridges Elixir/Rustler actually emits, in configuration order.
 pub fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &TraitBridgeConfig> {
-    config.trait_bridges.iter().filter(|bridge| targets_rustler(bridge))
+    config.trait_bridges_for(Language::Elixir)
 }
 
 /// The trait a bridge wraps, when Elixir/Rustler emits that bridge at all.
