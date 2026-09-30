@@ -98,7 +98,7 @@ pub mod cargo {
     pub const RB_SYS: &str = ">=0.9.130, <0.10";
 
     // renovate: datasource=crate depName=ext-php-rs
-    pub const EXT_PHP_RS: &str = "0.15.15";
+    pub const EXT_PHP_RS: &str = "0.16.0";
 
     // renovate: datasource=crate depName=js-sys
     pub const JS_SYS: &str = "0.3";
