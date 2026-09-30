@@ -416,9 +416,9 @@ mod tests {
         );
     }
 
-    /// `scripts/toolchain-census.sh` fails a required toolchain on `executed == 0`, so the on-disk
-    /// row must carry the executed count, not just the attempt count. Reads the real file back
-    /// rather than the in-memory tally so a broken flush is caught here and not in CI. ~keep
+    /// `scripts/toolchain-census.sh` fails a required toolchain unless `executed == attempted`, so
+    /// the on-disk row must carry every outcome count. Reads the real file back rather than the
+    /// in-memory tally so a broken flush is caught here and not in CI. ~keep
     #[test]
     fn the_flushed_row_reports_each_resolution_outcome() {
         let _serialized = serialize_gate_tests();
