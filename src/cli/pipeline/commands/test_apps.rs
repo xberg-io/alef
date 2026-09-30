@@ -815,7 +815,7 @@ mod mock_server_binary_path_tests {
     fn cargo_is_runnable() -> bool {
         static RUNNABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *RUNNABLE.get_or_init(|| {
-            std::process::Command::new("cargo")
+            crate::test_support::spawn_from_stable_dir("cargo")
                 .arg("--version")
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
@@ -855,7 +855,7 @@ mod mock_server_binary_path_tests {
         // parallel load, and `.status()` reports that as a bare non-zero with cargo's reason
         // written to a stderr nobody reads -- a flake indistinguishable from a real regression
         // in the resolver under test. The panic carries cargo's own words instead. ~keep
-        let output = std::process::Command::new("cargo")
+        let output = crate::test_support::spawn_from_stable_dir("cargo")
             .args(["build", "--release", "--manifest-path"])
             .arg(&manifest_path)
             .env("CARGO_TARGET_DIR", target_dir.path())

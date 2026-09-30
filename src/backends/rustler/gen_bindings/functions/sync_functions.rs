@@ -147,7 +147,7 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         && !opaque_types.contains(inner_name.as_str()) {
                             let inner_ty = resolve_core_type_path(inner_name, types_by_name, core_import);
                             let core_ty = format!("Vec<{}>", inner_ty);
-                            if let Some(limit) = json_parameter_limits.iter().find(|limit| limit.function == func.name && limit.parameter == p.name) {
+                            if let Some(limit) = json_parameter_limits.iter().find(|limit| limit.operation == func.name && limit.parameter == p.name) {
                                 deser_lines.push(render_bounded_vec_deser_line(&p.name, &format!("{}_core_option", p.name), &core_ty, &limit.max_parameter, limit.default_max));
                             } else {
                                 deser_lines.push(render_fallible_deser_line(&p.name, &format!("{}_core_option", p.name), &core_ty, true, &func.name));

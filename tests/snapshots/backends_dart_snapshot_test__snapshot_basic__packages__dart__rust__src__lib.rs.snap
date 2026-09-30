@@ -73,7 +73,7 @@ impl From<demo::Status> for Status {
 
 /// Process input and return a result.
 pub fn process(input: String, count: i64) -> Result<String, String> {
-    demo::process(input, count as u32).map(|v| v.to_string()).map_err(|e| e.to_string())
+    demo::process(input, u32::try_from(count).map_err(|_| "parameter 'count' must be between 0 and u32::MAX".to_string())?).map(|v| v.to_string()).map_err(|e| e.to_string())
 }
 
 // `create_<Type>_from_json` helpers — deserialize a JSON string into a mirror type.

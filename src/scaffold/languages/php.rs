@@ -221,17 +221,9 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .map(|d| format!("\"{d}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    // Functions carrying a source `cfg` predicate are emitted unconditionally into the
-    // `#[php_impl]` facade class (see rust_bindings.rs's `generate_bindings`: ext-php-rs's
-    // `#[php_impl]` derive references every method by identifier in its registration array
-    // regardless of `#[cfg]`, so a cfg'd-out method breaks the build). Their underlying core
-    // features must therefore be required unconditionally on the core dependency line rather
-    // than exposed as toggleable php-crate `[features]` — a toggleable feature that no generated
-    // code actually gates is a defect (see `cfg_forwarding` below, which excludes these names).
-    // `core_features_to_add` is deliberately *not* the flat union of every name a function's cfg
-    // mentions: an `any(A, B)` predicate only needs A or B, and here A (`native-http`) is already
-    // requested via the existing `features = [..., "full"]`, so nothing is added for it at all —
-    // see `missing_features_for`'s doc comment for why unioning both arms would be wrong. ~keep
+    // The facade emits cfg-owned functions unconditionally, so their core symbols must be enabled
+    // even while their feature names remain declared/defaulted for Cargo API compatibility.
+    // `missing_features_for` selects only a necessary arm of `any(...)` predicates. ~keep
     let core_features_to_add = php_function_gated_core_features_to_add(api, config);
     let core_overrides = config
         .php

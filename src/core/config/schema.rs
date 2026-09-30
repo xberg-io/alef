@@ -175,7 +175,7 @@ mod tests {
             schema.pointer("/$defs/RawCrateConfig/properties/json_parameter_limits/items/$ref"),
             Some(&json!("#/$defs/JsonParameterLimitConfig"))
         );
-        for property in ["function", "parameter", "max_parameter", "default_max"] {
+        for property in ["operation", "parameter", "max_parameter", "default_max"] {
             assert!(
                 schema
                     .pointer(&format!("/$defs/JsonParameterLimitConfig/properties/{property}"))
@@ -183,6 +183,10 @@ mod tests {
                 "missing schema property {property}"
             );
         }
+        assert_eq!(
+            schema.pointer("/$defs/JsonParameterLimitConfig/properties/default_max/minimum"),
+            Some(&json!(1))
+        );
     }
 
     /// An alef version bump alone must be distinguishable from a config-surface change: it is the

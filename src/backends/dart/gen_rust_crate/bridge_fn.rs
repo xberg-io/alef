@@ -74,12 +74,11 @@ pub(crate) fn emit_bridge_fn(
         .collect();
 
     let has_error = f.error_type.is_some();
-    let conversion_is_fallible = f
-        .params
-        .iter()
-        .any(|param| parameter_needs_checked_conversion(param, types));
-    let wrapper_has_error = has_error || conversion_is_fallible;
-    let (return_ty, has_explicit_return) = if wrapper_has_error {
+    let conversion_is_fallible = has_error
+        && f.params
+            .iter()
+            .any(|param| parameter_needs_checked_conversion(param, types));
+    let (return_ty, has_explicit_return) = if has_error {
         (
             format!(
                 "Result<{}, String>",
@@ -194,7 +193,7 @@ pub(crate) fn emit_bridge_fn(
 
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
-    let mut body = if let Some(plan) = &writeback_plan {
+    let body = if let Some(plan) = &writeback_plan {
         crate::backends::dart::template_env::render(
             "rust_bridge_writeback_body.rs.jinja",
             minijinja::context! {
@@ -230,14 +229,6 @@ pub(crate) fn emit_bridge_fn(
             matches!(f.return_type, TypeRef::Unit),
         )
     };
-
-    if conversion_is_fallible && !has_error {
-        body = if matches!(f.return_type, TypeRef::Unit) {
-            format!("{}    Ok(())\n", body)
-        } else {
-            format!("    Ok({})\n", body.trim())
-        };
-    }
 
     if !pre_call_bindings.is_empty() {
         for binding in &pre_call_bindings {
@@ -492,9 +483,7 @@ fn append_unsigned_field_checks(bindings: &mut Vec<String>, param: &ParamDef, ty
     let Some(type_def) = types.iter().find(|candidate| candidate.name == *type_name) else {
         return;
     };
-    let checks: Vec<String> = type_def
-        .fields
-        .iter()
+    let checks: Vec<String> = crate::codegen::shared::binding_fields(&type_def.fields)
         .filter_map(|field| {
             let TypeRef::Primitive(primitive) = &field.ty else {
                 return None;
@@ -512,9 +501,9 @@ fn append_unsigned_field_checks(bindings: &mut Vec<String>, param: &ParamDef, ty
             let target = primitive_name(primitive);
             let field_name = &field.name;
             Some(if field.optional {
-                format!("if let Some(value) = item.{field_name} {{ {target}::try_from(value).map_err(|_| format!(\"{type_name}.{field_name} is outside the valid {target} range\"))?; }}")
+                format!("if let Some(value) = item.{field_name} {{ {target}::try_from(value).map_err(|_| \"{type_name}.{field_name} is outside the valid {target} range\".to_string())?; }}")
             } else {
-                format!("{target}::try_from(item.{field_name}).map_err(|_| format!(\"{type_name}.{field_name} is outside the valid {target} range\"))?;")
+                format!("{target}::try_from(item.{field_name}).map_err(|_| \"{type_name}.{field_name} is outside the valid {target} range\".to_string())?;")
             })
         })
         .collect();

@@ -29,14 +29,13 @@ use super::publish::PublishConfig;
 use super::service::{HandlerContractConfig, ServiceConfig};
 use super::trait_bridge::TraitBridgeConfig;
 
-/// Bounds deserialization of one raw-JSON collection parameter before the generated bridge
-/// allocates the complete collection. ~keep
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct JsonParameterLimitConfig {
-    pub function: String,
+    pub operation: String,
     pub parameter: String,
     pub max_parameter: String,
+    #[schemars(range(min = 1))]
     pub default_max: u32,
 }
 

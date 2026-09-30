@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
 
 fn make_get_language_fn() -> FunctionDef {
     FunctionDef {
@@ -330,4 +330,18 @@ fn a_list_of_strings_is_serialized_without_a_type_pinned_writer() {
         rendered, "mapper.writeValueAsString(urls)",
         "a list of scalars has no polymorphism to preserve and should stay plain"
     );
+}
+
+#[test]
+fn optional_u32_uses_minus_one_for_none_and_passes_zero_through() {
+    let param = ParamDef {
+        name: "max_findings".to_string(),
+        ty: TypeRef::Primitive(PrimitiveType::U32),
+        optional: true,
+        ..Default::default()
+    };
+
+    let rendered = facade_types::bridge_arg(&param, &HashSet::new());
+
+    assert_eq!(rendered, "maxFindings ?: -1");
 }

@@ -3810,17 +3810,16 @@
     },
     "JsonParameterLimitConfig": {
       "additionalProperties": false,
-      "description": "Bounds deserialization of one raw-JSON collection parameter before the generated bridge\nallocates the complete collection. ~keep",
       "properties": {
         "default_max": {
           "format": "uint32",
-          "minimum": 0,
+          "minimum": 1,
           "type": "integer"
         },
-        "function": {
+        "max_parameter": {
           "type": "string"
         },
-        "max_parameter": {
+        "operation": {
           "type": "string"
         },
         "parameter": {
@@ -3828,7 +3827,7 @@
         }
       },
       "required": [
-        "function",
+        "operation",
         "parameter",
         "max_parameter",
         "default_max"

@@ -366,7 +366,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     enum_names,
                     json_limit: json_parameter_limits
                         .iter()
-                        .find(|limit| limit.function == method.name && limit.parameter == p.name)
+                        .find(|limit| limit.operation == method.name && limit.parameter == p.name)
                         .map(|limit| (limit.max_parameter.as_str(), limit.default_max)),
                 }),
             },
@@ -896,7 +896,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     enum_names,
                     json_limit: json_parameter_limits
                         .iter()
-                        .find(|limit| limit.function == func.name && limit.parameter == p.name)
+                        .find(|limit| limit.operation == func.name && limit.parameter == p.name)
                         .map(|limit| (limit.max_parameter.as_str(), limit.default_max)),
                 }),
             },

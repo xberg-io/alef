@@ -66,14 +66,14 @@ fn validate_json_parameter_limits(api: &ApiSurface, config: &ResolvedCrateConfig
         if limit.default_max == 0 {
             anyhow::bail!(
                 "json_parameter_limits entry for `{}.{}` must set default_max greater than zero",
-                limit.function,
+                limit.operation,
                 limit.parameter
             );
         }
-        if !seen.insert((&limit.function, &limit.parameter)) {
+        if !seen.insert((&limit.operation, &limit.parameter)) {
             anyhow::bail!(
                 "duplicate json_parameter_limits entry for `{}.{}`",
-                limit.function,
+                limit.operation,
                 limit.parameter
             );
         }
@@ -81,25 +81,18 @@ fn validate_json_parameter_limits(api: &ApiSurface, config: &ResolvedCrateConfig
         let candidates: Vec<&[ParamDef]> = api
             .functions
             .iter()
-            .filter(|function| function.name == limit.function)
+            .filter(|function| function.name == limit.operation)
             .map(|function| function.params.as_slice())
-            .chain(
-                api.types
-                    .iter()
-                    .flat_map(|type_def| type_def.methods.iter())
-                    .filter(|method| method.name == limit.function)
-                    .map(|method| method.params.as_slice()),
-            )
             .collect();
         let params = match candidates.as_slice() {
             [] => anyhow::bail!(
-                "json_parameter_limits references unknown function or method `{}`",
-                limit.function
+                "json_parameter_limits references unknown free function `{}`",
+                limit.operation
             ),
             [params] => *params,
             _ => anyhow::bail!(
-                "json_parameter_limits function or method name `{}` is ambiguous",
-                limit.function
+                "json_parameter_limits free function name `{}` is ambiguous",
+                limit.operation
             ),
         };
         let parameter = params
@@ -108,14 +101,16 @@ fn validate_json_parameter_limits(api: &ApiSurface, config: &ResolvedCrateConfig
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "json_parameter_limits references unknown parameter `{}.{}`",
-                    limit.function,
+                    limit.operation,
                     limit.parameter
                 )
             })?;
-        if !matches!(&parameter.ty, TypeRef::Vec(_)) {
+        if parameter.optional
+            || !matches!(&parameter.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
+        {
             anyhow::bail!(
-                "json_parameter_limits parameter `{}.{}` must be a Vec serialized through raw JSON",
-                limit.function,
+                "json_parameter_limits parameter `{}.{}` must be a required Vec of named DTOs serialized through raw JSON",
+                limit.operation,
                 limit.parameter
             );
         }
@@ -125,14 +120,14 @@ fn validate_json_parameter_limits(api: &ApiSurface, config: &ResolvedCrateConfig
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "json_parameter_limits references unknown max_parameter `{}.{}`",
-                    limit.function,
+                    limit.operation,
                     limit.max_parameter
                 )
             })?;
         if !max_parameter.optional || !matches!(&max_parameter.ty, TypeRef::Primitive(PrimitiveType::U32)) {
             anyhow::bail!(
                 "json_parameter_limits max_parameter `{}.{}` must be an optional u32",
-                limit.function,
+                limit.operation,
                 limit.max_parameter
             );
         }
@@ -172,7 +167,7 @@ mod json_parameter_limit_tests {
     fn config() -> ResolvedCrateConfig {
         ResolvedCrateConfig {
             json_parameter_limits: vec![JsonParameterLimitConfig {
-                function: "redact".to_string(),
+                operation: "redact".to_string(),
                 parameter: "findings".to_string(),
                 max_parameter: "max_findings".to_string(),
                 default_max: 10_000,
@@ -198,8 +193,8 @@ mod json_parameter_limit_tests {
     #[test]
     fn rejects_unknown_function_parameter_and_max_parameter() {
         assert!(
-            error_for(|_, config| config.json_parameter_limits[0].function = "missing".into())
-                .contains("unknown function")
+            error_for(|_, config| config.json_parameter_limits[0].operation = "missing".into())
+                .contains("unknown free function")
         );
         assert!(
             error_for(|_, config| config.json_parameter_limits[0].parameter = "missing".into())
@@ -213,7 +208,14 @@ mod json_parameter_limit_tests {
 
     #[test]
     fn rejects_wrong_parameter_and_limit_types() {
-        assert!(error_for(|api, _| api.functions[0].params[0].ty = TypeRef::String).contains("must be a Vec"));
+        assert!(error_for(|api, _| api.functions[0].params[0].ty = TypeRef::String).contains("required Vec"));
+        assert!(
+            error_for(|api, _| {
+                api.functions[0].params[0].ty = TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U32)));
+            })
+            .contains("named DTOs")
+        );
+        assert!(error_for(|api, _| api.functions[0].params[0].optional = true).contains("required Vec"));
         assert!(error_for(|api, _| api.functions[0].params[1].optional = false).contains("optional u32"));
         assert!(
             error_for(|api, _| api.functions[0].params[1].ty = TypeRef::Primitive(PrimitiveType::I32))

@@ -224,3 +224,42 @@ fn configured_vec_limit_streams_and_rejects_max_plus_one_before_the_tail() {
     assert!(output.contains("__alef_findings_deserializer.end()?"), "{output}");
     assert!(!output.contains("serde_json::from_str::<Vec<"), "{output}");
 }
+
+#[test]
+fn bounded_ffi_visitor_returns_limit_before_parsing_malformed_tail() {
+    use serde::de::{DeserializeSeed as _, Visitor};
+
+    struct Seed {
+        max: usize,
+    }
+    impl<'de> Visitor<'de> for Seed {
+        type Value = Vec<u32>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "a bounded array")
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut values = Vec::new();
+            while let Some(value) = sequence.next_element()? {
+                if values.len() >= self.max {
+                    return Err(serde::de::Error::custom("configured maximum exceeded"));
+                }
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+    impl<'de> serde::de::DeserializeSeed<'de> for Seed {
+        type Value = Vec<u32>;
+        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_seq(self)
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str("[1, 2, malformed]");
+    let error = Seed { max: 1 }.deserialize(&mut deserializer).unwrap_err().to_string();
+    assert!(error.contains("configured maximum exceeded"), "{error}");
+    assert!(
+        !error.contains("expected value"),
+        "malformed tail was parsed first: {error}"
+    );
+}

@@ -643,3 +643,80 @@ fn generate_bindings_rejects_mut_dto_param_with_non_unit_return() {
         "diagnostic must name the offending function:\n{message}"
     );
 }
+
+#[test]
+fn promoted_required_method_and_constructor_parameters_return_invalid_arg() {
+    use super::constructors::napi_variant_wrapper_constructor;
+    use super::types::{gen_opaque_instance_method, gen_static_method};
+    use crate::backends::napi::type_map::NapiMapper;
+    use crate::core::ir::{MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+    use std::collections::HashMap;
+
+    let params = vec![
+        ParamDef {
+            name: "label".into(),
+            ty: TypeRef::String,
+            optional: true,
+            ..Default::default()
+        },
+        ParamDef {
+            name: "limit".into(),
+            ty: TypeRef::Primitive(PrimitiveType::U32),
+            ..Default::default()
+        },
+    ];
+    let instance = MethodDef {
+        name: "apply".into(),
+        params: params.clone(),
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        receiver: Some(ReceiverKind::Ref),
+        ..Default::default()
+    };
+    let static_method = MethodDef {
+        name: "build".into(),
+        params: params.clone(),
+        return_type: TypeRef::Named("Widget".into()),
+        ..Default::default()
+    };
+    let constructor = MethodDef {
+        name: "new".into(),
+        params,
+        return_type: TypeRef::Named("Widget".into()),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Widget".into(),
+        rust_path: "sample_core::Widget".into(),
+        is_opaque: true,
+        is_variant_wrapper: true,
+        methods: vec![instance.clone(), static_method.clone(), constructor],
+        ..Default::default()
+    };
+    let mapper = NapiMapper::new("Js".into());
+    let cfg = NapiBackend::binding_config("sample_core", "Js", true);
+    let empty = AHashSet::new();
+    let instance_output = gen_opaque_instance_method(
+        &instance,
+        &mapper,
+        &typ,
+        &cfg,
+        &empty,
+        "Js",
+        &crate::adapters::AdapterBodies::new(),
+        &ahash::AHashMap::new(),
+        &empty,
+        &HashMap::new(),
+    );
+    let static_output = gen_static_method(&static_method, &mapper, &typ, &cfg, &empty, "Js", &empty);
+    let constructor_output = napi_variant_wrapper_constructor(&typ, &mapper, "sample_core", "Js").unwrap();
+
+    for output in [&instance_output, &static_output, &constructor_output] {
+        assert!(output.contains("label: Option<String>, limit: Option<u32>"), "{output}");
+        assert!(output.contains("limit.ok_or_else"), "{output}");
+        assert!(
+            output.contains("-> Result") || output.contains("-> napi::Result"),
+            "{output}"
+        );
+        assert!(!output.contains("expect("), "{output}");
+    }
+}

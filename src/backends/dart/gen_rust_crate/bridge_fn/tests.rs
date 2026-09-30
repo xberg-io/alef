@@ -305,7 +305,7 @@ fn emit(f: &FunctionDef) -> String {
 }
 
 #[test]
-fn optional_u32_makes_infallible_bridge_fallible_and_preserves_zero() {
+fn optional_u32_is_checked_in_fallible_bridge_and_preserves_zero() {
     let f = FunctionDef {
         name: "bounded".to_string(),
         rust_path: "sample_crate::bounded".to_string(),
@@ -317,6 +317,7 @@ fn optional_u32_makes_infallible_bridge_fallible_and_preserves_zero() {
             true,
         )],
         return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
         ..FunctionDef::default()
     };
 
@@ -329,11 +330,12 @@ fn optional_u32_makes_infallible_bridge_fallible_and_preserves_zero() {
         !generated.contains("filter(|"),
         "Some(0) must not be treated as absent: {generated}"
     );
-    assert!(generated.contains("Ok(())"), "{generated}");
+    assert!(generated.contains(".to_string()"), "{generated}");
+    assert!(!generated.contains("format!("), "{generated}");
 }
 
 #[test]
-fn dto_unsigned_offsets_are_checked_before_infallible_core_call() {
+fn dto_unsigned_offsets_are_checked_before_fallible_core_call() {
     let f = FunctionDef {
         name: "redact".to_string(),
         rust_path: "sample_crate::redact".to_string(),
@@ -345,6 +347,7 @@ fn dto_unsigned_offsets_are_checked_before_infallible_core_call() {
             false,
         )],
         return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
         ..FunctionDef::default()
     };
     let finding = TypeDef {
@@ -377,7 +380,49 @@ fn dto_unsigned_offsets_are_checked_before_infallible_core_call() {
         generated.contains("Finding.start is outside the valid usize range"),
         "{generated}"
     );
-    assert!(generated.contains("Ok(())"), "{generated}");
+    assert!(generated.contains(".to_string())?"), "{generated}");
+    assert!(!generated.contains("format!("), "{generated}");
+}
+
+#[test]
+fn unsigned_dto_does_not_change_an_infallible_public_signature() {
+    let f = FunctionDef {
+        name: "rank".to_string(),
+        rust_path: "sample_crate::rank".to_string(),
+        params: vec![make_param(
+            "matches",
+            TypeRef::Vec(Box::new(TypeRef::Named("Match".to_string()))),
+            false,
+            false,
+            false,
+        )],
+        return_type: TypeRef::Unit,
+        ..FunctionDef::default()
+    };
+    let match_type = TypeDef {
+        name: "Match".to_string(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "offset".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Usize),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut generated = String::new();
+    emit_bridge_fn(
+        &mut generated,
+        &f,
+        "sample_crate",
+        &std::collections::HashMap::new(),
+        &std::collections::HashSet::from(["Match".to_string()]),
+        &std::collections::HashSet::new(),
+        &[],
+        &[match_type],
+    )
+    .expect("emit bridge");
+
+    assert!(!generated.contains("Result<"), "{generated}");
+    assert!(!generated.contains("usize::try_from"), "{generated}");
 }
 
 #[test]

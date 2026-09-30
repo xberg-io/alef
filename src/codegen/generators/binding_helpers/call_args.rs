@@ -269,7 +269,7 @@ pub fn gen_call_args_cfg(
 /// `String` (PyO3, extendr, Magnus) must use [`gen_call_args_with_let_bindings_json_str`] so the
 /// String is parsed into `serde_json::Value` at the call site.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false).join(", ")
+    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false, true).join(", ")
 }
 
 /// Like [`gen_call_args_with_let_bindings`] but converts `String`-typed Json params into
@@ -286,7 +286,7 @@ pub fn gen_call_args_with_let_bindings_json_str_vec(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
 ) -> Vec<String> {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, true, false, false)
+    gen_call_args_with_let_bindings_inner(params, opaque_types, true, false, false, true)
 }
 
 /// Like [`gen_call_args_with_let_bindings_json_str_vec`] but additionally casts primitive params
@@ -300,7 +300,14 @@ pub fn gen_call_args_with_let_bindings_json_str_cast_vec(
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
 ) -> Vec<String> {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, true, cast_uints_to_i32, cast_large_ints_to_f64)
+    gen_call_args_with_let_bindings_inner(
+        params,
+        opaque_types,
+        true,
+        cast_uints_to_i32,
+        cast_large_ints_to_f64,
+        true,
+    )
 }
 
 fn gen_call_args_with_let_bindings_inner(
@@ -309,12 +316,13 @@ fn gen_call_args_with_let_bindings_inner(
     json_from_str: bool,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    promote: bool,
 ) -> Vec<String> {
     params
         .iter()
         .enumerate()
         .map(|(idx, p)| {
-            let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
+            let promoted = promote && crate::codegen::shared::is_promoted_optional(params, idx);
             // Only emit `.expect()` when the core param type is itself `Option<T>`
             // calling `.expect()` on it would be a type error.
             let unwrap_suffix = if promoted && p.optional {
@@ -522,7 +530,15 @@ pub fn gen_call_args_with_let_bindings_mutex(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false)
+    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false, true)
+}
+
+pub fn gen_call_args_with_let_bindings_mutex_no_promote(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false, false)
 }
 
 /// Like [`gen_call_args_with_let_bindings_mutex`] but parses `String`-typed Json params into
@@ -543,6 +559,7 @@ pub fn gen_call_args_with_let_bindings_mutex_json_str(
         true,
         cast_uints_to_i32,
         cast_large_ints_to_f64,
+        true,
     )
 }
 
@@ -553,6 +570,7 @@ fn gen_call_args_with_let_bindings_mutex_inner(
     json_from_str: bool,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    promote: bool,
 ) -> String {
     let base = gen_call_args_with_let_bindings_inner(
         params,
@@ -560,6 +578,7 @@ fn gen_call_args_with_let_bindings_mutex_inner(
         json_from_str,
         cast_uints_to_i32,
         cast_large_ints_to_f64,
+        promote,
     )
     .join(", ");
 

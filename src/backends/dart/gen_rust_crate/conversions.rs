@@ -210,14 +210,14 @@ pub(crate) fn dart_call_arg_checked(p: &ParamDef, checked: bool) -> String {
                 )
             {
                 let conversion = format!(
-                    "{target}::try_from(v).map_err(|_| format!(\"parameter '{}' must be between 0 and {target}::MAX\"))",
+                    "{target}::try_from(v).map_err(|_| \"parameter '{}' must be between 0 and {target}::MAX\".to_string())",
                     p.name
                 );
                 if p.optional {
                     return format!("{name}.map(|v| {conversion}).transpose()?");
                 }
                 return format!(
-                    "{target}::try_from({name}).map_err(|_| format!(\"parameter '{name}' must be between 0 and {target}::MAX\"))?"
+                    "{target}::try_from({name}).map_err(|_| \"parameter '{name}' must be between 0 and {target}::MAX\".to_string())?"
                 );
             }
             if p.optional {

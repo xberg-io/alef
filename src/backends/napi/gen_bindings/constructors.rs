@@ -20,6 +20,7 @@ pub(super) fn napi_variant_wrapper_constructor(
     let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
     let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
     let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    let required_prefix = super::functions::promoted_required_prefix(&ctor.params);
 
     let call_args = ctor
         .params
@@ -56,11 +57,20 @@ pub(super) fn napi_variant_wrapper_constructor(
     } else {
         format!("std::sync::Arc::new({new_call})")
     };
-    let body = format!("Self {{ inner: {inner_expr} }}");
-    let fn_sig = if sig_params.is_empty() {
-        "pub fn new_constructor() -> Self".to_string()
+    let body = if required_prefix.is_empty() {
+        format!("Self {{ inner: {inner_expr} }}")
     } else {
-        format!("pub fn new_constructor({sig_params}) -> Self")
+        format!("{required_prefix}Ok(Self {{ inner: {inner_expr} }})")
+    };
+    let return_type = if required_prefix.is_empty() {
+        "Self"
+    } else {
+        "napi::Result<Self>"
+    };
+    let fn_sig = if sig_params.is_empty() {
+        format!("pub fn new_constructor() -> {return_type}")
+    } else {
+        format!("pub fn new_constructor({sig_params}) -> {return_type}")
     };
     Some(format!(
         "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    {fn_sig} {{\n        {body}\n    }}\n}}\n",

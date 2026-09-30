@@ -209,7 +209,7 @@ fn free_fn_mixing_named_ref_optional_json_and_map_delegates_correctly() {
         "NAPI Json params are already serde_json::Value and must not be re-parsed:\n{content}"
     );
     assert!(
-        content.contains("&context.unwrap_or_default().into_iter().collect::<std::collections::BTreeMap<_, _>>()"),
+        content.contains("&context.into_iter().collect::<std::collections::BTreeMap<_, _>>()"),
         "promoted &BTreeMap param should be collected and borrowed:\n{content}"
     );
 }

@@ -22,6 +22,46 @@ use ahash::AHashSet;
 
 use crate::backends::napi::type_map::NapiMapper;
 
+pub(super) fn promoted_required(params: &[crate::core::ir::ParamDef]) -> Vec<&crate::core::ir::ParamDef> {
+    params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parameter)| shared::is_promoted_optional(params, index).then_some(parameter))
+        .collect()
+}
+
+pub(super) fn promoted_required_prefix(params: &[crate::core::ir::ParamDef]) -> String {
+    promoted_required(params)
+        .iter()
+        .map(|parameter| {
+            format!(
+                "let {} = {}.ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing required parameter '{}'\"))?;\n    ",
+                parameter.name, parameter.name, parameter.name
+            )
+        })
+        .collect()
+}
+
+pub(super) fn wrap_promoted_required_body(
+    body: String,
+    params: &[crate::core::ir::ParamDef],
+    core_has_error: bool,
+    is_async: bool,
+    returns_unit: bool,
+) -> String {
+    let prefix = promoted_required_prefix(params);
+    if prefix.is_empty() {
+        return body;
+    }
+    if core_has_error || (is_async && returns_unit) {
+        format!("{prefix}{body}")
+    } else if returns_unit {
+        format!("{prefix}{body};\n    Ok(())")
+    } else {
+        format!("{prefix}Ok({{ {body} }})")
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function(
     func: &FunctionDef,
@@ -98,12 +138,7 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let promoted_required: Vec<&crate::core::ir::ParamDef> = func
-        .params
-        .iter()
-        .enumerate()
-        .filter_map(|(index, parameter)| shared::is_promoted_optional(&func.params, index).then_some(parameter))
-        .collect();
+    let promoted_required = promoted_required(&func.params);
     let return_annotation =
         mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
 
@@ -128,7 +163,11 @@ pub(super) fn gen_function(
         || func.params.iter().any(|p| needs_vec_f32_conversion(&p.ty))
         || func.params.iter().any(|p| is_bytes_param(&p.ty));
     let call_args = if use_let_bindings {
-        let base_args = generators::gen_call_args_with_let_bindings_mutex(&func.params, opaque_types, mutex_types);
+        let base_args = if promoted_required.is_empty() {
+            generators::gen_call_args_with_let_bindings_mutex(&func.params, opaque_types, mutex_types)
+        } else {
+            generators::gen_call_args_with_let_bindings_mutex_no_promote(&func.params, opaque_types, mutex_types)
+        };
         napi_apply_primitive_casts_to_call_args(&base_args, &func.params)
     } else {
         napi_gen_call_args(&func.params, opaque_types)
@@ -182,12 +221,16 @@ pub(super) fn gen_function(
         }
     } else if func.is_async {
         let mut let_bindings = if use_let_bindings {
-            generators::gen_named_let_bindings_with_augmented(
-                &augmented_params,
-                &func.params,
-                opaque_types,
-                core_import,
-            )
+            if promoted_required.is_empty() {
+                generators::gen_named_let_bindings_with_augmented(
+                    &augmented_params,
+                    &func.params,
+                    opaque_types,
+                    core_import,
+                )
+            } else {
+                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+            }
         } else {
             String::new()
         };
@@ -228,12 +271,16 @@ pub(super) fn gen_function(
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
         let mut let_bindings = if use_let_bindings {
-            generators::gen_named_let_bindings_with_augmented(
-                &augmented_params,
-                &func.params,
-                opaque_types,
-                core_import,
-            )
+            if promoted_required.is_empty() {
+                generators::gen_named_let_bindings_with_augmented(
+                    &augmented_params,
+                    &func.params,
+                    opaque_types,
+                    core_import,
+                )
+            } else {
+                generators::gen_named_let_bindings_no_promote(&func.params, opaque_types, core_import)
+            }
         } else {
             String::new()
         };
@@ -294,24 +341,13 @@ pub(super) fn gen_function(
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
-    let required_prefix: String = promoted_required
-        .iter()
-        .map(|parameter| {
-            format!(
-                "let {} = {}.ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing required parameter '{}'\"))?;\n    ",
-                parameter.name, parameter.name, parameter.name
-            )
-        })
-        .collect();
-    let body = if required_prefix.is_empty() {
-        body
-    } else if func.error_type.is_some() {
-        format!("{required_prefix}{body}")
-    } else if matches!(func.return_type, TypeRef::Unit) {
-        format!("{required_prefix}{body};\n    Ok(())")
-    } else {
-        format!("{required_prefix}Ok({body})")
-    };
+    let body = wrap_promoted_required_body(
+        body,
+        &func.params,
+        func.error_type.is_some(),
+        func.is_async,
+        matches!(func.return_type, TypeRef::Unit),
+    );
     crate::backends::napi::template_env::render(
         "function_wrapper.jinja",
         minijinja::context! {
@@ -499,6 +535,55 @@ mod tests {
         );
         assert!(output.contains("-> Result<()>"), "{output}");
         assert!(!output.contains("expect(\"'max' is required\")"), "{output}");
+    }
+
+    #[test]
+    fn async_named_and_vec_required_parameters_after_optional_are_unwrapped_once() {
+        use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+
+        let func = FunctionDef {
+            name: "configure".to_owned(),
+            rust_path: "sample_core::configure".to_owned(),
+            params: vec![
+                ParamDef {
+                    name: "label".into(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "record".into(),
+                    ty: TypeRef::Named("Record".into()),
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "records".into(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("Record".into()))),
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Named("Record".into()),
+            is_async: true,
+            ..Default::default()
+        };
+
+        let output = gen_probe_function(&func);
+        assert!(
+            output.contains("record: Option<JsRecord>, records: Option<Vec<JsRecord>>"),
+            "{output}"
+        );
+        assert!(output.contains("record.ok_or_else"), "{output}");
+        assert!(output.contains("records.ok_or_else"), "{output}");
+        assert!(
+            output.contains("let record_core: sample_core::Record = record.into();"),
+            "{output}"
+        );
+        assert!(
+            output.contains("let records_core: Vec<_> = records.into_iter().map(Into::into).collect();"),
+            "{output}"
+        );
+        assert!(!output.contains(".expect("), "{output}");
+        assert!(output.contains("-> Result<JsRecord>"), "{output}");
     }
 
     /// Regression test for issue #380 (async path): a `&mut T` DTO parameter on a unit-returning
