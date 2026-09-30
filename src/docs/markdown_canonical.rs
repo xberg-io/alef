@@ -66,29 +66,32 @@ pub(super) fn canonicalize_rustdoc_markdown(doc: &str) -> String {
 pub(super) fn markdown_to_table_cell_inline(doc: &str) -> String {
     let mut parts = Vec::new();
     let mut code_lines = Vec::new();
-    let mut in_fence = false;
+    let mut fence_ticks = None;
 
     for line in doc.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("```") {
-            if in_fence {
-                parts.push(render_inline_code(&code_lines.join(" ")));
-                code_lines.clear();
+        if let Some(event) = fence_event(line, fence_ticks) {
+            match event {
+                FenceEvent::Open(ticks) => fence_ticks = Some(ticks),
+                FenceEvent::Close => {
+                    fence_ticks = None;
+                    parts.push(render_inline_code(&code_lines.join(" ")));
+                    code_lines.clear();
+                }
             }
-            in_fence = !in_fence;
             continue;
         }
         if trimmed.is_empty() {
             continue;
         }
-        if in_fence {
+        if fence_ticks.is_some() {
             code_lines.push(trimmed);
         } else {
             parts.push(trimmed.to_string());
         }
     }
 
-    if in_fence && !code_lines.is_empty() {
+    if fence_ticks.is_some() && !code_lines.is_empty() {
         parts.push(render_inline_code(&code_lines.join(" ")));
     }
 
