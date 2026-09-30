@@ -21,9 +21,11 @@ pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
     let inner = match param.original_type.as_deref() {
         Some(original) if param.is_ref => {
             let borrow = if param.is_mut { "&mut " } else { "&" };
-            format!("{borrow}{original}")
+            let source_type =
+                decode_tuple_original_type(original, param.optional).unwrap_or_else(|| original.to_string());
+            format!("{borrow}{source_type}")
         }
-        Some(original) => original.to_string(),
+        Some(original) => decode_tuple_original_type(original, param.optional).unwrap_or_else(|| original.to_string()),
         None => rust_borrowed_type(
             &param.ty,
             param.is_ref,
@@ -37,6 +39,37 @@ pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
     } else {
         inner
     }
+}
+
+/// Decode the recursive `TypeRef::Debug` shapes the extractor stores for tuple parameters.
+///
+/// The outer `Optional` is omitted because `ParamDef::optional` renders it after borrow placement;
+/// nested optionals still render normally. Other `Debug` variants are deliberately rejected so a
+/// future extractor metadata change cannot silently turn arbitrary IR diagnostics into Rust. ~keep
+fn decode_tuple_original_type(original: &str, omit_outer_optional: bool) -> Option<String> {
+    let original = if omit_outer_optional {
+        debug_variant_inner(original, "Optional").unwrap_or(original)
+    } else {
+        original
+    };
+
+    if let Some(named) = original
+        .strip_prefix("Named(\"")
+        .and_then(|value| value.strip_suffix("\")"))
+    {
+        return named.starts_with('(').then(|| named.to_string());
+    }
+    if let Some(inner) = debug_variant_inner(original, "Vec") {
+        return decode_tuple_original_type(inner, false).map(|inner| format!("Vec<{inner}>"));
+    }
+    if let Some(inner) = debug_variant_inner(original, "Optional") {
+        return decode_tuple_original_type(inner, false).map(|inner| format!("Option<{inner}>"));
+    }
+    None
+}
+
+fn debug_variant_inner<'a>(original: &'a str, variant: &str) -> Option<&'a str> {
+    original.strip_prefix(variant)?.strip_prefix('(')?.strip_suffix(')')
 }
 
 /// Render `field` as the Rust source type the struct declares.
@@ -157,6 +190,31 @@ mod tests {
             rust_param_type(&make_param("data", TypeRef::Bytes, false), TEST_PREFIX),
             "Vec<u8>"
         );
+    }
+
+    #[test]
+    fn tuple_debug_types_render_through_vec_and_optional_wrappers() {
+        let mut direct = make_param("entry", TypeRef::String, false);
+        direct.original_type = Some("Named(\"(String, u32)\")".to_string());
+        assert_eq!(rust_param_type(&direct, TEST_PREFIX), "(String, u32)");
+
+        let mut nested = make_param("entries", TypeRef::String, false);
+        nested.original_type = Some("Vec(Optional(Named(\"(String, u32)\")))".to_string());
+        assert_eq!(rust_param_type(&nested, TEST_PREFIX), "Vec<Option<(String, u32)>>");
+
+        let mut optional_borrow = make_ref_param("entries", TypeRef::String, true);
+        optional_borrow.original_type = Some("Optional(Vec(Named(\"(String, u32)\")))".to_string());
+        assert_eq!(
+            rust_param_type(&optional_borrow, TEST_PREFIX),
+            "Option<&Vec<(String, u32)>>"
+        );
+    }
+
+    #[test]
+    fn ordinary_original_types_remain_unchanged() {
+        let mut param = make_param("policy", TypeRef::String, false);
+        param.original_type = Some("two::Policy".to_string());
+        assert_eq!(rust_param_type(&param, TEST_PREFIX), "two::Policy");
     }
 
     /// ~keep Reproduces the lossless fixed-size-array lowering the extract sanitizer performs

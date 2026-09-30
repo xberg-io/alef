@@ -98,3 +98,60 @@ fn qualified_rust_only_enum_sample_from_extraction_typechecks_with_an_ambiguous_
         String::from_utf8_lossy(&example_output.stderr)
     );
 }
+
+#[test]
+fn skipped_tuple_param_renders_as_rust_syntax_after_extraction() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        #[cfg_attr(alef, alef(skip))]
+        pub fn record(entry: (String, u32)) {
+            let _ = entry;
+        }
+        "#,
+    )
+    .expect("write fixture");
+
+    let mut api =
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample", "0.0.0", None).expect("extract fixture");
+    strip_binding_excluded(&mut api).expect("strip binding exclusions");
+    sanitize_unknown_types(&mut api);
+
+    let record = api
+        .functions
+        .iter()
+        .find(|function| function.name == "record")
+        .expect("record function");
+    assert!(record.binding_excluded);
+    assert_eq!(
+        record.params[0].original_type.as_deref(),
+        Some("Named(\"(String, u32)\")")
+    );
+
+    let config: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+        [workspace]
+        languages = ["rust"]
+
+        [[crates]]
+        name = "sample"
+        sources = ["src/lib.rs"]
+        "#,
+    )
+    .expect("valid config");
+    let config = config.resolve().expect("resolved config").remove(0);
+    let files = crate::docs::generate_docs(&api, &config, &[crate::core::config::Language::Rust], "out")
+        .expect("generate docs");
+    let rust = files
+        .iter()
+        .find(|file| file.path.ends_with("api-rust.md"))
+        .expect("Rust reference");
+
+    assert!(
+        rust.content.contains("pub fn record(entry: (String, u32))"),
+        "Rust docs must render the tuple type as Rust syntax; got:\n{}",
+        rust.content
+    );
+}
