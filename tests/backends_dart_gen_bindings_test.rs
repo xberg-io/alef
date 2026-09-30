@@ -513,7 +513,9 @@ fn module_file_imports_traits_dart_when_a_trait_is_referenced() {
     };
 
     let mut config = make_config_with_bridge("OcrBackend");
-    config.trait_bridges[0].register_fn = Some("register_ocr_backend".to_string());
+    config.update_trait_bridge(0, |bridge| {
+        bridge.register_fn = Some("register_ocr_backend".to_string())
+    });
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let content = files
@@ -1307,7 +1309,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
 
 fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
@@ -1327,7 +1329,7 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     config
 }
 
@@ -1497,7 +1499,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
     };
 
     let mut config = make_config();
-    config.trait_bridges = vec![
+    config.replace_trait_bridges(vec![
         TraitBridgeConfig {
             exclude_functions: Vec::new(),
             trait_name: "OcrBackend".to_string(),
@@ -1540,7 +1542,7 @@ fn multiple_trait_bridges_emit_multiple_abstract_classes() {
             context_type: None,
             result_type: None,
         },
-    ];
+    ]);
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let content = find_traits_dart(&files).expect("traits.dart should be emitted");
@@ -1591,7 +1593,7 @@ fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
     };
 
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -1611,7 +1613,7 @@ fn excluded_trait_bridge_emits_empty_traits_dart_stub() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let content = find_traits_dart(&files).expect("traits.dart should be emitted as an exported stub");
@@ -1711,7 +1713,7 @@ fn traits_dart_doc_comment_shows_registration_pattern() {
 
 fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
@@ -1729,7 +1731,7 @@ fn make_config_with_full_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig 
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     config
 }
 

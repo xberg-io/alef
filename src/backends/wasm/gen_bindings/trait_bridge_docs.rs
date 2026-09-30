@@ -4,7 +4,7 @@
 
 use crate::codegen::generators::trait_bridge::to_camel_case;
 use crate::core::backend::TraitBridgeRegistrationSurface;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
 
 /// The `exclude_languages` spellings that name this target. WASM has no second spelling — the
@@ -23,7 +23,7 @@ pub(super) fn targets_wasm(bridge: &TraitBridgeConfig) -> bool {
 /// the opaque-alias set, and `WasmBackend::trait_bridge_registration_surface` — iterates this,
 /// so no pass can wire up a bridge another pass skipped. ~keep
 pub(super) fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &TraitBridgeConfig> {
-    config.trait_bridges.iter().filter(|bridge| targets_wasm(bridge))
+    config.trait_bridges_for(Language::Wasm)
 }
 
 /// The trait a bridge wraps, when WASM emits that bridge at all.
@@ -56,8 +56,7 @@ pub(super) fn registration_surface(
     config: &ResolvedCrateConfig,
 ) -> Vec<TraitBridgeRegistrationSurface> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Wasm)
         .filter_map(|bridge| {
             let trait_def = active_bridge_trait(bridge, api)?;
             // A visitor bridge takes `gen_visitor_bridge`, which emits no registry API. ~keep

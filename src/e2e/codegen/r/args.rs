@@ -242,7 +242,9 @@ pub(super) fn build_args_string(
             // `test_backend` arg type: emit a test stub for trait implementations.
             if arg.arg_type == "test_backend" {
                 if let Some(trait_name) = &arg.trait_name
-                    && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    && let Some(trait_bridge) = config
+                        .trait_bridges_for(crate::core::config::Language::R)
+                        .find(|tb| tb.trait_name == *trait_name) {
                         let methods: Vec<&crate::core::ir::MethodDef> = type_defs
                             .iter()
                             .find(|t| t.name == *trait_name)

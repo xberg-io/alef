@@ -387,8 +387,7 @@ impl Backend for SwiftBackend {
         }
 
         let result_type_enums: std::collections::HashSet<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Swift)
             .filter_map(|b| b.result_type.as_deref().map(|s| s.to_string()))
             .collect();
 
@@ -663,8 +662,7 @@ impl Backend for SwiftBackend {
         }
 
         let trait_bridge_configs: Vec<(String, &TraitBridgeConfig, &TypeDef)> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Swift)
             .filter_map(|b| {
                 api.types
                     .iter()
@@ -807,8 +805,7 @@ impl Backend for SwiftBackend {
         config: &ResolvedCrateConfig,
     ) -> Vec<TraitBridgeRegistrationSurface> {
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Swift)
             .filter(|bridge| bridge.bind_via == BridgeBinding::FunctionParam)
             .filter(|bridge| bridge.is_active_for("swift"))
             .filter(|bridge| {

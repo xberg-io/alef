@@ -6,7 +6,7 @@ use crate::backends::kotlin_android::naming;
 use crate::backends::kotlin_android::template_env;
 use crate::backends::kotlin_android::trait_bridge;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
 use crate::core::jni::bridge_class_name;
 
@@ -26,7 +26,7 @@ pub(super) fn emit_trait_interfaces(
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
-    for bridge in &config.trait_bridges {
+    for bridge in config.trait_bridges_for(Language::KotlinAndroid) {
         if bridge.exclude_languages.iter().any(|l| l == "kotlin_android")
             && let Some(alias) = &bridge.type_alias
         {
@@ -43,7 +43,7 @@ pub(super) fn emit_trait_interfaces(
         effective_excluded_types.insert(name.clone());
     }
 
-    for bridge in &config.trait_bridges {
+    for bridge in config.trait_bridges_for(Language::KotlinAndroid) {
         if bridge
             .exclude_languages
             .iter()

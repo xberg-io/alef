@@ -164,8 +164,7 @@ impl Backend for Pyo3Backend {
             .map(|e| e.name.clone())
             .collect();
         let bridge_type_aliases: Vec<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Python)
             .filter(|b| crate::backends::pyo3::trait_bridge::active_bridge_trait(b, api).is_some())
             .filter_map(|b| b.type_alias.clone())
             .collect();
@@ -260,8 +259,7 @@ impl Backend for Pyo3Backend {
             .unwrap_or_default();
         // otherwise emit as a SECOND `#[pyfunction]` of the same Rust name — a redefinition
         let bridge_duck_register_fns: AHashSet<&str> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Python)
             .filter(|b| crate::backends::pyo3::trait_bridge::active_bridge_trait(b, api).is_some())
             .filter_map(|b| crate::codegen::generators::trait_bridge::bridge_register_symbol(b))
             .collect();
@@ -870,8 +868,7 @@ impl Backend for Pyo3Backend {
         config: &ResolvedCrateConfig,
     ) -> Vec<crate::core::backend::TraitBridgeRegistrationSurface> {
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Python)
             .filter_map(|bridge| {
                 crate::backends::pyo3::trait_bridge::active_bridge_trait(bridge, api)?;
                 let surface = crate::core::backend::TraitBridgeRegistrationSurface {

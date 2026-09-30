@@ -2279,7 +2279,7 @@ fn test_napi_async_method_body_dispatches_through_threadsafe_function_and_awaits
 fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
     let backend = NapiBackend;
     let mut config = make_config();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -2287,7 +2287,7 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
         unregister_fn: Some("unregister_ocr_backend".to_string()),
         clear_fn: Some("clear_ocr_backends".to_string()),
         ..Default::default()
-    }];
+    }]);
 
     let mut process = make_method_napi(
         "process_image",
@@ -3533,13 +3533,13 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
 fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
     let backend = NapiBackend;
     let mut config = make_config();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Renderer".to_string(),
         type_alias: Some("RendererHandle".to_string()),
         context_type: Some("RenderContext".to_string()),
         result_type: Some("RenderResult".to_string()),
         ..Default::default()
-    }];
+    }]);
     let api = ApiSurface {
         unresolved_modules: Vec::new(),
         crate_name: "test-lib".to_string(),

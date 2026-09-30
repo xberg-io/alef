@@ -83,8 +83,7 @@ pub(crate) fn gen_main_class(
         .collect();
 
     let clear_fn_handles: AHashMap<String, String> = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Java)
         .filter_map(|b| {
             b.clear_fn.as_ref().map(|clear_fn| {
                 let trait_snake_upper = b.trait_name.to_snake_case().to_uppercase();

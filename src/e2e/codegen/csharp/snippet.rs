@@ -109,9 +109,9 @@ pub(super) fn render_snippet_body_with_ir(
         // name, which publishes a documentation example that does not compile. Matches
         // `php::snippet` and `go::snippet`. Intentional omissions belong in the
         // fixture's `docs.coverage_exceptions`, where the reason is visible. ~keep
-        let Some(options_type) =
-            options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
-        else {
+        let Some(options_type) = options_type.or_else(|| {
+            crate::e2e::codegen::recipe::trait_bridge_options_type(config, crate::core::config::Language::Csharp)
+        }) else {
             bail!(
                 "C# documentation snippet `{}` needs an options type for its visitor",
                 fixture.id

@@ -77,7 +77,7 @@ fn excluded_ruby_function_param_bridge_emits_no_wrapper_reference() {
     };
     let generate = |bridge: alef::core::config::TraitBridgeConfig| {
         let mut config = make_config();
-        config.trait_bridges = vec![bridge];
+        config.replace_trait_bridges(vec![bridge]);
         MagnusBackend
             .generate_bindings(&api, &config)
             .expect("generate magnus bindings")
@@ -5110,7 +5110,7 @@ fn magnus_function_param_bridge_caches_companion_name() {
         ..FunctionDef::default()
     });
     let mut config = make_config();
-    config.trait_bridges = vec![bridge];
+    config.replace_trait_bridges(vec![bridge]);
 
     let files = MagnusBackend
         .generate_bindings(&api, &config)

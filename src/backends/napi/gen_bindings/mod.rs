@@ -408,7 +408,7 @@ impl Backend for NapiBackend {
             if exclude_functions.contains(&func.name) {
                 continue;
             }
-            if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            if config.trait_bridge_manages_function(&func.name) {
                 continue;
             }
             crate::codegen::mut_writeback::reject_unsupported_writeback(
@@ -914,8 +914,7 @@ impl Backend for NapiBackend {
     ) -> Vec<TraitBridgeRegistrationSurface> {
         use crate::codegen::generators::trait_bridge::to_camel_case;
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Node)
             .filter_map(|bridge| {
                 let trait_def = crate::backends::napi::trait_bridge::active_bridge_trait(bridge, api)?;
                 // A visitor bridge takes `gen_visitor_bridge`, which emits no registry API. ~keep

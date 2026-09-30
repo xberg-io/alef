@@ -69,7 +69,7 @@ pub(crate) fn scaffold_ruby_cargo(
 
     let extra_deps = render_extra_deps(config, Language::Ruby);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Ruby).next().is_some();
     let has_streaming_adapter = config
         .adapters
         .iter()
@@ -678,7 +678,7 @@ fn ruby_function_is_callable_seed_target(
         && !f.return_sanitized
         && crate::codegen::shared::can_auto_delegate_function(f, &ahash::AHashSet::default())
         && crate::backends::magnus::ruby_public_function_name(f) == f.name
-        && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
+        && !config.trait_bridge_manages_function(&f.name)
 }
 
 /// The RSpec matcher asserting that a returned value has the Ruby type the Magnus type map

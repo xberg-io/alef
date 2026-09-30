@@ -17,9 +17,7 @@ fn emit_trait_bridge_shims(
     bridge: &str,
 ) {
     let bridges: Vec<_> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| !b.exclude_languages.iter().any(|l| l == "kotlin_android"))
+        .trait_bridges_for(crate::core::config::Language::KotlinAndroid)
         .collect();
     if bridges.is_empty() {
         return;

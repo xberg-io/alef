@@ -178,8 +178,7 @@ fn emit_lib_rs(
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
 
     let has_excluded_type_trait_bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Dart)
         .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
         .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
         .flat_map(|trait_def| trait_def.methods.iter())
@@ -437,8 +436,7 @@ fn emit_lib_rs(
         .filter(|name| types_needing_from_conversion.contains(name))
         .chain(
             config
-                .trait_bridges
-                .iter()
+                .trait_bridges_for(Language::Dart)
                 .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
                 .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
                 .flat_map(|trait_def| trait_def.methods.iter())
@@ -549,9 +547,7 @@ fn emit_lib_rs(
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .filter(|f| !opaque::has_unbridgeable_param(f))
-        .filter(|f| {
-            !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
-        })
+        .filter(|f| !config.trait_bridge_manages_function(&f.name))
     {
         content.push('\n');
         emit_bridge_fn(
@@ -587,7 +583,7 @@ fn emit_lib_rs(
     }
 
     let dart_backend_name = "dart";
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Dart) {
         if bridge_cfg.exclude_languages.iter().any(|l| l == dart_backend_name) {
             continue;
         }

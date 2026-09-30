@@ -82,9 +82,7 @@ impl Backend for DartBackend {
         let visible_functions: Vec<&FunctionDef> = deduped_functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
-            .filter(|f| {
-                !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
-            })
+            .filter(|f| !config.trait_bridge_manages_function(&f.name))
             .collect();
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
@@ -103,8 +101,7 @@ impl Backend for DartBackend {
 
         let dart_backend_name = "dart";
         let active_bridge_configs: Vec<&TraitBridgeConfig> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Dart)
             .filter(|b| !b.exclude_languages.iter().any(|l| l == dart_backend_name))
             .filter(|b| b.register_fn.is_some() || b.unregister_fn.is_some() || b.clear_fn.is_some())
             .collect();
@@ -166,8 +163,7 @@ impl Backend for DartBackend {
         }
 
         let dart_trait_names: Vec<&str> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Dart)
             .filter(|b| !b.exclude_languages.iter().any(|l| l == dart_backend_name))
             .map(|b| b.trait_name.as_str())
             .collect();
@@ -343,8 +339,7 @@ impl Backend for DartBackend {
                 .map(|name| format!("{bridge_class}.{}", dart_bridge_method_name(name)))
         };
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Dart)
             .filter(|bridge| bridge.is_active_for("dart"))
             .filter(|bridge| {
                 bridge.register_fn.is_some() || bridge.unregister_fn.is_some() || bridge.clear_fn.is_some()

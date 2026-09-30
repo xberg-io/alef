@@ -699,7 +699,9 @@ pub(super) fn render_test_method(
     for arg in args {
         if arg.arg_type == "test_backend"
             && let Some(trait_name) = &arg.trait_name
-            && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+            && let Some(trait_bridge) = config
+                .trait_bridges_for(crate::core::config::Language::Swift)
+                .find(|tb| tb.trait_name == *trait_name)
         {
             let unregister_fn = format!("unregister{}", trait_bridge.trait_name.to_upper_camel_case());
             // Use the actual plugin name from fixture.input["name"] or default to fixture.id,

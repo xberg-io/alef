@@ -241,7 +241,9 @@ pub(super) fn build_args_and_setup(
 
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+                && let Some(trait_bridge) = config
+                    .trait_bridges_for(crate::core::config::Language::Csharp)
+                    .find(|tb| tb.trait_name == *trait_name)
             {
                 // Collect methods from both the main trait and its super-trait (if present).
                 // The super-trait methods are needed so stubs implement the full interface.
@@ -268,6 +270,7 @@ pub(super) fn build_args_and_setup(
                 let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
                 let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names_with_enums(
                     config,
+                    crate::core::config::Language::Csharp,
                     type_defs,
                     &methods,
                     &enum_names,

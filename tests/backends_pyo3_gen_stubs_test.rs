@@ -2025,14 +2025,14 @@ fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
 fn test_pyi_plugin_bridge_emits_typed_protocol_and_typed_register() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),
@@ -2099,14 +2099,14 @@ fn test_pyi_plugin_bridge_emits_typed_protocol_and_typed_register() {
 fn test_pyi_plugin_protocol_omits_defaulted_methods_and_documents_them() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs_and_docs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),
@@ -2170,14 +2170,14 @@ fn test_pyi_plugin_protocol_omits_defaulted_methods_and_documents_them() {
 fn test_pyi_plugin_protocol_omits_docstrings_by_default() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),
@@ -2223,14 +2223,14 @@ fn test_pyi_plugin_protocol_omits_docstrings_by_default() {
 fn test_pyi_plugin_protocol_types_config_params_as_options_dataclass() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),
@@ -2279,14 +2279,14 @@ fn test_pyi_plugin_protocol_types_config_params_as_options_dataclass() {
 fn test_pyi_plugin_protocol_widens_sequence_returns_but_not_params() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Embedder".to_string(),
         register_fn: Some("register_embedder".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         bind_via: alef::core::config::BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let embedder = TypeDef {
         name: "Embedder".to_string(),

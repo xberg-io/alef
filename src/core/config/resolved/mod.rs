@@ -54,6 +54,16 @@ use crate::core::config::trait_bridge::TraitBridgeConfig;
 use crate::core::config::verify::VerifyConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ResolvedTraitBridges(Vec<TraitBridgeConfig>);
+
+impl From<Vec<TraitBridgeConfig>> for ResolvedTraitBridges {
+    fn from(value: Vec<TraitBridgeConfig>) -> Self {
+        Self(value)
+    }
+}
+
 /// Fully-resolved configuration for one crate.
 ///
 /// Backends consume `&ResolvedCrateConfig`; they should not need to look at
@@ -164,6 +174,16 @@ pub struct ResolvedCrateConfig {
     pub publish: Option<PublishConfig>,
     pub e2e: Option<E2eConfig>,
     pub adapters: Vec<AdapterConfig>,
+    #[cfg(not(test))]
+    #[serde(rename = "trait_bridges")]
+    pub trait_bridges_unfiltered: ResolvedTraitBridges,
+    #[cfg(test)]
+    #[serde(rename = "trait_bridges")]
+    pub trait_bridges_unfiltered: Vec<TraitBridgeConfig>,
+    // ~keep Unit tests historically construct resolved configs directly; this cfg-only mirror
+    // preserves that fixture API without reopening raw bridge access in production emitters.
+    #[cfg(test)]
+    #[serde(skip)]
     pub trait_bridges: Vec<TraitBridgeConfig>,
     pub services: Vec<ServiceConfig>,
     pub handler_contracts: Vec<HandlerContractConfig>,
@@ -222,12 +242,93 @@ pub struct ResolvedCrateConfig {
 }
 
 impl ResolvedCrateConfig {
+    pub(in crate::core::config) fn all_trait_bridges(&self) -> &[TraitBridgeConfig] {
+        #[cfg(test)]
+        if !self.trait_bridges.is_empty() {
+            return &self.trait_bridges;
+        }
+        #[cfg(not(test))]
+        {
+            &self.trait_bridges_unfiltered.0
+        }
+        #[cfg(test)]
+        {
+            &self.trait_bridges_unfiltered
+        }
+    }
+
     // ~keep Applicability belongs on the resolved config so backend emitters cannot drift on
     // language/backend aliases such as `python`/`pyo3` or `ruby`/`magnus`.
     pub fn trait_bridges_for(&self, language: Language) -> impl Iterator<Item = &TraitBridgeConfig> {
-        self.trait_bridges.iter().filter(move |bridge| {
+        self.all_trait_bridges().iter().filter(move |bridge| {
             crate::codegen::generators::trait_bridge::bridge_targets_language(bridge, language.bridge_spellings())
         })
+    }
+
+    pub fn trait_bridges_for_vec(&self, language: Language) -> Vec<TraitBridgeConfig> {
+        self.trait_bridges_for(language).cloned().collect()
+    }
+
+    // ~keep Function ownership is global across generated targets: an excluded bridge still owns
+    // its configured lifecycle symbols, which another backend must not emit as ordinary API calls.
+    pub fn trait_bridge_manages_function(&self, name: &str) -> bool {
+        crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(name, self.all_trait_bridges())
+    }
+
+    // ~keep Stale-file reporting must consider artifacts from bridges that a prior run emitted,
+    // including bridges now excluded from the active C# target.
+    pub fn trait_bridge_stale_artifact_types(&self) -> impl Iterator<Item = &str> {
+        self.all_trait_bridges().iter().flat_map(|bridge| {
+            [bridge.context_type.as_deref(), bridge.result_type.as_deref()]
+                .into_iter()
+                .flatten()
+        })
+    }
+
+    pub fn configured_trait_bridge_names(&self) -> impl Iterator<Item = &str> {
+        self.all_trait_bridges().iter().map(|bridge| bridge.trait_name.as_str())
+    }
+
+    pub fn trait_bridge_carrier_diagnostics(
+        &self,
+        api: &crate::core::ir::ApiSurface,
+    ) -> Vec<crate::core::validation::ValidationDiagnostic> {
+        crate::core::validation::trait_bridge_carrier_diagnostics(api, self.all_trait_bridges())
+    }
+
+    pub fn trait_bridge_language_surface(
+        &self,
+        api: &crate::core::ir::ApiSurface,
+        language: Language,
+    ) -> Option<crate::core::ir::ApiSurface> {
+        crate::codegen::generators::trait_bridge::language_surface(api, self.all_trait_bridges(), language)
+    }
+
+    pub fn replace_trait_bridges(&mut self, bridges: Vec<TraitBridgeConfig>) {
+        #[cfg(not(test))]
+        {
+            self.trait_bridges_unfiltered = bridges.clone().into();
+        }
+        #[cfg(test)]
+        {
+            self.trait_bridges_unfiltered = bridges.clone();
+        }
+        #[cfg(test)]
+        {
+            self.trait_bridges = bridges;
+        }
+    }
+
+    pub fn push_trait_bridge(&mut self, bridge: TraitBridgeConfig) {
+        let mut bridges = self.all_trait_bridges().to_vec();
+        bridges.push(bridge);
+        self.replace_trait_bridges(bridges);
+    }
+
+    pub fn update_trait_bridge(&mut self, index: usize, update: impl FnOnce(&mut TraitBridgeConfig)) {
+        let mut bridges = self.all_trait_bridges().to_vec();
+        update(&mut bridges[index]);
+        self.replace_trait_bridges(bridges);
     }
 
     /// The rebased view of [`Self::source_crates`]: for each entry with `from_registry = true`,
@@ -315,7 +416,7 @@ mod trait_bridge_applicability_tests {
     #[test]
     fn trait_bridges_for_filters_language_and_backend_spellings() {
         let config = ResolvedCrateConfig {
-            trait_bridges: vec![
+            trait_bridges_unfiltered: vec![
                 bridge("Active", &[]),
                 bridge("ByLanguage", &["python"]),
                 bridge("ByBackend", &["pyo3"]),

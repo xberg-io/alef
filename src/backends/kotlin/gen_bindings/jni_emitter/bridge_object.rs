@@ -328,10 +328,12 @@ fn trait_bridge_manages_jni_function(func_name: &str, config: &ResolvedCrateConf
     } else {
         "kotlin"
     };
-    config.trait_bridges.iter().any(|bridge| {
-        !bridge.exclude_languages.iter().any(|lang| lang == language_name)
-            && (bridge.register_fn.as_deref() == Some(func_name)
-                || bridge.unregister_fn.as_deref() == Some(func_name)
-                || bridge.clear_fn.as_deref() == Some(func_name))
-    })
+    config
+        .trait_bridges_for(crate::core::config::Language::Kotlin)
+        .any(|bridge| {
+            !bridge.exclude_languages.iter().any(|lang| lang == language_name)
+                && (bridge.register_fn.as_deref() == Some(func_name)
+                    || bridge.unregister_fn.as_deref() == Some(func_name)
+                    || bridge.clear_fn.as_deref() == Some(func_name))
+        })
 }

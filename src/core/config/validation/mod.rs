@@ -67,7 +67,7 @@ fn validate_dart_library_name(config: &ResolvedCrateConfig) -> Result<(), AlefEr
 /// backends otherwise omit the registration function. Fail those mixed or non-Ruby configs
 /// before generation while permitting a Ruby-only bridge to delegate lifecycle and locking.
 fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
-    for bridge in &config.trait_bridges {
+    for bridge in config.all_trait_bridges() {
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
             let unsupported_languages = config
                 .languages

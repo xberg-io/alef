@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::codegen::naming::kotlin_android_wrapper_object_name;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FunctionDef};
 
 #[cfg(test)]
@@ -85,7 +85,7 @@ fn visible_functions<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) -> V
 }
 
 fn trait_bridge_manages_android_function(function_name: &str, config: &ResolvedCrateConfig) -> bool {
-    config.trait_bridges.iter().any(|bridge| {
+    config.trait_bridges_for(Language::KotlinAndroid).any(|bridge| {
         !bridge.exclude_languages.iter().any(|lang| lang == "kotlin_android")
             && (bridge.register_fn.as_deref() == Some(function_name)
                 || bridge.unregister_fn.as_deref() == Some(function_name)

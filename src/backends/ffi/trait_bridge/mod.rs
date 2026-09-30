@@ -23,7 +23,7 @@ mod vtable;
 use crate::codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugin_impl};
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::backend::TraitBridgeRegistrationSurface;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
 use std::collections::{HashMap, HashSet};
 
@@ -195,8 +195,7 @@ pub fn gen_ffi_set_out_error_helper() -> String {
 pub fn registration_surface(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<TraitBridgeRegistrationSurface> {
     let prefix = config.ffi_prefix();
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Ffi)
         .filter(|bridge| bridge.register_fn.is_some() && targets_ffi(bridge))
         .filter_map(|bridge| {
             let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge.trait_name)?;

@@ -503,7 +503,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
         reexported_types: Vec::new(),
         target_dep_overrides: Vec::new(),
     });
-    config.trait_bridges = vec![
+    config.replace_trait_bridges(vec![
         TraitBridgeConfig {
             exclude_functions: Vec::new(),
             trait_name: "TextBackend".to_string(),
@@ -546,7 +546,7 @@ fn test_trait_bridge_register_fns_in_api_py_and_all() {
             result_type: None,
             ffi_skip_methods: Vec::new(),
         },
-    ];
+    ]);
 
     let files = backend
         .generate_public_api(&api, &config)

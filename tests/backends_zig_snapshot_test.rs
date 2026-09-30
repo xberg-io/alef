@@ -285,7 +285,7 @@ fn trait_bridge_vtable_builder_coverage() {
     api.types.push(trait_def);
 
     let mut config = make_basic_config();
-    config.trait_bridges.push(TraitBridgeConfig {
+    config.push_trait_bridge(TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "PluginTrait".to_string(),
         super_trait: None,
@@ -396,7 +396,7 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
     let mut config = make_basic_config();
     for trait_name in &trait_names {
         let snake = heck::AsSnakeCase(trait_name).to_string();
-        config.trait_bridges.push(TraitBridgeConfig {
+        config.push_trait_bridge(TraitBridgeConfig {
             exclude_functions: Vec::new(),
             trait_name: trait_name.to_string(),
             super_trait: None,
@@ -448,7 +448,7 @@ fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
     let api = make_basic_api();
 
     let mut config = make_basic_config();
-    config.trait_bridges.push(TraitBridgeConfig {
+    config.push_trait_bridge(TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "MissingTrait1".to_string(),
         super_trait: None,
@@ -534,7 +534,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
     api.types.push(trait_def);
 
     let mut config = make_basic_config();
-    config.trait_bridges.push(TraitBridgeConfig {
+    config.push_trait_bridge(TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("demo::Plugin".to_string()),

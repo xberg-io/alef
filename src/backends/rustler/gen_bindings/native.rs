@@ -58,10 +58,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let mut bridge_excluded_fields: std::collections::HashMap<String, AHashSet<String>> =
         std::collections::HashMap::new();
     for b in config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Elixir)
         .filter(|b| b.bind_via == BridgeBinding::OptionsField)
-        .filter(|b| crate::backends::rustler::trait_bridge::targets_rustler(b))
     {
         let field_name = b.resolved_options_field().unwrap_or("visitor").to_string();
         let trait_alias = b.type_alias.as_deref().unwrap_or(&b.trait_name);
@@ -289,9 +287,7 @@ where
     }
 
     let active_bridges: Vec<_> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| crate::backends::rustler::trait_bridge::targets_rustler(b))
+        .trait_bridges_for(crate::core::config::Language::Elixir)
         .cloned()
         .collect();
 
@@ -388,15 +384,11 @@ where
     }
 
     let has_trait_bridges = config
-        .trait_bridges
-        .iter()
-        .any(crate::backends::rustler::trait_bridge::targets_rustler);
+        .trait_bridges_for(crate::core::config::Language::Elixir)
+        .next()
+        .is_some();
 
-    for bridge_cfg in config
-        .trait_bridges
-        .iter()
-        .filter(|b| crate::backends::rustler::trait_bridge::targets_rustler(b))
-    {
+    for bridge_cfg in config.trait_bridges_for(crate::core::config::Language::Elixir) {
         if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
             let bridge = crate::backends::rustler::trait_bridge::gen_trait_bridge(
                 trait_type,
@@ -495,9 +487,7 @@ where
         .collect();
 
     let bridge_conv_exclude_types: Vec<String> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| crate::backends::rustler::trait_bridge::targets_rustler(b))
+        .trait_bridges_for(crate::core::config::Language::Elixir)
         .filter(|b| b.bind_via == BridgeBinding::OptionsField)
         .map(|b| b.type_alias.as_deref().unwrap_or(&b.trait_name).to_string())
         .collect();

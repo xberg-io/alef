@@ -154,7 +154,7 @@ fn check_class_override(context: ClassOverrideCheckContext, errors: &mut Vec<Val
         type_defs,
         enums,
     } = context;
-    let (candidates, facade_known) = emitted_class_names(lang, naming_lang, config, type_defs, enums);
+    let (candidates, facade_known) = emitted_class_names(naming_lang, config, type_defs, enums);
     let simple_name = simple_class_name(class_value);
     if candidates.iter().any(|candidate| candidate == simple_name) {
         return;
@@ -283,7 +283,6 @@ fn crate_facade_class_names(naming_lang: Language, config: &ResolvedCrateConfig)
 /// `check_class_override` uses that flag to decide whether a non-match is a real typo
 /// (`Severity::Error`) or an unverifiable guess (`Severity::Warning`).
 fn emitted_class_names(
-    lang: &str,
     naming_lang: Language,
     config: &ResolvedCrateConfig,
     type_defs: &[TypeDef],
@@ -306,10 +305,8 @@ fn emitted_class_names(
             &enum_def.name,
         ));
     }
-    for bridge in &config.trait_bridges {
-        if bridge.is_active_for(lang) {
-            names.push(format!("{}Bridge", bridge.trait_name));
-        }
+    for bridge in config.trait_bridges_for(naming_lang) {
+        names.push(format!("{}Bridge", bridge.trait_name));
     }
     names.sort();
     names.dedup();
@@ -493,10 +490,10 @@ mod tests {
     #[test]
     fn an_active_trait_bridge_class_override_passes() {
         let mut config = make_config("sample_crate");
-        config.trait_bridges = vec![TraitBridgeConfig {
+        config.replace_trait_bridges(vec![TraitBridgeConfig {
             trait_name: "Validator".to_string(),
             ..TraitBridgeConfig::default()
-        }];
+        }]);
         let type_defs = vec![make_type("Placeholder")];
         let e2e_config = make_e2e_config("ValidatorBridge", "kotlin_android");
 

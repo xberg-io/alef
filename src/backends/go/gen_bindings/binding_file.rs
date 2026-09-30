@@ -385,7 +385,7 @@ pub(super) fn gen_go_file(
                 &ffi_param_enum_names,
                 opaque_names,
             )
-            && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
+            && !config.trait_bridge_manages_function(&f.name)
     }) {
         crate::codegen::mut_writeback::reject_unsupported_writeback(
             &func.name,

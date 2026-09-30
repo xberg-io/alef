@@ -125,8 +125,7 @@ impl Backend for PhpBackend {
                 .map(|name| format!("{class_name}::{}", php_bridge_method_name(name)))
         };
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(crate::core::config::Language::Php)
             .filter(|bridge| crate::backends::php::trait_bridge::active_bridge_trait(bridge, api).is_some())
             .filter(|bridge| {
                 bridge.register_fn.is_some() || bridge.unregister_fn.is_some() || bridge.clear_fn.is_some()

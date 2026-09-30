@@ -8,7 +8,7 @@ pub use bridge_function::gen_bridge_function;
 pub use generator::{PhpBridgeGenerator, gen_trait_bridge};
 pub use interfaces::{gen_registration_interface, gen_visitor_interface, visitor_interface_class_name};
 
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
 
 /// The `exclude_languages` spellings that name this target. PHP has no second spelling — the
@@ -23,7 +23,7 @@ pub fn targets_php(bridge: &TraitBridgeConfig) -> bool {
 
 /// The configured bridges PHP actually emits, in configuration order.
 pub fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &TraitBridgeConfig> {
-    config.trait_bridges.iter().filter(|bridge| targets_php(bridge))
+    config.trait_bridges_for(Language::Php)
 }
 
 /// The trait a bridge wraps, when PHP emits that bridge at all.

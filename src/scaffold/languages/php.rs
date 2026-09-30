@@ -167,7 +167,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
 
     let extra_deps = render_extra_deps(config, Language::Php);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Php).next().is_some();
     let has_streaming = config
         .adapters
         .iter()

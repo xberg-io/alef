@@ -8,11 +8,7 @@ pub(super) fn validate_generation_api<'a>(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<ValidatedApiSurface<'a>> {
-    let bridged_trait_names: ahash::AHashSet<&str> = config
-        .trait_bridges
-        .iter()
-        .map(|bridge| bridge.trait_name.as_str())
-        .collect();
+    let bridged_trait_names: ahash::AHashSet<&str> = config.configured_trait_bridge_names().collect();
     let validation_report = crate::core::validation::validate_api_surface_for_resolved_languages(
         api,
         &bridged_trait_names,

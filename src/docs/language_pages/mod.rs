@@ -48,7 +48,7 @@ pub(super) fn generate_lang_doc(
     // documents a config field the binding no longer has -- the exact
     // two-generators-disagree shape (alef #480). `render_type` already routes non-Rust field
     // rendering through `binding_fields`, so marking the carrier here is all it takes. ~keep
-    let pruned = crate::codegen::generators::trait_bridge::language_surface(&filtered_api, &config.trait_bridges, lang);
+    let pruned = config.trait_bridge_language_surface(&filtered_api, lang);
     let api = pruned.as_ref().unwrap_or(&filtered_api);
 
     let lang_display = lang_display_name(lang);

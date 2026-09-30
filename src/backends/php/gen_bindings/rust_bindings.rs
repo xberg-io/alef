@@ -386,7 +386,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &adapter_bodies,
                 &mutex_types,
                 &streaming_method_keys,
-                &config.trait_bridges,
+                &config.trait_bridges_for_vec(Language::Php),
             ));
 
             if has_no_arg_new_returning_self(typ) {
@@ -460,7 +460,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .collect();
-    if !included_functions.is_empty() || !config.trait_bridges.is_empty() {
+    if !included_functions.is_empty() || config.trait_bridges_for(Language::Php).next().is_some() {
+        let active_trait_bridges = config.trait_bridges_for_vec(Language::Php);
         let php_api_class_name = php_ext_api_class_name(&extension_name);
         // Build each static method body (no #[php_function] attribute — they live inside
         // a #[php_impl] block which handles registration via the class machinery).
@@ -475,7 +476,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         // line, instead of exposing them as toggleable `[features]` on the php crate. ~keep
         let mut method_items: Vec<String> = Vec::new();
         for func in included_functions {
-            if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            if config.trait_bridge_manages_function(&func.name) {
                 continue;
             }
             crate::codegen::mut_writeback::reject_unsupported_writeback(
@@ -484,7 +485,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &func.return_type,
                 &opaque_types,
             )?;
-            let bridge_param = crate::backends::php::trait_bridge::find_bridge_param(func, &config.trait_bridges)
+            let bridge_param = crate::backends::php::trait_bridge::find_bridge_param(func, &active_trait_bridges)
                 .filter(|(_, bridge_cfg)| crate::backends::php::trait_bridge::targets_php(bridge_cfg));
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 let bridge_handle_path =
@@ -509,7 +510,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         enums: &enum_names,
                     },
                     &core_import,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Php),
                     &mutex_types,
                 );
                 method_items.push(item);
@@ -523,7 +524,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         enums: &enum_names,
                     },
                     &core_import,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Php),
                     has_serde,
                     &mutex_types,
                 );
@@ -546,7 +547,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             ));
         }
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             if crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
                 continue;
             }
@@ -600,7 +601,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         );
         builder.add_item(&facade_struct);
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             if let Some(trait_type) = crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api) {
                 let bridge = crate::backends::php::trait_bridge::gen_trait_bridge(
                     trait_type,
@@ -832,7 +833,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &typ.name },
         ));
     }
-    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
+    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name))
+        || config.trait_bridges_for(Language::Php).next().is_some()
+    {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             context! { class_name => &php_ext_api_class_name(&extension_name) },
@@ -910,7 +913,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         generated_header: false,
     });
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Php) {
         if let Some(trait_type) = crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api) {
             let is_visitor_bridge = bridge_cfg.type_alias.is_some()
                 && bridge_cfg.register_fn.is_none()

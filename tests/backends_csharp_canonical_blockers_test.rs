@@ -54,7 +54,7 @@ fn trait_fixture() -> (ApiSurface, ResolvedCrateConfig) {
         ..Default::default()
     };
     let mut config = test_config();
-    config.trait_bridges.push(TraitBridgeConfig {
+    config.push_trait_bridge(TraitBridgeConfig {
         trait_name: "TextBackend".into(),
         register_fn: Some("register_text_backend".into()),
         unregister_fn: Some("unregister_text_backend".into()),

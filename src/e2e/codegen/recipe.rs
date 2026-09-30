@@ -5,7 +5,7 @@
 
 use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
 use crate::core::config::extras::{AdapterConfig, AdapterPattern};
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{FunctionDef, MethodDef, TypeDef, TypeRef};
 use crate::e2e::codegen::call_ir::{CallIr, TargetParams};
 use crate::e2e::fixture::Fixture;
@@ -257,10 +257,9 @@ pub(crate) fn json_object_constructor_type<'a>(
     }
 }
 
-pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<&str> {
+pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig, language: Language) -> Option<&str> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(language)
         .find_map(|bridge| bridge.options_type.as_deref())
 }
 
@@ -270,7 +269,7 @@ pub(crate) fn trait_bridge_function_identity<'a>(
     fixture: &Fixture,
 ) -> Option<&'a str> {
     let identity = fixture.call.as_deref()?;
-    config.trait_bridges.iter().find_map(|bridge| {
+    config.trait_bridges_for(Language::Ffi).find_map(|bridge| {
         [
             bridge.register_fn.as_deref(),
             bridge.unregister_fn.as_deref(),
@@ -328,7 +327,7 @@ pub(crate) fn trait_bridge_derived_c_identity(
     use heck::ToSnakeCase;
 
     let identity = fixture.call.as_deref()?;
-    config.trait_bridges.iter().find_map(|bridge| {
+    config.trait_bridges_for(Language::Ffi).find_map(|bridge| {
         if bridge.register_fn.as_deref() == Some(identity) {
             return Some((TraitBridgeRegistryOperation::Register, identity.to_string()));
         }
@@ -370,22 +369,23 @@ pub(crate) fn streaming_item_type<'a>(
 
 pub(crate) fn trait_bridge_excluded_type_names<'a>(
     config: &'a ResolvedCrateConfig,
+    language: Language,
     type_defs: &'a [TypeDef],
     methods: &[&'a MethodDef],
 ) -> HashSet<&'a str> {
-    trait_bridge_excluded_type_names_with_enums(config, type_defs, methods, &HashSet::new())
+    trait_bridge_excluded_type_names_with_enums(config, language, type_defs, methods, &HashSet::new())
 }
 
 pub(crate) fn trait_bridge_excluded_type_names_with_enums<'a>(
     config: &'a ResolvedCrateConfig,
+    language: Language,
     type_defs: &'a [TypeDef],
     methods: &[&'a MethodDef],
     known_enum_names: &HashSet<&str>,
 ) -> HashSet<&'a str> {
     let type_by_name: HashMap<&str, &TypeDef> = type_defs.iter().map(|ty| (ty.name.as_str(), ty)).collect();
     let configured_traits: HashSet<&str> = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(language)
         .flat_map(|bridge| configured_trait_names(bridge).into_iter())
         .collect();
     let mut excluded: HashSet<&str> = type_defs
@@ -735,7 +735,7 @@ mod tests {
         };
         let type_defs = vec![hidden_record, unbridged_trait, public_options];
 
-        let excluded = trait_bridge_excluded_type_names(&config, &type_defs, &[&method]);
+        let excluded = trait_bridge_excluded_type_names(&config, Language::Go, &type_defs, &[&method]);
 
         assert!(excluded.contains("HiddenRecord"));
         assert!(excluded.contains("SecondaryTrait"));

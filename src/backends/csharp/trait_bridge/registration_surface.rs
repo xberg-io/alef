@@ -7,7 +7,7 @@
 
 use crate::codegen::naming::csharp_type_name;
 use crate::core::backend::TraitBridgeRegistrationSurface;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::ApiSurface;
 
 /// The static class the registration methods live on, e.g. `SamplePluginRegistry`.
@@ -41,8 +41,7 @@ fn is_visitor_bridge(bridge: &TraitBridgeConfig) -> bool {
 /// name (see the KNOWN DIVERGENCE note in `trait_bridge.rs`). ~keep
 pub fn registration_surface(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<TraitBridgeRegistrationSurface> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Csharp)
         .filter(|bridge| bridge.is_active_for("csharp"))
         .filter(|bridge| !is_visitor_bridge(bridge))
         .filter_map(|bridge| {

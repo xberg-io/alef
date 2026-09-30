@@ -130,7 +130,7 @@ fn options_field_bridge_injects_visitor_handle() {
         ..Default::default()
     };
     let mut config = resolved_wasm_config();
-    config.trait_bridges = vec![options_field_bridge()];
+    config.replace_trait_bridges(vec![options_field_bridge()]);
 
     let files = WasmBackend
         .generate_bindings(&api, &config)
@@ -173,7 +173,7 @@ fn generated_lib_rs() -> String {
         ..Default::default()
     };
     let mut config = resolved_wasm_config();
-    config.trait_bridges = vec![options_field_bridge()];
+    config.replace_trait_bridges(vec![options_field_bridge()]);
 
     WasmBackend
         .generate_bindings(&api, &config)

@@ -1,7 +1,7 @@
 use crate::backends::dart::template_env;
 use crate::codegen::cfg as shared_cfg;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 use crate::core::template_versions as tv;
 use std::path::PathBuf;
@@ -38,8 +38,7 @@ fn type_references_excluded_named(
 
 fn api_has_trait_bridge_excluded_carrier(api: &ApiSurface, config: &ResolvedCrateConfig) -> bool {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Dart)
         .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
         .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
         .flat_map(|trait_def| trait_def.methods.iter())
@@ -175,7 +174,7 @@ pub(crate) fn emit_cargo_toml(
         String::new()
     };
 
-    let has_trait_bridges = config.trait_bridges.iter().any(|b| {
+    let has_trait_bridges = config.trait_bridges_for(Language::Dart).any(|b| {
         !b.exclude_languages.iter().any(|l| l == "dart")
             && api.types.iter().any(|t| t.name == b.trait_name && t.is_trait)
     });

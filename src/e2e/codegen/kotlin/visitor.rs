@@ -13,8 +13,7 @@ pub(super) fn attach_visitor(
     enums: &[EnumDef],
 ) -> Option<String> {
     let bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Kotlin)
         .find(|bridge| bridge.options_type.is_some() && bridge.resolved_options_field().is_some())?;
     let trait_def = type_defs.iter().find(|type_def| type_def.name == bridge.trait_name)?;
     let result_type = bridge.result_type.as_deref().unwrap_or("VisitResult");

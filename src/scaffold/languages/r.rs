@@ -102,7 +102,7 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
         || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
     // `#[async_trait::async_trait]` on their methods — declare the crate here so
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::R).next().is_some();
 
     let configured_features = config.features_for_language(Language::R);
     let core_default_features = config.r.as_ref().and_then(|r| r.default_features).unwrap_or(true);

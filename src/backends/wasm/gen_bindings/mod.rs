@@ -511,7 +511,7 @@ impl Backend for WasmBackend {
                     &mutex_types,
                     &streaming_item_types,
                     &wasm_skipped_methods,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Wasm),
                 ));
                 // Client constructor — emit a #[wasm_bindgen(constructor)] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -596,7 +596,7 @@ impl Backend for WasmBackend {
             if !exclude_functions.contains(&func.name)
                 && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
                     &func.name,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Wasm),
                 )
             {
                 let refs_excluded = func
@@ -640,12 +640,10 @@ impl Backend for WasmBackend {
             builder.add_item(&input_dto_code);
         }
 
+        let active_trait_bridges = config.trait_bridges_for_vec(Language::Wasm);
         for func in &api.functions {
             if !exclude_functions.contains(&func.name) {
-                if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(
-                    &func.name,
-                    &config.trait_bridges,
-                ) {
+                if config.trait_bridge_manages_function(&func.name) {
                     continue;
                 }
                 let refs_excluded = func
@@ -656,10 +654,10 @@ impl Backend for WasmBackend {
                 if refs_excluded {
                     continue;
                 }
-                let bridge_param = crate::backends::wasm::trait_bridge::find_bridge_param(func, &config.trait_bridges)
+                let bridge_param = crate::backends::wasm::trait_bridge::find_bridge_param(func, &active_trait_bridges)
                     .filter(|(_, bridge_cfg)| trait_bridge_docs::targets_wasm(bridge_cfg));
                 let options_field_bridge =
-                    crate::backends::wasm::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
+                    crate::backends::wasm::trait_bridge::find_options_field_binding(func, &active_trait_bridges)
                         .filter(|(_, bridge_cfg)| trait_bridge_docs::targets_wasm(bridge_cfg))
                         .filter(|(_, bridge_cfg)| {
                             let Some(field_name) = bridge_cfg.resolved_options_field() else {
@@ -717,7 +715,7 @@ impl Backend for WasmBackend {
             }
         }
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Wasm) {
             if let Some(trait_type) = trait_bridge_docs::active_bridge_trait(bridge_cfg, api) {
                 let bridge = crate::backends::wasm::trait_bridge::gen_trait_bridge(
                     trait_type,

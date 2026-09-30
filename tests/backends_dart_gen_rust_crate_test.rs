@@ -773,7 +773,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
 
 fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: bridge_trait_name.to_string(),
         super_trait: None,
@@ -793,7 +793,7 @@ fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     config
 }
 
@@ -1020,7 +1020,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -1038,7 +1038,7 @@ fn lib_rs_emits_register_forwarder_when_register_fn_configured() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
@@ -1134,7 +1134,7 @@ fn lib_rs_skips_ordinary_lifecycle_functions_when_trait_bridge_manages_them() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -1152,7 +1152,7 @@ fn lib_rs_skips_ordinary_lifecycle_functions_when_trait_bridge_manages_them() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
 
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
@@ -1247,7 +1247,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "Validator".to_string(),
         super_trait: None,
@@ -1265,7 +1265,7 @@ fn lib_rs_register_forwarder_appends_register_extra_args() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
@@ -1305,7 +1305,7 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: None,
@@ -1323,7 +1323,7 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     let files = DartBackend.generate_bindings(&api, &config).unwrap();
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 

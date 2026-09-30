@@ -208,7 +208,9 @@ pub(super) fn collect_test_stub_classes(
             continue;
         }
         if let Some(trait_name) = &arg_def.trait_name
-            && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+            && let Some(trait_bridge) = config
+                .trait_bridges_for(crate::core::config::Language::Dart)
+                .find(|tb| tb.trait_name == *trait_name)
         {
             let methods: Vec<&crate::core::ir::MethodDef> = type_defs
                 .iter()

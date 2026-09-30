@@ -151,7 +151,7 @@ fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute(
 fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
     let backend = PhpBackend;
     let mut config = make_config();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -159,7 +159,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
         unregister_fn: Some("unregister_ocr_backend".to_string()),
         clear_fn: Some("clear_ocr_backends".to_string()),
         ..Default::default()
-    }];
+    }]);
     let api = ApiSurface {
         unresolved_modules: Vec::new(),
         types: vec![make_trait_def_php(
@@ -458,7 +458,7 @@ fn test_php_register_fn_typed_against_interface() {
 
     let (greeter, mut api) = make_greeter_api();
     api.types.insert(0, greeter);
-    config.trait_bridges = vec![make_plugin_bridge_cfg_php("Greeter")];
+    config.replace_trait_bridges(vec![make_plugin_bridge_cfg_php("Greeter")]);
 
     let iface_files = backend
         .generate_bindings(&api, &config)

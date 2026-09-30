@@ -950,8 +950,7 @@ impl Backend for MagnusBackend {
         let module = get_module_name(&api.crate_name);
         let qualified = |configured: &Option<String>| configured.as_deref().map(|name| format!("{module}.{name}"));
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Ruby)
             .filter(|bridge| crate::backends::magnus::trait_bridge::active_bridge_trait(bridge, api).is_some())
             .filter(|bridge| {
                 bridge.register_fn.is_some() || bridge.unregister_fn.is_some() || bridge.clear_fn.is_some()

@@ -103,7 +103,7 @@ visitor_callbacks = true
 module = "github.com/test/test-lib"
 "#,
     );
-    config.trait_bridges = bridge_configs;
+    config.replace_trait_bridges(bridge_configs);
     config
 }
 

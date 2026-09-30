@@ -572,7 +572,7 @@ fn make_bridge_cfg_full(
 
 fn make_config_with_bridges(bridges: Vec<TraitBridgeConfig>) -> ResolvedCrateConfig {
     let mut config = make_config();
-    config.trait_bridges = bridges;
+    config.replace_trait_bridges(bridges);
     config
 }
 

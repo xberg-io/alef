@@ -183,7 +183,9 @@ pub(super) fn build_args_and_setup(
 
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+                && let Some(trait_bridge) = config
+                    .trait_bridges_for(crate::core::config::Language::Java)
+                    .find(|tb| tb.trait_name == *trait_name)
             {
                 // Filter to only methods that appear in the Java trait-bridge interface.
                 // Async methods (extract_bytes, extract_file) are handled by the FFI bridge internally.
@@ -272,6 +274,7 @@ pub(super) fn build_args_and_setup(
                     .collect();
                 let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names_with_enums(
                     config,
+                    crate::core::config::Language::Java,
                     type_defs,
                     &methods,
                     &known_enum_names,

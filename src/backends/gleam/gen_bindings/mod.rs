@@ -137,8 +137,7 @@ impl Backend for GleamBackend {
         }
 
         let active_bridges: Vec<&TraitBridgeConfig> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Gleam)
             .filter(|b| !b.exclude_languages.iter().any(|l| l == "gleam"))
             .collect();
 
@@ -214,8 +213,7 @@ impl Backend for GleamBackend {
         config: &ResolvedCrateConfig,
     ) -> Vec<TraitBridgeRegistrationSurface> {
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Gleam)
             .filter(|bridge| bridge.is_active_for("gleam"))
             .filter(|bridge| {
                 bridge.register_fn.is_some() || bridge.unregister_fn.is_some() || bridge.clear_fn.is_some()

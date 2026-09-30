@@ -137,7 +137,7 @@ impl ResolvedCrateConfig {
     /// these types, deferring to visitor-specific generators instead.
     pub fn bridge_associated_types(&self) -> std::collections::HashSet<String> {
         let mut set = std::collections::HashSet::new();
-        for bridge in &self.trait_bridges {
+        for bridge in self.all_trait_bridges() {
             for name in bridge.associated_type_names() {
                 set.insert(name.to_string());
             }

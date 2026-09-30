@@ -297,7 +297,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+        if config.trait_bridge_manages_function(&func.name) {
             continue;
         }
         let has_bridge_param =

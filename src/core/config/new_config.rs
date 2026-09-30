@@ -404,6 +404,11 @@ impl NewAlefConfig {
             publish: krate.publish.clone(),
             e2e: krate.e2e.clone(),
             adapters: krate.adapters.clone(),
+            #[cfg(not(test))]
+            trait_bridges_unfiltered: krate.trait_bridges.clone().into(),
+            #[cfg(test)]
+            trait_bridges_unfiltered: krate.trait_bridges.clone(),
+            #[cfg(test)]
             trait_bridges: krate.trait_bridges.clone(),
             services: krate.services.clone(),
             handler_contracts: krate.handler_contracts.clone(),

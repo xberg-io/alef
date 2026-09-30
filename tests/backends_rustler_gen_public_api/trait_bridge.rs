@@ -39,7 +39,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config("my_lib");
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -57,7 +57,7 @@ fn test_trait_bridge_unregister_and_clear_specs_match_atom_returns() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
 
     let files = backend.generate_public_api(&api, &config).unwrap();
     let main = files
@@ -128,13 +128,13 @@ fn make_plugin_bridge_api() -> ApiSurface {
 
 fn make_plugin_bridge_config() -> ResolvedCrateConfig {
     let mut config = make_config("my_lib");
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("my_lib::registry::get".to_string()),
         bind_via: BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
     config
 }
 
@@ -172,13 +172,13 @@ fn test_visitor_bridge_does_not_emit_host_behaviour() {
     let backend = RustlerBackend;
     let api = make_plugin_bridge_api();
     let mut config = make_config("my_lib");
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: None,
         type_alias: Some("GreeterHandle".to_string()),
         bind_via: BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let files = backend
         .generate_public_api(&api, &config)
@@ -247,14 +247,14 @@ fn test_trait_behaviour_callback_params_are_maps_with_optional_callbacks() {
         ..Default::default()
     };
     let mut config = make_config("my_lib");
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
         bind_via: BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let files = backend.generate_public_api(&api, &config).unwrap();
     let main = files
@@ -308,14 +308,14 @@ fn test_register_nif_stub_has_implemented_methods_parameter() {
         unsupported_public_items: Vec::new(),
     };
     let mut config = make_config("my_lib");
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
         bind_via: BridgeBinding::FunctionParam,
         ..Default::default()
-    }];
+    }]);
 
     let files = backend.generate_public_api(&api, &config).unwrap();
     let native = files

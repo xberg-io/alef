@@ -330,7 +330,10 @@ fn push_test_backend_arg(
     teardown_block: &mut String,
 ) {
     if let Some(trait_name) = &arg.trait_name
-        && let Some(trait_bridge) = ctx.config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+        && let Some(trait_bridge) = ctx
+            .config
+            .trait_bridges_for(crate::core::config::Language::Elixir)
+            .find(|tb| tb.trait_name == *trait_name)
     {
         // Collect methods from both the main trait and its super-trait (if present).
         // The super-trait methods are needed so stubs implement the full interface.

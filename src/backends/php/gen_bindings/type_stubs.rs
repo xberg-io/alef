@@ -399,10 +399,11 @@ pub(super) fn generate_type_stubs(
     }
 
     // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
-    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
+    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name))
+        || config.trait_bridges_for(Language::Php).next().is_some()
+    {
         let bridge_param_names_stubs: ahash::AHashSet<&str> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Php)
             .filter_map(|b| b.param_name.as_deref())
             .collect();
 
@@ -497,7 +498,7 @@ pub(super) fn generate_type_stubs(
                 },
             ));
         }
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             // The stub declares the `…Api` extension methods `rust_bindings` emits, and that
             // emitter skips a bridge this returns `None` for — declaring one it skipped would
             // describe an extension method PHP never receives. ~keep

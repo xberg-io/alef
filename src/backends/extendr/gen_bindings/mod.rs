@@ -590,8 +590,7 @@ impl Backend for ExtendrBackend {
         }
 
         let active_bridges: Vec<_> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::R)
             .filter(|b| bridge_targets_extendr(b))
             .cloned()
             .collect();

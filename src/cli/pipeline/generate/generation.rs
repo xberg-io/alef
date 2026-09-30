@@ -114,7 +114,7 @@ pub fn generate(
             info!("  {}: generating...", lang_str);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
-            let pruned = trait_bridge::language_surface(validated_api.api(), &config.trait_bridges, *lang);
+            let pruned = config.trait_bridge_language_surface(validated_api.api(), *lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
 
             let mut files = backend
@@ -184,7 +184,7 @@ pub fn generate_stubs(
             };
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
-            let pruned = trait_bridge::language_surface(validated_api.api(), &config.trait_bridges, lang);
+            let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
             let files = backend.generate_type_stubs_checked(validated_api, config)?;
             Ok((lang, files))
@@ -222,7 +222,7 @@ pub fn generate_service_api(
             let backend = registry::get_backend(lang);
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
-            let pruned = trait_bridge::language_surface(validated_api.api(), &config.trait_bridges, lang);
+            let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
             let files = backend.generate_service_api_checked(validated_api, config)?;
             Ok((lang, files))
@@ -322,7 +322,7 @@ pub fn generate_public_api(
             };
             // Shadowed so every emitter reached from this closure reads the same per-language
             // surface, with an excluded bridge's carrier field pruned (alef #480). ~keep
-            let pruned = trait_bridge::language_surface(validated_api.api(), &config.trait_bridges, lang);
+            let pruned = config.trait_bridge_language_surface(validated_api.api(), lang);
             let validated_api = trait_bridge::validated_language_surface(&pruned, validated_api);
             let mut files = backend.generate_public_api_checked(validated_api, config)?;
 

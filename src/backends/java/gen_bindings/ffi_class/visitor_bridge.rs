@@ -21,8 +21,7 @@ pub(super) fn visitor_bridge_for_function(
     config: &ResolvedCrateConfig,
 ) -> Option<VisitorFunctionBridge> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Java)
         .find_map(|bridge| visitor_bridge_for_trait_bridge(func, bridge))
 }
 

@@ -159,7 +159,7 @@ fn trait_bridge_marshals_struct_param_as_native_js_object() {
 fn dts_plugin_bridge_emits_typed_interface_and_typed_register() {
     let backend = NapiBackend;
     let mut config = make_config();
-    config.trait_bridges = vec![greeter_bridge_cfg()];
+    config.replace_trait_bridges(vec![greeter_bridge_cfg()]);
 
     let dts = backend.generate_type_stubs(&greeter_api(), &config).unwrap()[0]
         .content

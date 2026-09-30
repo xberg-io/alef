@@ -215,7 +215,7 @@ fn excluded_python_function_param_bridge_emits_no_wrapper_reference() {
 
     let generate = |bridge: TraitBridgeConfig| {
         let mut config = make_config();
-        config.trait_bridges = vec![bridge];
+        config.replace_trait_bridges(vec![bridge]);
         Pyo3Backend
             .generate_bindings(&api, &config)
             .expect("generate pyo3 bindings")

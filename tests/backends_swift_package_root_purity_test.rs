@@ -58,13 +58,13 @@ sources = ["src/lib.rs"]
     )
     .expect("test config must parse");
     let mut config = cfg.resolve().expect("test config must resolve").remove(0);
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "Renderer".to_string(),
         bind_via: BridgeBinding::OptionsField,
         options_type: Some("RenderOptions".to_string()),
         options_field: Some("renderer".to_string()),
         ..Default::default()
-    }];
+    }]);
     config
 }
 

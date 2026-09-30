@@ -272,7 +272,10 @@ pub(super) fn build_args_and_setup(
                     arg.name
                 );
             };
-            let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) else {
+            let Some(trait_bridge) = config
+                .trait_bridges_for(crate::core::config::Language::Kotlin)
+                .find(|tb| tb.trait_name == *trait_name)
+            else {
                 anyhow::bail!(
                     "e2e fixture `{fixture_id}` requires trait `{trait_name}` for its `test_backend` arg `{}`, but no `[[crates.trait_bridges]]` entry named `{trait_name}` is configured",
                     arg.name

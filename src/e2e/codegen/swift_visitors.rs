@@ -43,8 +43,7 @@ pub(super) fn resolve_swift_visitor_config(
         .unwrap_or_else(|| visitor_spec.callbacks.keys().cloned().collect());
 
     let bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Swift)
         .find(|bridge| bridge.trait_name == trait_name);
     let callback_methods = callback_methods(type_defs, visitor_spec, &trait_name);
     let context_type = bridge

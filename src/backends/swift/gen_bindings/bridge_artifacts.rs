@@ -2,7 +2,7 @@ use crate::backends::swift::gen_bindings::boxes::{swift_adapter_conversions, swi
 use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
 use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
 use crate::core::backend::GeneratedFile;
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
@@ -371,7 +371,7 @@ pub(super) fn emit_inbound_protocols(
     exclude_types: &HashSet<String>,
     out: &mut String,
 ) {
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Swift) {
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
         }

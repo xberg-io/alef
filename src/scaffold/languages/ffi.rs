@@ -83,7 +83,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     } else {
         rendered_extra_deps.lines().map(str::to_string).collect()
     };
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Ffi).next().is_some();
     if has_trait_bridges && !extra_dep_lines.iter().any(|l| l.starts_with("async-trait")) {
         extra_dep_lines.push(format!("async-trait = \"{}\"", tv::cargo::ASYNC_TRAIT));
     }

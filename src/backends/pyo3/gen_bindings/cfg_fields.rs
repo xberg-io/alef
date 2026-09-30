@@ -6,8 +6,7 @@ use std::collections::HashMap;
 
 pub(super) fn never_skip_cfg_field_names(api: &ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
     let mut field_names: Vec<String> = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Python)
         .filter_map(|bridge| {
             if bridge.bind_via == BridgeBinding::OptionsField {
                 bridge.resolved_options_field().map(str::to_string)

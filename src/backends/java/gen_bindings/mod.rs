@@ -275,16 +275,10 @@ impl Backend for JavaBackend {
             "java",
         )?;
 
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.param_name.clone())
-            .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.type_alias.clone())
-            .collect();
+        let bridge_param_names: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.param_name.clone()).collect();
+        let bridge_type_aliases: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.type_alias.clone()).collect();
         let has_visitor_pattern = crate::backends::java::gen_visitor::has_visitor_generation_metadata(api, config);
         let mut files = Vec::new();
 
@@ -621,6 +615,7 @@ impl Backend for JavaBackend {
         };
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
+        let java_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Java).cloned().collect();
 
         let package = config.java_package();
         let prefix = config.ffi_prefix();
@@ -638,19 +633,12 @@ impl Backend for JavaBackend {
             PathBuf::from(&output_dir).join(&package_path)
         };
 
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.param_name.clone())
-            .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.type_alias.clone())
-            .collect();
+        let bridge_param_names: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.param_name.clone()).collect();
+        let bridge_type_aliases: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.type_alias.clone()).collect();
         let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false)
-            || config
-                .trait_bridges
+            || java_trait_bridges
                 .iter()
                 .any(|b| b.bind_via == BridgeBinding::OptionsField);
         let public_class = crate::backends::java::naming::public_class_name(&api.crate_name);

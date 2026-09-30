@@ -981,7 +981,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
 
 fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
     let mut cfg = make_config();
-    cfg.trait_bridges = vec![TraitBridgeConfig {
+    cfg.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
@@ -1001,13 +1001,13 @@ fn config_with_bridge(trait_name: &str) -> ResolvedCrateConfig {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     cfg
 }
 
 fn config_with_plugin_bridge(trait_name: &str, super_trait: &str) -> ResolvedCrateConfig {
     let mut cfg = config_with_bridge(trait_name);
-    cfg.trait_bridges[0].super_trait = Some(super_trait.to_string());
+    cfg.update_trait_bridge(0, |bridge| bridge.super_trait = Some(super_trait.to_string()));
     cfg
 }
 
@@ -1395,7 +1395,7 @@ fn config_with_full_bridge(
     clear_fn: Option<&str>,
 ) -> ResolvedCrateConfig {
     let mut cfg = make_config();
-    cfg.trait_bridges = vec![TraitBridgeConfig {
+    cfg.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: trait_name.to_string(),
         super_trait: None,
@@ -1413,7 +1413,7 @@ fn config_with_full_bridge(
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
     cfg
 }
 

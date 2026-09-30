@@ -35,14 +35,14 @@ output = "packages/python/src/"
 fn test_pyi_includes_trait_bridge_registry_functions() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         registry_getter: Some("test_lib::get_ocr_registry".to_string()),
         register_fn: Some("register_ocr_backend".to_string()),
         unregister_fn: Some("unregister_ocr_backend".to_string()),
         clear_fn: Some("clear_ocr_backends".to_string()),
         ..Default::default()
-    }];
+    }]);
     let api = ApiSurface {
         unresolved_modules: Vec::new(),
         crate_name: "test_lib".to_string(),

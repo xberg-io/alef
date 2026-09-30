@@ -128,7 +128,7 @@ pub(crate) fn scaffold_python_cargo(
 
     let extra_deps = render_extra_deps(config, Language::Python);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Python).next().is_some();
     let has_streaming = config
         .adapters
         .iter()
