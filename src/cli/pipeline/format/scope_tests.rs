@@ -16,6 +16,7 @@
 //! the first time something else reformatted the file. See
 //! `a_partial_python_regen_formats_the_glue_crate_root_holding_cargo_toml`. ~keep
 
+use super::scope::poly_paths;
 use super::*;
 use crate::core::config::{Language, NewAlefConfig, ResolvedCrateConfig};
 

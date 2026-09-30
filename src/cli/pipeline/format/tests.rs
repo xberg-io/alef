@@ -1,3 +1,4 @@
+use super::scope::poly_paths;
 use super::*;
 use crate::core::config::{Language, NewAlefConfig, ResolvedCrateConfig};
 
@@ -322,6 +323,47 @@ sources = ["src/lib.rs"]
     } else {
         assert_eq!(formatted, "x=1", "without poly the file must be left untouched");
     }
+}
+
+#[test]
+fn partial_regen_respects_relative_poly_discovery_excludes() {
+    if !is_tool_available("poly") {
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    std::fs::write(
+        base.join("poly.toml"),
+        "[discovery]\nexclude = [\"/packages/python/**\"]\n",
+    )
+    .unwrap();
+    let py_path = base.join("packages/python/foo.py");
+    std::fs::create_dir_all(py_path.parent().unwrap()).unwrap();
+    std::fs::write(&py_path, "x=1").unwrap();
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "sample-model"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("valid config");
+    let config = cfg.resolve().unwrap().remove(0);
+    let only: HashSet<Language> = [Language::Python].into_iter().collect();
+
+    format_generated(&config, base, Some(&only));
+
+    assert_eq!(
+        std::fs::read_to_string(&py_path).unwrap(),
+        "x=1",
+        "poly's `[discovery] exclude` is matched relative to the root poly is given; a partial \
+         regen must format from `base_dir` so a `/packages/python/**` exclude still applies. \
+         Handing poly `packages/python` as its own root makes the exclude stop matching and \
+         poly reformats a file the repo's config excludes it from."
+    );
 }
 
 #[test]

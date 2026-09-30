@@ -3,7 +3,7 @@ mod scope;
 mod stamp_gate;
 
 pub(crate) use owner::{FormattingOwner, PolyCoverage, formatting_owner, push_poly_format_excludes};
-pub(crate) use scope::{languages_owning_changed_paths, poly_paths, unowned_changed_paths};
+pub(crate) use scope::{languages_owning_changed_paths, unowned_changed_paths};
 pub(crate) use stamp_gate::generated_tree_needs_formatting;
 pub use stamp_gate::unstamp_before_formatting;
 
@@ -298,7 +298,16 @@ fn run_format_pass(
             if poly_langs.is_empty() && extra_paths.is_empty() {
                 return pass.skipped;
             }
-            let mut paths = poly_paths(config, base_dir, only_languages, &poly_langs);
+            // ~keep A partial regen formats from `base_dir`, exactly like the full-regen pass
+            // above, rather than from `poly_paths`' per-language directories. poly matches its
+            // `[discovery] exclude` with gitignore semantics RELATIVE TO THE ROOT IT IS GIVEN:
+            // handed `crates/<name>-node` directly, the config's `crates/*-node/**` no longer
+            // matches, so poly reformats files the repo's own config excludes it from. The
+            // reader (`format_drift::PolyCoverage`) probes from `base_dir`, where the exclude
+            // does match, and so reports every such file as permanent drift. Formatting from
+            // `base_dir` keeps the writer's notion of poly's coverage equal to the reader's:
+            // poly's config, not a hand-picked directory list, decides what it touches.
+            let mut paths = vec![base_dir.to_path_buf()];
             paths.extend(extra_paths.iter().filter(|path| path.exists()).cloned());
             poly_format_pass(&paths, base_dir, &mut pass);
             for &lang in &poly_langs {
