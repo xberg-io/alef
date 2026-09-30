@@ -271,7 +271,7 @@ fn render_args_with_api(params: &[ParamDef], lang: Language, ffi_prefix: &str, a
 }
 
 fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &ApiSurface) -> String {
-    let mut value = rust_original_enum_sample(param, lang, ffi_prefix, api)
+    let mut value = crate::docs::rust_param_samples::rust_original_param_sample(param, lang, ffi_prefix, api)
         .unwrap_or_else(|| sample_value(&param.ty, lang, ffi_prefix));
     // ~keep The Rust page documents the crate itself, so a borrowed param has to be *passed*
     // borrowed or the example will not compile against the signature printed directly above it.
@@ -345,29 +345,6 @@ fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &
     }
 
     value
-}
-
-fn rust_original_enum_sample(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &ApiSurface) -> Option<String> {
-    if lang != Language::Rust {
-        return None;
-    }
-    let original = param.original_type.as_deref()?;
-    let short_name = original.rsplit("::").next().unwrap_or(original);
-    let enum_def = api
-        .enums
-        .iter()
-        .find(|enum_def| enum_def.name == short_name || enum_def.rust_path == original)?;
-    let variant = enum_def
-        .variants
-        .iter()
-        .find(|variant| variant.is_default && variant.fields.is_empty())
-        .or_else(|| enum_def.variants.iter().find(|variant| variant.fields.is_empty()))?;
-    Some(crate::docs::enum_variant_ref::format_enum_variant_ref(
-        &enum_def.name,
-        &variant.name,
-        lang,
-        ffi_prefix,
-    ))
 }
 
 fn render_call_statement(

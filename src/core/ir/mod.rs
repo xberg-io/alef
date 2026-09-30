@@ -17,5 +17,6 @@ pub use service::{
     RegistrationVariant, RegistrationVariantLanguageOverride, RegistrationVariantOverride, RegistrationVariantStyle,
     ResolvedVariant, ServiceDef, WrapperConstructorArg, WrapperConstructorCall, WrapperOption,
 };
+pub(crate) use surface::RustDocType;
 pub use surface::{ApiSurface, UnresolvedModuleDeclaration, UnsupportedPublicItem, cfg_feature_satisfied};
 pub use type_ref::{PrimitiveType, TypeRef};

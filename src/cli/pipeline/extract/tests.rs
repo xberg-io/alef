@@ -46,6 +46,86 @@ fn binding_excluded_parameterized_function_keeps_its_rust_signature() {
     assert_eq!(function.return_type, TypeRef::Unit);
 }
 
+#[test]
+fn binding_excluded_enum_metadata_survives_through_rust_docs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        #[derive(Default)]
+        #[cfg_attr(alef, alef(skip))]
+        pub enum CaptionAltTextPolicy {
+            #[default]
+            Preserve,
+            Replace,
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn extract_with_policy(policy: CaptionAltTextPolicy) {
+            let _ = policy;
+        }
+        "#,
+    )
+    .expect("write fixture");
+
+    let mut api =
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample", "0.0.0", None).expect("extract fixture");
+    strip_binding_excluded(&mut api).expect("strip binding exclusions");
+    sanitize_unknown_types(&mut api);
+
+    assert!(
+        api.enums.iter().all(|enum_def| enum_def.name != "CaptionAltTextPolicy"),
+        "the excluded enum must stay out of binding emitters"
+    );
+
+    let config: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+        [workspace]
+        languages = ["python", "rust"]
+
+        [[crates]]
+        name = "sample"
+        sources = ["src/lib.rs"]
+        "#,
+    )
+    .expect("valid config");
+    let config = config.resolve().expect("resolved config").remove(0);
+    let files = crate::docs::generate_docs(
+        &api,
+        &config,
+        &[
+            crate::core::config::Language::Python,
+            crate::core::config::Language::Rust,
+        ],
+        "out",
+    )
+    .expect("generate docs");
+    let rust = files
+        .iter()
+        .find(|file| file.path.ends_with("api-rust.md"))
+        .expect("Rust reference");
+    let python = files
+        .iter()
+        .find(|file| file.path.ends_with("api-python.md"))
+        .expect("Python reference");
+
+    assert!(
+        rust.content
+            .contains("pub fn extract_with_policy(policy: CaptionAltTextPolicy)")
+            && rust
+                .content
+                .contains("extract_with_policy(CaptionAltTextPolicy::Preserve);"),
+        "Rust docs must consume the retained enum construction metadata; got:\n{}",
+        rust.content
+    );
+    assert!(
+        !python.content.contains("extract_with_policy"),
+        "binding docs must keep excluding the Rust-only function; got:\n{}",
+        python.content
+    );
+}
+
 /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
 /// without marking the Map as lossy. Lossy map inner changes are still reported
 /// separately so validation can block them before codegen.

@@ -199,6 +199,7 @@ fn paths_compatible(a: &str, b: &str, api_crate_name: &str) -> bool {
 }
 
 pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
+    let mut rust_doc_types = Vec::new();
     for typ in &api.types {
         if typ.binding_excluded {
             let reason = typ
@@ -211,6 +212,13 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
             if typ.is_trait {
                 api.excluded_trait_names.insert(typ.name.clone());
             }
+            rust_doc_types.push(crate::core::ir::RustDocType {
+                name: typ.name.clone(),
+                rust_path: typ.rust_path.clone(),
+                has_default: typ.has_default,
+                default_unit_variant: None,
+                unit_variants: Vec::new(),
+            });
         }
     }
     for enm in &api.enums {
@@ -222,6 +230,24 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
             info!("Stripping excluded enum: {} ({})", enm.name, reason);
             api.excluded_type_paths
                 .insert(enm.name.clone(), enm.rust_path.replace('-', "_"));
+            let unit_variants: Vec<String> = enm
+                .variants
+                .iter()
+                .filter(|variant| variant.fields.is_empty())
+                .map(|variant| variant.name.clone())
+                .collect();
+            let default_unit_variant = enm
+                .variants
+                .iter()
+                .find(|variant| variant.is_default && variant.fields.is_empty())
+                .map(|variant| variant.name.clone());
+            rust_doc_types.push(crate::core::ir::RustDocType {
+                name: enm.name.clone(),
+                rust_path: enm.rust_path.clone(),
+                has_default: enm.has_default,
+                default_unit_variant,
+                unit_variants,
+            });
         }
     }
     for err in &api.errors {
@@ -234,6 +260,9 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
             api.excluded_type_paths
                 .insert(err.name.clone(), err.rust_path.replace('-', "_"));
         }
+    }
+    for type_def in rust_doc_types {
+        api.retain_rust_doc_type(type_def);
     }
 
     api.types.retain(|t| !t.binding_excluded);

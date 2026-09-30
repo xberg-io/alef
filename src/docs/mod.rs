@@ -21,6 +21,7 @@ pub(crate) mod language_pages;
 mod markdown_canonical;
 pub(crate) mod naming;
 mod render;
+mod rust_param_samples;
 mod rust_static;
 pub(crate) mod rust_types;
 mod shared_pages;
