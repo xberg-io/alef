@@ -169,6 +169,17 @@ pub(crate) fn tool_available_with_stable_path(tool_name: &str) -> Option<MutexGu
     crate::cli::pipeline::is_tool_available(tool_name).then_some(lock)
 }
 
+#[cfg(test)]
+mod stable_path_tests {
+    #[test]
+    fn stable_path_probe_returns_none_for_a_missing_tool() {
+        assert!(
+            super::tool_available_with_stable_path("alef-missing-poly-negative-control-487488").is_none(),
+            "a genuinely absent tool must keep the guarded availability check's skip path reachable"
+        );
+    }
+}
+
 /// The single lock serializing every test in this crate that spawns a REAL `cargo` subprocess
 /// (`cargo fmt --all`, `cargo sort -n -w`, `cargo sort --check`, ...) outside of alef's own
 /// `ALEF_SKIP_COMMANDS` skip mechanism.

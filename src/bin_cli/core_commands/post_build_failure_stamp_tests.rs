@@ -117,9 +117,9 @@ fn run_generate_expecting_post_build_failure(root: &Path) -> anyhow::Error {
 /// output from being written AND stamped in the same run.
 #[test]
 fn generate_stamps_every_language_even_when_one_languages_post_build_fails() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_mixed_fixture_workspace(&root);
@@ -218,9 +218,9 @@ fn expected_stamped_relative_paths(root: &Path) -> std::collections::HashSet<Pat
 /// python's public API files, which use the plain `generated_header: true` prepend path. ~keep
 #[test]
 fn every_marked_generated_file_is_stamped_after_generate() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     std::fs::create_dir_all(root.join("src")).expect("create fixture src directory");
