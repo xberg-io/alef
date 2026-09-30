@@ -169,7 +169,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .as_ref()
         .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
         .unwrap_or_default();
-    let php_declared_features = crate::scaffold::languages::php::php_declared_features(api, &php_excluded_default);
+    let configured_features = config.features_for_language(crate::core::config::Language::Php);
+    let php_declared_features =
+        crate::scaffold::languages::php::php_declared_features(api, &php_excluded_default, configured_features);
     let php_declared_features_set: std::collections::HashSet<&str> =
         php_declared_features.iter().map(String::as_str).collect();
     super::enum_cfg::specialize(&mut deduped_api, config, &php_declared_features)?;

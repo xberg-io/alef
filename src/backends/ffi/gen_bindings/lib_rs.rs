@@ -393,6 +393,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 path_map,
                 ffi_param_enums,
                 serde_names,
+                &config.json_parameter_limits,
             ));
             if let Some(presence) =
                 gen_method_result_presence_wrapper(typ, method, prefix, &core_import, path_map, ffi_param_enums)
@@ -622,6 +623,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             serde_names,
             capsule_cfg,
             returns_owned_borrowed_handle,
+            &config.json_parameter_limits,
         ));
         if returns_c_char(&func.return_type) {
             builder.add_item(&gen_free_function_len_companion(

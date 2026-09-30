@@ -407,6 +407,7 @@ impl NewAlefConfig {
             trait_bridges: krate.trait_bridges.clone(),
             services: krate.services.clone(),
             handler_contracts: krate.handler_contracts.clone(),
+            json_parameter_limits: krate.json_parameter_limits.clone(),
             scaffold: merge_scaffold(
                 ws.scaffold.as_ref(),
                 krate.scaffold.as_ref(),

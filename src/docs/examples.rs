@@ -268,6 +268,10 @@ fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str) -> Str
         return format!("{borrow}{}", sample_value(&param.ty, lang, ffi_prefix));
     }
 
+    if lang == Language::Rust && param.optional {
+        return format!("Some({})", sample_value(&param.ty, lang, ffi_prefix));
+    }
+
     if matches!(lang, Language::Ffi | Language::C) && matches!(&param.ty, TypeRef::Named(_)) {
         // ~keep Every Named-type param is a scalar `AlefHandle` (uint64_t) in the C
         // ABI, whether it's passed by value, by ref, or is optional — there is no
@@ -700,6 +704,20 @@ mod tests {
     fn function_example_uses_rust_try_and_await() {
         let rendered = render_function_example(&function(), Language::Rust, "Demo", "Demo");
         assert!(rendered.contains("let result = parse_document(\"value\").await?;"));
+    }
+
+    #[test]
+    fn function_example_wraps_optional_rust_string_and_u32_samples() {
+        let mut function = function();
+        let mut name = param("name", TypeRef::String);
+        name.optional = true;
+        let mut limit = param("limit", TypeRef::Primitive(crate::core::ir::PrimitiveType::U32));
+        limit.optional = true;
+        function.params = vec![name, limit];
+
+        let rendered = render_function_example(&function, Language::Rust, "Demo", "Demo");
+
+        assert!(rendered.contains("parse_document(Some(\"value\"), Some(42)).await?"));
     }
 
     #[test]

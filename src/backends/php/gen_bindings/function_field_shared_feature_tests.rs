@@ -92,7 +92,7 @@ fn lib_rs_content(files: &[crate::core::backend::GeneratedFile]) -> &str {
 #[test]
 fn php_declared_features_keeps_a_name_a_field_still_needs() {
     let api = shared_feature_api();
-    let declared = crate::scaffold::languages::php::php_declared_features(&api, &[]);
+    let declared = crate::scaffold::languages::php::php_declared_features(&api, &[], &[]);
     assert!(
         declared.contains(FEATURE),
         "a feature name a struct field's cfg references must stay declared even when a \
@@ -107,7 +107,7 @@ fn php_declared_features_keeps_a_name_a_field_still_needs() {
 fn php_declared_features_still_drops_a_function_only_name() {
     let mut api = shared_feature_api();
     api.types.clear();
-    let declared = crate::scaffold::languages::php::php_declared_features(&api, &[]);
+    let declared = crate::scaffold::languages::php::php_declared_features(&api, &[], &[]);
     assert!(
         !declared.contains(FEATURE),
         "a feature referenced only by a top-level function's cfg (no field/type anywhere \

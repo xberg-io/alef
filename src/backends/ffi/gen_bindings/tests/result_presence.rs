@@ -192,6 +192,7 @@ fn result_presence_companion_distinguishes_none_from_zero_valued_some_at_runtime
             &empty_set,
             None,
             false,
+            &[],
         ));
         generated.push('\n');
         if let Some(presence) =
@@ -209,6 +210,7 @@ fn result_presence_companion_distinguishes_none_from_zero_valued_some_at_runtime
         &empty_map,
         &empty_set,
         &empty_set,
+        &[],
     ));
     generated.push('\n');
     let method_presence =

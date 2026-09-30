@@ -15,7 +15,7 @@ pub(super) use return_wrapping::{napi_wrap_return, napi_wrap_return_fn};
 
 use crate::codegen::generators::{self, RustBindingConfig};
 use crate::codegen::naming::to_node_name;
-use crate::codegen::shared::function_params;
+use crate::codegen::shared::{self, function_params};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::AHashSet;
@@ -98,7 +98,14 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let promoted_required: Vec<&crate::core::ir::ParamDef> = func
+        .params
+        .iter()
+        .enumerate()
+        .filter_map(|(index, parameter)| shared::is_promoted_optional(&func.params, index).then_some(parameter))
+        .collect();
+    let return_annotation =
+        mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
 
     let js_name = to_node_name(&func.name);
     let js_name_attr = if js_name != func.name {
@@ -287,6 +294,24 @@ pub(super) fn gen_function(
     } else {
         format!("{}{}", default_coerce_prefix, body)
     };
+    let required_prefix: String = promoted_required
+        .iter()
+        .map(|parameter| {
+            format!(
+                "let {} = {}.ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing required parameter '{}'\"))?;\n    ",
+                parameter.name, parameter.name, parameter.name
+            )
+        })
+        .collect();
+    let body = if required_prefix.is_empty() {
+        body
+    } else if func.error_type.is_some() {
+        format!("{required_prefix}{body}")
+    } else if matches!(func.return_type, TypeRef::Unit) {
+        format!("{required_prefix}{body};\n    Ok(())")
+    } else {
+        format!("{required_prefix}Ok({body})")
+    };
     crate::backends::napi::template_env::render(
         "function_wrapper.jinja",
         minijinja::context! {
@@ -441,6 +466,39 @@ mod tests {
             !output.contains("record_core.into()"),
             "owned param must not gain a write-back tail:\n{output}"
         );
+    }
+
+    #[test]
+    fn required_parameter_after_optional_returns_invalid_arg_instead_of_panicking() {
+        use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
+
+        let func = FunctionDef {
+            name: "bounded".to_owned(),
+            rust_path: "sample_core::bounded".to_owned(),
+            params: vec![
+                ParamDef {
+                    name: "encoding".into(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "max".into(),
+                    ty: TypeRef::Primitive(PrimitiveType::U32),
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::Unit,
+            ..Default::default()
+        };
+
+        let output = gen_probe_function(&func);
+        assert!(
+            output.contains("max.ok_or_else(|| napi::Error::new(napi::Status::InvalidArg"),
+            "{output}"
+        );
+        assert!(output.contains("-> Result<()>"), "{output}");
+        assert!(!output.contains("expect(\"'max' is required\")"), "{output}");
     }
 
     /// Regression test for issue #380 (async path): a `&mut T` DTO parameter on a unit-returning

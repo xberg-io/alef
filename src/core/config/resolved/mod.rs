@@ -47,6 +47,7 @@ use crate::core::config::output::{
 use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::poly::PolyConfig;
 use crate::core::config::publish::PublishConfig;
+use crate::core::config::raw_crate::JsonParameterLimitConfig;
 use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
@@ -166,6 +167,7 @@ pub struct ResolvedCrateConfig {
     pub trait_bridges: Vec<TraitBridgeConfig>,
     pub services: Vec<ServiceConfig>,
     pub handler_contracts: Vec<HandlerContractConfig>,
+    pub json_parameter_limits: Vec<JsonParameterLimitConfig>,
     pub scaffold: Option<ScaffoldConfig>,
     pub package_metadata: Option<PackageMetadataConfig>,
     pub readme: Option<ReadmeConfig>,

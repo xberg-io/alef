@@ -713,7 +713,7 @@ pub(crate) fn internal_tagged_union_dts_lines(e: &EnumDef, ts_name: &str, types:
 
 /// Render a list of parameters as a TypeScript parameter string for `.d.ts`.
 pub(super) fn dts_params(params: &[ParamDef], default_types: &ahash::AHashSet<String>) -> String {
-    dts_params_with_order(params, true, default_types)
+    dts_params_with_order(params, false, default_types)
 }
 
 fn dts_params_with_order(
@@ -722,11 +722,11 @@ fn dts_params_with_order(
     default_types: &ahash::AHashSet<String>,
 ) -> String {
     if !reorder_for_typescript {
-        let has_required_after = required_after_optional(params, default_types);
+        let can_use_question_mark = can_use_question_mark(params, default_types);
         return params
             .iter()
             .enumerate()
-            .map(|(idx, p)| dts_param(p, param_is_optional(p, default_types), !has_required_after[idx]))
+            .map(|(idx, p)| dts_param(p, param_is_optional(p, default_types), can_use_question_mark[idx]))
             .collect::<Vec<_>>()
             .join(", ");
     }
@@ -791,13 +791,13 @@ fn param_is_optional(p: &ParamDef, default_types: &ahash::AHashSet<String>) -> b
         || matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
 }
 
-fn required_after_optional(params: &[ParamDef], default_types: &ahash::AHashSet<String>) -> Vec<bool> {
-    let mut seen_optional = false;
-    let mut result = vec![false; params.len()];
-    for (idx, param) in params.iter().enumerate() {
+fn can_use_question_mark(params: &[ParamDef], default_types: &ahash::AHashSet<String>) -> Vec<bool> {
+    let mut seen_required = false;
+    let mut result = vec![true; params.len()];
+    for (idx, param) in params.iter().enumerate().rev() {
         let is_optional = param_is_optional(param, default_types);
-        result[idx] = seen_optional && !is_optional;
-        seen_optional |= is_optional;
+        result[idx] = !is_optional || !seen_required;
+        seen_required |= !is_optional;
     }
     result
 }

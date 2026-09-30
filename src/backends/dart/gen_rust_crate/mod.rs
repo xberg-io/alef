@@ -562,6 +562,7 @@ fn emit_lib_rs(
             &types_needing_from_conversion,
             &opaque_type_names,
             stub_methods,
+            &api.types,
         )?;
     }
 

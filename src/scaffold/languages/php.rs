@@ -181,7 +181,11 @@ fn php_field_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
 /// never declared, which `restrict_field_gate`'s `Unreachable` branch could only paper over by
 /// falling back to that same undeclared gate -- `unexpected_cfg_condition_value` on the gate
 /// itself, then a missing struct-literal field (E0063) once rustc evaluated it false. ~keep
-pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features: &[&str]) -> BTreeSet<String> {
+pub(crate) fn php_declared_features(
+    api: &ApiSurface,
+    excluded_default_features: &[&str],
+    configured_features: &[String],
+) -> BTreeSet<String> {
     let mut features = crate::codegen::cfg::collect_cfg_features(api);
     let field_needed = php_field_referenced_feature_names(api);
     for name in &php_function_referenced_feature_names(api) {
@@ -189,6 +193,7 @@ pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features:
             features.remove(name);
         }
     }
+    features.extend(configured_features.iter().cloned());
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features
 }
@@ -365,7 +370,8 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         // sees the same set this table declares. ~keep
         let mut excluded_sorted: Vec<&str> = excluded_default_features.iter().copied().collect();
         excluded_sorted.sort_unstable();
-        let features = php_declared_features(api, &excluded_sorted);
+        let configured_features = config.features_for_language(Language::Php);
+        let features = php_declared_features(api, &excluded_sorted, configured_features);
         if features.is_empty() {
             String::new()
         } else {

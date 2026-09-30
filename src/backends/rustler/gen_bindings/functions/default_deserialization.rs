@@ -176,3 +176,15 @@ pub(super) fn render_fallible_deser_line(
     .trim_end()
     .to_string()
 }
+
+pub(super) fn render_bounded_vec_deser_line(
+    name: &str,
+    output_name: &str,
+    core_type: &str,
+    max_parameter: &str,
+    default_max: u32,
+) -> String {
+    format!(
+        "let {output_name}: Option<{core_type}> = {name}.map(|json| __alef_deserialize_bounded_vec(&json, usize::try_from({max_parameter}.unwrap_or({default_max})).unwrap_or(usize::MAX))).transpose().map_err(|error| error.to_string())?;"
+    )
+}

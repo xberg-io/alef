@@ -108,6 +108,7 @@ fn enum_param_local_name_uses_param_name_not_type_name() {
             core_import: "sample_crate",
             path_map: &AHashMap::new(),
             enum_names: &enum_names,
+            json_limit: None,
         },
     );
 
@@ -178,9 +179,48 @@ fn scalar_handle_override_controls_parameter_failure_sentinel() {
             core_import: "sample_lib",
             path_map: &AHashMap::new(),
             enum_names: &AHashSet::new(),
+            json_limit: None,
         },
     );
 
     assert!(output.contains("return 0;"), "{output}");
     assert!(!output.contains("return std::ptr::null_mut();"), "{output}");
+}
+
+#[test]
+fn configured_vec_limit_streams_and_rejects_max_plus_one_before_the_tail() {
+    let parameter = ParamDef {
+        name: "findings".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Named("Finding".to_string()))),
+        ..Default::default()
+    };
+    let output = gen_param_conversion_with_enums(
+        &parameter,
+        &ParamConversionContext {
+            has_error: true,
+            is_bytes_result: false,
+            return_type: &TypeRef::Unit,
+            ffi_return_type: None,
+            core_import: "sample_lib",
+            path_map: &AHashMap::new(),
+            enum_names: &AHashSet::new(),
+            json_limit: Some(("max_findings", 10_000)),
+        },
+    );
+
+    let next = output
+        .find("sequence.next_element()?")
+        .expect("streaming sequence read");
+    let reject = output.find("values.len() >= self.max").expect("max+1 rejection");
+    let push = output.find("values.push(value)").expect("accepted item push");
+    assert!(
+        next < reject && reject < push,
+        "the max+1 item must be rejected before allocation: {output}"
+    );
+    assert!(
+        output.contains("let __alef_findings_max = if max_findings == u32::MAX"),
+        "{output}"
+    );
+    assert!(output.contains("__alef_findings_deserializer.end()?"), "{output}");
+    assert!(!output.contains("serde_json::from_str::<Vec<"), "{output}");
 }

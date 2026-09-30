@@ -152,6 +152,10 @@ pub(crate) fn frb_rust_type_inner_with_source(
 /// `original_type` field carries the Rust type the source function expects;
 /// when present, we cast/convert the FRB-widened parameter to match.
 pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
+    dart_call_arg_checked(p, false)
+}
+
+pub(crate) fn dart_call_arg_checked(p: &ParamDef, checked: bool) -> String {
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
     let stripped_orig = original
@@ -195,6 +199,27 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
     if let TypeRef::Primitive(prim) = &p.ty {
         let target = primitive_name(prim);
         if target != "i64" && target != "f64" && target != "bool" {
+            if checked
+                && matches!(
+                    prim,
+                    PrimitiveType::U8
+                        | PrimitiveType::U16
+                        | PrimitiveType::U32
+                        | PrimitiveType::U64
+                        | PrimitiveType::Usize
+                )
+            {
+                let conversion = format!(
+                    "{target}::try_from(v).map_err(|_| format!(\"parameter '{}' must be between 0 and {target}::MAX\"))",
+                    p.name
+                );
+                if p.optional {
+                    return format!("{name}.map(|v| {conversion}).transpose()?");
+                }
+                return format!(
+                    "{target}::try_from({name}).map_err(|_| format!(\"parameter '{name}' must be between 0 and {target}::MAX\"))?"
+                );
+            }
             if p.optional {
                 return format!("{name}.map(|v| v as {target})");
             }

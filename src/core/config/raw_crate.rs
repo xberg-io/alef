@@ -29,6 +29,17 @@ use super::publish::PublishConfig;
 use super::service::{HandlerContractConfig, ServiceConfig};
 use super::trait_bridge::TraitBridgeConfig;
 
+/// Bounds deserialization of one raw-JSON collection parameter before the generated bridge
+/// allocates the complete collection. ~keep
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct JsonParameterLimitConfig {
+    pub function: String,
+    pub parameter: String,
+    pub max_parameter: String,
+    pub default_max: u32,
+}
+
 /// One `[[crates]]` entry — an independently published Rust facade plus its
 /// per-crate language settings, pipelines, and packaging metadata.
 ///
@@ -201,6 +212,10 @@ pub struct RawCrateConfig {
     pub services: Vec<ServiceConfig>,
     #[serde(default)]
     pub handler_contracts: Vec<HandlerContractConfig>,
+    /// Raw-JSON collection parameters whose generated bridge deserializers must enforce a
+    /// sibling numeric limit while streaming the JSON sequence. ~keep
+    #[serde(default)]
+    pub json_parameter_limits: Vec<JsonParameterLimitConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
     #[serde(default)]
