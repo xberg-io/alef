@@ -374,17 +374,17 @@ fn gen_php_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Strin
              .enable_all()\n        \
              .thread_stack_size(STREAMING_RUNTIME_STACK_SIZE_BYTES)\n        \
              .build()\n        \
-             .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n    \
+             .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n    \
          {bindings_block}\
          rt.block_on(async {{\n        \
              let stream = self.inner.{core_path}({call_str}).await\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
+                 .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n        \
              let chunks: Vec<String> = stream\n            \
                  .collect::<Vec<_>>().await\n            \
                  .into_iter()\n            \
                  .collect::<std::result::Result<Vec<_>, _>>()\n            \
                  .map(|chunks| chunks.into_iter().map(|c| serde_json::to_string(&c).unwrap_or_default()).collect())\n            \
-                 .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))?;\n        \
+                 .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))?;\n        \
              Ok(chunks)\n    \
          }})"
     );

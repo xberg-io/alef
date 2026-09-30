@@ -1,8 +1,7 @@
 other => {
-    ext_php_rs::exception::PhpException::default(format!(
+    ext_php_rs::exception::PhpException::from_message(format!(
         "invalid value {other:?} for field '{{ field_name }}' of {{ enum_name }}: expected one of [{{ valid_variants }}]"
     ))
-    .throw()
-    .expect("failed to throw PHP exception for invalid enum string value");
+    .throw();
     {{ fallback_expr }}
 }

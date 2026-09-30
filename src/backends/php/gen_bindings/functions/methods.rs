@@ -47,7 +47,7 @@ pub(crate) fn gen_instance_method(
 
     let self_ref_return =
         method.returns_ref && matches!(&method.return_type, TypeRef::Named(n) if n.as_str() == type_name);
-    const PHP_ERR_CONV: &str = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
+    const PHP_ERR_CONV: &str = ".map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))";
 
     let adapter_key = format!("{type_name}.{}", method.name);
     let body = if let Some(body) = adapter_bodies.get(&adapter_key) {
@@ -412,7 +412,7 @@ pub(crate) fn gen_static_method(
         if method.error_type.is_some() {
             if is_enum_return {
                 format!(
-                    "{core_call}.map(|val| format!(\"{{:?}}\", val)).map_err(|e| PhpException::default(e.to_string()))"
+                    "{core_call}.map(|val| format!(\"{{:?}}\", val)).map_err(|e| PhpException::from_message(e.to_string()))"
                 )
             } else {
                 let wrap = php_wrap_return(
@@ -428,9 +428,9 @@ pub(crate) fn gen_static_method(
                     string_enum_names,
                 );
                 if wrap == "val" {
-                    format!("{core_call}.map_err(|e| PhpException::default(e.to_string()))")
+                    format!("{core_call}.map_err(|e| PhpException::from_message(e.to_string()))")
                 } else {
-                    format!("{core_call}.map(|val| {wrap}).map_err(|e| PhpException::default(e.to_string()))")
+                    format!("{core_call}.map(|val| {wrap}).map_err(|e| PhpException::from_message(e.to_string()))")
                 }
             }
         } else if is_enum_return {

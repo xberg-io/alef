@@ -5,8 +5,8 @@ fn {{ fn_name }}(e: {{ rust_path }}) -> ext_php_rs::exception::PhpException {
     #[allow(unreachable_patterns)]
     match &e {
 {%- for pattern, variant_name in variants %}
-        {{ pattern }} => ext_php_rs::exception::PhpException::default(format!("[{{ variant_name }}] {}", msg)),
+        {{ pattern }} => ext_php_rs::exception::PhpException::from_message(format!("[{{ variant_name }}] {}", msg)),
 {%- endfor %}
-        _ => ext_php_rs::exception::PhpException::default(msg),
+        _ => ext_php_rs::exception::PhpException::from_message(msg),
     }
 }

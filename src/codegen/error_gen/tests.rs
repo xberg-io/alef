@@ -457,7 +457,7 @@ fn test_gen_php_error_converter() {
     assert!(output.contains(
         "fn conversion_error_to_php_err(e: sample_markup_rs::ConversionError) -> ext_php_rs::exception::PhpException {"
     ));
-    assert!(output.contains("PhpException::default(format!(\"[ParseError] {}\", msg))"));
+    assert!(output.contains("PhpException::from_message(format!(\"[ParseError] {}\", msg))"));
     assert!(output.contains("#[allow(dead_code)]"));
 }
 

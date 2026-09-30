@@ -656,11 +656,12 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
          generated crate's build with compile_error! rather than ship fake data; content:\n{content}"
     );
     assert!(
-        !content.contains("Err(ext_php_rs::exception::PhpException::default(\"Not implemented: extension_ambiguity"),
+        !content
+            .contains("Err(ext_php_rs::exception::PhpException::from_message(\"Not implemented: extension_ambiguity"),
         "extension_ambiguity must not emit PhpException (no error_type); content:\n{content}"
     );
     assert!(
-        !content.contains("Err(ext_php_rs::exception::PhpException::default(\"Not implemented: split_code"),
+        !content.contains("Err(ext_php_rs::exception::PhpException::from_message(\"Not implemented: split_code"),
         "split_code must not emit PhpException (no error_type); content:\n{content}"
     );
 }

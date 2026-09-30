@@ -4,7 +4,7 @@ let {{ pname }}_core: Option<Vec<{{ core_import }}::{{ name }}>> = if let Some(h
         if let Some(parsed) = <&{{ name }} as ext_php_rs::convert::FromZval>::from_zval(item) {
             result.push(parsed.clone().into());
         } else {
-            return Err(ext_php_rs::exception::PhpException::default("Failed to convert array element to {{ name }}".to_string()));
+            return Err(ext_php_rs::exception::PhpException::from_message("Failed to convert array element to {{ name }}".to_string()));
         }
     }
     Some(result)

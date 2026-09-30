@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn php_rust_output_uses_ext_php_rs_016_apis() {
+    let backend = PhpBackend;
+    let mut api = make_api_php();
+    api.functions.push(FunctionDef {
+        name: "fallible".to_string(),
+        rust_path: "my_lib::fallible".to_string(),
+        return_type: TypeRef::String,
+        error_type: Some("Error".to_string()),
+        ..FunctionDef::default()
+    });
+
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(lib.content.contains("PhpException::from_message"), "{}", lib.content);
+    assert!(!lib.content.contains("PhpException::default"), "{}", lib.content);
+    assert!(
+        lib.content.contains("Ok((entry, startup, owned))"),
+        "module construction must retain ext-php-rs-owned allocations:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("(entry, owned)"),
+        "StaticModuleEntry initializer must receive the entry and its allocations:\n{}",
+        lib.content
+    );
+}
+
+#[test]
 fn php_native_and_facade_allow_null_default_config_param() {
     let backend = PhpBackend;
     let api = ApiSurface {

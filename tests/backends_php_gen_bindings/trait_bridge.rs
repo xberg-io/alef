@@ -24,7 +24,7 @@ fn test_php_visitor_bridge_produces_visitor_struct() {
 }
 
 #[test]
-fn test_php_visitor_bridge_has_php_obj_field() {
+fn php_visitor_bridge_owns_object_through_zval() {
     use alef::backends::php::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_php(
@@ -37,13 +37,49 @@ fn test_php_visitor_bridge_has_php_obj_field() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
-        code.code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
-        "PHP visitor bridge must store a raw ZendObject pointer in 'php_obj'"
+        code.code.contains("php_obj: ext_php_rs::types::Zval"),
+        "PHP visitor bridge must keep an owned Zend reference in a Zval:\n{}",
+        code.code
     );
+    assert!(
+        code.code.contains("php_obj: self.php_obj.shallow_clone()"),
+        "cloning a visitor bridge must clone the owned Zend reference:\n{}",
+        code.code
+    );
+    assert!(!code.code.contains("PhpRc"));
+    assert!(!code.code.contains("inc_count()"));
+    assert!(!code.code.contains("dec_count()"));
     assert!(
         code.code.contains("cached_name: String"),
         "PHP visitor bridge must cache the plugin name"
     );
+}
+
+#[test]
+fn php_plugin_bridge_owns_object_through_zval() {
+    use alef::backends::php::trait_bridge::gen_trait_bridge;
+
+    let mut method = make_method_php("process", TypeRef::String, true, false);
+    method.is_async = true;
+    let trait_def = make_trait_def_php("OcrBackend", vec![method]);
+    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
+    let api = make_api_php();
+
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    assert!(
+        code.code.contains("inner: ext_php_rs::types::Zval"),
+        "PHP plugin bridge must keep an owned Zend reference in a Zval:\n{}",
+        code.code
+    );
+    assert!(
+        code.code.contains("let inner_obj = self.inner.shallow_clone();"),
+        "async forwarding must retain an owned reference for the call:\n{}",
+        code.code
+    );
+    assert!(!code.code.contains("PhpRc"));
+    assert!(!code.code.contains("inc_count()"));
+    assert!(!code.code.contains("dec_count()"));
 }
 
 #[test]

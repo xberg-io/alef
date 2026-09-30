@@ -540,7 +540,7 @@ mod flat_data_enum_from_impls_tests {
             generated_methods.contains("\"Variant1\" | \"Variant2\""),
             "{generated_methods}"
         );
-        assert!(generated_methods.contains("return Err(PhpException::default(format!("));
+        assert!(generated_methods.contains("return Err(PhpException::from_message(format!("));
     }
 
     /// The regression this task fixes: neither direction of the flat-enum `From` impl ever read

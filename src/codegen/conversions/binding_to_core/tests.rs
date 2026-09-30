@@ -669,7 +669,7 @@ fn lifetime_type_enum_string_field_reports_php_exception_instead_of_panicking() 
         "a bad PHP-assigned enum string must no longer panic across the FFI boundary, got:\n{out}"
     );
     assert!(
-        out.contains("ext_php_rs::exception::PhpException::default") && out.contains(".throw()"),
+        out.contains("ext_php_rs::exception::PhpException::from_message") && out.contains(".throw()"),
         "the parse failure must be reported to PHP as a catchable exception, got:\n{out}"
     );
     assert!(
@@ -707,7 +707,7 @@ fn lifetime_type_optional_enum_string_field_falls_back_to_none_and_reports_excep
         "an optional field never needs the panicking path -- None is always a valid fallback, got:\n{out}"
     );
     assert!(
-        out.contains("ext_php_rs::exception::PhpException::default") && out.contains(".throw()"),
+        out.contains("ext_php_rs::exception::PhpException::from_message") && out.contains(".throw()"),
         "a parse failure on an optional field must still be reported to PHP, not silently dropped, got:\n{out}"
     );
     assert!(

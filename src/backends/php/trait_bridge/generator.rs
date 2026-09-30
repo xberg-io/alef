@@ -145,7 +145,7 @@ impl PhpBridgeGenerator {
 impl TraitBridgeGenerator for PhpBridgeGenerator {
     fn gen_lifecycle_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         Some(format!(
-            "{{\n    // SAFETY: PHP objects are single-threaded; reads are safe within a request.\n    let __class = unsafe {{ (*self.inner).get_class_name().unwrap_or_default() }};\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
+            "{{\n    let __class = self.inner.object().and_then(|object| object.get_class_name().ok()).unwrap_or_default();\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
             method.name
         ))
     }
@@ -153,18 +153,18 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
     fn gen_method_presence_check(&self, method: &MethodDef, _spec: &TraitBridgeSpec) -> Option<String> {
         self.forwardable_defaulted.contains(&method.name).then(|| {
             format!(
-                "{{\n    // SAFETY: PHP objects are single-threaded; reads are safe within a request.\n    let __class = unsafe {{ (*self.inner).get_class_name().unwrap_or_default() }};\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
+                "{{\n    let __class = self.inner.object().and_then(|object| object.get_class_name().ok()).unwrap_or_default();\n    ext_php_rs::zend::Function::try_from_method(&__class, \"{}\").is_some()\n}}",
                 method.name
             )
         })
     }
 
     fn foreign_object_type(&self) -> &str {
-        "*mut ext_php_rs::types::ZendObject"
+        "ext_php_rs::types::Zval"
     }
 
     fn bridge_imports(&self) -> Vec<String> {
-        vec!["std::sync::Arc".to_string(), "ext_php_rs::rc::PhpRc".to_string()]
+        vec!["std::sync::Arc".to_string()]
     }
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
@@ -383,10 +383,7 @@ pub fn gen_trait_bridge(
         let trait_path = trait_type.rust_path.replace('-', "_");
         let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths, api);
 
-        BridgeOutput {
-            imports: vec!["ext_php_rs::rc::PhpRc".to_string()],
-            code,
-        }
+        BridgeOutput { imports: vec![], code }
     } else {
         // backends consult. For such params the bridge hands PHP the binding's native `#[php_class]`
         let struct_param_types =

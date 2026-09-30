@@ -292,7 +292,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
              {inner_call}\n    \
          }})\n    \
          {map_expr}\n    \
-         .map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))"
+         .map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))"
     )
 }
 

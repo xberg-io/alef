@@ -673,12 +673,16 @@ mod tests {
             "the old silent-default fallback arm shape must be gone; got:\n{out}"
         );
         assert!(
-            out.contains("ext_php_rs::exception::PhpException::default(format!("),
+            out.contains("ext_php_rs::exception::PhpException::from_message(format!("),
             "an unrecognised value must construct a PhpException; got:\n{out}"
         );
         assert!(
             out.contains(".throw()"),
             "an unrecognised value must actually throw the PhpException, not just build it; got:\n{out}"
+        );
+        assert!(
+            !out.contains(".throw()\n    .expect("),
+            "ext-php-rs 0.16 returns unit from PhpException::throw, so generated code must not chain expect; got:\n{out}"
         );
     }
 
@@ -845,10 +849,9 @@ mod ext_php_rs {{
     pub mod exception {{
         pub struct PhpException(String);
         impl PhpException {{
-            pub fn default(message: String) -> Self {{ Self(message) }}
-            pub fn throw(self) -> Result<(), ()> {{
+            pub fn from_message(message: String) -> Self {{ Self(message) }}
+            pub fn throw(self) {{
                 println!("THROWN:{{}}", self.0);
-                Ok(())
             }}
         }}
     }}

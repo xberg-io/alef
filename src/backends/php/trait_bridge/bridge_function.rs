@@ -71,7 +71,7 @@ pub fn gen_bridge_function(
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let err_conv = ".map_err(|e| ext_php_rs::exception::PhpException::default(e.to_string()))";
+    let err_conv = ".map_err(|e| ext_php_rs::exception::PhpException::from_message(e.to_string()))";
 
     let bridge_wrap = if is_optional {
         format!(

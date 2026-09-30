@@ -1,6 +1,6 @@
                         let {{ name }}: {{ rust_ty }} = meta
                             .get({{ index }})
                             .ok_or_else(|| {
-                                PhpException::default("Missing metadata at index {{ index }}".into())
+                                PhpException::from_message("Missing metadata at index {{ index }}".into())
                             })?
                             .try_into()?;

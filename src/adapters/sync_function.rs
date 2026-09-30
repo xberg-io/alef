@@ -111,7 +111,7 @@ fn gen_php_body(adapter: &AdapterConfig, _config: &ResolvedCrateConfig) -> Strin
     format!(
         "{core_path}({call_str})\n        \
          .map({returns}::from)\n        \
-         .map_err(|e| PhpException::default(e.to_string()))"
+         .map_err(|e| PhpException::from_message(e.to_string()))"
     )
 }
 
