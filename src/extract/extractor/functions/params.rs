@@ -186,24 +186,34 @@ fn is_tuple_type(ty: &TypeRef) -> bool {
 fn has_named_leaf(ty: &TypeRef) -> bool {
     match ty {
         TypeRef::Named(_) => true,
-        TypeRef::Optional(inner) => has_named_leaf(inner),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => has_named_leaf(inner),
+        TypeRef::Map(key, value) => has_named_leaf(key) || has_named_leaf(value),
         _ => false,
     }
 }
 
-fn qualified_named_type_path(ty: &syn::Type) -> Option<String> {
+fn has_qualified_named_type(ty: &syn::Type) -> bool {
     match ty {
-        syn::Type::Reference(reference) => qualified_named_type_path(&reference.elem),
+        syn::Type::Reference(reference) => has_qualified_named_type(&reference.elem),
+        syn::Type::Slice(slice) => has_qualified_named_type(&slice.elem),
+        syn::Type::Array(array) => has_qualified_named_type(&array.elem),
+        syn::Type::Tuple(tuple) => tuple.elems.iter().any(has_qualified_named_type),
+        syn::Type::Paren(paren) => has_qualified_named_type(&paren.elem),
+        syn::Type::Group(group) => has_qualified_named_type(&group.elem),
         syn::Type::Path(type_path) => {
-            let segment = type_path.path.segments.last()?;
-            if segment.ident == "Option" {
-                return type_resolver::extract_single_generic_arg_syn(segment)
-                    .and_then(|inner| qualified_named_type_path(&inner));
-            }
-            (type_path.path.segments.len() > 1 && matches!(segment.arguments, syn::PathArguments::None))
-                .then(|| type_resolver::type_to_string(ty))
+            let path_is_named =
+                type_path.path.segments.len() > 1 && matches!(type_resolver::resolve_type(ty), TypeRef::Named(_));
+            path_is_named
+                || type_path.path.segments.iter().any(|segment| {
+                    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                        return false;
+                    };
+                    arguments.args.iter().any(|argument| {
+                        matches!(argument, syn::GenericArgument::Type(inner) if has_qualified_named_type(inner))
+                    })
+                })
         }
-        _ => None,
+        _ => false,
     }
 }
 
@@ -280,13 +290,12 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
 
                 let sanitized = is_tuple_type(&resolved);
 
-                let original_type = if sanitized {
-                    Some(format!("{:?}", resolved))
-                } else if has_named_leaf(&resolved) {
-                    qualified_named_type_path(&pat_type.ty)
-                } else {
-                    None
-                };
+                let original_type =
+                    if sanitized || (has_named_leaf(&resolved) && has_qualified_named_type(&pat_type.ty)) {
+                        Some(type_resolver::type_to_string(&pat_type.ty))
+                    } else {
+                        None
+                    };
 
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
@@ -330,10 +339,27 @@ mod tests {
 
         let params = extract_params(&item.sig.inputs);
         assert_eq!(params[0].original_type.as_deref(), Some("two::Policy"));
-        assert_eq!(params[1].original_type.as_deref(), Some("two::Policy"));
+        assert_eq!(params[1].original_type.as_deref(), Some("Option<two::Policy>"));
         assert!(params[1].optional);
-        assert_eq!(params[2].original_type.as_deref(), Some("two::Policy"));
+        assert_eq!(params[2].original_type.as_deref(), Some("&two::Policy"));
         assert!(params[2].is_ref);
+    }
+
+    #[test]
+    fn preserves_qualified_paths_inside_vectors_and_maps() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn choose(
+                policies: Vec<two::Policy>,
+                by_name: std::collections::HashMap<String, two::Policy>,
+            ) {}
+        };
+
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].original_type.as_deref(), Some("Vec<two::Policy>"));
+        assert_eq!(
+            params[1].original_type.as_deref(),
+            Some("std::collections::HashMap<String,two::Policy>")
+        );
     }
 
     #[test]

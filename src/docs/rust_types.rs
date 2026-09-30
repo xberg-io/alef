@@ -18,6 +18,13 @@ use crate::docs::type_mapping::doc_type;
 /// ambiguity toward `Option<&T>`, the shape `option_inner_is_ref` exists to detect and by far
 /// the more common Rust API. ~keep
 pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
+    if let Some(original) = param.original_type.as_deref()
+        && let Ok(source_type) = syn::parse_str::<syn::Type>(original)
+        && source_type_carries_param_wrappers(&source_type, param)
+    {
+        return crate::extract::type_resolver::type_to_string(&source_type);
+    }
+
     let inner = match param.original_type.as_deref() {
         Some(original) if param.is_ref => {
             let borrow = if param.is_mut { "&mut " } else { "&" };
@@ -38,6 +45,54 @@ pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
         format!("Option<{inner}>")
     } else {
         inner
+    }
+}
+
+fn source_type_carries_param_wrappers(source_type: &syn::Type, param: &ParamDef) -> bool {
+    (!param.is_ref || source_type_has_outer_reference(source_type))
+        && (!param.optional || source_type_has_outer_option(source_type))
+}
+
+fn source_type_has_outer_reference(source_type: &syn::Type) -> bool {
+    match source_type {
+        syn::Type::Reference(_) => true,
+        syn::Type::Path(type_path) => outer_option_inner(type_path)
+            .is_some_and(|inner| matches!(peel_grouped_type(inner), syn::Type::Reference(_))),
+        syn::Type::Paren(paren) => source_type_has_outer_reference(&paren.elem),
+        syn::Type::Group(group) => source_type_has_outer_reference(&group.elem),
+        _ => false,
+    }
+}
+
+fn source_type_has_outer_option(source_type: &syn::Type) -> bool {
+    match source_type {
+        syn::Type::Reference(reference) => source_type_has_outer_option(&reference.elem),
+        syn::Type::Path(type_path) => outer_option_inner(type_path).is_some(),
+        syn::Type::Paren(paren) => source_type_has_outer_option(&paren.elem),
+        syn::Type::Group(group) => source_type_has_outer_option(&group.elem),
+        _ => false,
+    }
+}
+
+fn outer_option_inner(type_path: &syn::TypePath) -> Option<&syn::Type> {
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    arguments.args.iter().find_map(|argument| match argument {
+        syn::GenericArgument::Type(inner) => Some(inner),
+        _ => None,
+    })
+}
+
+fn peel_grouped_type(source_type: &syn::Type) -> &syn::Type {
+    match source_type {
+        syn::Type::Paren(paren) => peel_grouped_type(&paren.elem),
+        syn::Type::Group(group) => peel_grouped_type(&group.elem),
+        _ => source_type,
     }
 }
 

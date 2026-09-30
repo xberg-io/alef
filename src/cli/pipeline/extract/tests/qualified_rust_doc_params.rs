@@ -110,6 +110,16 @@ fn skipped_tuple_param_renders_as_rust_syntax_after_extraction() {
         pub fn record(entry: (String, u32)) {
             let _ = entry;
         }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn record_many(entries: &[(String, u32)]) {
+            let _ = entries;
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn record_optional(entries: Option<&[(String, u32)]>) {
+            let _ = entries;
+        }
         "#,
     )
     .expect("write fixture");
@@ -125,10 +135,7 @@ fn skipped_tuple_param_renders_as_rust_syntax_after_extraction() {
         .find(|function| function.name == "record")
         .expect("record function");
     assert!(record.binding_excluded);
-    assert_eq!(
-        record.params[0].original_type.as_deref(),
-        Some("Named(\"(String, u32)\")")
-    );
+    assert_eq!(record.params[0].original_type.as_deref(), Some("(String,u32)"));
 
     let config: crate::core::config::NewAlefConfig = toml::from_str(
         r#"
@@ -150,8 +157,86 @@ fn skipped_tuple_param_renders_as_rust_syntax_after_extraction() {
         .expect("Rust reference");
 
     assert!(
-        rust.content.contains("pub fn record(entry: (String, u32))"),
+        rust.content.contains("pub fn record(entry: (String,u32))"),
         "Rust docs must render the tuple type as Rust syntax; got:\n{}",
+        rust.content
+    );
+    assert!(
+        rust.content.contains("pub fn record_many(entries: &[(String,u32)])"),
+        "Rust docs must preserve borrowed tuple slices; got:\n{}",
+        rust.content
+    );
+    assert!(
+        rust.content
+            .contains("pub fn record_optional(entries: Option<&[(String,u32)]>)"),
+        "Rust docs must preserve optional borrowed tuple slices; got:\n{}",
+        rust.content
+    );
+}
+
+#[test]
+fn qualified_named_leaves_inside_containers_survive_extraction_into_rust_docs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        pub mod one {
+            #[cfg_attr(alef, alef(skip))]
+            pub enum Policy { One }
+        }
+
+        pub mod two {
+            #[cfg_attr(alef, alef(skip))]
+            pub enum Policy { Two }
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn choose_many(policies: Vec<two::Policy>) {
+            let _ = policies;
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn choose_by_name(policies: std::collections::HashMap<String, two::Policy>) {
+            let _ = policies;
+        }
+        "#,
+    )
+    .expect("write fixture");
+
+    let mut api =
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample", "0.0.0", None).expect("extract fixture");
+    strip_binding_excluded(&mut api).expect("strip binding exclusions");
+    sanitize_unknown_types(&mut api);
+
+    let config: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+        [workspace]
+        languages = ["rust"]
+
+        [[crates]]
+        name = "sample"
+        sources = ["src/lib.rs"]
+        "#,
+    )
+    .expect("valid config");
+    let config = config.resolve().expect("resolved config").remove(0);
+    let files = crate::docs::generate_docs(&api, &config, &[crate::core::config::Language::Rust], "out")
+        .expect("generate docs");
+    let rust = files
+        .iter()
+        .find(|file| file.path.ends_with("api-rust.md"))
+        .expect("Rust reference");
+
+    assert!(
+        rust.content.contains("pub fn choose_many(policies: Vec<two::Policy>)"),
+        "Rust docs must preserve qualified vector leaves; got:\n{}",
+        rust.content
+    );
+    assert!(
+        rust.content
+            .contains("pub fn choose_by_name(policies: std::collections::HashMap<String,two::Policy>)"),
+        "Rust docs must preserve qualified map leaves; got:\n{}",
         rust.content
     );
 }

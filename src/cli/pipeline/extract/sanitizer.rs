@@ -135,7 +135,9 @@ fn sanitize_param(param: &mut ParamDef, known_types: &AHashSet<String>, known_en
     let is_lossy = sanitize_type_ref(&mut param.ty, known_types, known_enums).is_lossy();
     if is_lossy {
         param.sanitized = true;
-        if let Some(orig) = tuple_original {
+        if let Some(orig) = tuple_original
+            && param.original_type.is_none()
+        {
             param.original_type = Some(orig);
         } else if param.original_type.is_none() {
             param.original_type = Some(pre_sanitization);
