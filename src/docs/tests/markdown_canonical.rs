@@ -23,3 +23,11 @@ fn table_cell_markdown_uses_a_longer_delimiter_for_embedded_backticks() {
 
     assert_eq!(clean_doc_inline(input, Language::Python), "``call `value` now``");
 }
+
+#[test]
+fn canonical_markdown_preserves_wide_fences_and_ignores_shorter_inner_runs() {
+    let input = "````\n```not a closing fence\nvalue\n````";
+    let expected = "````rust\n```not a closing fence\nvalue\n````";
+
+    assert_eq!(clean_doc(input, Language::Python), expected);
+}

@@ -1,12 +1,40 @@
+#[derive(Clone, Copy)]
+pub(super) enum FenceEvent {
+    Open(usize),
+    Close,
+}
+
+pub(super) fn fence_event(line: &str, opening_ticks: Option<usize>) -> Option<FenceEvent> {
+    let trimmed = line.trim_start();
+    let tick_count = trimmed.chars().take_while(|character| *character == '`').count();
+    match opening_ticks {
+        Some(opening_ticks) if tick_count >= opening_ticks && trimmed[tick_count..].trim().is_empty() => {
+            Some(FenceEvent::Close)
+        }
+        None if tick_count >= 3 => Some(FenceEvent::Open(tick_count)),
+        _ => None,
+    }
+}
+
+pub(super) fn apply_fence_event(opening_ticks: &mut Option<usize>, event: FenceEvent) {
+    *opening_ticks = match event {
+        FenceEvent::Open(ticks) => Some(ticks),
+        FenceEvent::Close => None,
+    };
+}
+
 pub(super) fn canonicalize_rustdoc_markdown(doc: &str) -> String {
     let mut output = Vec::new();
-    let mut in_fence = false;
+    let mut fence_ticks = None;
     let mut previous_was_heading = false;
 
     for raw_line in doc.lines() {
         let trimmed = raw_line.trim_start();
-        let is_fence = trimmed.starts_with("```");
-        let is_heading = !in_fence && is_markdown_heading(trimmed);
+        let tick_count = trimmed.chars().take_while(|character| *character == '`').count();
+        let is_fence = tick_count >= 3;
+        let closes_fence = fence_ticks
+            .is_some_and(|opening_ticks| tick_count >= opening_ticks && trimmed[tick_count..].trim().is_empty());
+        let is_heading = fence_ticks.is_none() && is_markdown_heading(trimmed);
 
         if is_heading && output.last().is_some_and(|line: &String| !line.is_empty()) {
             output.push(String::new());
@@ -14,18 +42,20 @@ pub(super) fn canonicalize_rustdoc_markdown(doc: &str) -> String {
             output.push(String::new());
         }
 
-        let line = if !in_fence && is_fence && trimmed.trim().chars().all(|character| character == '`') {
+        let line = if fence_ticks.is_none() && is_fence && trimmed[tick_count..].trim().is_empty() {
             let indentation = &raw_line[..raw_line.len() - trimmed.len()];
-            format!("{indentation}```rust")
-        } else if in_fence {
+            format!("{indentation}{}rust", "`".repeat(tick_count))
+        } else if fence_ticks.is_some() || is_fence {
             raw_line.to_string()
         } else {
             normalize_sentence_spacing(raw_line)
         };
         output.push(line);
 
-        if is_fence {
-            in_fence = !in_fence;
+        if closes_fence {
+            fence_ticks = None;
+        } else if fence_ticks.is_none() && is_fence {
+            fence_ticks = Some(tick_count);
         }
         previous_was_heading = is_heading;
     }
