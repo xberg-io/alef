@@ -118,6 +118,8 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
 
     let doc = ensure_blank_before_lists(&doc);
 
+    let doc = super::markdown_canonical::canonicalize_rustdoc_markdown(&doc);
+
     doc.trim().to_string()
 }
 
@@ -602,12 +604,7 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
         return String::new();
     }
     let cleaned = clean_doc(doc, lang);
-    cleaned
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    super::markdown_canonical::markdown_to_table_cell_inline(&cleaned)
 }
 
 /// Strip Rust-specific doc sections (`# Example`, `# Arguments`, `# Fields`).

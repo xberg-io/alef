@@ -60,6 +60,7 @@ mod generated_stage;
 mod headings;
 mod java_exception_agreement;
 mod language_pages;
+mod markdown_canonical;
 mod markdown_quality;
 mod mut_param_writeback;
 mod optional_enum_default;

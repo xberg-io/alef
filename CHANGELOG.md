@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated PHP Cargo manifests retain cfg-referenced public features and their default forwarding
   entries when those features gate functions or types.
 - Rust API examples wrap optional argument samples in `Some(...)`.
+- Generated reference pages are now Markdown-formatter-stable after `alef docs`: fenced rustdoc
+  examples embedded in table cells become valid inline code, prose headings receive their required
+  blank lines, unlabelled fences are marked as Rust, and sentence spacing matches rumdl (#484).
 
 ### Security
 

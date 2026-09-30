@@ -18,6 +18,7 @@ mod enum_variant_ref;
 mod examples;
 mod formatting;
 pub(crate) mod language_pages;
+mod markdown_canonical;
 pub(crate) mod naming;
 mod render;
 mod rust_static;
