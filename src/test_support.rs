@@ -357,7 +357,7 @@ pub(crate) fn mvn_is_runnable() -> bool {
 /// does not itself care what directory it runs in (a `--version` probe, or a tool invoked with
 /// only absolute-path arguments); a caller that needs a specific working directory can still
 /// chain `.current_dir(..)` again afterward to override this default. ~keep
-pub(crate) fn spawn_from_stable_dir(program: &str) -> std::process::Command {
+pub(crate) fn spawn_from_stable_dir(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
     let mut command = std::process::Command::new(program);
     command.current_dir(std::env::temp_dir());
     command
