@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.1] - 2026-09-30
+
 ### Fixed
 
 - `alef verify --exit-code` now predicts the same final Rust and managed-TOML bytes as generation:
