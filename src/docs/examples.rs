@@ -291,10 +291,6 @@ fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &
         value = format!("Some({value})");
     }
 
-    if lang == Language::Rust && param.optional {
-        return format!("Some({})", sample_value(&param.ty, lang, ffi_prefix));
-    }
-
     if matches!(lang, Language::Ffi | Language::C) && matches!(&param.ty, TypeRef::Named(_)) {
         // ~keep Every Named-type param is a scalar `AlefHandle` (uint64_t) in the C
         // ABI, whether it's passed by value, by ref, or is optional — there is no
