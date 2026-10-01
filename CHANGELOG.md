@@ -15,8 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fully qualified public field paths now win over same-crate short-name collisions during
   extraction, preventing a public type alias from being mistaken for a binding-excluded internal
   type and degraded to a string in generated bindings.
-- Windows test fixtures now serialize external Cargo target directories as TOML values, preserving
-  verbatim path prefixes and backslashes when exercising generated-artifact materialization.
 
 ## [0.103.3] - 2026-10-01
 
