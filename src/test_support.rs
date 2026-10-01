@@ -276,6 +276,31 @@ impl Drop for ClearedCargoTargetDirGuard {
     }
 }
 
+pub(crate) fn cargo_target_dir_config(target_dir: &Path) -> String {
+    let target_dir = target_dir.to_str().expect("test target directory must be valid UTF-8");
+    let mut config = toml_edit::DocumentMut::new();
+    config["build"]["target-dir"] = toml_edit::value(target_dir);
+    config.to_string()
+}
+
+#[cfg(test)]
+mod cargo_target_dir_config_tests {
+    use std::path::Path;
+
+    #[test]
+    fn windows_verbatim_path_is_serialized_as_valid_toml() {
+        let target_dir = Path::new(r"\\?\C:\work\alef\target");
+        let rendered = super::cargo_target_dir_config(target_dir);
+        let parsed: toml::Value = toml::from_str(&rendered).expect("target-dir config must parse");
+
+        assert_eq!(
+            parsed["build"]["target-dir"].as_str(),
+            target_dir.to_str(),
+            "TOML serialization must preserve every Windows path separator"
+        );
+    }
+}
+
 /// The single lock serializing every test in this crate that spawns a REAL `mvn` subprocess
 /// against [`maven_local_repo_dir`].
 ///

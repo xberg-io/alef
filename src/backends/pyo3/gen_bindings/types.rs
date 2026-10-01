@@ -36,17 +36,18 @@ fn to_python_enum_variant(name: &str) -> String {
 /// Names of the types `options.py` emits as `@dataclass` config DTOs: non-trait,
 /// `has_default`, not a return type, not an internal `*Update` type, and not
 /// re-exported as a native pyclass -- PLUS the fixed-point closure of that seed set: any other
-/// eligible type that has a *required* (non-`Optional`) field whose named type is itself in the
-/// set. This is the public *input* type family — the trait-callback marshalling and the Protocol
-/// stubs use the same set so the type a host is handed is the type the package exports under
-/// that name.
+/// eligible type that contains a field whose named type is itself in the set. This is the public
+/// *input* type family — the trait-callback marshalling and the Protocol stubs use the same set so
+/// the type a host is handed is the type the package exports under that name.
 ///
 /// The closure step exists because `has_default` is a fact about the CORE Rust type (does it
 /// derive/impl `Default`), not about whether its public Python spelling is native or a
 /// dataclass. A type can be `has_default == false` purely because one of its fields is required
 /// (e.g. `CaptioningConfig { llm: LlmConfig, .. }` has no sensible default `LlmConfig`), while
-/// that required field's type IS in the dataclass set (`LlmConfig` has a `Default` impl and
-/// stands on its own, so it gets a twin). Without the closure, `CaptioningConfig` stays native
+/// that field's type IS in the dataclass set (`LlmConfig` has a `Default` impl and stands on its
+/// own, so it gets a twin). The field may be required, optional, or collection-valued: the native
+/// constructor rejects a public dataclass twin before its container shape matters. Without the
+/// closure, `CaptioningConfig` stays native
 /// and its `#[new]` demands a native `LlmConfig` -- but the public name `LlmConfig` now resolves
 /// to the dataclass twin, so `CaptioningConfig(llm=LlmConfig(...))` raises `TypeError: 'LlmConfig'
 /// object is not an instance of 'LlmConfig'` from the package's own public namespace. A
@@ -67,8 +68,6 @@ pub(crate) fn options_dataclass_type_names(
     api: &ApiSurface,
     reexported_types: &[String],
 ) -> std::collections::HashSet<String> {
-    use crate::core::ir::TypeRef;
-
     let reexported: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
     let eligible = |t: &&TypeDef| -> bool {
         !t.is_trait && !t.is_return_type && !t.name.ends_with("Update") && !reexported.contains(t.name.as_str())
@@ -80,14 +79,11 @@ pub(crate) fn options_dataclass_type_names(
         .map(|t| t.name.clone())
         .collect();
 
-    // Fixed-point closure: a type not yet in the set joins it once it has a required field
-    // whose named type already is in the set -- see the doc comment above for why `has_default`
-    // alone under-counts this family. A multi-level chain (Z requires Y requires X, where only X
-    // seeded the set) needs more than one pass: pass 1 can only see X and adds Y, pass 2 sees the
-    // now-updated set and adds Z. Each pass snapshots candidates against the set as it stood
-    // *before* that pass (collected into an owned `Vec` first, so the borrow of `names` used to
-    // find candidates ends before the loop that mutates `names`) -- the repeated outer `loop`,
-    // not same-pass visibility, is what makes the closure converge over the whole chain.
+    // Fixed-point closure: a type not yet in the set joins it once any field contains a named
+    // type already in the set. Optional and collection fields need the same treatment as required
+    // fields: the native constructor rejects the public dataclass twin before optionality matters.
+    // Each pass snapshots candidates before mutating `names`, so repeated passes converge across
+    // multi-level nesting. ~keep
     loop {
         let mut grew = false;
         let candidates: Vec<String> = api
@@ -95,8 +91,11 @@ pub(crate) fn options_dataclass_type_names(
             .iter()
             .filter(|t| eligible(t) && !names.contains(&t.name))
             .filter(|t| {
-                binding_fields(&t.fields)
-                    .any(|f| !f.optional && matches!(&f.ty, TypeRef::Named(inner) if names.contains(inner)))
+                binding_fields(&t.fields).any(|f| {
+                    let mut nested = AHashSet::new();
+                    collect_named_types(&f.ty, &mut nested);
+                    nested.iter().any(|inner| names.contains(inner))
+                })
             })
             .map(|t| t.name.clone())
             .collect();
