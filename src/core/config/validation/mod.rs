@@ -70,12 +70,15 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
     // ~keep ext-php-rs deliberately leaves Zval !Send + !Sync because Zend refcounts are
     // non-atomic. Every generated trait bridge retains a request-bound Zend object while the
     // Rust trait may move, call, or drop it on another thread or after request shutdown.
-    if config.targets(Language::Php)
-        && let Some(bridge) = config
-            .trait_bridges_for(Language::Php)
-            .find(|bridge| !bridge.php_callbacks_unsupported())
-    {
-        return Err(AlefError::Config(bridge.php_safety_error()));
+    if config.targets(Language::Php) {
+        for bridge in config.trait_bridges_for(Language::Php) {
+            if !bridge.php_callbacks_unsupported() {
+                return Err(AlefError::Config(bridge.php_safety_error()));
+            }
+            if let Some(error) = bridge.php_lifecycle_only_error() {
+                return Err(AlefError::Config(error));
+            }
+        }
     }
     for bridge in config.all_trait_bridges() {
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
@@ -789,6 +792,55 @@ exclude_languages = ["php:callbacks"]"#,
         );
 
         validate_resolved(&config).expect("PHP callback execution is explicitly disabled");
+    }
+
+    #[test]
+    fn php_unsupported_callbacks_reject_callback_attachment_shapes() {
+        let cases = [
+            (
+                "function parameter",
+                "function parameter",
+                r#"type_alias = "SamplePluginHandle"
+param_name = "plugin"
+bind_via = "function_param""#,
+            ),
+            (
+                "options field",
+                "options field",
+                r#"type_alias = "SamplePluginHandle"
+param_name = "plugin"
+bind_via = "options_field"
+options_type = "SampleOptions"
+options_field = "plugin""#,
+            ),
+            (
+                "visitor metadata",
+                "visitor callback",
+                r#"context_type = "NodeContext"
+result_type = "VisitResult""#,
+            ),
+            (
+                "stray options metadata",
+                "options field",
+                r#"options_type = "SampleOptions"
+options_field = "plugin""#,
+            ),
+        ];
+
+        for (case, attachment_shape, attachment) in cases {
+            let config = php_bridge_config(&format!(
+                r#"{attachment}
+exclude_languages = ["php:callbacks"]"#
+            ));
+            let error = validate_resolved(&config).expect_err("callback attachment must remain fail-closed");
+            let message = error.to_string();
+            assert!(
+                message.contains("php:callbacks")
+                    && message.contains("lifecycle-only")
+                    && message.contains(attachment_shape),
+                "{case} must fail with a clear lifecycle-only diagnostic: {message}"
+            );
+        }
     }
 
     #[test]

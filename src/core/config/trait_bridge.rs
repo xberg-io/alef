@@ -195,6 +195,27 @@ impl TraitBridgeConfig {
         self.exclude_languages.iter().any(|entry| entry == "php:callbacks")
     }
 
+    pub(crate) fn php_callback_attachment_shape(&self) -> Option<&'static str> {
+        if self.context_type.is_some() || self.result_type.is_some() {
+            return Some("visitor callback");
+        }
+        if self.bind_via == BridgeBinding::OptionsField || self.options_type.is_some() || self.options_field.is_some() {
+            return Some("options field");
+        }
+        if self.type_alias.is_some() || self.param_name.is_some() {
+            return Some("function parameter");
+        }
+        None
+    }
+
+    pub(crate) fn php_lifecycle_only_error(&self) -> Option<String> {
+        let attachment_shape = self.php_callback_attachment_shape()?;
+        Some(format!(
+            "PHP trait bridge `{}` uses `php:callbacks`, which is lifecycle-only and cannot attach through a {attachment_shape}. Remove its callback attachment metadata, exclude PHP entirely with plain `php`, or remove PHP from the crate's languages.",
+            self.trait_name
+        ))
+    }
+
     pub(crate) fn php_safety_error(&self) -> String {
         format!(
             "PHP trait bridge `{}` is disabled: generated wrappers cannot safely retain \

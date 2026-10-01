@@ -232,6 +232,46 @@ exclude_languages = ["php:callbacks"]
     assert_eq!(surfaces[0].clear_symbol.as_deref(), Some("TestLib::clearOcrBackends"));
 }
 
+#[test]
+fn php_unsupported_callback_bridge_rejects_a_function_parameter_attachment() {
+    let backend = PhpBackend;
+    let mut config = make_config();
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        type_alias: Some("OcrBackendHandle".to_string()),
+        exclude_languages: vec!["php:callbacks".to_string()],
+        ..Default::default()
+    }]);
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        functions: vec![FunctionDef {
+            name: "extract_with_backend".to_string(),
+            params: vec![ParamDef {
+                name: "backend".to_string(),
+                ty: TypeRef::Named("OcrBackendHandle".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        types: vec![make_trait_def_php(
+            "OcrBackend",
+            vec![make_method_php("process", TypeRef::String, true, false)],
+        )],
+        ..make_api_php()
+    };
+
+    let error = backend
+        .generate_bindings(&api, &config)
+        .expect_err("callback attachment must fail before emitting compile_error");
+    let message = error.to_string();
+    assert!(
+        message.contains("php:callbacks")
+            && message.contains("lifecycle-only")
+            && message.contains("function parameter"),
+        "the backend must explain why the attachment is incompatible: {message}"
+    );
+}
+
 /// A non-opaque serde struct DTO (qualifies for native-object marshalling).
 fn make_serde_struct(name: &str) -> TypeDef {
     let mut t = make_node_context_php();
