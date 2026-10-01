@@ -95,6 +95,15 @@ pub(crate) fn gen_ffi_layout_with_enums(ty: &TypeRef, enum_names: &AHashSet<Stri
     }
 }
 
+/// C 32-bit integer parameters require `JAVA_INT`; return layouts stay widened for JBR. ~keep
+fn gen_ffi_param_layout_with_enums(ty: &TypeRef, enum_names: &AHashSet<String>) -> String {
+    match ty {
+        TypeRef::Primitive(PrimitiveType::U32 | PrimitiveType::I32) => "ValueLayout.JAVA_INT".to_string(),
+        TypeRef::Optional(inner) => gen_ffi_param_layout_with_enums(inner, enum_names),
+        other => gen_ffi_layout_with_enums(other, enum_names),
+    }
+}
+
 /// Build the Jackson `writer` expression that preserves generic element-type
 /// info for a `Vec<T>` / `Map<K, V>` Java parameter. Without this, `MAPPER.
 /// writeValueAsString(list)` erases T at runtime, dropping `@JsonTypeInfo`
@@ -368,7 +377,7 @@ pub(crate) fn push_param_layouts(params: &[ParamDef], enum_names: &AHashSet<Stri
                 layouts.push("ValueLayout.ADDRESS".to_string());
                 layouts.push("ValueLayout.JAVA_LONG".to_string());
             }
-            other => layouts.push(gen_ffi_layout_with_enums(other, enum_names)),
+            other => layouts.push(gen_ffi_param_layout_with_enums(other, enum_names)),
         }
     }
 }
@@ -699,5 +708,39 @@ mod bool_return_narrowing_tests {
         ] {
             assert_eq!(java_ffi_return_cast(&TypeRef::Primitive(prim)), expected);
         }
+    }
+}
+
+#[cfg(test)]
+mod parameter_layout_tests {
+    use super::*;
+
+    #[test]
+    fn u32_parameter_uses_java_int_while_wide_parameters_use_java_long() {
+        let params = [
+            ParamDef {
+                name: "limit".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U32),
+                ..Default::default()
+            },
+            ParamDef {
+                name: "offset".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::U64),
+                ..Default::default()
+            },
+            ParamDef {
+                name: "length".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Usize),
+                ..Default::default()
+            },
+        ];
+        let mut layouts = Vec::new();
+
+        push_param_layouts(&params, &AHashSet::new(), &mut layouts);
+
+        assert_eq!(
+            layouts,
+            ["ValueLayout.JAVA_INT", "ValueLayout.JAVA_LONG", "ValueLayout.JAVA_LONG",]
+        );
     }
 }

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Java Panama descriptors use `JAVA_INT` for C `uint32_t` and `int32_t`
+  parameters while retaining widened layouts for affected return values.
 - Generated Node, PHP, and Python constructors preserve Rust field order while correctly
   promoting required parameters, defaulting omitted fields, and converting promoted DTO values.
 - Field-level bare `#[serde(default)]` enum variants remain omittable in generated binding
