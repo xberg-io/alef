@@ -216,6 +216,18 @@ fn service_api_output_has_no_stub_markers() {
         if !backend.capabilities().supports_service_api {
             continue;
         }
+        if name == "php" {
+            // PHP handler registrations retain request-bound Zend callables and intentionally
+            // fail closed before any service wrapper is emitted. ~keep
+            let error = backend
+                .generate_service_api(&api, &config)
+                .expect_err("PHP handler registration generation must fail closed");
+            assert!(
+                error.to_string().contains("PHP service `TestService` is disabled"),
+                "PHP must report the disabled service contract: {error}"
+            );
+            continue;
+        }
         let files = backend
             .generate_service_api(&api, &config)
             .unwrap_or_else(|e| panic!("{name}: generate_service_api failed: {e}"));

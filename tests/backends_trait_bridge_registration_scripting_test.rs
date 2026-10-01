@@ -357,24 +357,22 @@ fn magnus_binds_no_module_function_when_the_bridged_trait_is_absent_from_the_api
 }
 
 #[test]
-fn php_surface_names_the_static_methods_on_the_public_wrapper_class() {
+fn php_active_bridge_reports_no_surface_and_fails_closed_with_or_without_trait() {
     let config = minimal_config("php", "");
-    let surface = only_surface(&PhpBackend, &config);
-
-    assert_eq!(
-        surface.register_symbol.as_deref(),
-        Some("SampleCore::installSamplePlugin")
-    );
-    assert_eq!(
-        surface.unregister_symbol.as_deref(),
-        Some("SampleCore::removeSamplePlugin")
-    );
-    assert_eq!(surface.clear_symbol.as_deref(), Some("SampleCore::clearSamplePlugins"));
-
-    let generated = generated_public_api_text(&PhpBackend, &config);
-    assert_declares(&PhpBackend, &generated, "class SampleCore");
-    for method in ["installSamplePlugin", "removeSamplePlugin", "clearSamplePlugins"] {
-        assert_declares(&PhpBackend, &generated, &format!("function {method}("));
+    for api in [plugin_api(), api_without_the_trait()] {
+        assert!(PhpBackend.trait_bridge_registration_surface(&api, &config).is_empty());
+        for result in [
+            PhpBackend.generate_bindings(&api, &config),
+            PhpBackend.generate_public_api(&api, &config),
+        ] {
+            let error = result.expect_err("an active PHP trait bridge must fail closed");
+            assert!(
+                error
+                    .to_string()
+                    .contains("PHP trait bridge `SamplePlugin` is disabled"),
+                "the safety error must identify the disabled bridge: {error}"
+            );
+        }
     }
 }
 
@@ -400,31 +398,6 @@ fn php_emits_no_wrapper_and_reports_no_surface_when_the_target_is_excluded() {
     assert!(
         !bindings.contains(REGISTER_FN),
         "`exclude_languages = [\"php\"]` must suppress the `…Api` extension method too"
-    );
-}
-
-#[test]
-fn php_emits_no_wrapper_when_the_bridged_trait_is_absent_from_the_api_surface() {
-    let config = minimal_config("php", "");
-    let api = api_without_the_trait();
-
-    let surfaces = PhpBackend.trait_bridge_registration_surface(&api, &config);
-    let public_api = generated_public_api_text_for(&PhpBackend, &api, &config);
-    let bindings = generated_text_for(&PhpBackend, &api, &config);
-
-    assert_eq!(
-        surfaces.len(),
-        0,
-        "no trait means `gen_trait_bridge` never ran, so there is no registration API; \
-         got {surfaces:?}"
-    );
-    assert!(
-        !public_api.contains("installSamplePlugin"),
-        "the public wrapper would call `SampleCoreApi::installSamplePlugin`, which no pass emitted"
-    );
-    assert!(
-        !bindings.contains(REGISTER_FN),
-        "the `…Api` extension method would forward to `crate::{REGISTER_FN}`, which no pass emitted"
     );
 }
 
