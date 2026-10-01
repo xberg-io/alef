@@ -107,11 +107,12 @@ impl PhpEnumLowering {
 
 /// Whether a flat data-enum property's PHP name is one the e2e accessor renderer can spell.
 ///
-/// ~keep `#[php(getter)] pub fn get_<flat>` does NOT register a method. ext-php-rs strips the
-/// literal `get_` prefix off the RAW Rust ident with NO case conversion and registers a read-only
-/// property under that snake_case name, so `get_fiction_book` is `$format->fiction_book` — the
-/// exact opposite of the struct path, whose `#[php(prop, name = to_php_name(..))]` really is
-/// lowerCamelCase (see `type_stubs.rs::gen_data_enum_property_declarations`).
+/// ~keep `#[php(getter)] pub fn get_<flat>` does NOT register a method. ext-php-rs 0.16 would
+/// camel-case the property by default, so the binding generator adds `change_case = "snake_case"`
+/// and registers a read-only property under that name: `get_fiction_book` is
+/// `$format->fiction_book` — the exact opposite of the struct path, whose
+/// `#[php(prop, name = to_php_name(..))]` really is lowerCamelCase (see
+/// `type_stubs.rs::gen_data_enum_property_declarations`).
 ///
 /// `field_access::optional_renderers::render_php_with_getters` lowerCamelCases every path segment
 /// unconditionally, which is correct for struct props and wrong for these. Single-word flat names
@@ -442,11 +443,12 @@ mod tests {
         );
     }
 
-    /// The flat class really does expose `fiction_book` — but ext-php-rs registers it under that
-    /// RAW snake_case ident while the shared accessor renderer lowerCamelCases every path segment,
-    /// so the only chain it can emit is `->fictionBook`, a property that does not exist. Refusing
-    /// is the honest answer until `field_access` learns the difference; emitting it would be a
-    /// green assertion against nothing, which is the exact defect this funnel exists to stop.
+    /// The flat class really does expose `fiction_book` — its generated getter explicitly asks
+    /// ext-php-rs to preserve that snake_case name while the shared accessor renderer
+    /// lowerCamelCases every path segment, so the only chain it can emit is `->fictionBook`, a
+    /// property that does not exist. Refusing is the honest answer until `field_access` learns the
+    /// difference; emitting it would be a green assertion against nothing, which is the exact
+    /// defect this funnel exists to stop.
     ///
     /// It is alef's own gap, not PHP's and not the fixture's, so it must be a `GeneratorGap` —
     /// a `LanguageLimitation` would misattribute it and an `AuthoringGap` would fail a consumer's

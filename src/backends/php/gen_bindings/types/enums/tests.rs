@@ -950,6 +950,32 @@ mod labeled_string_enum_tests {
             "the label-variant factory must forward the caller's value into the real core variant, got:\n{methods}"
         );
     }
+
+    /// ext-php-rs 0.16 camel-cases method-backed property names by default. The PHPStan stub and
+    /// generated e2e access both expose the flat enum's discriminator and payload under their
+    /// snake_case names, so every getter must opt out of that new default explicitly. ~keep
+    #[test]
+    fn flat_enum_getters_preserve_the_snake_case_properties_declared_to_php_callers() {
+        let def = entity_category();
+        let mapper = mapper_with(&["EntityCategory"]);
+        let empty = AHashSet::new();
+        let methods = gen_flat_data_enum_methods(&def, &mapper, &empty, &empty, &empty, "xberg", None);
+
+        assert!(
+            methods.contains("#[php(getter, change_case = \"snake_case\")]\n    pub fn get_type_tag(&self) -> String"),
+            "the discriminator getter must preserve the stub/e2e `$type_tag` property:\n{methods}"
+        );
+        assert!(
+            methods.contains(
+                "#[php(getter, change_case = \"snake_case\")]\n    pub fn get_custom(&self) -> Option<String>"
+            ),
+            "the payload getter must preserve the stub/e2e `$custom` property:\n{methods}"
+        );
+        assert!(
+            !methods.contains("#[php(getter)]"),
+            "a bare getter silently camel-cases multi-word properties on ext-php-rs 0.16:\n{methods}"
+        );
+    }
 }
 
 #[cfg(test)]
