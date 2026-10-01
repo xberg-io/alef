@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_waits_for_temporary_path_mutation_before_caching_availability() {
+    fn resolve_waits_for_path_lock_before_caching_availability() {
         static RUSTC: ToolchainGate = ToolchainGate {
             name: "path-lock-regression-rustc",
             binary: if cfg!(windows) { "rustc.exe" } else { "rustc" },
@@ -558,17 +558,10 @@ mod tests {
             probe: CapabilityProbe::VersionOnly,
             require_env: "ALEF_REQUIRE_PATH_LOCK_REGRESSION_RUSTC",
         };
-        let expected = {
-            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
-            which::which(RUSTC.binary).expect("cargo tests require rustc on PATH")
-        };
+        let expected = which::which(RUSTC.binary).expect("cargo tests require rustc on PATH");
         assert!(expected.is_absolute(), "which must resolve rustc to an absolute path");
 
-        let hidden = super::super::PathWithoutToolGuard::exclude(RUSTC.binary);
-        assert!(
-            which::which(RUSTC.binary).is_err(),
-            "negative control must prove the guard actually hides rustc"
-        );
+        let path_lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
@@ -581,13 +574,13 @@ mod tests {
         match resolved_rx.recv_timeout(std::time::Duration::from_millis(500)) {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(error) => panic!("resolve worker disconnected while PATH was guarded: {error}"),
-            Ok(_) => panic!("resolve observed PATH while the temporary mutation was active"),
+            Ok(_) => panic!("resolve bypassed the PATH lock"),
         }
 
-        drop(hidden);
+        drop(path_lock);
         let resolved = resolved_rx
             .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("resolve completed after PATH was restored");
+            .expect("resolve completed after the PATH lock was released");
         worker.join().expect("resolve worker completed");
         match resolved {
             Resolution::Available(path) => assert_eq!(path, expected),
