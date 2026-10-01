@@ -191,7 +191,7 @@ impl TraitBridgeConfig {
 
     /// Whether PHP keeps the bridge's public lifecycle surface but rejects callback registration
     /// without retaining the Zend object.
-    pub fn php_callbacks_unsupported(&self) -> bool {
+    pub(crate) fn php_callbacks_unsupported(&self) -> bool {
         self.exclude_languages.iter().any(|entry| entry == "php:callbacks")
     }
 

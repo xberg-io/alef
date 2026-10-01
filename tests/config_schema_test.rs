@@ -107,7 +107,7 @@ exclude_languages = ["php:callbacks"]
     let resolved = config.resolve().expect("config resolves");
     let bridge = &resolved[0].trait_bridges[0];
     assert!(bridge.is_active_for("php"));
-    assert!(bridge.php_callbacks_unsupported());
+    assert_eq!(bridge.exclude_languages, ["php:callbacks"]);
 }
 
 /// A `[crates.cargo_lints]` table with both string- and table-valued entries must
