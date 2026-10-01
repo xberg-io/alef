@@ -219,16 +219,20 @@ fn gen_type_init_stub(
     // `=None` defaults in the `#[pyo3(signature = (...))]` macro.  The `.pyi` stub must
     // bridge kwarg (mirroring the `#[new]` constructor, which also filters it out), so
     let bridge_field_name = options_field_bridges.get(typ.name.as_str()).map(|(kwarg, _, _)| *kwarg);
-    let (required, optional): (Vec<_>, Vec<_>) = binding_fields(&typ.fields)
+    let mut fields: Vec<_> = binding_fields(&typ.fields)
         .filter(|f| f.cfg.as_deref().is_none_or(cfg_present_for_pyo3_stub))
         .filter(|f| bridge_field_name != Some(f.name.as_str()))
-        .partition(|f| {
-            if typ.has_default {
-                return false;
-            }
-            let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
-            !f.optional && !is_optional_duration && !f.has_bare_serde_enum_default()
-        });
+        .collect();
+    fields.sort_by_key(|f| f.optional as u8);
+
+    let mut bare_defaulted = vec![false; fields.len()];
+    let mut suffix_defaulted = true;
+    for idx in (0..fields.len()).rev() {
+        let field = fields[idx];
+        let eligible_bare_default = !typ.has_default && field.has_bare_serde_enum_default() && suffix_defaulted;
+        bare_defaulted[idx] = eligible_bare_default;
+        suffix_defaulted &= typ.has_default || field.optional || eligible_bare_default;
+    }
 
     // `serde_rename` by the shared `resolve_param_ident` — the SAME resolver the `#[new]`
     let py_field_renames: std::collections::HashMap<String, String> = typ
@@ -248,41 +252,34 @@ fn gen_type_init_stub(
 
     let shadowed = shadowed_builtins(typ, config);
 
-    let mut params: Vec<String> = required
+    let mut params: Vec<String> = fields
         .iter()
-        .map(|f| {
-            let param_type = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty), &shadowed);
+        .enumerate()
+        .map(|(idx, f)| {
+            let type_str = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty), &shadowed);
+            let accepts_none = f.optional
+                || matches!(f.ty, TypeRef::Optional(_) | TypeRef::Duration)
+                || crate::backends::pyo3::gen_bindings::constructors::should_option_for_nested_default(typ, f, api);
+            let param_type = if accepts_none && !type_str.ends_with("| None") {
+                format!("{} | None", type_str)
+            } else {
+                type_str
+            };
             let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
                 &f.name,
                 f.serde_rename.as_ref(),
                 renames_ref,
             );
             let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
-            format!("{param_name}: {param_type}")
+            let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
+            if typ.has_default || f.optional || is_optional_duration || bare_defaulted[idx] {
+                let default = if accepts_none { "None" } else { "..." };
+                format!("{param_name}: {param_type} = {default}")
+            } else {
+                format!("{param_name}: {param_type}")
+            }
         })
         .collect();
-
-    params.extend(optional.iter().map(|f| {
-        let type_str = qualify_shadowed_builtin_types(&constructor_param_type(&f.ty), &shadowed);
-        let accepts_none = f.optional
-            || matches!(f.ty, TypeRef::Optional(_) | TypeRef::Duration)
-            || crate::backends::pyo3::gen_bindings::constructors::should_option_for_nested_default(typ, f, api);
-        let param_type = if accepts_none && !type_str.ends_with("| None") {
-            format!("{} | None", type_str)
-        } else {
-            type_str
-        };
-        let param_name = crate::backends::pyo3::gen_bindings::constructors::resolve_param_ident(
-            &f.name,
-            f.serde_rename.as_ref(),
-            renames_ref,
-        );
-        let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
-        // Rust Default expressions are evaluated natively; PyO3 describes
-        // them as ellipsis. Omission is allowed, but None is not a valid value.
-        let default = if accepts_none { "None" } else { "..." };
-        format!("{param_name}: {param_type} = {default}")
-    }));
 
     // the PyO3 `#[new]` constructor accepts an additional `{kwarg_name}: {trait_name} = None`
     if let Some((kwarg_name, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
@@ -867,5 +864,44 @@ mod tests {
         assert!(!stub.contains("llm: LlmConfig ="), "{stub}");
         assert!(stub.contains("alt_text: CaptionAltTextMode = ..."), "{stub}");
         assert!(!stub.contains("alt_text: CaptionAltTextMode | None"), "{stub}");
+    }
+
+    #[test]
+    fn type_init_stub_preserves_middle_bare_serde_default_as_required() {
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "llm".to_string(),
+                    ty: TypeRef::Named("LlmConfig".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "alt_text".to_string(),
+                    ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "provider".to_string(),
+                    ty: TypeRef::Named("CaptionProvider".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let stub = gen_type_init_stub(
+            &typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &OptionsFieldBridges::default(),
+        );
+
+        assert_eq!(
+            stub,
+            "    def __init__(\n        self,\n        llm: LlmConfig,\n        alt_text: CaptionAltTextMode,\n        provider: CaptionProvider,\n    ) -> None: ..."
+        );
     }
 }
