@@ -26,7 +26,8 @@ use crate::backends::rustler::elixir_escape::{elixir_atom_body, escape_elixir_st
 use crate::backends::rustler::gen_bindings::public_api_args::emit_tagged_enum_encoder;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeRef};
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use tempfile::TempDir;
 
 mod gate;
 
@@ -199,15 +200,15 @@ fn interpolation_payload(canary: &Path) -> String {
 /// Build the fixture directory, run [`PROBE_SCRIPT`] in it, and return the probe's stdout.
 fn run_probe() -> String {
     let dir = scratch_dir("probe");
-    let expected = dir.join("expected");
+    let expected = dir.path().join("expected");
     std::fs::create_dir_all(&expected).expect("create oracle fixture directory");
-    let canary = dir.join("canary.txt");
+    let canary = dir.path().join("canary.txt");
 
     let unit_enum = hostile_unit_enum(&canary);
     let tagged_enum = hostile_tagged_enum(&canary);
 
     write(
-        &dir.join("enum_module.ex"),
+        &dir.path().join("enum_module.ex"),
         &gen_elixir_enum_module(&unit_enum, APP_MODULE),
     );
     let clauses = emit_tagged_enum_encoder(&tagged_enum);
@@ -219,7 +220,7 @@ fn run_probe() -> String {
     // The encoder's clauses are `defp`. Promoting them to `def` inside a module of our own is
     // what makes them callable; nothing else about the generated text is touched. ~keep
     write(
-        &dir.join("encoder.ex"),
+        &dir.path().join("encoder.ex"),
         &format!(
             "defmodule AlefOracleEncoder do\n{}\nend\n",
             clauses.replace("  defp ", "  def ")
@@ -237,7 +238,7 @@ fn run_probe() -> String {
         String::new(),
     ]
     .join("\n");
-    write(&dir.join("escape_probe.ex"), &escape_probe);
+    write(&dir.path().join("escape_probe.ex"), &escape_probe);
 
     write(&expected.join("canary_path"), &canary.display().to_string());
     write(&expected.join("plain"), "Plain");
@@ -252,16 +253,15 @@ fn run_probe() -> String {
     write(&expected.join("escaped_string"), ESCAPE_PROBE_PAYLOAD);
     write(&expected.join("escaped_atom"), ESCAPE_PROBE_PAYLOAD);
     write(&expected.join("unescaped_control"), ESCAPE_PROBE_CONTROL);
-    write(&dir.join("probe.exs"), PROBE_SCRIPT);
+    write(&dir.path().join("probe.exs"), PROBE_SCRIPT);
 
-    let stdout = run_elixir(&dir, "probe.exs");
+    let stdout = run_elixir(dir.path(), "probe.exs");
     let reported = stdout.lines().filter(|line| line.starts_with("ALEF|")).count();
     assert_eq!(
         reported,
         PROBE_KEYS.len(),
         "the probe must report every check it claims to run; got:\n{stdout}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
     stdout
 }
 
@@ -279,14 +279,11 @@ fn write(path: &Path, contents: &str) {
     std::fs::write(path, contents).unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
 }
 
-fn scratch_dir(label: &str) -> PathBuf {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock is after the unix epoch")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("alef_elixir_oracle_{label}_{}_{nanos}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("create {}: {error}", dir.display()));
-    dir
+fn scratch_dir(label: &str) -> TempDir {
+    tempfile::Builder::new()
+        .prefix(&format!("alef_elixir_oracle_{label}_"))
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create Elixir oracle scratch directory: {error}"))
 }
 
 /// Run one `.exs` script with the real interpreter, from `dir`.
@@ -409,9 +406,8 @@ fn escaped_literals_round_trip_and_an_unescaped_one_does_not() {
             run with `cargo test --lib elixir_oracle -- --ignored`"]
 fn parse_alone_cannot_distinguish_an_interpolating_literal() {
     let dir = scratch_dir("parse_vs_eval");
-    write(&dir.join("probe.exs"), PARSE_VS_EVAL_SCRIPT);
-    let stdout = run_elixir(&dir, "probe.exs");
-    let _ = std::fs::remove_dir_all(&dir);
+    write(&dir.path().join("probe.exs"), PARSE_VS_EVAL_SCRIPT);
+    let stdout = run_elixir(dir.path(), "probe.exs");
 
     assert!(
         stdout.lines().any(|line| line == "ALEF|UNESCAPED|PARSES|EVALUATED"),
