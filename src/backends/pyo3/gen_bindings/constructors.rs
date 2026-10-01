@@ -113,13 +113,16 @@ pub(super) fn replace_constructor_with_serde_rename(
         .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
         .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
         .collect();
-    sorted_fields.sort_by_key(|f| {
-        if typ.has_default {
-            f.optional as u8
-        } else {
-            (f.optional || f.has_bare_serde_enum_default()) as u8
-        }
-    });
+    sorted_fields.sort_by_key(|f| f.optional as u8);
+
+    let mut bare_defaulted = vec![false; sorted_fields.len()];
+    let mut suffix_defaulted = true;
+    for idx in (0..sorted_fields.len()).rev() {
+        let field = sorted_fields[idx];
+        let eligible_bare_default = !typ.has_default && field.has_bare_serde_enum_default() && suffix_defaulted;
+        bare_defaulted[idx] = eligible_bare_default;
+        suffix_defaulted &= typ.has_default || field.optional || eligible_bare_default;
+    }
 
     let params: Vec<String> = sorted_fields
         .iter()
@@ -156,8 +159,8 @@ pub(super) fn replace_constructor_with_serde_rename(
 
     let defaults: Vec<String> = sorted_fields
         .iter()
-        .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
-        .map(|f| {
+        .enumerate()
+        .map(|(idx, f)| {
             let param_ident = resolve_param_ident(&f.name, f.serde_rename.as_ref(), config_renames);
 
             let force_optional = config.option_duration_on_defaults
@@ -171,7 +174,7 @@ pub(super) fn replace_constructor_with_serde_rename(
                 format!("{}=None", param_ident)
             } else if typ.has_default {
                 format!("{}=Self::default().{}", param_ident, f.name)
-            } else if f.has_bare_serde_enum_default() {
+            } else if bare_defaulted[idx] {
                 format!("{}=Default::default()", param_ident)
             } else {
                 param_ident
@@ -328,5 +331,51 @@ mod tests {
             "{rendered}"
         );
         assert!(!rendered.contains("llm=Default::default()"), "{rendered}");
+    }
+
+    #[test]
+    fn bare_serde_default_before_required_field_preserves_order_and_stays_required() {
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "llm".to_string(),
+                    ty: TypeRef::Named("LlmConfig".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "alt_text".to_string(),
+                    ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "provider".to_string(),
+                    ty: TypeRef::Named("CaptionProvider".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let rendered = replace_constructor_with_serde_rename(
+            "impl CaptioningConfig {\n    #[pyo3(signature = (llm, alt_text, provider))]#[new]\n    pub fn new(llm: LlmConfig, alt_text: CaptionAltTextMode, provider: CaptionProvider) -> Self { Self { llm, alt_text, provider } }\n}",
+            &typ,
+            &Pyo3Mapper::new(),
+            &binding_config("sample_core", true),
+            None,
+            &[],
+            &[],
+            &ApiSurface::default(),
+        );
+
+        assert!(
+            rendered.contains("#[pyo3(signature = (llm, alt_text, provider))]"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("pub fn new(llm: LlmConfig, alt_text: CaptionAltTextMode, provider: CaptionProvider)"),
+            "{rendered}"
+        );
     }
 }

@@ -247,6 +247,7 @@ fn constructor_allows_bare_serde_default_without_optionalizing_required_sibling(
                 typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
                 ..Default::default()
             },
+            class_field("provider", "CaptionProvider", false),
         ],
         ..Default::default()
     };
@@ -257,12 +258,14 @@ fn constructor_allows_bare_serde_default_without_optionalizing_required_sibling(
         &[],
         "Wasm",
         &AHashSet::default(),
-        &class_names(&["LlmConfig"]),
+        &class_names(&["LlmConfig", "CaptionProvider"]),
     );
 
     assert!(
-        out.contains("llm: &WasmLlmConfig"),
-        "required sibling must stay required: {out}"
+        out.contains(
+            "pub fn new(llm: &WasmLlmConfig, altText: Option<WasmCaptionAltTextMode>, provider: &WasmCaptionProvider)"
+        ),
+        "constructor parameters must retain field order: {out}"
     );
     assert!(
         !out.contains("llm: Option<"),

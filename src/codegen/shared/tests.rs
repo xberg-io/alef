@@ -334,10 +334,15 @@ fn field_default_constructor_keeps_unrelated_sibling_required() {
         typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
         ..Default::default()
     };
+    let provider = FieldDef {
+        name: "provider".to_string(),
+        ty: TypeRef::Named("CaptionProvider".to_string()),
+        ..Default::default()
+    };
     let typ = TypeDef {
         name: "CaptioningConfig".to_string(),
         rust_path: "sample_core::CaptioningConfig".to_string(),
-        fields: vec![llm.clone(), alt_text.clone()],
+        fields: vec![llm.clone(), alt_text.clone(), provider.clone()],
         ..Default::default()
     };
     let mapper = |ty: &TypeRef| match ty {
@@ -345,11 +350,12 @@ fn field_default_constructor_keeps_unrelated_sibling_required() {
         _ => unreachable!(),
     };
 
-    let (params, defaults, assignments) = constructor_parts_with_field_defaults(&[llm, alt_text], &mapper, &typ);
+    let (params, defaults, assignments) =
+        constructor_parts_with_field_defaults(&[llm, alt_text, provider], &mapper, &typ);
 
-    assert!(
-        params.contains("llm: LlmConfig"),
-        "required sibling was widened: {params}"
+    assert_eq!(
+        params,
+        "llm: LlmConfig, alt_text: Option<CaptionAltTextMode>, provider: CaptionProvider"
     );
     assert!(
         !params.contains("llm: Option<"),
@@ -412,7 +418,7 @@ fn field_default_constructor_preserves_ordinary_optional_sibling() {
         params.contains("output_format: Option<OutputFormat>"),
         "ordinary optional sibling must remain optional: {params}"
     );
-    assert_eq!(defaults, "output_format=None, alt_text=None");
+    assert_eq!(defaults, "alt_text=None, output_format=None");
     assert!(
         assignments.contains("output_format"),
         "ordinary optional sibling must pass through: {assignments}"
@@ -461,7 +467,7 @@ fn field_default_constructor_does_not_double_wrap_already_optional_sibling() {
         !params.contains("Option<Option<String>>"),
         "already-optional sibling must not be double-wrapped: {params}"
     );
-    assert_eq!(defaults, "description=None, alt_text=None");
+    assert_eq!(defaults, "alt_text=None, description=None");
     assert!(
         !assignments.contains("description.unwrap"),
         "already-optional sibling must pass through: {assignments}"

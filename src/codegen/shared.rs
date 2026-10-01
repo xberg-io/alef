@@ -801,7 +801,7 @@ fn config_constructor_parts_inner(
         if optionalize_all_fields {
             f.optional as u8
         } else {
-            (f.optional || f.has_bare_serde_enum_default()) as u8
+            f.optional as u8
         }
     });
 
