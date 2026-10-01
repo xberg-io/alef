@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields remain required.
 - Generated WASM e2e tests no longer construct or import binding-skipped and feature-disabled
   fields, or types absent from the effective WASM dependency surface.
+- Native wrapper manifests can explicitly preserve selected core features as defaults after
+  binding projection removes the final cfg-gated symbol that referenced them, without restoring
+  hidden Rust-only APIs. Alef rejects malformed, unknown, or language-excluded feature names
+  before emitting or repairing a manifest.
 - Elixir escaping oracles use atomically unique scratch directories, preventing concurrent macOS
   test lanes from removing another lane's fixtures.
 - Generated Rust crates omit duplicate lint allowances when a custom crate attribute repeats a

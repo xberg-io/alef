@@ -82,6 +82,15 @@ pub struct RawCrateConfig {
     #[serde(default)]
     pub features: Vec<String>,
 
+    /// Core features that generated native wrapper crates must declare and enable by default,
+    /// even when binding projection removes every cfg-gated symbol that references them.
+    /// Every name must use Cargo's plain feature-name grammar, exist in the core crate's
+    /// `[features]` table, differ from the wrapper-owned `default` and `extension-module` names,
+    /// and stay absent from each active native language's `excluded_default_features`. This
+    /// affects manifests only; it does not restore hidden Rust APIs. ~keep
+    #[serde(default)]
+    pub wrapper_default_features: Vec<String>,
+
     /// Per-target build opt-out toggles for this crate, overriding the
     /// workspace `[targets]` table per key. Keys are canonical target families
     /// (see [`crate::publish::platform::CANONICAL_TARGET_KEYS`]); setting a key

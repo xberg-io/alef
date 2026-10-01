@@ -1,7 +1,7 @@
 //! Best-effort repair of a Rust-emitting binding crate's `[features]` table.
 //!
 //! `codegen::cfg::warn_on_undeclared_binding_cfg_features` warns when generated source for
-//! `Ruby` (Magnus) or `Elixir` (Rustler) forwards a `#[cfg(feature = "X")]` gate the binding
+//! a native Rust wrapper forwards a `#[cfg(feature = "X")]` gate the binding
 //! crate's own `Cargo.toml` does not declare, and prescribes re-running `alef scaffold`. That
 //! manifest is `generated_header: true`, so a fresh scaffold with no prior file on disk already
 //! writes the right `[features]` table (both `scaffold_ruby_cargo` and `scaffold_elixir_cargo`
@@ -33,7 +33,7 @@ use std::path::PathBuf;
 /// One Rust-emitting binding manifest this repair covers: the language it belongs to, its
 /// manifest path, and the Cargo dependency-table key its own generator uses for the core crate
 /// dependency -- the same key each `<feature> = ["{key}/<feature>"]` forwarding row must use, or
-/// the row points at a dependency-table entry the manifest does not have. Ruby and Elixir key
+/// the row points at a dependency-table entry the manifest does not have. Native wrappers key
 /// their forwarding rows off the raw, unmodified crate name; Dart keys off `[crates.dart]
 /// core_crate_override` when configured, otherwise the crate name with `-` replaced by `_` (see
 /// `backends::dart::gen_rust_crate::dart_core_dep_key`'s doc).
@@ -41,30 +41,55 @@ use std::path::PathBuf;
 /// The fourth element is that language's own `excluded_default_features`, read from the same
 /// config field its scaffolder reads. The repair has to honour it for the same reason the
 /// scaffolder does: a name the config deliberately keeps out of `default` must stay out, or this
-/// pass re-enables exactly what the scaffolder just excluded and the two disagree on disk. ~keep
-fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, String, HashSet<&str>)> {
+/// pass re-enables exactly what the scaffolder just excluded and the two disagree on disk. The
+/// final flag excludes Dart from the native-only `wrapper_default_features` policy. ~keep
+fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, String, HashSet<&str>, bool)> {
     fn excluded(names: Option<&[String]>) -> HashSet<&str> {
         names.unwrap_or_default().iter().map(String::as_str).collect()
     }
 
     vec![
         (
+            Language::Python,
+            PathBuf::from(format!("crates/{}-py/Cargo.toml", config.core_crate_dir())),
+            config.name.clone(),
+            HashSet::new(),
+            true,
+        ),
+        (
+            Language::Node,
+            PathBuf::from(format!("crates/{}-node/Cargo.toml", config.core_crate_dir())),
+            config.name.clone(),
+            excluded(config.node.as_ref().map(|c| c.excluded_default_features.as_slice())),
+            true,
+        ),
+        (
             Language::Ruby,
             super::ruby_native_manifest_path(config),
             config.name.clone(),
             excluded(config.ruby.as_ref().map(|c| c.excluded_default_features.as_slice())),
+            true,
+        ),
+        (
+            Language::Php,
+            PathBuf::from(format!("crates/{}-php/Cargo.toml", config.core_crate_dir())),
+            config.name.clone(),
+            excluded(config.php.as_ref().map(|c| c.excluded_default_features.as_slice())),
+            true,
         ),
         (
             Language::Elixir,
             PathBuf::from(super::elixir_native_crate_dir(config)).join("Cargo.toml"),
             config.name.clone(),
             excluded(config.elixir.as_ref().map(|c| c.excluded_default_features.as_slice())),
+            true,
         ),
         (
             Language::Dart,
             crate::backends::dart::gen_rust_crate::dart_native_manifest_path(config),
             crate::backends::dart::gen_rust_crate::dart_core_dep_key(config),
             excluded(config.dart.as_ref().map(|c| c.excluded_default_features.as_slice())),
+            false,
         ),
     ]
 }
@@ -100,9 +125,15 @@ pub(crate) fn repair_missing_cfg_binding_features(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> Vec<PathBuf> {
+    if let Err(error) = crate::core::config::validation::validate_wrapper_default_features(config) {
+        tracing::warn!(%error, "refusing to repair native wrapper features from invalid configuration");
+        return Vec::new();
+    }
     let mut repaired = Vec::new();
     let projected = crate::codegen::binding_projection::project(api);
-    for (language, relative_manifest, core_dep_key, excluded_default_features) in managed_manifests(config) {
+    for (language, relative_manifest, core_dep_key, excluded_default_features, preserve_wrapper_defaults) in
+        managed_manifests(config)
+    {
         if !languages.contains(&language) {
             continue;
         }
@@ -132,6 +163,11 @@ pub(crate) fn repair_missing_cfg_binding_features(
         match crate::codegen::cfg::merge_missing_cfg_features(
             &existing,
             &projected,
+            if preserve_wrapper_defaults {
+                &config.wrapper_default_features
+            } else {
+                &[]
+            },
             &core_dep_key,
             &core_declared_features,
             &excluded_default_features,

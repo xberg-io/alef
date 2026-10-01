@@ -777,7 +777,7 @@ fn merge_missing_cfg_features_table() {
 
         let excluded: HashSet<&str> = case.excluded_default_features.iter().copied().collect();
 
-        let result = merge_missing_cfg_features(case.existing, &api, "core", &core_declared, &excluded)
+        let result = merge_missing_cfg_features(case.existing, &api, &[], "core", &core_declared, &excluded)
             .unwrap_or_else(|error| panic!("case `{}`: merge failed: {error}", case.name));
 
         if case.expect_none {
@@ -833,7 +833,7 @@ fn merge_missing_cfg_features_preserves_untouched_lines_verbatim() {
     let api = api_with_gated_functions(&[("count_tokens", Some(r#"feature = "tokenizer""#))]);
     let core_declared: BTreeSet<String> = ["native-http", "tokenizer"].into_iter().map(String::from).collect();
 
-    let patched = merge_missing_cfg_features(existing, &api, "core", &core_declared, &HashSet::new())
+    let patched = merge_missing_cfg_features(existing, &api, &[], "core", &core_declared, &HashSet::new())
         .expect("merge must succeed")
         .expect("a missing feature must produce a patch");
 
@@ -853,6 +853,47 @@ fn merge_missing_cfg_features_preserves_untouched_lines_verbatim() {
         patched.contains(r#"default = ["native-http", "tokenizer"]"#),
         "the backfilled feature must also be enabled by default, not merely declared, got:\n{patched}"
     );
+}
+
+#[test]
+fn merge_missing_cfg_features_rejects_untrusted_wrapper_defaults() {
+    let core_declared = BTreeSet::from(["formula-recognition".to_string()]);
+    let cases = [
+        ("", HashSet::new(), "must not be empty"),
+        ("dep:escape", HashSet::new(), "may only contain ASCII letters"),
+        ("unknown-feature", HashSet::new(), "is not declared by the core crate"),
+        (
+            "formula-recognition",
+            HashSet::from(["formula-recognition"]),
+            "cannot also be listed in excluded_default_features",
+        ),
+        (
+            "default",
+            HashSet::new(),
+            "is reserved by generated native wrapper manifests",
+        ),
+        (
+            "extension-module",
+            HashSet::new(),
+            "is reserved by generated native wrapper manifests",
+        ),
+    ];
+
+    for (feature, excluded, expected) in cases {
+        let error = merge_missing_cfg_features(
+            "[package]\nname = \"wrapper\"\n",
+            &ApiSurface::default(),
+            &[feature.to_string()],
+            "core",
+            &core_declared,
+            &excluded,
+        )
+        .expect_err("untrusted wrapper defaults must not reach TOML emission");
+        assert!(
+            error.to_string().contains(expected),
+            "`{feature}` must fail with `{expected}`, got: {error:#}"
+        );
+    }
 }
 
 /// [`core_crate_declared_features`] must read the core crate's own `[features]` table off disk,

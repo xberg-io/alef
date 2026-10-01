@@ -162,6 +162,18 @@ pub fn collect_cfg_features(api: &ApiSurface) -> BTreeSet<String> {
     out
 }
 
+/// Features a native wrapper manifest must declare and enable by default.
+///
+/// Binding projection remains authoritative for the generated API: it decides which cfg gates
+/// survive in `api`. `configured` is a manifest-only preservation list for core behavior that
+/// must remain active even when projection removes the final symbol carrying its cfg gate. ~keep
+#[must_use]
+pub(crate) fn native_wrapper_default_features(api: &ApiSurface, configured: &[String]) -> BTreeSet<String> {
+    let mut features = collect_cfg_features(api);
+    features.extend(configured.iter().filter(|name| !name.is_empty()).cloned());
+    features
+}
+
 /// Whether `rust_path` names an item owned by `host_crate_name`, as opposed to one merged in
 /// from a foreign `[[crates.source_crates]]` crate.
 ///
@@ -661,7 +673,7 @@ pub fn cfg_default_and_forwarding_lines(
     lines
 }
 
-/// Insert every name [`undeclared_cfg_features`] finds missing from `existing`'s own
+/// Insert every cfg-referenced or explicitly preserved wrapper-default name missing from `existing`'s own
 /// `[features]` table -- forwarding each to `core_crate_name` the same way the sibling rows
 /// `scaffold_ruby_cargo`/`scaffold_elixir_cargo` already write do (`<feature> =
 /// ["<core_crate_name>/<feature>"]`) -- and, separately, every referenced name missing from
@@ -676,10 +688,11 @@ pub fn cfg_default_and_forwarding_lines(
 /// manifest patched by an earlier version of this function is left in -- still gets fixed on the
 /// next repair pass, not just a brand-new feature. ~keep
 ///
-/// Returns `Ok(None)` when nothing needs to change (every referenced feature is already declared
-/// and enabled by default, or every missing one is absent from `core_declared_features` and
-/// therefore must not be invented), so callers can distinguish "checked, no update needed" from
-/// "wrote the merge" without a further content diff.
+/// Returns `Ok(None)` when nothing needs to change (every requested feature is already declared
+/// and enabled by default), so callers can distinguish "checked, no update needed" from "wrote
+/// the merge" without a further content diff. Cfg-discovered names are limited to features the
+/// core manifest declares; explicit wrapper defaults are trusted configuration and are preserved
+/// verbatim. ~keep
 ///
 /// Parses with `toml_edit::DocumentMut`, not the `toml` crate [`read_declared_cargo_features`]
 /// uses: `toml_edit` preserves every byte it does not touch -- comments, key order, blank lines,
@@ -708,10 +721,21 @@ pub fn cfg_default_and_forwarding_lines(
 pub fn merge_missing_cfg_features(
     existing: &str,
     api: &ApiSurface,
+    wrapper_default_features: &[String],
     core_crate_name: &str,
     core_declared_features: &BTreeSet<String>,
     excluded_default_features: &HashSet<&str>,
 ) -> anyhow::Result<Option<String>> {
+    for feature in wrapper_default_features {
+        crate::core::config::validation::validate_wrapper_default_feature_name(feature)
+            .map_err(|error| anyhow::anyhow!("invalid wrapper default feature `{feature}`: {error}"))?;
+        if !core_declared_features.contains(feature) {
+            anyhow::bail!("wrapper default feature `{feature}` is not declared by the core crate");
+        }
+        if excluded_default_features.contains(feature.as_str()) {
+            anyhow::bail!("wrapper default feature `{feature}` cannot also be listed in excluded_default_features");
+        }
+    }
     let mut doc = existing
         .parse::<toml_edit::DocumentMut>()
         .context("existing manifest is not valid TOML")?;
@@ -732,10 +756,11 @@ pub fn merge_missing_cfg_features(
             .collect()
     });
 
-    let referenced: BTreeSet<String> = collect_cfg_features(api)
+    let mut referenced: BTreeSet<String> = collect_cfg_features(api)
         .into_iter()
         .filter(|feature| core_declared_features.contains(feature))
         .collect();
+    referenced.extend(wrapper_default_features.iter().filter(|name| !name.is_empty()).cloned());
     let needs_declaration: BTreeSet<String> = referenced.difference(&declared).cloned().collect();
     let needs_default: BTreeSet<String> = referenced
         .difference(&enabled_by_default)

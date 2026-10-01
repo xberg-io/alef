@@ -139,3 +139,4 @@ mod python_node;
 mod repair;
 mod unstamped_cache_miss;
 mod workspace_inheritance;
+mod wrapper_default_features;

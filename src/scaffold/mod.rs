@@ -63,6 +63,7 @@ pub fn scaffold(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    crate::core::config::validation::validate_wrapper_default_features(config)?;
     let projected_api = crate::codegen::binding_projection::project(api);
     let api = &projected_api;
     let mut files = vec![];

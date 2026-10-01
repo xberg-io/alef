@@ -6015,6 +6015,14 @@
             "null"
           ]
         },
+        "wrapper_default_features": {
+          "default": [],
+          "description": "Core features that generated native wrapper crates must declare and enable by default,\neven when binding projection removes every cfg-gated symbol that references them.\nEvery name must use Cargo's plain feature-name grammar, exist in the core crate's\n`[features]` table, differ from the wrapper-owned `default` and `extension-module` names,\nand stay absent from each active native language's `excluded_default_features`. This\naffects manifests only; it does not restore hidden Rust APIs. ~keep",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "zig": {
           "anyOf": [
             {

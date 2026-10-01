@@ -273,7 +273,7 @@ pub(crate) fn scaffold_node_cargo(
     let _ = extra_deps_section;
 
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
-    let mut cfg_features = shared_cfg::collect_cfg_features(api);
+    let mut cfg_features = shared_cfg::native_wrapper_default_features(api, &config.wrapper_default_features);
     // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
     // still get a forwarding entry below -- alef-task #374, regression in
     // `cargo_excluded_features_tests`. ~keep

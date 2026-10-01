@@ -130,6 +130,139 @@ fn repair_adds_missing_features_to_both_ruby_and_elixir_manifests() {
     }
 }
 
+#[test]
+fn repair_preserves_configured_wrapper_default_for_all_native_manifests_after_projection() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let ws_root = dir.path();
+    let mut config = sample_config(ws_root);
+    config.wrapper_default_features = vec!["formula-recognition".to_string()];
+    write_core_crate_manifest(ws_root);
+    let core_manifest = ws_root.join("crates/sample-core/Cargo.toml");
+    let mut core = std::fs::read_to_string(&core_manifest).expect("read core Cargo.toml");
+    core.push_str("formula-recognition = []\n");
+    std::fs::write(&core_manifest, core).expect("extend core Cargo.toml");
+
+    let native_manifests = [
+        (Language::Python, PathBuf::from("crates/sample-core-py/Cargo.toml")),
+        (Language::Node, PathBuf::from("crates/sample-core-node/Cargo.toml")),
+        (Language::Ruby, ruby_native_manifest_path(&config)),
+        (Language::Php, PathBuf::from("crates/sample-core-php/Cargo.toml")),
+        (
+            Language::Elixir,
+            PathBuf::from(elixir_native_crate_dir(&config)).join("Cargo.toml"),
+        ),
+    ];
+    let manifest_paths: BTreeSet<PathBuf> = native_manifests
+        .iter()
+        .map(|(_, relative)| write_existing_manifest(&config, relative))
+        .collect();
+    let api = ApiSurface {
+        crate_name: "sample_core".to_string(),
+        functions: vec![FunctionDef {
+            name: "rust_only_formula".to_string(),
+            rust_path: "sample_core::rust_only_formula".to_string(),
+            cfg: Some(r#"feature = "formula-recognition""#.to_string()),
+            binding_excluded: true,
+            ..Default::default()
+        }],
+        ..test_api()
+    };
+
+    let languages: Vec<Language> = native_manifests.iter().map(|(language, _)| *language).collect();
+    let repaired = repair_missing_cfg_binding_features(&api, &config, &languages);
+
+    assert_eq!(repaired.into_iter().collect::<BTreeSet<_>>(), manifest_paths);
+    for manifest in manifest_paths {
+        let content = std::fs::read_to_string(&manifest).expect("read repaired manifest");
+        assert!(
+            content.contains(r#"formula-recognition = ["sample-core/formula-recognition"]"#),
+            "{} must forward the configured wrapper feature:\n{content}",
+            manifest.display()
+        );
+        assert!(
+            content.contains(r#"default = ["native-http", "formula-recognition"]"#),
+            "{} must default-enable the configured wrapper feature:\n{content}",
+            manifest.display()
+        );
+    }
+}
+
+#[test]
+fn repair_refuses_conflicting_invalid_and_unknown_wrapper_defaults_without_writing() {
+    use crate::core::config::languages::RubyConfig;
+
+    for (feature, excluded) in [
+        ("formula-recognition", true),
+        ("", false),
+        ("dep:escape", false),
+        ("unknown-feature", false),
+        ("default", false),
+        ("extension-module", false),
+    ] {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ws_root = dir.path();
+        let mut config = sample_config(ws_root);
+        config.wrapper_default_features = vec![feature.to_string()];
+        if excluded {
+            config.ruby = Some(
+                toml::from_str::<RubyConfig>(
+                    "gem_name = \"sample_core\"\nexcluded_default_features = [\"formula-recognition\"]\n",
+                )
+                .expect("Ruby config"),
+            );
+        }
+        write_core_crate_manifest(ws_root);
+        let core_manifest = ws_root.join("crates/sample-core/Cargo.toml");
+        let mut core = std::fs::read_to_string(&core_manifest).expect("read core Cargo.toml");
+        core.push_str("formula-recognition = []\nextension-module = []\n");
+        std::fs::write(&core_manifest, core).expect("extend core Cargo.toml");
+        let ruby_relative = ruby_native_manifest_path(&config);
+        let ruby_manifest = write_existing_manifest(&config, &ruby_relative);
+
+        let repaired = repair_missing_cfg_binding_features(&ApiSurface::default(), &config, &[Language::Ruby]);
+
+        assert!(repaired.is_empty(), "invalid feature `{feature}` must not be repaired");
+        assert_eq!(
+            std::fs::read_to_string(ruby_manifest).expect("read untouched manifest"),
+            EXISTING_MANIFEST,
+            "invalid feature `{feature}` must not alter an existing manifest"
+        );
+    }
+}
+
+#[test]
+fn repair_ignores_exclusions_for_inactive_languages() {
+    use crate::core::config::languages::RubyConfig;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let ws_root = dir.path();
+    let mut config = sample_config(ws_root);
+    config.languages = vec![Language::Python];
+    config.wrapper_default_features = vec!["formula-recognition".to_string()];
+    config.ruby = Some(
+        toml::from_str::<RubyConfig>(
+            "gem_name = \"sample_core\"\nexcluded_default_features = [\"formula-recognition\"]\n",
+        )
+        .expect("Ruby config"),
+    );
+    write_core_crate_manifest(ws_root);
+    let core_manifest = ws_root.join("crates/sample-core/Cargo.toml");
+    let mut core = std::fs::read_to_string(&core_manifest).expect("read core Cargo.toml");
+    core.push_str("formula-recognition = []\n");
+    std::fs::write(&core_manifest, core).expect("extend core Cargo.toml");
+    let python_relative = PathBuf::from("crates/sample-core-py/Cargo.toml");
+    let python_manifest = write_existing_manifest(&config, &python_relative);
+
+    let repaired = repair_missing_cfg_binding_features(&ApiSurface::default(), &config, &[Language::Python]);
+
+    assert_eq!(repaired, vec![python_manifest.clone()]);
+    let content = std::fs::read_to_string(python_manifest).expect("read repaired manifest");
+    assert!(
+        content.contains(r#"formula-recognition = ["sample-core/formula-recognition"]"#),
+        "Python must still forward the configured default:\n{content}"
+    );
+}
+
 /// Same incident, but for the Dart FRB bridge crate's manifest (alef #154: liter-llm's
 /// `packages/dart/rust/Cargo.toml` never picked up `tokenizer`/`tower` after its `lib.rs`
 /// started forwarding those gates for `count_tokens`/`count_request_tokens`/`record_cost_usd`).

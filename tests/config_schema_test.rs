@@ -81,6 +81,31 @@ send_sync_types = ["SharedHandle"]
 }
 
 #[test]
+fn wrapper_default_features_match_schema_and_resolved_config() {
+    let source = r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+wrapper_default_features = ["formula-recognition"]
+"#;
+    let schema = alef_config_schema(env!("CARGO_PKG_VERSION")).expect("schema generation succeeds");
+    let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+    let toml_value: toml::Value = toml::from_str(source).expect("TOML parses");
+    let json_value = serde_json::to_value(toml_value).expect("TOML value converts to JSON");
+    assert!(
+        validator.is_valid(&json_value),
+        "the crate-level feature list must be in the schema"
+    );
+
+    let config: NewAlefConfig = toml::from_str(source).expect("TOML deserializes");
+    let resolved = config.resolve().expect("config resolves").remove(0);
+    assert_eq!(resolved.wrapper_default_features, ["formula-recognition"]);
+}
+
+#[test]
 fn trait_bridge_callback_unsupported_mode_matches_schema_and_rust_config() {
     let source = r#"
 [workspace]

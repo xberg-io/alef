@@ -88,6 +88,7 @@ pub struct ResolvedCrateConfig {
     pub error_type: Option<String>,
     pub error_constructor: Option<String>,
     pub features: Vec<String>,
+    pub wrapper_default_features: Vec<String>,
     pub path_mappings: HashMap<String, String>,
     pub extra_dependencies: HashMap<String, toml::Value>,
     pub auto_path_mappings: bool,

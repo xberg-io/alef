@@ -602,11 +602,9 @@ fn inputs_hash_differs_from_file_hash() {
 #[test]
 fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
     use crate::core::config::resolved::ResolvedCrateConfig;
-
     let dir = tempdir().unwrap();
     let a = write_file(dir.path(), "a.rs", "fn a() {}");
     let b = write_file(dir.path(), "b.rs", "fn b() {}");
-
     let make_cfg = |name: &str, sources: Vec<std::path::PathBuf>| ResolvedCrateConfig {
         name: name.to_string(),
         sources,
@@ -619,6 +617,7 @@ fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
         error_type: None,
         error_constructor: None,
         features: vec![],
+        wrapper_default_features: vec![],
         path_mappings: Default::default(),
         extra_dependencies: Default::default(),
         auto_path_mappings: true,
@@ -693,11 +692,9 @@ fn crate_sources_hash_differs_across_crates_with_disjoint_sources() {
 #[test]
 fn crate_sources_hash_includes_source_crates() {
     use crate::core::config::{SourceCrate, resolved::ResolvedCrateConfig};
-
     let dir = tempdir().unwrap();
     let a = write_file(dir.path(), "a.rs", "fn a() {}");
     let b = write_file(dir.path(), "b.rs", "fn b() {}");
-
     let make_cfg =
         |sources: Vec<std::path::PathBuf>, source_crate_sources: Vec<std::path::PathBuf>| -> ResolvedCrateConfig {
             let source_crates = if source_crate_sources.is_empty() {
@@ -722,6 +719,7 @@ fn crate_sources_hash_includes_source_crates() {
                 error_type: None,
                 error_constructor: None,
                 features: vec![],
+                wrapper_default_features: vec![],
                 path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 auto_path_mappings: true,
@@ -825,6 +823,7 @@ fn compute_crate_sources_hash_dedupes_overlapping_paths() {
                 error_type: None,
                 error_constructor: None,
                 features: vec![],
+                wrapper_default_features: vec![],
                 path_mappings: Default::default(),
                 extra_dependencies: Default::default(),
                 auto_path_mappings: true,
@@ -917,6 +916,7 @@ fn compute_crate_sources_hash_is_order_independent() {
             error_type: None,
             error_constructor: None,
             features: vec![],
+            wrapper_default_features: vec![],
             path_mappings: Default::default(),
             extra_dependencies: Default::default(),
             auto_path_mappings: true,

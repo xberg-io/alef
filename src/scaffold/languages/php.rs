@@ -119,8 +119,12 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
 /// table's namespace, so the two sets have to be derived together rather than each rebuilt.
 /// Function-owned names also remain public/default forwarding features even though PHP eagerly
 /// enables their core symbols; pruning them changes the wrapper crate's public Cargo contract. ~keep
-pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features: &[&str]) -> BTreeSet<String> {
-    let mut features = crate::codegen::cfg::collect_cfg_features(api);
+pub(crate) fn php_declared_features(
+    api: &ApiSurface,
+    wrapper_default_features: &[String],
+    excluded_default_features: &[&str],
+) -> BTreeSet<String> {
+    let mut features = crate::codegen::cfg::native_wrapper_default_features(api, wrapper_default_features);
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features
 }
@@ -284,7 +288,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         // sees the same set this table declares. ~keep
         let mut excluded_sorted: Vec<&str> = excluded_default_features.iter().copied().collect();
         excluded_sorted.sort_unstable();
-        let features = php_declared_features(api, &excluded_sorted);
+        let features = php_declared_features(api, &config.wrapper_default_features, &excluded_sorted);
         if features.is_empty() {
             String::new()
         } else {

@@ -17,6 +17,7 @@
 
 mod dependency_versions;
 mod preconditions;
+mod wrapper_features;
 
 use super::extras::Language;
 use super::output::validate_output_segment;
@@ -30,6 +31,7 @@ use preconditions::{test_main_fields, validate_section, validate_test_e2e_precon
 /// `Option<HashMap>`) that `ResolvedCrateConfig` carries after workspace
 /// defaults are folded in.
 pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    validate_wrapper_default_features(config)?;
     validate_tools(&config.tools)?;
     validate_package_metadata(config)?;
     validate_e2e_env_keys(config)?;
@@ -40,6 +42,14 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
     validate_trait_bridges(config)?;
     validate_dart_library_name(config)?;
     Ok(())
+}
+
+pub(crate) fn validate_wrapper_default_features(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    wrapper_features::validate(config).map_err(AlefError::Config)
+}
+
+pub(crate) fn validate_wrapper_default_feature_name(feature: &str) -> Result<(), String> {
+    wrapper_features::validate_name(feature)
 }
 
 /// Reject a derived Dart library/barrel-file name that would escape the output tree once

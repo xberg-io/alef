@@ -363,6 +363,7 @@ impl NewAlefConfig {
             error_type: krate.error_type.clone(),
             error_constructor: krate.error_constructor.clone(),
             features: krate.features.clone(),
+            wrapper_default_features: krate.wrapper_default_features.clone(),
             path_mappings: krate.path_mappings.clone(),
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
