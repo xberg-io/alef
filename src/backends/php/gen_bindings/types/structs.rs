@@ -56,6 +56,37 @@ mod constructor_param;
 
 pub use constructor_param::php_field_can_be_constructor_param;
 
+/// Optionality that may reorder parameters without changing a serde-defaulted field's legacy slot. ~keep
+pub(crate) fn php_field_base_constructor_optional(typ: &TypeDef, field: &FieldDef, serde_available: bool) -> bool {
+    field.optional || (serde_available && typ.has_default && matches!(field.ty, TypeRef::Duration))
+}
+
+/// Return the fields that may be nullable in the final PHP constructor signature.
+///
+/// A serde-defaulted required field is nullable only while every parameter after it is already
+/// nullable. PHP rejects an optional parameter before a required one, and moving the defaulted
+/// field would break existing positional calls. ~keep
+pub(crate) fn php_constructor_optional_field_names<'a>(
+    typ: &TypeDef,
+    fields: &[&'a FieldDef],
+    serde_available: bool,
+) -> AHashSet<&'a str> {
+    let mut optional_names = AHashSet::new();
+    let mut in_optional_suffix = true;
+
+    for field in fields.iter().rev() {
+        let base_optional = php_field_base_constructor_optional(typ, field, serde_available);
+        let serde_default_optional = serde_available && field.has_bare_serde_enum_default() && in_optional_suffix;
+        if base_optional || serde_default_optional {
+            optional_names.insert(field.name.as_str());
+        } else {
+            in_optional_suffix = false;
+        }
+    }
+
+    optional_names
+}
+
 /// True when `ty` is, or transitively wraps, `Json`.
 ///
 /// Such fields' generated getters return `Option<String>` (a serialized JSON string) rather than
@@ -522,19 +553,7 @@ fn gen_struct_methods_impl(
                 });
 
             if has_representable_required {
-                // A `Duration` field on a type with a `Default` impl is widened to an optional,
-                // nullable param below (`optional = f.optional || (has_serde && typ.has_default &&
-                // ...)`) even when the field itself is required, so callers can omit it and get the
-                // default. The stable sort must key on this SAME effective optionality — not the
-                // raw `f.optional` — or a widened field could still land ahead of a genuinely
-                // required one. Mirrors the PHPStan stub's identical widening in `type_stubs.rs`.
-                let effective_optional = |f: &FieldDef| {
-                    f.optional
-                        || f.has_bare_serde_enum_default()
-                        || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration))
-                };
-
-                // Stable sort required-before-optional to match PHP's parameter-order rule — and,
+                // Stable sort ordinary required-before-optional fields to match PHP's parameter-order rule — and,
                 // critically, the PHPStan stub's own `ctor_fields.sort_by_key(...)` (`type_stubs.rs`).
                 // Without this, `new`'s parameter order follows raw field declaration order, which
                 // can interleave optional fields ahead of a later required one (e.g. `BatchObject`'s
@@ -555,7 +574,9 @@ fn gen_struct_methods_impl(
                         )
                     })
                     .collect();
-                ctor_fields.sort_by_key(|f| effective_optional(f));
+                ctor_fields.sort_by_key(|f| php_field_base_constructor_optional(typ, f, has_serde));
+                let optional_field_names = php_constructor_optional_field_names(typ, &ctor_fields, has_serde);
+                let effective_optional = |f: &FieldDef| optional_field_names.contains(f.name.as_str());
 
                 let param_defs: Vec<crate::core::ir::ParamDef> = ctor_fields
                     .into_iter()
@@ -641,6 +662,7 @@ fn gen_struct_methods_impl(
                     opaque_types,
                     &mapper.untagged_data_enum_names,
                     never_skip_cfg_field_names,
+                    &optional_field_names,
                 )?;
                 let prelude = init.prelude;
                 let param_init = init.field_inits;

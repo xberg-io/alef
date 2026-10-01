@@ -182,8 +182,9 @@ fn bare_serde_default_field_init(
     field: &FieldDef,
     php_param_name: &str,
     enum_names: &AHashSet<String>,
+    parameter_is_optional: bool,
 ) -> Option<String> {
-    if !field.has_bare_serde_enum_default() {
+    if !field.has_bare_serde_enum_default() || !parameter_is_optional {
         return None;
     }
     if matches!(&field.ty, TypeRef::Named(name) if enum_names.contains(name.as_str())) {
@@ -212,8 +213,11 @@ fn representable_field_init(
     php_param_name: &str,
     enum_names: &AHashSet<String>,
     opaque_types: &AHashSet<String>,
+    parameter_is_optional: bool,
 ) -> String {
-    if let Some(init) = bare_serde_default_field_init(owner_name, field, php_param_name, enum_names) {
+    if let Some(init) =
+        bare_serde_default_field_init(owner_name, field, php_param_name, enum_names, parameter_is_optional)
+    {
         return init;
     }
     let is_bytes = matches!(&field.ty, TypeRef::Bytes)
@@ -280,6 +284,7 @@ pub(crate) fn gen_constructor_field_inits(
     opaque_types: &AHashSet<String>,
     untagged_data_enum_names: &AHashSet<String>,
     never_skip_cfg_field_names: &[String],
+    optional_field_names: &AHashSet<&str>,
 ) -> anyhow::Result<ConstructorInit> {
     let core_defaults = core_defaults_local(typ);
     let mut field_inits: Vec<String> = Vec::new();
@@ -302,6 +307,7 @@ pub(crate) fn gen_constructor_field_inits(
                 &php_param_name,
                 enum_names,
                 opaque_types,
+                optional_field_names.contains(field.name.as_str()),
             ));
             continue;
         }

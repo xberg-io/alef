@@ -4,7 +4,8 @@ use crate::backends::php::gen_bindings::php_types::{
 };
 use crate::backends::php::gen_bindings::types::{
     enum_constant_entries, flat_field_name, is_labeled_string_enum, is_php_prop_scalar, is_tagged_data_enum,
-    is_untagged_data_enum, php_field_can_be_constructor_param, ty_is_or_wraps_json, ty_references_untagged_data_enum,
+    is_untagged_data_enum, php_constructor_optional_field_names, php_field_base_constructor_optional,
+    php_field_can_be_constructor_param, ty_is_or_wraps_json, ty_references_untagged_data_enum,
 };
 use crate::backends::php::naming::php_autoload_namespace;
 use crate::codegen::doc_emission::{DocTarget, sanitize_rust_idioms};
@@ -639,13 +640,9 @@ fn stub_constructor_shape(
     }
 }
 
-/// Mirrors the runtime constructor's own widening (`gen_bindings/types/structs.rs`'s
-/// `let optional = f.optional || (has_serde && typ.has_default && matches!(f.ty,
-/// TypeRef::Duration));`): a `Duration` field on a type with a `Default` impl becomes an optional,
-/// nullable param at the FFI boundary even when the field itself is required in the IR, so callers
-/// can omit it and get the default. Used for both the constructor stub's param list (order AND
-/// nullability) and each field's getter return type — the two must agree with each other and with
-/// the runtime, or the stub disagrees with what the extension actually does.
+/// Mirrors non-positional runtime widening for getters and kwargs properties. A `Duration` field
+/// on a type with a `Default` impl becomes nullable at the FFI boundary even when the field itself
+/// is required in the IR, and a bare serde enum default is nullable when serde is available.
 ///
 /// `serde_available` is the runtime's `has_serde` — the crate-level probe, not `TypeDef::has_serde`.
 /// The widening exists because the mirror struct carries `#[serde(skip_serializing_if)]` /
@@ -660,10 +657,9 @@ fn php_field_effective_optional(typ: &crate::core::ir::TypeDef, f: &FieldDef, se
 /// Build the parameter list (one entry per line) for a struct's PHPStan `#[php(constructor)]`
 /// stub, in the exact order and shape the real extension's `new(...)` declares.
 ///
-/// Field selection mirrors `gen_bindings/types/structs.rs`'s own constructor filter
-/// (`php_field_can_be_constructor_param`), and the ordering mirrors its stable
-/// required-before-optional sort — both MUST derive from the same predicate or the stub and the
-/// runtime constructor drift out of positional agreement.
+/// Field selection and optional-suffix handling mirror `gen_bindings/types/structs.rs`. Ordinary
+/// optional fields sort after required fields, while a serde-defaulted field keeps its legacy
+/// positional slot and becomes nullable only when the remaining parameters are nullable. ~keep
 fn gen_struct_constructor_stub_params(
     typ: &crate::core::ir::TypeDef,
     enum_names: &AHashSet<String>,
@@ -678,12 +674,13 @@ fn gen_struct_constructor_stub_params(
     let mut ctor_fields: Vec<&FieldDef> = binding_fields(&typ.fields)
         .filter(|f| is_constructor_param(f))
         .collect();
-    ctor_fields.sort_by_key(|f| php_field_effective_optional(typ, f, serde_available));
+    ctor_fields.sort_by_key(|f| php_field_base_constructor_optional(typ, f, serde_available));
+    let optional_field_names = php_constructor_optional_field_names(typ, &ctor_fields, serde_available);
 
     ctor_fields
         .iter()
         .map(|f| {
-            let optional = php_field_effective_optional(typ, f, serde_available);
+            let optional = optional_field_names.contains(f.name.as_str());
             let ptype = enum_aware_php_type(&f.ty, enum_names);
             let nullable = if optional && !ptype.starts_with('?') {
                 format!("?{ptype}")
@@ -981,6 +978,8 @@ fn gen_labeled_string_enum_variant_constructor_stubs(enum_def: &EnumDef, is_host
 mod enum_stub;
 use enum_stub::gen_enum_stub;
 
+#[cfg(test)]
+mod constructor_default_suffix_tests;
 #[cfg(test)]
 mod enum_stub_declaration_parity_tests;
 #[cfg(test)]

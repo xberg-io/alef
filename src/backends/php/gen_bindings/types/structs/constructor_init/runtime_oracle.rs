@@ -81,12 +81,19 @@ fn build(typ: &TypeDef) -> anyhow::Result<ConstructorInit> {
 }
 
 fn build_with_retained_cfg(typ: &TypeDef, never_skip_cfg_field_names: &[String]) -> anyhow::Result<ConstructorInit> {
+    let optional_field_names: AHashSet<&str> = typ
+        .fields
+        .iter()
+        .filter(|field| field.optional || field.has_bare_serde_enum_default())
+        .map(|field| field.name.as_str())
+        .collect();
     gen_constructor_field_inits(
         typ,
         &names(&["Mode"]),
         &names(&["Client"]),
         &names(&["SsrfPolicy", "Rule"]),
         never_skip_cfg_field_names,
+        &optional_field_names,
     )
 }
 
