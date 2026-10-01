@@ -540,3 +540,69 @@ fn qualified_field_path_restores_surviving_disambiguated_type_name() {
     );
     assert!(!field.sanitized);
 }
+
+#[test]
+fn public_reexport_field_path_wins_over_a_same_crate_short_name_collision() {
+    let mut owner = make_typedef("OcrConfig");
+    owner.fields.push(crate::core::ir::FieldDef {
+        name: "tesseract_config".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Named("OcrTesseractConfig".to_string()))),
+        type_rust_path: Some("xberg::types::TesseractConfig".to_string()),
+        ..Default::default()
+    });
+
+    let mut public_config = make_typedef("TesseractConfig");
+    public_config.rust_path = "xberg::TesseractConfig".to_string();
+
+    let mut excluded_collision = make_typedef("OcrTesseractConfig");
+    excluded_collision.rust_path = "xberg::ocr::TesseractConfig".to_string();
+    excluded_collision.binding_excluded = true;
+
+    let mut surface = surface_with(vec![owner, public_config, excluded_collision], vec![]);
+
+    super::super::type_helpers::resolve_qualified_field_type_names(&mut surface);
+    sanitize_unknown_types(&mut surface);
+
+    let field = &surface.types[0].fields[0];
+    assert_eq!(
+        field.ty,
+        TypeRef::Optional(Box::new(TypeRef::Named("TesseractConfig".to_string())))
+    );
+    assert!(!field.sanitized, "an exact public path must not degrade to a string");
+}
+
+#[test]
+fn exact_excluded_field_path_stays_rust_only_in_the_binding_projection() {
+    let mut owner = make_typedef("InternalOcrOptions");
+    owner.fields.push(crate::core::ir::FieldDef {
+        name: "tesseract_config".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Named("TesseractConfig".to_string()))),
+        type_rust_path: Some("xberg::ocr::TesseractConfig".to_string()),
+        ..Default::default()
+    });
+
+    let mut public_config = make_typedef("TesseractConfig");
+    public_config.rust_path = "xberg::TesseractConfig".to_string();
+
+    let mut excluded_collision = make_typedef("OcrTesseractConfig");
+    excluded_collision.rust_path = "xberg::ocr::TesseractConfig".to_string();
+    excluded_collision.binding_excluded = true;
+
+    let mut surface = surface_with(vec![owner, public_config, excluded_collision], vec![]);
+    super::super::type_helpers::resolve_qualified_field_type_names(&mut surface);
+
+    let source_field = &surface.types[0].fields[0];
+    assert_eq!(
+        source_field.ty,
+        TypeRef::Optional(Box::new(TypeRef::Named("OcrTesseractConfig".to_string())))
+    );
+
+    let projected = crate::codegen::binding_projection::project_owned(surface);
+    assert!(projected.types.iter().all(|typ| typ.name != "OcrTesseractConfig"));
+    let projected_field = &projected.types[0].fields[0];
+    assert_eq!(projected_field.ty, TypeRef::Optional(Box::new(TypeRef::String)));
+    assert!(
+        projected_field.sanitized,
+        "the excluded internal type must not enter bindings"
+    );
+}

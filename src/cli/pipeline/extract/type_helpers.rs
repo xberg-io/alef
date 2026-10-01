@@ -278,14 +278,14 @@ pub(super) fn normalize_field_type_paths(api: &mut ApiSurface) {
 }
 
 pub(super) fn resolve_qualified_field_type_names(api: &mut ApiSurface) {
-    let identities: Vec<(String, String)> = api
+    let identities: Vec<(String, String, bool)> = api
         .types
         .iter()
-        .map(|typ| (typ.rust_path.replace('-', "_"), typ.name.clone()))
+        .map(|typ| (typ.rust_path.replace('-', "_"), typ.name.clone(), typ.binding_excluded))
         .chain(
             api.enums
                 .iter()
-                .map(|enm| (enm.rust_path.replace('-', "_"), enm.name.clone())),
+                .map(|enm| (enm.rust_path.replace('-', "_"), enm.name.clone(), enm.binding_excluded)),
         )
         .collect();
 
@@ -295,15 +295,37 @@ pub(super) fn resolve_qualified_field_type_names(api: &mut ApiSurface) {
                 continue;
             };
             let field_path = field_path.replace('-', "_");
+            // A disambiguation pass can rename a field to the only colliding short-name entry
+            // that changed while its fully-qualified path still points at the surviving public
+            // type. Exact identity must win before the short-name fallback. ~keep
+            if let Some((_, resolved_name, _)) = identities.iter().find(|(path, _, _)| path == &field_path) {
+                rename_named_type(&mut field.ty, resolved_name);
+                continue;
+            }
             let short_name = field_path.rsplit("::").next().unwrap_or(field_path.as_str());
             let crate_name = field_path.split("::").next().unwrap_or("");
-            let mut matches = identities.iter().filter(|(path, _)| {
-                path.rsplit("::").next() == Some(short_name) && path.split("::").next() == Some(crate_name)
-            });
-            let Some((_, resolved_name)) = matches.next() else {
-                continue;
+            let matches: Vec<_> = identities
+                .iter()
+                .filter(|(path, _, _)| {
+                    path.rsplit("::").next() == Some(short_name) && path.split("::").next() == Some(crate_name)
+                })
+                .collect();
+            let public_matches: Vec<_> = matches
+                .iter()
+                .copied()
+                .filter(|(_, _, binding_excluded)| !binding_excluded)
+                .collect();
+            // A re-export path can differ from the canonical public type path while sharing its
+            // crate root and short name. When the only other match is Rust-only, select the one
+            // public identity; exact paths above still preserve Rust-only documentation. ~keep
+            let resolved = if public_matches.len() == 1 {
+                public_matches.first().copied()
+            } else if matches.len() == 1 {
+                matches.first().copied()
+            } else {
+                None
             };
-            if matches.next().is_none() {
+            if let Some((_, resolved_name, _)) = resolved {
                 rename_named_type(&mut field.ty, resolved_name);
             }
         }
