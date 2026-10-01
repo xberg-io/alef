@@ -1,6 +1,4 @@
-
 /// Clear all registered `{{ trait_name }}` plugins.
-/// Calls the host crate's configured clear function and stringifies any error.
 pub fn {{ clear_fn }}() -> Result<(), String> {
     {{ host_path }}().map_err(|e| e.to_string())
 }

@@ -68,22 +68,24 @@ pub(super) fn emit_unregister_forwarder(out: &mut String, bridge_config: &TraitB
 
 /// Emit a Rust-side `clear_*` forwarder for a configured trait bridge.
 ///
-/// Removes ALL previously-registered plugins of this type via the configured `registry_getter`.
+/// Calls the configured host clear function so host-managed recovery semantics are preserved.
 /// Stringifies the host error. No-op when `clear_fn` is unset on the bridge config.
-pub(super) fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _source_crate_name: &str) {
+pub(super) fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, source_crate_name: &str) {
     let Some(clear_fn) = bridge_config.clear_fn.as_deref() else {
         return;
     };
-    let Some(registry_getter) = bridge_config.registry_getter.as_deref() else {
-        return;
-    };
+    let host_path = crate::codegen::generators::trait_bridge::host_function_path_for_config(
+        bridge_config,
+        source_crate_name,
+        clear_fn,
+    );
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_trait_clear_forwarder.jinja",
         minijinja::context! {
             trait_name => bridge_config.trait_name.as_str(),
-            registry_getter => registry_getter,
             clear_fn => clear_fn,
+            host_path => host_path,
         },
     ));
 }

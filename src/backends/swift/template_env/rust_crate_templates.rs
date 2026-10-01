@@ -54,6 +54,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/trait_method_impl.jinja"),
     ),
     (
+        "trait_clear_forwarder.rs.jinja",
+        include_str!("../templates/trait_clear_forwarder.rs.jinja"),
+    ),
+    (
         "rust_from_json_extern_decl.rs.jinja",
         include_str!("../templates/rust_from_json_extern_decl.rs.jinja"),
     ),

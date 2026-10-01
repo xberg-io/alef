@@ -157,14 +157,15 @@ impl FfiBridgeGenerator {
             },
         ));
 
-        if spec.bridge_config.clear_fn.is_some() {
+        if let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() {
             let full_clear_name = ffi_clear_symbol(prefix, &spec.trait_def.name);
+            let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
             out.push('\n');
             out.push_str(&crate::backends::ffi::template_env::render(
                 "clear_fn.jinja",
                 minijinja::context! {
                     full_clear_name => &full_clear_name,
-                    registry_getter => registry_getter,
+                    host_path => &host_path,
                     free_string_fn => format!("{prefix}_free_string"),
                 },
             ));

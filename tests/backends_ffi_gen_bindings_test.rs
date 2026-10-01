@@ -409,6 +409,54 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
 }
 
 #[test]
+fn test_gen_trait_bridge_clear_fn_calls_configured_host_function() {
+    let trait_def = make_trait_def(
+        "PostProcessor",
+        vec![make_method("process", TypeRef::String, true, false)],
+    );
+    let bridge_cfg = TraitBridgeConfig {
+        exclude_functions: Vec::new(),
+        trait_name: "PostProcessor".to_string(),
+        super_trait: None,
+        registry_getter: Some("my_lib::plugins::registry::get_post_processor_registry".to_string()),
+        register_fn: Some("register_post_processor".to_string()),
+        unregister_fn: None,
+        clear_fn: Some("clear_post_processors".to_string()),
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: Vec::new(),
+        ffi_skip_methods: Vec::new(),
+        bind_via: alef::core::config::BridgeBinding::FunctionParam,
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    };
+    let api = make_api();
+
+    let code = gen_trait_bridge(
+        &trait_def,
+        &bridge_cfg,
+        "ml",
+        "my_lib",
+        "Error",
+        "Error::from({msg})",
+        None,
+        &api,
+    );
+
+    assert!(
+        code.contains("my_lib::plugins::post_processor::clear_post_processors()"),
+        "clear fn must call the configured public host function: {code}"
+    );
+    assert!(
+        !code.contains("registry.clear()"),
+        "clear fn must not bypass host recovery semantics: {code}"
+    );
+}
+
+#[test]
 fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
     let trait_def = make_trait_def(
         "HtmlVisitor",

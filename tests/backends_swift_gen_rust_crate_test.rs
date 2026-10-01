@@ -1467,6 +1467,17 @@ fn trait_bridge_unregister_and_clear_fns_emitted_when_both_configured() {
         "clear_analyzers body must be emitted; got:\n{}",
         lib.content
     );
+    assert!(
+        lib.content
+            .contains("demo::plugins::test::clear_analyzers().map_err(|e| e.to_string())"),
+        "clear_analyzers must call the configured public host function; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("guard.clear()"),
+        "clear_analyzers must not bypass host recovery semantics; got:\n{}",
+        lib.content
+    );
 
     assert!(
         lib.content

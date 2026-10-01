@@ -1332,12 +1332,12 @@ fn lib_rs_emits_clear_forwarder_when_clear_fn_configured() {
         "missing clear forwarder signature: {lib}"
     );
     assert!(
-        lib.contains("registry.clear().map_err(|e| e.to_string())"),
-        "clear forwarder must call registry.clear() and stringify errors: {lib}"
+        lib.contains("demo_crate::plugins::ocr_backend::clear_ocr_backends().map_err(|e| e.to_string())"),
+        "clear forwarder must call the configured public host function: {lib}"
     );
     assert!(
-        lib.contains("demo_crate::plugins::registry::get_ocr_backend_registry()"),
-        "clear forwarder must call the configured registry getter: {lib}"
+        !lib.contains("registry.clear()"),
+        "clear forwarder must not bypass host recovery semantics: {lib}"
     );
 }
 

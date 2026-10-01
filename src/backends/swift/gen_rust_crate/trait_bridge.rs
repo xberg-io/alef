@@ -89,26 +89,23 @@ impl TraitBridgeGenerator for SwiftBridgeGenerator {
     /// Emit a `pub fn {name}() -> Result<(), String>` that clears all registered
     /// plugins of this type. Typically used in test teardown.
     ///
-    /// The function calls into the configured registry directly — consistent with
-    /// how `register_*` and `unregister_*` call the registry.
+    /// The function calls the configured host clear function so host-managed recovery
+    /// semantics are preserved.
     ///
-    /// Returns an empty string when `spec.bridge_config.clear_fn` is `None`
-    /// or when `spec.bridge_config.registry_getter` is not set.
+    /// Returns an empty string when `spec.bridge_config.clear_fn` is `None`.
     fn gen_clear_fn(&self, spec: &TraitBridgeSpec) -> String {
         let Some(clear_fn) = spec.bridge_config.clear_fn.as_deref() else {
             return String::new();
         };
-        let Some(registry_getter) = spec.bridge_config.registry_getter.as_deref() else {
-            return String::new();
-        };
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(spec, clear_fn);
         let trait_name = &spec.trait_def.name;
-        format!(
-            "/// Clear all registered `{trait_name}` plugins.\n\
-             pub fn {clear_fn}() -> Result<(), String> {{\n\
-             \x20\x20\x20\x20let registry = {registry_getter}();\n\
-             \x20\x20\x20\x20let mut guard = registry.write();\n\
-             \x20\x20\x20\x20guard.clear().map_err(|e| e.to_string())\n\
-             }}\n"
+        crate::backends::swift::template_env::render(
+            "trait_clear_forwarder.rs.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+                clear_fn => clear_fn,
+                host_path => host_path,
+            },
         )
     }
 }

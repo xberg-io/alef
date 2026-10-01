@@ -13,9 +13,7 @@ pub unsafe extern "C" fn {{ full_clear_name }}(
     out_error: *mut *mut std::ffi::c_char,
 ) -> i32 {
     catch_ffi_panic(1, || {
-    let registry = {{ registry_getter }}();
-    let mut registry = registry.write();
-    if let Err(e) = registry.clear() {
+    if let Err(e) = {{ host_path }}() {
         // SAFETY: out_error is validated by ffi_set_out_error itself (null-checked internally).
         unsafe { ffi_set_out_error(out_error, &e.to_string()) };
         return 1;

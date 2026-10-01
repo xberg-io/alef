@@ -30,6 +30,7 @@ pub use lookup::{
     native_marshalled_struct_params, native_marshalled_struct_returns, options_field_bridge_site,
     options_field_bridge_sites, type_references_trait,
 };
+pub(crate) use registration::host_function_path_for_config;
 pub use registration::{
     gen_bridge_clear_fn, gen_bridge_registration_fn, gen_bridge_unregistration_fn, host_function_path,
 };

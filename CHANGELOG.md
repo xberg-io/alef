@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated C-ABI, Dart, and Swift trait-bridge clear wrappers call the configured public host
+  function instead of clearing the raw registry, preserving host-managed recovery semantics.
+
 ## [0.103.5] - 2026-10-01
 
 ### Fixed

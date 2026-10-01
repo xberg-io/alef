@@ -1,4 +1,5 @@
 use super::{TraitBridgeGenerator, TraitBridgeSpec};
+use crate::core::config::TraitBridgeConfig;
 
 pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
     if let Some(code) = super::generator::disabled_code(generator) {
@@ -56,7 +57,15 @@ pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGe
 /// wasm). Replaces the duplicated `<lang>_host_function_path` helpers that
 /// each backend used to define.
 pub fn host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
-    if let Some(getter) = spec.bridge_config.registry_getter.as_deref() {
+    host_function_path_for_config(spec.bridge_config, spec.core_import, fn_name)
+}
+
+pub(crate) fn host_function_path_for_config(
+    bridge_config: &TraitBridgeConfig,
+    core_import: &str,
+    fn_name: &str,
+) -> String {
+    if let Some(getter) = bridge_config.registry_getter.as_deref() {
         let last = getter.rsplit("::").next().unwrap_or("");
         if let Some(sub) = last.strip_prefix("get_").and_then(|s| s.strip_suffix("_registry")) {
             let prefix_end = getter.len() - last.len();
@@ -65,5 +74,5 @@ pub fn host_function_path(spec: &TraitBridgeSpec, fn_name: &str) -> String {
             return format!("{prefix}{sub}::{fn_name}");
         }
     }
-    format!("{}::plugins::{}", spec.core_import, fn_name)
+    format!("{core_import}::plugins::{fn_name}")
 }
