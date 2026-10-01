@@ -56,6 +56,7 @@ fn gen_file_unheadered(rel: &str, content: &str) -> crate::core::backend::Genera
 /// fast_path_when_poly_is_unavailable`. ~keep
 #[test]
 fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
+    let _poly = crate::test_support::tool_available_with_stable_path("poly");
     let dir = tempfile::tempdir().expect("tempdir");
     let old_file = gen_file("lib.rs", "pub fn greet() -> &'static str { \"old\" }\n");
     let old_rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&old_file), dir.path());
@@ -81,6 +82,7 @@ fn drifted_marked_paths_reports_a_marked_file_whose_body_no_longer_matches() {
 /// nothing for a formatter difference to disagree about. ~keep
 #[test]
 fn drifted_marked_paths_is_silent_once_the_marked_file_matches_the_fresh_render() {
+    let _poly = crate::test_support::tool_available_with_stable_path("poly");
     let dir = tempfile::tempdir().expect("tempdir");
     let file = gen_file("lib.rs", "pub fn greet() -> &'static str { \"new\" }\n");
     let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path());
