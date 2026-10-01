@@ -1,7 +1,6 @@
 use crate::backends::ffi::type_map::is_void_return;
 use crate::core::ir::{ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use heck::ToUpperCamelCase;
 use minijinja::context;
 
 use super::super::helpers::ffi_null_return_value;
@@ -49,76 +48,6 @@ pub(super) struct ParamConversionContext<'a> {
     pub(super) core_import: &'a str,
     pub(super) path_map: &'a AHashMap<String, String>,
     pub(super) enum_names: &'a AHashSet<String>,
-    pub(super) json_limit: Option<(&'a str, u32)>,
-}
-
-fn bounded_vec_deserialization(
-    name: &str,
-    rs_name: &str,
-    rust_type: &str,
-    max_parameter: &str,
-    default_max: u32,
-    fail_ret: &str,
-) -> String {
-    let visitor = format!("__AlefBounded{}Visitor", name.to_upper_camel_case());
-    format!(
-        r#"if {name}.is_null() {{
-        set_last_error(1, "Null pointer passed for parameter '{name}'");
-        {fail_ret}
-    }}
-    // SAFETY: null check above guarantees the pointer is valid for this call frame.
-    let {rs_name}_str = match unsafe {{ CStr::from_ptr({name}) }}.to_str() {{
-        Ok(value) => value,
-        Err(_) => {{
-            set_last_error(1, "Invalid UTF-8 in parameter '{name}'");
-            {fail_ret}
-        }}
-    }};
-    let __alef_{name}_max = if {max_parameter} == u32::MAX {{
-        {default_max}usize
-    }} else {{
-        usize::try_from({max_parameter}).unwrap_or(usize::MAX)
-    }};
-    struct {visitor} {{ max: usize }}
-    impl<'de> serde::de::Visitor<'de> for {visitor} {{
-        type Value = {rust_type};
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{
-            write!(formatter, "an array with at most {{}} items", self.max)
-        }}
-        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
-        where A: serde::de::SeqAccess<'de> {{
-            let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0).min(self.max));
-            while let Some(value) = sequence.next_element()? {{
-                if values.len() >= self.max {{
-                    return Err(serde::de::Error::custom(format!(
-                        "parameter '{name}' exceeds configured maximum of {{}} items", self.max
-                    )));
-                }}
-                values.push(value);
-            }}
-            Ok(values)
-        }}
-    }}
-    impl<'de> serde::de::DeserializeSeed<'de> for {visitor} {{
-        type Value = {rust_type};
-        fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-        where D: serde::Deserializer<'de> {{
-            deserializer.deserialize_seq(self)
-        }}
-    }}
-    let mut __alef_{name}_deserializer = serde_json::Deserializer::from_str({rs_name}_str);
-    let {rs_name} = match serde::de::DeserializeSeed::deserialize(
-        {visitor} {{ max: __alef_{name}_max }},
-        &mut __alef_{name}_deserializer,
-    ).and_then(|value| {{ __alef_{name}_deserializer.end()?; Ok(value) }}) {{
-        Ok(value) => value,
-        Err(error) => {{
-            set_last_error(2, &error.to_string());
-            {fail_ret}
-        }}
-    }};
-"#
-    )
 }
 
 pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &ParamConversionContext<'_>) -> String {
@@ -130,7 +59,6 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
         core_import,
         path_map,
         enum_names,
-        json_limit,
     } = conversion;
     let name = &param.name;
     let rs_name = format!("{name}_rs");
@@ -286,17 +214,6 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
                     _ => String::new(),
                 };
                 out.push(' ');
-                if let (TypeRef::Vec(_), Some((max_parameter, default_max))) = (&param.ty, json_limit) {
-                    out.push_str(&bounded_vec_deserialization(
-                        name,
-                        &rs_name,
-                        &type_ref_to_rust_type(&param.ty, core_import),
-                        max_parameter,
-                        *default_max,
-                        fail_ret,
-                    ));
-                    return out;
-                }
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_optional_vec_map_conversion.jinja",
                     context! {
@@ -438,17 +355,6 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
                     }
                     _ => String::new(),
                 };
-                if let (TypeRef::Vec(_), Some((max_parameter, default_max))) = (&param.ty, json_limit) {
-                    out.push_str(&bounded_vec_deserialization(
-                        name,
-                        &rs_name,
-                        &type_ref_to_rust_type(&param.ty, core_import),
-                        max_parameter,
-                        *default_max,
-                        fail_ret,
-                    ));
-                    return out;
-                }
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "param_non_optional_json_conversion.jinja",
                     context! {

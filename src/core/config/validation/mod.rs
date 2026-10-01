@@ -67,18 +67,25 @@ fn validate_dart_library_name(config: &ResolvedCrateConfig) -> Result<(), AlefEr
 /// backends otherwise omit the registration function. Fail those mixed or non-Ruby configs
 /// before generation while permitting a Ruby-only bridge to delegate lifecycle and locking.
 fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    // ~keep ext-php-rs deliberately leaves Zval !Send + !Sync because Zend refcounts are
+    // non-atomic. Every generated trait bridge retains a request-bound Zend object while the
+    // Rust trait may move, call, or drop it on another thread or after request shutdown.
+    if config.targets(Language::Php)
+        && let Some(bridge) = config.trait_bridges_for(Language::Php).next()
+    {
+        return Err(AlefError::Config(bridge.php_safety_error()));
+    }
     for bridge in config.all_trait_bridges() {
-        // ~keep ext-php-rs deliberately leaves Zval !Send + !Sync because Zend refcounts are
-        // non-atomic. Every generated trait bridge retains a request-bound Zend object while the
-        // Rust trait may move, call, or drop it on another thread or after request shutdown.
-        if config.targets(Language::Php) && bridge.is_active_for("php") {
-            return Err(AlefError::Config(bridge.php_safety_error()));
-        }
         if bridge.register_fn.is_some() && bridge.registry_getter.is_none() {
             let unsupported_languages = config
                 .languages
                 .iter()
-                .filter(|language| **language != Language::Ruby && bridge.is_active_for(&language.to_string()))
+                .filter(|language| **language != Language::Ruby)
+                .filter(|language| {
+                    config
+                        .trait_bridges_for(**language)
+                        .any(|active_bridge| std::ptr::eq(active_bridge, bridge))
+                })
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
             if !unsupported_languages.is_empty() {
@@ -667,6 +674,27 @@ register_fn = "register_sample_plugin"
             error.to_string().contains("active language(s): python"),
             "error must identify the unsupported active language: {error}"
         );
+    }
+
+    #[test]
+    fn direct_host_validation_honors_backend_alias_exclusions() {
+        let config = resolve_first(
+            r#"
+[workspace]
+languages = ["ruby", "python"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "SamplePlugin"
+register_fn = "register_sample_plugin"
+exclude_languages = ["pyo3"]
+"#,
+        );
+
+        validate_resolved(&config).expect("the pyo3 alias excludes Python, leaving only direct-host-capable Ruby");
     }
 
     fn php_bridge_config(bridge: &str) -> ResolvedCrateConfig {

@@ -29,16 +29,6 @@ use super::publish::PublishConfig;
 use super::service::{HandlerContractConfig, ServiceConfig};
 use super::trait_bridge::TraitBridgeConfig;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct JsonParameterLimitConfig {
-    pub operation: String,
-    pub parameter: String,
-    pub max_parameter: String,
-    #[schemars(range(min = 1))]
-    pub default_max: u32,
-}
-
 /// One `[[crates]]` entry — an independently published Rust facade plus its
 /// per-crate language settings, pipelines, and packaging metadata.
 ///
@@ -211,13 +201,6 @@ pub struct RawCrateConfig {
     pub services: Vec<ServiceConfig>,
     #[serde(default)]
     pub handler_contracts: Vec<HandlerContractConfig>,
-    // This metadata is consumed by multiple bindings, so keep it on the crate rather than in a
-    // backend-specific config. ~keep
-    #[serde(default)]
-    #[schemars(
-        description = "Raw-JSON collection parameters whose generated bridge deserializers enforce a sibling numeric limit while streaming the JSON sequence."
-    )]
-    pub json_parameter_limits: Vec<JsonParameterLimitConfig>,
     #[serde(default)]
     pub scaffold: Option<ScaffoldConfig>,
     #[serde(default)]
@@ -424,6 +407,27 @@ check = "ruff check crates/sample_router-py/"
         assert!(
             err.to_string().contains("lint"),
             "error should name the removed `lint` field: {err}"
+        );
+    }
+
+    // ~keep The bounded raw-JSON setting cannot live on this exhaustive public struct without a
+    // patch-release source break. Reject it visibly until it has a compatible configuration home.
+    #[test]
+    fn raw_crate_config_rejects_deferred_json_parameter_limits() {
+        let toml_str = r#"
+name = "sample_router"
+sources = []
+json_parameter_limits = [
+  { operation = "redact", parameter = "findings", max_parameter = "max_findings", default_max = 10000 },
+]
+"#;
+
+        let error = toml::from_str::<RawCrateConfig>(toml_str)
+            .expect_err("the deferred configuration must not be silently ignored");
+
+        assert!(
+            error.to_string().contains("json_parameter_limits"),
+            "error should identify the unsupported field: {error}"
         );
     }
 }

@@ -108,41 +108,6 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     }
     builder.add_import("rustler::ResourceArc");
     builder.add_import("rustler::Encoder");
-    if !config.json_parameter_limits.is_empty() {
-        builder.add_item(r#"fn __alef_deserialize_bounded_vec<T>(json: &str, max: usize) -> Result<Vec<T>, serde_json::Error>
-where
-    T: serde::de::DeserializeOwned,
-{
-    struct Seed<T> { max: usize, marker: std::marker::PhantomData<T> }
-    impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Seed<T> {
-        type Value = Vec<T>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(formatter, "an array with at most {} items", self.max)
-        }
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
-            let mut values = Vec::with_capacity(sequence.size_hint().unwrap_or(0).min(self.max));
-            while let Some(value) = sequence.next_element()? {
-                if values.len() >= self.max {
-                    return Err(serde::de::Error::custom(format!("array exceeds configured maximum of {} items", self.max)));
-                }
-                values.push(value);
-            }
-            Ok(values)
-        }
-    }
-    impl<'de, T: serde::Deserialize<'de>> serde::de::DeserializeSeed<'de> for Seed<T> {
-        type Value = Vec<T>;
-        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-            deserializer.deserialize_seq(self)
-        }
-    }
-    let mut deserializer = serde_json::Deserializer::from_str(json);
-    let value = serde::de::DeserializeSeed::deserialize(Seed { max, marker: std::marker::PhantomData }, &mut deserializer)?;
-    deserializer.end()?;
-    Ok(value)
-}"#);
-    }
-
     for trait_path in generators::collect_trait_imports(api) {
         builder.add_import(&trait_path);
     }
@@ -363,7 +328,6 @@ where
                 &default_types,
                 &core_import,
                 &types_by_name,
-                &config.json_parameter_limits,
             );
             let item = prepend_cfg(func.cfg.as_deref(), item);
             builder.add_item(&item);
@@ -376,7 +340,6 @@ where
                 &core_import,
                 &cpu_bound_functions,
                 &types_by_name,
-                &config.json_parameter_limits,
             );
             let item = prepend_cfg(func.cfg.as_deref(), item);
             builder.add_item(&item);
@@ -656,61 +619,4 @@ where
         content,
         generated_header: false,
     }])
-}
-
-#[cfg(test)]
-mod bounded_json_tests {
-    use serde::de::{DeserializeSeed as _, Visitor};
-
-    fn deserialize_bounded_vec<T>(json: &str, max: usize) -> Result<Vec<T>, serde_json::Error>
-    where
-        T: serde::de::DeserializeOwned,
-    {
-        struct Seed<T> {
-            max: usize,
-            marker: std::marker::PhantomData<T>,
-        }
-        impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for Seed<T> {
-            type Value = Vec<T>;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(formatter, "a bounded array")
-            }
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
-                let mut values = Vec::new();
-                while let Some(value) = sequence.next_element()? {
-                    if values.len() >= self.max {
-                        return Err(serde::de::Error::custom("configured maximum exceeded"));
-                    }
-                    values.push(value);
-                }
-                Ok(values)
-            }
-        }
-        impl<'de, T: serde::Deserialize<'de>> serde::de::DeserializeSeed<'de> for Seed<T> {
-            type Value = Vec<T>;
-            fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-                deserializer.deserialize_seq(self)
-            }
-        }
-        let mut deserializer = serde_json::Deserializer::from_str(json);
-        let value = Seed {
-            max,
-            marker: std::marker::PhantomData,
-        }
-        .deserialize(&mut deserializer)?;
-        deserializer.end()?;
-        Ok(value)
-    }
-
-    #[test]
-    fn bounded_rustler_helper_returns_limit_before_parsing_malformed_tail() {
-        let error = deserialize_bounded_vec::<u32>("[1, 2, malformed]", 1)
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("configured maximum exceeded"), "{error}");
-        assert!(
-            !error.contains("expected value"),
-            "malformed tail was parsed first: {error}"
-        );
-    }
 }

@@ -70,7 +70,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_streaming_method_wrapper(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     typ: &TypeDef,
     method: &MethodDef,
@@ -79,7 +78,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
     serde_names: &AHashSet<String>,
-    json_parameter_limits: &[crate::core::config::JsonParameterLimitConfig],
 ) -> String {
     let returns_ref = method.returns_ref && !is_owned_default_constructor(method, typ);
     let type_name = &typ.name;
@@ -364,10 +362,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     core_import,
                     path_map,
                     enum_names,
-                    json_limit: json_parameter_limits
-                        .iter()
-                        .find(|limit| limit.operation == method.name && limit.parameter == p.name)
-                        .map(|limit| (limit.max_parameter.as_str(), limit.default_max)),
                 }),
             },
         ));
@@ -698,7 +692,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     serde_names: &AHashSet<String>,
     capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
     returns_serialized_handle: bool,
-    json_parameter_limits: &[crate::core::config::JsonParameterLimitConfig],
 ) -> String {
     let ffi_name = c_consumer::free_function_symbol(prefix, &func.name);
     let core_fn_path = {
@@ -894,10 +887,6 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     core_import,
                     path_map,
                     enum_names,
-                    json_limit: json_parameter_limits
-                        .iter()
-                        .find(|limit| limit.operation == func.name && limit.parameter == p.name)
-                        .map(|limit| (limit.max_parameter.as_str(), limit.default_max)),
                 }),
             },
         ));

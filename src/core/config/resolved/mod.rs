@@ -47,22 +47,11 @@ use crate::core::config::output::{
 use crate::core::config::package_metadata::PackageMetadataConfig;
 use crate::core::config::poly::PolyConfig;
 use crate::core::config::publish::PublishConfig;
-use crate::core::config::raw_crate::JsonParameterLimitConfig;
 use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
 use crate::core::config::tools::ToolsConfig;
 use crate::core::config::trait_bridge::TraitBridgeConfig;
 use crate::core::config::verify::VerifyConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ResolvedTraitBridges(Vec<TraitBridgeConfig>);
-
-impl From<Vec<TraitBridgeConfig>> for ResolvedTraitBridges {
-    fn from(value: Vec<TraitBridgeConfig>) -> Self {
-        Self(value)
-    }
-}
 
 /// Fully-resolved configuration for one crate.
 ///
@@ -174,20 +163,9 @@ pub struct ResolvedCrateConfig {
     pub publish: Option<PublishConfig>,
     pub e2e: Option<E2eConfig>,
     pub adapters: Vec<AdapterConfig>,
-    #[cfg(not(test))]
-    #[serde(rename = "trait_bridges")]
-    pub trait_bridges_unfiltered: ResolvedTraitBridges,
-    #[cfg(test)]
-    #[serde(rename = "trait_bridges")]
-    pub trait_bridges_unfiltered: Vec<TraitBridgeConfig>,
-    // ~keep Unit tests historically construct resolved configs directly; this cfg-only mirror
-    // preserves that fixture API without reopening raw bridge access in production emitters.
-    #[cfg(test)]
-    #[serde(skip)]
     pub trait_bridges: Vec<TraitBridgeConfig>,
     pub services: Vec<ServiceConfig>,
     pub handler_contracts: Vec<HandlerContractConfig>,
-    pub json_parameter_limits: Vec<JsonParameterLimitConfig>,
     pub scaffold: Option<ScaffoldConfig>,
     pub package_metadata: Option<PackageMetadataConfig>,
     pub readme: Option<ReadmeConfig>,
@@ -243,18 +221,7 @@ pub struct ResolvedCrateConfig {
 
 impl ResolvedCrateConfig {
     pub(in crate::core::config) fn all_trait_bridges(&self) -> &[TraitBridgeConfig] {
-        #[cfg(test)]
-        if !self.trait_bridges.is_empty() {
-            return &self.trait_bridges;
-        }
-        #[cfg(not(test))]
-        {
-            &self.trait_bridges_unfiltered.0
-        }
-        #[cfg(test)]
-        {
-            &self.trait_bridges_unfiltered
-        }
+        &self.trait_bridges
     }
 
     // ~keep Applicability belongs on the resolved config so backend emitters cannot drift on
@@ -305,18 +272,7 @@ impl ResolvedCrateConfig {
     }
 
     pub fn replace_trait_bridges(&mut self, bridges: Vec<TraitBridgeConfig>) {
-        #[cfg(not(test))]
-        {
-            self.trait_bridges_unfiltered = bridges.clone().into();
-        }
-        #[cfg(test)]
-        {
-            self.trait_bridges_unfiltered = bridges.clone();
-        }
-        #[cfg(test)]
-        {
-            self.trait_bridges = bridges;
-        }
+        self.trait_bridges = bridges;
     }
 
     pub fn push_trait_bridge(&mut self, bridge: TraitBridgeConfig) {
@@ -416,7 +372,7 @@ mod trait_bridge_applicability_tests {
     #[test]
     fn trait_bridges_for_filters_language_and_backend_spellings() {
         let config = ResolvedCrateConfig {
-            trait_bridges_unfiltered: vec![
+            trait_bridges: vec![
                 bridge("Active", &[]),
                 bridge("ByLanguage", &["python"]),
                 bridge("ByBackend", &["pyo3"]),

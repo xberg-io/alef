@@ -237,7 +237,6 @@ fn render_presence_param_conversions(
                     core_import,
                     path_map,
                     enum_names,
-                    json_limit: None,
                 }),
             },
         ));
