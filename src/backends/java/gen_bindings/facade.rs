@@ -1,7 +1,7 @@
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_java_name;
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::{ApiSurface, PrimitiveType, TypeRef};
+use crate::core::ir::{ApiSurface, TypeRef};
 use std::collections::HashSet;
 
 use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java, render_nullable_type};
@@ -114,24 +114,7 @@ pub(crate) fn gen_facade_class(
                     .filter(|p| !is_bridge_param_java(p, bridge_param_names, bridge_type_aliases))
                     .map(|p| {
                         if p.optional {
-                            match &p.ty {
-                                TypeRef::Primitive(prim) => match prim {
-                                    PrimitiveType::I8
-                                    | PrimitiveType::I16
-                                    | PrimitiveType::I32
-                                    | PrimitiveType::U8
-                                    | PrimitiveType::U16
-                                    | PrimitiveType::U32 => "0".to_string(),
-                                    PrimitiveType::I64
-                                    | PrimitiveType::Isize
-                                    | PrimitiveType::U64
-                                    | PrimitiveType::Usize => "0L".to_string(),
-                                    PrimitiveType::F32 => "0.0f".to_string(),
-                                    PrimitiveType::F64 => "0.0".to_string(),
-                                    PrimitiveType::Bool => "false".to_string(),
-                                },
-                                _ => "null".to_string(),
-                            }
+                            "null".to_string()
                         } else {
                             to_java_name(&p.name)
                         }

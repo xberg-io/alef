@@ -3018,36 +3018,19 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
                     ParamDef {
                         name: "path".to_string(),
                         ty: TypeRef::Path,
-                        optional: false,
-                        default: None,
-                        sanitized: false,
-                        typed_default: None,
-                        is_ref: false,
-                        is_mut: false,
-                        newtype_wrapper: None,
-                        original_type: None,
-                        map_is_ahash: false,
-                        map_key_is_cow: false,
-                        vec_inner_is_ref: false,
-                        map_is_btree: false,
-                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        ..Default::default()
                     },
                     ParamDef {
                         name: "mime_type".to_string(),
                         ty: TypeRef::String,
                         optional: true,
-                        default: None,
-                        sanitized: false,
-                        typed_default: None,
-                        is_ref: false,
-                        is_mut: false,
-                        newtype_wrapper: None,
-                        original_type: None,
-                        map_is_ahash: false,
-                        map_key_is_cow: false,
-                        vec_inner_is_ref: false,
-                        map_is_btree: false,
-                        core_wrapper: alef::core::ir::CoreWrapper::None,
+                        ..Default::default()
+                    },
+                    ParamDef {
+                        name: "max_pages".to_string(),
+                        ty: TypeRef::Primitive(PrimitiveType::U32),
+                        optional: true,
+                        ..Default::default()
                     },
                 ],
                 return_type: TypeRef::String,
@@ -3115,34 +3098,48 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
 
     let files = result.unwrap();
 
-    let facade = files
+    let raw = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("TestLibRs.java"))
-        .expect("TestLibRs.java facade should be generated");
-
-    let content = &facade.content;
+        .find(|f| f.path.to_string_lossy().ends_with("TestLibRs.java"))
+        .expect("TestLibRs.java should be generated");
+    let content = &raw.content;
+    let facade_files = backend
+        .generate_public_api(&api, &config)
+        .expect("public api generation");
+    let facade = facade_files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("TestLib.java"))
+        .expect("TestLib.java facade should be generated");
 
     assert!(
+        facade.content.contains("final @Nullable Integer maxPages")
+            && facade
+                .content
+                .contains("return TestLibRs.extractFile(path, mimeType, maxPages);"),
+        "full overload must delegate an explicit optional u32 value, including zero. Got:\n{}",
+        facade.content
+    );
+    assert!(
+        facade
+            .content
+            .contains("return TestLibRs.extractFile(path, null, null);"),
+        "short overload must preserve absent optional arguments. Got:\n{}",
+        facade.content
+    );
+    assert!(
         content.contains("@Nullable String mimeType"),
-        "Optional String parameter should be @Nullable. Got:\n{}",
-        content
+        "Optional String parameter should be @Nullable. Got:\n{content}"
     );
 
     assert!(
         content.contains("final java.nio.file.Path path"),
-        "Non-optional Path parameter should not be annotated. Got:\n{}",
-        content
+        "Non-optional Path parameter should not be annotated. Got:\n{content}"
     );
-    assert!(
-        !content.contains("@Nullable java.nio.file.Path path"),
-        "Non-optional Path should not have @Nullable. Got:\n{}",
-        content
-    );
+    assert!(!content.contains("@Nullable java.nio.file.Path path"));
 
     assert!(
         content.contains("public static Optional<User> findUser(final long id)"),
-        "Optional return type should be Optional<T>. Got:\n{}",
-        content
+        "Optional return type should be Optional<T>. Got:\n{content}"
     );
 
     let client = files
@@ -3154,17 +3151,9 @@ fn test_option_params_and_returns_emit_nullable_annotations() {
         "Optional method return type should be Optional<T>. Got:\n{}",
         client.content
     );
-    assert!(
-        client.content.contains("import java.util.Optional;"),
-        "Optional opaque method return should import Optional. Got:\n{}",
-        client.content
-    );
+    assert!(client.content.contains("import java.util.Optional;"));
 
-    assert!(
-        content.contains("import org.jspecify.annotations.Nullable;"),
-        "Should import @Nullable annotation. Got:\n{}",
-        content
-    );
+    assert!(content.contains("import org.jspecify.annotations.Nullable;"));
 }
 
 /// Regression: streaming method template uses fully-qualified `java.util.stream.Stream<T>` and

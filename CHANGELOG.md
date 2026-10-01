@@ -7,14 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Re-finalize generated ownership hashes after formatting cache-hit E2E and test-app outputs, so repeated generation is byte-identical instead of alternating between stamped and unstamped trees.
-
 ## [0.103.6] - 2026-10-01
 
 ### Fixed
 
+- Generated Java convenience overloads preserve absent optional primitive arguments instead of
+  replacing them with zero or false.
+- Re-finalize generated ownership hashes after formatting cache-hit E2E and test-app outputs, so repeated generation is byte-identical instead of alternating between stamped and unstamped trees.
 - Generated C-ABI, Dart, and Swift trait-bridge clear wrappers call the configured public host
   function instead of clearing the raw registry, preserving host-managed recovery semantics.
 - Generated WASM bindings omit auxiliary input DTOs when the selected function path consumes a
