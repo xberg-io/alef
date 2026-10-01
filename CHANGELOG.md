@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.6] - 2026-10-01
+
 ### Fixed
 
 - Generated C-ABI, Dart, and Swift trait-bridge clear wrappers call the configured public host
