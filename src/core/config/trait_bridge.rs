@@ -69,13 +69,13 @@ pub struct TraitBridgeConfig {
     /// functions, the options setter, the registration surface — are omitted from that
     /// target's output.
     ///
-    /// Append `:callbacks` to retain the target's public interface/class and configured
-    /// register, unregister, and clear symbols while disabling host callback execution. In this
-    /// mode registration returns a deterministic unsupported error, while unregister and clear
-    /// continue to call the Rust host. For example, `"php:callbacks"` preserves an existing PHP
-    /// plugin API without retaining request-bound Zend values behind `Send + Sync` Rust trait
-    /// objects. The suffix uses this existing string list so adding the mode does not break Rust
-    /// callers that construct `TraitBridgeConfig` exhaustively.
+    /// For PHP, use `"php:callbacks"` to retain the public interface/class and configured
+    /// register, unregister, and clear symbols while disabling host callback execution.
+    /// Registration then returns a deterministic unsupported error, while unregister and clear
+    /// continue to call the Rust host. This preserves an existing PHP plugin API without
+    /// retaining request-bound Zend values behind `Send + Sync` Rust trait objects. No other
+    /// language supports this suffix. It uses this existing string list so adding the mode does
+    /// not break Rust callers that construct `TraitBridgeConfig` exhaustively.
     ///
     /// An entry whose language/backend portion names neither a language nor a backend is rejected
     /// at config resolution rather than silently excluding nothing.
@@ -169,7 +169,9 @@ const UNSUPPORTED_CALLBACK_SUFFIX: &str = ":callbacks";
 /// generated crate that does not compile — so it is rejected at config-resolution time
 /// instead (alef #476).
 pub fn is_known_bridge_language(name: &str) -> bool {
-    let name = name.strip_suffix(UNSUPPORTED_CALLBACK_SUFFIX).unwrap_or(name);
+    if let Some(language) = name.strip_suffix(UNSUPPORTED_CALLBACK_SUFFIX) {
+        return language == "php";
+    }
     crate::core::config::Language::ALL
         .iter()
         .any(|language| language.to_string() == name)
@@ -187,11 +189,10 @@ impl TraitBridgeConfig {
         !self.exclude_languages.iter().any(|excluded| excluded == language)
     }
 
-    /// Whether `language` keeps the bridge's public lifecycle surface but rejects callback
-    /// registration without retaining the host object.
-    pub fn callbacks_unsupported_for(&self, language: &str) -> bool {
-        let marker = format!("{language}{UNSUPPORTED_CALLBACK_SUFFIX}");
-        self.exclude_languages.iter().any(|entry| entry == &marker)
+    /// Whether PHP keeps the bridge's public lifecycle surface but rejects callback registration
+    /// without retaining the Zend object.
+    pub fn php_callbacks_unsupported(&self) -> bool {
+        self.exclude_languages.iter().any(|entry| entry == "php:callbacks")
     }
 
     pub(crate) fn php_safety_error(&self) -> String {
@@ -422,8 +423,8 @@ exclude_languages = ["php:callbacks"]
         .unwrap();
 
         assert!(cfg.is_active_for("php"));
-        assert!(cfg.callbacks_unsupported_for("php"));
-        assert!(!cfg.callbacks_unsupported_for("python"));
+        assert!(cfg.php_callbacks_unsupported());
         assert!(is_known_bridge_language("php:callbacks"));
+        assert!(!is_known_bridge_language("python:callbacks"));
     }
 }

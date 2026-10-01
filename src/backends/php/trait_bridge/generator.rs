@@ -357,7 +357,7 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     _api: &ApiSurface,
 ) -> BridgeOutput {
-    if bridge_cfg.callbacks_unsupported_for("php") {
+    if bridge_cfg.php_callbacks_unsupported() {
         return gen_unsupported_lifecycle(trait_type, bridge_cfg, core_import, error_type, error_constructor);
     }
     BridgeOutput {

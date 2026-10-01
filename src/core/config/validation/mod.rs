@@ -73,7 +73,7 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
     if config.targets(Language::Php)
         && let Some(bridge) = config
             .trait_bridges_for(Language::Php)
-            .find(|bridge| !bridge.callbacks_unsupported_for("php"))
+            .find(|bridge| !bridge.php_callbacks_unsupported())
     {
         return Err(AlefError::Config(bridge.php_safety_error()));
     }
@@ -85,7 +85,8 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
                 .filter(|language| **language != Language::Ruby)
                 .filter(|language| {
                     config.trait_bridges_for(**language).any(|active_bridge| {
-                        std::ptr::eq(active_bridge, bridge) && !bridge.callbacks_unsupported_for(&language.to_string())
+                        std::ptr::eq(active_bridge, bridge)
+                            && !(**language == Language::Php && bridge.php_callbacks_unsupported())
                     })
                 })
                 .map(ToString::to_string)

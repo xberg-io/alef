@@ -32,7 +32,7 @@ pub fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &Tra
 }
 
 pub(crate) fn reject_unsafe_bridges(config: &ResolvedCrateConfig) -> anyhow::Result<()> {
-    if let Some(bridge) = active_bridges(config).find(|bridge| !bridge.callbacks_unsupported_for("php")) {
+    if let Some(bridge) = active_bridges(config).find(|bridge| !bridge.php_callbacks_unsupported()) {
         anyhow::bail!(bridge.php_safety_error());
     }
     Ok(())

@@ -140,7 +140,7 @@ extension_name = "test_lib"
 [[crates.trait_bridges]]
 trait_name = "OcrBackend"
 super_trait = "Plugin"
-registry_getter = "my_lib::get_registry"
+registry_getter = "my_lib::registry::get_ocr_backend_registry"
 register_fn = "register_ocr_backend"
 unregister_fn = "unregister_ocr_backend"
 clear_fn = "clear_ocr_backends"
@@ -180,17 +180,16 @@ exclude_languages = ["php:callbacks"]
         "the existing PHP callback interface must remain generated: {bindings:#?}"
     );
     assert!(
-        bindings_text.contains("pub fn register_ocr_backend("),
-        "the native register symbol must remain present: {bindings_text}"
-    );
-    assert!(
-        bindings_text.contains("PHP callback bridge `OcrBackend` is unsupported"),
-        "register must return a deterministic unsupported error: {bindings_text}"
+        bindings_text.contains("pub fn register_ocr_backend(")
+            && bindings_text.contains("PHP callback bridge `OcrBackend` is unsupported"),
+        "the native register symbol must return a deterministic unsupported error: {bindings_text}"
     );
     assert!(
         bindings_text.contains("pub fn unregister_ocr_backend(name: String)")
-            && bindings_text.contains("pub fn clear_ocr_backends()"),
-        "safe teardown symbols must remain functional: {bindings_text}"
+            && bindings_text.contains("my_lib::ocr_backend::unregister_ocr_backend(&name).map_err")
+            && bindings_text.contains("pub fn clear_ocr_backends()")
+            && bindings_text.contains("my_lib::ocr_backend::clear_ocr_backends().map_err"),
+        "safe teardown symbols must call their Rust host functions: {bindings_text}"
     );
     assert!(
         public_text.contains("function registerOcrBackend(")
