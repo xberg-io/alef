@@ -260,7 +260,7 @@ fn representable_field_init(
         return format!("{}: {php_param_name}_core", field.name);
     }
     if is_named_struct_by_ref(&field.ty, enum_names, opaque_types) {
-        if field.optional {
+        if parameter_is_optional {
             // `.cloned()`, not `.map(|v| v.clone())` — same value on `Option<&T>`, but the
             // longer form trips `clippy::map_clone` in the CONSUMER crate this lands in, not in
             // alef. ~keep

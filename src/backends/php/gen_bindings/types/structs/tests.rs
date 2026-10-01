@@ -689,6 +689,43 @@ mod constructor_param_order_tests {
         );
         assert!(new_fn.contains("altText.unwrap_or_else"), "{new_fn}");
     }
+
+    #[test]
+    fn trailing_defaulted_named_type_clones_the_optional_reference_value() {
+        let mut sizing = field("sizing", TypeRef::Named("ChunkSizing".to_string()), false);
+        sizing.default = Some("/* serde(default) */".to_string());
+        sizing.typed_default = Some(crate::core::ir::DefaultValue::EnumVariant("Characters".to_string()));
+        let typ = TypeDef {
+            name: "ChunkingConfig".to_string(),
+            rust_path: "test_lib::ChunkingConfig".to_string(),
+            fields: vec![field("chunker_type", TypeRef::String, false), sizing],
+            ..Default::default()
+        };
+
+        let out = gen_struct_methods_with_exclude(
+            &typ,
+            &mapper(),
+            true,
+            "test_lib",
+            &AHashSet::new(),
+            &AHashSet::new(),
+            &[],
+            &[],
+            &AHashSet::new(),
+            &[],
+            &AHashSet::new(),
+            &[],
+        )
+        .expect("struct methods generate");
+        let new_fn = out
+            .split("#[php(constructor)]")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no #[php(constructor)] fn emitted:\n{out}"));
+        let signature = constructor_signature(new_fn);
+
+        assert!(signature.contains("sizing: Option<&ChunkSizing>"), "{signature}");
+        assert!(new_fn.contains("sizing: sizing.cloned()"), "{new_fn}");
+    }
 }
 
 mod json_constructor_param_tests;
