@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PHP trait bridges can use `exclude_languages = ["php:callbacks"]` to preserve their existing
+  public interface and register/unregister/clear symbols without retaining request-bound Zend
+  callbacks. Registration returns a deterministic unsupported error while unregister and clear
+  continue to call the Rust host.
 - Generated Python packages expose every input type that contains a public config dataclass as a
   public dataclass too, including optional nested config holders, so their constructors accept the
   package's public nested types instead of requiring private native classes.

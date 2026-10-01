@@ -122,8 +122,7 @@ impl Backend for PhpBackend {
         config: &ResolvedCrateConfig,
     ) -> Vec<TraitBridgeRegistrationSurface> {
         if crate::backends::php::trait_bridge::active_bridges(config)
-            .next()
-            .is_some()
+            .any(|bridge| !bridge.callbacks_unsupported_for("php"))
         {
             return Vec::new();
         }

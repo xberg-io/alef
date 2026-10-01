@@ -7349,7 +7349,7 @@
         },
         "exclude_languages": {
           "default": [],
-          "description": "Language backends that should NOT generate this trait bridge.\n\nA target answers to its language name and, where they differ, to its backend's own\nname: `[\"python\"]` and `[\"pyo3\"]` are the same exclusion, as are `node`/`napi`,\n`ruby`/`magnus`, `elixir`/`rustler`, `r`/`extendr` and `c`/`ffi`. When a target is\nlisted here, the bridge struct and everything that references it — the wrapper\nfunctions, the options setter, the registration surface — are omitted from that\ntarget's output. An entry that names neither a language nor a backend is rejected at\nconfig resolution rather than silently excluding nothing.",
+          "description": "Language backends that should NOT generate this trait bridge.\n\nA target answers to its language name and, where they differ, to its backend's own\nname: `[\"python\"]` and `[\"pyo3\"]` are the same exclusion, as are `node`/`napi`,\n`ruby`/`magnus`, `elixir`/`rustler`, `r`/`extendr` and `c`/`ffi`. When a target is\nlisted here, the bridge struct and everything that references it — the wrapper\nfunctions, the options setter, the registration surface — are omitted from that\ntarget's output.\n\nAppend `:callbacks` to retain the target's public interface/class and configured\nregister, unregister, and clear symbols while disabling host callback execution. In this\nmode registration returns a deterministic unsupported error, while unregister and clear\ncontinue to call the Rust host. For example, `\"php:callbacks\"` preserves an existing PHP\nplugin API without retaining request-bound Zend values behind `Send + Sync` Rust trait\nobjects. The suffix uses this existing string list so adding the mode does not break Rust\ncallers that construct `TraitBridgeConfig` exhaustively.\n\nAn entry whose language/backend portion names neither a language nor a backend is rejected\nat config resolution rather than silently excluding nothing.",
           "items": {
             "type": "string"
           },
@@ -8323,7 +8323,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.103.4/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.103.5/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8443,6 +8443,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.103.4",
-  "x-alef-version": "0.103.4"
+  "version": "0.103.5",
+  "x-alef-version": "0.103.5"
 }

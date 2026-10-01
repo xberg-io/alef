@@ -71,7 +71,9 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
     // non-atomic. Every generated trait bridge retains a request-bound Zend object while the
     // Rust trait may move, call, or drop it on another thread or after request shutdown.
     if config.targets(Language::Php)
-        && let Some(bridge) = config.trait_bridges_for(Language::Php).next()
+        && let Some(bridge) = config
+            .trait_bridges_for(Language::Php)
+            .find(|bridge| !bridge.callbacks_unsupported_for("php"))
     {
         return Err(AlefError::Config(bridge.php_safety_error()));
     }
@@ -82,9 +84,9 @@ fn validate_trait_bridges(config: &ResolvedCrateConfig) -> Result<(), AlefError>
                 .iter()
                 .filter(|language| **language != Language::Ruby)
                 .filter(|language| {
-                    config
-                        .trait_bridges_for(**language)
-                        .any(|active_bridge| std::ptr::eq(active_bridge, bridge))
+                    config.trait_bridges_for(**language).any(|active_bridge| {
+                        std::ptr::eq(active_bridge, bridge) && !bridge.callbacks_unsupported_for(&language.to_string())
+                    })
                 })
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
@@ -772,6 +774,20 @@ exclude_languages = ["php"]"#,
         );
 
         validate_resolved(&config).expect("an explicitly PHP-excluded bridge emits no Zend wrapper");
+    }
+
+    #[test]
+    fn php_unsupported_callbacks_preserve_a_safe_lifecycle_only_bridge() {
+        let config = php_bridge_config(
+            r#"super_trait = "Plugin"
+register_fn = "register_sample_plugin"
+unregister_fn = "unregister_sample_plugin"
+clear_fn = "clear_sample_plugins"
+registry_getter = "sample_core::plugins::registry"
+exclude_languages = ["php:callbacks"]"#,
+        );
+
+        validate_resolved(&config).expect("PHP callback execution is explicitly disabled");
     }
 
     #[test]

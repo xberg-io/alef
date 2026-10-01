@@ -124,6 +124,115 @@ fn php_excluded_trait_bridge_emits_no_zend_thread_escape() {
     }
 }
 
+#[test]
+fn php_unsupported_callback_bridge_preserves_public_lifecycle_surface() {
+    let toml = r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.php]
+extension_name = "test_lib"
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+super_trait = "Plugin"
+registry_getter = "my_lib::get_registry"
+register_fn = "register_ocr_backend"
+unregister_fn = "unregister_ocr_backend"
+clear_fn = "clear_ocr_backends"
+exclude_languages = ["php:callbacks"]
+"#;
+    let raw: alef::core::config::new_config::NewAlefConfig =
+        toml::from_str(toml).expect("unsupported callback mode must parse");
+    let config = raw.resolve().expect("unsupported callback mode must resolve").remove(0);
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        types: vec![make_trait_def_php(
+            "OcrBackend",
+            vec![make_method_php("process", TypeRef::String, true, false)],
+        )],
+        ..make_api_php()
+    };
+    let backend = PhpBackend;
+
+    let bindings = backend
+        .generate_bindings(&api, &config)
+        .expect("safe lifecycle-only PHP bindings must generate");
+    let public_api = backend
+        .generate_public_api(&api, &config)
+        .expect("the public PHP facade must generate");
+    let type_stubs = backend
+        .generate_type_stubs(&api, &config)
+        .expect("PHP type stubs must generate");
+
+    let bindings_text = bindings.iter().map(|file| file.content.as_str()).collect::<String>();
+    let public_text = public_api.iter().map(|file| file.content.as_str()).collect::<String>();
+    let stubs_text = type_stubs.iter().map(|file| file.content.as_str()).collect::<String>();
+
+    assert!(
+        bindings
+            .iter()
+            .any(|file| { file.path.ends_with("OcrBackend.php") && file.content.contains("interface OcrBackend") }),
+        "the existing PHP callback interface must remain generated: {bindings:#?}"
+    );
+    assert!(
+        bindings_text.contains("pub fn register_ocr_backend("),
+        "the native register symbol must remain present: {bindings_text}"
+    );
+    assert!(
+        bindings_text.contains("PHP callback bridge `OcrBackend` is unsupported"),
+        "register must return a deterministic unsupported error: {bindings_text}"
+    );
+    assert!(
+        bindings_text.contains("pub fn unregister_ocr_backend(name: String)")
+            && bindings_text.contains("pub fn clear_ocr_backends()"),
+        "safe teardown symbols must remain functional: {bindings_text}"
+    );
+    assert!(
+        public_text.contains("function registerOcrBackend(")
+            && public_text.contains("OcrBackend $backend) : void")
+            && public_text.contains("function unregisterOcrBackend(")
+            && public_text.contains("string $name) : void")
+            && public_text.contains("function clearOcrBackends("),
+        "the public facade must preserve all lifecycle methods: {public_text}"
+    );
+    assert!(
+        stubs_text.contains("static function registerOcrBackend(\\Test\\Lib\\OcrBackend $backend): void")
+            && stubs_text.contains("static function unregisterOcrBackend(string $name): void")
+            && stubs_text.contains("static function clearOcrBackends(): void"),
+        "PHPStan stubs must preserve all lifecycle signatures: {stubs_text}"
+    );
+
+    for forbidden in [
+        "compile_error!",
+        "unsafe impl Send",
+        "unsafe impl Sync",
+        "inner: ext_php_rs::types::Zval",
+        "Arc<dyn my_lib::OcrBackend>",
+    ] {
+        assert!(
+            !bindings_text.contains(forbidden),
+            "lifecycle-only mode must not emit unsafe callback code `{forbidden}`: {bindings_text}"
+        );
+    }
+
+    let surfaces = backend.trait_bridge_registration_surface(&api, &config);
+    assert_eq!(surfaces.len(), 1, "the preserved PHP surface must be documented");
+    assert_eq!(
+        surfaces[0].register_symbol.as_deref(),
+        Some("TestLib::registerOcrBackend")
+    );
+    assert_eq!(
+        surfaces[0].unregister_symbol.as_deref(),
+        Some("TestLib::unregisterOcrBackend")
+    );
+    assert_eq!(surfaces[0].clear_symbol.as_deref(), Some("TestLib::clearOcrBackends"));
+}
+
 /// A non-opaque serde struct DTO (qualifies for native-object marshalling).
 fn make_serde_struct(name: &str) -> TypeDef {
     let mut t = make_node_context_php();

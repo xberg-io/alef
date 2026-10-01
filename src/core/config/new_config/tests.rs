@@ -951,6 +951,30 @@ exclude_languages = ["wasm", "elixir"]
     assert_eq!(resolved[0].trait_bridges[0].exclude_languages, vec!["wasm", "elixir"]);
 }
 
+#[test]
+fn resolve_rejects_unknown_language_in_callback_unsupported_mode() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample_router"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["php-zts:callbacks"]
+"#,
+    )
+    .unwrap();
+    let err = cfg.resolve().unwrap_err();
+    assert!(
+        matches!(&err, ResolveError::InvalidConfig(msg) if msg.contains("php-zts:callbacks") && msg.contains("exclude_languages")),
+        "expected InvalidConfig naming the field and bad language, got: {err:?}"
+    );
+}
+
 /// Every backend answers to its own name as well as its language's, and
 /// `bridge_targets_language` documents exactly that -- but resolution used to reject the
 /// backend spelling, so the documented form was unusable. ~keep
