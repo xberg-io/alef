@@ -228,8 +228,26 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             continue;
         }
         let field_was_optionalized = optionalized && !field.optional;
+        let field_was_bare_default_optionalized = config.optionalize_bare_field_defaults
+            && field.has_bare_serde_enum_default()
+            && !field.optional
+            && !field_was_optionalized
+            && !matches!(field.ty, TypeRef::Optional(_));
         let binding_name_field = config.binding_field_name_owned(&typ.name, &field.name);
         let conversion = field_core_conversion(field, typ, config, field_was_optionalized, references_excluded);
+        let conversion = if field_was_bare_default_optionalized {
+            if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
+                format!(
+                    "{}: val.{binding_name_field}.map(|__v| {}).unwrap_or_default()",
+                    field.name,
+                    expr.replace(&format!("val.{binding_name_field}"), "__v")
+                )
+            } else {
+                conversion
+            }
+        } else {
+            conversion
+        };
         // A cfg-gated field (`field.cfg`) that was NOT stripped from the binding struct (the
         // `strip_cfg_fields_from_binding_struct` branch above) still needs its own gate repeated
         // on every reference to it here -- `val.{binding_name_field}` reads a binding-struct
@@ -497,6 +515,25 @@ fn field_core_conversion(
     }
 }
 
+fn constructor_field_default_expr(
+    field: &FieldDef,
+    binding_field: &str,
+    expr: String,
+    config: &ConversionConfig,
+) -> String {
+    if config.optionalize_bare_field_defaults
+        && field.has_bare_serde_enum_default()
+        && !field.optional
+        && !matches!(field.ty, TypeRef::Optional(_))
+    {
+        return format!(
+            "val.{binding_field}.map(|__v| {}).unwrap_or_default()",
+            expr.replace(&format!("val.{binding_field}"), "__v")
+        );
+    }
+    expr
+}
+
 /// Generate `impl From<BindingType> for CoreType` using a static constructor method.
 ///
 /// Used for types without lifetime params but with private fields (indicated by
@@ -552,7 +589,7 @@ pub fn gen_from_explicit_new_constructor(
             } else {
                 expr
             };
-            args.push(expr);
+            args.push(constructor_field_default_expr(field, &binding_field, expr, config));
         } else {
             match &param.ty {
                 TypeRef::Map(_, _) => args.push("Default::default()".to_string()),
@@ -701,7 +738,7 @@ pub fn gen_from_lifetime_type_constructor(
                 TypeRef::Optional(_) => format!("val.{binding_field}.map(Into::into)"),
                 _ => format!("val.{binding_field}.into()"),
             };
-            args.push(expr);
+            args.push(constructor_field_default_expr(field, &binding_field, expr, config));
         } else {
             match &param.ty {
                 TypeRef::Map(_, _) => {

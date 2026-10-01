@@ -7,7 +7,7 @@ use super::{
 };
 use crate::backends::php::gen_bindings::functions::has_unsupported_static_params;
 use crate::core::ir::{
-    CoreWrapper, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
+    CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef,
 };
 use ahash::AHashSet;
 
@@ -838,6 +838,45 @@ fn duration_field_is_not_widened_when_the_crate_has_no_serde() {
         "an un-widened Duration property stays non-nullable: {joined}"
     );
     assert!(joined.contains("public ?int $rpm;"), "{joined}");
+}
+
+#[test]
+fn bare_serde_default_is_nullable_while_required_sibling_stays_required() {
+    let mut alt_text = field("alt_text", TypeRef::Named("CaptionAltTextMode".to_string()), false);
+    alt_text.default = Some("/* serde(default) */".to_string());
+    alt_text.typed_default = Some(DefaultValue::EnumVariant("Preserve".to_string()));
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        fields: vec![field("llm", TypeRef::String, false), alt_text],
+        ..Default::default()
+    };
+    let enum_names: AHashSet<String> = ["CaptionAltTextMode".to_string()].into_iter().collect();
+    let joined =
+        gen_struct_constructor_stub_params(&typ, &enum_names, &AHashSet::new(), &AHashSet::new(), true).join("\n");
+
+    assert!(joined.contains("string $llm"), "{joined}");
+    assert!(!joined.contains("?string $llm"), "{joined}");
+    assert!(joined.contains("?string $altText = null"), "{joined}");
+}
+
+#[test]
+fn bare_serde_default_stays_required_when_binding_crate_has_no_serde() {
+    let mut alt_text = field("alt_text", TypeRef::Named("CaptionAltTextMode".to_string()), false);
+    alt_text.default = Some("/* serde(default) */".to_string());
+    alt_text.typed_default = Some(DefaultValue::EnumVariant("Preserve".to_string()));
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        fields: vec![field("llm", TypeRef::String, false), alt_text],
+        ..Default::default()
+    };
+    let enum_names: AHashSet<String> = ["CaptionAltTextMode".to_string()].into_iter().collect();
+    let joined =
+        gen_struct_constructor_stub_params(&typ, &enum_names, &AHashSet::new(), &AHashSet::new(), false).join("\n");
+
+    assert!(joined.contains("string $llm"), "{joined}");
+    assert!(joined.contains("string $altText"), "{joined}");
+    assert!(!joined.contains("?string $altText"), "{joined}");
+    assert!(!joined.contains("$altText = null"), "{joined}");
 }
 
 fn param(name: &str, ty: TypeRef) -> ParamDef {

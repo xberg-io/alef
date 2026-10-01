@@ -319,3 +319,83 @@ fn config_constructor_parts_bare_zero_arg_default_drops_redundant_closure() {
         "clippy::redundant_closure: a bare zero-arg call must never stay wrapped in a closure, got: {assignments}"
     );
 }
+
+#[test]
+fn field_default_constructor_keeps_unrelated_sibling_required() {
+    let llm = FieldDef {
+        name: "llm".to_string(),
+        ty: TypeRef::Named("LlmConfig".to_string()),
+        ..Default::default()
+    };
+    let alt_text = FieldDef {
+        name: "alt_text".to_string(),
+        ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        rust_path: "sample_core::CaptioningConfig".to_string(),
+        fields: vec![llm.clone(), alt_text.clone()],
+        ..Default::default()
+    };
+    let mapper = |ty: &TypeRef| match ty {
+        TypeRef::Named(name) => name.clone(),
+        _ => unreachable!(),
+    };
+
+    let (params, defaults, assignments) = constructor_parts_with_field_defaults(&[llm, alt_text], &mapper, &typ);
+
+    assert!(
+        params.contains("llm: LlmConfig"),
+        "required sibling was widened: {params}"
+    );
+    assert!(
+        !params.contains("llm: Option<"),
+        "required sibling was widened: {params}"
+    );
+    assert!(
+        params.contains("alt_text: Option<CaptionAltTextMode>"),
+        "serde-defaulted field must admit omission: {params}"
+    );
+    assert_eq!(defaults, "alt_text=None");
+    assert!(
+        assignments.contains("llm"),
+        "required sibling must pass through: {assignments}"
+    );
+    assert!(
+        !assignments.contains("llm.unwrap"),
+        "required sibling must pass through: {assignments}"
+    );
+    assert!(
+        assignments.contains("alt_text: alt_text.unwrap_or_default()"),
+        "omitted bare serde default must use the field type's Default: {assignments}"
+    );
+}
+
+#[test]
+fn field_default_constructor_does_not_widen_non_enum_bare_defaults() {
+    let quality_thresholds = FieldDef {
+        name: "quality_thresholds".to_string(),
+        ty: TypeRef::Named("OcrQualityThresholds".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "OcrPipelineConfig".to_string(),
+        fields: vec![quality_thresholds.clone()],
+        ..Default::default()
+    };
+    let mapper = |ty: &TypeRef| match ty {
+        TypeRef::Named(name) => name.clone(),
+        _ => unreachable!(),
+    };
+
+    let (params, defaults, assignments) = constructor_parts_with_field_defaults(&[quality_thresholds], &mapper, &typ);
+
+    assert_eq!(params, "quality_thresholds: OcrQualityThresholds");
+    assert_eq!(defaults, "");
+    assert_eq!(assignments, "quality_thresholds");
+}

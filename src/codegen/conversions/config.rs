@@ -64,6 +64,10 @@ pub struct ConversionConfig<'a> {
     /// in the binding struct and need `.unwrap_or_default()` in binding→core From.
     /// Used by NAPI to make JS-facing structs fully optional.
     pub optionalize_defaults: bool,
+    /// When true, a non-optional field carrying a bare `#[serde(default)]` resolved to an enum
+    /// variant is represented as `Option<T>` and converted with the enum type's `Default`.
+    /// NAPI uses this on owners that do not implement `Default`. ~keep
+    pub optionalize_bare_field_defaults: bool,
     /// When true, Json (serde_json::Value) fields are mapped to String in the binding layer.
     /// Core→binding uses `.to_string()`, binding→core uses `Default::default()` (lossy).
     /// Used by PHP where serde_json::Value can't cross the extension boundary.

@@ -234,6 +234,111 @@ fn bare_serde_default_field_resolves_to_the_manual_impls_direct_variant_path() {
     );
 }
 
+/// A field-level bare `#[serde(default)]` invokes the field type's `Default` implementation
+/// when the wire key is absent; it does not require the owning struct to implement `Default`.
+/// Keep an unrelated field in the same non-`Default` owner to prove only the annotated field
+/// becomes omission-tolerant. ~keep
+#[test]
+fn bare_serde_default_resolves_enum_variant_without_owner_default() {
+    let source = r#"
+        #[derive(Default, Clone, Copy)]
+        pub enum OcrStrategy {
+            Never,
+            #[default]
+            Auto,
+            Always,
+        }
+
+        #[derive(Default)]
+        pub struct OcrQualityThresholds {
+            pub min_quality: f64,
+        }
+
+        pub struct ExtractionConfig {
+            pub endpoint: String,
+            #[serde(default)]
+            pub ocr_strategy: OcrStrategy,
+            #[serde(default)]
+            pub quality_thresholds: OcrQualityThresholds,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let config = surface.types.iter().find(|typ| typ.name == "ExtractionConfig").unwrap();
+    assert!(
+        !config.has_default,
+        "the owner deliberately has no `Default` implementation"
+    );
+
+    let endpoint = config.fields.iter().find(|field| field.name == "endpoint").unwrap();
+    assert_eq!(endpoint.typed_default, None, "an unrelated field must remain required");
+
+    let strategy = config.fields.iter().find(|field| field.name == "ocr_strategy").unwrap();
+    assert_eq!(strategy.default.as_deref(), Some("/* serde(default) */"));
+    assert_eq!(
+        strategy.typed_default,
+        Some(DefaultValue::EnumVariant("Auto".to_string())),
+        "bare serde default must resolve the field type's default even when the owner has none"
+    );
+
+    let thresholds = config
+        .fields
+        .iter()
+        .find(|field| field.name == "quality_thresholds")
+        .unwrap();
+    assert_eq!(
+        thresholds.typed_default, None,
+        "non-enum bare defaults must preserve their pre-existing unresolved shape"
+    );
+}
+
+#[test]
+fn bare_serde_default_uses_qualified_type_identity_when_short_names_collide() {
+    let source = r#"
+        pub mod module_a {
+            #[derive(Default)]
+            pub struct Mode;
+        }
+
+        pub mod module_b {
+            #[derive(Default, Clone, Copy)]
+            pub enum Mode {
+                Disabled,
+                #[default]
+                Enabled,
+            }
+        }
+
+        pub struct Config {
+            #[serde(default)]
+            pub struct_mode: crate::module_a::Mode,
+            #[serde(default)]
+            pub enum_mode: crate::module_b::Mode,
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    let config = surface.types.iter().find(|typ| typ.name == "Config").unwrap();
+    let struct_mode = config.fields.iter().find(|field| field.name == "struct_mode").unwrap();
+    let enum_mode = config.fields.iter().find(|field| field.name == "enum_mode").unwrap();
+
+    assert_eq!(
+        struct_mode.type_rust_path.as_deref(),
+        Some("test_crate::module_a::Mode")
+    );
+    assert_eq!(
+        struct_mode.typed_default, None,
+        "same-named struct must not inherit the enum's default variant"
+    );
+    assert!(!struct_mode.has_bare_serde_enum_default());
+    assert_eq!(enum_mode.type_rust_path.as_deref(), Some("test_crate::module_b::Mode"));
+    assert_eq!(
+        enum_mode.typed_default,
+        Some(DefaultValue::EnumVariant("Enabled".to_string()))
+    );
+    assert!(enum_mode.has_bare_serde_enum_default());
+}
+
 /// (i) Security control for the shape task #558 was filed against: an `Option<Enum>` field with
 /// no explicit default (no `#[serde(default = "...")]`, no field initializer in the owning
 /// struct's `impl`/derived `Default`) must resolve to absence, never to a materialized variant.

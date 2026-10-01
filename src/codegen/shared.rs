@@ -669,6 +669,32 @@ pub fn config_constructor_parts_with_options(
     config_constructor_parts_with_options_cfg(fields, type_mapper, option_duration_on_defaults, false, typ)
 }
 
+/// Generate a constructor that optionalizes only bare serde defaults resolved to enum variants.
+/// Required siblings and non-enum defaults stay required without a whole-struct `Default`. ~keep
+pub fn constructor_parts_with_field_defaults(
+    fields: &[FieldDef],
+    type_mapper: &dyn Fn(&TypeRef) -> String,
+    typ: &TypeDef,
+) -> (String, String, String) {
+    config_constructor_parts_inner(
+        fields,
+        type_mapper,
+        ConstructorOptionality::FieldDefaults,
+        None,
+        &[],
+        typ,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum ConstructorOptionality {
+    All {
+        option_duration_on_defaults: bool,
+        optionalize_all_defaults: bool,
+    },
+    FieldDefaults,
+}
+
 pub fn config_constructor_parts_with_options_cfg(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
@@ -679,8 +705,10 @@ pub fn config_constructor_parts_with_options_cfg(
     config_constructor_parts_inner(
         fields,
         type_mapper,
-        option_duration_on_defaults,
-        optionalize_all_defaults,
+        ConstructorOptionality::All {
+            option_duration_on_defaults,
+            optionalize_all_defaults,
+        },
         None,
         &[],
         typ,
@@ -698,8 +726,10 @@ pub fn config_constructor_parts_with_renames(
     config_constructor_parts_inner(
         fields,
         type_mapper,
-        option_duration_on_defaults,
-        false,
+        ConstructorOptionality::All {
+            option_duration_on_defaults,
+            optionalize_all_defaults: false,
+        },
         field_renames,
         &[],
         typ,
@@ -719,8 +749,10 @@ pub fn config_constructor_parts_with_renames_and_cfg_restore(
     config_constructor_parts_inner(
         fields,
         type_mapper,
-        option_duration_on_defaults,
-        false,
+        ConstructorOptionality::All {
+            option_duration_on_defaults,
+            optionalize_all_defaults: false,
+        },
         field_renames,
         never_skip_cfg_field_names,
         typ,
@@ -732,30 +764,52 @@ pub fn config_constructor_parts(
     type_mapper: &dyn Fn(&TypeRef) -> String,
     typ: &TypeDef,
 ) -> (String, String, String) {
-    config_constructor_parts_inner(fields, type_mapper, false, false, None, &[], typ)
+    config_constructor_parts_inner(
+        fields,
+        type_mapper,
+        ConstructorOptionality::All {
+            option_duration_on_defaults: false,
+            optionalize_all_defaults: false,
+        },
+        None,
+        &[],
+        typ,
+    )
 }
 
 fn config_constructor_parts_inner(
     fields: &[FieldDef],
     type_mapper: &dyn Fn(&TypeRef) -> String,
-    option_duration_on_defaults: bool,
-    optionalize_all_defaults: bool,
+    optionality: ConstructorOptionality,
     field_renames: Option<&HashMap<String, String>>,
     never_skip_cfg_field_names: &[String],
     typ: &TypeDef,
 ) -> (String, String, String) {
+    let (option_duration_on_defaults, optionalize_all_defaults, optionalize_all_fields) = match optionality {
+        ConstructorOptionality::All {
+            option_duration_on_defaults,
+            optionalize_all_defaults,
+        } => (option_duration_on_defaults, optionalize_all_defaults, true),
+        ConstructorOptionality::FieldDefaults => (false, false, false),
+    };
     let mut sorted_fields: Vec<&FieldDef> = fields
         .iter()
         .filter(|f| !f.binding_excluded)
         .filter(|f| f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name))
         .collect();
-    sorted_fields.sort_by_key(|f| f.optional as u8);
+    sorted_fields.sort_by_key(|f| {
+        if optionalize_all_fields {
+            f.optional as u8
+        } else {
+            (f.optional || f.has_bare_serde_enum_default()) as u8
+        }
+    });
 
     let params: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
             let ty = type_mapper(&f.ty);
-            if matches!(f.ty, TypeRef::Optional(_)) {
+            if matches!(f.ty, TypeRef::Optional(_)) || (!optionalize_all_fields && !f.has_bare_serde_enum_default()) {
                 format!("{}: {}", f.name, ty)
             } else {
                 format!("{}: Option<{}>", f.name, ty)
@@ -765,6 +819,7 @@ fn config_constructor_parts_inner(
 
     let defaults = sorted_fields
         .iter()
+        .filter(|f| optionalize_all_fields || f.has_bare_serde_enum_default())
         .map(|f| format!("{}=None", f.name))
         .collect::<Vec<_>>()
         .join(", ");
@@ -789,6 +844,8 @@ fn config_constructor_parts_inner(
                 return struct_field_init(binding_name, &f.name);
             }
             if f.optional || matches!(&f.ty, TypeRef::Optional(_)) {
+                struct_field_init(binding_name, &f.name)
+            } else if !optionalize_all_fields && !f.has_bare_serde_enum_default() {
                 struct_field_init(binding_name, &f.name)
             } else if let Some(ref typed_default) = f.typed_default {
                 match typed_default {
@@ -821,8 +878,10 @@ fn config_constructor_parts_inner(
                         }
                     }
                 }
-            } else {
+            } else if optionalize_all_fields {
                 format!("{}: {}.unwrap_or_default()", binding_name, f.name)
+            } else {
+                struct_field_init(binding_name, &f.name)
             }
         })
         .collect();

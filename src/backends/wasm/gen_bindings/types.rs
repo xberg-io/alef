@@ -706,8 +706,11 @@ fn gen_new_method(
 
     let field_names: Vec<String> = filtered_fields.iter().map(|f| f.name.clone()).collect();
 
+    let has_field_defaults = filtered_fields.iter().any(|field| field.has_bare_serde_enum_default());
     let (param_list, _, assignments) = if typ.has_default {
         crate::codegen::shared::config_constructor_parts_with_options(&filtered_fields, &map_fn, true, typ)
+    } else if has_field_defaults {
+        crate::codegen::shared::constructor_parts_with_field_defaults(&filtered_fields, &map_fn, typ)
     } else {
         constructor_parts(&filtered_fields, &map_fn)
     };
@@ -761,7 +764,9 @@ fn borrowable_constructor_fields(
     }
     fields
         .iter()
-        .filter(|f| !f.optional && f.cfg.is_none() && !matches!(f.ty, TypeRef::Optional(_)))
+        .filter(|f| {
+            !f.optional && !f.has_bare_serde_enum_default() && f.cfg.is_none() && !matches!(f.ty, TypeRef::Optional(_))
+        })
         .filter(|f| types_helpers::class_backed_field_type(f, mapper, class_type_names).is_some())
         .map(|f| f.name.clone())
         .collect()

@@ -1,5 +1,5 @@
 use crate::core::ir::{ApiSurface, DefaultValue, EnumDef, FieldDef, TypeRef};
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 
 use super::SerdeDefaultsByType;
 
@@ -57,10 +57,11 @@ pub(super) fn resolve_public_default_functions(surface: &mut ApiSurface) {
     }
 }
 
-/// Resolve a field's `Empty` typed default to the concrete enum variant it stands for, when the
+/// Resolve a field's type-level default to the concrete enum variant it stands for, when the
 /// field's own declared type is an enum whose default is known.
 ///
-/// `Empty` already asserts "the value is this field's own type's zero" (see
+/// `Empty` or a bare field-level `#[serde(default)]` asserts "the value is this field's own
+/// type's zero" (see
 /// [`DefaultValue::Empty`]) — true whether the initializer was a bare `Default::default()` or
 /// `<FieldType>::default()`, since a struct-literal field position can only be filled with a
 /// value of the field's own declared type; the two spellings name the same value. For a `Named`
@@ -74,6 +75,10 @@ pub(super) fn resolve_public_default_functions(surface: &mut ApiSurface) {
 /// unit-variant path with no arguments of its own, so a tuple or struct variant would need
 /// `TupleVariant`/`StructVariant` and the payload this pass has no way to read; emitting a bare
 /// name for one would fabricate a value that does not compile.
+///
+/// Qualified field types match the enum's full Rust path. An unqualified short name is used only
+/// when it identifies exactly one enum and no struct or error shares it; otherwise resolution is
+/// deferred rather than borrowing a same-named enum's variant from another module. ~keep
 ///
 /// An enum whose default variant is unknown is left `Empty`, exactly as before this pass runs:
 /// downstream backends already treat `Empty` on a `Named` field as "unknown" and fall back to
@@ -94,24 +99,62 @@ pub(super) fn resolve_public_default_functions(surface: &mut ApiSurface) {
 /// downstream consumer on the branch that already renders `None`/`null` for
 /// `optional && Empty`. ~keep
 pub(super) fn resolve_enum_field_defaults(surface: &mut ApiSurface) {
-    let enum_default_variants = enum_default_variant_names(&surface.enums);
+    let enum_default_variants: Vec<(String, String, String)> = surface
+        .enums
+        .iter()
+        .filter(|enum_def| enum_def.has_default)
+        .filter_map(|enum_def| {
+            let variant = enum_def.variants.iter().find(|variant| {
+                variant.is_default && variant.fields.is_empty() && !variant.originally_had_data_fields
+            })?;
+            Some((
+                enum_def.name.clone(),
+                enum_def.rust_path.replace('-', "_"),
+                variant.name.clone(),
+            ))
+        })
+        .collect();
 
     if enum_default_variants.is_empty() {
         return;
     }
+
+    let non_enum_names: AHashSet<String> = surface
+        .types
+        .iter()
+        .map(|typ| typ.name.clone())
+        .chain(surface.errors.iter().map(|error| error.name.clone()))
+        .collect();
 
     for typ in &mut surface.types {
         for field in &mut typ.fields {
             if field.optional {
                 continue;
             }
-            if !matches!(&field.typed_default, Some(DefaultValue::Empty)) {
+            let resolves_field_type_default = matches!(&field.typed_default, Some(DefaultValue::Empty))
+                || (field.typed_default.is_none() && field.has_bare_serde_default());
+            if !resolves_field_type_default {
                 continue;
             }
             let TypeRef::Named(name) = &field.ty else {
                 continue;
             };
-            if let Some(variant) = enum_default_variants.get(name) {
+            let variant = if let Some(field_path) = field.type_rust_path.as_deref() {
+                enum_default_variants
+                    .iter()
+                    .find(|(_, enum_path, _)| enum_path == field_path)
+                    .map(|(_, _, variant)| variant)
+            } else if non_enum_names.contains(name.as_str()) {
+                None
+            } else {
+                let mut matches = enum_default_variants
+                    .iter()
+                    .filter(|(enum_name, _, _)| enum_name == name)
+                    .map(|(_, _, variant)| variant);
+                let first = matches.next();
+                if matches.next().is_none() { first } else { None }
+            };
+            if let Some(variant) = variant {
                 field.typed_default = Some(DefaultValue::EnumVariant(variant.clone()));
             }
         }

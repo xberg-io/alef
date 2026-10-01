@@ -217,6 +217,21 @@ pub struct FieldDef {
 }
 
 impl FieldDef {
+    /// Whether serde fills an absent key from the field type's own `Default` implementation. ~keep
+    #[must_use]
+    pub fn has_bare_serde_default(&self) -> bool {
+        self.default.as_deref() == Some("/* serde(default) */")
+    }
+
+    /// Whether this field is the narrow enum-default case supported by input bindings. ~keep
+    #[must_use]
+    pub fn has_bare_serde_enum_default(&self) -> bool {
+        !self.optional
+            && !matches!(self.ty, TypeRef::Optional(_))
+            && self.has_bare_serde_default()
+            && matches!(self.typed_default, Some(DefaultValue::EnumVariant(_)))
+    }
+
     /// The `#[cfg(...)]` condition for a reference to this field (an accessor method, its
     /// registration, or a constructor's per-field conversion) that also sits behind `owner_cfg`
     /// (the owning type's own gate): the AND of the two.
@@ -758,7 +773,37 @@ impl ErrorVariant {
 //   incidents actually involved.
 #[cfg(test)]
 mod tests {
+    use super::super::{DefaultValue, TypeRef};
     use super::{EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, TypeDef};
+
+    #[test]
+    fn bare_serde_enum_default_requires_a_non_optional_enum_variant_field() {
+        let field = FieldDef {
+            ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+            default: Some("/* serde(default) */".to_string()),
+            typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+            ..Default::default()
+        };
+        assert!(field.has_bare_serde_enum_default());
+
+        let empty_default = FieldDef {
+            typed_default: Some(DefaultValue::Empty),
+            ..field.clone()
+        };
+        assert!(!empty_default.has_bare_serde_enum_default());
+
+        let optional_field = FieldDef {
+            optional: true,
+            ..field.clone()
+        };
+        assert!(!optional_field.has_bare_serde_enum_default());
+
+        let optional_type = FieldDef {
+            ty: TypeRef::Optional(Box::new(field.ty.clone())),
+            ..field
+        };
+        assert!(!optional_type.has_bare_serde_enum_default());
+    }
 
     // See the module-level comment above for the contract this pattern enforces.
     #[allow(dead_code)]

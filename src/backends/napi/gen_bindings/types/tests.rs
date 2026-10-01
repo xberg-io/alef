@@ -1,4 +1,4 @@
-use super::gen_struct;
+use super::{gen_struct, napi_field_is_optional};
 use crate::backends::napi::type_map::NapiMapper;
 use crate::core::ir::{FieldDef, SerdeContainerConversion, TypeDef, TypeRef};
 
@@ -6,6 +6,67 @@ use crate::core::ir::{FieldDef, SerdeContainerConversion, TypeDef, TypeRef};
 /// The actual output is tested via the integration test (gen_bindings_test.rs).
 #[test]
 fn struct_gen_function_exists() {}
+
+#[test]
+fn bare_serde_default_is_optional_without_optionalizing_required_sibling() {
+    let llm = FieldDef {
+        name: "llm".to_string(),
+        ty: TypeRef::Named("LlmConfig".to_string()),
+        ..Default::default()
+    };
+    let alt_text = FieldDef {
+        name: "alt_text".to_string(),
+        ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        fields: vec![llm.clone(), alt_text.clone()],
+        ..Default::default()
+    };
+
+    assert!(!napi_field_is_optional(&llm, &typ));
+    assert!(napi_field_is_optional(&alt_text, &typ));
+
+    let rendered = gen_struct(
+        &typ,
+        &NapiMapper::new("Js".to_string()),
+        "Js",
+        true,
+        &ahash::AHashSet::default(),
+        &[],
+        &[],
+        "sample_core",
+        &ahash::AHashSet::default(),
+        None,
+        &[],
+    );
+    assert!(rendered.contains("pub llm: JsLlmConfig"), "{rendered}");
+    assert!(
+        rendered.contains("pub alt_text: Option<JsCaptionAltTextMode>"),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn non_enum_bare_default_preserves_required_field_shape() {
+    let field = FieldDef {
+        name: "quality_thresholds".to_string(),
+        ty: TypeRef::Named("OcrQualityThresholds".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(crate::core::ir::DefaultValue::Empty),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "OcrPipelineConfig".to_string(),
+        fields: vec![field.clone()],
+        ..Default::default()
+    };
+
+    assert!(!napi_field_is_optional(&field, &typ));
+}
 
 /// A field's `#[napi(js_name = ...)]` must come from casing policy alone, never from
 /// `#[serde(rename = ...)]` on the core struct -- the two are separate name surfaces (the

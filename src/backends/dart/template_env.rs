@@ -68,6 +68,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/constructor_required_param.jinja"),
     ),
     (
+        "constructor_default_param.jinja",
+        include_str!("templates/constructor_default_param.jinja"),
+    ),
+    (
         "constructor_close.jinja",
         include_str!("templates/constructor_close.jinja"),
     ),

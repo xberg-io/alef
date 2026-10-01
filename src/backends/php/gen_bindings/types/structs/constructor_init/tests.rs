@@ -141,6 +141,28 @@ fn should_apply_the_constructor_cfg_policy_to_the_binding_struct_field_set() {
     );
 }
 
+#[test]
+fn bare_serde_enum_default_is_used_without_defaulting_required_sibling() {
+    let mut mode = field(
+        "mode",
+        TypeRef::Named("Mode".to_string()),
+        Some(DefaultValue::EnumVariant("Preserve".to_string())),
+    );
+    mode.default = Some("/* serde(default) */".to_string());
+    let typ = policy(false, vec![field("llm", TypeRef::String, None), mode]);
+
+    let init = build(&typ).expect("representable fields form a constructor");
+
+    assert!(init.field_inits.contains("llm"), "{}", init.field_inits);
+    assert!(
+        init.field_inits
+            .contains("mode: mode.unwrap_or_else(crate::serde_defaults::fetch_policy_mode)"),
+        "{}",
+        init.field_inits
+    );
+    assert!(!init.field_inits.contains("llm.unwrap_or"), "{}", init.field_inits);
+}
+
 // ---------------------------------------------------------------------------
 // Axis 1: derived `Default`. Every field the derive covers is `DefaultValue::Empty`, which the
 // IR defines as "the default IS this type's own zero" — so the target-language zero is exact,

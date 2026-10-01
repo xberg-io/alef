@@ -560,6 +560,45 @@ mod constructor_param_order_tests {
             "required fields must precede the optional field despite declaration order: {sig}"
         );
     }
+
+    #[test]
+    fn bare_serde_default_stays_required_in_runtime_without_serde() {
+        let mut alt_text = field("alt_text", TypeRef::Named("CaptionAltTextMode".to_string()), false);
+        alt_text.default = Some("/* serde(default) */".to_string());
+        alt_text.typed_default = Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string()));
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            rust_path: "test_lib::CaptioningConfig".to_string(),
+            fields: vec![field("llm", TypeRef::String, false), alt_text],
+            ..Default::default()
+        };
+        let enum_names: AHashSet<String> = ["CaptionAltTextMode".to_string()].into_iter().collect();
+
+        let out = gen_struct_methods_with_exclude(
+            &typ,
+            &mapper(),
+            false,
+            "test_lib",
+            &AHashSet::new(),
+            &enum_names,
+            &[],
+            &[],
+            &AHashSet::new(),
+            &[],
+            &AHashSet::new(),
+            &[],
+        )
+        .expect("struct methods generate");
+        let new_fn = out
+            .split("#[php(constructor)]")
+            .nth(1)
+            .unwrap_or_else(|| panic!("no #[php(constructor)] fn emitted:\n{out}"));
+        let signature = constructor_signature(new_fn);
+
+        assert!(signature.contains("llm: String"), "{signature}");
+        assert!(signature.contains("altText: &CaptionAltTextMode"), "{signature}");
+        assert!(!signature.contains("altText: Option"), "{signature}");
+    }
 }
 
 mod json_constructor_param_tests;

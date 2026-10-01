@@ -30,6 +30,35 @@ fn crawl_field() -> FieldDef {
     }
 }
 
+#[test]
+fn bare_field_default_on_non_default_owner_wraps_only_that_binding_field() {
+    let typ = type_with_fields(vec![
+        FieldDef {
+            name: "llm".to_string(),
+            ty: TypeRef::Named("LlmConfig".to_string()),
+            ..Default::default()
+        },
+        FieldDef {
+            name: "alt_text".to_string(),
+            ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+            default: Some("/* serde(default) */".to_string()),
+            typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+            ..Default::default()
+        },
+    ]);
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        optionalize_bare_field_defaults: true,
+        ..Default::default()
+    };
+
+    let out = gen_from_core_to_binding_cfg(&typ, "test_lib", &AHashSet::new(), &config);
+
+    assert!(out.contains("llm: val.llm.into()"), "{out}");
+    assert!(out.contains("alt_text: Some(val.alt_text.into())"), "{out}");
+    assert!(!out.contains("llm: Some("), "{out}");
+}
+
 /// CONTROL: when this binding declares every feature the gate names, the gate must survive
 /// unchanged, byte for byte. Without this control, a fix that narrows or drops indiscriminately
 /// would still pass the regression test below.

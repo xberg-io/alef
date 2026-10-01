@@ -512,6 +512,7 @@ fn gen_struct_methods_impl(
                 .filter(|field| constructor_init::php_binding_keeps_field(field, never_skip_cfg_field_names))
                 .any(|f| {
                     !f.optional
+                        && !f.has_bare_serde_enum_default()
                         && php_field_can_be_constructor_param(
                             &f.ty,
                             enum_names,
@@ -527,8 +528,11 @@ fn gen_struct_methods_impl(
                 // default. The stable sort must key on this SAME effective optionality — not the
                 // raw `f.optional` — or a widened field could still land ahead of a genuinely
                 // required one. Mirrors the PHPStan stub's identical widening in `type_stubs.rs`.
-                let effective_optional =
-                    |f: &FieldDef| f.optional || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration));
+                let effective_optional = |f: &FieldDef| {
+                    f.optional
+                        || f.has_bare_serde_enum_default()
+                        || (has_serde && typ.has_default && matches!(f.ty, TypeRef::Duration))
+                };
 
                 // Stable sort required-before-optional to match PHP's parameter-order rule — and,
                 // critically, the PHPStan stub's own `ctor_fields.sort_by_key(...)` (`type_stubs.rs`).
@@ -624,7 +628,7 @@ fn gen_struct_methods_impl(
                                 php_name => php_param_name.as_str(),
                                 core_import => core_import,
                                 struct_name => name.as_str(),
-                                is_optional => f.optional,
+                                is_optional => effective_optional(f),
                                 to_core => false,
                             },
                         ));

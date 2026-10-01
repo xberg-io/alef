@@ -1,6 +1,6 @@
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{EnumDef, TypeDef};
+use crate::core::ir::{DefaultValue, EnumDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 
@@ -9,6 +9,22 @@ use crate::backends::dart::template_env;
 use crate::backends::dart::type_map::DartMapper;
 
 use super::render_type::render_type;
+
+fn constructor_default(field: &crate::core::ir::FieldDef) -> Option<String> {
+    if !field.has_bare_serde_enum_default() {
+        return None;
+    }
+    let DefaultValue::EnumVariant(variant) = field.typed_default.as_ref()? else {
+        return None;
+    };
+    let TypeRef::Named(type_name) = &field.ty else {
+        return None;
+    };
+    Some(format!(
+        "{type_name}.{}",
+        dart_safe_ident(&variant.to_lower_camel_case())
+    ))
+}
 
 #[allow(dead_code)]
 pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
@@ -63,14 +79,10 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
             },
         ));
     }
-    if visible_fields.len() == 1 {
+    let constructor_defaults: Vec<_> = visible_fields.iter().map(|field| constructor_default(field)).collect();
+    if visible_fields.len() == 1 && constructor_defaults[0].is_none() {
         let field = visible_fields[0];
         let name = dart_safe_ident(&field.name.to_lower_camel_case());
-        let ty_str = if field.optional {
-            format!("{}?", render_type(&field.ty, imports))
-        } else {
-            render_type(&field.ty, imports)
-        };
         out.push_str(&template_env::render(
             "single_param_constructor.jinja",
             minijinja::context! {
@@ -78,7 +90,6 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
                 param_name => name.as_str(),
             },
         ));
-        let _ = ty_str;
     } else {
         out.push_str(&template_env::render(
             "multi_param_constructor_open.jinja",
@@ -86,14 +97,18 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<S
                 name => ty.name.as_str(),
             },
         ));
-        for field in &visible_fields {
+        for (field, default) in visible_fields.iter().zip(constructor_defaults) {
             let name = dart_safe_ident(&field.name.to_lower_camel_case());
-            out.push_str(&template_env::render(
-                "constructor_required_param.jinja",
-                minijinja::context! {
-                    name => name.as_str(),
-                },
-            ));
+            match default {
+                Some(default_value) => out.push_str(&template_env::render(
+                    "constructor_default_param.jinja",
+                    minijinja::context! { name => name.as_str(), default_value => default_value },
+                )),
+                None => out.push_str(&template_env::render(
+                    "constructor_required_param.jinja",
+                    minijinja::context! { name => name.as_str() },
+                )),
+            }
         }
         out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
     }
@@ -398,6 +413,49 @@ mod tests {
         assert!(
             out.contains("required this.first"),
             "multi-field DTO must use named required params: {out}"
+        );
+    }
+
+    #[test]
+    fn dto_bare_enum_default_is_omittable_while_required_sibling_stays_required() {
+        let mut alt_text = make_field("alt_text", TypeRef::Named("CaptionAltTextMode".to_string()));
+        alt_text.default = Some("/* serde(default) */".to_string());
+        alt_text.typed_default = Some(DefaultValue::EnumVariant("Preserve".to_string()));
+        let ty = make_type(
+            "CaptioningConfig",
+            vec![make_field("llm", TypeRef::Named("LlmConfig".to_string())), alt_text],
+        );
+        let mut out = String::new();
+        emit_type(&ty, &mut out, &mut BTreeSet::new());
+
+        assert!(out.contains("required this.llm"), "{out}");
+        assert!(out.contains("this.altText = CaptionAltTextMode.preserve"), "{out}");
+        assert!(!out.contains("required this.altText"), "{out}");
+    }
+
+    #[test]
+    fn dto_non_enum_bare_default_preserves_required_constructor_parameter() {
+        let mut thresholds = make_field("quality_thresholds", TypeRef::Named("OcrQualityThresholds".to_string()));
+        thresholds.default = Some("/* serde(default) */".to_string());
+        thresholds.typed_default = Some(DefaultValue::Empty);
+        let ty = make_type("OcrPipelineConfig", vec![thresholds]);
+        let mut out = String::new();
+        emit_type(&ty, &mut out, &mut BTreeSet::new());
+
+        let control = make_type(
+            "OcrPipelineConfig",
+            vec![make_field(
+                "quality_thresholds",
+                TypeRef::Named("OcrQualityThresholds".to_string()),
+            )],
+        );
+        let mut control_out = String::new();
+        emit_type(&control, &mut control_out, &mut BTreeSet::new());
+
+        assert_eq!(out, control_out);
+        assert!(
+            out.contains("const OcrPipelineConfig(this.qualityThresholds);"),
+            "{out}"
         );
     }
 

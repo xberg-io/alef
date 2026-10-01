@@ -233,6 +233,51 @@ fn convert_constructor_params_renames_multi_word_field() {
     assert_eq!(assignments, "chunk_size: chunkSize");
 }
 
+#[test]
+fn constructor_allows_bare_serde_default_without_optionalizing_required_sibling() {
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        rust_path: "sample_core::CaptioningConfig".to_string(),
+        fields: vec![
+            class_field("llm", "LlmConfig", false),
+            FieldDef {
+                name: "alt_text".to_string(),
+                ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                default: Some("/* serde(default) */".to_string()),
+                typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let out = gen_new_method(
+        &typ,
+        &mapper(),
+        &[],
+        "Wasm",
+        &AHashSet::default(),
+        &class_names(&["LlmConfig"]),
+    );
+
+    assert!(
+        out.contains("llm: &WasmLlmConfig"),
+        "required sibling must stay required: {out}"
+    );
+    assert!(
+        !out.contains("llm: Option<"),
+        "required sibling must stay required: {out}"
+    );
+    assert!(
+        out.contains("altText: Option<"),
+        "serde-defaulted field must admit omission: {out}"
+    );
+    assert!(
+        out.contains("alt_text: altText.unwrap_or_default()"),
+        "omission must invoke the field type's Default: {out}"
+    );
+}
+
 /// A mapper whose `named` for `Modality` is redirected by a `wasm.type_overrides` entry — the
 /// documented way a consumer replaces a generated wrapper with another binding type.
 fn mapper_with_override(name: &str, mapped: &str) -> WasmMapper {

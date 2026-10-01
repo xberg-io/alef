@@ -619,7 +619,9 @@ fn stub_constructor_shape(
     }
     if struct_needs_from_json_stub(typ, enum_names, serde_available) {
         let has_representable_required = typ.fields.iter().filter(|f| !f.binding_excluded).any(|f| {
-            !f.optional && php_field_can_be_constructor_param(&f.ty, enum_names, opaque_types, untagged_data_enum_names)
+            !f.optional
+                && !(serde_available && f.has_bare_serde_enum_default())
+                && php_field_can_be_constructor_param(&f.ty, enum_names, opaque_types, untagged_data_enum_names)
         });
         return if has_representable_required {
             StubConstructorShape::Positional
@@ -650,7 +652,9 @@ fn stub_constructor_shape(
 /// `#[serde(default)]` only when the binding crate has serde, so it is the crate-level signal that
 /// decides it. ~keep
 fn php_field_effective_optional(typ: &crate::core::ir::TypeDef, f: &FieldDef, serde_available: bool) -> bool {
-    f.optional || (serde_available && typ.has_default && matches!(f.ty, TypeRef::Duration))
+    f.optional
+        || (serde_available && f.has_bare_serde_enum_default())
+        || (serde_available && typ.has_default && matches!(f.ty, TypeRef::Duration))
 }
 
 /// Build the parameter list (one entry per line) for a struct's PHPStan `#[php(constructor)]`

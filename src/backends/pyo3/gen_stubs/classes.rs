@@ -227,7 +227,7 @@ fn gen_type_init_stub(
                 return false;
             }
             let is_optional_duration = matches!(f.ty, TypeRef::Duration) && !f.optional;
-            !f.optional && !is_optional_duration
+            !f.optional && !is_optional_duration && !f.has_bare_serde_enum_default()
         });
 
     // `serde_rename` by the shared `resolve_param_ident` — the SAME resolver the `#[new]`
@@ -833,5 +833,39 @@ mod tests {
         );
 
         assert!(!stub.contains("windows_only"), "{stub}");
+    }
+
+    #[test]
+    fn type_init_stub_keeps_required_sibling_and_defaults_bare_serde_field() {
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "llm".to_string(),
+                    ty: TypeRef::Named("LlmConfig".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "alt_text".to_string(),
+                    ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let stub = gen_type_init_stub(
+            &typ,
+            &ApiSurface::default(),
+            &ResolvedCrateConfig::default(),
+            &OptionsFieldBridges::default(),
+        );
+
+        assert!(stub.contains("llm: LlmConfig"), "{stub}");
+        assert!(!stub.contains("llm: LlmConfig ="), "{stub}");
+        assert!(stub.contains("alt_text: CaptionAltTextMode = ..."), "{stub}");
+        assert!(!stub.contains("alt_text: CaptionAltTextMode | None"), "{stub}");
     }
 }

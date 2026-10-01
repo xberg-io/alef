@@ -241,8 +241,15 @@ fn extraction_config() -> TypeDef {
     TypeDef {
         name: "ExtractionConfig".to_string(),
         rust_path: "sample_core::ExtractionConfig".to_string(),
-        has_default: true,
-        fields: vec![output_format_field()],
+        has_default: false,
+        fields: vec![
+            FieldDef {
+                name: "llm".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            },
+            output_format_field(),
+        ],
         ..Default::default()
     }
 }
@@ -272,6 +279,29 @@ fn enum_default_field_gets_named_wire_value_function_not_bare_default() {
         !lib_rs.contains("pub output_format: String,\n    #[serde(default)]")
             && !lib_rs.contains("#[serde(default)]\n    pub output_format"),
         "must not emit a bare `#[serde(default)]` on output_format, got:\n{lib_rs}"
+    );
+}
+
+#[test]
+fn non_default_owner_constructor_requires_sibling_and_omits_bare_default_field() {
+    let lib_rs = generated_lib_rs(&enum_default_fixture_api());
+    assert!(
+        lib_rs.contains("llm: String"),
+        "required sibling must remain required:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains("outputFormat: Option<String>"),
+        "bare serde default must be omittable:\n{lib_rs}"
+    );
+    assert!(
+        lib_rs.contains(
+            "output_format: outputFormat.unwrap_or_else(crate::serde_defaults::extraction_config_output_format)"
+        ),
+        "omission must use the typed enum wire default:\n{lib_rs}"
+    );
+    assert!(
+        !lib_rs.contains("llm: Option<String>"),
+        "required sibling was widened:\n{lib_rs}"
     );
 }
 

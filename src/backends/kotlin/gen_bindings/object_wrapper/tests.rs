@@ -948,6 +948,36 @@ fn default_constructible_propagates_removal_to_dependent_types() {
     );
 }
 
+#[test]
+fn dto_bare_enum_default_is_omittable_while_required_sibling_stays_required() {
+    let mut alt_text = make_field("alt_text", TypeRef::Named("CaptionAltTextMode".to_string()));
+    alt_text.default = Some("/* serde(default) */".to_string());
+    alt_text.typed_default = Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string()));
+    let ty = crate::core::ir::TypeDef {
+        name: "CaptioningConfig".to_string(),
+        fields: vec![make_field("llm", TypeRef::Named("LlmConfig".to_string())), alt_text],
+        ..Default::default()
+    };
+    let enum_defaults = std::collections::HashMap::from([("CaptionAltTextMode".to_string(), "Preserve".to_string())]);
+    let mut out = String::new();
+    emit_type_with_imports(
+        &ty,
+        &mut out,
+        &mut std::collections::BTreeSet::new(),
+        &enum_defaults,
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        None,
+    );
+
+    assert!(out.contains("val llm: LlmConfig"), "{out}");
+    assert!(!out.contains("val llm: LlmConfig ="), "{out}");
+    assert!(
+        out.contains("val altText: CaptionAltTextMode = CaptionAltTextMode.PRESERVE"),
+        "{out}"
+    );
+}
+
 /// Kotlin's half of the cross-language default control, against the same oracle C# and Java use
 /// (`backends::csharp::gen_bindings::types::tests`,
 /// `backends::java::gen_bindings::types::tests`). See `backends::default_agreement_tests` for the

@@ -549,6 +549,7 @@ impl Backend for NapiBackend {
             cast_large_ints_to_i64: true,
             cast_f32_to_f64: true,
             optionalize_defaults: true,
+            optionalize_bare_field_defaults: true,
             option_duration_on_defaults: true,
             include_cfg_metadata: true,
             opaque_types: Some(&opaque_types),

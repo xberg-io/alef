@@ -36,6 +36,43 @@ fn type_with_field(field: FieldDef) -> TypeDef {
 }
 
 #[test]
+fn bare_field_default_on_non_default_owner_uses_field_default_only() {
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        rust_path: "sample_core::CaptioningConfig".to_string(),
+        fields: vec![
+            FieldDef {
+                name: "llm".to_string(),
+                ty: TypeRef::Named("LlmConfig".to_string()),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "alt_text".to_string(),
+                ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                default: Some("/* serde(default) */".to_string()),
+                typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        optionalize_bare_field_defaults: true,
+        ..Default::default()
+    };
+
+    let out = gen_from_binding_to_core_cfg(&typ, "sample_core", &config);
+
+    assert!(out.contains("llm: val.llm.into()"), "{out}");
+    assert!(
+        out.contains("alt_text: val.alt_text.map(|__v| __v.into()).unwrap_or_default()"),
+        "{out}"
+    );
+    assert!(!out.contains("let mut __result"), "{out}");
+}
+
+#[test]
 fn sanitized_cow_string_field_converts_to_core() {
     let field = FieldDef {
         version: Default::default(),

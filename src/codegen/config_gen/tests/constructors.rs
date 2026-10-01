@@ -203,6 +203,34 @@ fn test_gen_magnus_kwargs_constructor_named_function_call_default_is_not_require
     );
 }
 
+#[test]
+fn test_gen_magnus_bare_enum_default_keeps_unrelated_named_field_required() {
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        fields: vec![
+            FieldDef {
+                name: "llm".to_string(),
+                ty: TypeRef::Named("LlmConfig".to_string()),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "alt_text".to_string(),
+                ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                default: Some("/* serde(default) */".to_string()),
+                typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+
+    let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper, &HashSet::new());
+
+    assert!(output.contains("missing required field: llm"), "{output}");
+    assert!(!output.contains("missing required field: alt_text"), "{output}");
+    assert!(output.contains("None => CaptionAltTextMode::Preserve"), "{output}");
+}
+
 /// The `#[serde(default = "...")]` function returns the field's core type; Magnus mirrors
 /// `Named` types into its own `#[magnus::wrap]` struct, a distinct Rust type from the core one
 /// under the same short name, so the call needs `.into()` to become the type the field holds.

@@ -21,17 +21,16 @@ use super::functions::{
 /// Whether the generated NAPI binding declares `field` of `owner` as `Option<T>`, i.e. whether
 /// the emitted `.d.ts` spells it `name?: T` and a JS caller may read `undefined` from it.
 ///
-/// ~keep Two independent reasons make a field optional in the binding, and only the first is
-/// visible on the field itself. A type that implements `Default` has EVERY one of its fields
-/// widened to `Option<T>` (that is what `TypeDef::has_default` exists for on this backend — the
-/// generated struct fills each absent field from the default), so a field declared `metadata:
-/// PageMetadata` in the core crate still reaches TypeScript as `readonly metadata?:
-/// PageMetadata`. e2e snippet codegen has to reach the same verdict this emitter does, or it
-/// renders `result.metadata.title` against a `?`-typed member and `tsc` rejects the snippet with
-/// `TS18048` — so this is a named predicate rather than an inline condition, and
-/// `FieldResolver::ir_result_field_facts` calls exactly it.
+/// ~keep In addition to fields that are inherently optional, a type implementing `Default`
+/// widens every field to `Option<T>`, while a bare field-level serde default widens only that
+/// field. e2e snippet codegen has to reach the same verdict as this emitter or it can generate
+/// an unconditional property access against a `?`-typed member and fail `tsc` with `TS18048`,
+/// so `FieldResolver::ir_result_field_facts` calls this named predicate too.
 pub(crate) fn napi_field_is_optional(field: &FieldDef, owner: &TypeDef) -> bool {
-    matches!(field.ty, TypeRef::Optional(_)) || field.optional || owner.has_default
+    matches!(field.ty, TypeRef::Optional(_))
+        || field.optional
+        || owner.has_default
+        || field.has_bare_serde_enum_default()
 }
 
 /// Map a struct-field `TypeRef` containing `TypeRef::Bytes` (Rust `Vec<u8>`) to the TS

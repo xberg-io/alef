@@ -177,6 +177,25 @@ fn is_named_struct_by_ref(ty: &TypeRef, enum_names: &AHashSet<String>, opaque_ty
     }
 }
 
+fn bare_serde_default_field_init(
+    owner_name: &str,
+    field: &FieldDef,
+    php_param_name: &str,
+    enum_names: &AHashSet<String>,
+) -> Option<String> {
+    if !field.has_bare_serde_enum_default() {
+        return None;
+    }
+    if matches!(&field.ty, TypeRef::Named(name) if enum_names.contains(name.as_str())) {
+        let default_fn = crate::backends::php::gen_bindings::serde_defaults::default_fn_ident(owner_name, &field.name);
+        return Some(format!(
+            "{}: {php_param_name}.unwrap_or_else(crate::serde_defaults::{default_fn})",
+            field.name
+        ));
+    }
+    None
+}
+
 /// The initialiser for a field the constructor *does* accept as a parameter, keyed off the same
 /// param-name convention `gen_php_function_params` establishes for the parameter list.
 ///
@@ -188,11 +207,15 @@ fn is_named_struct_by_ref(ty: &TypeRef, enum_names: &AHashSet<String>, opaque_ty
 /// every representable `Vec<Named>` field before this function runs; this arm only has to
 /// reference the local it created, by the SAME `{php_param_name}_core` name.
 fn representable_field_init(
+    owner_name: &str,
     field: &FieldDef,
     php_param_name: &str,
     enum_names: &AHashSet<String>,
     opaque_types: &AHashSet<String>,
 ) -> String {
+    if let Some(init) = bare_serde_default_field_init(owner_name, field, php_param_name, enum_names) {
+        return init;
+    }
     let is_bytes = matches!(&field.ty, TypeRef::Bytes)
         || matches!(&field.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Bytes));
     if is_bytes {
@@ -274,6 +297,7 @@ pub(crate) fn gen_constructor_field_inits(
         if php_field_can_be_constructor_param(&field.ty, enum_names, opaque_types, untagged_data_enum_names) {
             let php_param_name = crate::codegen::naming::to_php_name(&field.name);
             field_inits.push(representable_field_init(
+                &typ.name,
                 field,
                 &php_param_name,
                 enum_names,

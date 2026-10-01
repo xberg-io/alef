@@ -113,7 +113,13 @@ pub(super) fn replace_constructor_with_serde_rename(
         .filter(|f| !f.binding_excluded && (f.cfg.is_none() || never_skip_cfg_field_names.contains(&f.name)))
         .filter(|f| bridge_field_name.is_none() || f.name != bridge_field_name.unwrap())
         .collect();
-    sorted_fields.sort_by_key(|f| f.optional as u8);
+    sorted_fields.sort_by_key(|f| {
+        if typ.has_default {
+            f.optional as u8
+        } else {
+            (f.optional || f.has_bare_serde_enum_default()) as u8
+        }
+    });
 
     let params: Vec<String> = sorted_fields
         .iter()
@@ -165,6 +171,8 @@ pub(super) fn replace_constructor_with_serde_rename(
                 format!("{}=None", param_ident)
             } else if typ.has_default {
                 format!("{}=Self::default().{}", param_ident, f.name)
+            } else if f.has_bare_serde_enum_default() {
+                format!("{}=Default::default()", param_ident)
             } else {
                 param_ident
             }
@@ -272,4 +280,53 @@ pub(super) fn replace_constructor_with_serde_rename(
     }
 
     impl_block.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::pyo3::gen_bindings::config::binding_config;
+    use crate::backends::pyo3::type_map::Pyo3Mapper;
+
+    #[test]
+    fn bare_serde_default_is_omittable_without_optionalizing_required_sibling() {
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "llm".to_string(),
+                    ty: TypeRef::Named("LlmConfig".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "alt_text".to_string(),
+                    ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(crate::core::ir::DefaultValue::EnumVariant("Preserve".to_string())),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let rendered = replace_constructor_with_serde_rename(
+            "impl CaptioningConfig {\n    #[pyo3(signature = (llm, alt_text))]#[new]\n    pub fn new(llm: LlmConfig, alt_text: CaptionAltTextMode) -> Self { Self { llm, alt_text } }\n}",
+            &typ,
+            &Pyo3Mapper::new(),
+            &binding_config("sample_core", true),
+            None,
+            &[],
+            &[],
+            &ApiSurface::default(),
+        );
+
+        assert!(
+            rendered.contains("#[pyo3(signature = (llm, alt_text=Default::default()))]"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("pub fn new(llm: LlmConfig, alt_text: CaptionAltTextMode)"),
+            "{rendered}"
+        );
+        assert!(!rendered.contains("llm=Default::default()"), "{rendered}");
+    }
 }

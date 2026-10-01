@@ -141,6 +141,10 @@ pub fn gen_from_core_to_binding_cfg(
         };
         let needs_some_wrap = !is_flattened_optional
             && ((optionalized && !field.optional)
+                || (config.optionalize_bare_field_defaults
+                    && field.has_bare_serde_enum_default()
+                    && !field.optional
+                    && !matches!(field.ty, TypeRef::Optional(_)))
                 || (config.option_duration_on_defaults
                     && typ.has_default
                     && !field.optional

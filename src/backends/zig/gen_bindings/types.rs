@@ -4,7 +4,7 @@ use crate::codegen::naming::{
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::{EnumDef, TypeDef, TypeRef};
+use crate::core::ir::{DefaultValue, EnumDef, TypeDef, TypeRef};
 
 use crate::backends::zig::type_map::ZigMapper;
 
@@ -16,7 +16,7 @@ use super::helpers::emit_cleaned_zig_doc;
 /// Zig struct members are the public field surface a consumer both constructs and reads by name,
 /// so a configured rename that this emitter ignored would leave the consumer's `alef.toml` a
 /// silent no-op rather than an error. ~keep
-pub(crate) fn emit_type(ty: &TypeDef, config: &ResolvedCrateConfig, out: &mut String) {
+pub(crate) fn emit_type(ty: &TypeDef, enums: &[EnumDef], config: &ResolvedCrateConfig, out: &mut String) {
     emit_cleaned_zig_doc(out, &ty.doc, "");
     out.push_str(&crate::backends::zig::template_env::render(
         "type_header.jinja",
@@ -27,15 +27,50 @@ pub(crate) fn emit_type(ty: &TypeDef, config: &ResolvedCrateConfig, out: &mut St
     for field in binding_fields(&ty.fields) {
         emit_cleaned_zig_doc(out, &field.doc, "    ");
         let ty_str = zig_field_type(&field.ty, field.optional);
+        let field_default = zig_field_default(field, enums);
         out.push_str(&crate::backends::zig::template_env::render(
             "type_field.jinja",
             minijinja::context! {
                 field_name => zig_field_identifier(ty, field, config),
                 field_type => ty_str,
+                field_default => field_default,
             },
         ));
     }
     out.push_str("};\n");
+}
+
+fn zig_enum_default(enum_def: &EnumDef, variant_ref: &str) -> Option<String> {
+    let variant_name = variant_ref.rsplit_once("::").map_or(variant_ref, |(_, name)| name);
+    let variant = enum_def
+        .variants
+        .iter()
+        .find(|candidate| candidate.name == variant_name)?;
+    let wire_value = wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    );
+    Some(format!(
+        ".{}",
+        public_host_identifier(Language::Zig, PublicIdentifierKind::EnumVariant, &wire_value)
+    ))
+}
+
+fn zig_field_default(field: &crate::core::ir::FieldDef, enums: &[EnumDef]) -> String {
+    if !field.has_bare_serde_enum_default() {
+        return String::new();
+    }
+    let Some(DefaultValue::EnumVariant(variant_ref)) = field.typed_default.as_ref() else {
+        return String::new();
+    };
+    let TypeRef::Named(enum_name) = &field.ty else {
+        return String::new();
+    };
+    let Some(enum_def) = enums.iter().find(|candidate| candidate.name == *enum_name) else {
+        return String::new();
+    };
+    zig_enum_default(enum_def, variant_ref).map_or_else(String::new, |value| format!(" = {value}"))
 }
 
 /// Resolve a Zig struct member identifier, applying `[crates.zig] rename_fields` before casing.
@@ -145,4 +180,81 @@ pub(crate) fn zig_field_type(ty: &TypeRef, optional: bool) -> String {
 
 pub(crate) fn c_symbol_component(name: &str) -> String {
     pascal_to_snake(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{EnumVariant, FieldDef};
+
+    #[test]
+    fn bare_enum_default_is_emitted_without_defaulting_required_sibling() {
+        let typ = TypeDef {
+            name: "CaptioningConfig".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "llm".to_string(),
+                    ty: TypeRef::Named("LlmConfig".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "alt_text".to_string(),
+                    ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+                    default: Some("/* serde(default) */".to_string()),
+                    typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let enums = [EnumDef {
+            name: "CaptionAltTextMode".to_string(),
+            serde_rename_all: Some("snake_case".to_string()),
+            variants: vec![EnumVariant {
+                name: "Preserve".to_string(),
+                is_default: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }];
+        let mut out = String::new();
+        emit_type(&typ, &enums, &ResolvedCrateConfig::default(), &mut out);
+
+        assert!(out.contains("llm: LlmConfig,"), "{out}");
+        assert!(!out.contains("llm: LlmConfig ="), "{out}");
+        assert!(out.contains("alt_text: CaptionAltTextMode = .preserve,"), "{out}");
+    }
+
+    #[test]
+    fn non_enum_bare_default_preserves_required_field_shape() {
+        let typ = TypeDef {
+            name: "OcrPipelineConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "quality_thresholds".to_string(),
+                ty: TypeRef::Named("OcrQualityThresholds".to_string()),
+                default: Some("/* serde(default) */".to_string()),
+                typed_default: Some(DefaultValue::Empty),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut out = String::new();
+        emit_type(&typ, &[], &ResolvedCrateConfig::default(), &mut out);
+
+        let control = TypeDef {
+            name: "OcrPipelineConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "quality_thresholds".to_string(),
+                ty: TypeRef::Named("OcrQualityThresholds".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut control_out = String::new();
+        emit_type(&control, &[], &ResolvedCrateConfig::default(), &mut control_out);
+
+        assert_eq!(out, control_out);
+        assert!(out.contains("quality_thresholds: OcrQualityThresholds,"), "{out}");
+        assert!(!out.contains("quality_thresholds: OcrQualityThresholds ="), "{out}");
+    }
 }

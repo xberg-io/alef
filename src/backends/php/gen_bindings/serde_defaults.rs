@@ -18,7 +18,7 @@ enum SerdeDefaultSource<'a> {
     ResolvedFunctionPath { return_type: &'static str, call: String },
 }
 
-fn default_fn_ident(type_name: &str, field_name: &str) -> String {
+pub(crate) fn default_fn_ident(type_name: &str, field_name: &str) -> String {
     format!("{}_{}", pascal_to_snake(type_name), pascal_to_snake(field_name))
 }
 
@@ -151,7 +151,7 @@ fn serde_default_source<'a>(
     enum_names: &AHashSet<String>,
     api: &ApiSurface,
 ) -> Option<SerdeDefaultSource<'a>> {
-    if !typ.has_default || field.optional || field.binding_excluded {
+    if (!typ.has_default && !field.has_bare_serde_enum_default()) || field.optional || field.binding_excluded {
         return None;
     }
     let serde_path = serde_default_path(field.default.as_deref());
