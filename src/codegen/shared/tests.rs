@@ -375,6 +375,100 @@ fn field_default_constructor_keeps_unrelated_sibling_required() {
 }
 
 #[test]
+fn field_default_constructor_preserves_ordinary_optional_sibling() {
+    let llm = FieldDef {
+        name: "llm".to_string(),
+        ty: TypeRef::Named("LlmConfig".to_string()),
+        ..Default::default()
+    };
+    let output_format = FieldDef {
+        name: "output_format".to_string(),
+        ty: TypeRef::Named("OutputFormat".to_string()),
+        optional: true,
+        ..Default::default()
+    };
+    let alt_text = FieldDef {
+        name: "alt_text".to_string(),
+        ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+        ..Default::default()
+    };
+    let fields = vec![llm, output_format, alt_text];
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        rust_path: "sample_core::CaptioningConfig".to_string(),
+        fields: fields.clone(),
+        ..Default::default()
+    };
+    let mapper = |ty: &TypeRef| match ty {
+        TypeRef::Named(name) => name.clone(),
+        _ => unreachable!(),
+    };
+
+    let (params, defaults, assignments) = constructor_parts_with_field_defaults(&fields, &mapper, &typ);
+
+    assert!(
+        params.contains("output_format: Option<OutputFormat>"),
+        "ordinary optional sibling must remain optional: {params}"
+    );
+    assert_eq!(defaults, "output_format=None, alt_text=None");
+    assert!(
+        assignments.contains("output_format"),
+        "ordinary optional sibling must pass through: {assignments}"
+    );
+    assert!(
+        !assignments.contains("output_format.unwrap"),
+        "ordinary optional sibling must pass through: {assignments}"
+    );
+}
+
+#[test]
+fn field_default_constructor_does_not_double_wrap_already_optional_sibling() {
+    let description = FieldDef {
+        name: "description".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        ..Default::default()
+    };
+    let alt_text = FieldDef {
+        name: "alt_text".to_string(),
+        ty: TypeRef::Named("CaptionAltTextMode".to_string()),
+        default: Some("/* serde(default) */".to_string()),
+        typed_default: Some(DefaultValue::EnumVariant("Preserve".to_string())),
+        ..Default::default()
+    };
+    let fields = vec![description, alt_text];
+    let typ = TypeDef {
+        name: "CaptioningConfig".to_string(),
+        rust_path: "sample_core::CaptioningConfig".to_string(),
+        fields: fields.clone(),
+        ..Default::default()
+    };
+    let mapper = |ty: &TypeRef| match ty {
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => "Option<String>".to_string(),
+        TypeRef::Named(name) => name.clone(),
+        _ => unreachable!(),
+    };
+
+    let (params, defaults, assignments) = constructor_parts_with_field_defaults(&fields, &mapper, &typ);
+
+    assert!(
+        params.contains("description: Option<String>"),
+        "already-optional sibling must retain its mapped type: {params}"
+    );
+    assert!(
+        !params.contains("Option<Option<String>>"),
+        "already-optional sibling must not be double-wrapped: {params}"
+    );
+    assert_eq!(defaults, "description=None, alt_text=None");
+    assert!(
+        !assignments.contains("description.unwrap"),
+        "already-optional sibling must pass through: {assignments}"
+    );
+}
+
+#[test]
 fn field_default_constructor_does_not_widen_non_enum_bare_defaults() {
     let quality_thresholds = FieldDef {
         name: "quality_thresholds".to_string(),

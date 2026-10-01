@@ -809,17 +809,18 @@ fn config_constructor_parts_inner(
         .iter()
         .map(|f| {
             let ty = type_mapper(&f.ty);
-            if matches!(f.ty, TypeRef::Optional(_)) || (!optionalize_all_fields && !f.has_bare_serde_enum_default()) {
-                format!("{}: {}", f.name, ty)
-            } else {
+            let is_optional = optionalize_all_fields || f.optional || f.has_bare_serde_enum_default();
+            if is_optional && !matches!(f.ty, TypeRef::Optional(_)) {
                 format!("{}: Option<{}>", f.name, ty)
+            } else {
+                format!("{}: {}", f.name, ty)
             }
         })
         .collect();
 
     let defaults = sorted_fields
         .iter()
-        .filter(|f| optionalize_all_fields || f.has_bare_serde_enum_default())
+        .filter(|f| optionalize_all_fields || f.optional || f.has_bare_serde_enum_default())
         .map(|f| format!("{}=None", f.name))
         .collect::<Vec<_>>()
         .join(", ");
