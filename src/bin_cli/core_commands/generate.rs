@@ -568,10 +568,11 @@ pub(crate) fn handle_generate(
         // generation for it has completed successfully -- the replacement for folding
         // `inputs_hash` into every file's own stamp. See `core::hash`'s module doc and
         // `cache::generation_record`. ~keep
+        let final_sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
         cache::record_inputs_hash(
             &base_dir,
             &resolved_cfg.name,
-            &crate::core::hash::compute_inputs_hash(&sources_hash, &alef_toml_bytes),
+            &crate::core::hash::compute_inputs_hash(&final_sources_hash, &alef_toml_bytes),
         )?;
         // This crate's run reached the point `record_inputs_hash` just marked as its
         // successful baseline -- clear the in-progress marker set above so it is
