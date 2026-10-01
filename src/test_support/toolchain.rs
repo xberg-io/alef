@@ -558,10 +558,10 @@ mod tests {
             probe: CapabilityProbe::VersionOnly,
             require_env: "ALEF_REQUIRE_PATH_LOCK_REGRESSION_RUSTC",
         };
+        let path_lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let expected = which::which(RUSTC.binary).expect("cargo tests require rustc on PATH");
         assert!(expected.is_absolute(), "which must resolve rustc to an absolute path");
 
-        let path_lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
         let worker = std::thread::spawn(move || {
