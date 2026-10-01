@@ -10,6 +10,7 @@
 use alef::backends::ffi::FfiBackend;
 use alef::backends::jni::JniBackend;
 use alef::backends::napi::NapiBackend;
+use alef::backends::pyo3::Pyo3Backend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef::core::ir::ApiSurface;
@@ -256,6 +257,24 @@ crate_attributes = ["recursion_limit = \"256\""]
     assert!(
         clippy_pos < recursion_pos,
         "extra_clippy_allows must be spliced before crate_attributes, neither clobbering the other"
+    );
+}
+
+#[test]
+fn pyo3_backend_does_not_duplicate_lint_already_in_grouped_allow() {
+    let cfg = make_config(r#""python""#, r#"crate_attributes = ["allow(deprecated)"]"#);
+    let api = empty_api();
+    let files = Pyo3Backend.generate_bindings(&api, &cfg).expect("pyo3 generates");
+    let content = lib_rs_content(&files);
+
+    assert_eq!(
+        content.matches("deprecated").count(),
+        1,
+        "the built-in grouped allow must prevent a duplicate standalone allow:\n{content}"
+    );
+    assert!(
+        !content.contains("#![allow(deprecated)]"),
+        "the duplicate standalone allow must be omitted:\n{content}"
     );
 }
 

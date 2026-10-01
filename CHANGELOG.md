@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Rust crates omit duplicate lint allowances when a custom crate attribute repeats a
+  lint already present in a grouped backend default, avoiding `duplicated_attributes` failures.
 - Generated Java convenience overloads preserve absent optional primitive arguments instead of
   replacing them with zero or false.
 - Re-finalize generated ownership hashes after formatting cache-hit E2E and test-app outputs, so repeated generation is byte-identical instead of alternating between stamped and unstamped trees.

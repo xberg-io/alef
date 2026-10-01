@@ -1,9 +1,12 @@
+use std::collections::HashSet;
+
 /// Builder for constructing Rust source files.
 #[derive(Debug, Default)]
 pub struct RustFileBuilder {
     doc_header: Option<String>,
     imports: Vec<String>,
     items: Vec<String>,
+    allowed_lints: HashSet<String>,
 }
 
 impl RustFileBuilder {
@@ -24,10 +27,22 @@ impl RustFileBuilder {
     /// Add a crate-level inner attribute (e.g., `#![allow(clippy::...)]`).
     /// These are placed at the very top of the file, before imports.
     pub fn add_inner_attribute(&mut self, attr: &str) {
+        let attr = if let Some(lints) = parse_allow_lints(attr) {
+            let remaining = lints
+                .into_iter()
+                .filter(|lint| self.allowed_lints.insert((*lint).to_string()))
+                .collect::<Vec<_>>();
+            if remaining.is_empty() {
+                return;
+            }
+            format!("allow({})", remaining.join(", "))
+        } else {
+            attr.to_string()
+        };
         let rendered = crate::codegen::template_env::render(
             "builders/inner_attribute.jinja",
             minijinja::context! {
-                attr => attr,
+                attr => &attr,
             },
         );
         if let Some(ref mut header) = self.doc_header {
@@ -102,6 +117,22 @@ impl RustFileBuilder {
 
         out
     }
+}
+
+fn parse_allow_lints(attr: &str) -> Option<Vec<&str>> {
+    let body = attr.trim().strip_prefix("allow(")?.strip_suffix(')')?;
+    let lints = body.split(',').map(str::trim).collect::<Vec<_>>();
+    if lints.is_empty()
+        || lints.iter().any(|lint| {
+            lint.is_empty()
+                || !lint
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == ':')
+        })
+    {
+        return None;
+    }
+    Some(lints)
 }
 
 /// Helper to build a struct with attributes.
