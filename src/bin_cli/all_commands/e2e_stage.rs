@@ -240,6 +240,8 @@ fn run_e2e_substage(
                 e2e_config,
                 strict,
             )?);
+            let cached_path_set = cached_paths.iter().cloned().collect();
+            pipeline::finalize_hashes(&cached_path_set, sources_hash, alef_toml_bytes)?;
             for path in cached_paths {
                 current_gen_paths.insert(path);
             }
@@ -335,6 +337,8 @@ fn run_test_apps_substage(
                 &registry_e2e_config,
                 strict,
             )?);
+            let cached_path_set = cached_paths.iter().cloned().collect();
+            pipeline::finalize_hashes(&cached_path_set, sources_hash, alef_toml_bytes)?;
             for path in cached_paths {
                 current_gen_paths.insert(path);
             }

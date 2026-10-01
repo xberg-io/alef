@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Re-finalize generated ownership hashes after formatting cache-hit E2E and test-app outputs, so repeated generation is byte-identical instead of alternating between stamped and unstamped trees.
+
 ## [0.103.6] - 2026-10-01
 
 ### Fixed

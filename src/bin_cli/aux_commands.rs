@@ -158,6 +158,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 e2e_ref,
                                 strict,
                             )?);
+                            let cached_path_set = cached_paths.iter().cloned().collect();
+                            pipeline::finalize_hashes(&cached_path_set, &sources_hash, &alef_toml_bytes)?;
                             if let Some(snippets) = &this_e2e_config.snippets {
                                 let coverage_path = base_dir
                                     .join(&snippets.output)
@@ -422,6 +424,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 e2e_ref,
                                 strict,
                             )?);
+                            let cached_path_set = cached_paths.iter().cloned().collect();
+                            pipeline::finalize_hashes(&cached_path_set, &sources_hash, &alef_toml_bytes)?;
                             tracing::info!("Test apps up to date (cached)");
                             continue;
                         }
