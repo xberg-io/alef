@@ -67,6 +67,9 @@ impl BucketFixture {
         );
         git_ok(&bucket_dir, &["config", "user.email", "test@example.invalid"]);
         git_ok(&bucket_dir, &["config", "user.name", "test"]);
+        // ~keep The fixture must not inherit a developer's global signing policy: both its seed
+        // commit and the publishing script's commit are non-interactive test operations.
+        git_ok(&bucket_dir, &["config", "commit.gpgsign", "false"]);
 
         std::fs::create_dir_all(bucket_dir.join("bucket")).expect("create bucket dir");
         std::fs::write(bucket_dir.join("bucket/other-app.json"), "{\"version\":\"1.0.0\"}\n").expect("write fixture");

@@ -80,6 +80,36 @@ send_sync_types = ["SharedHandle"]
     assert_eq!(resolved.python.unwrap().send_sync_types, ["SharedHandle"]);
 }
 
+#[test]
+fn trait_bridge_callback_unsupported_mode_matches_schema_and_rust_config() {
+    let source = r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "OcrBackend"
+exclude_languages = ["php:callbacks"]
+"#;
+    let schema = alef_config_schema(env!("CARGO_PKG_VERSION")).expect("schema generation succeeds");
+    let rendered = serde_json::to_string(&schema).expect("schema serializes");
+    assert!(rendered.contains("php:callbacks"));
+
+    let validator = jsonschema::validator_for(&schema).expect("schema compiles");
+    let toml_value: toml::Value = toml::from_str(source).expect("TOML parses");
+    let json_value = serde_json::to_value(toml_value).expect("TOML value converts to JSON");
+    assert!(validator.is_valid(&json_value));
+
+    let config: NewAlefConfig = toml::from_str(source).expect("TOML deserializes");
+    let resolved = config.resolve().expect("config resolves");
+    let bridge = &resolved[0].trait_bridges[0];
+    assert!(bridge.is_active_for("php"));
+    assert_eq!(bridge.exclude_languages, ["php:callbacks"]);
+}
+
 /// A `[crates.cargo_lints]` table with both string- and table-valued entries must
 /// validate against the generated schema and deserialize into `NewAlefConfig`,
 /// pinning the `CargoLintsConfig` schema entry to the type it describes rather

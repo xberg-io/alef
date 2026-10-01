@@ -67,8 +67,18 @@ pub struct TraitBridgeConfig {
     /// `ruby`/`magnus`, `elixir`/`rustler`, `r`/`extendr` and `c`/`ffi`. When a target is
     /// listed here, the bridge struct and everything that references it — the wrapper
     /// functions, the options setter, the registration surface — are omitted from that
-    /// target's output. An entry that names neither a language nor a backend is rejected at
-    /// config resolution rather than silently excluding nothing.
+    /// target's output.
+    ///
+    /// For PHP, use `"php:callbacks"` to retain the public interface/class and configured
+    /// register, unregister, and clear symbols while disabling host callback execution.
+    /// Registration then returns a deterministic unsupported error, while unregister and clear
+    /// continue to call the Rust host. This preserves an existing PHP plugin API without
+    /// retaining request-bound Zend values behind `Send + Sync` Rust trait objects. No other
+    /// language supports this suffix. It uses this existing string list so adding the mode does
+    /// not break Rust callers that construct `TraitBridgeConfig` exhaustively.
+    ///
+    /// An entry whose language/backend portion names neither a language nor a backend is rejected
+    /// at config resolution rather than silently excluding nothing.
     #[serde(default)]
     pub exclude_languages: Vec<String>,
     /// Free functions that should NOT gain this bridge's extra argument.
@@ -151,12 +161,17 @@ pub enum BridgeBinding {
 /// rather than trusting this list. ~keep
 pub const BRIDGE_BACKEND_SPELLINGS: [&str; 5] = ["extendr", "magnus", "napi", "pyo3", "rustler"];
 
+const UNSUPPORTED_CALLBACK_SUFFIX: &str = ":callbacks";
+
 /// Whether `name` is a spelling any backend answers to in `exclude_languages`.
 ///
 /// An unrecognised entry disables nothing at all, and the symptom surfaces far away as a
 /// generated crate that does not compile — so it is rejected at config-resolution time
 /// instead (alef #476).
 pub fn is_known_bridge_language(name: &str) -> bool {
+    if let Some(language) = name.strip_suffix(UNSUPPORTED_CALLBACK_SUFFIX) {
+        return language == "php";
+    }
     crate::core::config::Language::ALL
         .iter()
         .any(|language| language.to_string() == name)
@@ -174,11 +189,40 @@ impl TraitBridgeConfig {
         !self.exclude_languages.iter().any(|excluded| excluded == language)
     }
 
+    /// Whether PHP keeps the bridge's public lifecycle surface but rejects callback registration
+    /// without retaining the Zend object.
+    pub(crate) fn php_callbacks_unsupported(&self) -> bool {
+        self.exclude_languages.iter().any(|entry| entry == "php:callbacks")
+    }
+
+    pub(crate) fn php_callback_attachment_shape(&self) -> Option<&'static str> {
+        if self.context_type.is_some() || self.result_type.is_some() {
+            return Some("visitor callback");
+        }
+        if self.bind_via == BridgeBinding::OptionsField || self.options_type.is_some() || self.options_field.is_some() {
+            return Some("options field");
+        }
+        if self.type_alias.is_some() || self.param_name.is_some() {
+            return Some("function parameter");
+        }
+        None
+    }
+
+    pub(crate) fn php_lifecycle_only_error(&self) -> Option<String> {
+        let attachment_shape = self.php_callback_attachment_shape()?;
+        Some(format!(
+            "PHP trait bridge `{}` uses `php:callbacks`, which is lifecycle-only and cannot attach through a {attachment_shape}. Remove its callback attachment metadata, exclude PHP entirely with plain `php`, or remove PHP from the crate's languages.",
+            self.trait_name
+        ))
+    }
+
     pub(crate) fn php_safety_error(&self) -> String {
         format!(
             "PHP trait bridge `{}` is disabled: generated wrappers cannot safely retain \
              request-bound Zend values behind Rust Send + Sync trait objects. Add `php` to this \
-             bridge's `exclude_languages`, or remove PHP from the crate's languages.",
+             bridge's `exclude_languages` as `php:callbacks` to preserve its public lifecycle \
+             surface with deterministic unsupported registration, add plain `php` to omit the \
+             surface, or remove PHP from the crate's languages.",
             self.trait_name
         )
     }
@@ -387,5 +431,21 @@ exclude_languages = ["go", "csharp"]
         assert!(!cfg.is_active_for("go"));
         assert!(!cfg.is_active_for("csharp"));
         assert!(cfg.is_active_for("java"));
+    }
+
+    #[test]
+    fn callback_suffix_keeps_surface_active_and_disables_only_callbacks() {
+        let cfg: TraitBridgeConfig = toml::from_str(
+            r#"
+trait_name = "OcrBackend"
+exclude_languages = ["php:callbacks"]
+"#,
+        )
+        .unwrap();
+
+        assert!(cfg.is_active_for("php"));
+        assert!(cfg.php_callbacks_unsupported());
+        assert!(is_known_bridge_language("php:callbacks"));
+        assert!(!is_known_bridge_language("python:callbacks"));
     }
 }

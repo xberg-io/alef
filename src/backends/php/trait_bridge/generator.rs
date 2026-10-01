@@ -350,16 +350,74 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
 
 /// Generate all trait bridge code for a given trait type and bridge config.
 pub fn gen_trait_bridge(
-    _trait_type: &TypeDef,
-    _bridge_cfg: &TraitBridgeConfig,
-    _core_import: &str,
-    _error_type: &str,
-    _error_constructor: &str,
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
     _api: &ApiSurface,
 ) -> BridgeOutput {
+    if bridge_cfg.php_callbacks_unsupported() {
+        return gen_unsupported_lifecycle(trait_type, bridge_cfg, core_import, error_type, error_constructor);
+    }
     BridgeOutput {
         imports: Vec::new(),
         code: super::disabled_code(),
+    }
+}
+
+fn gen_unsupported_lifecycle(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    core_import: &str,
+    error_type: &str,
+    error_constructor: &str,
+) -> BridgeOutput {
+    let spec = TraitBridgeSpec {
+        trait_def: trait_type,
+        bridge_config: bridge_cfg,
+        core_import,
+        wrapper_prefix: "Php",
+        type_paths: HashMap::new(),
+        lifetime_type_names: std::collections::HashSet::new(),
+        error_type: error_type.to_string(),
+        error_constructor: error_constructor.to_string(),
+    };
+    let mut blocks = Vec::new();
+
+    if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+        let message = format!(
+            "PHP callback bridge `{}` is unsupported: Zend values are request-thread-bound and cannot safely implement Send or Sync",
+            bridge_cfg.trait_name
+        );
+        blocks.push(format!(
+            "#[php_function]\npub fn {register_fn}(_backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    Err(ext_php_rs::exception::PhpException::from_message({message:?}.to_string()))\n}}"
+        ));
+    }
+    if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(&spec, unregister_fn);
+        blocks.push(crate::backends::php::template_env::render(
+            "bridge_unregister_fn.jinja",
+            context! {
+                unregister_fn => unregister_fn,
+                host_path => &host_path,
+            },
+        ));
+    }
+    if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+        let host_path = crate::codegen::generators::trait_bridge::host_function_path(&spec, clear_fn);
+        blocks.push(crate::backends::php::template_env::render(
+            "bridge_clear_fn.jinja",
+            context! {
+                clear_fn => clear_fn,
+                host_path => &host_path,
+            },
+        ));
+    }
+
+    BridgeOutput {
+        imports: Vec::new(),
+        code: blocks.join("\n\n"),
     }
 }
 
