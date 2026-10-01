@@ -24,22 +24,23 @@ fn config_with_core_manifest(features: &[&str]) -> (tempfile::TempDir, ResolvedC
 
 #[test]
 fn native_wrappers_preserve_configured_defaults_without_restoring_hidden_api() {
-    let (_dir, mut config) = config_with_core_manifest(&["formula-recognition"]);
+    let (_dir, mut config) = config_with_core_manifest(&["mcp-http", "hidden-api"]);
     config.languages = vec![
         Language::Python,
         Language::Node,
         Language::Ruby,
         Language::Php,
         Language::Elixir,
+        Language::Ffi,
     ];
-    config.wrapper_default_features = vec!["formula-recognition".to_string()];
+    config.wrapper_default_features = vec!["mcp-http".to_string()];
     let api = ApiSurface {
         crate_name: config.name.clone(),
         version: "0.1.0".to_string(),
         types: vec![TypeDef {
             name: "RustOnlyFormulaOptions".to_string(),
             rust_path: "my_lib::RustOnlyFormulaOptions".to_string(),
-            cfg: Some(r#"feature = "formula-recognition""#.to_string()),
+            cfg: Some(r#"feature = "hidden-api""#.to_string()),
             binding_excluded: true,
             ..Default::default()
         }],
@@ -57,19 +58,18 @@ fn native_wrappers_preserve_configured_defaults_without_restoring_hidden_api() {
                 || path.contains("-rb/")
                 || path.contains("-php/")
                 || path.contains("/native/")
+                || path.contains("-ffi/")
         })
         .collect();
     assert_eq!(
         cargo_manifests.len(),
-        5,
-        "all five native wrapper manifests must be emitted"
+        6,
+        "all six native wrapper manifests must be emitted"
     );
 
     for manifest in cargo_manifests {
         assert!(
-            manifest
-                .content
-                .contains(r#"formula-recognition = ["my-lib/formula-recognition"]"#),
+            manifest.content.contains(r#"mcp-http = ["my-lib/mcp-http"]"#),
             "{} must forward the configured wrapper default:\n{}",
             manifest.path.display(),
             manifest.content
@@ -80,9 +80,15 @@ fn native_wrappers_preserve_configured_defaults_without_restoring_hidden_api() {
             .find(|line| line.starts_with("default = ["))
             .expect("wrapper manifest default feature array");
         assert!(
-            default_line.contains(r#""formula-recognition""#),
+            default_line.contains(r#""mcp-http""#),
             "{} must enable the configured wrapper default: {default_line}",
             manifest.path.display()
+        );
+        assert!(
+            !manifest.content.contains("hidden-api"),
+            "{} must not restore a projected-out API feature:\n{}",
+            manifest.path.display(),
+            manifest.content
         );
     }
 

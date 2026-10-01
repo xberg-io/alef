@@ -152,13 +152,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         target_overrides,
     );
 
-    // FFI source uses `#[cfg(feature = "X")]` to gate code paths driven by core-crate
-    let ffi_core_features = config.features_for_language(Language::Ffi);
-    let passthrough_feature_names: Vec<&str> = ffi_core_features
-        .iter()
-        .map(|f| f.as_str())
-        .filter(|f| *f != "serde")
-        .collect();
     // Cargo features are per-crate: `full = ["<core>/full"]` enabling `X` on the dependency
     // does NOT create feature `X` here, so a `#[cfg(feature = "X")]` the codegen emits into
     // this crate is unsatisfiable unless this crate declares `X` itself. An undeclared gate is
@@ -168,7 +161,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     //
     // `default_feature_names` is `effective_ffi_default_features` -- the ONE derivation of what
     // the compiled FFI cdylib builds with by default. `warn_on_ffi_feature_drift` compares
-    // against this exact same derivation instead of re-deriving it from `passthrough_feature_names`
+    // against this exact same derivation instead of re-deriving it from the raw configured features
     // alone, so the two can no longer disagree about what "the FFI crate's feature set" means
     // (see github.com/xberg-io/alef/issues/257). ~keep
     let default_feature_names_owned = crate::codegen::cfg::effective_ffi_default_features(api, config);
@@ -198,7 +191,7 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // feature in a `#[cfg(feature = "X")]` gate (e.g. a `wasm-http` backend that is
     if let Some(extra) = config.ffi.as_ref().map(|c| c.extra_features.as_slice()) {
         for feat in extra {
-            if feat.is_empty() || passthrough_feature_names.contains(&feat.as_str()) {
+            if feat.is_empty() || default_feature_names.contains(&feat.as_str()) {
                 continue;
             }
             let line = format!("{feat} = [\"{}/{feat}\"]", config.name);
@@ -215,11 +208,9 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // feature at all without this: a name listed there stays a *declared* opt-in flag, just
     // never defaulted, the same tradeoff `extra_features` makes above. ~keep
     for feat in excluded_default_features_ordered {
-        // Deliberately checked against `default_feature_names` alone, not
-        // `passthrough_feature_names`: a name in `excluded_default_features` is stripped out of
-        // `default_feature_names` by `effective_ffi_default_features` even when it IS present in
-        // `passthrough_feature_names` (i.e. explicitly configured), so that unfiltered list can
-        // no longer prove a declare-only row already exists for it. ~keep
+        // Deliberately checked against `default_feature_names` alone, not the raw configured
+        // feature list: an excluded name is stripped out of the former even when explicitly
+        // configured, so the latter cannot prove a declare-only row already exists. ~keep
         if default_feature_names.contains(&feat.as_str()) {
             continue;
         }

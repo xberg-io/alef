@@ -349,8 +349,9 @@ fn any_group_feature_names(cfg_str: &str) -> Option<BTreeSet<String>> {
 
 /// The full set of Cargo features the generated FFI crate's `Cargo.toml` enables by default,
 /// once `scaffold::languages::ffi::scaffold_ffi` writes it: [`Language::Ffi`]'s configured
-/// feature list (minus `serde`, which is a passthrough dependency, never a default) unioned with
-/// every feature name [`collect_cfg_features`] finds referenced by an emitted
+/// feature list (minus `serde`, which is a passthrough dependency, never a default), configured
+/// [`ResolvedCrateConfig::wrapper_default_features`], and every feature name [`collect_cfg_features`]
+/// finds referenced by an emitted
 /// `#[cfg(feature = "X")]` gate in the FFI surface, excluding any name declared in
 /// `[crates.ffi].extra_features` or `[crates.ffi].excluded_default_features` -- both stay
 /// declare-only by design: `extra_features` for a mutually-exclusive alternative (such as a
@@ -393,13 +394,28 @@ pub fn effective_ffi_default_features(api: &ApiSurface, config: &ResolvedCrateCo
         .map(String::as_str)
         .filter(|f| *f != "serde" && !never_default(f))
         .collect();
+    let wrapper_defaults: Vec<&str> = config
+        .wrapper_default_features
+        .iter()
+        .map(String::as_str)
+        .filter(|name| !name.is_empty() && !passthrough.contains(name) && !never_default(name))
+        .collect();
     let emitted: Vec<String> = collect_cfg_features(api)
         .into_iter()
         .filter(|name| {
-            !name.is_empty() && name != "serde" && !passthrough.contains(&name.as_str()) && !never_default(name)
+            !name.is_empty()
+                && name != "serde"
+                && !passthrough.contains(&name.as_str())
+                && !wrapper_defaults.contains(&name.as_str())
+                && !never_default(name)
         })
         .collect();
-    passthrough.into_iter().map(str::to_string).chain(emitted).collect()
+    passthrough
+        .into_iter()
+        .chain(wrapper_defaults)
+        .map(str::to_string)
+        .chain(emitted)
+        .collect()
 }
 
 /// Feature names [`collect_cfg_features`] finds referenced in `api` that `present` does not
