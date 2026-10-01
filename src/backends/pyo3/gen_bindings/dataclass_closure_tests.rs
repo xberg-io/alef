@@ -1,16 +1,14 @@
 //! Regression coverage for the nested-config public-identity defect: a native type with NO
-//! core `Default` impl of its own (because one of its
-//! fields is genuinely required, e.g. `CaptioningConfig { llm: LlmConfig, .. }`) but whose
-//! required field's type DOES get a public `options.py` dataclass twin (because that field's
-//! type, `LlmConfig`, has a core `Default` impl) must itself join the dataclass twin set --
+//! core `Default` impl of its own but whose nested field type gets a public `options.py`
+//! dataclass twin must itself join the dataclass twin set --
 //! otherwise its native `#[new]` demands a native `LlmConfig` instance while the public name
 //! `LlmConfig` resolves to the unrelated dataclass, and `CaptioningConfig(llm=LlmConfig(...))`
 //! raises `TypeError: 'LlmConfig' object is not an instance of 'LlmConfig'`.
 //!
 //! Every assertion here fails against the pre-fix code, where `options_dataclass_type_names`
 //! (and the three independent `typ.has_default` gates in `gen_options_py`/`gen_init_py` this
-//! test also exercises) considered only `has_default`, never a type's *closure* over a required
-//! field of an already-dataclass-backed type.
+//! test also exercises) considered only `has_default`, or only a required direct field, never
+//! the complete nested field closure of an already-dataclass-backed type.
 
 use super::errors::gen_init_py;
 use super::types::{gen_options_py, options_dataclass_type_names};
@@ -19,6 +17,7 @@ use crate::core::ir::{ApiSurface, FieldDef, TypeDef, TypeRef};
 
 const LLM_CONFIG: &str = "LlmConfig";
 const CAPTIONING_CONFIG: &str = "CaptioningConfig";
+const OCR_PIPELINE_STAGE: &str = "OcrPipelineStage";
 
 /// `LlmConfig`: has a core `Default` impl (the seed of the dataclass set) and one plain field.
 /// `CaptioningConfig`: no core `Default` impl (mirrors the real type -- `llm` has no sensible
@@ -64,6 +63,44 @@ fn captioning_config_api() -> ApiSurface {
     }
 }
 
+fn optional_nested_config_api() -> ApiSurface {
+    ApiSurface {
+        types: vec![
+            TypeDef {
+                name: LLM_CONFIG.to_owned(),
+                rust_path: format!("sample_core::{LLM_CONFIG}"),
+                has_default: true,
+                fields: vec![FieldDef {
+                    name: "model".to_owned(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: OCR_PIPELINE_STAGE.to_owned(),
+                rust_path: format!("sample_core::{OCR_PIPELINE_STAGE}"),
+                has_default: false,
+                fields: vec![
+                    FieldDef {
+                        name: "backend".to_owned(),
+                        ty: TypeRef::String,
+                        ..FieldDef::default()
+                    },
+                    FieldDef {
+                        name: "llm_config".to_owned(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Named(LLM_CONFIG.to_owned()))),
+                        optional: true,
+                        ..FieldDef::default()
+                    },
+                ],
+                ..TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    }
+}
+
 /// `options_dataclass_type_names` must include the closure-added type, not just the
 /// `has_default` seed -- this is the single source of truth every other emitter in this module
 /// (and `e2e::codegen::python`) consults to decide a type's public spelling.
@@ -77,6 +114,33 @@ fn options_dataclass_type_names_includes_a_required_field_of_a_dataclass_type() 
         "a native type with no Default of its own, but a required field whose type IS in the \
          dataclass set, must join the set too -- otherwise its constructor demands a native \
          instance of a type whose public name now resolves to the dataclass twin"
+    );
+}
+
+#[test]
+fn options_dataclass_type_names_includes_a_holder_of_an_optional_dataclass_type() {
+    let api = optional_nested_config_api();
+    let names = options_dataclass_type_names(&api, &[]);
+    assert!(names.contains(LLM_CONFIG), "the has_default seed must still be present");
+    assert!(
+        names.contains(OCR_PIPELINE_STAGE),
+        "a native type with no Default of its own, but an optional field whose type is a public \
+         dataclass, must join the set so its constructor accepts the package's public nested type"
+    );
+}
+
+#[test]
+fn gen_options_py_emits_optional_nested_config_holder_as_a_dataclass() {
+    let api = optional_nested_config_api();
+    let options_py = gen_options_py(&api, "_rust", &DtoConfig::default(), &[], false);
+
+    assert!(
+        options_py.contains("class OcrPipelineStage:"),
+        "options.py must define the optional nested-config holder as a public dataclass:\n{options_py}"
+    );
+    assert!(
+        options_py.contains("    llm_config: LlmConfig | None = None\n"),
+        "the holder must accept the public nested dataclass through its optional field:\n{options_py}"
     );
 }
 
