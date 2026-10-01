@@ -28,7 +28,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::spawn_from_stable_dir;
+use super::{PATH_LOCK, spawn_from_stable_dir};
 
 /// Directory, relative to the cargo target directory, holding one tally file per test binary.
 /// `scripts/toolchain-census.sh` reads this same name -- change both together. ~keep
@@ -202,7 +202,13 @@ impl ToolchainGate {
         if let Some(cached) = lock().resolved.get(self.name) {
             return cached.clone();
         }
-        let resolved = match which::which(self.binary) {
+        let binary = {
+            // `PATH` is process-global; resolve under the mutation lock, then release it before
+            // probing the absolute executable so long-running capability checks do not block tests. ~keep
+            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            which::which(self.binary)
+        };
+        let resolved = match binary {
             Ok(path) => match self.probe(&path) {
                 Ok(()) => Resolution::Available(path),
                 Err(diagnostic) => Resolution::Unusable(diagnostic),
@@ -544,6 +550,53 @@ mod tests {
     }
 
     #[test]
+    fn resolve_waits_for_temporary_path_mutation_before_caching_availability() {
+        static RUSTC: ToolchainGate = ToolchainGate {
+            name: "path-lock-regression-rustc",
+            binary: if cfg!(windows) { "rustc.exe" } else { "rustc" },
+            version_arg: "--version",
+            probe: CapabilityProbe::VersionOnly,
+            require_env: "ALEF_REQUIRE_PATH_LOCK_REGRESSION_RUSTC",
+        };
+        let expected = {
+            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            which::which(RUSTC.binary).expect("cargo tests require rustc on PATH")
+        };
+        assert!(expected.is_absolute(), "which must resolve rustc to an absolute path");
+
+        let hidden = super::super::PathWithoutToolGuard::exclude(RUSTC.binary);
+        assert!(
+            which::which(RUSTC.binary).is_err(),
+            "negative control must prove the guard actually hides rustc"
+        );
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).expect("signal resolve start");
+            resolved_tx.send(RUSTC.resolve()).expect("send resolution");
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("resolve worker started");
+        match resolved_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(error) => panic!("resolve worker disconnected while PATH was guarded: {error}"),
+            Ok(_) => panic!("resolve observed PATH while the temporary mutation was active"),
+        }
+
+        drop(hidden);
+        let resolved = resolved_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("resolve completed after PATH was restored");
+        worker.join().expect("resolve worker completed");
+        match resolved {
+            Resolution::Available(path) => assert_eq!(path, expected),
+            Resolution::Absent => panic!("rustc remained absent after PATH was restored"),
+            Resolution::Unusable(diagnostic) => panic!("rustc was unexpectedly unusable: {diagnostic}"),
+        }
+    }
+
+    #[test]
     fn deterministic_capability_controls_accept_real_work_for_every_probed_language() {
         let tools = fake_toolchains(false);
 
@@ -586,7 +639,11 @@ mod tests {
             .path()
             .join(if cfg!(windows) { "fake_tool.exe" } else { "fake_tool" });
         std::fs::write(&source, FAKE_TOOL_SOURCE).expect("write fake tool source");
-        let rustc = which::which("rustc").expect("cargo tests require rustc");
+        let rustc = {
+            // Test helpers share the process PATH with PathWithoutToolGuard. ~keep
+            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            which::which("rustc").expect("cargo tests require rustc")
+        };
         let output = std::process::Command::new(rustc)
             .arg(&source)
             .arg("-o")
