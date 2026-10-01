@@ -691,7 +691,7 @@ mod constructor_param_order_tests {
     }
 
     #[test]
-    fn trailing_defaulted_named_type_clones_the_optional_reference_value() {
+    fn trailing_defaulted_named_type_uses_its_default_when_omitted() {
         let mut sizing = field("sizing", TypeRef::Named("ChunkSizing".to_string()), false);
         sizing.default = Some("/* serde(default) */".to_string());
         sizing.typed_default = Some(crate::core::ir::DefaultValue::EnumVariant("Characters".to_string()));
@@ -724,7 +724,10 @@ mod constructor_param_order_tests {
         let signature = constructor_signature(new_fn);
 
         assert!(signature.contains("sizing: Option<&ChunkSizing>"), "{signature}");
-        assert!(new_fn.contains("sizing: sizing.cloned()"), "{new_fn}");
+        assert!(
+            new_fn.contains("sizing: sizing.cloned().unwrap_or_default()"),
+            "{new_fn}"
+        );
     }
 }
 
