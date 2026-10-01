@@ -41,11 +41,11 @@ fn run_census(args: &[&str], cargo_target_dir: Option<&std::path::Path>) -> Outp
     command.output().expect("toolchain-census.sh must run")
 }
 
-fn write_row(census_dir: &std::path::Path, toolchain: &str, attempted: u32, executed: u32, skipped: u32) {
+fn write_row(census_dir: &std::path::Path, toolchain: &str, attempted: u32, executed: u32, absent: u32, unusable: u32) {
     std::fs::create_dir_all(census_dir).expect("create census dir");
     std::fs::write(
         census_dir.join("some-test-binary.tsv"),
-        format!("{toolchain}\t{attempted}\t{executed}\t{skipped}\n"),
+        format!("{toolchain}\t{attempted}\t{executed}\t{absent}\t{unusable}\n"),
     )
     .expect("write census row");
 }
@@ -69,7 +69,7 @@ fn explicit_dir_empty_fails_a_required_toolchain() {
 fn explicit_dir_with_a_zero_executed_row_fails_a_required_toolchain() {
     let temp = tempfile::tempdir().expect("tempdir");
     let census_dir = temp.path().join("toolchain-census");
-    write_row(&census_dir, "go", 3, 0, 3);
+    write_row(&census_dir, "go", 3, 0, 3, 0);
 
     let output = run_census(&["--dir", census_dir.to_str().unwrap(), "--require", "go"], None);
 
@@ -78,6 +78,70 @@ fn explicit_dir_with_a_zero_executed_row_fails_a_required_toolchain() {
         "a row with executed=0 must fail a required toolchain: {}",
         shell_diagnostics::describe(&output)
     );
+}
+
+#[test]
+fn optional_unusable_toolchain_is_reported_distinctly_from_absent() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "go", 2, 0, 0, 2);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap()], None);
+
+    assert!(output.status.success(), "{}", shell_diagnostics::describe(&output));
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(stdout.contains("0 absent, 2 unusable"), "unexpected census:\n{stdout}");
+    assert!(stdout.contains("present but unusable"), "unexpected census:\n{stdout}");
+}
+
+#[test]
+fn required_unusable_toolchain_fails_with_the_unusable_count() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "swift", 1, 0, 0, 1);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap(), "--require", "swift"], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf8");
+    assert!(
+        stdout.contains("0 absent and 1 unusable"),
+        "unexpected census:\n{stdout}"
+    );
+}
+
+#[test]
+fn inconsistent_outcome_total_is_rejected_even_for_an_optional_toolchain() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "go", 2, 1, 0, 0);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap()], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+}
+
+#[test]
+fn required_toolchain_fails_unless_every_attempt_executed() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    write_row(&census_dir, "go", 2, 1, 1, 0);
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap(), "--require", "go"], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
+}
+
+#[test]
+fn malformed_numeric_census_row_is_rejected() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let census_dir = temp.path().join("toolchain-census");
+    std::fs::create_dir_all(&census_dir).expect("create census dir");
+    std::fs::write(census_dir.join("malformed.tsv"), "go\ttwo\t1\t1\t0\n").expect("write malformed row");
+
+    let output = run_census(&["--dir", census_dir.to_str().unwrap()], None);
+
+    assert!(!output.status.success(), "{}", shell_diagnostics::describe(&output));
 }
 
 #[test]
@@ -97,7 +161,7 @@ fn default_dir_under_a_custom_cargo_target_dir_empty_fails_a_required_toolchain(
 #[test]
 fn default_dir_under_a_custom_cargo_target_dir_with_a_zero_executed_row_fails() {
     let target_dir = tempfile::tempdir().expect("tempdir for CARGO_TARGET_DIR");
-    write_row(&target_dir.path().join("toolchain-census"), "go", 2, 0, 2);
+    write_row(&target_dir.path().join("toolchain-census"), "go", 2, 0, 2, 0);
 
     let output = run_census(&["--require", "go"], Some(target_dir.path()));
 
@@ -111,7 +175,7 @@ fn default_dir_under_a_custom_cargo_target_dir_with_a_zero_executed_row_fails() 
 #[test]
 fn default_dir_under_a_custom_cargo_target_dir_passes_when_fully_executed() {
     let target_dir = tempfile::tempdir().expect("tempdir for CARGO_TARGET_DIR");
-    write_row(&target_dir.path().join("toolchain-census"), "go", 2, 2, 0);
+    write_row(&target_dir.path().join("toolchain-census"), "go", 2, 2, 0, 0);
 
     let output = run_census(&["--require", "go"], Some(target_dir.path()));
 

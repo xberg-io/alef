@@ -1,6 +1,6 @@
 use super::{errors, functions, types};
 use crate::core::backend::GeneratedFile;
-use crate::core::config::{ResolvedCrateConfig, resolve_output_dir};
+use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::ApiSurface;
 use ahash::AHashSet;
 use std::path::PathBuf;
@@ -19,8 +19,9 @@ pub(super) fn generate_type_stubs(
         .as_ref()
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
+    let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Python).cloned().collect();
     let content =
-        crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config, &stubs_exclude_functions);
+        crate::backends::pyo3::gen_stubs::gen_stubs(api, &active_trait_bridges, config, &stubs_exclude_functions);
 
     let stubs_path = resolve_output_dir(
         Some(&stubs_config.output),
@@ -62,6 +63,7 @@ pub(super) fn generate_public_api(
         .as_ref()
         .map(|c| c.reexported_types.clone())
         .unwrap_or_default();
+    let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Python).cloned().collect();
 
     let has_serde = types::crate_has_serde(config);
     let options_content = types::gen_options_py(api, &module_name, &config.dto, &reexported_types, has_serde);
@@ -85,7 +87,7 @@ pub(super) fn generate_public_api(
         api,
         &module_name,
         &package_name,
-        &config.trait_bridges,
+        &active_trait_bridges,
         &config.dto,
         &capsule_types,
         &config.opaque_types,
@@ -118,7 +120,7 @@ pub(super) fn generate_public_api(
         &api.version,
         &config.dto,
         &reexported_types,
-        &config.trait_bridges,
+        &active_trait_bridges,
         &extra_init_imports,
         &capsule_types,
         &config.adapters,

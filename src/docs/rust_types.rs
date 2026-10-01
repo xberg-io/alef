@@ -18,13 +18,113 @@ use crate::docs::type_mapping::doc_type;
 /// ambiguity toward `Option<&T>`, the shape `option_inner_is_ref` exists to detect and by far
 /// the more common Rust API. ~keep
 pub(crate) fn rust_param_type(param: &ParamDef, ffi_prefix: &str) -> String {
-    let element_borrow = param.vec_inner_is_ref;
-    let inner = rust_borrowed_type(&param.ty, param.is_ref, param.is_mut, element_borrow, ffi_prefix);
-    if param.optional {
+    if let Some(original) = param.original_type.as_deref()
+        && let Ok(source_type) = syn::parse_str::<syn::Type>(original)
+        && source_type_carries_param_wrappers(&source_type, param)
+    {
+        return crate::extract::type_resolver::type_to_string(&source_type);
+    }
+
+    let inner = match param.original_type.as_deref() {
+        Some(original) if param.is_ref => {
+            let borrow = if param.is_mut { "&mut " } else { "&" };
+            let source_type =
+                decode_tuple_original_type(original, param.optional).unwrap_or_else(|| original.to_string());
+            format!("{borrow}{source_type}")
+        }
+        Some(original) => decode_tuple_original_type(original, param.optional).unwrap_or_else(|| original.to_string()),
+        None => rust_borrowed_type(
+            &param.ty,
+            param.is_ref,
+            param.is_mut,
+            param.vec_inner_is_ref,
+            ffi_prefix,
+        ),
+    };
+    if param.optional && !inner.starts_with("Option<") {
         format!("Option<{inner}>")
     } else {
         inner
     }
+}
+
+fn source_type_carries_param_wrappers(source_type: &syn::Type, param: &ParamDef) -> bool {
+    (!param.is_ref || source_type_has_outer_reference(source_type))
+        && (!param.optional || source_type_has_outer_option(source_type))
+}
+
+fn source_type_has_outer_reference(source_type: &syn::Type) -> bool {
+    match source_type {
+        syn::Type::Reference(_) => true,
+        syn::Type::Path(type_path) => outer_option_inner(type_path)
+            .is_some_and(|inner| matches!(peel_grouped_type(inner), syn::Type::Reference(_))),
+        syn::Type::Paren(paren) => source_type_has_outer_reference(&paren.elem),
+        syn::Type::Group(group) => source_type_has_outer_reference(&group.elem),
+        _ => false,
+    }
+}
+
+fn source_type_has_outer_option(source_type: &syn::Type) -> bool {
+    match source_type {
+        syn::Type::Reference(reference) => source_type_has_outer_option(&reference.elem),
+        syn::Type::Path(type_path) => outer_option_inner(type_path).is_some(),
+        syn::Type::Paren(paren) => source_type_has_outer_option(&paren.elem),
+        syn::Type::Group(group) => source_type_has_outer_option(&group.elem),
+        _ => false,
+    }
+}
+
+fn outer_option_inner(type_path: &syn::TypePath) -> Option<&syn::Type> {
+    let segment = type_path.path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return None;
+    };
+    arguments.args.iter().find_map(|argument| match argument {
+        syn::GenericArgument::Type(inner) => Some(inner),
+        _ => None,
+    })
+}
+
+fn peel_grouped_type(source_type: &syn::Type) -> &syn::Type {
+    match source_type {
+        syn::Type::Paren(paren) => peel_grouped_type(&paren.elem),
+        syn::Type::Group(group) => peel_grouped_type(&group.elem),
+        _ => source_type,
+    }
+}
+
+/// Decode the recursive `TypeRef::Debug` shapes the extractor stores for tuple parameters.
+///
+/// The outer `Optional` is omitted because `ParamDef::optional` renders it after borrow placement;
+/// nested optionals still render normally. Other `Debug` variants are deliberately rejected so a
+/// future extractor metadata change cannot silently turn arbitrary IR diagnostics into Rust. ~keep
+fn decode_tuple_original_type(original: &str, omit_outer_optional: bool) -> Option<String> {
+    let original = if omit_outer_optional {
+        debug_variant_inner(original, "Optional").unwrap_or(original)
+    } else {
+        original
+    };
+
+    if let Some(named) = original
+        .strip_prefix("Named(\"")
+        .and_then(|value| value.strip_suffix("\")"))
+    {
+        return named.starts_with('(').then(|| named.to_string());
+    }
+    if let Some(inner) = debug_variant_inner(original, "Vec") {
+        return decode_tuple_original_type(inner, false).map(|inner| format!("Vec<{inner}>"));
+    }
+    if let Some(inner) = debug_variant_inner(original, "Optional") {
+        return decode_tuple_original_type(inner, false).map(|inner| format!("Option<{inner}>"));
+    }
+    None
+}
+
+fn debug_variant_inner<'a>(original: &'a str, variant: &str) -> Option<&'a str> {
+    original.strip_prefix(variant)?.strip_prefix('(')?.strip_suffix(')')
 }
 
 /// Render `field` as the Rust source type the struct declares.
@@ -145,6 +245,31 @@ mod tests {
             rust_param_type(&make_param("data", TypeRef::Bytes, false), TEST_PREFIX),
             "Vec<u8>"
         );
+    }
+
+    #[test]
+    fn tuple_debug_types_render_through_vec_and_optional_wrappers() {
+        let mut direct = make_param("entry", TypeRef::String, false);
+        direct.original_type = Some("Named(\"(String, u32)\")".to_string());
+        assert_eq!(rust_param_type(&direct, TEST_PREFIX), "(String, u32)");
+
+        let mut nested = make_param("entries", TypeRef::String, false);
+        nested.original_type = Some("Vec(Optional(Named(\"(String, u32)\")))".to_string());
+        assert_eq!(rust_param_type(&nested, TEST_PREFIX), "Vec<Option<(String, u32)>>");
+
+        let mut optional_borrow = make_ref_param("entries", TypeRef::String, true);
+        optional_borrow.original_type = Some("Optional(Vec(Named(\"(String, u32)\")))".to_string());
+        assert_eq!(
+            rust_param_type(&optional_borrow, TEST_PREFIX),
+            "Option<&Vec<(String, u32)>>"
+        );
+    }
+
+    #[test]
+    fn ordinary_original_types_remain_unchanged() {
+        let mut param = make_param("policy", TypeRef::String, false);
+        param.original_type = Some("two::Policy".to_string());
+        assert_eq!(rust_param_type(&param, TEST_PREFIX), "two::Policy");
     }
 
     /// ~keep Reproduces the lossless fixed-size-array lowering the extract sanitizer performs

@@ -161,13 +161,7 @@ pub(crate) fn gen_facade_class(
     let api_function_names: HashSet<String> = api.functions.iter().map(|f| to_java_name(&f.name)).collect();
 
     let mut trait_bridge_wrappers = String::new();
-    for bridge in &config.trait_bridges {
-        if bridge
-            .exclude_languages
-            .contains(&crate::core::config::Language::Java.to_string())
-        {
-            continue;
-        }
+    for bridge in config.trait_bridges_for(crate::core::config::Language::Java) {
         let trait_pascal = bridge.trait_name.as_str().to_string();
         let bridge_class = format!("{}Bridge", trait_pascal);
 

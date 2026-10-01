@@ -13,7 +13,10 @@ use ahash::AHashSet;
 use heck::{ToPascalCase, ToSnakeCase};
 
 use super::enums::string_enum_js_values;
-use super::functions::{napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return};
+use super::functions::{
+    napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return, promoted_required,
+    wrap_promoted_required_body,
+};
 
 /// Whether the generated NAPI binding declares `field` of `owner` as `Option<T>`, i.e. whether
 /// the emitted `.d.ts` spells it `name?: T` and a JS caller may read `undefined` from it.
@@ -425,6 +428,7 @@ pub(super) fn gen_opaque_instance_method(
     mutex_types: &AHashSet<String>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::NodeCapsuleTypeConfig>,
 ) -> String {
+    let has_promoted_required = !promoted_required(&method.params).is_empty();
     let params = function_params(&method.params, &|ty| {
         if let crate::core::ir::TypeRef::Named(name) = ty
             && let Some(capsule_cfg) = capsule_types.get(name)
@@ -444,7 +448,7 @@ pub(super) fn gen_opaque_instance_method(
     } else {
         mapper.map_type(&method.return_type)
     };
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || has_promoted_required);
 
     let js_name = to_node_name(&method.name);
     let js_name_attr = if js_name != method.name {
@@ -515,8 +519,11 @@ pub(super) fn gen_opaque_instance_method(
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
             let serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
-            let serde_call_args =
-                generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types);
+            let serde_call_args = if has_promoted_required {
+                generators::gen_call_args_with_let_bindings_mutex_no_promote(&method.params, opaque_types, mutex_types)
+            } else {
+                generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types)
+            };
             let core_call = if has_mut_methods {
                 format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
             } else {
@@ -568,9 +575,21 @@ pub(super) fn gen_opaque_instance_method(
     } else {
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
         let (let_bindings, call_args_for_call) = if use_let_bindings {
-            let bindings = generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import);
+            let bindings = if has_promoted_required {
+                generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
+            } else {
+                generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import)
+            };
             let args = napi_apply_primitive_casts_to_call_args(
-                &generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
+                &if has_promoted_required {
+                    generators::gen_call_args_with_let_bindings_mutex_no_promote(
+                        &method.params,
+                        opaque_types,
+                        mutex_types,
+                    )
+                } else {
+                    generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types)
+                },
                 &method.params,
             );
             (bindings, args)
@@ -622,6 +641,14 @@ pub(super) fn gen_opaque_instance_method(
         }
     };
 
+    let body = wrap_promoted_required_body(
+        body,
+        &method.params,
+        method.error_type.is_some(),
+        method.is_async,
+        matches!(method.return_type, TypeRef::Unit),
+    );
+
     let mut attrs = String::new();
     let sanitized_method_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&method.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
@@ -629,7 +656,7 @@ pub(super) fn gen_opaque_instance_method(
     if method.params.len() + 1 > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    if method.error_type.is_some() {
+    if method.error_type.is_some() || has_promoted_required {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
     if generators::is_trait_method_name(&method.name) {
@@ -659,9 +686,10 @@ pub(super) fn gen_static_method(
     prefix: &str,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let has_promoted_required = !promoted_required(&method.params).is_empty();
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
     let return_type = mapper.map_type(&method.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
+    let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some() || has_promoted_required);
 
     let js_name = to_node_name(&method.name);
     let js_name_attr = if js_name != method.name {
@@ -741,6 +769,14 @@ pub(super) fn gen_static_method(
         }
     };
 
+    let body = wrap_promoted_required_body(
+        body,
+        &method.params,
+        method.error_type.is_some(),
+        method.is_async,
+        matches!(method.return_type, TypeRef::Unit),
+    );
+
     let mut attrs = String::new();
     let sanitized_method_doc =
         crate::codegen::doc_emission::sanitize_rust_idioms(&method.doc, crate::codegen::doc_emission::DocTarget::TsDoc);
@@ -748,7 +784,7 @@ pub(super) fn gen_static_method(
     if method.params.len() > 7 {
         attrs.push_str("#[allow(clippy::too_many_arguments)]\n");
     }
-    if method.error_type.is_some() {
+    if method.error_type.is_some() || has_promoted_required {
         attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
     }
     if generators::is_trait_method_name(&method.name) {
@@ -817,15 +853,15 @@ pub(super) fn gen_dto_method_fns(
 
         let binding_type = format!("{prefix}{}", typ.name);
         let return_annotation = mapper.map_type(&method.return_type).to_string();
+        let has_promoted_required = !promoted_required(&method.params).is_empty();
 
         let mut param_parts: Vec<String> = vec![];
         if !is_static {
             param_parts.push(format!("cfg: {binding_type}"));
         }
-        for p in &method.params {
-            let ptype = mapper.map_type(&p.ty);
-            let ptype = if p.optional { format!("Option<{ptype}>") } else { ptype };
-            param_parts.push(format!("{}: {}", p.name, ptype));
+        let method_params = function_params(&method.params, &|ty| mapper.map_type(ty));
+        if !method_params.is_empty() {
+            param_parts.push(method_params);
         }
         let params_str = param_parts.join(", ");
 
@@ -833,10 +869,22 @@ pub(super) fn gen_dto_method_fns(
         let (call_args_str, dto_let_bindings) = if use_let_bindings {
             (
                 napi_apply_primitive_casts_to_call_args(
-                    &generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
+                    &if has_promoted_required {
+                        generators::gen_call_args_with_let_bindings_mutex_no_promote(
+                            &method.params,
+                            opaque_types,
+                            mutex_types,
+                        )
+                    } else {
+                        generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types)
+                    },
                     &method.params,
                 ),
-                generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import),
+                if has_promoted_required {
+                    generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
+                } else {
+                    generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import)
+                },
             )
         } else {
             (napi_gen_call_args(&method.params, opaque_types), String::new())
@@ -916,6 +964,13 @@ pub(super) fn gen_dto_method_fns(
         } else {
             body
         };
+        let body = wrap_promoted_required_body(
+            body,
+            &method.params,
+            method.error_type.is_some() || !is_static,
+            method.is_async,
+            matches!(method.return_type, TypeRef::Unit),
+        );
 
         let mut attrs = String::new();
         let sanitized_method_doc = crate::codegen::doc_emission::sanitize_rust_idioms(
@@ -923,13 +978,13 @@ pub(super) fn gen_dto_method_fns(
             crate::codegen::doc_emission::DocTarget::TsDoc,
         );
         crate::codegen::doc_emission::emit_rustdoc(&mut attrs, &sanitized_method_doc, "");
-        if method.error_type.is_some() || !is_static {
+        if method.error_type.is_some() || !is_static || has_promoted_required {
             attrs.push_str("#[allow(clippy::missing_errors_doc)]\n");
         }
         // DTO methods become standalone `#[napi]` free functions, so the gate lands on the same
         // kind of item `support::prepend_cfg` already gates for top-level functions. ~keep
         attrs.push_str(&method.rust_cfg_attribute());
-        let returns_result = method.error_type.is_some() || !is_static;
+        let returns_result = method.error_type.is_some() || !is_static || has_promoted_required;
         let final_return_ann = if returns_result && !return_annotation.starts_with("napi::Result") {
             format!("napi::Result<{return_annotation}>")
         } else {

@@ -220,7 +220,9 @@ pub(super) fn build_args_and_setup(
 
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+                && let Some(trait_bridge) = config
+                    .trait_bridges_for(crate::core::config::Language::Php)
+                    .find(|tb| tb.trait_name == *trait_name)
             {
                 // Collect methods from both the main trait and its super-trait (if present).
                 // The super-trait methods are needed so stubs implement the full interface.

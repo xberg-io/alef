@@ -1,6 +1,6 @@
 use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::HashSet;
@@ -11,7 +11,7 @@ pub(super) fn emit_inbound_box_files(
     rust_bridge_dir: &std::path::Path,
 ) -> Vec<GeneratedFile> {
     let mut files = Vec::new();
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Swift) {
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
         }
@@ -165,7 +165,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         generated_header: false,
     });
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Swift) {
         if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
             continue;
         }

@@ -24,6 +24,7 @@ pub use commands::{
 };
 pub(crate) use commands::{build_with_environment, canonical_frb_generated};
 pub use extract::extract;
+pub(crate) use extract::sanitize_binding_projection;
 pub(crate) use format::{
     FormattingOwner, PolyCoverage, format_generated_reporting_with_extra_paths, formatting_owner,
     generated_tree_needs_formatting, install_poly_hooks, is_tool_available, languages_owning_changed_paths,

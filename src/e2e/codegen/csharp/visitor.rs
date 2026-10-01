@@ -104,8 +104,7 @@ pub(super) fn resolve_csharp_visitor_config(
 
     let trait_def = type_defs.iter().find(|type_def| type_def.name == trait_name);
     let bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Csharp)
         .find(|bridge| bridge.trait_name == trait_name);
     let methods: Vec<CsharpVisitorMethod> = trait_def
         .map(|type_def| {

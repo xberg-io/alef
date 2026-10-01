@@ -108,64 +108,6 @@ fn php_function_gated_core_features_to_add(api: &ApiSurface, config: &ResolvedCr
     to_add
 }
 
-/// Every feature name referenced by any top-level function's `cfg` predicate, flattened —
-/// unlike [`php_function_gated_core_features_to_add`], this includes names that turned out to
-/// already be satisfied (e.g. `tower`/`tokenizer` when the core dependency line already requests
-/// `full`). Used only to keep `cfg_forwarding` from declaring these as toggleable php-crate
-/// `[features]`: PHP never gates a function by cfg (see `rust_bindings.rs::generate_bindings`),
-/// so a name that is ONLY referenced by a function's cfg should not appear there. A name a
-/// function shares with a struct field's cfg is a different story -- see
-/// [`php_field_referenced_feature_names`] and [`php_declared_features`]. ~keep
-pub(crate) fn php_function_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for func in &api.functions {
-        if func.binding_excluded {
-            continue;
-        }
-        if let Some(cfg) = &func.cfg {
-            crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
-        }
-    }
-    out
-}
-
-/// Every feature name referenced by a struct field's `cfg` predicate on a host-owned, non-trait
-/// type -- i.e. the names [`php_declared_features`] must keep even when
-/// [`php_function_referenced_feature_names`] would otherwise remove them for being
-/// function-owned.
-///
-/// A field's cfg gate is copied (narrowed through
-/// [`crate::codegen::conversions::ConversionConfig::restrict_field_gate`]) verbatim onto the
-/// generated `From` impl that converts between the core and binding types -- unlike a function's
-/// or a method's cfg, which is never re-emitted as a runtime `#[cfg(...)]` at all (PHP always
-/// emits every function/method into its facade unconditionally; see
-/// `php_function_referenced_feature_names`'s doc). So a feature name a field references must stay
-/// declared here for that copied gate to compile, regardless of whether a function also
-/// references it.
-///
-/// Enum variants and whole types are deliberately NOT walked here: a variant's cfg fate is
-/// resolved independently of this set, before `rust_bindings` ever narrows a field gate against
-/// it (`enum_cfg::specialize` looks at the crate's actual forced dependency features, not just
-/// this declared set, and bakes the answer into the variant's own `cfg` -- dropping it to `None`
-/// when the feature turns out to be unconditionally active); a whole type is dropped from the IR
-/// entirely before codegen when its own cfg is unsatisfied, so no runtime `#[cfg]` for it is ever
-/// emitted either. Neither one needs its feature name kept declared just to satisfy a `#[cfg]`
-/// codegen never emits for it. ~keep
-fn php_field_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for typ in &api.types {
-        if typ.is_trait || !crate::codegen::cfg::is_host_owned_rust_path(&api.crate_name, &typ.rust_path) {
-            continue;
-        }
-        for field in &typ.fields {
-            if let Some(cfg) = &field.cfg {
-                crate::codegen::cfg::collect_cfg_feature_names(cfg, &mut out);
-            }
-        }
-    }
-    out
-}
-
 /// The exact feature-name set this backend writes into the php crate's `[features]` table.
 ///
 /// ~keep One source of truth for two consumers that MUST agree: `scaffold_php_cargo` renders the
@@ -175,20 +117,10 @@ fn php_field_referenced_feature_names(api: &ApiSurface) -> BTreeSet<String> {
 /// `unexpected_cfg_condition_value` under `-D warnings`. The comment on that stripping still says
 /// PHP "never gates a function by cfg", which stayed true, but it is a FIELD gate that reaches the
 /// table's namespace, so the two sets have to be derived together rather than each rebuilt.
-///
-/// A name referenced by BOTH a top-level function and a struct field's cfg is kept: removing it
-/// (alef-issue #451) left the field's own gate naming a feature this crate's `[features]` table
-/// never declared, which `restrict_field_gate`'s `Unreachable` branch could only paper over by
-/// falling back to that same undeclared gate -- `unexpected_cfg_condition_value` on the gate
-/// itself, then a missing struct-literal field (E0063) once rustc evaluated it false. ~keep
+/// Function-owned names also remain public/default forwarding features even though PHP eagerly
+/// enables their core symbols; pruning them changes the wrapper crate's public Cargo contract. ~keep
 pub(crate) fn php_declared_features(api: &ApiSurface, excluded_default_features: &[&str]) -> BTreeSet<String> {
     let mut features = crate::codegen::cfg::collect_cfg_features(api);
-    let field_needed = php_field_referenced_feature_names(api);
-    for name in &php_function_referenced_feature_names(api) {
-        if !field_needed.contains(name) {
-            features.remove(name);
-        }
-    }
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features
 }
@@ -235,7 +167,7 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
 
     let extra_deps = render_extra_deps(config, Language::Php);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Php).next().is_some();
     let has_streaming = config
         .adapters
         .iter()
@@ -289,17 +221,9 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         .map(|d| format!("\"{d}\""))
         .collect::<Vec<_>>()
         .join(", ");
-    // Functions carrying a source `cfg` predicate are emitted unconditionally into the
-    // `#[php_impl]` facade class (see rust_bindings.rs's `generate_bindings`: ext-php-rs's
-    // `#[php_impl]` derive references every method by identifier in its registration array
-    // regardless of `#[cfg]`, so a cfg'd-out method breaks the build). Their underlying core
-    // features must therefore be required unconditionally on the core dependency line rather
-    // than exposed as toggleable php-crate `[features]` — a toggleable feature that no generated
-    // code actually gates is a defect (see `cfg_forwarding` below, which excludes these names).
-    // `core_features_to_add` is deliberately *not* the flat union of every name a function's cfg
-    // mentions: an `any(A, B)` predicate only needs A or B, and here A (`native-http`) is already
-    // requested via the existing `features = [..., "full"]`, so nothing is added for it at all —
-    // see `missing_features_for`'s doc comment for why unioning both arms would be wrong. ~keep
+    // The facade emits cfg-owned functions unconditionally, so their core symbols must be enabled
+    // even while their feature names remain declared/defaulted for Cargo API compatibility.
+    // `missing_features_for` selects only a necessary arm of `any(...)` predicates. ~keep
     let core_features_to_add = php_function_gated_core_features_to_add(api, config);
     let core_overrides = config
         .php
@@ -350,13 +274,8 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     let dep_block = dep_entries.join("\n");
     let _ = extra_deps_section;
 
-    // Forwards feature names that a `#[cfg(feature = "X")]` on a *type/field/enum* (never a
-    // function — those are handled unconditionally above and excluded here) could still
-    // reference, keeping such names known to Cargo's `[features]` table. PHP's own struct/enum
-    // codegen currently drops cfg'd-out fields and variants outright rather than emitting a
-    // `#[cfg]` for them, but declaring the passthrough keeps this backend consistent with the
-    // other binding backends that share `collect_cfg_features` and protects against a future
-    // codegen change that starts emitting such a `#[cfg]`.
+    // Public cfg-owned features remain forwarding entries even though PHP emits functions
+    // unconditionally and enables the required core features itself. ~keep
     let core_dep_name = &config.name;
     let cfg_forwarding: String = {
         // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must

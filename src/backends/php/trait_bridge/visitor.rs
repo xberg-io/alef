@@ -157,9 +157,7 @@ fn gen_visitor_method_php(
         },
     ));
 
-    // SAFETY: php_obj pointer is valid for the lifetime of the PHP call frame.
-    out.push_str("        // SAFETY: php_obj is a valid ZendObject pointer for the duration of this call.\n");
-    out.push_str("        let php_obj_ref = unsafe { &mut *self.php_obj };\n");
+    out.push_str("        let php_obj_ref = &self.php_obj;\n");
 
     let has_args = !method.params.is_empty();
     if has_args {

@@ -451,19 +451,10 @@ fn materialize_package(root: &Path) -> std::io::Result<()> {
 /// the one situation it was written for. The census file the gate writes is read by
 /// `scripts/toolchain-census.sh` after the run instead, where nothing can capture it.
 ///
-/// On macOS a missing `swift` stays a hard failure, because the toolchain ships with Xcode there
-/// and CI sets `ALEF_REQUIRE_SWIFT` on that leg; elsewhere the toolchain genuinely may be absent,
-/// so the skip is allowed -- and counted. ~keep
+/// CI sets `ALEF_REQUIRE_SWIFT` on the macOS leg, so absence or compiler/SDK skew fails there;
+/// local hosts may skip either condition, with the census retaining which one occurred. ~keep
 fn swift_driver() -> Option<PathBuf> {
-    let driver = toolchain::SWIFT.open();
-    assert!(
-        driver.is_some() || !cfg!(target_os = "macos"),
-        "`swift` is not on PATH but this is macOS, where the Swift toolchain ships with Xcode. \
-         The two-target SwiftPM compile gate for the trait-box generator cannot run, and it is \
-         the only test that proves the generated Swift compiles. Install the toolchain rather \
-         than letting this gate lapse."
-    );
-    driver
+    toolchain::SWIFT.open()
 }
 
 /// The gate: alef's generated trait-box output must build in the two-target layout it is
@@ -507,7 +498,7 @@ fn generated_trait_box_package_compiles() {
     // whatever process-wide cwd another test's `CwdGuard` last set, and `swift build` fails with
     // "couldn't determine the current working directory" once that tempdir is gone, which is how
     // this fixture failed on `Test (macos-latest)` with the Swift toolchain present. ~keep
-    let output = spawn_from_stable_dir(&swift.to_string_lossy())
+    let output = spawn_from_stable_dir(swift.as_os_str())
         .arg("build")
         .arg("--package-path")
         .arg(root)

@@ -5,7 +5,7 @@ use crate::backends::php::layout::php_class_output_dir;
 use crate::backends::php::naming::php_autoload_namespace;
 use crate::codegen::doc_emission;
 use crate::core::backend::GeneratedFile;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
@@ -80,7 +80,7 @@ pub(super) fn generate_public_api(
         .collect();
 
     for func in &api.functions {
-        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+        if config.trait_bridge_manages_function(&func.name) {
             continue;
         }
         if php_exclude_functions.contains(&func.name) {
@@ -250,7 +250,7 @@ pub(super) fn generate_public_api(
         ));
     }
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Php) {
         if crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
             continue;
         }
@@ -427,7 +427,7 @@ pub(super) fn generate_public_api(
             &namespace,
             &streaming_adapters,
             &streaming_method_names,
-            &config.trait_bridges,
+            &config.trait_bridges_for_vec(Language::Php),
             &handler_contract_map,
             &enum_names,
         );

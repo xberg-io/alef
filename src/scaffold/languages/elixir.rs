@@ -42,10 +42,7 @@ pub(crate) fn scaffold_elixir_cargo(
     let extra_deps = render_extra_deps(config, Language::Elixir);
     let has_async = api.functions.iter().any(|f| !f.binding_excluded && f.is_async)
         || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
-    let has_trait_bridges = config
-        .trait_bridges
-        .iter()
-        .any(|b| !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler"));
+    let has_trait_bridges = config.trait_bridges_for(Language::Elixir).next().is_some();
     let has_streaming = config
         .adapters
         .iter()
@@ -341,10 +338,9 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         has_any_ex_file(&lib_dir)
     };
     let lib_populated = lib_has_files_on_disk
-        || config.trait_bridges.iter().any(|b| {
-            !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler")
-                && b.bind_via != BridgeBinding::OptionsField
-        });
+        || config
+            .trait_bridges_for(Language::Elixir)
+            .any(|b| b.bind_via != BridgeBinding::OptionsField);
 
     let mut files_entries: Vec<String> = vec![
         ".formatter.exs".into(),
@@ -510,14 +506,7 @@ end
         },
     ];
 
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .iter()
-            .any(|l| l == "elixir" || l == "rustler")
-        {
-            continue;
-        }
+    for bridge_cfg in config.trait_bridges_for(Language::Elixir) {
         if bridge_cfg.bind_via == BridgeBinding::OptionsField {
             continue;
         }
@@ -731,10 +720,10 @@ license = "MIT"
         )
         .expect("valid config");
         let mut config = parsed.resolve().expect("resolve").remove(0);
-        config.trait_bridges = vec![TraitBridgeConfig {
+        config.replace_trait_bridges(vec![TraitBridgeConfig {
             trait_name: "Backend".into(),
             ..TraitBridgeConfig::default()
-        }];
+        }]);
 
         let files = scaffold_elixir(&ApiSurface::default(), &config).expect("Elixir scaffold renders");
         let bridge = files

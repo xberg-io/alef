@@ -500,7 +500,7 @@ fn gen_struct_methods_impl(
         if use_from_json {
             let constructor = "#[php(name = \"from_json\")]\npub fn from_json(json: String) -> PhpResult<Self> {\n    \
                  serde_json::from_str(&json)\n        \
-                 .map_err(|e| PhpException::default(e.to_string()))\n\
+                 .map_err(|e| PhpException::from_message(e.to_string()))\n\
                  }"
             .to_string();
             impl_builder.add_method(&constructor);
@@ -658,7 +658,7 @@ fn gen_struct_methods_impl(
         } else if has_named_params {
             let constructor = format!(
                 "pub fn __construct() -> PhpResult<Self> {{\n    \
-                 Err(PhpException::default(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
+                 Err(PhpException::from_message(\"Not implemented: constructor for {} requires complex params\".to_string()))\n\
                  }}",
                 typ.name
             );

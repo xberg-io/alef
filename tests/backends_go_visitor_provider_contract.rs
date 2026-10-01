@@ -31,7 +31,7 @@ module = "example.invalid/test-lib"
 "#;
     let config: NewAlefConfig = toml::from_str(source).expect("test config parses");
     let mut resolved = config.resolve().expect("test config resolves").remove(0);
-    resolved.trait_bridges = vec![TraitBridgeConfig {
+    resolved.replace_trait_bridges(vec![TraitBridgeConfig {
         trait_name: "Visitor".to_string(),
         type_alias: Some("VisitorHandle".to_string()),
         bind_via: BridgeBinding::OptionsField,
@@ -40,7 +40,7 @@ module = "example.invalid/test-lib"
         context_type: Some("NodeContext".to_string()),
         result_type: Some("VisitorChoice".to_string()),
         ..TraitBridgeConfig::default()
-    }];
+    }]);
     resolved
 }
 

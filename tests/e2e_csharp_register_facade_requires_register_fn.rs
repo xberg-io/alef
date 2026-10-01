@@ -78,7 +78,7 @@ fn empty_api() -> ApiSurface {
 
 fn generate(bridges: Vec<TraitBridgeConfig>) -> Vec<alef::core::backend::GeneratedFile> {
     let mut config = csharp_config();
-    config.trait_bridges = bridges;
+    config.replace_trait_bridges(bridges);
     CsharpBackend
         .generate_bindings(&empty_api(), &config)
         .expect("csharp generation succeeds")

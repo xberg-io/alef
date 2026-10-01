@@ -63,6 +63,8 @@ pub fn scaffold(
     config: &ResolvedCrateConfig,
     languages: &[Language],
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    let projected_api = crate::codegen::binding_projection::project(api);
+    let api = &projected_api;
     let mut files = vec![];
     for &lang in languages {
         files.extend(scaffold_language(api, config, lang)?);

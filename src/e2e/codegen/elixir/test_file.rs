@@ -51,7 +51,9 @@ pub(super) fn render_test_file(
         for arg in resolved_args.iter() {
             if arg.arg_type == "test_backend"
                 && let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+                && let Some(trait_bridge) = config
+                    .trait_bridges_for(crate::core::config::Language::Elixir)
+                    .find(|tb| tb.trait_name == *trait_name)
             {
                 let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                     .iter()

@@ -1,3 +1,4 @@
+use super::markdown_canonical::{FenceEvent, apply_fence_event, fence_event};
 use crate::core::config::Language;
 
 mod heading_levels;
@@ -118,6 +119,8 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
 
     let doc = ensure_blank_before_lists(&doc);
 
+    let doc = super::markdown_canonical::canonicalize_rustdoc_markdown(&doc);
+
     doc.trim().to_string()
 }
 
@@ -165,13 +168,13 @@ fn is_list_item_start(line: &str) -> bool {
 /// line that is itself not a list item. Satisfies rumdl's MD032.
 pub(crate) fn ensure_blank_before_lists(doc: &str) -> String {
     let mut out = String::with_capacity(doc.len());
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     let mut prev_non_empty: Option<String> = None;
     let mut prev_was_blank = true;
 
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             out.push_str(line);
             out.push('\n');
             prev_non_empty = Some(line.to_string());
@@ -179,7 +182,7 @@ pub(crate) fn ensure_blank_before_lists(doc: &str) -> String {
             continue;
         }
 
-        if in_code_block {
+        if fence_ticks.is_some() {
             out.push_str(line);
             out.push('\n');
             continue;
@@ -210,15 +213,15 @@ pub(crate) fn ensure_blank_before_lists(doc: &str) -> String {
 /// Convert `# Errors` and `# Returns` section headings to bold inline text.
 pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
     let mut out = String::new();
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             out.push_str(line);
             out.push('\n');
             continue;
         }
-        if !in_code_block && line.starts_with('#') {
+        if fence_ticks.is_none() && line.starts_with('#') {
             let heading_text = line.trim_start_matches('#').trim();
             let lower = heading_text.to_lowercase();
             if crate::codegen::doc_emission::BOLD_LABEL_ONLY_SECTION_NAMES.contains(&lower.as_str()) {
@@ -242,16 +245,16 @@ pub(crate) fn convert_doc_headings_to_bold(doc: &str) -> String {
 /// skips content inside fenced code blocks.
 pub(crate) fn normalize_list_markers(doc: &str) -> String {
     let mut out = String::new();
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             out.push_str(line);
             out.push('\n');
             continue;
         }
 
-        if in_code_block {
+        if fence_ticks.is_some() {
             out.push_str(line);
             out.push('\n');
             continue;
@@ -461,12 +464,12 @@ fn language_list_of_type(lang: Language, inner: &str) -> String {
 
 fn map_non_code_lines(doc: &str, mut map_line: impl FnMut(&str) -> String) -> String {
     let mut out = String::new();
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             out.push_str(line);
-        } else if in_code_block {
+        } else if fence_ticks.is_some() {
             out.push_str(line);
         } else {
             out.push_str(&map_line(line));
@@ -568,15 +571,15 @@ pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
         "."
     };
     let mut out = String::new();
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             out.push_str(line);
             out.push('\n');
             continue;
         }
-        if in_code_block {
+        if fence_ticks.is_some() {
             out.push_str(line);
             out.push('\n');
             continue;
@@ -602,12 +605,7 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
         return String::new();
     }
     let cleaned = clean_doc(doc, lang);
-    cleaned
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    super::markdown_canonical::markdown_to_table_cell_inline(&cleaned)
 }
 
 /// Strip Rust-specific doc sections (`# Example`, `# Arguments`, `# Fields`).
@@ -617,31 +615,34 @@ pub(crate) fn clean_doc_inline(doc: &str, lang: Language) -> String {
 pub(crate) fn strip_rust_sections(doc: &str) -> String {
     let mut out = String::new();
     let mut skip_section = false;
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     let mut code_block_buf = String::new();
 
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            if in_code_block {
-                in_code_block = false;
-                if !skip_section && !is_rust_code_block(&code_block_buf) {
-                    out.push_str(&code_block_buf);
-                    out.push_str(line);
-                    out.push('\n');
+        if let Some(event) = fence_event(line, fence_ticks) {
+            match event {
+                FenceEvent::Close => {
+                    fence_ticks = None;
+                    if !skip_section && !is_rust_code_block(&code_block_buf) {
+                        out.push_str(&code_block_buf);
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                    code_block_buf.clear();
+                    continue;
                 }
-                code_block_buf.clear();
-                continue;
-            } else {
-                in_code_block = true;
-                if !skip_section {
-                    code_block_buf.push_str(line);
-                    code_block_buf.push('\n');
+                FenceEvent::Open(ticks) => {
+                    fence_ticks = Some(ticks);
+                    if !skip_section {
+                        code_block_buf.push_str(line);
+                        code_block_buf.push('\n');
+                    }
+                    continue;
                 }
-                continue;
             }
         }
 
-        if in_code_block {
+        if fence_ticks.is_some() {
             if !skip_section {
                 code_block_buf.push_str(line);
                 code_block_buf.push('\n');
@@ -737,15 +738,15 @@ pub(crate) fn is_rust_specific_line(line: &str) -> bool {
 pub(crate) fn extract_param_docs(doc: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     let mut in_args = false;
-    let mut in_code_block = false;
+    let mut fence_ticks = None;
     let mut current_param: Option<String> = None;
 
     for line in doc.lines() {
-        if line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
+        if let Some(event) = fence_event(line, fence_ticks) {
+            apply_fence_event(&mut fence_ticks, event);
             continue;
         }
-        if in_code_block {
+        if fence_ticks.is_some() {
             continue;
         }
 

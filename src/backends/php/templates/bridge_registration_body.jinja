@@ -3,7 +3,7 @@ let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
 
 let registry = {{ registry_getter }}();
 let mut registry = registry.write();
-registry.register(arc{{ register_extra_args }}).map_err(|e| ext_php_rs::exception::PhpException::default(
+registry.register(arc{{ register_extra_args }}).map_err(|e| ext_php_rs::exception::PhpException::from_message(
     format!("Failed to register backend: {}", e)
 ))?;
 Ok(())

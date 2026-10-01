@@ -4,7 +4,8 @@
 # platform installed executed none of them.
 #
 # `src/test_support/toolchain.rs` writes one TSV per test binary into
-# `<target-dir>/toolchain-census/`, each row `<toolchain>\t<attempted>\t<executed>\t<skipped>`.
+# `<target-dir>/toolchain-census/`, each row
+# `<toolchain>\t<attempted>\t<executed>\t<absent>\t<unusable>`. ~keep
 # This script sums them and prints the result. It exists because there is nowhere inside the test
 # run to print it from: `libtest` offers no end-of-run hook and captures the stdout and stderr of
 # passing tests, so a fixture that skipped itself has no way to say so in a run that is otherwise
@@ -78,13 +79,35 @@ fi | awk -v required="$required" '
       }
     }
   }
-  NF == 4 {
+  NF != 4 && NF != 5 {
+    printf "toolchain-census: invalid row with %d columns: %s\n", NF, $0
+    malformed = 1
+    next
+  }
+  {
+    numeric = 1
+    for (column = 2; column <= NF; column++) {
+      if ($column !~ /^[0-9]+$/) { numeric = 0 }
+    }
+    if (!numeric) {
+      printf "toolchain-census: non-numeric count in row: %s\n", $0
+      malformed = 1
+      next
+    }
+    row_unusable = NF == 5 ? $5 : 0
+    if ($2 != $3 + $4 + row_unusable) {
+      printf "toolchain-census: inconsistent outcome total in row: %s\n", $0
+      malformed = 1
+      next
+    }
     attempted[$1] += $2
     executed[$1] += $3
-    skipped[$1] += $4
+    absent[$1] += $4
+    unusable[$1] += row_unusable
     seen[$1] = 1
   }
   END {
+    if (malformed) { exit 1 }
     failures = 0
     count = 0
     for (name in seen) { count++ }
@@ -94,15 +117,19 @@ fi | awk -v required="$required" '
     for (name in seen) {
       total = attempted[name] + 0
       ran = executed[name] + 0
-      missed = skipped[name] + 0
+      missing = absent[name] + 0
+      broken = unusable[name] + 0
+      missed = missing + broken
       status = is_required[name] ? "required" : "optional"
-      printf "  %-10s %2d of %2d fixtures executed (%d skipped) [%s]", name, ran, total, missed, status
-      if (is_required[name] && ran == 0) {
+      printf "  %-10s %2d of %2d fixtures executed (%d absent, %d unusable) [%s]", name, ran, total, missing, broken, status
+      if (is_required[name] && total == 0) {
         printf "  <-- FAILED: nothing ran\n"
         failures++
-      } else if (is_required[name] && missed > 0) {
-        printf "  <-- FAILED: %d skipped on a platform that installs %s\n", missed, name
+      } else if (is_required[name] && ran != total) {
+        printf "  <-- FAILED: %d absent and %d unusable on a platform that installs %s\n", missing, broken, name
         failures++
+      } else if (ran == 0 && broken > 0) {
+        printf "  <-- NOT RUN: %s is present but unusable, so these fixtures verified nothing\n", name
       } else if (ran == 0) {
         printf "  <-- NOT RUN: %s is absent, so these fixtures verified nothing\n", name
       } else {

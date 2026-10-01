@@ -1573,6 +1573,56 @@ fn minimal_csharp_config(crate_name: &str) -> ResolvedCrateConfig {
 }
 
 #[test]
+fn excluded_csharp_bridge_emits_no_native_registration_reference() {
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "TextBackend".to_string(),
+            rust_path: "test::TextBackend".to_string(),
+            is_trait: true,
+            methods: vec![MethodDef {
+                name: "process".to_string(),
+                return_type: TypeRef::String,
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut bridge = alef::core::config::TraitBridgeConfig {
+        trait_name: "TextBackend".to_string(),
+        register_fn: Some("register_text_backend".to_string()),
+        ..Default::default()
+    };
+    let generate_native_methods = |bridge: alef::core::config::TraitBridgeConfig| {
+        let mut config = minimal_csharp_config("test");
+        config.replace_trait_bridges(vec![bridge]);
+        CsharpBackend
+            .generate_bindings(&api, &config)
+            .expect("generate csharp bindings")
+            .into_iter()
+            .find(|file| file.path.ends_with("NativeMethods.cs"))
+            .expect("generated NativeMethods.cs")
+            .content
+    };
+
+    let active = generate_native_methods(bridge.clone());
+    assert!(
+        active.contains("RegisterTextBackend"),
+        "the control must exercise native bridge registration emission:\n{active}"
+    );
+
+    bridge.exclude_languages = vec!["csharp".to_string()];
+    let excluded = generate_native_methods(bridge);
+    assert!(
+        !excluded.contains("RegisterTextBackend") && !excluded.contains("register_text_backend"),
+        "an excluded bridge must leave no C# native registration reference behind:\n{excluded}"
+    );
+}
+
+#[test]
 fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
     let backend = CsharpBackend;
     let config = minimal_csharp_config("test");
@@ -3953,7 +4003,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
     let backend = CsharpBackend;
     let mut config = minimal_csharp_config("test");
 
-    config.trait_bridges = vec![
+    config.replace_trait_bridges(vec![
         alef::core::config::TraitBridgeConfig {
             exclude_functions: Vec::new(),
             trait_name: "TextBackend".to_string(),
@@ -3992,7 +4042,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
             context_type: None,
             result_type: None,
         },
-    ];
+    ]);
 
     let api = ApiSurface {
         unresolved_modules: Vec::new(),

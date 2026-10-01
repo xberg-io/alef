@@ -121,7 +121,7 @@ fn project_function_param(
     let base_type = method_param_base_type(param);
     match base_type {
         TypeRef::String => project_string_function_param(param, &rust_name, return_null),
-        TypeRef::Primitive(primitive) => project_primitive_function_param(param, primitive, &rust_name),
+        TypeRef::Primitive(primitive) => project_primitive_function_param(param, primitive, &rust_name, return_null),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             project_bytes_function_param(param, &rust_name, return_null)
         }
@@ -158,7 +158,25 @@ fn project_primitive_function_param(
     param: &ParamDef,
     primitive: &PrimitiveType,
     rust_name: &str,
+    return_null: &str,
 ) -> FunctionParamProjection {
+    if matches!(primitive, PrimitiveType::U32) {
+        let binding = format!("{rust_name}_checked");
+        let unmarshal = if param.optional {
+            format!(
+                "        let {binding} = if {rust_name} == -1 {{ None }} else {{\n            match u32::try_from({rust_name}) {{\n                Ok(value) => Some(value),\n                Err(_) => {{ throw_jni_error(env, \"parameter '{rust_name}' must be between 0 and u32::MAX\"); return {return_null}; }}\n            }}\n        }};\n"
+            )
+        } else {
+            format!(
+                "        let {binding} = match u32::try_from({rust_name}) {{\n            Ok(value) => value,\n            Err(_) => {{ throw_jni_error(env, \"parameter '{rust_name}' must be between 0 and u32::MAX\"); return {return_null}; }}\n        }};\n"
+            )
+        };
+        return FunctionParamProjection {
+            signature: render_param_decl(rust_name, jni_primitive_type(primitive)),
+            unmarshal,
+            call_arg: binding,
+        };
+    }
     let cast = primitive_cast(primitive);
     let cast_expression = if cast.is_empty() {
         rust_name.to_string()
@@ -325,7 +343,7 @@ mod function_shims_tests {
     #[test]
     fn f64_param_call_arg_has_no_cast() {
         let param = primitive_param("cost_usd", PrimitiveType::F64);
-        let projection = project_primitive_function_param(&param, &PrimitiveType::F64, "cost_usd");
+        let projection = project_primitive_function_param(&param, &PrimitiveType::F64, "cost_usd", "0");
         assert_eq!(projection.call_arg, "cost_usd");
     }
 
@@ -334,7 +352,35 @@ mod function_shims_tests {
     #[test]
     fn u64_param_call_arg_still_casts() {
         let param = primitive_param("count", PrimitiveType::U64);
-        let projection = project_primitive_function_param(&param, &PrimitiveType::U64, "count");
+        let projection = project_primitive_function_param(&param, &PrimitiveType::U64, "count", "0");
         assert_eq!(projection.call_arg, "count as u64");
+    }
+
+    #[test]
+    fn optional_u32_distinguishes_none_from_zero_and_rejects_other_negatives() {
+        let mut param = primitive_param("max", PrimitiveType::U32);
+        param.optional = true;
+        let projection = project_primitive_function_param(&param, &PrimitiveType::U32, "max", "0");
+
+        assert!(
+            projection.unmarshal.contains("max == -1 { None }"),
+            "{}",
+            projection.unmarshal
+        );
+        assert!(
+            projection.unmarshal.contains("Ok(value) => Some(value)"),
+            "{}",
+            projection.unmarshal
+        );
+        assert!(
+            projection.unmarshal.contains("u32::try_from(max)"),
+            "{}",
+            projection.unmarshal
+        );
+        assert!(
+            !projection.unmarshal.contains("max <= 0"),
+            "Some(0) must survive: {}",
+            projection.unmarshal
+        );
     }
 }

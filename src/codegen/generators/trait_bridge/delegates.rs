@@ -41,6 +41,9 @@ pub fn forwarded_defaulted_methods<'a>(
 ///
 /// Returns an empty string when the generator forwards no defaulted methods.
 pub fn gen_bridge_default_delegates(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return code;
+    }
     let forwarded = forwarded_defaulted_methods(spec, generator);
     if forwarded.is_empty() {
         return String::new();

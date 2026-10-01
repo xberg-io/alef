@@ -386,7 +386,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &adapter_bodies,
                 &mutex_types,
                 &streaming_method_keys,
-                &config.trait_bridges,
+                &config.trait_bridges_for_vec(Language::Php),
             ));
 
             if has_no_arg_new_returning_self(typ) {
@@ -460,7 +460,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .collect();
-    if !included_functions.is_empty() || !config.trait_bridges.is_empty() {
+    if !included_functions.is_empty() || config.trait_bridges_for(Language::Php).next().is_some() {
+        let active_trait_bridges = config.trait_bridges_for_vec(Language::Php);
         let php_api_class_name = php_ext_api_class_name(&extension_name);
         // Build each static method body (no #[php_function] attribute — they live inside
         // a #[php_impl] block which handles registration via the class machinery).
@@ -475,7 +476,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         // line, instead of exposing them as toggleable `[features]` on the php crate. ~keep
         let mut method_items: Vec<String> = Vec::new();
         for func in included_functions {
-            if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            if config.trait_bridge_manages_function(&func.name) {
                 continue;
             }
             crate::codegen::mut_writeback::reject_unsupported_writeback(
@@ -484,7 +485,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &func.return_type,
                 &opaque_types,
             )?;
-            let bridge_param = crate::backends::php::trait_bridge::find_bridge_param(func, &config.trait_bridges)
+            let bridge_param = crate::backends::php::trait_bridge::find_bridge_param(func, &active_trait_bridges)
                 .filter(|(_, bridge_cfg)| crate::backends::php::trait_bridge::targets_php(bridge_cfg));
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 let bridge_handle_path =
@@ -509,7 +510,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         enums: &enum_names,
                     },
                     &core_import,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Php),
                     &mutex_types,
                 );
                 method_items.push(item);
@@ -523,7 +524,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                         enums: &enum_names,
                     },
                     &core_import,
-                    &config.trait_bridges,
+                    &config.trait_bridges_for_vec(Language::Php),
                     has_serde,
                     &mutex_types,
                 );
@@ -546,7 +547,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             ));
         }
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             if crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
                 continue;
             }
@@ -600,7 +601,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         );
         builder.add_item(&facade_struct);
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             if let Some(trait_type) = crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api) {
                 let bridge = crate::backends::php::trait_bridge::gen_trait_bridge(
                     trait_type,
@@ -832,7 +833,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             context! { class_name => &typ.name },
         ));
     }
-    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
+    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name))
+        || config.trait_bridges_for(Language::Php).next().is_some()
+    {
         class_registrations.push_str(&crate::backends::php::template_env::render(
             "php_class_registration.jinja",
             context! { class_name => &php_ext_api_class_name(&extension_name) },
@@ -854,8 +857,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     // The #[php_module] macro defaults to env!("CARGO_PKG_NAME"), which may differ from
     let version = &api.version;
     let module_code = format!(
-        "static __EXT_PHP_RS_MODULE_STARTUP: ::std::sync::Mutex<::std::option::Option<::ext_php_rs::builders::ModuleStartup>> =\n    ::std::sync::Mutex::new(::std::option::Option::None);\n\nunsafe extern \"C\" fn __ext_php_rs_module_startup(ty: i32, mod_num: i32) -> i32 {{\n    let startup = match __EXT_PHP_RS_MODULE_STARTUP.lock() {{\n        Ok(mut guard) => guard.take(),\n        Err(_) => return 1,\n    }};\n    match startup {{\n        Some(s) => match s.startup(ty, mod_num) {{ Ok(_) => 0, Err(_) => 1 }},\n        None => 1,\n    }}\n}}\n\n#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\")\n            .startup_function(__ext_php_rs_module_startup);\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, startup)) => {{\n                *__EXT_PHP_RS_MODULE_STARTUP.lock().expect(\"module startup mutex poisoned\") = Some(startup);\n                entry\n            }}\n            Err(e) => panic!(\"Failed to build PHP module: {{:?}}\", e),\n        }}\n    }})\n}}\n",
-        extension_name, version, class_registrations
+        "static __EXT_PHP_RS_MODULE_STARTUP: ::ext_php_rs::internal::ModuleStartupMutex =\n    ::ext_php_rs::internal::MODULE_STARTUP_INIT;\n\nextern \"C\" fn __ext_php_rs_module_startup(ty: i32, mod_num: i32) -> i32 {{\n    ::ext_php_rs::internal::startup_guard(|| {{\n        ::ext_php_rs::internal::ext_php_rs_startup();\n        match __EXT_PHP_RS_MODULE_STARTUP.lock().take() {{\n            Some(startup) => startup.startup(ty, mod_num),\n            None => Ok(()),\n        }}\n    }})\n}}\n\nstatic __EXT_PHP_RS_BUILD_ERROR: ::std::sync::OnceLock<::std::string::String> =\n    ::std::sync::OnceLock::new();\n\nextern \"C\" fn __ext_php_rs_failed_startup(_ty: i32, _mod_num: i32) -> i32 {{\n    ::ext_php_rs::internal::failed_module_startup(\n        __EXT_PHP_RS_BUILD_ERROR.get().map_or(\"unknown error\", ::std::string::String::as_str),\n    )\n}}\n\n#[doc(hidden)]\n#[unsafe(no_mangle)]\npub extern \"C\" fn get_module() -> *mut ::ext_php_rs::zend::ModuleEntry {{\n    static __EXT_PHP_RS_MODULE_ENTRY: ::ext_php_rs::zend::StaticModuleEntry = ::ext_php_rs::zend::StaticModuleEntry::new();\n    __EXT_PHP_RS_MODULE_ENTRY.get_or_init(|| {{\n        let builder = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\")\n            .startup_function(__ext_php_rs_module_startup);\n        let builder = builder{};\n        match builder.try_into() {{\n            Ok((entry, startup, owned)) => {{\n                __EXT_PHP_RS_MODULE_STARTUP.lock().replace(startup);\n                (entry, owned)\n            }}\n            Err(error) => {{\n                let _ = __EXT_PHP_RS_BUILD_ERROR.set(error.to_string());\n                let (entry, _, owned) = ::ext_php_rs::builders::ModuleBuilder::new(\"{}\", \"{}\")\n                    .startup_function(__ext_php_rs_failed_startup)\n                    .try_into()\n                    .unwrap_or_else(|_| ::std::unreachable!(\"a module with literal name and version always builds\"));\n                (entry, owned)\n            }}\n        }}\n    }})\n}}\n",
+        extension_name, version, class_registrations, extension_name, version
     );
     builder.add_item(&module_code);
 
@@ -910,7 +913,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         generated_header: false,
     });
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Php) {
         if let Some(trait_type) = crate::backends::php::trait_bridge::active_bridge_trait(bridge_cfg, api) {
             let is_visitor_bridge = bridge_cfg.type_alias.is_some()
                 && bridge_cfg.register_fn.is_none()

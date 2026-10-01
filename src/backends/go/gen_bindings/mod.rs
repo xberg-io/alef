@@ -113,26 +113,24 @@ impl Backend for GoBackend {
                     .map(|a| a.to_string_lossy().to_string())
             })
             .unwrap_or_else(|| format!("crates/{ffi_lib_name}"));
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
+        let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Go).cloned().collect();
+        let bridge_param_names: HashSet<String> = active_trait_bridges
             .iter()
             .filter_map(|b| b.param_name.clone())
             .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
+        let bridge_type_aliases: HashSet<String> = active_trait_bridges
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
         let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
-        let visitor_bridge_cfg = config
-            .trait_bridges
+        let visitor_bridge_cfg = active_trait_bridges
             .iter()
-            .find(|b| b.bind_via == BridgeBinding::OptionsField && b.is_active_for(&Language::Go.to_string()));
+            .find(|b| b.bind_via == BridgeBinding::OptionsField);
         let has_options_field_bridge = visitor_bridge_cfg.is_some();
         let has_visitor_bridge =
-            has_options_field_bridge || (!config.trait_bridges.is_empty() && visitor_callbacks_enabled);
+            has_options_field_bridge || (!active_trait_bridges.is_empty() && visitor_callbacks_enabled);
 
-        let has_plugin_bridges = config.trait_bridges.iter().any(|b| b.register_fn.is_some());
+        let has_plugin_bridges = active_trait_bridges.iter().any(|b| b.register_fn.is_some());
 
         let streaming_methods: HashMap<(String, String), String> = config
             .adapters

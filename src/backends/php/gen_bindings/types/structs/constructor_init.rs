@@ -216,12 +216,12 @@ fn representable_field_init(
     if matches!(&field.ty, TypeRef::Json) {
         if field.optional {
             return format!(
-                "{}: {php_param_name}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e|                  PhpException::default(e.to_string()))?",
+                "{}: {php_param_name}.map(|s| serde_json::from_str(&s)).transpose().map_err(|e|                  PhpException::from_message(e.to_string()))?",
                 field.name
             );
         }
         return format!(
-            "{}: serde_json::from_str(&{php_param_name}).map_err(|e| PhpException::default(e.to_string()))?",
+            "{}: serde_json::from_str(&{php_param_name}).map_err(|e| PhpException::from_message(e.to_string()))?",
             field.name
         );
     }

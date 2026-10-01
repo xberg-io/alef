@@ -1,8 +1,8 @@
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 
 pub(super) fn clear_bridge_builder_opaque_params(content: &mut String, config: &ResolvedCrateConfig) {
-    for bridge in &config.trait_bridges {
+    for bridge in config.trait_bridges_for(Language::Python) {
         if let Some(field_name) = bridge.resolved_options_field() {
             let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
             let pattern = format!(".{}({}.as_ref().map(|v| &v.inner))", field_name, param_name);

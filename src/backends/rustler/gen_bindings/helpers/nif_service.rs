@@ -112,25 +112,27 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         last_was_multiline = write_nif_stub(&mut out, &fn_name, &underscored_params, last_was_multiline);
         emitted_nif_stubs.insert(fn_name.clone());
 
-        let has_visitor_bridge = config.trait_bridges.iter().any(|b| {
-            b.bind_via != crate::core::config::BridgeBinding::OptionsField
-                && func.params.iter().any(|p| {
-                    b.param_name.as_deref() == Some(p.name.as_str()) || {
-                        let named = match &p.ty {
-                            TypeRef::Named(n) => Some(n.as_str()),
-                            TypeRef::Optional(inner) => {
-                                if let TypeRef::Named(n) = inner.as_ref() {
-                                    Some(n.as_str())
-                                } else {
-                                    None
+        let has_visitor_bridge = config
+            .trait_bridges_for(crate::core::config::Language::Elixir)
+            .any(|b| {
+                b.bind_via != crate::core::config::BridgeBinding::OptionsField
+                    && func.params.iter().any(|p| {
+                        b.param_name.as_deref() == Some(p.name.as_str()) || {
+                            let named = match &p.ty {
+                                TypeRef::Named(n) => Some(n.as_str()),
+                                TypeRef::Optional(inner) => {
+                                    if let TypeRef::Named(n) = inner.as_ref() {
+                                        Some(n.as_str())
+                                    } else {
+                                        None
+                                    }
                                 }
-                            }
-                            _ => None,
-                        };
-                        named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
-                    }
-                })
-        });
+                                _ => None,
+                            };
+                            named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false)
+                        }
+                    })
+            });
         if has_visitor_bridge {
             let with_visitor_params: Vec<String> = func
                 .params
@@ -146,23 +148,25 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
             emitted_nif_stubs.insert(format!("{fn_name}_with_visitor"));
         }
 
-        let has_options_field_bridge = config.trait_bridges.iter().any(|b| {
-            b.bind_via == crate::core::config::BridgeBinding::OptionsField
-                && func.params.iter().any(|p| {
-                    let type_name = match &p.ty {
-                        TypeRef::Named(n) => Some(n.as_str()),
-                        TypeRef::Optional(inner) => {
-                            if let TypeRef::Named(n) = inner.as_ref() {
-                                Some(n.as_str())
-                            } else {
-                                None
+        let has_options_field_bridge = config
+            .trait_bridges_for(crate::core::config::Language::Elixir)
+            .any(|b| {
+                b.bind_via == crate::core::config::BridgeBinding::OptionsField
+                    && func.params.iter().any(|p| {
+                        let type_name = match &p.ty {
+                            TypeRef::Named(n) => Some(n.as_str()),
+                            TypeRef::Optional(inner) => {
+                                if let TypeRef::Named(n) = inner.as_ref() {
+                                    Some(n.as_str())
+                                } else {
+                                    None
+                                }
                             }
-                        }
-                        _ => None,
-                    };
-                    type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
-                })
-        });
+                            _ => None,
+                        };
+                        type_name.is_some_and(|n| b.options_type.as_deref() == Some(n))
+                    })
+            });
         if has_options_field_bridge {
             let mut with_visitor_params: Vec<String> = func
                 .params
@@ -180,7 +184,11 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_native_ex(
         }
     }
 
-    if !config.trait_bridges.is_empty() {
+    if config
+        .trait_bridges_for(crate::core::config::Language::Elixir)
+        .next()
+        .is_some()
+    {
         last_was_multiline = write_nif_stub(
             &mut out,
             "visitor_reply",

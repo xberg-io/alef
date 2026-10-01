@@ -4,8 +4,18 @@ use tracing::info;
 
 pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
     let api_crate_name = api.crate_name.replace('-', "_");
-    let known_types: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
-    let known_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
+    let known_types: AHashSet<String> = api
+        .types
+        .iter()
+        .flat_map(|item| [item.name.clone(), item.rust_path.replace('-', "_")])
+        .filter(|name| !name.is_empty())
+        .collect();
+    let known_enums: AHashSet<String> = api
+        .enums
+        .iter()
+        .flat_map(|item| [item.name.clone(), item.rust_path.replace('-', "_")])
+        .filter(|name| !name.is_empty())
+        .collect();
 
     let known_type_paths = rust_paths_by_name(api.types.iter().map(|t| (&t.name, &t.rust_path)));
     let known_enum_paths = rust_paths_by_name(api.enums.iter().map(|e| (&e.name, &e.rust_path)));
@@ -125,7 +135,9 @@ fn sanitize_param(param: &mut ParamDef, known_types: &AHashSet<String>, known_en
     let is_lossy = sanitize_type_ref(&mut param.ty, known_types, known_enums).is_lossy();
     if is_lossy {
         param.sanitized = true;
-        if let Some(orig) = tuple_original {
+        if let Some(orig) = tuple_original
+            && param.original_type.is_none()
+        {
             param.original_type = Some(orig);
         } else if param.original_type.is_none() {
             param.original_type = Some(pre_sanitization);
@@ -205,7 +217,7 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
                 .binding_exclusion_reason
                 .as_deref()
                 .unwrap_or("source binding exclusion");
-            info!("Stripping excluded type: {} ({})", typ.name, reason);
+            info!("Retaining Rust-only type: {} ({})", typ.name, reason);
             api.excluded_type_paths
                 .insert(typ.name.clone(), typ.rust_path.replace('-', "_"));
             if typ.is_trait {
@@ -219,7 +231,7 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
                 .binding_exclusion_reason
                 .as_deref()
                 .unwrap_or("source binding exclusion");
-            info!("Stripping excluded enum: {} ({})", enm.name, reason);
+            info!("Retaining Rust-only enum: {} ({})", enm.name, reason);
             api.excluded_type_paths
                 .insert(enm.name.clone(), enm.rust_path.replace('-', "_"));
         }
@@ -230,16 +242,11 @@ pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()>
                 .binding_exclusion_reason
                 .as_deref()
                 .unwrap_or("source binding exclusion");
-            info!("Stripping excluded error: {} ({})", err.name, reason);
+            info!("Retaining Rust-only error: {} ({})", err.name, reason);
             api.excluded_type_paths
                 .insert(err.name.clone(), err.rust_path.replace('-', "_"));
         }
     }
-
-    api.types.retain(|t| !t.binding_excluded);
-    api.enums.retain(|e| !e.binding_excluded);
-    api.errors.retain(|e| !e.binding_excluded);
-
     for func in &api.functions {
         if func.binding_excluded {
             let reason = func

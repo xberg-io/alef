@@ -325,6 +325,31 @@ default_features = false
 }
 
 #[test]
+fn test_scaffold_php_keeps_function_feature_public_and_defaulted_without_surface_filter() {
+    let config = minimal_config_from_toml("[crates.php]");
+    let api = crate::core::ir::ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "0.1.0".to_string(),
+        functions: vec![crate::core::ir::FunctionDef {
+            name: "redact".to_string(),
+            cfg: Some(r#"feature = "redaction""#.to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = scaffold(&api, &config, &[Language::Php]).unwrap();
+    let cargo = &language_files(&files)
+        .iter()
+        .find(|file| file.path == Path::new("crates/my-lib-php/Cargo.toml"))
+        .expect("php Cargo.toml")
+        .content;
+
+    assert!(cargo.contains(r#"default = ["redaction"]"#), "{cargo}");
+    assert!(cargo.contains(r#"redaction = ["my-lib/redaction"]"#), "{cargo}");
+}
+
+#[test]
 fn test_scaffold_dart() {
     let config = test_config();
     let api = test_api();

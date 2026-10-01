@@ -46,6 +46,109 @@ fn binding_excluded_parameterized_function_keeps_its_rust_signature() {
     assert_eq!(function.return_type, TypeRef::Unit);
 }
 
+#[test]
+fn binding_excluded_enum_metadata_survives_through_rust_docs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let lib_rs = dir.path().join("lib.rs");
+    std::fs::write(
+        &lib_rs,
+        r#"
+        #[derive(Default)]
+        #[cfg_attr(alef, alef(skip))]
+        pub enum CaptionAltTextPolicy {
+            #[default]
+            Preserve,
+            Replace,
+        }
+
+        #[cfg_attr(alef, alef(skip))]
+        pub fn extract_with_policy(policy: CaptionAltTextPolicy) {
+            let _ = policy;
+        }
+        "#,
+    )
+    .expect("write fixture");
+
+    let mut api =
+        crate::extract::extractor::extract(&[lib_rs.as_path()], "sample", "0.0.0", None).expect("extract fixture");
+    strip_binding_excluded(&mut api).expect("strip binding exclusions");
+    sanitize_unknown_types(&mut api);
+
+    let retained = api
+        .enums
+        .iter()
+        .find(|enum_def| enum_def.name == "CaptionAltTextPolicy")
+        .expect("Rust-only enum metadata must remain typed in the source surface");
+    assert!(retained.binding_excluded);
+    assert_eq!(retained.variants[0].name, "Preserve");
+    assert!(
+        api.types.iter().all(|type_def| type_def.name != "CaptionAltTextPolicy"),
+        "enum must not also be extracted as a type: {:?}",
+        api.types
+    );
+    assert!(
+        retained.variants.iter().all(|variant| variant.fields.is_empty()),
+        "fixture variants must retain their unit shape: {:?}",
+        retained.variants
+    );
+    assert_eq!(api.functions[0].params[0].original_type, None);
+    assert_eq!(
+        api.functions[0].params[0].ty,
+        TypeRef::Named("CaptionAltTextPolicy".to_string())
+    );
+    let serialized = serde_json::to_string(&api).expect("serialize extracted API");
+    assert!(
+        !serialized.contains("alef-rust-doc-type") && !serialized.contains("\\u0000"),
+        "public extraction JSON must not contain a hidden metadata payload: {serialized}"
+    );
+
+    let config: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+        [workspace]
+        languages = ["python", "rust"]
+
+        [[crates]]
+        name = "sample"
+        sources = ["src/lib.rs"]
+        "#,
+    )
+    .expect("valid config");
+    let config = config.resolve().expect("resolved config").remove(0);
+    let files = crate::docs::generate_docs(
+        &api,
+        &config,
+        &[
+            crate::core::config::Language::Python,
+            crate::core::config::Language::Rust,
+        ],
+        "out",
+    )
+    .expect("generate docs");
+    let rust = files
+        .iter()
+        .find(|file| file.path.ends_with("api-rust.md"))
+        .expect("Rust reference");
+    let python = files
+        .iter()
+        .find(|file| file.path.ends_with("api-python.md"))
+        .expect("Python reference");
+
+    assert!(
+        rust.content
+            .contains("pub fn extract_with_policy(policy: CaptionAltTextPolicy)")
+            && rust
+                .content
+                .contains("extract_with_policy(CaptionAltTextPolicy::Preserve);"),
+        "Rust docs must consume the retained enum construction metadata; got:\n{}",
+        rust.content
+    );
+    assert!(
+        !python.content.contains("extract_with_policy"),
+        "binding docs must keep excluding the Rust-only function; got:\n{}",
+        python.content
+    );
+}
+
 /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
 /// without marking the Map as lossy. Lossy map inner changes are still reported
 /// separately so validation can block them before codegen.
@@ -401,6 +504,7 @@ mod external_type_roots;
 mod fixed_size_arrays;
 mod ir_cache_version_salt;
 mod param_provenance;
+mod qualified_rust_doc_params;
 mod redundant_exclude_entries;
 
 fn make_unsupported_method(type_name: &str, method_name: &str) -> crate::core::ir::UnsupportedPublicItem {

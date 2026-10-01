@@ -78,7 +78,7 @@ fn plugin_bridge() -> TraitBridgeConfig {
 fn config_with_bridge(toml: &str) -> ResolvedCrateConfig {
     let parsed: NewAlefConfig = toml::from_str(toml).expect("fixture config must parse");
     let mut config = parsed.resolve().expect("fixture config must resolve").remove(0);
-    config.trait_bridges = vec![plugin_bridge()];
+    config.replace_trait_bridges(vec![plugin_bridge()]);
     config
 }
 
@@ -264,6 +264,36 @@ package = "io.sample.core"
 }
 
 #[test]
+fn java_emits_no_bridge_when_the_target_is_excluded() {
+    let mut config = config_with_bridge(
+        r#"
+[workspace]
+languages = ["ffi", "java"]
+
+[[crates]]
+name = "sample-core"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "sample"
+
+[crates.java]
+package = "io.sample.core"
+"#,
+    );
+    config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec!["java".to_owned()]);
+
+    let surfaces = JavaBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+    let generated = generated_text(&JavaBackend, &config);
+
+    assert!(surfaces.is_empty(), "an excluded Java bridge must report no surface");
+    assert!(
+        !generated.contains("SamplePluginBridge"),
+        "an excluded Java bridge must emit no bridge class references"
+    );
+}
+
+#[test]
 fn kotlin_android_surface_names_the_fixed_bridge_object_methods() {
     let config = config_with_bridge(
         r#"
@@ -320,7 +350,7 @@ package = "io.sample.core"
 [crates.jni]
 "#,
     );
-    config.trait_bridges[0].exclude_languages = vec!["kotlin_android".to_owned()];
+    config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec!["kotlin_android".to_owned()]);
 
     let surfaces = KotlinAndroidBackend.trait_bridge_registration_surface(&plugin_api(), &config);
 
@@ -375,7 +405,7 @@ sources = ["src/lib.rs"]
 prefix = "sample"
 "#,
     );
-    config.trait_bridges[0].register_fn = None;
+    config.update_trait_bridge(0, |bridge| bridge.register_fn = None);
 
     let surfaces = FfiBackend.trait_bridge_registration_surface(&plugin_api(), &config);
 

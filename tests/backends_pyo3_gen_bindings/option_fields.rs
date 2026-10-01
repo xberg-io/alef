@@ -553,7 +553,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
     };
 
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "SyntaxWalker".to_string(),
         super_trait: None,
@@ -571,7 +571,7 @@ fn test_options_field_bridge_field_not_duplicated_when_cfg_force_restored() {
         context_type: None,
         result_type: None,
         ffi_skip_methods: Vec::new(),
-    }];
+    }]);
 
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "Failed to generate bindings: {}", result.unwrap_err());

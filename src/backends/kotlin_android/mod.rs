@@ -203,9 +203,7 @@ impl Backend for KotlinAndroidBackend {
     ) -> Vec<TraitBridgeRegistrationSurface> {
         let excluded_functions = naming::excluded_function_names(config);
         config
-            .trait_bridges
-            .iter()
-            .filter(|bridge| bridge.is_active_for("kotlin_android"))
+            .trait_bridges_for(Language::KotlinAndroid)
             .filter(|bridge| {
                 bridge
                     .param_name

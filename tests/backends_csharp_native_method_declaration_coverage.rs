@@ -101,17 +101,18 @@ fn surface() -> ApiSurface {
 /// nothing else declares the `{Options}Set{Field}` setter, even though the FFI crate exports it
 /// for every options-field bridge. ~keep
 fn config() -> ResolvedCrateConfig {
-    ResolvedCrateConfig {
+    let mut config = ResolvedCrateConfig {
         name: CRATE_NAME.to_owned(),
-        trait_bridges: vec![TraitBridgeConfig {
-            trait_name: TRAIT_NAME.to_owned(),
-            bind_via: BridgeBinding::OptionsField,
-            options_type: Some(OPTIONS_TYPE.to_owned()),
-            options_field: Some(OPTIONS_FIELD.to_owned()),
-            ..TraitBridgeConfig::default()
-        }],
         ..ResolvedCrateConfig::default()
-    }
+    };
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
+        trait_name: TRAIT_NAME.to_owned(),
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some(OPTIONS_TYPE.to_owned()),
+        options_field: Some(OPTIONS_FIELD.to_owned()),
+        ..TraitBridgeConfig::default()
+    }]);
+    config
 }
 
 fn generate() -> Vec<GeneratedFile> {
@@ -162,7 +163,7 @@ fn visitor_surface() -> ApiSurface {
 }
 
 fn visitor_config() -> ResolvedCrateConfig {
-    ResolvedCrateConfig {
+    let mut config = ResolvedCrateConfig {
         name: CRATE_NAME.to_owned(),
         ffi: Some(FfiConfig {
             prefix: None,
@@ -181,17 +182,18 @@ fn visitor_config() -> ResolvedCrateConfig {
             target_dep_overrides: Vec::new(),
             excluded_default_features: Vec::new(),
         }),
-        trait_bridges: vec![TraitBridgeConfig {
-            trait_name: TRAIT_NAME.to_owned(),
-            bind_via: BridgeBinding::OptionsField,
-            options_type: Some(OPTIONS_TYPE.to_owned()),
-            options_field: Some(OPTIONS_FIELD.to_owned()),
-            context_type: Some(CONTEXT_TYPE.to_owned()),
-            result_type: Some(RESULT_TYPE.to_owned()),
-            ..TraitBridgeConfig::default()
-        }],
         ..ResolvedCrateConfig::default()
-    }
+    };
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
+        trait_name: TRAIT_NAME.to_owned(),
+        bind_via: BridgeBinding::OptionsField,
+        options_type: Some(OPTIONS_TYPE.to_owned()),
+        options_field: Some(OPTIONS_FIELD.to_owned()),
+        context_type: Some(CONTEXT_TYPE.to_owned()),
+        result_type: Some(RESULT_TYPE.to_owned()),
+        ..TraitBridgeConfig::default()
+    }]);
+    config
 }
 
 fn generate_with_visitor_callbacks() -> Vec<GeneratedFile> {

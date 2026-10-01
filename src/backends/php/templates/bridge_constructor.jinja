@@ -6,9 +6,6 @@ impl {{ wrapper }} {
         // Validation of required methods is done in the registration function below.
         // Skipping debug_assert in constructor to avoid type issues with get_property.
 
-        // Increment refcount to keep the object alive while registered.
-        php_obj.inc_count();
-
         // Extract and cache name
         let cached_name = php_obj
             .try_call_method("name", vec![])
@@ -18,25 +15,12 @@ impl {{ wrapper }} {
             .to_string();
 
         Self {
-            inner: php_obj as *mut _,
+            inner: {
+                let mut owned = ext_php_rs::types::Zval::new();
+                owned.set_object(php_obj);
+                owned
+            },
             cached_name,
-        }
-    }
-}
-
-// SAFETY: PHP is single-threaded within a request context.
-// The raw pointer to ZendObject is managed with inc_count/dec_count pairs.
-unsafe impl Send for {{ wrapper }} {}
-unsafe impl Sync for {{ wrapper }} {}
-
-impl Drop for {{ wrapper }} {
-    fn drop(&mut self) {
-        // SAFETY: Decrement refcount when the bridge is dropped.
-        // The object pointer is guaranteed valid until this point.
-        unsafe {
-            if !self.inner.is_null() {
-                (*self.inner).dec_count();
-            }
         }
     }
 }

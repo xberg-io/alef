@@ -12,7 +12,7 @@
 //! turns it permanently green while testing less than it claims. [`ToolchainGate::open`] does
 //! the third thing: it skips, and it *counts*.
 //!
-//! Every call is tallied per toolchain as attempted, and then as either executed or skipped, and
+//! Every call is tallied per toolchain as attempted, and then as executed, absent, or unusable, and
 //! the running tally is flushed to `<target-dir>/toolchain-census/<test-binary>.tsv` after each
 //! call. Nothing in this process reads those files back. That is deliberate: `libtest` gives a
 //! test binary no end-of-run hook to report from, it captures the stdout *and* stderr of a
@@ -25,10 +25,10 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use super::spawn_from_stable_dir;
+use super::{PATH_LOCK, spawn_from_stable_dir};
 
 /// Directory, relative to the cargo target directory, holding one tally file per test binary.
 /// `scripts/toolchain-census.sh` reads this same name -- change both together. ~keep
@@ -45,9 +45,18 @@ pub(crate) struct ToolchainGate {
     binary: &'static str,
     /// Argument that makes the binary prove it can actually run. See [`ToolchainGate::resolve`].
     version_arg: &'static str,
+    probe: CapabilityProbe,
     /// Environment variable that upgrades "absent" from a counted skip to a hard failure. CI sets
     /// it on every platform that installs the toolchain.
     require_env: &'static str,
+}
+
+#[derive(Clone, Copy)]
+enum CapabilityProbe {
+    VersionOnly,
+    GoBuild,
+    SwiftFoundation,
+    RubyJson,
 }
 
 /// The Go toolchain, needed by every fixture that compiles or runs alef's generated Go.
@@ -60,6 +69,7 @@ pub(crate) const GO: ToolchainGate = ToolchainGate {
     name: "go",
     binary: "go",
     version_arg: "version",
+    probe: CapabilityProbe::GoBuild,
     require_env: "ALEF_REQUIRE_GO",
 };
 
@@ -73,6 +83,7 @@ pub(crate) const SWIFT: ToolchainGate = ToolchainGate {
     name: "swift",
     binary: "swift",
     version_arg: "--version",
+    probe: CapabilityProbe::SwiftFoundation,
     require_env: "ALEF_REQUIRE_SWIFT",
 };
 
@@ -86,6 +97,7 @@ pub(crate) const RUBY: ToolchainGate = ToolchainGate {
     name: "ruby",
     binary: "ruby",
     version_arg: "--version",
+    probe: CapabilityProbe::RubyJson,
     require_env: "ALEF_REQUIRE_RUBY",
 };
 
@@ -102,6 +114,7 @@ pub(crate) const WASM_BINDGEN: ToolchainGate = ToolchainGate {
     name: "wasm-bindgen",
     binary: "wasm-bindgen",
     version_arg: "--version",
+    probe: CapabilityProbe::VersionOnly,
     require_env: "ALEF_REQUIRE_WASM_BINDGEN",
 };
 
@@ -110,7 +123,15 @@ pub(crate) const WASM_BINDGEN: ToolchainGate = ToolchainGate {
 struct Tally {
     attempted: u32,
     executed: u32,
-    skipped: u32,
+    absent: u32,
+    unusable: u32,
+}
+
+#[derive(Clone)]
+enum Resolution {
+    Available(PathBuf),
+    Absent,
+    Unusable(String),
 }
 
 /// The census, and the resolution cache, for this process.
@@ -125,7 +146,7 @@ static CENSUS: Mutex<Census> = Mutex::new(Census {
 
 struct Census {
     tallies: BTreeMap<&'static str, Tally>,
-    resolved: BTreeMap<&'static str, Option<PathBuf>>,
+    resolved: BTreeMap<&'static str, Resolution>,
 }
 
 impl ToolchainGate {
@@ -143,7 +164,7 @@ impl ToolchainGate {
     /// silently regressed fails loudly rather than quietly testing less.
     pub(crate) fn open(&self) -> Option<PathBuf> {
         let resolved = self.resolve();
-        self.record(resolved.is_some());
+        self.record(&resolved);
         self.require_available(resolved, std::env::var_os(self.require_env).is_some())
     }
 
@@ -154,16 +175,21 @@ impl ToolchainGate {
     /// `required_mode_fails_when_the_toolchain_is_unavailable` below can prove the panic fires
     /// against a fabricated "unavailable" input instead of having to hide a real binary from
     /// `PATH` -- which no test in a shared process can do without racing every other test. ~keep
-    fn require_available(&self, resolved: Option<PathBuf>, required: bool) -> Option<PathBuf> {
-        assert!(
-            resolved.is_some() || !required,
-            "{} is set but `{}` is unavailable: this fixture compiles alef's generated output \
-             with the real {} toolchain and verifies nothing without it",
-            self.require_env,
-            self.binary,
-            self.name
-        );
-        resolved
+    fn require_available(&self, resolved: Resolution, required: bool) -> Option<PathBuf> {
+        match resolved {
+            Resolution::Available(path) => Some(path),
+            Resolution::Absent if !required => None,
+            Resolution::Unusable(_) if !required => None,
+            Resolution::Absent => panic!(
+                "{} is set but `{}` is absent: this fixture compiles alef's generated output \
+                 with the real {} toolchain and verifies nothing without it",
+                self.require_env, self.binary, self.name
+            ),
+            Resolution::Unusable(diagnostic) => panic!(
+                "{} is set and `{}` is present but unusable for the {} fixture:\n{}",
+                self.require_env, self.binary, self.name, diagnostic
+            ),
+        }
     }
 
     /// Look the binary up on `PATH` *and* prove it runs, caching the answer for the process.
@@ -172,38 +198,64 @@ impl ToolchainGate {
     /// on `PATH` and spawns fine with no toolchain installed behind it, then exits non-zero. A
     /// `which`-only check would count that as executed and then fail the fixture's real
     /// assertions on every such machine. ~keep
-    fn resolve(&self) -> Option<PathBuf> {
-        let mut census = lock();
-        if let Some(cached) = census.resolved.get(self.name) {
+    fn resolve(&self) -> Resolution {
+        if let Some(cached) = lock().resolved.get(self.name) {
             return cached.clone();
         }
-        let resolved = which::which(self.binary).ok().filter(|_| self.is_runnable());
-        census.resolved.insert(self.name, resolved.clone());
-        resolved
+        let binary = {
+            // `PATH` is process-global; resolve under the mutation lock, then release it before
+            // probing the absolute executable so long-running capability checks do not block tests. ~keep
+            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            which::which(self.binary)
+        };
+        let resolved = match binary {
+            Ok(path) => match self.probe(&path) {
+                Ok(()) => Resolution::Available(path),
+                Err(diagnostic) => Resolution::Unusable(diagnostic),
+            },
+            Err(_) => Resolution::Absent,
+        };
+        lock().resolved.entry(self.name).or_insert(resolved).clone()
     }
 
-    fn is_runnable(&self) -> bool {
-        spawn_from_stable_dir(self.binary)
+    fn probe(&self, binary: &Path) -> Result<(), String> {
+        let version = spawn_from_stable_dir(binary)
             .arg(self.version_arg)
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+            .output()
+            .map_err(|error| format!("failed to run `{}`: {error}", binary.display()))?;
+        if !version.status.success() {
+            return Err(command_diagnostic(binary, &version));
+        }
+
+        match self.probe {
+            CapabilityProbe::VersionOnly => Ok(()),
+            CapabilityProbe::RubyJson => {
+                let output = spawn_from_stable_dir(binary)
+                    .args(["-e", "require \"json\""])
+                    .output()
+                    .map_err(|error| format!("failed to run `{}`: {error}", binary.display()))?;
+                output
+                    .status
+                    .success()
+                    .then_some(())
+                    .ok_or_else(|| command_diagnostic(binary, &output))
+            }
+            CapabilityProbe::GoBuild => probe_go_build(binary),
+            CapabilityProbe::SwiftFoundation => probe_swift_foundation(binary),
+        }
     }
 
-    fn record(&self, executed: bool) {
+    fn record(&self, resolution: &Resolution) {
         let mut census = lock();
         let tally = census.tallies.entry(self.name).or_default();
         tally.attempted += 1;
-        if executed {
-            tally.executed += 1;
-        } else {
-            tally.skipped += 1;
+        match resolution {
+            Resolution::Available(_) => tally.executed += 1,
+            Resolution::Absent => tally.absent += 1,
+            Resolution::Unusable(_) => tally.unusable += 1,
         }
-        let snapshot = census.tallies.clone();
-        drop(census);
-        flush(&snapshot);
+        flush(&census.tallies);
     }
 }
 
@@ -212,6 +264,65 @@ impl ToolchainGate {
 /// legible failure with dozens.
 fn lock() -> std::sync::MutexGuard<'static, Census> {
     CENSUS.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+fn command_diagnostic(binary: &Path, output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    format!(
+        "`{}` exited with {}\nstdout:\n{}\nstderr:\n{}",
+        binary.display(),
+        output.status,
+        stdout.trim(),
+        stderr.trim()
+    )
+}
+
+fn probe_go_build(binary: &Path) -> Result<(), String> {
+    let temp = tempfile::tempdir().map_err(|error| format!("failed to create Go probe directory: {error}"))?;
+    let source = temp.path().join("main.go");
+    let output_binary = temp.path().join(if cfg!(windows) { "probe.exe" } else { "probe" });
+    std::fs::write(&source, "package main\nfunc main() {}\n")
+        .map_err(|error| format!("failed to write Go probe source: {error}"))?;
+
+    let output = spawn_from_stable_dir(binary)
+        .args(["build", "-o"])
+        .arg(&output_binary)
+        .arg(&source)
+        .current_dir(temp.path())
+        .env("GOWORK", "off")
+        .env("GO111MODULE", "off")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|error| format!("failed to run `{}`: {error}", binary.display()))?;
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(|| command_diagnostic(binary, &output))
+}
+
+fn probe_swift_foundation(binary: &Path) -> Result<(), String> {
+    let temp = tempfile::tempdir().map_err(|error| format!("failed to create Swift probe directory: {error}"))?;
+    let source = temp.path().join("main.swift");
+    let output_binary = temp.path().join(if cfg!(windows) { "probe.exe" } else { "probe" });
+    std::fs::write(&source, "import Foundation\nlet data = Data()\nprint(data.count)\n")
+        .map_err(|error| format!("failed to write Swift probe source: {error}"))?;
+    let compiler = binary.with_file_name(if cfg!(windows) { "swiftc.exe" } else { "swiftc" });
+
+    let output = spawn_from_stable_dir(&compiler)
+        .arg(&source)
+        .arg("-o")
+        .arg(&output_binary)
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|error| format!("failed to run `{}`: {error}", compiler.display()))?;
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(|| command_diagnostic(&compiler, &output))
 }
 
 /// Rewrite this test binary's tally file. Best-effort: a fixture must not fail because the census
@@ -227,8 +338,8 @@ fn flush(tallies: &BTreeMap<&'static str, Tally>) {
     for (name, tally) in tallies {
         let _ = writeln!(
             rendered,
-            "{name}\t{}\t{}\t{}",
-            tally.attempted, tally.executed, tally.skipped
+            "{name}\t{}\t{}\t{}\t{}",
+            tally.attempted, tally.executed, tally.absent, tally.unusable
         );
     }
     let _ = std::fs::write(&path, rendered);
@@ -295,23 +406,27 @@ mod tests {
             before.attempted + 1,
             "opening the go gate must record exactly one attempt"
         );
+        let executed = after.executed - before.executed;
+        let absent = after.absent - before.absent;
+        let unusable = after.unusable - before.unusable;
+        assert_eq!(executed + absent + unusable, 1, "an attempt must land in one outcome");
         assert_eq!(
-            (after.executed - before.executed, after.skipped - before.skipped),
-            if resolved.is_some() { (1, 0) } else { (0, 1) },
-            "an attempt must land in exactly one of the executed/skipped columns"
+            executed,
+            u32::from(resolved.is_some()),
+            "only a usable toolchain executes"
         );
         assert_eq!(
             after.attempted,
-            after.executed + after.skipped,
-            "attempted must always equal executed + skipped, or the census cannot be read as a ratio"
+            after.executed + after.absent + after.unusable,
+            "attempted must equal the sum of every outcome"
         );
     }
 
-    /// `scripts/toolchain-census.sh` fails a required toolchain on `executed == 0`, so the on-disk
-    /// row must carry the executed count, not just the attempt count. Reads the real file back
-    /// rather than the in-memory tally so a broken flush is caught here and not in CI. ~keep
+    /// `scripts/toolchain-census.sh` fails a required toolchain unless `executed == attempted`, so
+    /// the on-disk row must carry every outcome count. Reads the real file back rather than the
+    /// in-memory tally so a broken flush is caught here and not in CI. ~keep
     #[test]
-    fn the_flushed_row_reports_attempted_executed_and_skipped() {
+    fn the_flushed_row_reports_each_resolution_outcome() {
         let _serialized = serialize_gate_tests();
         let _ = GO.open();
         let path = census_file().expect("census path resolves");
@@ -325,17 +440,65 @@ mod tests {
         let columns: Vec<&str> = row.split('\t').collect();
         assert_eq!(
             columns.len(),
-            4,
-            "a census row is <toolchain>\\t<attempted>\\t<executed>\\t<skipped>, got {row:?}"
+            5,
+            "a census row is <toolchain>\\t<attempted>\\t<executed>\\t<absent>\\t<unusable>, got {row:?}"
         );
         let attempted: u32 = columns[1].parse().expect("attempted column is a number");
         let executed: u32 = columns[2].parse().expect("executed column is a number");
-        let skipped: u32 = columns[3].parse().expect("skipped column is a number");
+        let absent: u32 = columns[3].parse().expect("absent column is a number");
+        let unusable: u32 = columns[4].parse().expect("unusable column is a number");
         assert!(
             attempted > 0,
             "the row must record the attempt that just happened: {row:?}"
         );
-        assert_eq!(attempted, executed + skipped, "flushed row does not add up: {row:?}");
+        assert_eq!(
+            attempted,
+            executed + absent + unusable,
+            "flushed row does not add up: {row:?}"
+        );
+    }
+
+    #[test]
+    fn concurrent_records_flush_the_latest_complete_tally() {
+        const CONCURRENT: ToolchainGate = ToolchainGate {
+            name: "concurrent-record-test",
+            binary: "unused",
+            version_arg: "unused",
+            probe: CapabilityProbe::VersionOnly,
+            require_env: "ALEF_REQUIRE_UNUSED",
+        };
+        let before = tally_of(CONCURRENT.name());
+        let threads: Vec<_> = (0..32)
+            .map(|index| {
+                std::thread::spawn(move || {
+                    let resolution = if index % 2 == 0 {
+                        Resolution::Available(PathBuf::from("unused"))
+                    } else {
+                        Resolution::Unusable("unused".to_owned())
+                    };
+                    CONCURRENT.record(&resolution);
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().expect("recording thread");
+        }
+
+        let after = tally_of(CONCURRENT.name());
+        assert_eq!(after.attempted - before.attempted, 32);
+        let rendered = std::fs::read_to_string(census_file().expect("census path")).expect("read census");
+        let expected = format!(
+            "{}\t{}\t{}\t{}\t{}",
+            CONCURRENT.name(),
+            after.attempted,
+            after.executed,
+            after.absent,
+            after.unusable
+        );
+        assert!(
+            rendered.lines().any(|line| line == expected),
+            "flushed census did not retain the latest tally:\n{rendered}"
+        );
     }
 
     /// The hard half of the contract: on a platform CI installs the toolchain for, a missing
@@ -344,7 +507,7 @@ mod tests {
     /// everywhere else. ~keep
     #[test]
     fn required_mode_fails_when_the_toolchain_is_unavailable() {
-        let result = std::panic::catch_unwind(|| GO.require_available(None, true));
+        let result = std::panic::catch_unwind(|| GO.require_available(Resolution::Absent, true));
 
         let panic = result.expect_err("required mode must fail when the toolchain is unavailable");
         let message = panic
@@ -358,17 +521,184 @@ mod tests {
         );
     }
 
+    #[test]
+    fn required_mode_preserves_an_unusable_toolchains_diagnostic() {
+        let result = std::panic::catch_unwind(|| {
+            GO.require_available(Resolution::Unusable("compiler exploded".to_owned()), true)
+        });
+
+        let panic = result.expect_err("required mode must fail for an unusable toolchain");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("non-string panic");
+        assert!(message.contains("present but unusable"), "unexpected panic: {message}");
+        assert!(message.contains("compiler exploded"), "unexpected panic: {message}");
+    }
+
     /// The other half: absent and *not* required is a skip, not a failure -- otherwise a
     /// contributor without Go installed cannot run the suite at all, which is how the Go fixtures
     /// came to be permanently red on two of the three CI legs. ~keep
     #[test]
     fn unrequired_mode_reports_an_absent_toolchain_as_a_skip() {
         assert_eq!(
-            GO.require_available(None, false),
+            GO.require_available(Resolution::Absent, false),
             None,
             "an absent, unrequired toolchain must be reported as not-run rather than panicking"
         );
     }
+
+    #[test]
+    fn resolve_waits_for_path_lock_before_caching_availability() {
+        static RUSTC: ToolchainGate = ToolchainGate {
+            name: "path-lock-regression-rustc",
+            binary: if cfg!(windows) { "rustc.exe" } else { "rustc" },
+            version_arg: "--version",
+            probe: CapabilityProbe::VersionOnly,
+            require_env: "ALEF_REQUIRE_PATH_LOCK_REGRESSION_RUSTC",
+        };
+        let path_lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let expected = which::which(RUSTC.binary).expect("cargo tests require rustc on PATH");
+        assert!(expected.is_absolute(), "which must resolve rustc to an absolute path");
+
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).expect("signal resolve start");
+            resolved_tx.send(RUSTC.resolve()).expect("send resolution");
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("resolve worker started");
+        match resolved_rx.recv_timeout(std::time::Duration::from_millis(500)) {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(error) => panic!("resolve worker disconnected while PATH was guarded: {error}"),
+            Ok(_) => panic!("resolve bypassed the PATH lock"),
+        }
+
+        drop(path_lock);
+        let resolved = resolved_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("resolve completed after the PATH lock was released");
+        worker.join().expect("resolve worker completed");
+        match resolved {
+            Resolution::Available(path) => assert_eq!(path, expected),
+            Resolution::Absent => panic!("rustc remained absent after PATH was restored"),
+            Resolution::Unusable(diagnostic) => panic!("rustc was unexpectedly unusable: {diagnostic}"),
+        }
+    }
+
+    #[test]
+    fn deterministic_capability_controls_accept_real_work_for_every_probed_language() {
+        let tools = fake_toolchains(false);
+
+        GO.probe(&tools.go).expect("Go control performs a build");
+        SWIFT
+            .probe(&tools.swift)
+            .expect("Swift control compiles Foundation source");
+        RUBY.probe(&tools.ruby).expect("Ruby control loads JSON");
+    }
+
+    #[test]
+    fn version_only_tools_are_unusable_for_every_capability_probe() {
+        let tools = fake_toolchains(true);
+
+        for (gate, binary) in [(&GO, &tools.go), (&SWIFT, &tools.swift), (&RUBY, &tools.ruby)] {
+            let Err(diagnostic) = gate.probe(binary) else {
+                panic!("{} version-only control unexpectedly passed", gate.name());
+            };
+            assert!(
+                diagnostic.contains("deliberately-broken"),
+                "{} lost the real capability diagnostic: {diagnostic}",
+                gate.name()
+            );
+        }
+    }
+
+    struct FakeToolchains {
+        _root: tempfile::TempDir,
+        go: PathBuf,
+        swift: PathBuf,
+        ruby: PathBuf,
+    }
+
+    fn fake_toolchains(broken: bool) -> FakeToolchains {
+        let root = tempfile::tempdir().expect("fake toolchain root");
+        let directory = root.path().join(if broken { "broken" } else { "working" });
+        std::fs::create_dir(&directory).expect("create fake toolchain directory");
+        let source = root.path().join("fake_tool.rs");
+        let compiled = root
+            .path()
+            .join(if cfg!(windows) { "fake_tool.exe" } else { "fake_tool" });
+        std::fs::write(&source, FAKE_TOOL_SOURCE).expect("write fake tool source");
+        let rustc = {
+            // Test helpers share the process PATH with PathWithoutToolGuard. ~keep
+            let _path = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+            which::which("rustc").expect("cargo tests require rustc")
+        };
+        let output = std::process::Command::new(rustc)
+            .arg(&source)
+            .arg("-o")
+            .arg(&compiled)
+            .output()
+            .expect("compile fake tool");
+        assert!(output.status.success(), "fake tool compile failed: {output:?}");
+
+        let named = |name: &str| {
+            let path = directory.join(if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_owned()
+            });
+            std::fs::copy(&compiled, &path).expect("copy fake tool");
+            path
+        };
+        let go = named("go");
+        let swift = named("swift");
+        let _swiftc = named("swiftc");
+        let ruby = named("ruby");
+        FakeToolchains {
+            _root: root,
+            go,
+            swift,
+            ruby,
+        }
+    }
+
+    const FAKE_TOOL_SOURCE: &str = r#"
+use std::path::PathBuf;
+
+fn main() {
+    let executable = std::env::current_exe().unwrap();
+    let name = executable.file_stem().unwrap().to_string_lossy();
+    let broken = executable.parent().unwrap().file_name().unwrap() == "broken";
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.first().map(String::as_str), Some("version" | "--version")) {
+        return;
+    }
+    if broken {
+        eprintln!("deliberately-broken capability");
+        std::process::exit(42);
+    }
+    let output = if name.starts_with("go") {
+        assert_eq!(args.first().map(String::as_str), Some("build"));
+        args.iter().position(|arg| arg == "-o").map(|index| PathBuf::from(&args[index + 1]))
+    } else if name.starts_with("swiftc") {
+        let source = std::fs::read_to_string(&args[0]).unwrap();
+        assert!(source.contains("import Foundation"));
+        args.iter().position(|arg| arg == "-o").map(|index| PathBuf::from(&args[index + 1]))
+    } else if name.starts_with("ruby") {
+        assert_eq!(args, ["-e", "require \"json\""]);
+        None
+    } else {
+        panic!("unexpected fake tool invocation: {name} {args:?}");
+    };
+    if let Some(path) = output {
+        std::fs::write(path, b"probe").unwrap();
+    }
+}
+"#;
 
     fn tally_of(name: &'static str) -> Tally {
         lock().tallies.get(name).copied().unwrap_or_default()

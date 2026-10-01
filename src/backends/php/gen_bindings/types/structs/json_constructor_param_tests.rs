@@ -117,7 +117,7 @@ fn required_json_field_wraps_constructor_in_php_result_and_propagates_parse_erro
     );
     assert!(
         ctor_only.contains("schema: serde_json::from_str(&schema).map_err(")
-            && ctor_only.contains("PhpException::default(e.to_string()))?"),
+            && ctor_only.contains("PhpException::from_message(e.to_string()))?"),
         "malformed JSON must be refused via a propagated parse error, got:\n{ctor_only}"
     );
     assert!(
@@ -181,7 +181,7 @@ fn optional_json_field_also_wraps_constructor_in_php_result() {
     assert!(ctor_only.contains(") -> PhpResult<Self>"), "got:\n{ctor_only}");
     assert!(
         ctor_only.contains("paddle_ocr_config: paddleOcrConfig.map(|s| serde_json::from_str(&s)).transpose().map_err(")
-            && ctor_only.contains("PhpException::default(e.to_string()))?"),
+            && ctor_only.contains("PhpException::from_message(e.to_string()))?"),
         "must decode via a fallible transpose chain, not silently swallow a parse error, got:\n{ctor_only}"
     );
     assert!(

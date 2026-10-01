@@ -3,6 +3,9 @@ use crate::core::ir::MethodDef;
 use super::{TraitBridgeGenerator, TraitBridgeSpec};
 
 pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return code;
+    }
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();
 
@@ -119,6 +122,9 @@ pub fn plugin_lifecycle_methods(spec: &TraitBridgeSpec, version_is_fallible: boo
 /// The super-trait path is derived from the config's `super_trait` field. If it
 /// contains `::`, it's used as-is; otherwise it's qualified as `{core_import}::{super_trait}`.
 pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return Some(code);
+    }
     let super_trait_name = spec.bridge_config.super_trait.as_deref()?;
 
     let wrapper = spec.wrapper_name();

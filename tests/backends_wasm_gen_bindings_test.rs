@@ -2101,7 +2101,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
     };
 
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "Visitor".to_string(),
         super_trait: None,
@@ -2121,7 +2121,7 @@ fn test_generate_bindings_cargo_toml_js_sys_with_trait_bridge() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
 
     let files = backend
         .generate_bindings(&api, &config)
@@ -4558,7 +4558,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
     };
 
     let mut config = make_config();
-    config.trait_bridges = vec![TraitBridgeConfig {
+    config.replace_trait_bridges(vec![TraitBridgeConfig {
         exclude_functions: Vec::new(),
         trait_name: "TextBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -4576,7 +4576,7 @@ fn test_wasm_plugin_bridge_clear_fn_not_duplicated() {
         options_field: None,
         context_type: None,
         result_type: None,
-    }];
+    }]);
 
     let files = backend
         .generate_bindings(&api, &config)

@@ -28,22 +28,17 @@ fn make_param(name: &str, optional: bool) -> ParamDef {
     }
 }
 
-/// TypeScript TS1016: required parameter must not follow optional parameter.
-/// A visitor method like `visit_code_block(ctx, lang?: Option<str>, code: str)`
-/// must be reordered to `visit_code_block(ctx, code, lang?)` in the `.d.ts`.
+/// TypeScript TS1016 is avoided without changing the runtime's positional ABI: an optional
+/// parameter before a required parameter is expressed as a required `T | undefined | null` slot.
 #[test]
-fn dts_params_reorders_required_after_optional() {
+fn dts_params_preserves_runtime_order_when_required_follows_optional() {
     let params = vec![
         make_param("ctx", false),
         make_param("lang", true),
         make_param("code", false),
     ];
     let result = dts_params(&params, &ahash::AHashSet::new());
-    let ctx_pos = result.find("ctx:").expect("ctx not found");
-    let code_pos = result.find("code:").expect("code not found");
-    let lang_pos = result.find("lang?:").expect("lang? not found");
-    assert!(ctx_pos < lang_pos, "ctx should come before lang?: {result}");
-    assert!(code_pos < lang_pos, "code should come before lang?: {result}");
+    assert_eq!(result, "ctx: string, lang: string | undefined | null, code: string");
 }
 
 /// When params are already in valid order (all required before all optional),

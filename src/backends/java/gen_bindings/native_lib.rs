@@ -111,12 +111,7 @@ pub(crate) fn gen_native_lib(
     let lib_name = config.ffi_lib_name();
 
     let trait_bridge_handles: AHashSet<String> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| {
-            !b.exclude_languages
-                .contains(&crate::core::config::Language::Java.to_string())
-        })
+        .trait_bridges_for(crate::core::config::Language::Java)
         .filter(|bridge| !(has_visitor_pattern && bridge.bind_via == BridgeBinding::OptionsField))
         .flat_map(|b| {
             let trait_snake = b.trait_name.to_snake_case();
@@ -133,12 +128,7 @@ pub(crate) fn gen_native_lib(
         .collect();
 
     let bridge_type_aliases: AHashSet<String> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| {
-            !b.exclude_languages
-                .contains(&crate::core::config::Language::Java.to_string())
-        })
+        .trait_bridges_for(crate::core::config::Language::Java)
         .filter_map(|b| b.type_alias.clone())
         .collect();
 
@@ -438,13 +428,7 @@ pub(crate) fn gen_native_lib(
     let mut emitted_unregister_handles: AHashSet<String> = AHashSet::new();
     let mut emitted_clear_handles: AHashSet<String> = AHashSet::new();
 
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .contains(&crate::core::config::Language::Java.to_string())
-        {
-            continue;
-        }
+    for bridge_cfg in config.trait_bridges_for(crate::core::config::Language::Java) {
         if has_visitor_pattern && bridge_cfg.bind_via == BridgeBinding::OptionsField {
             continue;
         }
@@ -772,8 +756,7 @@ pub(crate) fn gen_native_lib(
 
     let visitor_handles = if has_visitor_pattern {
         let options_fields: Vec<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(crate::core::config::Language::Java)
             .filter(|bridge| bridge.bind_via == BridgeBinding::OptionsField)
             .filter_map(|bridge| bridge.resolved_options_field().map(str::to_string))
             .collect::<BTreeSet<_>>()

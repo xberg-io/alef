@@ -11,11 +11,7 @@ pub(super) fn format_bulleted_errors(messages: &[String]) -> String {
 }
 
 pub(super) fn validate_extracted_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<()> {
-    let bridged_trait_names: AHashSet<&str> = config
-        .trait_bridges
-        .iter()
-        .map(|bridge| bridge.trait_name.as_str())
-        .collect();
+    let bridged_trait_names: AHashSet<&str> = config.configured_trait_bridge_names().collect();
     let validation_report =
         crate::core::validation::validate_api_surface_with_bridged_traits(api, &bridged_trait_names);
     // `options_field` trait bridges read a specific field off a specific options struct rather
@@ -24,7 +20,7 @@ pub(super) fn validate_extracted_api(api: &ApiSurface, config: &ResolvedCrateCon
     // Kept as a separate call rather than folded into `validate_api_surface_with_bridged_traits`
     // itself, whose `bridged_trait_names: &AHashSet<&str>` signature several other call sites
     // (and their tests) depend on. ~keep
-    let carrier_diagnostics = crate::core::validation::trait_bridge_carrier_diagnostics(api, &config.trait_bridges);
+    let carrier_diagnostics = config.trait_bridge_carrier_diagnostics(api);
     let (suppressed, fatal): (Vec<_>, Vec<_>) =
         validation_report
             .errors()

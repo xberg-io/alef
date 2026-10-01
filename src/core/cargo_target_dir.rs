@@ -17,10 +17,8 @@
 //! Two things about the lookup are easy to get wrong and are load-bearing for callers:
 //!
 //! - Cargo discovers `.cargo/config.toml` by walking up from the **current working directory**,
-//!   not from `--manifest-path`. Verified directly against the cargo this repo builds with: the
-//!   same `--manifest-path` returns the config's `target-dir` when run from inside the tree and
-//!   `<manifest dir>/target` when run from outside it. Callers must therefore keep the process
-//!   cwd inside the workspace (alef commands already run with the workspace root as cwd).
+//!   not from `--manifest-path`. [`resolve`] therefore pins the metadata child to the manifest's
+//!   directory instead of inheriting ambient process state.
 //! - `CARGO_TARGET_DIR` reaches the child through the inherited environment, so the ambient value
 //!   is honoured for free; [`resolve`]'s explicit parameter exists for callers that ran a build
 //!   under a target dir they never exported process-wide. ~keep
@@ -41,10 +39,20 @@ use std::path::{Path, PathBuf};
 /// Returns an error when `cargo metadata` fails to run or exits non-zero, or when its JSON output
 /// cannot be parsed (see [`from_metadata`]).
 pub fn resolve(manifest_path: &Path, cargo_target_dir: Option<&OsStr>) -> anyhow::Result<PathBuf> {
+    let manifest_path = std::path::absolute(manifest_path).with_context(|| {
+        format!(
+            "failed to resolve absolute manifest path for {}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest_dir = manifest_path
+        .parent()
+        .with_context(|| format!("manifest path has no parent: {}", manifest_path.display()))?;
     let mut command = std::process::Command::new("cargo");
     command
         .args(["metadata", "--format-version", "1", "--no-deps", "--manifest-path"])
-        .arg(manifest_path);
+        .arg(&manifest_path)
+        .current_dir(manifest_dir);
     if let Some(target_dir) = cargo_target_dir {
         command.env("CARGO_TARGET_DIR", target_dir);
     }
@@ -141,13 +149,8 @@ mod tests {
         );
     }
 
-    /// The `.cargo/config.toml` half of the precedence chain, which the `CARGO_TARGET_DIR`
-    /// fallback in [`for_workspace_root`] cannot see -- so this fails if the resolution ever
-    /// stops going through `cargo metadata`. Cargo discovers that config from the process cwd,
-    /// hence the `CwdGuard`; an inherited `CARGO_TARGET_DIR` would outrank the config file, hence
-    /// the `ClearedCargoTargetDirGuard`.
     #[test]
-    fn for_workspace_root_follows_a_cargo_config_target_dir() {
+    fn for_workspace_root_follows_cargo_config_without_ambient_cwd() {
         let temp = tempfile::tempdir().expect("tempdir");
         let root = temp.path().canonicalize().unwrap_or_else(|_| temp.path().to_path_buf());
         std::fs::create_dir_all(root.join("src")).expect("create src");
@@ -167,7 +170,6 @@ mod tests {
 
         let resolved = {
             let _target_dir_guard = crate::test_support::ClearedCargoTargetDirGuard::clear();
-            let _cwd = crate::test_support::CwdGuard::enter(&root);
             for_workspace_root(&root)
         };
 

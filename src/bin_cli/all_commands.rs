@@ -178,10 +178,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                 let api = pipeline::extract(resolved_cfg, config_path, clean)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
-                // The fingerprint every stamped stage output (e2e, test-apps) was stamped under --
-                // `is_stage_cached` needs it to tell a hand-edited stage output from an untouched
-                // one, not just whether the file still exists. ~keep
-                let inputs_hash = crate::core::hash::compute_inputs_hash(&sources_hash, &alef_toml_bytes);
 
                 // Accumulated across every phase below and stamped exactly ONCE, by the
                 // `finalize_hashes_sweeping` call after the format pass at the end of this loop
@@ -810,9 +806,12 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // Records this crate's generation-inputs fingerprint centrally, once, now that
                 // generation for it has completed successfully -- the replacement for folding
                 // `inputs_hash` into every file's own stamp. See `core::hash`'s module doc and
-                // `cache::generation_record`. Reuses the `inputs_hash` already computed above
-                // for the stage cache rather than re-deriving it. ~keep
-                cache::record_inputs_hash(&base_dir, &resolved_cfg.name, &inputs_hash)?;
+                // `cache::generation_record`. Formatting can rewrite a Rust source file, so the
+                // committed baseline must be derived from the final on-disk sources rather than
+                // the pre-format hash retained for this run's stage-cache decisions. ~keep
+                let final_sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
+                let final_inputs_hash = crate::core::hash::compute_inputs_hash(&final_sources_hash, &alef_toml_bytes);
+                cache::record_inputs_hash(&base_dir, &resolved_cfg.name, &final_inputs_hash)?;
                 // This crate's run reached the point `record_inputs_hash` just marked as its
                 // successful baseline -- clear the in-progress marker set above so it is
                 // indistinguishable from a crate that was never interrupted at all. ~keep

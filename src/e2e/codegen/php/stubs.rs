@@ -34,7 +34,7 @@ pub(super) fn extract_backend_name_from_input(input: &serde_json::Value, fallbac
 }
 
 pub(super) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<&str> {
-    crate::e2e::codegen::recipe::trait_bridge_options_type(config)
+    crate::e2e::codegen::recipe::trait_bridge_options_type(config, crate::core::config::Language::Php)
 }
 
 /// Emit a PHP test backend stub.

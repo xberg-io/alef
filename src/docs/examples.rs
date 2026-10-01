@@ -1,5 +1,5 @@
 use crate::core::config::Language;
-use crate::core::ir::{FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeRef};
+use crate::core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeRef};
 use crate::docs::naming::{func_name, lang_code_fence, method_name, type_name};
 use crate::docs::template_env;
 use crate::docs::type_mapping::doc_type;
@@ -12,16 +12,27 @@ use heck::ToSnakeCase;
 /// hand if the ffi backend ever renames the handle type.
 const FFI_HANDLE_TYPE_NAME: &str = "AlefHandle";
 
+#[cfg(test)]
 pub(crate) fn render_function_example(
     func: &FunctionDef,
     lang: Language,
     ffi_prefix: &str,
     crate_name: &str,
 ) -> String {
+    render_function_example_with_api(func, lang, ffi_prefix, crate_name, &ApiSurface::default())
+}
+
+pub(crate) fn render_function_example_with_api(
+    func: &FunctionDef,
+    lang: Language,
+    ffi_prefix: &str,
+    crate_name: &str,
+    api: &ApiSurface,
+) -> String {
     if let Some(example) = authored_example_block(&func.doc, lang) {
         return example;
     }
-    let call = function_call_expression(func, lang, ffi_prefix, crate_name);
+    let call = function_call_expression(func, lang, ffi_prefix, crate_name, api);
     render_example_block(
         lang,
         render_call_statement(
@@ -146,9 +157,15 @@ fn render_example_block(lang: Language, body: String) -> String {
     out
 }
 
-fn function_call_expression(func: &FunctionDef, lang: Language, ffi_prefix: &str, crate_name: &str) -> String {
+fn function_call_expression(
+    func: &FunctionDef,
+    lang: Language,
+    ffi_prefix: &str,
+    crate_name: &str,
+    api: &ApiSurface,
+) -> String {
     let name = func_name(&func.name, lang, ffi_prefix);
-    let args = render_args(&func.params, lang, ffi_prefix);
+    let args = render_args_with_api(&func.params, lang, ffi_prefix, api);
     // ~keep Every alef free function becomes a `public static` member of one wrapper class in
     // the emitted C# (`gen_wrapper_class` in backends/csharp/gen_bindings/mod.rs), never a
     // bare top-level function -- C# has no free functions. `csharp_wrapper_class_name` is the
@@ -235,10 +252,14 @@ fn static_method_call(
 }
 
 fn render_args(params: &[ParamDef], lang: Language, ffi_prefix: &str) -> String {
+    render_args_with_api(params, lang, ffi_prefix, &ApiSurface::default())
+}
+
+fn render_args_with_api(params: &[ParamDef], lang: Language, ffi_prefix: &str, api: &ApiSurface) -> String {
     params
         .iter()
         .map(|param| {
-            let value = sample_param_value(param, lang, ffi_prefix);
+            let value = sample_param_value(param, lang, ffi_prefix, api);
             match lang {
                 Language::Ruby if param.optional => format!("{}: {value}", param.name.to_snake_case()),
                 Language::Python if param.optional => format!("{}={value}", param.name.to_snake_case()),
@@ -249,23 +270,25 @@ fn render_args(params: &[ParamDef], lang: Language, ffi_prefix: &str) -> String 
         .join(", ")
 }
 
-fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str) -> String {
+fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str, api: &ApiSurface) -> String {
+    let mut value = crate::docs::rust_param_samples::rust_original_param_sample(param, lang, api)
+        .unwrap_or_else(|| sample_value(&param.ty, lang, ffi_prefix));
     // ~keep The Rust page documents the crate itself, so a borrowed param has to be *passed*
     // borrowed or the example will not compile against the signature printed directly above it.
     // String/Char/Path/Bytes are excluded because their samples are already borrow-shaped
-    // literals (`"value"` is a `&str`, `b"data"` a `&[u8; N]`). An optional param is excluded
-    // because its sample is a bare value that does not fit `Option<_>` to begin with; a borrow
-    // marker would not make it fit.
-    if lang == Language::Rust
-        && param.is_ref
-        && !param.optional
-        && !matches!(
+    // literals (`"value"` is a `&str`, `b"data"` a `&[u8; N]`). For `Option<&T>`, borrow the
+    // inner sample before wrapping it in `Some`, matching `rust_param_type`'s source shape.
+    let is_borrow_shaped_literal = param.original_type.is_none()
+        && matches!(
             &param.ty,
             TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Bytes
-        )
-    {
+        );
+    if lang == Language::Rust && param.is_ref && !is_borrow_shaped_literal {
         let borrow = if param.is_mut { "&mut " } else { "&" };
-        return format!("{borrow}{}", sample_value(&param.ty, lang, ffi_prefix));
+        value = format!("{borrow}{value}");
+    }
+    if lang == Language::Rust && param.optional {
+        value = format!("Some({value})");
     }
 
     if matches!(lang, Language::Ffi | Language::C) && matches!(&param.ty, TypeRef::Named(_)) {
@@ -317,7 +340,7 @@ fn sample_param_value(param: &ParamDef, lang: Language, ffi_prefix: &str) -> Str
         return format!("({ty}){{0}}");
     }
 
-    sample_value(&param.ty, lang, ffi_prefix)
+    value
 }
 
 fn render_call_statement(
@@ -700,6 +723,20 @@ mod tests {
     fn function_example_uses_rust_try_and_await() {
         let rendered = render_function_example(&function(), Language::Rust, "Demo", "Demo");
         assert!(rendered.contains("let result = parse_document(\"value\").await?;"));
+    }
+
+    #[test]
+    fn function_example_wraps_optional_rust_string_and_u32_samples() {
+        let mut function = function();
+        let mut name = param("name", TypeRef::String);
+        name.optional = true;
+        let mut limit = param("limit", TypeRef::Primitive(crate::core::ir::PrimitiveType::U32));
+        limit.optional = true;
+        function.params = vec![name, limit];
+
+        let rendered = render_function_example(&function, Language::Rust, "Demo", "Demo");
+
+        assert!(rendered.contains("parse_document(Some(\"value\"), Some(42)).await?"));
     }
 
     #[test]

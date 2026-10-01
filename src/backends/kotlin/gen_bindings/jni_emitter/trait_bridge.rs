@@ -16,8 +16,7 @@ fn emit_trait_bridge_jni_external_funs(
     emitted_native_names: &std::collections::HashSet<String>,
 ) {
     let bridges: Vec<_> = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Kotlin)
         .filter(|b| !b.exclude_languages.iter().any(|l| l == "kotlin_android"))
         .collect();
     if bridges.is_empty() {

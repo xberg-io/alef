@@ -64,6 +64,34 @@ fn test_api() -> ApiSurface {
     }
 }
 
+#[test]
+fn binding_excluded_type_does_not_add_a_scaffold_dependency_feature() {
+    let config = test_config();
+    let api = ApiSurface {
+        crate_name: config.name.clone(),
+        version: "0.1.0".to_string(),
+        types: vec![crate::core::ir::TypeDef {
+            name: "RustOnlyOptions".to_string(),
+            rust_path: "my_lib::RustOnlyOptions".to_string(),
+            cfg: Some(r#"feature = "rust-only""#.to_string()),
+            binding_excluded: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = scaffold(&api, &config, &[Language::Python]).expect("Python scaffold");
+    let cargo_toml = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("-py/Cargo.toml"))
+        .expect("Python Cargo.toml");
+    assert!(
+        !cargo_toml.content.contains("rust-only"),
+        "Rust-only type must not add binding dependency features: {}",
+        cargo_toml.content
+    );
+}
+
 /// Filter out project-level scaffold files (like poly.toml)
 /// to isolate language-specific scaffold tests.
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {

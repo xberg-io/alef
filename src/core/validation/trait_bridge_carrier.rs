@@ -59,8 +59,9 @@ fn excluded_carrier_diagnostic(api: &ApiSurface, bridge: &TraitBridgeConfig) -> 
             bridge.trait_name,
         ),
         format!(
-            "remove `alef(skip)` from `{options_type_name}.{field_name}`, or remove/reconfigure the \
-             `[[crates.trait_bridges]]` entry for `{}`",
+            "remove `alef(skip)` from `{options_type_name}.{field_name}`; to hide the carrier from selected \
+             bindings, add those languages to `exclude_languages` on the `{}` trait bridge; to hide it from \
+             every binding, remove that trait bridge",
             bridge.trait_name
         ),
     ))
@@ -120,6 +121,10 @@ mod tests {
             diagnostic.reason.contains("HtmlVisitor") && diagnostic.reason.contains("ConversionOptions.visitor"),
             "reason must name both the bridge and the field: {}",
             diagnostic.reason
+        );
+        assert_eq!(
+            diagnostic.suggested_fix,
+            "remove `alef(skip)` from `ConversionOptions.visitor`; to hide the carrier from selected bindings, add those languages to `exclude_languages` on the `HtmlVisitor` trait bridge; to hide it from every binding, remove that trait bridge"
         );
     }
 

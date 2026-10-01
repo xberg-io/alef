@@ -658,7 +658,9 @@ fn build_thirdparty_imports(context: ThirdpartyImportContext<'_>, thirdparty_fro
             let Some(trait_name) = arg.trait_name.as_deref() else {
                 continue;
             };
-            if let Some(bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == trait_name)
+            if let Some(bridge) = config
+                .trait_bridges_for(crate::core::config::Language::Python)
+                .find(|tb| tb.trait_name == trait_name)
                 && let Some(unregister_fn) = bridge.unregister_fn.as_deref()
             {
                 let unregister_str = unregister_fn.to_string();

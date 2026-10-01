@@ -13,13 +13,13 @@ use super::{make_config_with_stubs, make_field};
 fn test_rbs_includes_trait_registry_functions() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         register_fn: Some("register_ocr_backend".to_string()),
         unregister_fn: Some("unregister_ocr_backend".to_string()),
         clear_fn: Some("clear_ocr_backends".to_string()),
         ..Default::default()
-    }];
+    }]);
     // The bridged trait has to be in the surface for the RBS to declare its registry functions —
     // `gen_module_init` binds none for a bridge whose trait does not resolve. It is declared with
     // no methods so no `interface _OcrBackend` is emitted and the `backend` param stays `untyped`,
@@ -59,13 +59,13 @@ fn test_rbs_includes_trait_registry_functions() {
 fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),
@@ -140,7 +140,7 @@ fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
 
     // Direct Arc<dyn Trait> arguments also require the interface even when
     // the consumer owns registration and no generated registry is configured.
-    config.trait_bridges[0].register_fn = None;
+    config.update_trait_bridge(0, |bridge| bridge.register_fn = None);
     let direct = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
     assert!(direct.contains("interface _Greeter"));
     assert!(direct.contains("def process: (Opts opts) -> Doc"));
@@ -151,11 +151,11 @@ fn test_rbs_plugin_bridge_emits_typed_interface_and_typed_register() {
 fn test_rbs_plugin_interface_respects_ruby_exclusion() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         exclude_languages: vec!["ruby".to_string()],
         ..Default::default()
-    }];
+    }]);
     let greeter = TypeDef {
         name: "Greeter".to_string(),
         rust_path: "test_lib::Greeter".to_string(),
@@ -188,13 +188,13 @@ fn test_rbs_plugin_interface_respects_ruby_exclusion() {
 fn test_rbs_plugin_interface_omits_defaulted_methods_and_documents_them() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "Greeter".to_string(),
         register_fn: Some("register_greeter".to_string()),
         registry_getter: Some("test_lib::registry::get".to_string()),
         super_trait: Some("Plugin".to_string()),
         ..Default::default()
-    }];
+    }]);
 
     let greeter = TypeDef {
         name: "Greeter".to_string(),

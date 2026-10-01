@@ -55,9 +55,9 @@ fn write_fixture_workspace(root: &Path) {
 /// `alef generate` must format the generated PyO3 glue crate, not only the wheel package.
 #[test]
 fn generate_formats_the_rust_glue_crate_it_stamps() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);
@@ -187,9 +187,9 @@ keywords = ["test"]
 /// never reproduces this. ~keep
 #[test]
 fn generate_formats_a_workspace_root_scaffold_file_no_language_owns() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);
@@ -278,9 +278,9 @@ fn run_java_generate(root: &Path) {
 /// phase wrote it. ~keep
 #[test]
 fn generate_formats_a_scaffold_manifest_changed_by_a_config_only_edit() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_java_fixture_workspace(&root, JAVA_FIXTURE_ALEF_TOML);

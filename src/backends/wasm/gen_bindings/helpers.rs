@@ -81,7 +81,7 @@ pub(super) fn function_is_callable(
     {
         return false;
     }
-    if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(identity, &config.trait_bridges) {
+    if config.trait_bridge_manages_function(identity) {
         return true;
     }
     function_is_exported(identity, functions, config)
@@ -145,7 +145,7 @@ pub(super) fn function_is_exported(
     {
         return false;
     }
-    if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(function_name, &config.trait_bridges) {
+    if config.trait_bridge_manages_function(function_name) {
         return false;
     }
     let enabled_features = &enabled_features_for_language(config, Language::Wasm);

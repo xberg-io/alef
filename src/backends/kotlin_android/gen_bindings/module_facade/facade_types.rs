@@ -74,6 +74,9 @@ pub(super) fn bridge_arg(param: &ParamDef, opaque_types: &HashSet<String>) -> St
         return json_bridge_arg(&name, param.optional);
     }
     if param.optional {
+        if matches!(inner, TypeRef::Primitive(PrimitiveType::U32)) {
+            return format!("{name} ?: -1");
+        }
         return format!("{name} ?: {}", jni_zero_literal(inner));
     }
     name

@@ -1,6 +1,9 @@
 use super::{TraitBridgeGenerator, TraitBridgeSpec};
 
 pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return Some(code);
+    }
     spec.bridge_config.register_fn.as_deref()?;
     Some(generator.gen_registration_fn(spec))
 }
@@ -12,6 +15,9 @@ pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitB
 /// backend hasn't opted in (returns the empty string from
 /// [`TraitBridgeGenerator::gen_unregistration_fn`]).
 pub fn gen_bridge_unregistration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return Some(code);
+    }
     spec.bridge_config.unregister_fn.as_deref()?;
     let body = generator.gen_unregistration_fn(spec);
     if body.is_empty() { None } else { Some(body) }
@@ -24,6 +30,9 @@ pub fn gen_bridge_unregistration_fn(spec: &TraitBridgeSpec, generator: &dyn Trai
 /// backend hasn't opted in (returns the empty string from
 /// [`TraitBridgeGenerator::gen_clear_fn`]).
 pub fn gen_bridge_clear_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return Some(code);
+    }
     spec.bridge_config.clear_fn.as_deref()?;
     let body = generator.gen_clear_fn(spec);
     if body.is_empty() { None } else { Some(body) }

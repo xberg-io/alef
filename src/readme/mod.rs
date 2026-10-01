@@ -24,12 +24,14 @@ pub fn generate_readmes(
 
     let mut files = vec![];
     let mut seen_paths = HashSet::new();
+    let binding_api = crate::codegen::binding_projection::project(api);
     for &lang in languages {
-        if let Some(file) = generate_readme(api, config, lang)? {
+        let language_api = if lang == Language::Rust { api } else { &binding_api };
+        if let Some(file) = generate_readme(language_api, config, lang)? {
             push_unique_readme(&mut files, &mut seen_paths, file)?;
         }
     }
-    for file in generate_readme_targets(api, config)? {
+    for file in generate_readme_targets(&binding_api, config)? {
         push_unique_readme(&mut files, &mut seen_paths, file)?;
     }
     Ok(files)

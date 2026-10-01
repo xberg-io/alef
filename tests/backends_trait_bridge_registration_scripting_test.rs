@@ -64,7 +64,7 @@ fn plugin_bridge() -> TraitBridgeConfig {
 fn config_with_bridge(toml: &str) -> ResolvedCrateConfig {
     let parsed: NewAlefConfig = toml::from_str(toml).expect("fixture config must parse");
     let mut config = parsed.resolve().expect("fixture config must resolve").remove(0);
-    config.trait_bridges = vec![plugin_bridge()];
+    config.replace_trait_bridges(vec![plugin_bridge()]);
     config
 }
 
@@ -196,9 +196,11 @@ fn swift_surface_names_the_top_level_forwarder_functions() {
 #[test]
 fn swift_reports_nothing_for_an_options_field_bridge() {
     let mut config = minimal_config("swift", "");
-    config.trait_bridges[0].bind_via = alef::core::config::BridgeBinding::OptionsField;
-    config.trait_bridges[0].options_type = Some("SampleOptions".to_owned());
-    config.trait_bridges[0].options_field = Some("plugin".to_owned());
+    config.update_trait_bridge(0, |bridge| {
+        bridge.bind_via = alef::core::config::BridgeBinding::OptionsField
+    });
+    config.update_trait_bridge(0, |bridge| bridge.options_type = Some("SampleOptions".to_owned()));
+    config.update_trait_bridge(0, |bridge| bridge.options_field = Some("plugin".to_owned()));
 
     let surfaces = SwiftBackend.trait_bridge_registration_surface(&plugin_api(), &config);
 
@@ -228,7 +230,7 @@ fn napi_surface_names_the_camel_case_module_exports() {
 #[test]
 fn napi_reports_no_register_symbol_without_a_registry_getter() {
     let mut config = minimal_config("node", "");
-    config.trait_bridges[0].registry_getter = None;
+    config.update_trait_bridge(0, |bridge| bridge.registry_getter = None);
 
     let surface = only_surface(&NapiBackend, &config);
 
@@ -243,7 +245,7 @@ fn napi_reports_no_register_symbol_without_a_registry_getter() {
 fn napi_emits_no_bridge_and_reports_no_surface_when_the_target_is_excluded() {
     for excluded in ["node", "napi"] {
         let mut config = minimal_config("node", "");
-        config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
+        config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec![excluded.to_owned()]);
 
         let surfaces = NapiBackend.trait_bridge_registration_surface(&plugin_api(), &config);
         let generated = generated_text(&NapiBackend, &config);
@@ -283,7 +285,7 @@ fn wasm_surface_names_the_js_names_stamped_on_the_wasm_bindgen_exports() {
 #[test]
 fn wasm_emits_no_bridge_and_reports_no_surface_when_the_target_is_excluded() {
     let mut config = minimal_config("wasm", "");
-    config.trait_bridges[0].exclude_languages = vec!["wasm".to_owned()];
+    config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec!["wasm".to_owned()]);
 
     let surfaces = WasmBackend.trait_bridge_registration_surface(&plugin_api(), &config);
     let generated = generated_text(&WasmBackend, &config);
@@ -355,31 +357,29 @@ fn magnus_binds_no_module_function_when_the_bridged_trait_is_absent_from_the_api
 }
 
 #[test]
-fn php_surface_names_the_static_methods_on_the_public_wrapper_class() {
+fn php_active_bridge_reports_no_surface_and_fails_closed_with_or_without_trait() {
     let config = minimal_config("php", "");
-    let surface = only_surface(&PhpBackend, &config);
-
-    assert_eq!(
-        surface.register_symbol.as_deref(),
-        Some("SampleCore::installSamplePlugin")
-    );
-    assert_eq!(
-        surface.unregister_symbol.as_deref(),
-        Some("SampleCore::removeSamplePlugin")
-    );
-    assert_eq!(surface.clear_symbol.as_deref(), Some("SampleCore::clearSamplePlugins"));
-
-    let generated = generated_public_api_text(&PhpBackend, &config);
-    assert_declares(&PhpBackend, &generated, "class SampleCore");
-    for method in ["installSamplePlugin", "removeSamplePlugin", "clearSamplePlugins"] {
-        assert_declares(&PhpBackend, &generated, &format!("function {method}("));
+    for api in [plugin_api(), api_without_the_trait()] {
+        assert!(PhpBackend.trait_bridge_registration_surface(&api, &config).is_empty());
+        for result in [
+            PhpBackend.generate_bindings(&api, &config),
+            PhpBackend.generate_public_api(&api, &config),
+        ] {
+            let error = result.expect_err("an active PHP trait bridge must fail closed");
+            assert!(
+                error
+                    .to_string()
+                    .contains("PHP trait bridge `SamplePlugin` is disabled"),
+                "the safety error must identify the disabled bridge: {error}"
+            );
+        }
     }
 }
 
 #[test]
 fn php_emits_no_wrapper_and_reports_no_surface_when_the_target_is_excluded() {
     let mut config = minimal_config("php", "");
-    config.trait_bridges[0].exclude_languages = vec!["php".to_owned()];
+    config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec!["php".to_owned()]);
 
     let surfaces = PhpBackend.trait_bridge_registration_surface(&plugin_api(), &config);
     let public_api = generated_public_api_text(&PhpBackend, &config);
@@ -398,31 +398,6 @@ fn php_emits_no_wrapper_and_reports_no_surface_when_the_target_is_excluded() {
     assert!(
         !bindings.contains(REGISTER_FN),
         "`exclude_languages = [\"php\"]` must suppress the `…Api` extension method too"
-    );
-}
-
-#[test]
-fn php_emits_no_wrapper_when_the_bridged_trait_is_absent_from_the_api_surface() {
-    let config = minimal_config("php", "");
-    let api = api_without_the_trait();
-
-    let surfaces = PhpBackend.trait_bridge_registration_surface(&api, &config);
-    let public_api = generated_public_api_text_for(&PhpBackend, &api, &config);
-    let bindings = generated_text_for(&PhpBackend, &api, &config);
-
-    assert_eq!(
-        surfaces.len(),
-        0,
-        "no trait means `gen_trait_bridge` never ran, so there is no registration API; \
-         got {surfaces:?}"
-    );
-    assert!(
-        !public_api.contains("installSamplePlugin"),
-        "the public wrapper would call `SampleCoreApi::installSamplePlugin`, which no pass emitted"
-    );
-    assert!(
-        !bindings.contains(REGISTER_FN),
-        "the `…Api` extension method would forward to `crate::{REGISTER_FN}`, which no pass emitted"
     );
 }
 
@@ -455,14 +430,26 @@ fn rustler_surface_names_the_elixir_delegates_on_the_app_module() {
 fn rustler_reports_nothing_when_the_bridge_excludes_either_spelling_of_the_target() {
     for excluded in ["elixir", "rustler"] {
         let mut config = minimal_config("elixir", "");
-        config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
+        config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec![excluded.to_owned()]);
 
         let surfaces = RustlerBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+        let bindings = generated_text(&RustlerBackend, &config);
+        let public_api = generated_public_api_text(&RustlerBackend, &config);
 
         assert!(
             surfaces.is_empty(),
             "`exclude_languages = [\"{excluded}\"]` suppresses the Elixir delegates, so nothing \
              is left to document; got {surfaces:?}"
+        );
+        for symbol in [REGISTER_FN, UNREGISTER_FN, CLEAR_FN] {
+            assert!(
+                !bindings.contains(symbol) && !public_api.contains(symbol),
+                "`exclude_languages = [\"{excluded}\"]` leaked `{symbol}` into Rustler output"
+            );
+        }
+        assert!(
+            !bindings.contains("visitor_reply"),
+            "an excluded-only bridge must not enable Rustler visitor NIF scaffolding"
         );
     }
 }
@@ -540,7 +527,7 @@ fn extendr_surface_names_the_verbatim_r_functions() {
 #[test]
 fn extendr_reports_no_register_symbol_without_a_registry_getter() {
     let mut config = minimal_config("r", "");
-    config.trait_bridges[0].registry_getter = None;
+    config.update_trait_bridge(0, |bridge| bridge.registry_getter = None);
 
     let surface = only_surface(&ExtendrBackend, &config);
 
@@ -560,7 +547,7 @@ fn extendr_module_macro_and_surface_agree_about_the_register_function() {
     let getter = "sample_core::plugins::registry::get_sample_plugin_registry";
     for (registry_getter, expected) in [(Some(getter.to_owned()), Some(REGISTER_FN)), (None, None)] {
         let mut config = minimal_config("r", "");
-        config.trait_bridges[0].registry_getter = registry_getter.clone();
+        config.update_trait_bridge(0, |bridge| bridge.registry_getter = registry_getter.clone());
 
         let surface = only_surface(&ExtendrBackend, &config);
         let generated = generated_text(&ExtendrBackend, &config);
@@ -585,15 +572,22 @@ fn extendr_module_macro_and_surface_agree_about_the_register_function() {
 fn extendr_reports_nothing_when_the_bridge_excludes_either_spelling_of_the_target() {
     for excluded in ["r", "extendr"] {
         let mut config = minimal_config("r", "");
-        config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
+        config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec![excluded.to_owned()]);
 
         let surfaces = ExtendrBackend.trait_bridge_registration_surface(&plugin_api(), &config);
+        let generated = generated_text(&ExtendrBackend, &config);
 
         assert!(
             surfaces.is_empty(),
             "`exclude_languages = [\"{excluded}\"]` suppresses the `#[extendr]` items, so \
              nothing is left to document; got {surfaces:?}"
         );
+        for symbol in [REGISTER_FN, UNREGISTER_FN, CLEAR_FN] {
+            assert!(
+                !generated.contains(symbol),
+                "`exclude_languages = [\"{excluded}\"]` leaked `{symbol}` into extendr output"
+            );
+        }
     }
 }
 
@@ -657,7 +651,7 @@ fn pyo3_surface_names_the_pymodule_registered_functions() {
 #[test]
 fn pyo3_reports_no_register_symbol_and_the_pymodule_omits_it_without_a_registry_getter() {
     let mut config = pyo3_config_with_stubs();
-    config.trait_bridges[0].registry_getter = None;
+    config.update_trait_bridge(0, |bridge| bridge.registry_getter = None);
 
     let surface = only_surface(&Pyo3Backend, &config);
     assert_eq!(
@@ -690,7 +684,7 @@ fn pyo3_reports_no_register_symbol_and_the_pymodule_omits_it_without_a_registry_
 fn pyo3_emits_no_bridge_and_reports_no_surface_when_the_target_is_excluded() {
     for excluded in ["python", "pyo3"] {
         let mut config = pyo3_config_with_stubs();
-        config.trait_bridges[0].exclude_languages = vec![excluded.to_owned()];
+        config.update_trait_bridge(0, |bridge| bridge.exclude_languages = vec![excluded.to_owned()]);
 
         let surfaces = Pyo3Backend.trait_bridge_registration_surface(&plugin_api(), &config);
         let generated = generated_text(&Pyo3Backend, &config);

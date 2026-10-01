@@ -1,157 +1,54 @@
 use super::*;
 
-#[test]
-fn test_php_visitor_bridge_produces_visitor_struct() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "HtmlVisitor",
-        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
-    );
-    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("PhpHtmlVisitorBridge"),
-        "PHP visitor bridge struct must be named Php{{TraitName}}Bridge"
-    );
-    assert!(
-        code.code.contains("impl my_lib::HtmlVisitor for PhpHtmlVisitorBridge"),
-        "PHP visitor bridge must implement the trait"
-    );
+fn assert_php_callback_generation_is_disabled(code: &str) {
+    assert!(code.contains("compile_error!"), "expected an explicit failure: {code}");
+    for forbidden in [
+        "Zval",
+        "ZendCallable",
+        "unsafe impl Send",
+        "unsafe impl Sync",
+        "Arc<dyn",
+        "Arc::new",
+    ] {
+        assert!(!code.contains(forbidden), "unsafe token `{forbidden}` in: {code}");
+    }
 }
 
 #[test]
-fn test_php_visitor_bridge_has_php_obj_field() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "HtmlVisitor",
-        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
-    );
-    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("php_obj: *mut ext_php_rs::types::ZendObject"),
-        "PHP visitor bridge must store a raw ZendObject pointer in 'php_obj'"
-    );
-    assert!(
-        code.code.contains("cached_name: String"),
-        "PHP visitor bridge must cache the plugin name"
-    );
-}
-
-#[test]
-fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
+fn raw_trait_bridge_generator_fails_closed_for_every_bridge_shape() {
     use alef::backends::php::trait_bridge::gen_trait_bridge;
 
     let trait_def = make_trait_def_php(
         "OcrBackend",
         vec![make_method_php("process", TypeRef::String, true, false)],
     );
-    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
     let api = make_api_php();
+    let mut direct = make_plugin_bridge_cfg_php("OcrBackend");
+    direct.registry_getter = None;
+    let mut function_param = make_plugin_bridge_cfg_php("OcrBackend");
+    function_param.bind_via = alef::core::config::BridgeBinding::FunctionParam;
+    let mut options_field = make_plugin_bridge_cfg_php("OcrBackend");
+    options_field.bind_via = alef::core::config::BridgeBinding::OptionsField;
+    let visitor = make_visitor_bridge_cfg_php("OcrBackend", "OcrBackend");
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("pub struct PhpOcrBackendBridge"),
-        "PHP plugin bridge wrapper struct must be PhpOcrBackendBridge"
-    );
-    assert!(
-        code.code.contains("inner:"),
-        "PHP plugin bridge wrapper must have an 'inner' field"
-    );
-    assert!(
-        code.code.contains("cached_name: String"),
-        "PHP plugin bridge wrapper must have a 'cached_name: String' field"
-    );
+    for bridge in [
+        make_plugin_bridge_cfg_php("OcrBackend"),
+        direct,
+        function_param,
+        options_field,
+        visitor,
+    ] {
+        let output = gen_trait_bridge(&trait_def, &bridge, "my_lib", "Error", "Error::from({msg})", &api);
+        assert!(output.imports.is_empty());
+        assert_php_callback_generation_is_disabled(&output.code);
+    }
 }
 
 #[test]
-fn test_php_plugin_bridge_generates_super_trait_impl() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "OcrBackend",
-        vec![make_method_php("process", TypeRef::String, true, false)],
-    );
-    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("impl my_lib::Plugin for PhpOcrBackendBridge"),
-        "PHP plugin bridge must implement Plugin super-trait"
-    );
-    assert!(code.code.contains("fn name("), "Plugin impl must contain name()");
-    assert!(
-        code.code.contains("fn initialize("),
-        "Plugin impl must contain initialize()"
-    );
-    assert!(
-        code.code.contains("fn shutdown("),
-        "Plugin impl must contain shutdown()"
-    );
-}
-
-#[test]
-fn test_php_plugin_bridge_generates_trait_impl_with_forwarded_methods() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "OcrBackend",
-        vec![make_method_php("process", TypeRef::String, true, false)],
-    );
-    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("impl my_lib::OcrBackend for PhpOcrBackendBridge"),
-        "PHP plugin bridge must implement the trait itself"
-    );
-    assert!(
-        code.code.contains("fn process("),
-        "trait impl must forward the 'process' method"
-    );
-}
-
-#[test]
-fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "OcrBackend",
-        vec![make_method_php("process", TypeRef::String, true, false)],
-    );
-    let bridge_cfg = make_plugin_bridge_cfg_php("OcrBackend");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("#[php_function]"),
-        "PHP registration function must carry the #[php_function] attribute"
-    );
-    assert!(
-        code.code.contains("pub fn register_ocrbackend("),
-        "PHP registration function must use the configured name"
-    );
-}
-
-#[test]
-fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
+fn php_backend_entrypoints_reject_an_active_trait_bridge() {
     let backend = PhpBackend;
     let mut config = make_config();
-    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
@@ -159,7 +56,7 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
         unregister_fn: Some("unregister_ocr_backend".to_string()),
         clear_fn: Some("clear_ocr_backends".to_string()),
         ..Default::default()
-    }];
+    }]);
     let api = ApiSurface {
         unresolved_modules: Vec::new(),
         types: vec![make_trait_def_php(
@@ -169,141 +66,62 @@ fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
         ..make_api_php()
     };
 
-    let files = backend.generate_bindings(&api, &config).unwrap();
-    let lib = files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
-        .expect("lib.rs generated");
+    for result in [
+        backend.generate_bindings(&api, &config),
+        backend.generate_public_api(&api, &config),
+        backend.generate_type_stubs(&api, &config),
+        backend.generate_service_api(&api, &config),
+    ] {
+        let error = result.expect_err("every PHP output entrypoint must fail closed");
+        assert!(
+            error.to_string().contains("PHP trait bridge `OcrBackend` is disabled"),
+            "the backend gate must identify the unsafe bridge: {error}"
+        );
+    }
     assert!(
-        lib.content
-            .contains("#[php(name = \"registerOcrBackend\")]\n    pub fn register_ocr_backend(")
-            && lib
-                .content
-                .contains("#[php(name = \"unregisterOcrBackend\")]\n    pub fn unregister_ocr_backend(")
-            && lib
-                .content
-                .contains("#[php(name = \"clearOcrBackends\")]\n    pub fn clear_ocr_backends("),
-        "native Api class methods must expose the same camelCase names used by the facade:\n{}",
-        lib.content
-    );
-
-    let public = backend.generate_public_api(&api, &config).unwrap();
-    let facade = &public[0].content;
-    assert!(
-        facade.contains("public static function registerOcrBackend(\nOcrBackend $backend) : void")
-            && facade.contains("\\Test\\Lib\\TestLibApi::registerOcrBackend($backend)")
-            && facade.contains("\\Test\\Lib\\TestLibApi::unregisterOcrBackend($name)")
-            && facade.contains("\\Test\\Lib\\TestLibApi::clearOcrBackends()"),
-        "facade methods must call the native Api class public names:\n{facade}"
-    );
-
-    let stubs = backend.generate_type_stubs(&api, &config).unwrap();
-    let stub = &stubs[0].content;
-    assert!(
-        stub.contains("public static function registerOcrBackend(\\Test\\Lib\\OcrBackend $backend): void")
-            && stub.contains("public static function unregisterOcrBackend(string $name): void")
-            && stub.contains("public static function clearOcrBackends(): void"),
-        "extension stubs must expose registry methods on the native Api class:\n{stub}"
+        backend.trait_bridge_registration_surface(&api, &config).is_empty(),
+        "an unsafe bridge must not advertise callable registration symbols"
     );
 }
 
 #[test]
-fn test_php_plugin_bridge_validates_required_methods() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "Analyzer",
-        vec![
-            make_method_php("analyze", TypeRef::String, true, false),
-            make_method_php("describe", TypeRef::String, false, true),
-        ],
-    );
-    let bridge_cfg = alef::core::config::TraitBridgeConfig {
-        exclude_functions: Vec::new(),
-        trait_name: "Analyzer".to_string(),
+fn php_excluded_trait_bridge_emits_no_zend_thread_escape() {
+    let backend = PhpBackend;
+    let mut config = make_config();
+    config.replace_trait_bridges(vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
         registry_getter: Some("my_lib::get_registry".to_string()),
-        register_fn: Some("register_analyzer".to_string()),
-        unregister_fn: None,
-        clear_fn: None,
-        type_alias: None,
-        param_name: None,
-        register_extra_args: None,
-        exclude_languages: Vec::new(),
-        ffi_skip_methods: Vec::new(),
-        bind_via: alef::core::config::BridgeBinding::FunctionParam,
-        options_type: None,
-        options_field: None,
-        context_type: None,
-        result_type: None,
+        register_fn: Some("register_ocr_backend".to_string()),
+        exclude_languages: vec!["php".to_string()],
+        ..Default::default()
+    }]);
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        types: vec![make_trait_def_php(
+            "OcrBackend",
+            vec![make_method_php("process", TypeRef::String, true, false)],
+        )],
+        ..make_api_php()
     };
-    let api = make_api_php();
 
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+    let mut files = backend.generate_bindings(&api, &config).unwrap();
+    files.extend(backend.generate_public_api(&api, &config).unwrap());
+    files.extend(backend.generate_type_stubs(&api, &config).unwrap());
+    files.extend(backend.generate_service_api(&api, &config).unwrap());
+    let output = files.into_iter().map(|file| file.content).collect::<String>();
 
-    assert!(
-        code.code.contains("\"analyze\""),
-        "PHP registration fn must validate required method 'analyze'"
-    );
-    assert!(
-        code.code.contains("try_call_method"),
-        "PHP registration fn must check method presence via try_call_method"
-    );
-}
-
-#[test]
-fn test_php_sync_method_body_uses_try_call_method() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php("Scanner", vec![make_method_php("scan", TypeRef::String, true, false)]);
-    let bridge_cfg = make_plugin_bridge_cfg_php("Scanner");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("try_call_method"),
-        "PHP sync method body must use try_call_method to dispatch to PHP"
-    );
-}
-
-#[test]
-fn test_php_async_method_body_uses_box_pin() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php("Processor", vec![make_async_method_php("run", TypeRef::Unit)]);
-    let bridge_cfg = make_plugin_bridge_cfg_php("Processor");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("WORKER_RUNTIME.block_on(async"),
-        "PHP async method body must use WORKER_RUNTIME.block_on(async {{ ... }})"
-    );
-}
-
-#[test]
-fn test_php_visitor_bridge_has_send_sync_impls() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let trait_def = make_trait_def_php(
-        "HtmlVisitor",
-        vec![make_method_php("visit_node", TypeRef::Unit, false, true)],
-    );
-    let bridge_cfg = make_visitor_bridge_cfg_php("HtmlVisitor", "HtmlVisitor");
-    let api = make_api_php();
-
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code.contains("unsafe impl Send for PhpHtmlVisitorBridge"),
-        "PHP visitor bridge must implement Send"
-    );
-    assert!(
-        code.code.contains("unsafe impl Sync for PhpHtmlVisitorBridge"),
-        "PHP visitor bridge must implement Sync"
-    );
+    for forbidden in [
+        "unsafe impl Send for PhpOcrBackendBridge",
+        "unsafe impl Sync for PhpOcrBackendBridge",
+        "Arc<dyn my_lib::OcrBackend>",
+        "inner: ext_php_rs::types::Zval",
+    ] {
+        assert!(
+            !output.contains(forbidden),
+            "a PHP-excluded bridge must not emit `{forbidden}`"
+        );
+    }
 }
 
 /// A non-opaque serde struct DTO (qualifies for native-object marshalling).
@@ -367,61 +185,6 @@ fn make_greeter_api() -> (TypeDef, ApiSurface) {
 }
 
 #[test]
-fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let (trait_def, api) = make_greeter_api();
-    let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    //     boxed into a ZendClassObject (the bare #[php_class] struct is not itself IntoZval).
-    assert!(
-        code.code.contains(
-            "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new(Opts::from((*opts).clone())), false)"
-        ),
-        "serde struct param must be marshalled as the native PHP object (boxed ZendClassObject), not a JSON string:\n{}",
-        code.code
-    );
-    assert!(
-        !code.code.contains("serde_json::to_string(&opts)"),
-        "serde struct param must not be JSON-serialized:\n{}",
-        code.code
-    );
-    for name in ["mood", "handle", "hidden"] {
-        assert!(
-            code.code.contains(&format!("serde_json::to_string(&{name})")),
-            "non-struct param `{name}` must keep its JSON-string representation:\n{}",
-            code.code
-        );
-        assert!(
-            !code.code.contains(&format!("::from((*{name}).clone())")),
-            "non-struct param `{name}` must NOT be native-marshalled:\n{}",
-            code.code
-        );
-    }
-}
-
-/// Return-side counterpart to native-arg marshalling: a method returning the serde struct `Doc`
-/// must extract the host's native `#[php_class]` object via `FromZval` and convert via `From<Doc>`
-/// for core, falling back to the `val.string()` + serde path. See issue #153.
-#[test]
-fn test_php_native_struct_return_extracts_native_object_first() {
-    use alef::backends::php::trait_bridge::gen_trait_bridge;
-
-    let (trait_def, api) = make_greeter_api();
-    let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
-    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
-
-    assert!(
-        code.code
-            .contains("<&Doc as ext_php_rs::convert::FromZval>::from_zval(&val)")
-            && code.code.contains("Ok(native.clone().into())"),
-        "native struct return must extract the native php object via FromZval + From<Doc>:\n{}",
-        code.code
-    );
-}
-
-#[test]
 fn test_php_typed_interface_emitted_for_plugin_bridge() {
     use alef::backends::php::trait_bridge::gen_registration_interface;
 
@@ -449,36 +212,4 @@ fn test_php_typed_interface_emitted_for_plugin_bridge() {
         "PHPDoc must type the serde struct param:\n{iface}"
     );
     assert!(iface.contains("@return Doc"), "PHPDoc must type the return:\n{iface}");
-}
-
-#[test]
-fn test_php_register_fn_typed_against_interface() {
-    let backend = PhpBackend;
-    let mut config = make_config_with_extension("greeter_ext");
-
-    let (greeter, mut api) = make_greeter_api();
-    api.types.insert(0, greeter);
-    config.trait_bridges = vec![make_plugin_bridge_cfg_php("Greeter")];
-
-    let iface_files = backend
-        .generate_bindings(&api, &config)
-        .expect("php generation must succeed");
-    let iface = iface_files
-        .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("Greeter.php"))
-        .map(|f| f.content.clone())
-        .expect("Greeter.php interface file must be emitted");
-    assert!(
-        iface.contains("interface Greeter"),
-        "interface file must declare interface:\n{iface}"
-    );
-
-    let facade = backend
-        .generate_public_api(&api, &config)
-        .expect("php public-api generation must succeed");
-    let facade_typed = facade.iter().any(|f| f.content.contains("Greeter $backend) : void"));
-    assert!(
-        facade_typed,
-        "register_* facade method must type its backend param against the `Greeter` interface"
-    );
 }

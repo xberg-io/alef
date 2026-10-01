@@ -134,7 +134,7 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
 
     let header = hash::header(CommentStyle::Hash);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Wasm).next().is_some();
 
     let mut deps: Vec<(String, String)> = vec![
         (

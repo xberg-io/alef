@@ -140,9 +140,9 @@ pub(super) fn render_snippet_body(
         // no visitor. Fail closed instead, matching `php::snippet` and `csharp::snippet`;
         // a deliberate omission belongs in the fixture's `docs.coverage_exceptions`,
         // which records a reader-visible reason. ~keep
-        let Some(options_type) =
-            options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
-        else {
+        let Some(options_type) = options_type.or_else(|| {
+            crate::e2e::codegen::recipe::trait_bridge_options_type(config, crate::core::config::Language::Go)
+        }) else {
             bail!(
                 "Go documentation snippet `{}` needs an options type for its visitor",
                 fixture.id
@@ -179,20 +179,18 @@ pub(super) fn render_snippet_body(
         }
     }
     if !recipe.extra_args.is_empty() {
-        // Bridge/visitor parameters (per `config.trait_bridges`) are real parameters on
+        // Bridge/visitor parameters are real parameters on
         // the extracted Rust function, but the Go binding backend strips them from its
         // emitted signature (see `is_bridge_param` in `gen_bindings::functions`) — so
         // they must not be counted toward the Go-visible arity `extra_args` is clamped
         // against. Falls back to appending every configured `extra_args` verbatim when
         // the call has no resolvable `FunctionDef` (unchanged prior behavior). ~keep
         let bridge_param_names: std::collections::HashSet<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(crate::core::config::Language::Go)
             .filter_map(|bridge| bridge.param_name.clone())
             .collect();
         let bridge_type_aliases: std::collections::HashSet<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(crate::core::config::Language::Go)
             .filter_map(|bridge| bridge.type_alias.clone())
             .collect();
         let real_go_param_count = target_function.map(|function| {

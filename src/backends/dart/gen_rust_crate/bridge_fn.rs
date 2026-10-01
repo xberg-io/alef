@@ -1,7 +1,7 @@
 use crate::codegen::mut_writeback;
-use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
-use super::conversions::{dart_call_arg, frb_rust_type_inner, primitive_name};
+use super::conversions::{dart_call_arg, dart_call_arg_checked, frb_rust_type_inner, primitive_name};
 use super::helpers::emit_cleaned_dartdoc;
 
 /// Plan for the single `&mut T` DTO parameter a writeback binding must hand back to its caller.
@@ -15,6 +15,7 @@ struct WritebackPlan {
     init_expr: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_bridge_fn(
     out: &mut String,
     f: &FunctionDef,
@@ -23,6 +24,7 @@ pub(crate) fn emit_bridge_fn(
     types_needing_from_conversion: &std::collections::HashSet<String>,
     opaque_type_names: &std::collections::HashSet<String>,
     stub_methods: &[String],
+    types: &[TypeDef],
 ) -> anyhow::Result<()> {
     let opaque_ahash: ahash::AHashSet<String> = opaque_type_names.iter().cloned().collect();
     mut_writeback::reject_unsupported_writeback(&f.name, &f.params, &f.return_type, &opaque_ahash)?;
@@ -72,6 +74,10 @@ pub(crate) fn emit_bridge_fn(
         .collect();
 
     let has_error = f.error_type.is_some();
+    let conversion_is_fallible = has_error
+        && f.params
+            .iter()
+            .any(|param| parameter_needs_checked_conversion(param, types));
     let (return_ty, has_explicit_return) = if has_error {
         (
             format!(
@@ -171,12 +177,16 @@ pub(crate) fn emit_bridge_fn(
                     };
                 }
             }
+            if conversion_is_fallible {
+                append_unsigned_field_checks(&mut pre_call_bindings, p, types);
+            }
             dart_call_arg_with_mirror_transmute(
                 p,
                 source_crate_name,
                 type_paths,
                 types_needing_from_conversion,
                 opaque_type_names,
+                conversion_is_fallible,
             )
         })
         .collect();
@@ -274,6 +284,7 @@ fn dart_call_arg_with_mirror_transmute(
     type_paths: &std::collections::HashMap<String, String>,
     types_needing_from_conversion: &std::collections::HashSet<String>,
     opaque_type_names: &std::collections::HashSet<String>,
+    checked: bool,
 ) -> String {
     let name = &p.name;
     let original = p.original_type.as_deref().unwrap_or("");
@@ -318,6 +329,18 @@ fn dart_call_arg_with_mirror_transmute(
     if let TypeRef::Primitive(prim) = &p.ty {
         let target = primitive_name(prim);
         if target != "i64" && target != "f64" && target != "bool" {
+            if checked
+                && matches!(
+                    prim,
+                    PrimitiveType::U8
+                        | PrimitiveType::U16
+                        | PrimitiveType::U32
+                        | PrimitiveType::U64
+                        | PrimitiveType::Usize
+                )
+            {
+                return dart_call_arg_checked(p, true);
+            }
             if p.optional {
                 return format!("{name}.map(|v| v as {target})");
             }
@@ -448,6 +471,85 @@ fn dart_call_arg_with_mirror_transmute(
     }
 
     dart_call_arg(p)
+}
+
+fn append_unsigned_field_checks(bindings: &mut Vec<String>, param: &ParamDef, types: &[TypeDef]) {
+    let Some((type_name, many, type_optional)) = dto_parameter_shape(&param.ty) else {
+        return;
+    };
+    let Some(type_def) = types.iter().find(|candidate| candidate.name == *type_name) else {
+        return;
+    };
+    let checks: Vec<String> = crate::codegen::shared::binding_fields(&type_def.fields)
+        .filter_map(|field| {
+            let primitive = unsigned_primitive(&field.ty)?;
+            let target = primitive_name(primitive);
+            let field_name = &field.name;
+            Some(if field.optional {
+                format!("if let Some(value) = item.{field_name} {{ {target}::try_from(value).map_err(|_| \"{type_name}.{field_name} is outside the valid {target} range\".to_string())?; }}")
+            } else {
+                format!("{target}::try_from(item.{field_name}).map_err(|_| \"{type_name}.{field_name} is outside the valid {target} range\".to_string())?;")
+            })
+        })
+        .collect();
+    if checks.is_empty() {
+        return;
+    }
+    let body = checks.join(" ");
+    let optional = param.optional || type_optional;
+    if many && optional {
+        bindings.push(format!(
+            "    if let Some(values) = &{} {{ for item in values {{ {body} }} }}",
+            param.name
+        ));
+    } else if many {
+        bindings.push(format!("    for item in &{} {{ {body} }}", param.name));
+    } else if optional {
+        bindings.push(format!("    if let Some(item) = &{} {{ {body} }}", param.name));
+    } else {
+        bindings.push(format!("    let item = &{}; {body}", param.name));
+    }
+}
+
+fn parameter_needs_checked_conversion(param: &ParamDef, types: &[TypeDef]) -> bool {
+    if unsigned_primitive(&param.ty).is_some() {
+        return true;
+    }
+    let Some((type_name, _, _)) = dto_parameter_shape(&param.ty) else {
+        return false;
+    };
+    types
+        .iter()
+        .find(|candidate| candidate.name == *type_name)
+        .is_some_and(|type_def| {
+            crate::codegen::shared::binding_fields(&type_def.fields)
+                .any(|field| unsigned_primitive(&field.ty).is_some())
+        })
+}
+
+fn dto_parameter_shape(ty: &TypeRef) -> Option<(&str, bool, bool)> {
+    match ty {
+        TypeRef::Named(type_name) => Some((type_name, false, false)),
+        TypeRef::Optional(inner) => dto_parameter_shape(inner).map(|(name, many, _)| (name, many, true)),
+        TypeRef::Vec(inner) => {
+            dto_parameter_shape(inner).and_then(|(name, _, optional)| (!optional).then_some((name, true, false)))
+        }
+        _ => None,
+    }
+}
+
+fn unsigned_primitive(ty: &TypeRef) -> Option<&PrimitiveType> {
+    match ty {
+        TypeRef::Primitive(
+            primitive @ (PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64
+            | PrimitiveType::Usize),
+        ) => Some(primitive),
+        TypeRef::Optional(inner) => unsigned_primitive(inner),
+        _ => None,
+    }
 }
 
 fn resolve_core_type(

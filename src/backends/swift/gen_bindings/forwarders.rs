@@ -1,7 +1,7 @@
 use crate::backends::swift::gen_bindings::bridge_artifacts::already_emitted_top_level_names;
 use crate::backends::swift::gen_bindings::client::emit_doc_comment;
 use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, PrimitiveType, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::HashSet;
@@ -277,7 +277,7 @@ pub(super) fn emit_free_function_forwarders(
         if func.binding_excluded || exclude_functions.contains(&func.name) {
             continue;
         }
-        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+        if config.trait_bridge_manages_function(&func.name) {
             continue;
         }
         if function_references_excluded_type(func, exclude_types) {
@@ -705,7 +705,7 @@ pub(super) fn swift_trait_forwarder_name(configured_fn: &str) -> String {
 
 pub(super) fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &mut String) {
     let mut emitted_any = false;
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in config.trait_bridges_for(Language::Swift) {
         if bridge_cfg.bind_via != BridgeBinding::FunctionParam {
             continue;
         }

@@ -88,7 +88,7 @@ fn lib_rs_content(files: &[crate::core::backend::GeneratedFile]) -> &str {
 }
 
 /// Isolated unit coverage: `php_declared_features` must keep a name referenced by BOTH a
-/// function and a field, and must still drop a name referenced ONLY by a function.
+/// function and a field.
 #[test]
 fn php_declared_features_keeps_a_name_a_field_still_needs() {
     let api = shared_feature_api();
@@ -100,18 +100,15 @@ fn php_declared_features_keeps_a_name_a_field_still_needs() {
     );
 }
 
-/// Regression guard for the OTHER direction: a feature referenced only by a function (no field,
-/// variant, or type anywhere references it) must still be removed from the declared set -- this
-/// backend must not regress into declaring every function-referenced feature unconditionally.
 #[test]
-fn php_declared_features_still_drops_a_function_only_name() {
+fn php_declared_features_keeps_a_function_only_public_name() {
     let mut api = shared_feature_api();
     api.types.clear();
     let declared = crate::scaffold::languages::php::php_declared_features(&api, &[]);
     assert!(
-        !declared.contains(FEATURE),
-        "a feature referenced only by a top-level function's cfg (no field/type anywhere \
-         references it) must stay out of the declared set; got {declared:?}"
+        declared.contains(FEATURE),
+        "a public feature referenced by a top-level function must remain part of the wrapper \
+         crate's Cargo feature contract; got {declared:?}"
     );
 }
 

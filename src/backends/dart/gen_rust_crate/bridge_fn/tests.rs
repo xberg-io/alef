@@ -34,7 +34,7 @@ fn is_mut_named_opaque_emits_mut_inner() {
     let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
     let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque, false);
     assert_eq!(expr, "&mut result.inner", "is_mut opaque param must use &mut: {expr}");
 }
 
@@ -52,7 +52,7 @@ fn is_mut_named_from_emits_mut_borrow() {
     needs_from.insert("TranslationConfig".to_string());
     let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque, false);
     assert!(
         expr.contains("&mut"),
         "is_mut From-converted Named param must emit &mut borrow: {expr}"
@@ -66,7 +66,7 @@ fn is_mut_named_transmute_emits_mut_transmute() {
     let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
     let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque, false);
     assert!(
         expr.contains("&mut"),
         "is_mut transmute Named param must emit &mut transmute: {expr}"
@@ -90,7 +90,7 @@ fn vec_named_is_ref_emits_slice_not_raw_pointer() {
     let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
     let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+    let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque, false);
     assert!(
         expr.contains("from_raw_parts"),
         "Vec<Named> is_ref must use slice::from_raw_parts, got: {expr}"
@@ -298,9 +298,181 @@ fn emit(f: &FunctionDef) -> String {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &[],
     )
     .expect("emit_bridge_fn");
     out
+}
+
+#[test]
+fn optional_u32_is_checked_in_fallible_bridge_and_preserves_zero() {
+    let f = FunctionDef {
+        name: "bounded".to_string(),
+        rust_path: "sample_crate::bounded".to_string(),
+        params: vec![make_param(
+            "max",
+            TypeRef::Primitive(PrimitiveType::U32),
+            false,
+            false,
+            true,
+        )],
+        return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
+        ..FunctionDef::default()
+    };
+
+    let generated = emit(&f);
+
+    assert!(generated.contains("-> Result<(), String>"), "{generated}");
+    assert!(generated.contains("max.map(|v| u32::try_from(v)"), "{generated}");
+    assert!(generated.contains(".transpose()?"), "{generated}");
+    assert!(
+        !generated.contains("filter(|"),
+        "Some(0) must not be treated as absent: {generated}"
+    );
+    assert!(generated.contains(".to_string()"), "{generated}");
+    assert!(!generated.contains("format!("), "{generated}");
+}
+
+#[test]
+fn dto_unsigned_offsets_are_checked_before_fallible_core_call() {
+    let f = FunctionDef {
+        name: "redact".to_string(),
+        rust_path: "sample_crate::redact".to_string(),
+        params: vec![make_param(
+            "findings",
+            TypeRef::Vec(Box::new(TypeRef::Named("Finding".to_string()))),
+            false,
+            false,
+            false,
+        )],
+        return_type: TypeRef::Unit,
+        error_type: Some("Error".to_string()),
+        ..FunctionDef::default()
+    };
+    let finding = TypeDef {
+        name: "Finding".to_string(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "start".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Usize),
+            optional: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut generated = String::new();
+    emit_bridge_fn(
+        &mut generated,
+        &f,
+        "sample_crate",
+        &std::collections::HashMap::new(),
+        &std::collections::HashSet::from(["Finding".to_string()]),
+        &std::collections::HashSet::new(),
+        &[],
+        &[finding],
+    )
+    .expect("emit bridge");
+
+    assert!(generated.contains("-> Result<(), String>"), "{generated}");
+    assert!(generated.contains("if let Some(value) = item.start"), "{generated}");
+    assert!(generated.contains("usize::try_from(value)"), "{generated}");
+    assert!(
+        generated.contains("Finding.start is outside the valid usize range"),
+        "{generated}"
+    );
+    assert!(generated.contains(".to_string())?"), "{generated}");
+    assert!(!generated.contains("format!("), "{generated}");
+}
+
+#[test]
+fn direct_and_optional_dto_unsigned_fields_are_checked_before_conversion() {
+    let finding = TypeDef {
+        name: "Finding".to_string(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "start".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Usize),
+            optional: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    for (parameter_type, expected_binding) in [
+        (TypeRef::Named("Finding".to_string()), "let item = &finding;"),
+        (
+            TypeRef::Optional(Box::new(TypeRef::Named("Finding".to_string()))),
+            "if let Some(item) = &finding",
+        ),
+    ] {
+        let function = FunctionDef {
+            name: "redact_one".to_string(),
+            rust_path: "sample_crate::redact_one".to_string(),
+            params: vec![make_param("finding", parameter_type, false, false, false)],
+            return_type: TypeRef::Unit,
+            error_type: Some("Error".to_string()),
+            ..FunctionDef::default()
+        };
+        let mut generated = String::new();
+        emit_bridge_fn(
+            &mut generated,
+            &function,
+            "sample_crate",
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::from(["Finding".to_string()]),
+            &std::collections::HashSet::new(),
+            &[],
+            std::slice::from_ref(&finding),
+        )
+        .expect("emit bridge");
+
+        assert!(generated.contains(expected_binding), "{generated}");
+        assert!(generated.contains("usize::try_from(value)"), "{generated}");
+        assert!(
+            generated.contains("Finding.start is outside the valid usize range"),
+            "{generated}"
+        );
+    }
+}
+
+#[test]
+fn unsigned_dto_does_not_change_an_infallible_public_signature() {
+    let f = FunctionDef {
+        name: "rank".to_string(),
+        rust_path: "sample_crate::rank".to_string(),
+        params: vec![make_param(
+            "matches",
+            TypeRef::Vec(Box::new(TypeRef::Named("Match".to_string()))),
+            false,
+            false,
+            false,
+        )],
+        return_type: TypeRef::Unit,
+        ..FunctionDef::default()
+    };
+    let match_type = TypeDef {
+        name: "Match".to_string(),
+        fields: vec![crate::core::ir::FieldDef {
+            name: "offset".to_string(),
+            ty: TypeRef::Primitive(PrimitiveType::Usize),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut generated = String::new();
+    emit_bridge_fn(
+        &mut generated,
+        &f,
+        "sample_crate",
+        &std::collections::HashMap::new(),
+        &std::collections::HashSet::from(["Match".to_string()]),
+        &std::collections::HashSet::new(),
+        &[],
+        &[match_type],
+    )
+    .expect("emit bridge");
+
+    assert!(!generated.contains("Result<"), "{generated}");
+    assert!(!generated.contains("usize::try_from"), "{generated}");
 }
 
 #[test]
@@ -487,6 +659,7 @@ fn emit_bridge_fn_configured_stub_method_still_emits_unimplemented() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &["analyze_document".to_string()],
+        &[],
     )
     .expect("emit_bridge_fn");
 
@@ -589,6 +762,7 @@ fn mut_dto_param_via_from_conversion_round_trips_through_the_core_type() {
         &needs_from,
         &std::collections::HashSet::new(),
         &[],
+        &[],
     )
     .expect("emit_bridge_fn");
 
@@ -662,6 +836,7 @@ fn two_mut_dto_params_are_rejected_at_generation_time_naming_the_function() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &[],
     )
     .expect_err("two `&mut` DTO params must be rejected at generation time");
 
@@ -692,6 +867,7 @@ fn mut_dto_param_plus_a_return_value_is_rejected_naming_the_function() {
         &std::collections::HashSet::new(),
         &std::collections::HashSet::new(),
         &[],
+        &[],
     )
     .expect_err("a `&mut` DTO param on a function that also returns a value must be rejected");
 
@@ -719,6 +895,7 @@ fn mut_opaque_param_is_not_treated_as_writeback() {
         &std::collections::HashMap::new(),
         &std::collections::HashSet::new(),
         &opaque,
+        &[],
         &[],
     )
     .expect("emit_bridge_fn");

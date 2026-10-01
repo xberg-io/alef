@@ -743,9 +743,7 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     exclude_types.extend(client_type_names.iter().cloned());
 
     let configured_trait_bridges: std::collections::HashSet<&str> = config
-        .trait_bridges
-        .iter()
-        .filter(|b| !b.exclude_languages.contains(&"kotlin".to_string()))
+        .trait_bridges_for(Language::Kotlin)
         .map(|b| b.trait_name.as_str())
         .collect();
 
@@ -908,8 +906,8 @@ fn generate_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         files.push(client_file);
     }
     let package = jni_emitter::jni_kotlin_package(config);
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg.exclude_languages.iter().any(|l| l == "kotlin") || bridge_cfg.register_fn.is_none() {
+    for bridge_cfg in config.trait_bridges_for(Language::Kotlin) {
+        if bridge_cfg.register_fn.is_none() {
             continue;
         }
         if let Some(trait_def) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {

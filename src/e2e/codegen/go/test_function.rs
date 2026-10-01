@@ -249,9 +249,9 @@ pub(super) fn render_test_function_with_facts(
         // `fixture_has_go_callable` above, and `fixture.skip` via `fixture_inclusion`)
         // have both already run by here, so reaching this point means the fixture is
         // genuinely required for Go. Fail generation instead of emitting a weaker test. ~keep
-        let Some(opts_type) =
-            call_options_type.or_else(|| crate::e2e::codegen::recipe::trait_bridge_options_type(config))
-        else {
+        let Some(opts_type) = call_options_type.or_else(|| {
+            crate::e2e::codegen::recipe::trait_bridge_options_type(config, crate::core::config::Language::Go)
+        }) else {
             panic!(
                 "Go e2e generator: fixture `{}` declares a `visitor`, but neither its `[e2e.call]` config nor any `[[crates.trait_bridges]]` entry provides an `options_type` to attach it to; cannot generate a Go visitor test without a resolvable trait bridge options type",
                 fixture.id

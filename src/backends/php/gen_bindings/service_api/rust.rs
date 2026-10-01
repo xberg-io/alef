@@ -16,6 +16,10 @@ use minijinja::context;
 ///   collected registrations list and any entrypoint params, builds the native
 ///   service, and drives it.
 pub(in crate::backends::php::gen_bindings) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
+    if api.services.iter().any(|service| !service.registrations.is_empty()) {
+        return crate::backends::php::trait_bridge::disabled_code();
+    }
+
     let core_import = config.core_import_name();
     let mut out = String::new();
 
@@ -170,7 +174,7 @@ fn gen_run_php_function(
     out.push_str("            if let Ok(tuple) = entry.try_into::<Vec<Zval>>() {\n");
     out.push_str("                if tuple.len() < 3 {\n");
     out.push_str(
-        "                    return Err(PhpException::default(\"Invalid registration tuple length\".into()));\n",
+        "                    return Err(PhpException::from_message(\"Invalid registration tuple length\".into()));\n",
     );
     out.push_str("                }\n");
     out.push_str("                let method_name: String = tuple[0].try_into()?;\n");
@@ -204,7 +208,7 @@ fn gen_run_php_function(
             out.push_str("                            }\n");
             out.push_str("                        });\n");
             out.push_str("                        if handler_index == usize::MAX {\n");
-            out.push_str("                            return Err(PhpException::default(\"Failed to register callable\".into()));\n");
+            out.push_str("                            return Err(PhpException::from_message(\"Failed to register callable\".into()));\n");
             out.push_str("                        }\n\n");
 
             out.push_str(&render(
@@ -248,7 +252,7 @@ fn gen_run_php_function(
             }
 
             if reg.error_type.is_some() {
-                out.push_str("                            .map_err(|e| PhpException::default(e.to_string()))?;\n");
+                out.push_str("                            .map_err(|e| PhpException::from_message(e.to_string()))?;\n");
             } else {
                 out.push_str("                            ;\n");
             }
@@ -257,7 +261,7 @@ fn gen_run_php_function(
     }
     out.push_str("                    _ => {\n");
     out.push_str(
-        "                        return Err(PhpException::default(\n                            \
+        "                        return Err(PhpException::from_message(\n                            \
          format!(\"unknown registration method: {method_name}\"),\n                        ));\n",
     );
     out.push_str("                    }\n");

@@ -26,28 +26,108 @@ pub fn scaffold(
     languages: &[Language],
     config_path: &Path,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    crate::with_extensions(|extensions| scaffold_with_extensions(api, config, languages, config_path, extensions))
+}
+
+fn scaffold_with_extensions(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    languages: &[Language],
+    config_path: &Path,
+    extensions: &[Box<dyn crate::core::extension::Extension>],
+) -> anyhow::Result<Vec<GeneratedFile>> {
+    let projected_api = crate::codegen::binding_projection::project(api);
+    let api = &projected_api;
     let mut files = crate::scaffold::scaffold(api, config, languages)?;
-    crate::with_extensions(|exts| {
-        let env = crate::core::template_env::TemplateEnv::new();
-        for ext in exts {
-            let raw = crate::core::extension::read_extension_config(config_path, ext.name())
-                .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
-            let cfg = ext
-                .parse_config(raw.as_ref())
-                .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
-            for &language in languages {
-                ext.transform_scaffold_files(api, &cfg, language, &mut files, &env)
-                    .with_context(|| {
-                        format!(
-                            "extension `{}`: transform_scaffold_files({language}) failed",
-                            ext.name()
-                        )
-                    })?;
-            }
+    let env = crate::core::template_env::TemplateEnv::new();
+    for ext in extensions {
+        let raw = crate::core::extension::read_extension_config(config_path, ext.name())
+            .with_context(|| format!("extension `{}`: failed to read config from alef.toml", ext.name()))?;
+        let cfg = ext
+            .parse_config(raw.as_ref())
+            .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
+        for &language in languages {
+            ext.transform_scaffold_files(api, &cfg, language, &mut files, &env)
+                .with_context(|| {
+                    format!(
+                        "extension `{}`: transform_scaffold_files({language}) failed",
+                        ext.name()
+                    )
+                })?;
         }
-        Ok::<(), anyhow::Error>(())
-    })?;
+    }
     Ok(files)
+}
+
+#[cfg(test)]
+mod binding_projection_tests {
+    use super::*;
+    use crate::core::extension::{Extension, ExtensionConfig};
+
+    struct SurfaceProbe;
+
+    impl Extension for SurfaceProbe {
+        fn name(&self) -> &str {
+            "surface-probe"
+        }
+
+        fn transform_scaffold_files(
+            &self,
+            api: &ApiSurface,
+            _cfg: &ExtensionConfig,
+            _language: Language,
+            files: &mut Vec<GeneratedFile>,
+            _env: &crate::core::template_env::TemplateEnv,
+        ) -> anyhow::Result<()> {
+            files.push(GeneratedFile {
+                path: "surface.txt".into(),
+                content: api
+                    .types
+                    .iter()
+                    .map(|item| item.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                generated_header: true,
+            });
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn scaffold_extension_receives_only_the_binding_projection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let config_path = dir.path().join("alef.toml");
+        std::fs::write(&config_path, "").expect("write config");
+        let api = ApiSurface {
+            types: vec![
+                crate::core::ir::TypeDef {
+                    name: "Visible".to_string(),
+                    ..Default::default()
+                },
+                crate::core::ir::TypeDef {
+                    name: "RustOnly".to_string(),
+                    binding_excluded: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let extensions: Vec<Box<dyn Extension>> = vec![Box::new(SurfaceProbe)];
+
+        let files = scaffold_with_extensions(
+            &api,
+            &ResolvedCrateConfig::default(),
+            &[Language::Rust],
+            &config_path,
+            &extensions,
+        )
+        .expect("scaffold with extension");
+        let probe = files
+            .iter()
+            .find(|file| file.path == Path::new("surface.txt"))
+            .expect("probe output");
+        assert_eq!(probe.content, "Visible");
+    }
 }
 
 /// Generate README files for given languages.

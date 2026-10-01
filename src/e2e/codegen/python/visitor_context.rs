@@ -117,18 +117,20 @@ fn callback_context_type<'a>(
 ) -> Option<&'a TypeDef> {
     let pyclass_absent =
         crate::backends::pyo3::gen_bindings::binding_exclusions::pyclass_absent_type_names(config, type_defs, errors);
-    config.trait_bridges.iter().find_map(|bridge| {
-        let trait_def = type_defs
-            .iter()
-            .find(|type_def| type_def.is_trait && type_def.name == bridge.trait_name)?;
-        trait_def.methods.iter().find(|method| method.name == callback_name)?;
-        let context_type = bridge.context_type.as_deref()?;
-        if pyclass_absent.contains(context_type) {
-            return None;
-        }
-        let context_def = type_defs.iter().find(|type_def| type_def.name == context_type)?;
-        eligible_context_def(context_def, convertible_types)
-    })
+    config
+        .trait_bridges_for(crate::core::config::Language::Python)
+        .find_map(|bridge| {
+            let trait_def = type_defs
+                .iter()
+                .find(|type_def| type_def.is_trait && type_def.name == bridge.trait_name)?;
+            trait_def.methods.iter().find(|method| method.name == callback_name)?;
+            let context_type = bridge.context_type.as_deref()?;
+            if pyclass_absent.contains(context_type) {
+                return None;
+            }
+            let context_def = type_defs.iter().find(|type_def| type_def.name == context_type)?;
+            eligible_context_def(context_def, convertible_types)
+        })
 }
 
 /// The bridge's remaining two conditions from `context_binding_class`, quoted from

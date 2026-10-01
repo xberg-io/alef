@@ -1637,7 +1637,10 @@ fn build_test_backend_arg_expr(
             fixture.id, arg.name
         );
     };
-    let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) else {
+    let Some(trait_bridge) = config
+        .trait_bridges_for(crate::core::config::Language::Ffi)
+        .find(|tb| tb.trait_name == *trait_name)
+    else {
         panic!(
             "C e2e generator: fixture `{}` requires trait `{trait_name}` for its `test_backend` arg `{}`, but no `[[crates.trait_bridges]]` entry named `{trait_name}` is configured",
             fixture.id, arg.name

@@ -59,25 +59,25 @@ pub(super) fn build_ep_call(ep: &EntrypointDef, _service: &ServiceDef, _core_imp
             format!(
                 "    {bind}tokio::runtime::Handle::current()\n        \
                  .block_on(owner.{ep_method}())\n        \
-                 .map_err(|e| PhpException::default(e.to_string()))?;\n"
+                 .map_err(|e| PhpException::from_message(e.to_string()))?;\n"
             )
         } else {
             format!(
                 "    {bind}tokio::runtime::Handle::current()\n        \
                  .block_on(owner.{ep_method}({args_str}))\n        \
-                 .map_err(|e| PhpException::default(e.to_string()))?;\n"
+                 .map_err(|e| PhpException::from_message(e.to_string()))?;\n"
             )
         }
     } else if ep.error_type.is_some() {
         if args_str.is_empty() {
             format!(
                 "    {bind}owner.{ep_method}()\n        \
-                 .map_err(|e| PhpException::default(e.to_string()))?;\n"
+                 .map_err(|e| PhpException::from_message(e.to_string()))?;\n"
             )
         } else {
             format!(
                 "    {bind}owner.{ep_method}({args_str})\n        \
-                 .map_err(|e| PhpException::default(e.to_string()))?;\n"
+                 .map_err(|e| PhpException::from_message(e.to_string()))?;\n"
             )
         }
     } else if args_str.is_empty() {

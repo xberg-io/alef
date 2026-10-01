@@ -6,6 +6,11 @@ use super::{
 };
 
 pub trait TraitBridgeGenerator {
+    /// Return an error when this generator cannot safely implement a host callback bridge.
+    fn disabled_error(&self) -> Option<&'static str> {
+        None
+    }
+
     /// The type of the wrapped foreign object (e.g., `"Py<PyAny>"`, `"ThreadsafeFunction"`).
     fn foreign_object_type(&self) -> &str;
 
@@ -134,6 +139,12 @@ pub trait TraitBridgeGenerator {
     }
 }
 
+pub(super) fn disabled_code(generator: &dyn TraitBridgeGenerator) -> Option<String> {
+    generator
+        .disabled_error()
+        .map(|message| format!("compile_error!({message:?});"))
+}
+
 pub struct BridgeOutput {
     /// Import paths (e.g., `"std::sync::Arc"`) — callers should add via `builder.add_import()`.
     pub imports: Vec<String>,
@@ -147,6 +158,12 @@ pub struct BridgeOutput {
 /// Returns [`BridgeOutput`] with imports separated from code so callers can
 /// route imports through `builder.add_import()` (which deduplicates).
 pub fn gen_bridge_all(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> BridgeOutput {
+    if let Some(code) = disabled_code(generator) {
+        return BridgeOutput {
+            imports: Vec::new(),
+            code,
+        };
+    }
     let imports = generator.bridge_imports();
     let mut out = String::with_capacity(4096);
 

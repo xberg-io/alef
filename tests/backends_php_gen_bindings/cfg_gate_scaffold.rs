@@ -3,14 +3,8 @@ use alef::core::config::new_config::NewAlefConfig;
 use alef::core::ir::{ApiSurface, FunctionDef, ParamDef, PrimitiveType, TypeRef};
 use alef::scaffold::scaffold;
 
-/// Companion to `cfg_gate.rs`'s `php_standalone_function_never_wraps_body_in_cfg`: since PHP
-/// facade methods are now always emitted unconditionally (never cfg-gated — ext-php-rs's
-/// `#[php_impl]` derive can't tolerate a cfg'd-out method), the underlying core feature(s) those
-/// methods depend on must be required unconditionally on the core dependency line, and must NOT
-/// be declared as a toggleable `[features]` entry on the php crate — a declared feature that no
-/// generated code actually gates is its own defect.
 #[test]
-fn php_cargo_toml_requires_function_gated_core_features_unconditionally_and_never_declares_them_as_toggles() {
+fn php_cargo_toml_requires_and_publicly_forwards_function_gated_core_features() {
     let toml = r#"
 [workspace]
 languages = ["php"]
@@ -56,11 +50,11 @@ extension_name = "demo_crate"
         "core dependency must unconditionally request the function-gated feature, got:\n{content}"
     );
     assert!(
-        !content.contains(r#"tokenizer = ["demo-crate/tokenizer"]"#),
-        "function-gated feature must not be declared as a toggleable php-crate feature, got:\n{content}"
+        content.contains(r#"tokenizer = ["demo-crate/tokenizer"]"#),
+        "function-gated feature must remain a public php-crate feature, got:\n{content}"
     );
     assert!(
-        !content.contains("default = [\"tokenizer\"]"),
-        "function-gated feature must not appear in the php crate's own `default` feature list, got:\n{content}"
+        content.contains("default = [\"tokenizer\"]"),
+        "function-gated feature must remain in the php crate's `default` feature list, got:\n{content}"
     );
 }

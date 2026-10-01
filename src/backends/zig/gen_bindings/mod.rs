@@ -107,8 +107,7 @@ pub(crate) fn zig_boundary_return_type(ty: &TypeRef, api: &ApiSurface) -> String
 /// Shared with `public_function_signatures` for the same reason as `zig_struct_names`. ~keep
 fn zig_trait_bridge_fn_names(api: &ApiSurface, config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Zig)
         .filter(|b| !b.exclude_languages.iter().any(|lang| lang == "zig"))
         .flat_map(|b| {
             let mut names = Vec::new();
@@ -261,10 +260,7 @@ impl Backend for ZigBackend {
         emit_helpers(&prefix, &api.errors, &mut content);
         content.push('\n');
 
-        for bridge in &config.trait_bridges {
-            if bridge.exclude_languages.iter().any(|lang| lang == "zig") {
-                continue;
-            }
+        for bridge in config.trait_bridges_for(Language::Zig) {
             if let Some(alias) = &bridge.type_alias {
                 content.push_str(&crate::backends::zig::template_env::render(
                     "trait_bridge_alias.jinja",
@@ -329,10 +325,7 @@ impl Backend for ZigBackend {
         }
 
         let error_type = config.error_type.as_deref().unwrap_or("error");
-        for bridge_cfg in &config.trait_bridges {
-            if bridge_cfg.exclude_languages.iter().any(|lang| lang == "zig") {
-                continue;
-            }
+        for bridge_cfg in config.trait_bridges_for(Language::Zig) {
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
                 emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &exclude_types, &mut content);
                 content.push('\n');
@@ -356,8 +349,7 @@ impl Backend for ZigBackend {
             .collect();
 
         let trait_bridge_type_aliases: std::collections::HashSet<String> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Zig)
             .filter(|b| !b.exclude_languages.iter().any(|lang| lang == "zig"))
             .filter_map(|b| b.type_alias.clone())
             .collect();
@@ -496,8 +488,7 @@ impl Backend for ZigBackend {
         config: &ResolvedCrateConfig,
     ) -> Vec<crate::core::backend::TraitBridgeRegistrationSurface> {
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Zig)
             .filter(|bridge| bridge.is_active_for("zig"))
             .filter(|bridge| matches!(bridge.bind_via, crate::core::config::BridgeBinding::FunctionParam))
             .filter_map(|bridge| {

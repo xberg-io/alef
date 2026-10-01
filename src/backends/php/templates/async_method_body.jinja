@@ -1,15 +1,14 @@
-let inner_obj = self.inner;
+let inner_obj = self.inner.shallow_clone();
 let cached_name = self.cached_name.clone();
 {% for param_name in string_params %}
 let {{ param_name }} = {{ param_name }}.to_string();
 {% endfor %}
 
-// SAFETY: PHP objects are single-threaded within a request.
 // Use block_in_place if already in a tokio context; otherwise use block_on.
 if let Ok(handle) = tokio::runtime::Handle::try_current() {
     tokio::task::block_in_place(|| {
         handle.block_on(async {
-            match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
+            match inner_obj.try_call_method("{{ method_name }}", {{ args_expr }}) {
 {% if is_result_type %}
                 Ok(val) => {
 {%- if native_return_binding %}
@@ -38,7 +37,7 @@ if let Ok(handle) = tokio::runtime::Handle::try_current() {
     })
 } else {
     WORKER_RUNTIME.block_on(async {
-        match unsafe { (*inner_obj).try_call_method("{{ method_name }}", {{ args_expr }}) } {
+        match inner_obj.try_call_method("{{ method_name }}", {{ args_expr }}) {
 {% if is_result_type %}
             Ok(val) => {
 {%- if native_return_binding %}

@@ -409,4 +409,25 @@ check = "ruff check crates/sample_router-py/"
             "error should name the removed `lint` field: {err}"
         );
     }
+
+    // ~keep The bounded raw-JSON setting cannot live on this exhaustive public struct without a
+    // patch-release source break. Reject it visibly until it has a compatible configuration home.
+    #[test]
+    fn raw_crate_config_rejects_deferred_json_parameter_limits() {
+        let toml_str = r#"
+name = "sample_router"
+sources = []
+json_parameter_limits = [
+  { operation = "redact", parameter = "findings", max_parameter = "max_findings", default_max = 10000 },
+]
+"#;
+
+        let error = toml::from_str::<RawCrateConfig>(toml_str)
+            .expect_err("the deferred configuration must not be silently ignored");
+
+        assert!(
+            error.to_string().contains("json_parameter_limits"),
+            "error should identify the unsupported field: {error}"
+        );
+    }
 }

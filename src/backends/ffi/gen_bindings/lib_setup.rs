@@ -1,4 +1,4 @@
-use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{BridgeBinding, Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, FunctionDef, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
@@ -40,8 +40,7 @@ pub(super) fn build_lib_setup_context<'a>(api: &ApiSurface, config: &'a Resolved
         .chain(api.enums.iter().filter(|e| !e.is_copy).map(|e| e.name.clone()))
         .chain(
             config
-                .trait_bridges
-                .iter()
+                .trait_bridges_for(Language::Ffi)
                 .filter_map(|bridge| bridge.type_alias.clone()),
         )
         .collect();

@@ -40,6 +40,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
 ) -> String {
     let core_import = config.core_import_name();
     let enabled_features = crate::codegen::cfg::enabled_features_for_language(config, Language::Ruby);
+    let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Ruby).cloned().collect();
     let mut lines = vec![
         "#[magnus::init]".to_string(),
         "fn ruby_init(ruby: &Ruby) -> Result<(), Error> {".to_string(),
@@ -135,7 +136,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         let mut registered_field_names: ahash::AHashSet<&str> = ahash::AHashSet::default();
         if !typ.is_opaque {
             for field in binding_fields(&typ.fields) {
-                if is_thread_unsafe_field(field, &config.trait_bridges) {
+                if is_thread_unsafe_field(field, &active_trait_bridges) {
                     continue;
                 }
                 registered_field_names.insert(field.name.as_str());
@@ -296,13 +297,13 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         if is_reserved_fn(&func.name) || exclude_functions.contains(func.name.as_str()) {
             continue;
         }
-        if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+        if config.trait_bridge_manages_function(&func.name) {
             continue;
         }
         let has_bridge_param =
-            crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges).is_some();
+            crate::backends::magnus::trait_bridge::find_bridge_param(func, &active_trait_bridges).is_some();
         let has_options_field_binding =
-            crate::backends::magnus::trait_bridge::find_options_field_binding(func, &config.trait_bridges).is_some();
+            crate::backends::magnus::trait_bridge::find_options_field_binding(func, &active_trait_bridges).is_some();
 
         let is_default_config_func = last_param_is_default_struct(func, api);
 
@@ -343,7 +344,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         });
     }
 
-    for bridge_cfg in &config.trait_bridges {
+    for bridge_cfg in &active_trait_bridges {
         if crate::backends::magnus::trait_bridge::active_bridge_trait(bridge_cfg, api).is_none() {
             continue;
         }

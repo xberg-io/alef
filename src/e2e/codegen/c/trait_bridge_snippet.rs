@@ -32,8 +32,7 @@ pub(super) fn render(
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("C trait bridge recipe has no trait identity"))?;
     let bridge = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Ffi)
         .find(|bridge| bridge.trait_name == trait_name)
         .ok_or_else(|| anyhow::anyhow!("C trait bridge recipe has no configured bridge for `{trait_name}`"))?;
     let register = bridge

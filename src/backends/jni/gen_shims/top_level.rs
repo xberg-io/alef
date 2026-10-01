@@ -190,8 +190,7 @@ fn jni_excluded_types(config: &ResolvedCrateConfig) -> std::collections::HashSet
 
 fn jni_trait_bridge_function_names(config: &ResolvedCrateConfig) -> std::collections::HashSet<&str> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::KotlinAndroid)
         .flat_map(|bridge| {
             [&bridge.register_fn, &bridge.unregister_fn, &bridge.clear_fn]
                 .into_iter()

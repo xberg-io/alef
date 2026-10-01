@@ -10,7 +10,7 @@ mod options_field_bridge;
 mod typescript_bridge;
 mod visitor_bridge;
 
-use crate::core::config::TraitBridgeConfig;
+use crate::core::config::{Language, TraitBridgeConfig};
 
 pub use bridge::{gen_trait_bridge, is_visitor_bridge};
 pub use bridge_functions::gen_bridge_function;
@@ -47,7 +47,7 @@ pub fn has_non_visitor_trait_bridges(
     config: &crate::core::config::ResolvedCrateConfig,
     api: &crate::core::ir::ApiSurface,
 ) -> bool {
-    config.trait_bridges.iter().any(|bridge_cfg| {
+    config.trait_bridges_for(Language::Node).any(|bridge_cfg| {
         active_bridge_trait(bridge_cfg, api)
             .map(|trait_type| !is_visitor_bridge(trait_type, bridge_cfg))
             .unwrap_or(false)

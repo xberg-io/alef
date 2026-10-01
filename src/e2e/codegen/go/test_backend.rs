@@ -578,7 +578,12 @@ pub(super) fn resolve_test_backend_emission(
     };
     methods.extend(synthetic_super_trait_methods.iter());
 
-    let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
+    let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(
+        config,
+        crate::core::config::Language::Go,
+        type_defs,
+        &methods,
+    );
     let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
     emit_test_backend_with_context(
         trait_bridge,

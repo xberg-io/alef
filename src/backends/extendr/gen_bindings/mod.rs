@@ -124,6 +124,7 @@ impl Backend for ExtendrBackend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::R).cloned().collect();
         let arc_incompatible_opaque: ahash::AHashSet<String> = api
             .types
             .iter()
@@ -131,7 +132,7 @@ impl Backend for ExtendrBackend {
                 t.is_opaque
                     && crate::codegen::generators::trait_bridge::is_bridge_handle_type_ref(
                         &TypeRef::Named(t.name.clone()),
-                        &config.trait_bridges,
+                        &active_trait_bridges,
                     )
             })
             .map(|t| t.name.clone())
@@ -589,8 +590,7 @@ impl Backend for ExtendrBackend {
         }
 
         let active_bridges: Vec<_> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::R)
             .filter(|b| bridge_targets_extendr(b))
             .cloned()
             .collect();
@@ -693,10 +693,7 @@ impl Backend for ExtendrBackend {
         }
 
         let mut emitted_send_robj_helper = false;
-        for bridge_cfg in &config.trait_bridges {
-            if !bridge_targets_extendr(bridge_cfg) {
-                continue;
-            }
+        for bridge_cfg in &active_trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 if !emitted_send_robj_helper {
                     builder.add_item(crate::backends::extendr::trait_bridge::gen_send_robj_helper());

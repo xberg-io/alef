@@ -65,15 +65,21 @@ pub(super) fn build_args_and_setup(
 
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name
-                && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+                && let Some(trait_bridge) = config
+                    .trait_bridges_for(crate::core::config::Language::Zig)
+                    .find(|tb| tb.trait_name == *trait_name)
             {
                 let methods: Vec<&crate::core::ir::MethodDef> = type_defs
                     .iter()
                     .find(|t| t.name == *trait_name)
                     .map(|t| t.methods.iter().collect())
                     .unwrap_or_default();
-                let excluded_named =
-                    crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
+                let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(
+                    config,
+                    crate::core::config::Language::Zig,
+                    type_defs,
+                    &methods,
+                );
                 let emission = emit_test_backend_with_excluded(trait_bridge, &methods, fixture, &excluded_named);
                 // emit_test_backend uses "lib." as a placeholder; substitute the real module.
                 let setup_block = emission.setup_block.replace("lib.", &format!("{_module_name}."));

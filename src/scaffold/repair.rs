@@ -71,15 +71,11 @@ fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, St
 
 /// The surface a binding backend actually emits from, given the surface this repair is handed.
 ///
-/// `cli::pipeline::generate::generation::project_binding_api` drops every `binding_excluded`
-/// function before any backend sees the IR, so a manifest written by a backend declares features
-/// gated on the *projected* surface. This repair is called with the raw, unprojected surface --
-/// whose `#[cfg(feature = "...")]` gates include those of functions no binding ever emits -- so
-/// without the same projection it proposes forwarding rows for features nothing in the generated
-/// crate references, and the manifest a backend wrote and the manifest this pass leaves behind
-/// differ by exactly those names. Only the function retain is reproduced: the sibling projection
-/// step (`project_docs_without_unreachable_foreign_variants`) rewrites doc lines only and cannot
-/// change what `collect_cfg_features` finds. ~keep
+/// [`crate::codegen::binding_projection`] drops every `binding_excluded` item before any binding
+/// consumer sees the IR, so a manifest written by a backend declares features gated on the
+/// *projected* surface. This repair is called with the raw source surface and must use that same
+/// projection or it can propose forwarding rows for features nothing in the generated crate
+/// references. ~keep
 ///
 /// The per-language carrier prune (alef #480) is deliberately **not** reproduced here, and that
 /// is load-bearing rather than an omission: it only sets `binding_excluded` on a field, and
@@ -88,12 +84,6 @@ fn managed_manifests(config: &ResolvedCrateConfig) -> Vec<(Language, PathBuf, St
 /// prune ran, so they stay in lock-step by construction and this pass needs no language
 /// dimension. Teaching `collect_cfg_gates` to skip excluded fields would break that and this
 /// function would then have to take the target language too. ~keep
-fn project_binding_surface(api: &ApiSurface) -> ApiSurface {
-    let mut projected = api.clone();
-    projected.functions.retain(|function| !function.binding_excluded);
-    projected
-}
-
 /// Add every cfg-forwarded feature the generated source for `languages` references but an
 /// existing binding manifest does not yet declare, preserving the rest of each manifest exactly.
 ///
@@ -111,7 +101,7 @@ pub(crate) fn repair_missing_cfg_binding_features(
     languages: &[Language],
 ) -> Vec<PathBuf> {
     let mut repaired = Vec::new();
-    let projected = project_binding_surface(api);
+    let projected = crate::codegen::binding_projection::project(api);
     for (language, relative_manifest, core_dep_key, excluded_default_features) in managed_manifests(config) {
         if !languages.contains(&language) {
             continue;

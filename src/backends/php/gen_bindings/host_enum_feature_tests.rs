@@ -88,16 +88,19 @@ pub(super) fn config(root: &Path, enabled: bool) -> ResolvedCrateConfig {
 }
 
 #[test]
-fn shared_function_feature_remains_unconditionally_core_owned() {
+fn shared_function_feature_remains_publicly_forwarded() {
     let features = crate::scaffold::languages::php::php_declared_features(&surface(true), &[]);
-    assert!(features.is_empty(), "{features:?}");
+    assert_eq!(features, std::collections::BTreeSet::from(["remote".to_string()]));
 }
 
 #[test]
-fn function_only_feature_is_not_made_toggleable() {
+fn function_only_feature_remains_publicly_forwarded() {
     let mut api = surface(true);
     api.enums.clear();
-    assert!(crate::scaffold::languages::php::php_declared_features(&api, &[]).is_empty());
+    assert_eq!(
+        crate::scaffold::languages::php::php_declared_features(&api, &[]),
+        std::collections::BTreeSet::from(["remote".to_string()])
+    );
 }
 
 pub(super) fn write_fixture(root: &Path, enabled: bool, target: Option<bool>, opt_in: bool, aggregate: bool) {

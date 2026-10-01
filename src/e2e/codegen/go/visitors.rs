@@ -71,13 +71,11 @@ pub(super) fn resolve_go_visitor_binding(
     import_alias: &str,
 ) -> Option<GoVisitorBinding> {
     let trait_name = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Go)
         .find_map(|bridge| bridge.result_type.as_ref().map(|_| bridge.trait_name.as_str()))?;
     let trait_def = type_defs.iter().find(|type_def| type_def.name == trait_name)?;
     let result_type = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(crate::core::config::Language::Go)
         .find(|bridge| bridge.trait_name == trait_name)
         .and_then(|bridge| bridge.result_type.clone())
         .or_else(|| {

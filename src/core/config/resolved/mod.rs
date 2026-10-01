@@ -220,6 +220,73 @@ pub struct ResolvedCrateConfig {
 }
 
 impl ResolvedCrateConfig {
+    pub(in crate::core::config) fn all_trait_bridges(&self) -> &[TraitBridgeConfig] {
+        &self.trait_bridges
+    }
+
+    // ~keep Applicability belongs on the resolved config so backend emitters cannot drift on
+    // language/backend aliases such as `python`/`pyo3` or `ruby`/`magnus`.
+    pub fn trait_bridges_for(&self, language: Language) -> impl Iterator<Item = &TraitBridgeConfig> {
+        self.all_trait_bridges().iter().filter(move |bridge| {
+            crate::codegen::generators::trait_bridge::bridge_targets_language(bridge, language.bridge_spellings())
+        })
+    }
+
+    pub fn trait_bridges_for_vec(&self, language: Language) -> Vec<TraitBridgeConfig> {
+        self.trait_bridges_for(language).cloned().collect()
+    }
+
+    // ~keep Function ownership is global across generated targets: an excluded bridge still owns
+    // its configured lifecycle symbols, which another backend must not emit as ordinary API calls.
+    pub fn trait_bridge_manages_function(&self, name: &str) -> bool {
+        crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(name, self.all_trait_bridges())
+    }
+
+    // ~keep Stale-file reporting must consider artifacts from bridges that a prior run emitted,
+    // including bridges now excluded from the active C# target.
+    pub fn trait_bridge_stale_artifact_types(&self) -> impl Iterator<Item = &str> {
+        self.all_trait_bridges().iter().flat_map(|bridge| {
+            [bridge.context_type.as_deref(), bridge.result_type.as_deref()]
+                .into_iter()
+                .flatten()
+        })
+    }
+
+    pub fn configured_trait_bridge_names(&self) -> impl Iterator<Item = &str> {
+        self.all_trait_bridges().iter().map(|bridge| bridge.trait_name.as_str())
+    }
+
+    pub fn trait_bridge_carrier_diagnostics(
+        &self,
+        api: &crate::core::ir::ApiSurface,
+    ) -> Vec<crate::core::validation::ValidationDiagnostic> {
+        crate::core::validation::trait_bridge_carrier_diagnostics(api, self.all_trait_bridges())
+    }
+
+    pub fn trait_bridge_language_surface(
+        &self,
+        api: &crate::core::ir::ApiSurface,
+        language: Language,
+    ) -> Option<crate::core::ir::ApiSurface> {
+        crate::codegen::generators::trait_bridge::language_surface(api, self.all_trait_bridges(), language)
+    }
+
+    pub fn replace_trait_bridges(&mut self, bridges: Vec<TraitBridgeConfig>) {
+        self.trait_bridges = bridges;
+    }
+
+    pub fn push_trait_bridge(&mut self, bridge: TraitBridgeConfig) {
+        let mut bridges = self.all_trait_bridges().to_vec();
+        bridges.push(bridge);
+        self.replace_trait_bridges(bridges);
+    }
+
+    pub fn update_trait_bridge(&mut self, index: usize, update: impl FnOnce(&mut TraitBridgeConfig)) {
+        let mut bridges = self.all_trait_bridges().to_vec();
+        update(&mut bridges[index]);
+        self.replace_trait_bridges(bridges);
+    }
+
     /// The rebased view of [`Self::source_crates`]: for each entry with `from_registry = true`,
     /// `sources` rebased against that crate's actual location in the cargo registry (everything
     /// else is returned unchanged). Resolved on first call and cached for the lifetime of this
@@ -287,5 +354,38 @@ impl ResolvedCrateConfig {
     #[must_use]
     pub fn target_enabled(&self, triple: &str) -> bool {
         crate::publish::platform::target_triple_enabled(&self.targets, triple)
+    }
+}
+
+#[cfg(test)]
+mod trait_bridge_applicability_tests {
+    use super::*;
+
+    fn bridge(name: &str, excluded: &[&str]) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: name.to_owned(),
+            exclude_languages: excluded.iter().map(|value| (*value).to_owned()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn trait_bridges_for_filters_language_and_backend_spellings() {
+        let config = ResolvedCrateConfig {
+            trait_bridges: vec![
+                bridge("Active", &[]),
+                bridge("ByLanguage", &["python"]),
+                bridge("ByBackend", &["pyo3"]),
+                bridge("OtherTarget", &["go"]),
+            ],
+            ..Default::default()
+        };
+
+        let names: Vec<_> = config
+            .trait_bridges_for(Language::Python)
+            .map(|bridge| bridge.trait_name.as_str())
+            .collect();
+
+        assert_eq!(names, ["Active", "OtherTarget"]);
     }
 }

@@ -604,8 +604,9 @@ pub(crate) fn gen_flat_data_enum_methods(
         }
     }
 
-    let tag_getter =
-        format!("#[php(getter)]\npub fn get_{tag_field}_tag(&self) -> String {{\n    self.{tag_field}_tag.clone()\n}}");
+    let tag_getter = format!(
+        "#[php(getter, change_case = \"snake_case\")]\npub fn get_{tag_field}_tag(&self) -> String {{\n    self.{tag_field}_tag.clone()\n}}"
+    );
     impl_builder.add_method(&tag_getter);
 
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -620,8 +621,9 @@ pub(crate) fn gen_flat_data_enum_methods(
                 } else {
                     format!("self.{flat_name}.clone()")
                 };
-                let getter_body =
-                    format!("#[php(getter)]\npub fn get_{flat_name}(&self) -> {field_ty} {{\n    {body_expr}\n}}",);
+                let getter_body = format!(
+                    "#[php(getter, change_case = \"snake_case\")]\npub fn get_{flat_name}(&self) -> {field_ty} {{\n    {body_expr}\n}}",
+                );
                 impl_builder.add_method(&getter_body);
             }
         }

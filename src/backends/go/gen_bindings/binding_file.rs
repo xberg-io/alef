@@ -214,6 +214,10 @@ pub(super) fn gen_go_file(
     visitor_bridge_cfg: Option<&TraitBridgeConfig>,
     feature_cflags: &str,
 ) -> anyhow::Result<String> {
+    let active_trait_bridges: Vec<_> = config
+        .trait_bridges_for(crate::core::config::Language::Go)
+        .cloned()
+        .collect();
     let mut header = String::with_capacity(2048);
 
     header.push_str(&hash::header(CommentStyle::DoubleSlash));
@@ -268,7 +272,7 @@ pub(super) fn gen_go_file(
     }
 
     let visitor_types = if visitor_bridge_cfg.is_some() || !bridge_param_names.is_empty() {
-        config.bridge_associated_types()
+        config.bridge_associated_types_for(crate::core::config::Language::Go)
     } else {
         std::collections::HashSet::new()
     };
@@ -345,7 +349,7 @@ pub(super) fn gen_go_file(
                 passthrough_enum_names,
                 data_enum_names,
                 struct_names,
-                &config.trait_bridges,
+                &active_trait_bridges,
             ));
             body.push_str("\n\n");
             let empty_functional_options = vec![];
@@ -361,7 +365,7 @@ pub(super) fn gen_go_file(
                     passthrough_enum_names,
                     data_enum_names,
                     struct_names,
-                    &config.trait_bridges,
+                    &active_trait_bridges,
                 ));
                 body.push_str("\n\n");
             }
@@ -381,7 +385,7 @@ pub(super) fn gen_go_file(
                 &ffi_param_enum_names,
                 opaque_names,
             )
-            && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
+            && !config.trait_bridge_manages_function(&f.name)
     }) {
         crate::codegen::mut_writeback::reject_unsupported_writeback(
             &func.name,

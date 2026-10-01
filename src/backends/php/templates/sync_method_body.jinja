@@ -1,5 +1,4 @@
-// SAFETY: PHP objects are single-threaded; method calls are safe within a request.
-let result = unsafe { (*self.inner).try_call_method("{{ method_name }}", {{ args_expr }}) };
+let result = self.inner.try_call_method("{{ method_name }}", {{ args_expr }});
 {% if is_result_type %}
 match result {
 {% if is_unit_return %}

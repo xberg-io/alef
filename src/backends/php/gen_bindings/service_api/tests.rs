@@ -657,64 +657,50 @@ fn php_output_contains_run_entrypoint() {
     );
 }
 
-/// `gen_service_rs` emits the handler bridge struct.
 #[test]
-fn rust_output_contains_handler_bridge_struct() {
+fn rust_output_fails_closed_for_handler_bridges() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_rs(&surface, &config);
     assert!(
-        output.contains("pub struct PhpRequestHandlerBridge"),
-        "expected `PhpRequestHandlerBridge` struct:\n{output}"
+        output.contains("compile_error!"),
+        "expected explicit failure:\n{output}"
     );
+    for forbidden in [
+        "ZendCallable",
+        "Zval",
+        "unsafe impl Send",
+        "unsafe impl Sync",
+        "Arc<dyn",
+    ] {
+        assert!(!output.contains(forbidden), "unsafe token `{forbidden}` in:\n{output}");
+    }
 }
 
-/// `gen_service_rs` emits the handler bridge trait impl.
 #[test]
-fn rust_output_contains_handler_bridge_impl() {
-    let surface = make_fixture_surface();
-    let config = make_test_config();
-    let output = gen_service_rs(&surface, &config);
-    assert!(
-        output.contains("impl my_crate::RequestHandler for PhpRequestHandlerBridge"),
-        "expected trait impl:\n{output}"
-    );
-    assert!(
-        output.contains("fn handle(") && output.contains("Pin<Box<dyn std::future::Future<Output"),
-        "expected boxed-future dispatch method:\n{output}"
-    );
+fn backend_rejects_service_handler_bridges_with_actionable_error() {
+    use crate::core::backend::Backend;
+
+    let error = crate::backends::php::PhpBackend
+        .generate_service_api(&make_fixture_surface(), &make_test_config())
+        .expect_err("PHP service handler bridges must fail before file generation");
+    let message = error.to_string();
+    assert!(message.contains("PHP service `TestService` is disabled"));
+    assert!(message.contains("request-bound Zend callables"));
+    assert!(message.contains("remove PHP"));
 }
 
-/// `gen_service_rs` emits the `#[php_function]` run entry point.
 #[test]
-fn rust_output_contains_php_function_run() {
-    let surface = make_fixture_surface();
-    let config = make_test_config();
-    let output = gen_service_rs(&surface, &config);
-    assert!(
-        output.contains("#[php_function]"),
-        "expected `#[php_function]` attribute:\n{output}"
-    );
-    assert!(
-        output.contains("pub fn test_service_run("),
-        "expected `test_service_run` function:\n{output}"
-    );
-}
-
-/// `gen_service_rs` emits registration dispatch via `match method_name`.
-#[test]
-fn rust_output_contains_registration_dispatch() {
-    let surface = make_fixture_surface();
-    let config = make_test_config();
-    let output = gen_service_rs(&surface, &config);
-    assert!(
-        output.contains("\"add_handler\""),
-        "expected `\"add_handler\"` match arm:\n{output}"
-    );
-    assert!(
-        output.contains("Arc<dyn my_crate::RequestHandler>"),
-        "expected Arc wrapping of handler:\n{output}"
-    );
+fn rust_output_still_generates_services_without_handler_registrations() {
+    let mut surface = make_fixture_surface();
+    for service in &mut surface.services {
+        service.registrations.clear();
+    }
+    surface.handler_contracts.clear();
+    let output = gen_service_rs(&surface, &make_test_config());
+    assert!(!output.contains("compile_error!"));
+    assert!(output.contains("#[php_function]"));
+    assert!(output.contains("pub fn test_service_run("));
 }
 
 /// Full `generate()` call returns two files when services are non-empty.
@@ -730,6 +716,23 @@ fn generate_returns_two_files_for_non_empty_services() {
         .collect();
     assert!(paths.contains(&"service.rs"), "expected service.rs in output");
     assert!(paths.contains(&"Service.php"), "expected Service.php in output");
+    let rust = files
+        .iter()
+        .find(|file| file.path.file_name().is_some_and(|name| name == "service.rs"))
+        .expect("service.rs must be generated");
+    assert!(rust.content.contains("compile_error!"));
+    for forbidden in [
+        "ZendCallable",
+        "Zval",
+        "unsafe impl Send",
+        "unsafe impl Sync",
+        "Arc<dyn",
+    ] {
+        assert!(
+            !rust.content.contains(forbidden),
+            "unsafe token `{forbidden}` in service.rs"
+        );
+    }
 }
 
 /// Full `generate()` returns empty for a surface with no services.

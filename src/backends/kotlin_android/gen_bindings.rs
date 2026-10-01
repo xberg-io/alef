@@ -16,6 +16,8 @@
 mod module_facade;
 mod trait_interfaces;
 
+use crate::core::config::Language;
+
 pub use trait_interfaces::format_method_signature;
 
 use std::collections::BTreeSet;
@@ -46,7 +48,7 @@ pub(super) fn effective_excluded_type_names(config: &ResolvedCrateConfig) -> std
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
-    for bridge in &config.trait_bridges {
+    for bridge in config.trait_bridges_for(Language::KotlinAndroid) {
         if bridge.exclude_languages.iter().any(|l| l == "kotlin_android")
             && let Some(alias) = &bridge.type_alias
         {

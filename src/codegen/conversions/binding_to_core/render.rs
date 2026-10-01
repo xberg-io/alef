@@ -664,11 +664,11 @@ pub fn gen_from_lifetime_type_constructor(
                             .and_then(|variants| variants.get(type_name.as_str()));
                         if field.optional {
                             format!(
-                                "val.{binding_field}.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).map_or_else(|e| {{ let _ = ext_php_rs::exception::PhpException::default(format!(\"invalid {type_name}: {{e}}\")).throw(); None }}, Some))"
+                                "val.{binding_field}.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).map_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); None }}, Some))"
                             )
                         } else if let Some(variant) = fallback_variant {
                             format!(
-                                "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).unwrap_or_else(|e| {{ let _ = ext_php_rs::exception::PhpException::default(format!(\"invalid {type_name}: {{e}}\")).throw(); {core_import}::{type_name}::{variant} }})"
+                                "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).unwrap_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); {core_import}::{type_name}::{variant} }})"
                             )
                         } else {
                             // No known fallback variant (should not happen -- populated 1:1

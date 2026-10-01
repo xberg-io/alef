@@ -399,10 +399,11 @@ pub(super) fn generate_type_stubs(
     }
 
     // issue on macOS (cdylib builds do not collect `#[php_function]` entries there).
-    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
+    if api.functions.iter().any(|f| !exclude_functions.contains(&f.name))
+        || config.trait_bridges_for(Language::Php).next().is_some()
+    {
         let bridge_param_names_stubs: ahash::AHashSet<&str> = config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Php)
             .filter_map(|b| b.param_name.as_deref())
             .collect();
 
@@ -497,7 +498,7 @@ pub(super) fn generate_type_stubs(
                 },
             ));
         }
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in config.trait_bridges_for(Language::Php) {
             // The stub declares the `…Api` extension methods `rust_bindings` emits, and that
             // emitter skips a bridge this returns `None` for — declaring one it skipped would
             // describe an extension method PHP never receives. ~keep
@@ -815,13 +816,13 @@ pub(super) fn struct_needs_from_json_stub(
 /// Declare the read-only properties the flat enum class exposes, mirroring
 /// `gen_flat_data_enum_methods`'s `#[php(getter)]` methods one for one.
 ///
-/// `#[php(getter)]` does NOT register a PHP method. ext-php-rs's derive intercepts the method
-/// (`impl_.rs::parse_property_method`), strips the literal `get_` prefix off the RAW Rust ident with
-/// no case conversion, and registers a `PropertyDescriptor` under that snake_case name — `readonly`
-/// whenever there is no paired setter, which for a flat enum is always. So `get_image_url` is
-/// `$part->image_url`, not `$part->getImageUrl()`. That is the opposite of the struct path, which
-/// deliberately emits PLAIN methods (see `structs.rs`'s historical note) precisely so they land as
-/// camelCase `getImageUrl()`; the stub must therefore declare properties here and methods there. ~keep
+/// `#[php(getter)]` does NOT register a PHP method. ext-php-rs 0.16 strips the literal `get_`
+/// prefix and camel-cases method-backed properties by default, so the runtime generator explicitly
+/// adds `change_case = "snake_case"` to preserve this public surface. Thus `get_image_url` is
+/// `$part->image_url`, not `$part->imageUrl` or `$part->getImageUrl()`. That is the opposite of the
+/// struct path, which deliberately emits PLAIN methods (see `structs.rs`'s historical note)
+/// precisely so they land as camelCase `getImageUrl()`; the stub must therefore declare properties
+/// here and methods there. ~keep
 fn gen_data_enum_property_declarations(enum_def: &EnumDef, enum_names: &AHashSet<String>) -> Vec<String> {
     let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
     let mut declarations = vec![format!(

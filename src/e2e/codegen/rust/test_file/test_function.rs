@@ -203,7 +203,10 @@ pub fn render_test_function(
             && let Some(trait_name) = &arg.trait_name
         {
             // Find the matching trait bridge config.
-            if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+            if let Some(trait_bridge) = config
+                .trait_bridges_for(crate::core::config::Language::Rust)
+                .find(|tb| tb.trait_name == *trait_name)
+            {
                 // Resolve methods for this trait bridge by looking up the trait in type_defs.
                 let methods: Vec<&crate::core::ir::MethodDef> = type_defs
                     .iter()

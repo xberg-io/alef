@@ -5,8 +5,7 @@ use std::collections::{BTreeSet, HashMap};
 
 pub(super) fn find_r_options_type<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) -> Option<&'a TypeDef> {
     config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::R)
         .filter(|bridge| bridge.bind_via == crate::core::config::BridgeBinding::OptionsField)
         .filter_map(|bridge| bridge.options_type.as_deref())
         .find_map(|type_name| api.types.iter().find(|t| t.name == type_name && !t.is_trait))

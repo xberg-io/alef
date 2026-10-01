@@ -123,12 +123,10 @@ fn assert_vtable_matches_rust_struct(
 }
 
 fn trait_bridge_manages_function(func_name: &str, config: &ResolvedCrateConfig, language: Language) -> bool {
-    let language_name = language.to_string();
-    config.trait_bridges.iter().any(|bridge| {
-        !bridge.exclude_languages.contains(&language_name)
-            && (bridge.register_fn.as_deref() == Some(func_name)
-                || bridge.unregister_fn.as_deref() == Some(func_name)
-                || bridge.clear_fn.as_deref() == Some(func_name))
+    config.trait_bridges_for(language).any(|bridge| {
+        bridge.register_fn.as_deref() == Some(func_name)
+            || bridge.unregister_fn.as_deref() == Some(func_name)
+            || bridge.clear_fn.as_deref() == Some(func_name)
     })
 }
 
@@ -226,6 +224,7 @@ impl Backend for JavaBackend {
             &java_filtered_api
         };
         let api = &api.with_deduped_functions();
+        let java_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Java).cloned().collect();
 
         // A `&mut T` DTO parameter on a unit-returning function cannot be bound as an owned
         // by-value parameter that returns void: the FFI call mutates a temporary handle built
@@ -276,16 +275,10 @@ impl Backend for JavaBackend {
             "java",
         )?;
 
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.param_name.clone())
-            .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.type_alias.clone())
-            .collect();
+        let bridge_param_names: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.param_name.clone()).collect();
+        let bridge_type_aliases: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.type_alias.clone()).collect();
         let has_visitor_pattern = crate::backends::java::gen_visitor::has_visitor_generation_metadata(api, config);
         let mut files = Vec::new();
 
@@ -390,7 +383,7 @@ impl Backend for JavaBackend {
                         &complex_enums,
                         &sealed_unions_with_unwrapped,
                         &lang_rename_all,
-                        &config.trait_bridges,
+                        &java_trait_bridges,
                         &main_class,
                         builder_mode,
                         &enum_defaults,
@@ -466,8 +459,7 @@ impl Backend for JavaBackend {
         for enum_def in &api.enums {
             if has_visitor_pattern
                 && config
-                    .trait_bridges
-                    .iter()
+                    .trait_bridges_for(Language::Java)
                     .any(|bridge| bridge.result_type.as_deref() == Some(enum_def.name.as_str()))
             {
                 continue;
@@ -519,11 +511,7 @@ impl Backend for JavaBackend {
             }
         }
 
-        for bridge_cfg in &config.trait_bridges {
-            if bridge_cfg.exclude_languages.contains(&Language::Java.to_string()) {
-                continue;
-            }
-
+        for bridge_cfg in &java_trait_bridges {
             if has_visitor_pattern && bridge_cfg.bind_via == BridgeBinding::OptionsField {
                 continue;
             }
@@ -627,6 +615,7 @@ impl Backend for JavaBackend {
         };
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
+        let java_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Java).cloned().collect();
 
         let package = config.java_package();
         let prefix = config.ffi_prefix();
@@ -644,19 +633,12 @@ impl Backend for JavaBackend {
             PathBuf::from(&output_dir).join(&package_path)
         };
 
-        let bridge_param_names: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.param_name.clone())
-            .collect();
-        let bridge_type_aliases: HashSet<String> = config
-            .trait_bridges
-            .iter()
-            .filter_map(|b| b.type_alias.clone())
-            .collect();
+        let bridge_param_names: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.param_name.clone()).collect();
+        let bridge_type_aliases: HashSet<String> =
+            java_trait_bridges.iter().filter_map(|b| b.type_alias.clone()).collect();
         let has_visitor_pattern = config.ffi.as_ref().map(|f| f.visitor_callbacks).unwrap_or(false)
-            || config
-                .trait_bridges
+            || java_trait_bridges
                 .iter()
                 .any(|b| b.bind_via == BridgeBinding::OptionsField);
         let public_class = crate::backends::java::naming::public_class_name(&api.crate_name);

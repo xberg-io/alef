@@ -193,7 +193,7 @@ sources = ["src/lib.rs"]
 /// 0.2.x -- which is routinely ahead of an installed CLI. The fixture manifest therefore pins
 /// `=<this version>` instead of reusing what alef emits. ~keep
 fn cli_crate_version(cli: &Path) -> String {
-    let output = spawn_from_stable_dir(&cli.to_string_lossy())
+    let output = spawn_from_stable_dir(cli.as_os_str())
         .arg("--version")
         .output()
         .expect("run wasm-bindgen --version");
@@ -280,7 +280,7 @@ fn build_wasm_module(root: &Path, manifest: &Path) -> PathBuf {
 /// Run the real CLI over the built module and return the emitted JavaScript glue.
 fn emit_js_glue(cli: &Path, root: &Path, module: &Path) -> String {
     let out_dir = root.join("pkg");
-    let output = spawn_from_stable_dir(&cli.to_string_lossy())
+    let output = spawn_from_stable_dir(cli.as_os_str())
         .arg("--target")
         .arg("web")
         .arg("--out-dir")

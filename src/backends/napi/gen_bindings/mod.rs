@@ -101,6 +101,7 @@ impl Backend for NapiBackend {
         // so two same-named entries would otherwise produce duplicate `#[napi]` fn definitions.
         let deduped_api = crate::backends::ir_order::with_sorted_items(api).with_deduped_functions();
         let api = &deduped_api;
+        let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Node).cloned().collect();
 
         let prefix = config.node_type_prefix();
         let trait_type_names: AHashSet<String> = api
@@ -127,10 +128,8 @@ impl Backend for NapiBackend {
         let output_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
         let has_serde = crate::core::config::detect_serde_available(&output_dir);
         let mut cfg = Self::binding_config(&core_import, &prefix, has_serde);
-        let never_skip_cfg_field_names: Vec<String> = config
-            .trait_bridges
+        let never_skip_cfg_field_names: Vec<String> = active_trait_bridges
             .iter()
-            .filter(|b| crate::backends::napi::trait_bridge::targets_napi(b))
             .filter_map(|b| {
                 if b.bind_via == crate::core::config::BridgeBinding::OptionsField {
                     b.resolved_options_field().map(|s| s.to_string())
@@ -409,7 +408,7 @@ impl Backend for NapiBackend {
             if exclude_functions.contains(&func.name) {
                 continue;
             }
-            if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            if config.trait_bridge_manages_function(&func.name) {
                 continue;
             }
             crate::codegen::mut_writeback::reject_unsupported_writeback(
@@ -418,10 +417,8 @@ impl Backend for NapiBackend {
                 &func.return_type,
                 &opaque_types,
             )?;
-            let bridge_param = crate::backends::napi::trait_bridge::find_bridge_param(func, &config.trait_bridges)
-                .filter(|(_, bridge_cfg)| crate::backends::napi::trait_bridge::targets_napi(bridge_cfg));
-            let options_field_bridge = crate::backends::napi::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
-                .filter(|(_, bridge_cfg)| crate::backends::napi::trait_bridge::targets_napi(bridge_cfg))
+            let bridge_param = crate::backends::napi::trait_bridge::find_bridge_param(func, &active_trait_bridges);
+            let options_field_bridge = crate::backends::napi::trait_bridge::find_options_field_binding(func, &active_trait_bridges)
                 // into the binding struct. If the core field is `#[cfg(...)]`-gated, the
                 .filter(|(_, bridge_cfg)| {
                     let Some(field_name) = bridge_cfg.resolved_options_field() else { return false; };
@@ -503,7 +500,7 @@ impl Backend for NapiBackend {
             builder.add_item("pub mod service;");
         }
 
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in &active_trait_bridges {
             if let Some(trait_type) = crate::backends::napi::trait_bridge::active_bridge_trait(bridge_cfg, api) {
                 let bridge = crate::backends::napi::trait_bridge::gen_trait_bridge(
                     trait_type,
@@ -531,7 +528,7 @@ impl Backend for NapiBackend {
         // widening the shared cross-backend `input_type_names` (every other backend's trait
         // bridge return path goes through a JSON/FFI boundary uniformly and has no equivalent
         // need).
-        for bridge_cfg in &config.trait_bridges {
+        for bridge_cfg in &active_trait_bridges {
             let Some(trait_type) = crate::backends::napi::trait_bridge::active_bridge_trait(bridge_cfg, api) else {
                 continue;
             };
@@ -799,11 +796,8 @@ impl Backend for NapiBackend {
 
         let mut content = builder.build();
 
-        for bridge in &config.trait_bridges {
+        for bridge in &active_trait_bridges {
             if bridge.bind_via != crate::core::config::BridgeBinding::OptionsField {
-                continue;
-            }
-            if !crate::backends::napi::trait_bridge::targets_napi(bridge) {
                 continue;
             }
             if let Some(field_name) = bridge.resolved_options_field() {
@@ -920,8 +914,7 @@ impl Backend for NapiBackend {
     ) -> Vec<TraitBridgeRegistrationSurface> {
         use crate::codegen::generators::trait_bridge::to_camel_case;
         config
-            .trait_bridges
-            .iter()
+            .trait_bridges_for(Language::Node)
             .filter_map(|bridge| {
                 let trait_def = crate::backends::napi::trait_bridge::active_bridge_trait(bridge, api)?;
                 // A visitor bridge takes `gen_visitor_bridge`, which emits no registry API. ~keep

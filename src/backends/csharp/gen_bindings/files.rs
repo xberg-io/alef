@@ -54,18 +54,11 @@ pub(super) fn superseded_visitor_filenames() -> Vec<String> {
 /// eligible for unlinking on a filename match. ~keep
 pub(super) fn stale_visitor_filenames(config: &crate::core::config::ResolvedCrateConfig) -> Vec<String> {
     let mut stale_files = superseded_visitor_filenames();
-    stale_files.extend(config.trait_bridges.iter().filter_map(|bridge| {
-        bridge
-            .context_type
-            .as_deref()
-            .map(|name| format!("{}.cs", crate::codegen::naming::csharp_type_name(name)))
-    }));
-    stale_files.extend(config.trait_bridges.iter().filter_map(|bridge| {
-        bridge
-            .result_type
-            .as_deref()
-            .map(|name| format!("{}.cs", crate::codegen::naming::csharp_type_name(name)))
-    }));
+    stale_files.extend(
+        config
+            .trait_bridge_stale_artifact_types()
+            .map(|name| format!("{}.cs", crate::codegen::naming::csharp_type_name(name))),
+    );
     stale_files
 }
 

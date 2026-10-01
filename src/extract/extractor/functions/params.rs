@@ -183,6 +183,40 @@ fn is_tuple_type(ty: &TypeRef) -> bool {
     }
 }
 
+fn has_named_leaf(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => has_named_leaf(inner),
+        TypeRef::Map(key, value) => has_named_leaf(key) || has_named_leaf(value),
+        _ => false,
+    }
+}
+
+fn has_qualified_named_type(ty: &syn::Type) -> bool {
+    match ty {
+        syn::Type::Reference(reference) => has_qualified_named_type(&reference.elem),
+        syn::Type::Slice(slice) => has_qualified_named_type(&slice.elem),
+        syn::Type::Array(array) => has_qualified_named_type(&array.elem),
+        syn::Type::Tuple(tuple) => tuple.elems.iter().any(has_qualified_named_type),
+        syn::Type::Paren(paren) => has_qualified_named_type(&paren.elem),
+        syn::Type::Group(group) => has_qualified_named_type(&group.elem),
+        syn::Type::Path(type_path) => {
+            let path_is_named =
+                type_path.path.segments.len() > 1 && matches!(type_resolver::resolve_type(ty), TypeRef::Named(_));
+            path_is_named
+                || type_path.path.segments.iter().any(|segment| {
+                    let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                        return false;
+                    };
+                    arguments.args.iter().any(|argument| {
+                        matches!(argument, syn::GenericArgument::Type(inner) if has_qualified_named_type(inner))
+                    })
+                })
+        }
+        _ => false,
+    }
+}
+
 /// True if `ty` is `&[&T]`, `Vec<&T>`, `Option<&[&T]>`, `Option<Vec<&T>>`, or `&Vec<&T>`.
 /// FFI codegen uses this to emit a `Vec<&T>` intermediate when calling the core function
 /// (since `&Vec<T>` coerces to `&[T]`, not `&[&T]`). ~keep
@@ -256,11 +290,12 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
 
                 let sanitized = is_tuple_type(&resolved);
 
-                let original_type = if sanitized {
-                    Some(format!("{:?}", resolved))
-                } else {
-                    None
-                };
+                let original_type =
+                    if sanitized || (has_named_leaf(&resolved) && has_qualified_named_type(&pat_type.ty)) {
+                        Some(type_resolver::type_to_string(&pat_type.ty))
+                    } else {
+                        None
+                    };
 
                 let (ty, optional) = unwrap_optional(resolved);
                 Some(ParamDef {
@@ -291,6 +326,52 @@ pub(crate) fn extract_params(inputs: &syn::punctuated::Punctuated<syn::FnArg, sy
 mod tests {
     use super::extract_params;
     use crate::core::ir::CoreWrapper;
+
+    #[test]
+    fn preserves_qualified_paths_for_required_optional_and_borrowed_named_parameters() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn choose(
+                required: two::Policy,
+                optional: Option<two::Policy>,
+                borrowed: &two::Policy,
+            ) {}
+        };
+
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].original_type.as_deref(), Some("two::Policy"));
+        assert_eq!(params[1].original_type.as_deref(), Some("Option<two::Policy>"));
+        assert!(params[1].optional);
+        assert_eq!(params[2].original_type.as_deref(), Some("&two::Policy"));
+        assert!(params[2].is_ref);
+    }
+
+    #[test]
+    fn preserves_qualified_paths_inside_vectors_and_maps() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn choose(
+                policies: Vec<two::Policy>,
+                by_name: std::collections::HashMap<String, two::Policy>,
+            ) {}
+        };
+
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].original_type.as_deref(), Some("Vec<two::Policy>"));
+        assert_eq!(
+            params[1].original_type.as_deref(),
+            Some("std::collections::HashMap<String,two::Policy>")
+        );
+    }
+
+    #[test]
+    fn qualified_standard_types_do_not_enter_named_type_provenance() {
+        let item: syn::ItemFn = syn::parse_quote! {
+            fn read(path: &std::path::Path, value: serde_json::Value) {}
+        };
+
+        let params = extract_params(&item.sig.inputs);
+        assert_eq!(params[0].original_type, None);
+        assert_eq!(params[1].original_type, None);
+    }
 
     #[test]
     fn preserves_arc_and_arc_mutex_parameter_wrappers() {

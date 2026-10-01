@@ -1,5 +1,5 @@
 use crate::core::backend::TraitBridgeRegistrationSurface;
-use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
 
 /// Return the set of type names that are excluded from extendr class registration.
@@ -35,10 +35,7 @@ pub(super) fn bridge_targets_extendr(bridge: &TraitBridgeConfig) -> bool {
 /// `extendr_module!` entries, the R wrappers and `NAMESPACE`, and
 /// `ExtendrBackend::trait_bridge_registration_surface` — enumerates this. ~keep
 fn active_bridges(config: &ResolvedCrateConfig) -> impl Iterator<Item = &TraitBridgeConfig> {
-    config
-        .trait_bridges
-        .iter()
-        .filter(|bridge| bridge_targets_extendr(bridge))
+    config.trait_bridges_for(Language::R)
 }
 
 /// The R-visible register / unregister / clear functions the extendr trait-bridge generator

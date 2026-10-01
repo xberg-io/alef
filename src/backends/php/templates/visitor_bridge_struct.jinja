@@ -1,37 +1,13 @@
 pub struct {{ struct_name }} {
-    php_obj: *mut ext_php_rs::types::ZendObject,
+    php_obj: ext_php_rs::types::Zval,
     cached_name: String,
 }
 
-// SAFETY: PHP objects are single-threaded; the bridge is used
-// only within a single PHP request, never across threads.
-unsafe impl Send for {{ struct_name }} {}
-unsafe impl Sync for {{ struct_name }} {}
-
 impl Clone for {{ struct_name }} {
     fn clone(&self) -> Self {
-        // SAFETY: Increment refcount for the cloned reference.
-        // The object pointer is guaranteed valid within the request.
-        unsafe {
-            if !self.php_obj.is_null() {
-                (*self.php_obj).inc_count();
-            }
-        }
         Self {
-            php_obj: self.php_obj,
+            php_obj: self.php_obj.shallow_clone(),
             cached_name: self.cached_name.clone(),
-        }
-    }
-}
-
-impl Drop for {{ struct_name }} {
-    fn drop(&mut self) {
-        // SAFETY: Decrement refcount when the bridge is dropped.
-        // The object pointer is guaranteed valid until this point.
-        unsafe {
-            if !self.php_obj.is_null() {
-                (*self.php_obj).dec_count();
-            }
         }
     }
 }
@@ -44,10 +20,6 @@ impl std::fmt::Debug for {{ struct_name }} {
 
 impl {{ struct_name }} {
     pub fn new(php_obj: &mut ext_php_rs::types::ZendObject) -> Self {
-        // Increment refcount to keep the object alive across the bridge's lifetime.
-        // `inc_count()` is safe on a `&mut ZendObject` (no raw pointer deref).
-        php_obj.inc_count();
-
         let cached_name = php_obj
             .try_call_method("name", vec![])
             .ok()
@@ -55,7 +27,11 @@ impl {{ struct_name }} {
             .unwrap_or("unknown".into())
             .to_string();
         Self {
-            php_obj: php_obj as *mut _,
+            php_obj: {
+                let mut owned = ext_php_rs::types::Zval::new();
+                owned.set_object(php_obj);
+                owned
+            },
             cached_name,
         }
     }

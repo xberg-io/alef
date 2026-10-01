@@ -218,6 +218,10 @@ fn marshal_optional_primitive(out: &mut String, name: &str, primitive: &Primitiv
     } else {
         name.to_string()
     };
+    let range_check = matches!(primitive, PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::Usize)
+        .then(|| format!("            if ({name} != null && {name} < 0) {{\n              throw new IllegalArgumentException(\"{name} must be non-negative\");\n            }}\n"))
+        .unwrap_or_default();
+    out.push_str(&range_check);
     out.push_str(&crate::backends::java::template_env::render(
         "marshal_optional_primitive.jinja",
         minijinja::context! { cname => format!("c{name}"), name, prim_kw, none_lit, value_expr },

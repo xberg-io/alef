@@ -3,6 +3,9 @@ use super::{
 };
 
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
+    if let Some(code) = super::generator::disabled_code(generator) {
+        return code;
+    }
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
 

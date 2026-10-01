@@ -83,11 +83,8 @@ pub(crate) fn registration_surface(
     config: &ResolvedCrateConfig,
     has_visitor_pattern: bool,
 ) -> Vec<TraitBridgeRegistrationSurface> {
-    let java = Language::Java.to_string();
     config
-        .trait_bridges
-        .iter()
-        .filter(|bridge| !bridge.exclude_languages.contains(&java))
+        .trait_bridges_for(Language::Java)
         .filter(|bridge| !(has_visitor_pattern && bridge.bind_via == BridgeBinding::OptionsField))
         .filter_map(|bridge| {
             let trait_def = api.types.iter().find(|t| t.name == bridge.trait_name && t.is_trait)?;

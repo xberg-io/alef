@@ -1,8 +1,8 @@
 #[php(name = "from_json")]
 pub fn from_json(json: String) -> PhpResult<Self> {
-    let value: Self = serde_json::from_str(&json).map_err(|e| PhpException::default(e.to_string()))?;
+    let value: Self = serde_json::from_str(&json).map_err(|e| PhpException::from_message(e.to_string()))?;
     if !matches!(value.{{ tag_field }}_tag.as_str(), {{ allowed_tags }} ) {
-        return Err(PhpException::default(format!(
+        return Err(PhpException::from_message(format!(
             "Invalid {{ enum_name }} tag: {}",
             value.{{ tag_field }}_tag,
         )));

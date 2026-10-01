@@ -4,7 +4,7 @@ use minijinja::context;
 /// Generate a safe stub return expression for a sanitized function that cannot be auto-delegated.
 ///
 /// When `has_error` is true the function wraps its return in `PhpResult<T>`, so we emit
-/// `Err(PhpException::default(...))`. When `has_error` is false and the return type is
+/// `Err(PhpException::from_message(...))`. When `has_error` is false and the return type is
 /// `TypeRef::Unit`, `()` is the only correct value. Every other `has_error: false` case has
 /// no safe fabricated value, so we emit `compile_error!` and fail the generated crate's build
 /// instead of silently shipping fake data.

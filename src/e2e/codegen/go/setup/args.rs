@@ -106,7 +106,9 @@ pub(super) fn render_test_backend_arg(
         ..
     } = context;
     if let Some(trait_name) = &arg.trait_name
-        && let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name)
+        && let Some(trait_bridge) = config
+            .trait_bridges_for(crate::core::config::Language::Go)
+            .find(|tb| tb.trait_name == *trait_name)
     {
         let emission = crate::e2e::codegen::go::test_backend::resolve_test_backend_emission(
             fixture,

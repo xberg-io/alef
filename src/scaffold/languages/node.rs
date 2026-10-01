@@ -154,7 +154,7 @@ pub(crate) fn scaffold_node_cargo(
 
     let extra_deps = render_extra_deps(config, Language::Node);
 
-    let has_trait_bridges = !config.trait_bridges.is_empty();
+    let has_trait_bridges = config.trait_bridges_for(Language::Node).next().is_some();
     // Narrower than `has_trait_bridges`: a crate whose only bridge is visitor-flavored (e.g. an
     // HTML-node-visitor-style callback) never emits `AlefJsReply`/JSON-encoded callback
     // arguments, so it doesn't need the napi `serde-json` feature those require -- unlike

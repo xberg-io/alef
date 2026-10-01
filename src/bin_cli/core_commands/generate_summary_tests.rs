@@ -63,9 +63,9 @@ fn run_generate(root: &Path) {
 #[test]
 #[tracing_test::traced_test]
 fn fresh_generate_reports_binding_count_and_names_the_out_of_scope_categories() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);
@@ -97,9 +97,9 @@ fn fresh_generate_reports_binding_count_and_names_the_out_of_scope_categories() 
 #[test]
 #[tracing_test::traced_test]
 fn a_legitimate_up_to_date_rerun_reports_zero_without_failing() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(_poly_on_path) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);

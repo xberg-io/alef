@@ -323,9 +323,7 @@ fn emit_lib_rs(
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
         .filter(|f| feature_gate::cfg_satisfied(f.cfg.as_deref(), configured_features))
-        .filter(|f| {
-            !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
-        })
+        .filter(|f| !config.trait_bridge_manages_function(&f.name))
         .filter(|f| {
             shims::is_bridgeable_fn(
                 f,
@@ -339,8 +337,7 @@ fn emit_lib_rs(
         .collect();
 
     let active_bridges: Vec<(&TraitBridgeConfig, &TypeDef)> = config
-        .trait_bridges
-        .iter()
+        .trait_bridges_for(Language::Swift)
         .filter(|b| !b.exclude_languages.iter().any(|l| l == "swift"))
         .filter_map(|b| {
             api.types
