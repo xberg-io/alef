@@ -164,7 +164,7 @@ mod tests {
         let external = root.join("external-target");
         std::fs::write(
             root.join(".cargo/config.toml"),
-            format!("[build]\ntarget-dir = \"{}\"\n", external.display()),
+            crate::test_support::cargo_target_dir_config(&external),
         )
         .expect("write .cargo/config.toml");
 

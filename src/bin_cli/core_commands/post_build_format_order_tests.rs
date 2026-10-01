@@ -762,7 +762,7 @@ fn point_cargo_at_an_external_target_dir(root: &Path, external_target: &Path) {
     std::fs::create_dir_all(root.join(".cargo")).expect("create .cargo dir");
     std::fs::write(
         root.join(".cargo/config.toml"),
-        format!("[build]\ntarget-dir = \"{}\"\n", external_target.display()),
+        crate::test_support::cargo_target_dir_config(external_target),
     )
     .expect("write .cargo/config.toml");
 }
