@@ -138,7 +138,7 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let promoted_required = promoted_required(&func.params);
+    let promoted_required = promoted_required(&augmented_params);
     let return_annotation =
         mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
 
@@ -343,7 +343,7 @@ pub(super) fn gen_function(
     };
     let body = wrap_promoted_required_body(
         body,
-        &func.params,
+        &augmented_params,
         func.error_type.is_some(),
         func.is_async,
         matches!(func.return_type, TypeRef::Unit),
@@ -389,13 +389,19 @@ mod tests {
     }
 
     fn gen_probe_function(func: &crate::core::ir::FunctionDef) -> String {
+        gen_probe_function_with_defaults(func, ahash::AHashSet::new())
+    }
+
+    fn gen_probe_function_with_defaults(
+        func: &crate::core::ir::FunctionDef,
+        default_types: ahash::AHashSet<String>,
+    ) -> String {
         use crate::backends::napi::gen_bindings::NapiBackend;
         use crate::backends::napi::type_map::NapiMapper;
 
         let mapper = NapiMapper::new("Js".to_owned());
         let cfg = NapiBackend::binding_config("sample_core", "Js", true);
         let opaque_types = ahash::AHashSet::new();
-        let default_types = ahash::AHashSet::new();
         let capsule_types = std::collections::HashMap::new();
         let mutex_types = ahash::AHashSet::new();
 
@@ -409,6 +415,57 @@ mod tests {
             &capsule_types,
             &mutex_types,
         )
+    }
+
+    #[test]
+    fn napi_required_string_after_defaultable_params_is_unwrapped_before_core_call() {
+        use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+
+        let func = FunctionDef {
+            name: "redact_external".to_owned(),
+            rust_path: "sample_core::redact_external".to_owned(),
+            params: vec![
+                ParamDef {
+                    name: "document".to_owned(),
+                    ty: TypeRef::Named("Document".to_owned()),
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "config".to_owned(),
+                    ty: TypeRef::Named("Config".to_owned()),
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "findings_json".to_owned(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "offset_encoding".to_owned(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::Named("Document".to_owned()),
+            is_async: true,
+            error_type: Some("Error".to_owned()),
+            ..FunctionDef::default()
+        };
+        let default_types = ["Document".to_owned(), "Config".to_owned()].into_iter().collect();
+
+        let output = gen_probe_function_with_defaults(&func, default_types);
+
+        assert!(
+            output.contains("let findings_json = findings_json.ok_or_else"),
+            "required parameters promoted behind defaultable parameters must be unwrapped:\n{output}"
+        );
+        assert!(
+            output.contains("sample_core::redact_external(document_core, config_core, &findings_json"),
+            "the core call must borrow the unwrapped string rather than Option<String>:\n{output}"
+        );
     }
 
     /// Regression test for issue #380: a `&mut T` DTO parameter on a unit-returning sync
