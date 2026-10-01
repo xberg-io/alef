@@ -7,19 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- `[[crates.json_parameter_limits]]` lets generated raw-JSON collection bridges enforce a
-  runtime limit while streaming input, before allocating or parsing the complete collection.
+## [0.103.3] - 2026-10-01
 
 ### Fixed
 
+- Version-only regeneration records the final, formatted source fingerprint, so the next
+  generation remains a no-op instead of rewriting `.alef-generation.toml`.
 - Generated Node declarations retain runtime parameter order and report omitted
   required-after-optional arguments as invalid input instead of panicking.
 - Generated Java, JNI, Kotlin, and Dart bindings preserve optional unsigned zero values and
   reject negative or out-of-range signed carriers, including Dart DTO offsets.
 - Generated PHP Cargo manifests retain cfg-referenced public features and their default forwarding
   entries when those features gate functions or types.
+- Generated PHP flat-enum properties retain their documented snake_case names with ext-php-rs
+  0.16 instead of silently becoming camelCase.
 - Rust API examples wrap optional argument samples in `Some(...)`.
 - Generated reference pages are now Markdown-formatter-stable after `alef docs`: fenced rustdoc
   examples embedded in table cells become valid inline code, prose headings receive their required
@@ -28,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bindings, including qualified paths, and emit type-correct enum values in generated examples
   instead of string placeholders. Rust-only definitions remain absent from binding docs,
   scaffolding, extensions, and dependency-feature inference.
+- Trait-bridge applicability is resolved consistently across generators and validation, including
+  backend aliases such as `pyo3` in `exclude_languages`.
 
 ### Security
 
