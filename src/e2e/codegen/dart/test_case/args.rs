@@ -68,7 +68,7 @@ pub(super) fn build_args_and_setup(setup_lines: &mut Vec<String>, args: &mut Vec
         let arg_value = resolve_field(&ctx.fixture.input, &arg_def.field);
         match arg_def.arg_type.as_str() {
             "bytes" | "file_path" => render_bytes_or_file_path_arg(args, arg_def, arg_value, ctx),
-            "int" | "integer" | "i64" => render_int_arg(args, arg_def, arg_value, ctx),
+            "int" | "integer" | "i64" | "u32" => render_int_arg(args, arg_def, arg_value, ctx),
             "float" | "number" => render_float_arg(args, arg_def, arg_value, ctx),
             "bool" | "boolean" => render_bool_arg(args, arg_def, arg_value, ctx),
             "string" => render_string_arg(args, arg_def, arg_index, arg_value, ctx),
@@ -76,6 +76,23 @@ pub(super) fn build_args_and_setup(setup_lines: &mut Vec<String>, args: &mut Vec
             _ => {}
         }
     }
+
+    args.sort_by_key(|arg| is_dart_named_arg(arg));
+}
+
+fn is_dart_named_arg(arg: &str) -> bool {
+    arg.split_once(':').is_some_and(|(name, _)| {
+        !name.is_empty()
+            && name
+                .chars()
+                .all(|character| character == '_' || character.is_ascii_alphanumeric())
+    })
+}
+
+fn facade_scalars_are_fixed_positional(ctx: &DartArgContext<'_>) -> bool {
+    !ctx.is_frb_bridge_call
+        && ctx.client_factory_for_args.is_none()
+        && ctx.call_recipe.args.iter().any(|arg| arg.name == "config")
 }
 
 fn render_mock_url_arg(
@@ -279,7 +296,7 @@ fn render_int_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+            if facade_scalars_are_fixed_positional(ctx) {
                 args.push("null".to_string());
             }
         }
@@ -311,7 +328,7 @@ fn render_float_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+            if facade_scalars_are_fixed_positional(ctx) {
                 args.push("null".to_string());
             }
         }
@@ -344,7 +361,7 @@ fn render_bool_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+            if facade_scalars_are_fixed_positional(ctx) {
                 args.push("null".to_string());
             }
         }
@@ -388,7 +405,10 @@ fn render_string_arg(
             // Client factory methods: all non-config parameters are named-required.
             // ~keep Facade scalar parameters remain positional even when nullable; the
             // generated Dart declaration uses nullable required slots rather than named args.
-            if ctx.is_frb_bridge_call || ctx.client_factory_for_args.is_some() {
+            if ctx.is_frb_bridge_call
+                || ctx.client_factory_for_args.is_some()
+                || arg_def.optional && !facade_scalars_are_fixed_positional(ctx) && !mime_type_is_positional
+            {
                 args.push(format!("{dart_param_name}: {literal}"));
             } else {
                 args.push(literal);
@@ -412,9 +432,7 @@ fn render_string_arg(
                 args.push(format!("{dart_param_name}: '{inferred}'"));
             }
         }
-        serde_json::Value::Null
-            if arg_def.optional && !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() =>
-        {
+        serde_json::Value::Null if arg_def.optional && facade_scalars_are_fixed_positional(ctx) => {
             args.push("null".to_string());
         }
         _ => {}

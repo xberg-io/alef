@@ -1,5 +1,5 @@
 use alef::core::config::NewAlefConfig;
-use alef::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
+use alef::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::dart::DartE2eCodegen;
 use alef::e2e::fixture::{Fixture, FixtureGroup};
@@ -23,10 +23,18 @@ output = "e2e"
 function = "extract_with_external_redaction"
 result_var = "result"
 
+[crates.e2e.call.overrides.dart]
+options_type = "ExtractionConfig"
+
 [[crates.e2e.call.args]]
 name = "input"
 field = "input.input"
 type = "string"
+
+[[crates.e2e.call.args]]
+name = "config"
+field = "input.config"
+type = "json_object"
 
 [[crates.e2e.call.args]]
 name = "findings_json"
@@ -42,7 +50,7 @@ optional = true
 [[crates.e2e.call.args]]
 name = "max_findings"
 field = "input.max_findings"
-type = "int"
+type = "u32"
 optional = true
 "#;
 
@@ -79,6 +87,12 @@ fn render(input: serde_json::Value) -> String {
         input,
         ..Fixture::default()
     };
+    let type_defs = vec![TypeDef {
+        name: "ExtractionConfig".to_string(),
+        has_default: true,
+        has_serde: true,
+        ..TypeDef::default()
+    }];
     let files = DartE2eCodegen
         .generate(
             &[FixtureGroup {
@@ -87,7 +101,7 @@ fn render(input: serde_json::Value) -> String {
             }],
             &e2e,
             &resolved,
-            &[],
+            &type_defs,
             &[],
             &[target_function()],
             &[],
@@ -105,12 +119,15 @@ fn render(input: serde_json::Value) -> String {
 fn nullable_facade_parameters_are_positional_and_preserve_arity() {
     let rendered = render(serde_json::json!({
         "input": "document.txt",
+        "config": {},
         "findings_json": "[]",
         "offset_encoding": "unicode_code_points"
     }));
 
     assert!(
-        rendered.contains("extractWithExternalRedaction('document.txt', '[]', 'unicode_code_points', null)"),
+        rendered.contains(
+            "extractWithExternalRedaction('document.txt', '[]', 'unicode_code_points', null, config: config)"
+        ),
         "nullable positional parameters must fill omitted slots with null:\n{rendered}"
     );
     assert!(
@@ -123,11 +140,12 @@ fn nullable_facade_parameters_are_positional_and_preserve_arity() {
 fn all_absent_nullable_facade_parameters_are_emitted_as_null() {
     let rendered = render(serde_json::json!({
         "input": "document.txt",
+        "config": {},
         "findings_json": "[]"
     }));
 
     assert!(
-        rendered.contains("extractWithExternalRedaction('document.txt', '[]', null, null)"),
+        rendered.contains("extractWithExternalRedaction('document.txt', '[]', null, null, config: config)"),
         "nullable positional parameters must preserve fixed facade arity:\n{rendered}"
     );
 }
