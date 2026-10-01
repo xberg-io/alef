@@ -1349,6 +1349,57 @@ fn test_exclude_types() {
 }
 
 #[test]
+fn async_typed_config_omits_unused_input_dto_without_hiding_public_wrapper() {
+    let backend = WasmBackend;
+    let mut max_pages = make_field("max_pages", TypeRef::Primitive(PrimitiveType::U32), false);
+    max_pages.serde_rename = Some("maxPages".to_string());
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "test_lib::ExtractionConfig".to_string(),
+            fields: vec![max_pages],
+            is_clone: true,
+            has_default: true,
+            has_serde: true,
+            ..TypeDef::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "extract".to_string(),
+            rust_path: "test_lib::extract".to_string(),
+            params: vec![ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("ExtractionConfig".to_string()),
+                ..ParamDef::default()
+            }],
+            is_async: true,
+            error_type: Some("TestError".to_string()),
+            ..FunctionDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config())
+        .expect("generate_bindings failed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub struct WasmExtractionConfig"),
+        "the public typed wrapper must remain exported:\n{content}"
+    );
+    assert!(
+        content.contains("config: Option<WasmExtractionConfig>"),
+        "the async entry point must consume the public typed wrapper:\n{content}"
+    );
+    assert!(
+        !content.contains("pub struct ExtractionConfigInput"),
+        "an input DTO unused by the generated entry point must not be emitted:\n{content}"
+    );
+}
+
+#[test]
 fn test_exclude_fields_removes_wasm_struct_field() {
     let backend = WasmBackend;
     let api = ApiSurface {

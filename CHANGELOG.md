@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generated C-ABI, Dart, and Swift trait-bridge clear wrappers call the configured public host
   function instead of clearing the raw registry, preserving host-managed recovery semantics.
+- Generated WASM bindings omit auxiliary input DTOs when the selected function path consumes a
+  typed `Wasm*` wrapper instead, without hiding that public wrapper from the package API.
 
 ## [0.103.5] - 2026-10-01
 

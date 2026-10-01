@@ -13,6 +13,16 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::AHashSet;
 use std::collections::HashMap;
 
+pub(in crate::backends::wasm::gen_bindings) fn uses_input_dtos(
+    func: &FunctionDef,
+    opaque_types: &AHashSet<String>,
+) -> bool {
+    !func.is_async
+        && !generators::can_auto_delegate_function_with_named_let_bindings(func, opaque_types)
+        && func.error_type.is_some()
+        && (func.sanitized || generators::has_named_params(&func.params, opaque_types))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     func: &FunctionDef,
@@ -27,21 +37,23 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_function_with_emitted_dtos(
     let mut input_dtos = String::new();
     let mut input_dto_names: HashMap<String, String> = HashMap::new();
 
-    for p in &func.params {
-        if let TypeRef::Named(name) = &p.ty
-            && !opaque_types.contains(name.as_str())
-            && let Some(type_def) = api.types.iter().find(|t| t.name == *name)
-            && should_have_input_dto(type_def)
-        {
-            if emitted_input_dtos.contains(name) {
-                input_dto_names.insert(name.clone(), format!("{}Input", name));
-                continue;
-            }
-            let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
-            if !dto_code.is_empty() {
-                input_dtos.push_str(&dto_code);
-                input_dtos.push_str("\n\n");
-                input_dto_names.insert(name.clone(), dto_name);
+    if uses_input_dtos(func, opaque_types) {
+        for p in &func.params {
+            if let TypeRef::Named(name) = &p.ty
+                && !opaque_types.contains(name.as_str())
+                && let Some(type_def) = api.types.iter().find(|t| t.name == *name)
+                && should_have_input_dto(type_def)
+            {
+                if emitted_input_dtos.contains(name) {
+                    input_dto_names.insert(name.clone(), format!("{}Input", name));
+                    continue;
+                }
+                let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
+                if !dto_code.is_empty() {
+                    input_dtos.push_str(&dto_code);
+                    input_dtos.push_str("\n\n");
+                    input_dto_names.insert(name.clone(), dto_name);
+                }
             }
         }
     }

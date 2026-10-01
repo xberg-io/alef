@@ -598,6 +598,7 @@ impl Backend for WasmBackend {
                     &func.name,
                     &config.trait_bridges_for_vec(Language::Wasm),
                 )
+                && functions::uses_input_dtos(func, &opaque_types)
             {
                 let refs_excluded = func
                     .params
