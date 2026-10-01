@@ -88,6 +88,7 @@ pub(super) fn gen_function(
             p2
         })
         .collect();
+    let promoted_required = promoted_required(&augmented_params);
     let params = function_params(&augmented_params, &|ty| {
         if let TypeRef::Named(n) = ty {
             if capsule_types.contains_key(n.as_str())
@@ -110,7 +111,7 @@ pub(super) fn gen_function(
                 let is_named_non_opaque = matches!(&orig.ty,
                     TypeRef::Named(n) if !opaque_types.contains(n.as_str())
                 );
-                if is_named_non_opaque {
+                if is_named_non_opaque && promoted_required.is_empty() {
                     return None;
                 }
                 let mut_kw = if orig.is_mut { "mut " } else { "" };
@@ -138,7 +139,6 @@ pub(super) fn gen_function(
         Some(p) => mapper.map_type(&p.ty),
         None => mapper.map_type(&func.return_type),
     };
-    let promoted_required = promoted_required(&augmented_params);
     let return_annotation =
         mapper.wrap_return(&return_type, func.error_type.is_some() || !promoted_required.is_empty());
 
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn napi_required_string_after_defaultable_params_is_unwrapped_before_core_call() {
+    fn napi_required_params_after_defaultable_params_are_unwrapped_before_conversion() {
         use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 
         let func = FunctionDef {
@@ -433,6 +433,11 @@ mod tests {
                 ParamDef {
                     name: "config".to_owned(),
                     ty: TypeRef::Named("Config".to_owned()),
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "result".to_owned(),
+                    ty: TypeRef::Named("ResultData".to_owned()),
                     ..ParamDef::default()
                 },
                 ParamDef {
@@ -459,11 +464,31 @@ mod tests {
         let output = gen_probe_function_with_defaults(&func, default_types);
 
         assert!(
+            output.contains("let result = result.ok_or_else"),
+            "required DTO parameters promoted behind defaultable parameters must be unwrapped:\n{output}"
+        );
+        assert!(
             output.contains("let findings_json = findings_json.ok_or_else"),
             "required parameters promoted behind defaultable parameters must be unwrapped:\n{output}"
         );
         assert!(
-            output.contains("sample_core::redact_external(document_core, config_core, &findings_json"),
+            output.contains("let document = document.unwrap_or_default();"),
+            "defaultable DTO parameters must be made concrete before conversion:\n{output}"
+        );
+        assert!(
+            output.contains("let result_core: sample_core::ResultData = result.into();"),
+            "required DTO parameters must be converted only after they are unwrapped:\n{output}"
+        );
+        let unwrap = output
+            .find("let result = result.ok_or_else")
+            .expect("required DTO unwrap");
+        let convert = output.find("let result_core:").expect("required DTO conversion");
+        assert!(
+            unwrap < convert,
+            "required DTO unwrap must precede conversion:\n{output}"
+        );
+        assert!(
+            output.contains("sample_core::redact_external(document_core, config_core, result_core, &findings_json"),
             "the core call must borrow the unwrapped string rather than Option<String>:\n{output}"
         );
     }
