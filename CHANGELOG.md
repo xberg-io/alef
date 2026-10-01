@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Dart e2e tests and documentation snippets preserve fixed positional arity for
+  nullable facade parameters, emitting explicit `null` placeholders for omitted values.
 - Generated Java Panama descriptors use `JAVA_INT` for C `uint32_t` and `int32_t`
   parameters while retaining widened layouts for affected return values.
 - Generated Node, PHP, and Python constructors preserve Rust field order while correctly

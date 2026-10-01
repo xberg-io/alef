@@ -279,7 +279,9 @@ fn render_int_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            // Optional int absent: omit it.
+            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+                args.push("null".to_string());
+            }
         }
         _ => {
             // Required int with no fixture value: emit 0 as default.
@@ -309,7 +311,9 @@ fn render_float_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            // Optional float absent: omit it.
+            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+                args.push("null".to_string());
+            }
         }
         _ => {
             // Required float with no fixture value: emit 0.0 as default.
@@ -340,7 +344,9 @@ fn render_bool_arg(
             }
         }
         serde_json::Value::Null if arg_def.optional => {
-            // Optional bool absent: omit it.
+            if !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() {
+                args.push("null".to_string());
+            }
         }
         _ => {
             // Required bool with no fixture value: emit false as default.
@@ -380,13 +386,10 @@ fn render_string_arg(
                 .unwrap_or_else(|| format!("'{}'", escape_dart(s)));
             // Direct FRB bridge calls: all parameters are named-required.
             // Client factory methods: all non-config parameters are named-required.
-            // Facade methods: required positional, optional named.
-            if ctx.is_frb_bridge_call || ctx.client_factory_for_args.is_some() || arg_def.optional {
-                if !mime_type_is_positional {
-                    args.push(format!("{dart_param_name}: {literal}"));
-                } else {
-                    args.push(literal);
-                }
+            // ~keep Facade scalar parameters remain positional even when nullable; the
+            // generated Dart declaration uses nullable required slots rather than named args.
+            if ctx.is_frb_bridge_call || ctx.client_factory_for_args.is_some() {
+                args.push(format!("{dart_param_name}: {literal}"));
             } else {
                 args.push(literal);
             }
@@ -409,7 +412,11 @@ fn render_string_arg(
                 args.push(format!("{dart_param_name}: '{inferred}'"));
             }
         }
-        // Other optional strings with null value are omitted.
+        serde_json::Value::Null
+            if arg_def.optional && !ctx.is_frb_bridge_call && ctx.client_factory_for_args.is_none() =>
+        {
+            args.push("null".to_string());
+        }
         _ => {}
     }
 }
