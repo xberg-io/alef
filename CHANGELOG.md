@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated Python packages expose every input type that contains a public config dataclass as a
+  public dataclass too, including optional nested config holders, so their constructors accept the
+  package's public nested types instead of requiring private native classes.
+- Fully qualified public field paths now win over same-crate short-name collisions during
+  extraction, preventing a public type alias from being mistaken for a binding-excluded internal
+  type and degraded to a string in generated bindings.
+
 ## [0.103.3] - 2026-10-01
 
 ### Fixed
