@@ -125,6 +125,53 @@ pub fn render_test_file(
     config: &crate::core::config::ResolvedCrateConfig,
     errors: &[crate::core::ir::ErrorDef],
 ) -> String {
+    let wasm_surface = (lang == "wasm").then(|| effective_wasm_e2e_surface(type_defs, enums, errors, config));
+    let emitted_wasm_types = wasm_surface.as_ref().map(|surface| surface.emitted_types());
+    let wasm_excluded_classes = wasm_surface
+        .as_ref()
+        .map(|surface| wasm_excluded_class_names(surface, wasm_type_prefix))
+        .unwrap_or_default();
+    let filtered_e2e_config = wasm_surface
+        .as_ref()
+        .map(|_| without_excluded_wasm_nested_types(e2e_config, &wasm_excluded_classes));
+    let type_defs = emitted_wasm_types.as_deref().unwrap_or(type_defs);
+    let e2e_config = filtered_e2e_config.as_ref().unwrap_or(e2e_config);
+    let renderable_fixtures: Vec<&Fixture> = fixtures
+        .iter()
+        .copied()
+        .filter(|fixture| {
+            if lang != "wasm" || fixture.is_http_test() {
+                return true;
+            }
+            let call = e2e_config.resolve_call_for_fixture(
+                fixture.call.as_deref(),
+                &fixture.id,
+                &fixture.resolved_category(),
+                &fixture.tags,
+                &fixture.input,
+            );
+            let call = crate::e2e::codegen::select_best_matching_call(call, e2e_config, fixture);
+            if !wasm_call_roots_are_exported(fixture, call, options_type, &wasm_excluded_classes, wasm_type_prefix) {
+                return false;
+            }
+            if client_factory.is_some() || functions.is_empty() {
+                return true;
+            }
+            let Some(function) = call.effective_function("wasm") else {
+                return false;
+            };
+            matches!(
+                crate::backends::wasm::wasm_callability_with_excluded_types(
+                    function,
+                    functions,
+                    config,
+                    &wasm_surface.as_ref().expect("WASM surface exists").exclude_types,
+                ),
+                crate::backends::wasm::WasmCallability::Callable
+            )
+        })
+        .collect();
+    let fixtures = renderable_fixtures.as_slice();
     // `lang` is used for wasm visitor arg placement and override routing
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
 
@@ -573,6 +620,9 @@ pub fn render_test_file(
             }
         }
 
+        if lang == "wasm" {
+            imports.retain(|name| wasm_import_is_exported(name, &wasm_excluded_classes));
+        }
         let imports_str = imports.join(", ");
         import_modules = format!("import {{ {imports_str} }} from \"{pkg_name}\";");
 
@@ -593,6 +643,9 @@ pub fn render_test_file(
         let mut nested_type_values: Vec<&String> = all_nested_types.values().collect();
         nested_type_values.sort();
         for nested_type in nested_type_values {
+            if !wasm_import_is_exported(nested_type, &wasm_excluded_classes) {
+                continue;
+            }
             if !import_modules.contains(nested_type) && !additional_imports.contains(nested_type) {
                 additional_imports.push(nested_type.clone());
             }
@@ -604,6 +657,9 @@ pub fn render_test_file(
         // and a silently-dropped enum import is exactly the failure this is here to prevent. ~keep
         let already_imported = imported_identifiers(&import_modules);
         for enum_type in &referenced_enums {
+            if !wasm_import_is_exported(enum_type, &wasm_excluded_classes) {
+                continue;
+            }
             if !already_imported.contains(enum_type.as_str()) && !additional_imports.contains(enum_type) {
                 additional_imports.push(enum_type.clone());
             }

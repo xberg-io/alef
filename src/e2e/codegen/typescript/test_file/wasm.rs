@@ -10,6 +10,106 @@ pub(in crate::e2e::codegen::typescript::test_file) fn wasm_class_name(ir_type_na
     format!("{prefix}{ir_type_name}")
 }
 
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_excluded_class_names(
+    surface: &crate::backends::wasm::gen_bindings::EffectiveWasmSurface,
+    prefix: &str,
+) -> std::collections::BTreeSet<String> {
+    surface
+        .exclude_types
+        .iter()
+        .map(|name| wasm_class_name(name, prefix))
+        .collect()
+}
+
+pub(in crate::e2e::codegen::typescript::test_file) fn effective_wasm_e2e_surface(
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    errors: &[crate::core::ir::ErrorDef],
+    config: &crate::core::config::ResolvedCrateConfig,
+) -> crate::backends::wasm::gen_bindings::EffectiveWasmSurface {
+    let api = crate::core::ir::ApiSurface {
+        types: type_defs.to_vec(),
+        enums: enums.to_vec(),
+        errors: errors.to_vec(),
+        ..Default::default()
+    };
+    crate::backends::wasm::gen_bindings::effective_wasm_surface(&api, config)
+}
+
+pub(in crate::e2e::codegen::typescript::test_file) fn without_excluded_wasm_nested_types(
+    config: &E2eConfig,
+    excluded_classes: &std::collections::BTreeSet<String>,
+) -> E2eConfig {
+    let mut filtered = config.clone();
+    retain_exported_nested_types(&mut filtered.call, excluded_classes);
+    for call in filtered.calls.values_mut() {
+        retain_exported_nested_types(call, excluded_classes);
+    }
+    filtered
+}
+
+fn retain_exported_nested_types(
+    call: &mut crate::core::config::e2e::CallConfig,
+    excluded_classes: &std::collections::BTreeSet<String>,
+) {
+    if let Some(wasm) = call.overrides.get_mut("wasm") {
+        wasm.nested_types
+            .retain(|_, class_name| wasm_import_is_exported(class_name, excluded_classes));
+    }
+}
+
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_call_roots_are_exported(
+    fixture: &Fixture,
+    call: &crate::core::config::e2e::CallConfig,
+    fallback_options_type: Option<&str>,
+    excluded_classes: &std::collections::BTreeSet<String>,
+    prefix: &str,
+) -> bool {
+    first_unexported_wasm_call_root(fixture, call, fallback_options_type, excluded_classes, prefix).is_none()
+}
+
+pub(crate) fn first_unexported_wasm_call_root(
+    fixture: &Fixture,
+    call: &crate::core::config::e2e::CallConfig,
+    fallback_options_type: Option<&str>,
+    excluded_classes: &std::collections::BTreeSet<String>,
+    prefix: &str,
+) -> Option<String> {
+    let wasm_override = call.overrides.get("wasm");
+    let options_type = wasm_override
+        .and_then(|value| value.options_type.as_deref())
+        .or(fallback_options_type)
+        .or(call.options_type.as_deref());
+    let roots = options_type
+        .into_iter()
+        .chain(wasm_override.and_then(|value| value.handle_config_type.as_deref()))
+        .chain(
+            fixture
+                .resolved_args(call)
+                .iter()
+                .filter_map(|arg| arg.element_type.as_deref()),
+        );
+    roots.into_iter().find_map(|name| {
+        let class_name = if name.starts_with(prefix) {
+            name.to_string()
+        } else {
+            wasm_class_name(name, prefix)
+        };
+        excluded_classes.contains(&class_name).then_some(class_name)
+    })
+}
+
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_import_is_exported(
+    import_name: &str,
+    excluded_classes: &std::collections::BTreeSet<String>,
+) -> bool {
+    // Auto-derived class names always come from `type_defs`, so unknown references already fail
+    // closed before reaching this filter. Unrecognised explicit names remain allowed because a
+    // consumer may export them from `[crates.wasm].custom_rust_modules`. ~keep
+    let class_name = import_name.strip_prefix("type ").unwrap_or(import_name);
+    !excluded_classes.contains(class_name)
+}
+
 /// Derive `nested_types` entries from the IR type registry for a given
 /// WASM class name.
 ///
@@ -117,7 +217,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn derive_nested_types_for_wa
         return std::collections::HashMap::new();
     };
     let mut map = std::collections::HashMap::new();
-    for field in &type_def.fields {
+    for field in crate::codegen::shared::binding_fields(&type_def.fields) {
         if let Some(class_name) = class_name_from_type_ref(&field.ty) {
             // Only map fields whose IR type is a struct (TypeDef). Sealed-union
             // enums (EnumDef) don't expose a constructible wasm-bindgen class

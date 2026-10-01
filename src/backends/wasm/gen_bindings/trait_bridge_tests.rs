@@ -7,7 +7,7 @@
 
 use super::{WasmCallability, forward_trait_bridge_builder_fields, function_is_exported, wasm_callability};
 use crate::core::config::{BridgeBinding, NewAlefConfig, ResolvedCrateConfig, TraitBridgeConfig};
-use crate::core::ir::FunctionDef;
+use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
 
 fn make_config() -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(
@@ -201,4 +201,44 @@ exclude_functions = ["download_assets"]
         WasmCallability::NotExported,
         "resolving the JavaScript spelling must not route around `exclude_functions`"
     );
+}
+
+#[test]
+fn wasm_callability_rejects_a_zero_arg_function_returning_an_excluded_type() {
+    let functions = vec![FunctionDef {
+        name: "hidden".into(),
+        rust_path: "sample::hidden".into(),
+        return_type: TypeRef::Named("Hidden".into()),
+        ..Default::default()
+    }];
+    let mut config = make_config();
+    config.wasm.as_mut().expect("WASM config").exclude_types = vec!["Hidden".into()];
+
+    assert_eq!(
+        wasm_callability("hidden", &functions, &config),
+        WasmCallability::NotExported
+    );
+    assert!(!function_is_exported("hidden", &functions, &config));
+}
+
+#[test]
+fn wasm_callability_rejects_a_function_accepting_an_excluded_type() {
+    let functions = vec![FunctionDef {
+        name: "consume_hidden".into(),
+        rust_path: "sample::consume_hidden".into(),
+        params: vec![ParamDef {
+            name: "hidden".into(),
+            ty: TypeRef::Named("Hidden".into()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let mut config = make_config();
+    config.wasm.as_mut().expect("WASM config").exclude_types = vec!["Hidden".into()];
+
+    assert_eq!(
+        wasm_callability("consumeHidden", &functions, &config),
+        WasmCallability::NotExported
+    );
+    assert!(!function_is_exported("consume_hidden", &functions, &config));
 }

@@ -15,4 +15,4 @@ pub(crate) mod type_map;
 mod wasm_bindgen_js_oracle;
 
 pub use gen_bindings::WasmBackend;
-pub(crate) use gen_bindings::{WasmCallability, docs_ts_type_for_untagged_enum, wasm_callability};
+pub(crate) use gen_bindings::{WasmCallability, docs_ts_type_for_untagged_enum, wasm_callability_with_excluded_types};

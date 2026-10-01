@@ -1,7 +1,7 @@
 use super::test_case::escape_js_regex_literal;
 use super::visitor::WasmVisitorBinding;
 use super::*;
-use crate::core::ir::{FieldDef, PrimitiveType};
+use crate::core::ir::{FieldDef, FunctionDef, ParamDef, PrimitiveType};
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::FixtureGroup;
 
@@ -93,6 +93,24 @@ fn derive_nested_types_maps_optional_named_field() {
 
     let derived = derive_nested_types_for_wasm("WasmParseRequest", &type_defs, "Wasm");
     assert_eq!(derived.get("config"), Some(&"WasmParseConfig".to_string()));
+}
+
+#[test]
+fn derive_nested_types_ignores_binding_excluded_fields() {
+    let cancellation_type = make_type("CancellationToken", vec![]);
+    let mut skipped = make_field(
+        "cancel_token",
+        TypeRef::Optional(Box::new(TypeRef::Named("CancellationToken".to_string()))),
+    );
+    skipped.binding_excluded = true;
+    let config_type = make_type("ExtractionConfig", vec![skipped]);
+
+    let derived = derive_nested_types_for_wasm("WasmExtractionConfig", &[cancellation_type, config_type], "Wasm");
+
+    assert!(
+        !derived.values().any(|name| name == "WasmCancellationToken"),
+        "a source field skipped from bindings must not create a WASM import: {derived:?}"
+    );
 }
 
 #[test]
@@ -442,6 +460,623 @@ fn wasm_imports_nested_types_from_json_object_element_types() {
     assert!(
         output.contains("WasmExtractInput.default()"),
         "constructor reference must use the prefixed input class;\n{output}"
+    );
+}
+
+#[test]
+fn wasm_omits_cfg_disabled_nested_type_from_body_and_imports() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "config".to_string(),
+        field: "config".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("ExtractionConfig".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "extract_without_config".to_string(),
+        category: Some("extract".to_string()),
+        description: "extract without config".to_string(),
+        input: serde_json::json!({ "config": { "tree_sitter": {} } }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            skip: None,
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        }],
+        ..Default::default()
+    };
+    let mut tree_sitter_field = make_field(
+        "tree_sitter",
+        TypeRef::Optional(Box::new(TypeRef::Named("TreeSitterConfig".to_string()))),
+    );
+    tree_sitter_field.cfg = Some(r#"feature = "tree-sitter""#.to_string());
+    let extraction_config = make_type("ExtractionConfig", vec![tree_sitter_field]);
+    let tree_sitter_config = make_type("TreeSitterConfig", vec![]);
+    let config = crate::core::config::ResolvedCrateConfig::default();
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[extraction_config.clone(), tree_sitter_config.clone()],
+        &[],
+        &[],
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    let import_line = output
+        .lines()
+        .find(|line| line.starts_with("import") && line.contains("@test/wasm"))
+        .expect("wasm test file must have a binding import line");
+    assert!(
+        !import_line.contains("WasmTreeSitterConfig"),
+        "a type omitted by the WASM backend must not be imported by e2e output: {import_line}"
+    );
+    assert!(
+        !output.contains("WasmTreeSitterConfig.default()"),
+        "a cfg-disabled WASM field must not construct its absent class: {output}"
+    );
+    assert!(
+        !output.contains(".treeSitter ="),
+        "a cfg-disabled WASM field must not emit its absent setter: {output}"
+    );
+
+    let enabled_wasm = toml::from_str("features = [\"tree-sitter\"]").expect("WASM config parses");
+    let enabled_config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(enabled_wasm),
+        ..Default::default()
+    };
+    let enabled_output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[extraction_config, tree_sitter_config],
+        &[],
+        &[],
+        "Wasm",
+        &enabled_config,
+        &[],
+    );
+    assert!(
+        enabled_output.contains("WasmTreeSitterConfig.default()"),
+        "the nested class must remain when its WASM feature is enabled: {enabled_output}"
+    );
+    assert!(
+        enabled_output
+            .lines()
+            .any(|line| line.starts_with("import") && line.contains("WasmTreeSitterConfig")),
+        "the nested class must remain imported when its WASM feature is enabled: {enabled_output}"
+    );
+}
+
+#[test]
+fn wasm_omits_entries_from_a_cfg_disabled_flattened_field() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "config".to_string(),
+        field: "config".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("ExtractionConfig".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "extract_without_flattened_extensions".to_string(),
+        description: "extract without flattened extensions".to_string(),
+        input: serde_json::json!({ "config": { "custom_parser": {}, "enabled": true } }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut extensions = make_field("extensions", TypeRef::Json);
+    extensions.cfg = Some(r#"feature = "extensions""#.to_string());
+    extensions.serde_flatten = true;
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[make_type(
+            "ExtractionConfig",
+            vec![
+                extensions,
+                make_field("enabled", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)),
+            ],
+        )],
+        &[],
+        &[],
+        "Wasm",
+        &crate::core::config::ResolvedCrateConfig::default(),
+        &[],
+    );
+
+    assert!(
+        !output.contains(".customParser ="),
+        "entries owned by an omitted flattened field must not emit setters: {output}"
+    );
+    assert!(
+        output.contains(".enabled = true;"),
+        "a declared emitted field must survive alongside the omitted catch-all: {output}"
+    );
+}
+
+#[test]
+fn wasm_omits_explicit_nested_type_when_backend_omits_unknown_reference() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "config".to_string(),
+        field: "config".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("ExtractionConfig".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    e2e_config
+        .call
+        .overrides
+        .entry("wasm".to_string())
+        .or_default()
+        .nested_types
+        .insert("foreign".to_string(), "WasmForeignConfig".to_string());
+    let fixture = Fixture {
+        id: "extract_without_foreign_binding".to_string(),
+        category: Some("extract".to_string()),
+        description: "extract without foreign binding".to_string(),
+        input: serde_json::json!({ "config": { "foreign": {} } }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let extraction_config = make_type(
+        "ExtractionConfig",
+        vec![make_field("foreign", TypeRef::Named("ForeignConfig".to_string()))],
+    );
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[extraction_config],
+        &[],
+        &[],
+        "Wasm",
+        &crate::core::config::ResolvedCrateConfig::default(),
+        &[],
+    );
+
+    assert!(
+        !output.contains("WasmForeignConfig"),
+        "a class omitted for an unknown backend reference must be absent from body and imports: {output}"
+    );
+    assert!(
+        !output.contains(".foreign ="),
+        "an unknown WASM field must not emit its absent setter: {output}"
+    );
+}
+
+#[test]
+fn wasm_skips_fixture_whose_root_type_is_not_exported() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "hidden".to_string(),
+        field: "hidden".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("Hidden".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "excluded_root".to_string(),
+        category: Some("extract".to_string()),
+        description: "excluded root".to_string(),
+        input: serde_json::json!({ "hidden": {} }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let wasm_config = toml::from_str("exclude_types = [\"Hidden\"]").expect("WASM config parses");
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(wasm_config),
+        ..Default::default()
+    };
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[make_type("Hidden", vec![])],
+        &[],
+        &[],
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    assert!(
+        !output.contains("WasmHidden"),
+        "an excluded root class must be absent from body and imports: {output}"
+    );
+    assert!(
+        !output.contains("excluded_root"),
+        "a fixture whose root class is unavailable must not be emitted: {output}"
+    );
+}
+
+#[test]
+fn wasm_skips_fixture_whose_function_returns_an_excluded_type() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "hidden_status".to_string();
+    let fixture = Fixture {
+        id: "excluded_return".to_string(),
+        category: Some("status".to_string()),
+        description: "excluded return".to_string(),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let functions = [FunctionDef {
+        name: "hidden_status".to_string(),
+        rust_path: "sample::hidden_status".to_string(),
+        return_type: TypeRef::Named("Hidden".to_string()),
+        ..Default::default()
+    }];
+    let wasm_config = toml::from_str("exclude_types = [\"Hidden\"]").expect("WASM config parses");
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(wasm_config),
+        ..Default::default()
+    };
+
+    let output = render_test_file(
+        "wasm",
+        "status",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "hiddenStatus",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[make_type("Hidden", vec![])],
+        &[],
+        &functions,
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    assert!(
+        !output.contains("hiddenStatus"),
+        "an omitted function must not be imported or called: {output}"
+    );
+    assert!(
+        !output.contains("excluded_return"),
+        "the uncallable fixture must not be emitted: {output}"
+    );
+}
+
+#[test]
+fn wasm_skips_fixture_whose_function_accepts_an_excluded_type() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "consume_hidden".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "value".to_string(),
+        field: "value".to_string(),
+        arg_type: "string".to_string(),
+        optional: false,
+        owned: false,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let fixture = Fixture {
+        id: "excluded_argument".to_string(),
+        category: Some("consume".to_string()),
+        description: "excluded argument".to_string(),
+        input: serde_json::json!({ "value": "hidden" }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let functions = [FunctionDef {
+        name: "consume_hidden".to_string(),
+        rust_path: "sample::consume_hidden".to_string(),
+        params: vec![ParamDef {
+            name: "value".to_string(),
+            ty: TypeRef::Named("Hidden".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let wasm_config = toml::from_str("exclude_types = [\"Hidden\"]").expect("WASM config parses");
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(wasm_config),
+        ..Default::default()
+    };
+
+    let output = render_test_file(
+        "wasm",
+        "consume",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "consumeHidden",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[make_type("Hidden", vec![])],
+        &[],
+        &functions,
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    assert!(
+        !output.contains("consumeHidden"),
+        "an omitted function must not be imported or called: {output}"
+    );
+    assert!(
+        !output.contains("excluded_argument"),
+        "the uncallable fixture must not be emitted: {output}"
+    );
+}
+
+#[test]
+fn wasm_keeps_client_method_fixture_when_free_function_signature_is_excluded() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "hidden_status".to_string();
+    let fixture = Fixture {
+        id: "client_method".to_string(),
+        category: Some("status".to_string()),
+        description: "client method".to_string(),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let functions = [FunctionDef {
+        name: "hidden_status".to_string(),
+        rust_path: "sample::hidden_status".to_string(),
+        return_type: TypeRef::Named("Hidden".to_string()),
+        ..Default::default()
+    }];
+    let wasm_config = toml::from_str("exclude_types = [\"Hidden\"]").expect("WASM config parses");
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(wasm_config),
+        ..Default::default()
+    };
+
+    let output = render_test_file(
+        "wasm",
+        "status",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "hiddenStatus",
+        &[],
+        None,
+        Some("createClient"),
+        &e2e_config,
+        &[make_type("Hidden", vec![])],
+        &[],
+        &functions,
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    let import = output
+        .lines()
+        .find(|line| line.contains("@test/wasm"))
+        .expect("binding import exists");
+    assert_eq!(import, "import { createClient } from \"@test/wasm\";");
+    assert!(
+        output.contains("client.hiddenStatus()"),
+        "client methods do not require a free-function export: {output}"
+    );
+    assert!(
+        output.contains("client_method"),
+        "the client-method fixture must remain: {output}"
+    );
+}
+
+#[test]
+fn wasm_rejects_excluded_options_element_and_handle_roots() {
+    let fixture = Fixture::default();
+    let excluded = std::collections::BTreeSet::from(["WasmHidden".to_string()]);
+    let options_call = crate::core::config::e2e::CallConfig {
+        options_type: Some("Hidden".to_string()),
+        ..Default::default()
+    };
+    assert!(!wasm_call_roots_are_exported(
+        &fixture,
+        &options_call,
+        None,
+        &excluded,
+        "Wasm"
+    ));
+
+    let element_call = crate::core::config::e2e::CallConfig {
+        args: vec![crate::e2e::config::ArgMapping {
+            name: "hidden".to_string(),
+            field: "hidden".to_string(),
+            arg_type: "json_object".to_string(),
+            optional: false,
+            owned: false,
+            element_type: Some("Hidden".to_string()),
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: None,
+        }],
+        ..Default::default()
+    };
+    assert!(!wasm_call_roots_are_exported(
+        &fixture,
+        &element_call,
+        None,
+        &excluded,
+        "Wasm"
+    ));
+
+    let wasm_override = crate::core::config::e2e::CallOverride {
+        handle_config_type: Some("WasmHidden".to_string()),
+        ..Default::default()
+    };
+    let handle_call = crate::core::config::e2e::CallConfig {
+        overrides: std::collections::HashMap::from([("wasm".to_string(), wasm_override)]),
+        ..Default::default()
+    };
+    assert!(!wasm_call_roots_are_exported(
+        &fixture,
+        &handle_call,
+        None,
+        &excluded,
+        "Wasm"
+    ));
+}
+
+#[test]
+fn wasm_keeps_explicit_nested_type_exported_by_custom_module() {
+    let mut e2e_config = crate::e2e::config::E2eConfig::default();
+    e2e_config.call.function = "extract".to_string();
+    e2e_config.call.args = vec![crate::e2e::config::ArgMapping {
+        name: "config".to_string(),
+        field: "config".to_string(),
+        arg_type: "json_object".to_string(),
+        optional: false,
+        owned: false,
+        element_type: Some("ExtractionConfig".to_string()),
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    e2e_config
+        .call
+        .overrides
+        .entry("wasm".to_string())
+        .or_default()
+        .nested_types
+        .insert("custom".to_string(), "WasmCustomConfig".to_string());
+    let fixture = Fixture {
+        id: "extract_with_custom_binding".to_string(),
+        category: Some("extract".to_string()),
+        description: "extract with custom binding".to_string(),
+        input: serde_json::json!({ "config": { "custom": {} } }),
+        assertions: vec![crate::e2e::fixture::Assertion {
+            assertion_type: "not_error".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let extraction_config = make_type("ExtractionConfig", vec![make_field("custom", TypeRef::Json)]);
+    let wasm_config = toml::from_str("custom_rust_modules = [\"custom\"]").expect("WASM config parses");
+    let config = crate::core::config::ResolvedCrateConfig {
+        wasm: Some(wasm_config),
+        ..Default::default()
+    };
+
+    let output = render_test_file(
+        "wasm",
+        "extract",
+        &[&fixture],
+        "",
+        "@test/wasm",
+        "extract",
+        &[],
+        None,
+        None,
+        &e2e_config,
+        &[extraction_config],
+        &[],
+        &[],
+        "Wasm",
+        &config,
+        &[],
+    );
+
+    assert!(
+        output.contains("WasmCustomConfig.default()"),
+        "an explicit custom-module class must remain constructible: {output}"
+    );
+    assert!(
+        output
+            .lines()
+            .any(|line| line.starts_with("import") && line.contains("WasmCustomConfig")),
+        "an explicit custom-module class must remain imported: {output}"
     );
 }
 

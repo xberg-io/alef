@@ -285,6 +285,73 @@ fn handle_config_list_entries_are_constructed_through_build_args_and_setup() {
     );
 }
 
+#[test]
+fn handle_config_omits_setter_for_field_absent_from_wasm_surface() {
+    let fixture = crate::e2e::fixture::Fixture {
+        id: "crawl".to_string(),
+        description: "Crawl".to_string(),
+        ..Default::default()
+    };
+    let args = [ArgMapping {
+        name: "engine".into(),
+        field: "input.config".into(),
+        arg_type: "handle".into(),
+        optional: false,
+        owned: true,
+        element_type: None,
+        go_type: None,
+        vec_inner_is_ref: false,
+        trait_name: None,
+    }];
+    let mut omitted = field("tree_sitter", TypeRef::Json);
+    omitted.cfg = Some(r#"feature = "tree-sitter""#.to_string());
+    omitted.serde_flatten = true;
+    let api = crate::core::ir::ApiSurface {
+        types: vec![TypeDef {
+            name: "EngineConfig".to_string(),
+            fields: vec![
+                omitted,
+                field("enabled", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)),
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let config = crate::core::config::ResolvedCrateConfig::default();
+    let surface = crate::backends::wasm::gen_bindings::effective_wasm_surface(&api, &config);
+    let type_defs = surface.emitted_types();
+
+    let (setup_lines, _call_args) = build_args_and_setup(
+        &serde_json::json!({ "config": { "custom_parser": {}, "enabled": true } }),
+        &args,
+        None,
+        &fixture,
+        &Default::default(),
+        "wasm",
+        &Default::default(),
+        &Default::default(),
+        Some("WasmEngineConfig"),
+        &type_defs,
+        &[],
+        "Wasm",
+        &config,
+        true,
+        &mut Default::default(),
+        crate::e2e::codegen::call_ir::TargetParams::IrAbsent,
+        crate::e2e::codegen::call_ir::CallIr::default(),
+    );
+
+    let setup = setup_lines.join("\n");
+    assert!(
+        !setup.contains("customParser"),
+        "an omitted flattened WASM field must not leak its entries into handle-config setters: {setup}"
+    );
+    assert!(
+        setup.contains("engineConfig.enabled = true;"),
+        "a declared emitted field must survive alongside the omitted catch-all: {setup}"
+    );
+}
+
 /// A top-level handle-config scalar whose IR field type is a wasm-bindgen C-style enum must
 /// render as an `EnumType.Member` reference, not the fixture's raw wire string. Before the
 /// `owner_type` seam existed, `engineConfig.crawlStrategy = "dfs"` compiled and ran, but

@@ -62,6 +62,17 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
         wasm_type_prefix,
         config,
     } = context;
+    let wasm_surface = (lang == "wasm").then(|| effective_wasm_e2e_surface(type_defs, enums, &[], config));
+    let emitted_wasm_types = wasm_surface.as_ref().map(|surface| surface.emitted_types());
+    let wasm_excluded_classes = wasm_surface
+        .as_ref()
+        .map(|surface| wasm_excluded_class_names(surface, wasm_type_prefix))
+        .unwrap_or_default();
+    let filtered_e2e_config = wasm_surface
+        .as_ref()
+        .map(|_| without_excluded_wasm_nested_types(e2e_config, &wasm_excluded_classes));
+    let type_defs = emitted_wasm_types.as_deref().unwrap_or(type_defs);
+    let e2e_config = filtered_e2e_config.as_ref().unwrap_or(e2e_config);
     let docs_fixture = fixture.docs_call_fixture();
     let fixture = &docs_fixture;
     let mut call = e2e_config.resolve_call_for_fixture(
@@ -323,6 +334,9 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
         }
         _ => Vec::new(),
     };
+    if lang == "wasm" {
+        imports.retain(|name| wasm_import_is_exported(name, &wasm_excluded_classes));
+    }
     crate::e2e::template_env::render(
         "typescript/snippet_body.jinja",
         minijinja::context! {

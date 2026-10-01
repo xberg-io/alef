@@ -297,6 +297,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                         owner_type: Some(owner_type),
                     };
                     for (key, val) in &fields {
+                        if !wasm_owner_field_is_emitted(owner_type, key, type_defs) {
+                            continue;
+                        }
                         let camel_key = underscore_camel_case(key);
                         let value_expr = build_handle_config_value(key, val, &context, &mut *referenced_enums);
                         setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));

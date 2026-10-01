@@ -92,7 +92,7 @@ pub(crate) use snippet::{SnippetContext, render_node_snippet_body, render_snippe
 pub(in crate::e2e::codegen::typescript::test_file) use args::build_args_and_setup;
 pub(in crate::e2e::codegen::typescript::test_file) use builders::{
     node_enum_string_literal, node_typed_value_expression, rename_napi_serde_tags_to_kind, ts_builder_expression,
-    ts_builder_expression_inner, wasm_scalar_value_expression,
+    ts_builder_expression_inner, wasm_owner_field_is_emitted, wasm_scalar_value_expression,
 };
 pub(in crate::e2e::codegen::typescript::test_file) use bytes::ts_bytes_value_expression;
 pub(in crate::e2e::codegen::typescript::test_file) use cache::{
@@ -113,6 +113,9 @@ pub(in crate::e2e::codegen::typescript::test_file) use test_case::render_test_ca
 pub(in crate::e2e::codegen::typescript::test_file) use visitor::{
     apply_wasm_visitor_arg, node_visitor_args, wasm_visitor_binding,
 };
+pub(crate) use wasm::first_unexported_wasm_call_root;
 pub(in crate::e2e::codegen::typescript::test_file) use wasm::{
-    collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, wasm_class_name, wasm_prefixed_wrapped_type,
+    collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, effective_wasm_e2e_surface,
+    wasm_call_roots_are_exported, wasm_class_name, wasm_excluded_class_names, wasm_import_is_exported,
+    wasm_prefixed_wrapped_type, without_excluded_wasm_nested_types,
 };

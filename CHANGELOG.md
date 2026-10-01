@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Field-level bare `#[serde(default)]` enum variants remain omittable in generated binding
   constructors even when the owning Rust struct does not implement `Default`, while unrelated
   fields remain required.
+- Generated WASM e2e tests no longer construct or import binding-skipped and feature-disabled
+  fields, or types absent from the effective WASM dependency surface.
 - Elixir escaping oracles use atomically unique scratch directories, preventing concurrent macOS
   test lanes from removing another lane's fixtures.
 - Generated Rust crates omit duplicate lint allowances when a custom crate attribute repeats a

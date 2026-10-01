@@ -22,6 +22,31 @@ pub(super) fn render(
         &docs_fixture.input,
     );
     let call = crate::e2e::codegen::select_best_matching_call(call, e2e_config, &docs_fixture);
+    let api = crate::core::ir::ApiSurface {
+        types: type_defs.to_vec(),
+        enums: enums.to_vec(),
+        functions: functions.to_vec(),
+        ..Default::default()
+    };
+    let effective_surface = crate::backends::wasm::gen_bindings::effective_wasm_surface(&api, config);
+    let wasm_type_prefix = config.wasm_type_prefix();
+    let excluded_classes = effective_surface
+        .exclude_types
+        .iter()
+        .map(|name| format!("{wasm_type_prefix}{name}"))
+        .collect();
+    if let Some(root) = crate::e2e::codegen::typescript::test_file::first_unexported_wasm_call_root(
+        &docs_fixture,
+        call,
+        call.options_type.as_deref(),
+        &excluded_classes,
+        &wasm_type_prefix,
+    ) {
+        bail!(
+            "fixture `{}` requires WASM root type `{root}`, which the effective WASM exclude_types, feature, or dependency surface does not export",
+            docs_fixture.id
+        );
+    }
     let default_factory = e2e_config
         .call
         .overrides
@@ -40,7 +65,12 @@ pub(super) fn render(
         );
     };
     if effective_factory.is_none() && !functions.is_empty() {
-        match crate::backends::wasm::wasm_callability(function, functions, config) {
+        match crate::backends::wasm::wasm_callability_with_excluded_types(
+            function,
+            functions,
+            config,
+            &effective_surface.exclude_types,
+        ) {
             crate::backends::wasm::WasmCallability::Callable => {}
             crate::backends::wasm::WasmCallability::NotExported => {
                 bail!("WASM target does not export the configured `{function}` fixture function");
@@ -61,7 +91,6 @@ pub(super) fn render(
         .resolve_package("wasm")
         .and_then(|package| package.name)
         .unwrap_or_else(|| config.wasm_package_name());
-    let wasm_type_prefix = config.wasm_type_prefix();
     let body =
         super::super::typescript::test_file::render_snippet_body(super::super::typescript::test_file::SnippetContext {
             lang: "wasm",

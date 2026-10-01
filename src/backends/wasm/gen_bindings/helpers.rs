@@ -11,7 +11,7 @@ use crate::core::ir::{ApiSurface, ReceiverKind};
 use ahash::AHashSet;
 use regex::Regex;
 
-use super::cfg::is_gated_behind_disabled_feature;
+use super::cfg::{field_references_excluded_type, is_gated_behind_disabled_feature};
 use super::trait_bridge_docs;
 
 /// The emitted wasm crate's directory layout.
@@ -41,12 +41,23 @@ pub(crate) enum WasmCallability {
     UnknownSymbol,
 }
 
+#[cfg(test)]
 pub(crate) fn wasm_callability(
     function_name: &str,
     functions: &[crate::core::ir::FunctionDef],
     config: &ResolvedCrateConfig,
 ) -> WasmCallability {
-    if function_is_callable(function_name, functions, config) {
+    let excluded_types = super::ts_union::wasm_exclude_types(config);
+    wasm_callability_with_excluded_types(function_name, functions, config, &excluded_types)
+}
+
+pub(crate) fn wasm_callability_with_excluded_types(
+    function_name: &str,
+    functions: &[crate::core::ir::FunctionDef],
+    config: &ResolvedCrateConfig,
+    excluded_types: &[String],
+) -> WasmCallability {
+    if function_is_callable(function_name, functions, config, excluded_types) {
         return WasmCallability::Callable;
     }
     match rust_identity_for_wasm_symbol(function_name, functions, config) {
@@ -69,6 +80,7 @@ pub(super) fn function_is_callable(
     function_name: &str,
     functions: &[crate::core::ir::FunctionDef],
     config: &ResolvedCrateConfig,
+    excluded_types: &[String],
 ) -> bool {
     let Some(identity) = rust_identity_for_wasm_symbol(function_name, functions, config) else {
         return false;
@@ -84,7 +96,7 @@ pub(super) fn function_is_callable(
     if config.trait_bridge_manages_function(identity) {
         return true;
     }
-    function_is_exported(identity, functions, config)
+    function_is_exported_with_excluded_types(identity, functions, config, excluded_types)
 }
 
 /// Resolve the Rust identity behind a symbol that may be spelled the way JavaScript sees it.
@@ -133,10 +145,21 @@ pub(super) fn wasm_export_candidates<'a>(
         .chain(bridge_registry_fns)
 }
 
+#[cfg(test)]
 pub(super) fn function_is_exported(
     function_name: &str,
     functions: &[crate::core::ir::FunctionDef],
     config: &ResolvedCrateConfig,
+) -> bool {
+    let excluded_types = super::ts_union::wasm_exclude_types(config);
+    function_is_exported_with_excluded_types(function_name, functions, config, &excluded_types)
+}
+
+fn function_is_exported_with_excluded_types(
+    function_name: &str,
+    functions: &[crate::core::ir::FunctionDef],
+    config: &ResolvedCrateConfig,
+    excluded_types: &[String],
 ) -> bool {
     if config
         .wasm
@@ -171,7 +194,19 @@ pub(super) fn function_is_exported(
         function.name == function_name
             && !is_gated_behind_disabled_feature(&function.cfg, enabled_features)
             && !dropped_crates.contains(&function.rust_path.split("::").next().unwrap_or("").replace('-', "_"))
+            && !function_signature_references_excluded_type(function, excluded_types)
     })
+}
+
+pub(crate) fn function_signature_references_excluded_type(
+    function: &crate::core::ir::FunctionDef,
+    excluded_types: &[String],
+) -> bool {
+    function
+        .params
+        .iter()
+        .any(|param| field_references_excluded_type(&param.ty, excluded_types))
+        || field_references_excluded_type(&function.return_type, excluded_types)
 }
 
 /// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.

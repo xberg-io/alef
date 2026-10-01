@@ -834,10 +834,9 @@ pub(crate) fn docs_ts_type_for_untagged_enum(
 
 /// Types this WASM binding excludes from generation entirely: `[crates.wasm].exclude_types`
 /// plus opaque newtypes whose wrapped path carries a generic parameter (a `Vec<T>`-shaped
-/// opaque newtype never becomes a `#[wasm_bindgen]` class). `pub(super)` so `mod.rs`'s
-/// `generate_bindings` and this module's own `docs_ts_type_for_untagged_enum` compute the same
-/// exclusion set instead of two independently-drifting readings of `config`. ~keep
-pub(super) fn wasm_exclude_types(config: &crate::core::config::ResolvedCrateConfig) -> Vec<String> {
+/// opaque newtype never becomes a `#[wasm_bindgen]` class). Crate-visible so binding generation,
+/// docs, and E2E import generation share one inventory instead of independently reading config. ~keep
+pub(crate) fn wasm_exclude_types(config: &crate::core::config::ResolvedCrateConfig) -> Vec<String> {
     let mut exclude_types = config
         .wasm
         .as_ref()

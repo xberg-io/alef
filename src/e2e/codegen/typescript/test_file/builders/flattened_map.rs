@@ -8,11 +8,12 @@ pub(super) fn collect<'a>(
     serde_json::Map<String, serde_json::Value>,
 )> {
     let owner = owner?;
-    let mut flattened = owner.fields.iter().filter(|field| field.serde_flatten);
+    let mut flattened = owner
+        .fields
+        .iter()
+        .filter(|field| field.serde_flatten && !field.binding_excluded);
     let field = flattened.next()?;
-    let object_field =
-        matches!(&field.ty, TypeRef::Json) || matches!(&field.ty, TypeRef::Map(key, _) if **key == TypeRef::String);
-    if flattened.next().is_some() || !object_field {
+    if flattened.next().is_some() || !is_catch_all(field) {
         return None;
     }
     let values = input
@@ -21,6 +22,20 @@ pub(super) fn collect<'a>(
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     Some((field, values))
+}
+
+pub(super) fn has_omitted_catch_all(owner: Option<&TypeDef>) -> bool {
+    owner.is_some_and(|definition| {
+        definition
+            .fields
+            .iter()
+            .any(|field| field.binding_excluded && is_catch_all(field))
+    })
+}
+
+fn is_catch_all(field: &crate::core::ir::FieldDef) -> bool {
+    field.serde_flatten
+        && (matches!(&field.ty, TypeRef::Json) || matches!(&field.ty, TypeRef::Map(key, _) if **key == TypeRef::String))
 }
 
 pub(super) fn expression(values: &serde_json::Map<String, serde_json::Value>) -> String {

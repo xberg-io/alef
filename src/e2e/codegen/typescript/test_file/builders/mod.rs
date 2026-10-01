@@ -484,6 +484,18 @@ fn resolve_owner_field<'a>(owner_type: Option<&'a TypeDef>, key: &str) -> Option
     })
 }
 
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_owner_field_is_emitted(
+    owner_type: &str,
+    key: &str,
+    type_defs: &[TypeDef],
+) -> bool {
+    let owner = type_defs.iter().find(|definition| definition.name == owner_type);
+    match resolve_owner_field(owner, key) {
+        Some(field) => !field.binding_excluded,
+        None => !flattened_map::has_omitted_catch_all(owner),
+    }
+}
+
 /// Render a single wasm handle-config scalar field, resolving enum members and bigint literals
 /// from the field's IR type exactly as [`ts_builder_expression_inner`] does for the same field
 /// on a nested object.
@@ -843,6 +855,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inne
     }
     for (key, val) in obj {
         if flattened.as_ref().is_some_and(|(_, values)| values.contains_key(key)) {
+            continue;
+        }
+        if lang == "wasm" && !wasm_owner_field_is_emitted(ir_owner_name, key, type_defs) {
             continue;
         }
         let camel_key = node_field_public_key(owner_type, key);
