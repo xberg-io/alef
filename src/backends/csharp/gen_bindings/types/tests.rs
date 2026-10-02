@@ -2,7 +2,7 @@ use super::gen_record_type;
 use super::records::csharp_type_zero_initializer;
 use crate::backends::swift::gen_bindings::dto::swift_type_based_default;
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
-use crate::core::ir::{DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{DefaultValue, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use std::collections::HashSet;
 
 pub(super) fn field(name: &str, ty: TypeRef) -> FieldDef {
@@ -64,6 +64,55 @@ pub(super) fn named_record_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         has_private_fields: false,
         version: Default::default(),
     }
+}
+
+#[test]
+fn external_string_union_default_constructs_the_nested_unit_record() {
+    let enum_def = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![field("_0", TypeRef::String)],
+                serde_untagged: true,
+                ..EnumVariant::default()
+            },
+        ],
+        ..EnumDef::default()
+    };
+    let mut output_format = field("output_format", TypeRef::Named("OutputFormat".into()));
+    output_format.default = Some("/* serde(default) */".into());
+    output_format.typed_default = Some(DefaultValue::EnumVariant("Plain".into()));
+    let typ = named_record_type("ExtractionConfig", vec![output_format]);
+    let tagged_union_enums = if crate::backends::csharp::gen_bindings::enums::emits_tagged_union(&enum_def) {
+        HashSet::from(["OutputFormat".to_string()])
+    } else {
+        HashSet::new()
+    };
+
+    let emitted = gen_record_type(
+        &typ,
+        &[],
+        "Xberg",
+        "xberg",
+        &HashSet::from(["OutputFormat".to_string()]),
+        &HashSet::new(),
+        &HashSet::new(),
+        "snake_case",
+        &HashSet::new(),
+        &[],
+        "XbergException",
+        &HashSet::new(),
+        &tagged_union_enums,
+        &HashSet::new(),
+    );
+
+    assert!(emitted.contains("= new OutputFormat.Plain();"), "got:\n{emitted}");
+    assert!(!emitted.contains("= OutputFormat.Plain;"), "got:\n{emitted}");
 }
 
 #[test]

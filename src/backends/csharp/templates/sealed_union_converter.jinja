@@ -32,7 +32,15 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
                 "{{ variant.discriminator }}" => new {{ class_name }}.{{ variant.pascal }}(),
 {% endif %}
 {% endfor %}
+{% if has_untagged_string_variant %}
+{% for variant in variants %}
+{% if variant.is_untagged and variant.is_tuple %}
+                _ => new {{ class_name }}.{{ variant.pascal }}(unitTag ?? throw new JsonException("Untagged variant must be a string"))
+{% endif %}
+{% endfor %}
+{% else %}
                 _ => throw new JsonException($"Unknown {{ class_name }} unit variant: {unitTag}")
+{% endif %}
             };
         }
 {% endif %}
@@ -163,6 +171,8 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 {% else %}
                 new {{ class_name }}.{{ variant.pascal }}(),
 {% endif %}
+{% elif is_external and variant.is_untagged %}
+                throw new JsonException("Untagged variant must be a string"),
 {% elif variant.is_tuple %}
                 JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(wrappedJson, options) ?? throw new JsonException("Failed to deserialize variant"),
 {% else %}
@@ -176,6 +186,18 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 
     public override void Write(Utf8JsonWriter writer, {{ class_name }} value, JsonSerializerOptions options)
     {
+{% if is_external and has_untagged_string_variant %}
+{% for variant in variants %}
+{% if variant.is_untagged and variant.is_tuple %}
+        if (value is {{ class_name }}.{{ variant.pascal }} untagged{{ variant.pascal }})
+        {
+            writer.WriteStringValue(untagged{{ variant.pascal }}.Value);
+            return;
+        }
+{% endif %}
+{% endfor %}
+
+{% endif %}
 {% if is_external %}
         // serde writes units as strings and payloads under the variant name.
 {% elif is_adjacent %}

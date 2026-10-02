@@ -64,6 +64,39 @@ fn externally_tagged_mixed_enum_accepts_string_units_and_object_payloads() {
 }
 
 #[test]
+fn externally_tagged_enum_with_untagged_string_fallback_round_trips_bare_strings() {
+    let enum_def = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                serde_untagged: true,
+                ..EnumVariant::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".into()),
+        ..EnumDef::default()
+    };
+
+    let emitted = gen_enum(&enum_def, "Sample.Namespace", &[]);
+
+    assert!(emitted.contains("\"plain\" => new OutputFormat.Plain()"));
+    assert!(emitted.contains("_ => new OutputFormat.Custom(unitTag"));
+    assert!(emitted.contains("if (value is OutputFormat.Custom untaggedCustom)"));
+    assert!(emitted.contains("writer.WriteStringValue(untaggedCustom.Value)"));
+    assert!(emitted.contains("Untagged variant must be a string"));
+}
+
+#[test]
 fn externally_tagged_complex_payloads_stay_on_the_existing_plain_enum_path() {
     let cases = [
         vec![FieldDef {

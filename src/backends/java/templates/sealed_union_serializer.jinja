@@ -24,6 +24,17 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
   @SuppressWarnings("PMD.CyclomaticComplexity")
   public void serialize({{ class_name }} value, JsonGenerator gen, SerializerProvider provider)
       throws java.io.IOException {
+{% if is_external and has_untagged_string_variant %}
+{% for variant in variants %}
+{% if variant.is_untagged and variant.is_tuple %}
+    if (value instanceof {{ class_name }}.{{ variant.name }} untagged{{ variant.name }}) {
+      gen.writeString(untagged{{ variant.name }}.value());
+      return;
+    }
+{% endif %}
+{% endfor %}
+
+{% endif %}
     String tag;
     Object inner;
     {%- for variant in variants %}

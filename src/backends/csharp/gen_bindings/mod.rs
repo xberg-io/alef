@@ -528,7 +528,7 @@ impl Backend for CsharpBackend {
         let tagged_union_enums: HashSet<String> = api
             .enums
             .iter()
-            .filter(|e| e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .filter(|e| enums::emits_tagged_union(e))
             .map(|e| csharp_type_name(&e.name))
             .collect();
 

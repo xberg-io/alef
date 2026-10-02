@@ -5,7 +5,7 @@ mod records;
 mod serializers;
 mod shared;
 
-pub(crate) use enums::{emits_get_value, gen_enum_class};
+pub(crate) use enums::{emits_get_value, emits_sealed_interface, gen_enum_class};
 pub(crate) use opaque::gen_opaque_handle_class;
 pub(crate) use records::gen_record_type;
 pub(crate) use serializers::{

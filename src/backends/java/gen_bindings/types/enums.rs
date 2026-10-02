@@ -21,9 +21,14 @@ use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
 /// re-deriving the same condition, for the same reason. ~keep
 pub(crate) fn emits_get_value(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    !((enum_def.serde_tag.is_some() && has_data_variants)
-        || (enum_def.serde_untagged && has_data_variants)
-        || supports_external_string_union(enum_def))
+    !(emits_sealed_interface(enum_def) || (enum_def.serde_untagged && has_data_variants))
+}
+
+/// Keep declaration and dependent-default generation on the same union classification. ~keep
+pub(crate) fn emits_sealed_interface(enum_def: &EnumDef) -> bool {
+    let has_data_variants = enum_def.variants.iter().any(|variant| !variant.fields.is_empty());
+    !enum_def.serde_untagged
+        && ((enum_def.serde_tag.is_some() && has_data_variants) || supports_external_string_union(enum_def))
 }
 
 /// External mixed enums need a sealed hierarchy to preserve payloads, but the existing union

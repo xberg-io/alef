@@ -47,7 +47,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    if (enum_def.serde_tag.is_some() && has_data_variants) || supports_external_string_union(enum_def) {
+    if emits_tagged_union(enum_def) {
         return gen_tagged_union(enum_def, namespace);
     }
 
@@ -136,6 +136,12 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
     ));
 
     out
+}
+
+/// Keep declaration and dependent-default generation on the same union classification. ~keep
+pub(crate) fn emits_tagged_union(enum_def: &EnumDef) -> bool {
+    let has_data_variants = enum_def.variants.iter().any(|variant| !variant.fields.is_empty());
+    (enum_def.serde_tag.is_some() && has_data_variants) || supports_external_string_union(enum_def)
 }
 
 /// External mixed enums need a sealed hierarchy to preserve payloads, but the existing union
@@ -390,6 +396,7 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
                 "is_unit": is_unit,
                 "is_tuple": is_tuple,
                 "is_excluded": is_excluded,
+                "is_untagged": v.serde_untagged,
             }))
         })
         .collect();
@@ -401,6 +408,12 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
             "content_field": repr.content(),
             "is_adjacent": repr.content().is_some(),
             "is_external": matches!(repr, SerdeEnumRepr::External),
+            "has_untagged_string_variant": enum_def.variants.iter().any(|variant| {
+                variant.serde_untagged
+                    && variant.fields.len() == 1
+                    && is_tuple_field(&variant.fields[0])
+                    && matches!(variant.fields[0].ty, TypeRef::String)
+            }),
             "variants": variants,
         })),
     ));

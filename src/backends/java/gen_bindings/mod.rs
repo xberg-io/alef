@@ -342,10 +342,14 @@ impl Backend for JavaBackend {
             .enums
             .iter()
             .filter(|e| {
-                e.serde_tag.is_some()
-                    && e.variants
+                types::emits_sealed_interface(e)
+                    && (matches!(
+                        crate::codegen::serde_enum_repr::serde_enum_repr(e),
+                        crate::codegen::serde_enum_repr::SerdeEnumRepr::External
+                    ) || e
+                        .variants
                         .iter()
-                        .any(|v| v.fields.len() == 1 && helpers::is_tuple_field_name(&v.fields[0].name))
+                        .any(|v| v.fields.len() == 1 && helpers::is_tuple_field_name(&v.fields[0].name)))
             })
             .map(|e| e.name.clone())
             .collect();
@@ -353,7 +357,7 @@ impl Backend for JavaBackend {
         let sealed_interface_names: AHashSet<String> = api
             .enums
             .iter()
-            .filter(|e| e.serde_tag.is_some())
+            .filter(|e| types::emits_sealed_interface(e))
             .map(|e| e.name.clone())
             .collect();
 

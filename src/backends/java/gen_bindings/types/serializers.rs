@@ -1,6 +1,6 @@
 use crate::backends::java::type_map::java_type;
 use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::EnumDef;
+use crate::core::ir::{EnumDef, TypeRef};
 
 use crate::backends::java::gen_bindings::helpers::is_tuple_field_name;
 use crate::codegen::java_literal::{escape_java_comment_text, escape_java_string_literal};
@@ -43,6 +43,7 @@ fn variant_contexts<'a>(
                 discriminator => discriminator,
                 is_unit => is_unit,
                 is_tuple => is_tuple,
+                is_untagged => variant.serde_untagged,
                 inner_type => inner_type,
             }
         })
@@ -157,6 +158,12 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             content_field_doc => repr.content().map(escape_java_comment_text),
             is_adjacent => repr.content().is_some(),
             is_external => matches!(repr, SerdeEnumRepr::External),
+            has_untagged_string_variant => enum_def.variants.iter().any(|variant| {
+                variant.serde_untagged
+                    && variant.fields.len() == 1
+                    && is_tuple_field_name(&variant.fields[0].name)
+                    && matches!(variant.fields[0].ty, TypeRef::String)
+            }),
             needs_content => needs_content,
             variants => variants,
             excluded_variants => excluded_variants,
@@ -188,6 +195,12 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
             content_field_doc => repr.content().map(escape_java_comment_text),
             is_adjacent => repr.content().is_some(),
             is_external => matches!(repr, SerdeEnumRepr::External),
+            has_untagged_string_variant => enum_def.variants.iter().any(|variant| {
+                variant.serde_untagged
+                    && variant.fields.len() == 1
+                    && is_tuple_field_name(&variant.fields[0].name)
+                    && matches!(variant.fields[0].ty, TypeRef::String)
+            }),
             variants => variants,
         },
     ));

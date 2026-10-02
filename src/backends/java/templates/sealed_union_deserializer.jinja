@@ -34,8 +34,16 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
         case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}();
 {% endif %}
 {% endfor %}
+{% if has_untagged_string_variant %}
+{% for variant in variants %}
+{% if variant.is_untagged and variant.is_tuple %}
+        default -> new {{ class_name }}.{{ variant.name }}(wire.asText());
+{% endif %}
+{% endfor %}
+{% else %}
         default -> throw new com.fasterxml.jackson.databind.JsonMappingException(
             parser, "Unknown {{ class_name }} unit variant: " + wire.asText());
+{% endif %}
       };
     }
     if (!wire.isObject() || wire.size() != 1) {
@@ -68,6 +76,9 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
 {% else %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}();
 {% endif %}
+{% elif is_external and variant.is_untagged %}
+      case "{{ variant.discriminator }}" -> throw new com.fasterxml.jackson.databind.JsonMappingException(
+          parser, "Untagged variant must be a string");
 {% elif is_adjacent or is_external %}
 {% if variant.is_tuple %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}(

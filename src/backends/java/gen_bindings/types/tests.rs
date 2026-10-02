@@ -39,6 +39,101 @@ fn externally_tagged_mixed_enum_uses_string_units_and_object_payloads() {
 }
 
 #[test]
+fn externally_tagged_enum_with_untagged_string_fallback_round_trips_bare_strings() {
+    let enum_def = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                serde_untagged: true,
+                ..EnumVariant::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".into()),
+        ..EnumDef::default()
+    };
+
+    let emitted = gen_enum_class("io.xberg", &enum_def, "Xberg", &[]);
+
+    assert!(emitted.contains("case \"plain\" -> new OutputFormat.Plain();"));
+    assert!(emitted.contains("default -> new OutputFormat.Custom(wire.asText());"));
+    assert!(emitted.contains("if (value instanceof OutputFormat.Custom untaggedCustom)"));
+    assert!(emitted.contains("gen.writeString(untaggedCustom.value());"));
+    assert!(emitted.contains("Untagged variant must be a string"));
+}
+
+#[test]
+fn external_string_union_default_constructs_the_nested_unit_record() {
+    let enum_def = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Plain".into(),
+                is_default: true,
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                serde_untagged: true,
+                ..EnumVariant::default()
+            },
+        ],
+        ..EnumDef::default()
+    };
+    let mut typ = make_config_type_with_duration_default();
+    typ.name = "ExtractionConfig".into();
+    typ.fields[0].name = "output_format".into();
+    typ.fields[0].ty = TypeRef::Named("OutputFormat".into());
+    typ.fields[0].optional = false;
+    typ.fields[0].default = Some("/* serde(default) */".into());
+    typ.fields[0].typed_default = None;
+    let mut enum_defaults = ahash::AHashMap::default();
+    enum_defaults.insert(
+        "OutputFormat".to_string(),
+        crate::extract::default_value_for_enum::DefaultEnumVariant {
+            variant_name: "Plain".to_string(),
+            is_zero_field: true,
+        },
+    );
+    let sealed_interfaces = if emits_sealed_interface(&enum_def) {
+        AHashSet::from(["OutputFormat".to_string()])
+    } else {
+        AHashSet::new()
+    };
+
+    let emitted = gen_record_type(
+        "io.xberg",
+        &typ,
+        &AHashSet::default(),
+        &sealed_interfaces,
+        "SNAKE_CASE",
+        &[],
+        "Xberg",
+        JavaBuilderMode::Always,
+        &enum_defaults,
+        &sealed_interfaces,
+        &HashSet::default(),
+    );
+
+    assert!(emitted.contains("new OutputFormat.Plain()"), "got:\n{emitted}");
+    assert!(!emitted.contains("OutputFormat.PLAIN"), "got:\n{emitted}");
+}
+
+#[test]
 fn externally_tagged_complex_payloads_stay_on_the_existing_plain_enum_path() {
     let cases = [
         vec![FieldDef {

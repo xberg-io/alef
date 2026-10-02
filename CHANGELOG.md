@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated C# and Java bindings represent externally tagged Rust enums made up of unit variants
   and single `String` payload variants as sealed record hierarchies, preserving payloads such as
   custom PII categories. This replaces the previous payload-dropping plain-enum representation.
+- Generated C# and Java sealed unions preserve variant-level `#[serde(untagged)]` string fallbacks
+  as bare arbitrary strings and construct nested unit records for dependent field defaults.
 
 ## [0.103.7] - 2026-10-02
 
