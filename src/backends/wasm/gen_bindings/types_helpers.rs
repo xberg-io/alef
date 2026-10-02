@@ -119,3 +119,25 @@ pub(in crate::backends::wasm::gen_bindings) fn class_backed_field_type(
     let mapped = mapper.named(name).into_owned();
     (mapped == format!("{}{name}", mapper.prefix)).then_some(mapped)
 }
+
+/// The generated wasm-bindgen class stored in each element of a `Vec`, when the field is a
+/// `Vec<Named>` or `Option<Vec<Named>>` and the name was not redirected by a type override.
+/// ~keep
+pub(in crate::backends::wasm::gen_bindings) fn class_backed_vec_element_type(
+    field: &FieldDef,
+    mapper: &WasmMapper,
+    class_type_names: &AHashSet<String>,
+) -> Option<String> {
+    let ty = optional_inner(&field.ty);
+    let TypeRef::Vec(inner) = ty else {
+        return None;
+    };
+    let TypeRef::Named(name) = inner.as_ref() else {
+        return None;
+    };
+    if !class_type_names.contains(name.as_str()) {
+        return None;
+    }
+    let mapped = mapper.named(name).into_owned();
+    (mapped == format!("{}{name}", mapper.prefix)).then_some(mapped)
+}

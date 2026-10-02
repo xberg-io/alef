@@ -85,6 +85,8 @@ pub(super) fn gen_opaque_struct_methods(
     }
     impl_builder.add_attr("wasm_bindgen");
 
+    impl_builder.add_method(&gen_transfer_copy_method(typ, prefix));
+
     if is_bridge_type_alias && typ.methods.is_empty() {
         let bridge_config = bridge_config.expect("checked bridge alias");
         let module_name = crate::backends::wasm::trait_bridge::wasm_bridge_module_name(bridge_config);
@@ -516,6 +518,8 @@ pub(super) fn gen_struct_methods(
         }
     }
 
+    impl_builder.add_method(&gen_transfer_copy_method(typ, prefix));
+
     let mut emitted_field_names: AHashSet<&str> = AHashSet::default();
     for field in shared::binding_fields(&typ.fields) {
         if field_references_excluded_type(&field.ty, exclude_types) {
@@ -529,6 +533,7 @@ pub(super) fn gen_struct_methods(
             &tagged_data_enum_names,
             typ.has_default,
             untagged_ts_value_types,
+            &class_type_names,
         ));
         impl_builder.add_method(&gen_setter(
             field,
@@ -798,16 +803,29 @@ fn consumed_argument_doc(
         .filter(|f| types_helpers::class_backed_field_type(f, mapper, class_type_names).is_some())
         .map(|f| format!("`{}`", to_node_name(&f.name)))
         .collect();
-    if consumed.is_empty() {
-        return Vec::new();
+    let consumed_vectors: Vec<String> = fields
+        .iter()
+        .filter(|f| types_helpers::class_backed_vec_element_type(f, mapper, class_type_names).is_some())
+        .map(|f| format!("`{}`", to_node_name(&f.name)))
+        .collect();
+    let mut lines = Vec::new();
+    if !consumed.is_empty() {
+        lines.extend([
+            format!("Takes ownership of {}.", consumed.join(", ")),
+            "wasm-bindgen lowers a by-value class argument through `__destroy_into_raw()`, so each".to_string(),
+            "of those handles is dead once this returns. Passing a freshly built value is fine. To".to_string(),
+            "keep a handle you already hold, build with `default()` and assign the property instead:".to_string(),
+            "the generated setter borrows and leaves your handle alive.".to_string(),
+        ]);
     }
-    vec![
-        format!("Takes ownership of {}.", consumed.join(", ")),
-        "wasm-bindgen lowers a by-value class argument through `__destroy_into_raw()`, so each".to_string(),
-        "of those handles is dead once this returns. Passing a freshly built value is fine. To".to_string(),
-        "keep a handle you already hold, build with `default()` and assign the property instead:".to_string(),
-        "the generated setter borrows and leaves your handle alive.".to_string(),
-    ]
+    if !consumed_vectors.is_empty() {
+        lines.extend([
+            format!("Takes ownership of every element in {}.", consumed_vectors.join(", ")),
+            "wasm-bindgen cannot borrow class values nested in an array. To keep those handles,".to_string(),
+            "copy each retained element with `copyForTransfer()` before passing the array.".to_string(),
+        ]);
+    }
+    lines
 }
 
 /// Generate a `default()` static factory method.
@@ -818,5 +836,20 @@ fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
     format!(
         "#[wasm_bindgen]\n#[allow(clippy::should_implement_trait)]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
+    )
+}
+
+/// Emit an independent JS handle that is safe to give to an ABI position which takes ownership.
+/// wasm-bindgen cannot borrow class values nested in `Vec<T>`, so callers retain the original and
+/// transfer this clone instead. The generated name is reserved for Alef's ownership adapter. ~keep
+fn gen_transfer_copy_method(typ: &TypeDef, prefix: &str) -> String {
+    format!(
+        "/// Return an independent handle for an ownership-taking API.\n\
+         ///\n\
+         /// Use `copyForTransfer()` for each class value placed in an array when the original\n\
+         /// handle must remain usable.\n\
+         #[wasm_bindgen(js_name = \"copyForTransfer\")]\n\
+         pub fn copy_for_transfer(&self) -> {prefix}{} {{\n    self.clone()\n}}",
+        typ.name
     )
 }

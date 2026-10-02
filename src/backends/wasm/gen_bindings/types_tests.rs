@@ -37,7 +37,15 @@ fn gen_getter_option_vec_unit_enum_flattens_option() {
     };
     let enums = enum_names(&["Modality"]);
     let tagged: AHashSet<String> = AHashSet::new();
-    let out = gen_getter(&field, &mapper(), &enums, &tagged, false, &no_untagged_ts_types());
+    let out = gen_getter(
+        &field,
+        &mapper(),
+        &enums,
+        &tagged,
+        false,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(
         out.contains("-> Option<Vec<String>>"),
         "getter must return Option<Vec<String>>: {out}"
@@ -91,7 +99,15 @@ fn gen_getter_setter_required_vec_unit_enum_unchanged() {
     };
     let enums = enum_names(&["Modality"]);
     let tagged: AHashSet<String> = AHashSet::new();
-    let getter = gen_getter(&field, &mapper(), &enums, &tagged, false, &no_untagged_ts_types());
+    let getter = gen_getter(
+        &field,
+        &mapper(),
+        &enums,
+        &tagged,
+        false,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(
         getter.contains("-> Vec<String>"),
         "getter must return Vec<String>: {getter}"
@@ -134,7 +150,15 @@ fn optional_u64_vec_accessors_keep_the_wasm_bigint_vector_shape() {
     let enums = AHashSet::new();
     let tagged = AHashSet::new();
 
-    let getter = gen_getter(&field, &mapper(), &enums, &tagged, false, &no_untagged_ts_types());
+    let getter = gen_getter(
+        &field,
+        &mapper(),
+        &enums,
+        &tagged,
+        false,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     let setter = gen_setter(
         &field,
         &mapper(),
@@ -311,6 +335,7 @@ fn gen_getter_named_enum_mapped_to_js_value_skips_to_api_str() {
         &tagged,
         false,
         &no_untagged_ts_types(),
+        &AHashSet::new(),
     );
     assert!(
         !out.contains("to_api_str"),
@@ -335,7 +360,15 @@ fn gen_getter_named_enum_without_override_still_uses_to_api_str() {
     let enums = enum_names(&["Modality"]);
     let tagged: AHashSet<String> = AHashSet::new();
 
-    let out = gen_getter(&field, &mapper(), &enums, &tagged, false, &no_untagged_ts_types());
+    let out = gen_getter(
+        &field,
+        &mapper(),
+        &enums,
+        &tagged,
+        false,
+        &no_untagged_ts_types(),
+        &AHashSet::new(),
+    );
     assert!(out.contains("-> String"), "getter must expose the wire string: {out}");
     assert!(
         out.contains("self.modality.to_api_str().to_owned()"),

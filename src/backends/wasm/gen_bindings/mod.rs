@@ -94,6 +94,8 @@ impl Backend for WasmBackend {
         let unknown_type_omissions = effective_surface.unknown_type_omissions;
         let api = &effective_surface.api;
 
+        validate_transfer_copy_name(api, &exclude_types)?;
+
         for (struct_name, omissions) in &unknown_type_omissions {
             for (field_name, referenced_type) in omissions {
                 tracing::warn!(
@@ -882,6 +884,38 @@ impl Backend for WasmBackend {
 
         Some(build_config)
     }
+}
+
+/// Reserve the generated ownership-helper name before emitting an invalid duplicate impl.
+/// Both Rust identifiers and their camel-cased JS names matter because wasm-bindgen rejects
+/// either collision. Fields are included because their accessors expose the same JS property.
+/// ~keep
+fn validate_transfer_copy_name(api: &ApiSurface, exclude_types: &[String]) -> anyhow::Result<()> {
+    const RESERVED: &str = "copyForTransfer";
+    for typ in api
+        .types
+        .iter()
+        .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+    {
+        let collides = typ
+            .methods
+            .iter()
+            .map(|method| method.name.as_str())
+            .chain(
+                typ.fields
+                    .iter()
+                    .filter(|field| !field.binding_excluded)
+                    .map(|field| field.name.as_str()),
+            )
+            .any(|name| crate::codegen::naming::to_node_name(name) == RESERVED);
+        if collides {
+            anyhow::bail!(
+                "WASM type `{}` exposes `{RESERVED}`, which is reserved for Alef's ownership-transfer helper",
+                typ.name
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

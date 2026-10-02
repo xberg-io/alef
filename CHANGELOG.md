@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   options-field carrier.
 - Cargo resolution failures for local path dependencies are no longer retried or reported as
   crates.io propagation delays under Rust 1.99.
+- Generated WASM classes expose `copyForTransfer()` for arrays of class values, whose elements
+  wasm-bindgen necessarily takes by ownership. Constructor and setter documentation now names
+  that transfer-safe path, while class-valued getters document that they return detached copies
+  and show the required read/modify/reassign pattern. Optional single-class constructor arguments
+  retain the documented ownership contract established in #479. The behavior is covered by a
+  real Node runtime oracle in addition to generated-source assertions (#499).
 
 ## [0.103.6] - 2026-10-01
 

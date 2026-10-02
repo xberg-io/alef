@@ -193,6 +193,17 @@ fn defaulted_options_type() -> TypeDef {
     }
 }
 
+fn palette_collection_type() -> TypeDef {
+    TypeDef {
+        name: "PaletteCollection".to_string(),
+        rust_path: "test_lib::PaletteCollection".to_string(),
+        fields: vec![field("palettes", TypeRef::Vec(Box::new(named("Palette"))), false)],
+        is_clone: true,
+        has_default: true,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn class_typed_setters_borrow_instead_of_consuming() {
     let content = generated_lib_rs(vec![palette_type(), handle_type(), theme_type()]);
@@ -389,5 +400,63 @@ fn only_a_constructor_that_takes_a_handle_carries_the_ownership_note() {
     assert!(
         !clean.contains("/// Takes ownership of "),
         "a constructor with no class-typed parameter must carry no ownership note;\n{clean}"
+    );
+}
+
+/// alef#499: wasm-bindgen must take ownership of `Vec<WasmClass>` elements to cross the ABI,
+/// so every generated class exposes an explicit copy that callers can transfer instead. ~keep
+#[test]
+fn class_vector_arguments_document_and_expose_an_ownership_safe_copy_path() {
+    let content = generated_lib_rs(vec![palette_type(), palette_collection_type()]);
+
+    for expected in [
+        "pub fn copy_for_transfer(&self) -> WasmPalette",
+        "pub fn set_palettes(&mut self, value: Vec<WasmPalette>)",
+        "/// Takes ownership of every element in `palettes`.",
+        "copy each retained element with `copyForTransfer()` before passing the array.",
+    ] {
+        assert!(content.contains(expected), "missing `{expected}`;\n{content}");
+    }
+}
+
+/// alef#499: a class-typed getter clones because a live nested Rust borrow cannot cross the JS
+/// boundary. The generated declaration must tell callers to modify the copy and assign it back.
+/// ~keep
+#[test]
+fn class_typed_getters_document_their_detached_copy_behavior() {
+    let content = generated_lib_rs(vec![palette_type(), defaulted_options_type()]);
+
+    for expected in [
+        "/// Returns a detached copy of `palette`.",
+        "Changes to the returned value do not update this object.",
+        "read it, modify the copy, then assign the copy back to `palette`.",
+    ] {
+        assert!(content.contains(expected), "missing `{expected}`;\n{content}");
+    }
+}
+
+#[test]
+fn transfer_copy_name_collision_is_rejected_before_emitting_duplicate_wasm_methods() {
+    let mut palette = palette_type();
+    palette.methods.push(MethodDef {
+        name: "copy_for_transfer".to_string(),
+        return_type: named("Palette"),
+        receiver: Some(ReceiverKind::Ref),
+        ..Default::default()
+    });
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![palette],
+        ..Default::default()
+    };
+
+    let error = WasmBackend
+        .generate_bindings(&api, &resolved_wasm_config())
+        .expect_err("copyForTransfer must be reserved for Alef's ownership helper");
+
+    assert_eq!(
+        error.to_string(),
+        "WASM type `Palette` exposes `copyForTransfer`, which is reserved for Alef's ownership-transfer helper"
     );
 }

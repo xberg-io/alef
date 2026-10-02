@@ -7,8 +7,8 @@ use crate::core::ir::{FieldDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
 use super::types_helpers::{
-    class_backed_field_type, is_bare_tagged_data_enum, is_copy_type, is_option_of_tagged_data_enum,
-    is_vec_of_tagged_data_enum, optional_inner,
+    class_backed_field_type, class_backed_vec_element_type, is_bare_tagged_data_enum, is_copy_type,
+    is_option_of_tagged_data_enum, is_vec_of_tagged_data_enum, optional_inner,
 };
 use super::types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
 
@@ -72,6 +72,7 @@ pub(super) fn gen_getter(
     tagged_data_enum_names: &AHashSet<String>,
     has_default: bool,
     untagged_ts_value_types: &AHashMap<String, String>,
+    class_type_names: &AHashSet<String>,
 ) -> String {
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
     let field_type = if force_optional {
@@ -167,8 +168,28 @@ pub(super) fn gen_getter(
         (field_type, expr)
     };
 
+    let copy_doc = if class_backed_field_type(field, mapper, class_type_names).is_some() {
+        format!(
+            "/// Returns a detached copy of `{name}`.\n\
+             ///\n\
+             /// Changes to the returned value do not update this object. To update `{name}`,\n\
+             /// read it, modify the copy, then assign the copy back to `{name}`.\n",
+            name = to_node_name(&field.name),
+        )
+    } else if class_backed_vec_element_type(field, mapper, class_type_names).is_some() {
+        format!(
+            "/// Returns detached copies of the elements in `{name}`.\n\
+             ///\n\
+             /// Changes to the returned values do not update this object. Modify the copies,\n\
+             /// then assign the array back to `{name}`.\n",
+            name = to_node_name(&field.name),
+        )
+    } else {
+        String::new()
+    };
+
     format!(
-        "#[wasm_bindgen(getter{js_name_attr})]\npub fn {}(&self) -> {} {{\n    {}\n}}",
+        "{copy_doc}#[wasm_bindgen(getter{js_name_attr})]\npub fn {}(&self) -> {} {{\n    {}\n}}",
         field.name, field_type, return_expr
     )
 }
@@ -279,8 +300,18 @@ pub(super) fn gen_setter(
         mapper.map_type(&field.ty)
     };
 
+    let ownership_doc = if class_backed_vec_element_type(field, mapper, class_type_names).is_some() {
+        format!(
+            "/// Takes ownership of every element in `{}`.\n\
+             /// wasm-bindgen cannot borrow class values nested in an array; copy each retained\n\
+             /// element with `copyForTransfer()` before passing the array.\n",
+            to_node_name(&field.name)
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{}(&mut self, value: {}) {{\n    self.{} = value;\n}}",
+        "{ownership_doc}#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{}(&mut self, value: {}) {{\n    self.{} = value;\n}}",
         field.name, field_type, field.name
     )
 }

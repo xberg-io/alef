@@ -11,7 +11,8 @@
 //!
 //! So this fixture runs the real pipeline end to end: extract a fixture core crate, generate its
 //! wasm bindings with [`WasmBackend`], build them for `wasm32-unknown-unknown`, run the real
-//! `wasm-bindgen` CLI, and read which arguments the resulting JS destroys.
+//! `wasm-bindgen` CLI, read which scalar arguments the resulting JS destroys, and execute the
+//! array/copy and detached-getter contracts under Node.
 //!
 //! The assertion is an exact set, not a "no occurrences" grep. `__destroy_into_raw()` is
 //! legitimate in `free()` (`this.__destroy_into_raw()`) and is currently unavoidable for a
@@ -60,6 +61,13 @@ pub struct DefaultedOptions {
     pub palette: Palette,
     /// Window title.
     pub title: String,
+}
+
+/// A class-valued array, whose ABI necessarily takes ownership of each element.
+#[derive(Clone, Debug, Default)]
+pub struct PaletteCollection {
+    /// Palettes in display order.
+    pub palettes: Vec<Palette>,
 }
 
 /// A tagged data enum whose payload carries a class-typed field.
@@ -279,7 +287,7 @@ fn build_wasm_module(root: &Path, manifest: &Path) -> PathBuf {
 
 /// Run the real CLI over the built module and return the emitted JavaScript glue.
 fn emit_js_glue(cli: &Path, root: &Path, module: &Path) -> String {
-    let out_dir = root.join("pkg");
+    let out_dir = root.join("pkg-web");
     let output = spawn_from_stable_dir(cli.as_os_str())
         .arg("--target")
         .arg("web")
@@ -299,6 +307,62 @@ fn emit_js_glue(cli: &Path, root: &Path, module: &Path) -> String {
     std::fs::read_to_string(&js).unwrap_or_else(|error| panic!("read emitted glue {js:?}: {error}"))
 }
 
+/// Emit a Node package and execute the ownership/copy contract against the real JS glue.
+fn run_node_ownership_oracle(cli: &Path, root: &Path, module: &Path) {
+    let out_dir = root.join("pkg-node");
+    let output = spawn_from_stable_dir(cli.as_os_str())
+        .arg("--target")
+        .arg("nodejs")
+        .arg("--out-dir")
+        .arg(&out_dir)
+        .arg(module)
+        .output()
+        .expect("run the wasm-bindgen CLI for Node");
+    assert!(
+        output.status.success(),
+        "wasm-bindgen could not emit the Node package.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let node = which::which("node").expect("the wasm-bindgen runtime oracle requires Node");
+    let module = out_dir.join(format!("{}.js", BINDING_CRATE_NAME.replace('-', "_")));
+    let script = root.join("ownership-oracle.cjs");
+    std::fs::write(
+        &script,
+        r#"const w = require(process.argv[2]);
+const original = new w.WasmPalette("original");
+new w.WasmPaletteCollection([original.copyForTransfer()]);
+if (original.label !== "original") throw new Error("constructor consumed the retained handle");
+const collection = w.WasmPaletteCollection.default();
+collection.palettes = [original.copyForTransfer()];
+if (original.label !== "original") throw new Error("setter consumed the retained handle");
+
+const options = w.WasmDefaultedOptions.default();
+const nested = options.palette;
+nested.label = "changed";
+if (options.palette.label === "changed") throw new Error("getter did not return a detached copy");
+options.palette = nested;
+if (options.palette.label !== "changed") throw new Error("read/modify/reassign did not update the parent");
+if (nested.label !== "changed") throw new Error("borrowed setter consumed the copy");
+process.stdout.write("ownership oracle ok");
+"#,
+    )
+    .expect("write Node ownership oracle");
+    let output = spawn_from_stable_dir(node.as_os_str())
+        .arg(&script)
+        .arg(&module)
+        .output()
+        .expect("run Node ownership oracle");
+    assert!(
+        output.status.success(),
+        "Node ownership oracle failed.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ownership oracle ok");
+}
+
 /// Locate the `wasm-bindgen` CLI, or report that this fixture did not run.
 ///
 /// Routed through the crate-wide [`toolchain::WASM_BINDGEN`] gate, which counts the invocation as
@@ -309,8 +373,9 @@ fn wasm_bindgen_cli() -> Option<PathBuf> {
     toolchain::WASM_BINDGEN.open()
 }
 
-/// The gate: no accessor or constructor in alef's generated wasm bindings may consume a handle
-/// the caller still owns, beyond the two positions `wasm-bindgen` gives no way to avoid.
+/// The gate: scalar ownership transfers are pinned from the glue, while array element ownership
+/// and the explicit copy path are exercised under Node because the transfer occurs inside
+/// wasm-bindgen's Rust conversion rather than as a visible `__destroy_into_raw()` JS call. ~keep
 ///
 /// Sabotage checks for this test:
 /// - reverting `types_accessors::gen_setter`'s `class_backed_field_type` branch to the by-value
@@ -334,13 +399,20 @@ fn generated_bindings_do_not_destroy_handles_the_caller_still_owns() {
     let manifest = materialize_workspace(root, &cli_crate_version(&cli));
     let module = build_wasm_module(root, &manifest);
     let js = emit_js_glue(&cli, root, &module);
+    run_node_ownership_oracle(&cli, root, &module);
 
     // Anti-vacuity: an empty or truncated fixture would report zero consumed handles and read
     // exactly like a clean one. Every class the assertions below reason about must be here.
     // The panics print the class list rather than the whole glue -- the glue is ~500 lines and
     // buries the finding; `ALEF_WASM_FIXTURE_DIR` keeps the package for reading instead. ~keep
     let declared: Vec<String> = js.lines().filter_map(class_declaration).collect();
-    for class in ["WasmPalette", "WasmRenderOptions", "WasmDefaultedOptions", "WasmLayer"] {
+    for class in [
+        "WasmPalette",
+        "WasmRenderOptions",
+        "WasmDefaultedOptions",
+        "WasmPaletteCollection",
+        "WasmLayer",
+    ] {
         assert!(
             declared.iter().any(|name| name == class),
             "the emitted glue declares {declared:?}, missing `{class}`, so this run examined less \
@@ -361,6 +433,10 @@ fn generated_bindings_do_not_destroy_handles_the_caller_still_owns() {
             // setters already reach every state the constructor can. These two entries are
             // therefore the intended contract, not a backlog item. ~keep
             "WasmDefaultedOptions.constructor consumes `palette`".to_string(),
+            // `Vec<WasmPalette>` lowers through wasm-bindgen's generated `__unwrap`, which
+            // necessarily takes ownership of each element. The Node oracle above proves that
+            // passing `copyForTransfer()` results preserves the caller's original handles. ~keep
+            "WasmPalette.static __unwrap consumes `jsValue`".to_string(),
             // Same wall, reached through the optional parameter of an otherwise-borrowable
             // constructor. ~keep
             "WasmRenderOptions.constructor consumes `fallbackPalette`".to_string(),
