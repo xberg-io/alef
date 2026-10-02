@@ -598,7 +598,45 @@ pub(super) fn render_typed_default_argument(
             Ok(expression)
         }
     } else {
-        Ok(json_to_go(v))
+        let literal = json_to_go(v);
+        let declared_primitive = target.param_for(&arg.name, arg_index).and_then(|param| {
+            if !param.optional {
+                return None;
+            }
+            match &param.ty {
+                crate::core::ir::TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), crate::core::ir::TypeRef::Primitive(_)) =>
+                {
+                    Some(crate::backends::go::type_map::go_type(inner).into_owned())
+                }
+                _ => None,
+            }
+        });
+        let configured_primitive = if target.known().is_none() && arg.optional {
+            match arg.arg_type.as_str() {
+                "u8" => Some("uint8"),
+                "u16" => Some("uint16"),
+                "u32" => Some("uint32"),
+                "u64" => Some("uint64"),
+                "i8" => Some("int8"),
+                "i16" => Some("int16"),
+                "i32" => Some("int32"),
+                "i64" => Some("int64"),
+                "f32" => Some("float32"),
+                "f64" => Some("float64"),
+                "bool" | "boolean" => Some("bool"),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(go_type) = declared_primitive.as_deref().or(configured_primitive) {
+            let expression = format!("ptr({go_type}({literal}))");
+            ensure_value_helpers(package_decls, &expression);
+            Ok(expression)
+        } else {
+            Ok(literal)
+        }
     }
 }
 
@@ -627,5 +665,53 @@ impl UppercaseFirst for str {
             Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
             None => String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod optional_primitive_tests {
+    use super::super::{GoArgsContext, build_args_and_setup};
+    use crate::e2e::codegen::call_ir::TargetParams;
+    use crate::e2e::config::ArgMapping;
+    use crate::e2e::fixture::Fixture;
+
+    #[test]
+    fn optional_u32_fixture_value_uses_pointer_to_uint32() {
+        let fixture = Fixture {
+            id: "external_redaction".into(),
+            input: serde_json::json!({"max_findings": 8}),
+            ..Fixture::default()
+        };
+        let arg = ArgMapping {
+            name: "max_findings".into(),
+            field: "input.max_findings".into(),
+            arg_type: "u32".into(),
+            optional: true,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: None,
+        };
+        let (declarations, _, args) = build_args_and_setup(
+            &fixture.input,
+            &[arg],
+            &fixture,
+            GoArgsContext {
+                import_alias: "xberg",
+                options_type: None,
+                options_ptr: false,
+                expects_error: false,
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &crate::core::config::ResolvedCrateConfig::default(),
+                type_defs: &[],
+                enums: &[],
+                native_dtos: false,
+                target: TargetParams::IrAbsent,
+            },
+        )
+        .expect("render optional primitive");
+        assert_eq!(args, "ptr(uint32(8))");
+        assert!(declarations.iter().any(|line| line.contains("func ptr[T any]")));
     }
 }
