@@ -9,6 +9,50 @@ use std::fmt::Write as FmtWrite;
 use super::{args, assertions, stubs, types, visitor};
 use crate::e2e::codegen::inert_example::{self, InertCause, InertExample};
 
+fn uses_unsupported_php_callback(args: &[crate::e2e::config::ArgMapping], config: &ResolvedCrateConfig) -> bool {
+    args.iter().any(|arg| {
+        arg.arg_type == "test_backend"
+            && arg.trait_name.as_deref().is_some_and(|trait_name| {
+                config
+                    .trait_bridges_for(crate::core::config::Language::Php)
+                    .any(|bridge| bridge.trait_name == trait_name && bridge.php_callbacks_unsupported())
+            })
+    })
+}
+
+#[cfg(test)]
+mod php_callback_capability_tests {
+    use super::uses_unsupported_php_callback;
+    use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
+
+    #[test]
+    fn lifecycle_only_bridge_does_not_emit_runnable_php_callback_test() {
+        let mut config = ResolvedCrateConfig::default();
+        config.replace_trait_bridges(vec![TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".into(),
+            exclude_languages: vec!["php:callbacks".into()],
+            ..TraitBridgeConfig::default()
+        }]);
+        let args = vec![crate::e2e::config::ArgMapping {
+            name: "backend".into(),
+            field: "input.backend".into(),
+            arg_type: "test_backend".into(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: Some("EmbeddingBackend".into()),
+        }];
+        assert!(uses_unsupported_php_callback(&args, &config));
+        config.replace_trait_bridges(vec![TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".into(),
+            ..TraitBridgeConfig::default()
+        }]);
+        assert!(!uses_unsupported_php_callback(&args, &config));
+    }
+}
+
 /// True when `body` contains at least one line that is not blank and not a
 /// `//`-prefixed comment — i.e. an executable PHPUnit assertion statement.
 /// A body made up only of "// skipped: ..." lines is not executable and
@@ -257,7 +301,8 @@ pub(super) fn render_test_method(
     );
 
     // Check for skip_languages early
-    let skip_test = call_config.skip_languages.iter().any(|l| l == "php");
+    let skip_test =
+        call_config.skip_languages.iter().any(|l| l == "php") || uses_unsupported_php_callback(args, config);
     if skip_test {
         let rendered = crate::e2e::template_env::render(
             "php/test_method.jinja",
