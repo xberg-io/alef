@@ -779,6 +779,47 @@ result_type = "VisitResult""#,
     }
 
     #[test]
+    fn php_safety_error_recommends_only_migrations_valid_for_the_bridge_shape() {
+        let visitor = php_bridge_config(
+            r#"type_alias = "VisitorHandle"
+param_name = "visitor"
+bind_via = "options_field"
+options_type = "SampleOptions"
+options_field = "visitor"
+context_type = "NodeContext"
+result_type = "VisitResult""#,
+        );
+        let visitor_message = validate_resolved(&visitor)
+            .expect_err("an attached PHP visitor must fail closed")
+            .to_string();
+        assert!(
+            visitor_message.contains("`php:callbacks` cannot preserve this visitor callback"),
+            "the diagnostic must not recommend an incompatible lifecycle-only mode: {visitor_message}"
+        );
+        assert!(
+            visitor_message.contains("omit the PHP callback interface and its options-field carrier"),
+            "the diagnostic must state what plain `php` removes: {visitor_message}"
+        );
+        assert!(
+            !visitor_message.contains("as `php:callbacks` to preserve"),
+            "the diagnostic must not present `php:callbacks` as a valid migration: {visitor_message}"
+        );
+
+        let lifecycle = php_bridge_config(
+            r#"super_trait = "Plugin"
+register_fn = "register_sample_plugin"
+registry_getter = "sample_core::plugins::registry""#,
+        );
+        let lifecycle_message = validate_resolved(&lifecycle)
+            .expect_err("an enabled PHP lifecycle bridge must fail closed")
+            .to_string();
+        assert!(
+            lifecycle_message.contains("as `php:callbacks` to preserve its public lifecycle surface"),
+            "a lifecycle-only bridge must retain its valid compatibility migration: {lifecycle_message}"
+        );
+    }
+
+    #[test]
     fn php_trait_bridge_exclusion_is_the_explicit_escape_hatch() {
         let config = php_bridge_config(
             r#"super_trait = "Plugin"

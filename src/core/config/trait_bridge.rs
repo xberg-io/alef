@@ -217,6 +217,24 @@ impl TraitBridgeConfig {
     }
 
     pub(crate) fn php_safety_error(&self) -> String {
+        if let Some(attachment_shape) = self.php_callback_attachment_shape() {
+            let omitted_surface = if self.bind_via == BridgeBinding::OptionsField
+                || self.options_type.is_some()
+                || self.options_field.is_some()
+            {
+                "callback interface and its options-field carrier"
+            } else {
+                "callback interface"
+            };
+            return format!(
+                "PHP trait bridge `{}` is disabled: generated wrappers cannot safely retain \
+                 request-bound Zend values behind Rust Send + Sync trait objects. \
+                 `php:callbacks` cannot preserve this {attachment_shape} because it supports \
+                 lifecycle symbols only. Add plain `php` to this bridge's `exclude_languages` \
+                 to omit the PHP {omitted_surface}, or remove PHP from the crate's languages.",
+                self.trait_name
+            );
+        }
         format!(
             "PHP trait bridge `{}` is disabled: generated wrappers cannot safely retain \
              request-bound Zend values behind Rust Send + Sync trait objects. Add `php` to this \

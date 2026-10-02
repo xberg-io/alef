@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- PHP trait-bridge safety errors no longer recommend the lifecycle-only `php:callbacks` mode for
+  callback attachments it cannot preserve, and state when excluding PHP also removes an
+  options-field carrier.
+
 ## [0.103.6] - 2026-10-01
 
 ### Fixed
