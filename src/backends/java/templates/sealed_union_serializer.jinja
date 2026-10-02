@@ -1,4 +1,6 @@
-{% if is_adjacent %}
+{% if is_external %}
+/** Custom serializer for serde's externally tagged enum shape. */
+{% elif is_adjacent %}
 /** Custom serializer for sealed interface with unwrapped variants. Emits serde's adjacently tagged shape: the discriminator under "{{ tag_field_doc }}" and the whole payload under "{{ content_field_doc }}". */
 {% else %}
 /** Custom serializer for sealed interface with unwrapped variants. Emits the discriminator tag alongside the inner record's fields (flat object). */
@@ -41,6 +43,15 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
           gen, "Unknown {{ class_name }} variant: " + value.getClass().getName());
     }
 
+{% if is_external %}
+    if (inner == null) {
+      gen.writeString(tag);
+      return;
+    }
+    gen.writeStartObject();
+    gen.writeFieldName(tag);
+    gen.writeTree(MAPPER.valueToTree(inner));
+{% else %}
     gen.writeStartObject();
     gen.writeStringField("{{ tag_field }}", tag);
 {% if is_adjacent %}
@@ -64,5 +75,6 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
     }
 {% endif %}
     gen.writeEndObject();
+{% endif %}
   }
 }

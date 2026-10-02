@@ -25,6 +25,26 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
   @SuppressWarnings("PMD.CyclomaticComplexity")
   public {{ class_name }} deserialize(final JsonParser parser, final DeserializationContext ctx)
       throws java.io.IOException {
+{% if is_external %}
+    final com.fasterxml.jackson.databind.JsonNode wire = parser.getCodec().readTree(parser);
+    if (wire.isTextual()) {
+      return switch (wire.asText()) {
+{% for variant in variants %}
+{% if variant.is_unit %}
+        case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}();
+{% endif %}
+{% endfor %}
+        default -> throw new com.fasterxml.jackson.databind.JsonMappingException(
+            parser, "Unknown {{ class_name }} unit variant: " + wire.asText());
+      };
+    }
+    if (!wire.isObject() || wire.size() != 1) {
+      throw new com.fasterxml.jackson.databind.JsonMappingException(
+          parser, "Expected one externally tagged {{ class_name }} variant");
+    }
+    final String tagValue = wire.fieldNames().next();
+    final com.fasterxml.jackson.databind.JsonNode contentNode = wire.get(tagValue);
+{% else %}
     final ObjectNode node = parser.getCodec().readTree(parser);
     final com.fasterxml.jackson.databind.JsonNode tagNode = node.get("{{ tag_field }}");
     if (tagNode == null || tagNode.isNull()) {
@@ -37,18 +57,19 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
 {% else %}
     node.remove("{{ tag_field }}");
 {% endif %}
+{% endif %}
 
     return switch (tagValue) {
 {% for variant in variants %}
 {% if variant.is_unit %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}();
-{% elif is_adjacent %}
+{% elif is_adjacent or is_external %}
 {% if variant.is_tuple %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}(
-          ctx.readTreeAsValue(requireContent(parser, contentNode, tagValue), {{ variant.inner_type }}.class));
+          ctx.readTreeAsValue({% if is_external %}contentNode{% else %}requireContent(parser, contentNode, tagValue){% endif %}, {{ variant.inner_type }}.class));
 {% else %}
       case "{{ variant.discriminator }}" -> ctx.readTreeAsValue(
-          requireContent(parser, contentNode, tagValue), {{ class_name }}.{{ variant.name }}.class);
+          {% if is_external %}contentNode{% else %}requireContent(parser, contentNode, tagValue){% endif %}, {{ class_name }}.{{ variant.name }}.class);
 {% endif %}
 {% elif variant.is_tuple %}
 {% if variant.inner_type == "String" %}

@@ -1,7 +1,10 @@
 /// <summary>
 /// Custom converter for {{ class_name }} sealed union with flattened variant fields.
 /// </summary>
-{% if is_adjacent %}
+{% if is_external %}
+/// <remarks>Handles serde's external layout: unit variants are strings and data variants
+/// are objects with one variant-name property.</remarks>
+{% elif is_adjacent %}
 /// <remarks>
 /// Handles serde's adjacently tagged layout: the discriminator under "{{ tag_field }}" and the
 /// whole payload — object or scalar — under "{{ content_field }}". System.Text.Json's
@@ -18,6 +21,21 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 {
     public override {{ class_name }} Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
+{% if is_external %}
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var unitTag = reader.GetString();
+            return unitTag switch
+            {
+{% for variant in variants %}
+{% if variant.is_unit and not variant.is_excluded %}
+                "{{ variant.discriminator }}" => new {{ class_name }}.{{ variant.pascal }}(),
+{% endif %}
+{% endfor %}
+                _ => throw new JsonException($"Unknown {{ class_name }} unit variant: {unitTag}")
+            };
+        }
+{% endif %}
         if (reader.TokenType != JsonTokenType.StartObject)
         {
             throw new JsonException($"Expected JSON object, got {reader.TokenType}");
@@ -26,6 +44,16 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
         using var doc = JsonDocument.ParseValue(ref reader);
         var root = doc.RootElement;
 
+{% if is_external %}
+        using var properties = root.EnumerateObject();
+        if (!properties.MoveNext())
+            throw new JsonException("Missing externally tagged variant");
+        var property = properties.Current;
+        if (properties.MoveNext())
+            throw new JsonException("Externally tagged variant must have one property");
+        var tagValue = property.Name;
+        var contentElement = property.Value;
+{% else %}
         if (!root.TryGetProperty("{{ tag_field }}", out var tagElement))
         {
             throw new JsonException($"Missing discriminator field: {{ tag_field }}");
@@ -36,13 +64,18 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
         {
             throw new JsonException("Discriminator field is null");
         }
+{% endif %}
 
-{% if is_adjacent %}
+{% if is_adjacent or is_external %}
         // The payload sits whole under "{{ content_field }}" and may be a scalar, so it is taken
         // verbatim rather than reassembled from the sibling fields. Tuple-variant records
         // (`Variant(InnerStruct value)`) expect it under a single "Value" field; struct-variant
         // records (`Variant { field1, field2 }`) expect the payload object itself.
+{% if is_adjacent %}
         var hasContent = root.TryGetProperty("{{ content_field }}", out var contentElement);
+{% else %}
+        var hasContent = true;
+{% endif %}
 
         using var ms = new MemoryStream();
         using var writer = new Utf8JsonWriter(ms);
@@ -139,7 +172,9 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 
     public override void Write(Utf8JsonWriter writer, {{ class_name }} value, JsonSerializerOptions options)
     {
-{% if is_adjacent %}
+{% if is_external %}
+        // serde writes units as strings and payloads under the variant name.
+{% elif is_adjacent %}
         // Emit the discriminator under "{{ tag_field }}" and the payload whole under
         // "{{ content_field }}" — serde's adjacent form. Flattening the payload beside the tag
         // is serde's *internal* form and Rust rejects it with "expected adjacently tagged enum";
@@ -176,6 +211,17 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
                 throw new JsonException($"Unknown {{ class_name }} variant: {value.GetType().Name}");
         }
 
+{% if is_external %}
+        if (inner == null)
+        {
+            writer.WriteStringValue(tag);
+            return;
+        }
+        writer.WriteStartObject();
+        writer.WritePropertyName(tag);
+        JsonSerializer.Serialize(writer, inner, inner.GetType(), options);
+        writer.WriteEndObject();
+{% else %}
         writer.WriteStartObject();
         writer.WriteString("{{ tag_field }}", tag);
         if (inner != null)
@@ -196,5 +242,6 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 {% endif %}
         }
         writer.WriteEndObject();
+{% endif %}
     }
 }

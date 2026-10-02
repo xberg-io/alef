@@ -47,7 +47,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    if enum_def.serde_tag.is_some() && has_data_variants {
+    if has_data_variants && !enum_def.serde_untagged {
         return gen_tagged_union(enum_def, namespace);
     }
 
@@ -385,6 +385,7 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
             "tag_field": repr.tag().unwrap_or(DEFAULT_TAG_FIELD),
             "content_field": repr.content(),
             "is_adjacent": repr.content().is_some(),
+            "is_external": matches!(repr, SerdeEnumRepr::External),
             "variants": variants,
         })),
     ));

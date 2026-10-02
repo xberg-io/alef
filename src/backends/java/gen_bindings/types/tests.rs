@@ -6,6 +6,36 @@ use crate::core::ir::{CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef,
 use ahash::AHashSet;
 use std::collections::HashSet;
 
+#[test]
+fn externally_tagged_mixed_enum_uses_string_units_and_object_payloads() {
+    let enum_def = EnumDef {
+        name: "PiiCategory".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Email".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..EnumVariant::default()
+            },
+        ],
+        serde_rename_all: Some("snake_case".into()),
+        ..EnumDef::default()
+    };
+    let emitted = gen_enum_class("io.xberg", &enum_def, "Xberg", &[]);
+    assert!(emitted.contains("public sealed interface PiiCategory"));
+    assert!(emitted.contains("if (wire.isTextual())"));
+    assert!(emitted.contains("wire.size() != 1"));
+    assert!(emitted.contains("gen.writeString(tag)"));
+    assert!(emitted.contains("gen.writeFieldName(tag)"));
+}
+
 /// Builds the primitive literal-default shape that requires null to distinguish absence from zero. ~keep
 fn make_config_type_with_primitive_default(primitive: PrimitiveType, default: i64) -> TypeDef {
     let mut typ = make_config_type_with_duration_default();

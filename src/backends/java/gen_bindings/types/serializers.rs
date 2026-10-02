@@ -156,6 +156,7 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             content_field => repr.content().map(escape_java_string_literal),
             content_field_doc => repr.content().map(escape_java_comment_text),
             is_adjacent => repr.content().is_some(),
+            is_external => matches!(repr, SerdeEnumRepr::External),
             needs_content => needs_content,
             variants => variants,
             excluded_variants => excluded_variants,
@@ -186,6 +187,7 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
             content_field => repr.content().map(escape_java_string_literal),
             content_field_doc => repr.content().map(escape_java_comment_text),
             is_adjacent => repr.content().is_some(),
+            is_external => matches!(repr, SerdeEnumRepr::External),
             variants => variants,
         },
     ));

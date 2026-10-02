@@ -21,12 +21,12 @@ use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
 /// re-deriving the same condition, for the same reason. ~keep
 pub(crate) fn emits_get_value(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    !((enum_def.serde_tag.is_some() && has_data_variants) || (enum_def.serde_untagged && has_data_variants))
+    !has_data_variants
 }
 
 pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str, text_types: &[String]) -> String {
     if !emits_get_value(enum_def) {
-        if enum_def.serde_tag.is_some() {
+        if !enum_def.serde_untagged {
             return gen_java_tagged_union(package, enum_def);
         }
         let emit_text = text_types.iter().any(|t| t == &enum_def.name);
@@ -274,7 +274,8 @@ fn tagged_union_flags<'a>(enum_def: &'a EnumDef, repr: &SerdeEnumRepr) -> Tagged
     // `@JsonTypeInfo(Id.NAME, property = tag)` can only express serde's *internal* shape, so an
     // adjacently tagged enum must go through the hand-written codecs whatever its variants look
     // like — otherwise its payload lands beside the tag instead of under the content key. ~keep
-    let needs_unwrapped = repr.content().is_some()
+    let needs_unwrapped = matches!(repr, SerdeEnumRepr::External)
+        || repr.content().is_some()
         || enum_def
             .variants
             .iter()

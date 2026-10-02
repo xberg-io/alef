@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `alef verify --exit-code` preserves canonical filenames while formatting fresh-render previews,
   avoiding false drift reports for filename-routed E2E manifests such as C# project files, Maven
   `pom.xml`, and Zig `build.zig.zon` after generation has already formatted them.
+- Generated Go e2e calls pass present optional primitive arguments as typed pointers.
+- PHP e2e tests skip callback registration for lifecycle-only trait bridges configured with
+  `php:callbacks`, which cannot safely retain Zend callbacks.
+- Generated C# and Java bindings round-trip externally tagged Rust enums with both unit and
+  payload variants, including custom PII categories.
 
 ## [0.103.7] - 2026-10-02
 

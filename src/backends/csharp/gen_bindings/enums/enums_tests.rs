@@ -37,6 +37,32 @@ fn tagged_union_enum(variants: Vec<EnumVariant>, rename_all_fields: Option<&str>
 }
 
 #[test]
+fn externally_tagged_mixed_enum_accepts_string_units_and_object_payloads() {
+    let mut enum_def = tagged_union_enum(
+        vec![
+            struct_variant("Email", vec![]),
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..EnumVariant::default()
+            },
+        ],
+        None,
+    );
+    enum_def.serde_tag = None;
+    let emitted = gen_enum(&enum_def, "Sample.Namespace", &[]);
+    assert!(emitted.contains("abstract record SampleUnion"));
+    assert!(emitted.contains("reader.TokenType == JsonTokenType.String"));
+    assert!(emitted.contains("var tagValue = property.Name"));
+    assert!(emitted.contains("writer.WriteStringValue(tag)"));
+    assert!(emitted.contains("writer.WritePropertyName(tag)"));
+}
+
+#[test]
 fn struct_variant_field_with_serde_rename_uses_the_renamed_wire_name() {
     let enum_def = tagged_union_enum(
         vec![struct_variant(
