@@ -23,7 +23,9 @@
 {% if client_factory %}
         {{ client_factory }}
 {% endif %}
-{% if expects_error %}
+{% if skip_reason %}
+        $this->markTestSkipped('{{ skip_reason }}');
+{% elif expects_error %}
 {{ error_test_body }}
 {% elif skip_test %}
 {% for line in setup_lines %}

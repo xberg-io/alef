@@ -20,9 +20,20 @@ fn uses_unsupported_php_callback(args: &[crate::e2e::config::ArgMapping], config
     })
 }
 
+fn render_unsupported_php_callback_method(method_name: &str, description: &str) -> String {
+    crate::e2e::template_env::render(
+        "php/test_method.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            description => description,
+            skip_reason => "PHP callback bridge is unavailable for this lifecycle-only trait",
+        },
+    )
+}
+
 #[cfg(test)]
 mod php_callback_capability_tests {
-    use super::uses_unsupported_php_callback;
+    use super::{render_unsupported_php_callback_method, uses_unsupported_php_callback};
     use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 
     #[test]
@@ -50,6 +61,11 @@ mod php_callback_capability_tests {
             ..TraitBridgeConfig::default()
         }]);
         assert!(!uses_unsupported_php_callback(&args, &config));
+
+        let method = render_unsupported_php_callback_method("register_embedding_backend", "callback fixture");
+        assert!(method.contains("$this->markTestSkipped("));
+        assert!(!method.contains("$result = ;"));
+        assert!(!method.contains("$result ="));
     }
 }
 
@@ -251,6 +267,11 @@ pub(super) fn render_test_method(
     let description = &fixture.description;
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
+    if uses_unsupported_php_callback(args, config) {
+        out.push_str(&render_unsupported_php_callback_method(&method_name, description));
+        return;
+    }
+
     // Resolve options_type for this call. Precedence: per-language call override,
     // then the call-level `options_type` (the binding-agnostic config parameter type,
     // a call-specific options type), then the global per-language call override (fallback default).
@@ -301,8 +322,7 @@ pub(super) fn render_test_method(
     );
 
     // Check for skip_languages early
-    let skip_test =
-        call_config.skip_languages.iter().any(|l| l == "php") || uses_unsupported_php_callback(args, config);
+    let skip_test = call_config.skip_languages.iter().any(|l| l == "php");
     if skip_test {
         let rendered = crate::e2e::template_env::render(
             "php/test_method.jinja",
