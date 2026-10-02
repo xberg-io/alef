@@ -1,6 +1,6 @@
 //! C# argument setup rendering for generated e2e tests.
 
-use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_variant_value};
+use crate::codegen::naming::{csharp_type_name, csharp_variant_name, to_csharp_name, wire_variant_value};
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{EnumDef, TypeRef};
 use crate::e2e::codegen::call_ir::TargetParams;
@@ -421,12 +421,13 @@ pub(super) fn build_args_and_setup(
                     if let Some(opts_type) = json_object_type
                         && let Some(obj) = v.as_object()
                     {
-                        parts.push(csharp_object_initializer(
+                        parts.push(csharp_object_initializer_with_enums(
                             obj,
                             opts_type,
                             enum_fields,
                             nested_types,
                             type_defs,
+                            enums,
                             &fixture.docs_files_for_arg(&arg.field),
                             "",
                         ));
@@ -657,12 +658,36 @@ fn sort_discriminator_first(value: serde_json::Value) -> serde_json::Value {
 /// resolve to the identical identifier or the generated C# does not reference a type the binding
 /// declares. `csharp_type_name` is idempotent on a name that is already correctly cased, so
 /// applying it unconditionally at each splice point below is safe. ~keep
+#[cfg(test)]
 pub(super) fn csharp_object_initializer(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
     enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     type_defs: &[crate::core::ir::TypeDef],
+    files: &[crate::e2e::fixture::FixtureDocsFileInput],
+    pointer: &str,
+) -> String {
+    csharp_object_initializer_with_enums(
+        obj,
+        type_name,
+        enum_fields,
+        nested_types,
+        type_defs,
+        &[],
+        files,
+        pointer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn csharp_object_initializer_with_enums(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    type_name: &str,
+    enum_fields: &HashMap<String, String>,
+    nested_types: &HashMap<String, String>,
+    type_defs: &[crate::core::ir::TypeDef],
+    enums: &[EnumDef],
     files: &[crate::e2e::fixture::FixtureDocsFileInput],
     pointer: &str,
 ) -> String {
@@ -706,18 +731,37 @@ pub(super) fn csharp_object_initializer(
                         .as_str()
                         .map(|s| s.to_upper_camel_case())
                         .unwrap_or_else(|| "null".to_string());
-                    format!("{enum_type}.{member}")
+                    let unit_record = enums
+                        .iter()
+                        .find(|enum_def| {
+                            csharp_type_name(&enum_def.name) == enum_type
+                                && crate::backends::csharp::gen_bindings::emits_tagged_union(enum_def)
+                        })
+                        .and_then(|enum_def| {
+                            enum_def.variants.iter().find(|variant| {
+                                variant.fields.is_empty()
+                                    && val
+                                        .as_str()
+                                        .is_some_and(|text| csharp_enum_wire_value(enum_def, variant) == text)
+                            })
+                        });
+                    if let Some(variant) = unit_record {
+                        format!("new {enum_type}.{}()", csharp_variant_name(&variant.name))
+                    } else {
+                        format!("{enum_type}.{member}")
+                    }
                 }
             } else if let Some(field_type) = resolve_csharp_field_type_from_struct(type_name, key, type_defs) {
                 if let Some(object) = val.as_object()
                     && type_defs.iter().any(|definition| definition.name == field_type)
                 {
-                    csharp_object_initializer(
+                    csharp_object_initializer_with_enums(
                         object,
                         &field_type,
                         enum_fields,
                         nested_types,
                         type_defs,
+                        enums,
                         files,
                         &field_pointer,
                     )

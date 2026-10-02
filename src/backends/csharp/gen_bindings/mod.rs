@@ -37,6 +37,7 @@ pub(super) mod enums;
 // Re-exported at crate visibility for the same reason `variant_dispatch_prefix` below is: the
 // e2e field resolver renders `.As<Variant>` into doc snippets and must read the accessor set
 // from the generator that emits it, not re-derive it. See the function's own `~keep` doc.
+pub(crate) use enums::emits_tagged_union;
 pub(crate) use enums::variant_accessor_properties;
 pub(super) mod errors;
 // Re-exported at crate visibility (narrower than the module itself) so

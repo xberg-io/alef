@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated C# e2e examples construct unit records for sealed enum variants, keeping examples
+  compilable after an enum gains a payload variant.
+
 ## [0.103.8] - 2026-10-02
 
 ### Fixed

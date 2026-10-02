@@ -3,9 +3,106 @@
 //! fallback when an element type cannot be resolved, and JSON-scalar wrapping. Type-name
 //! casing behavior for the same function lives in `object_initializer_type_name_tests.rs`.
 
-use super::setup::csharp_object_initializer;
-use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+use super::setup::{csharp_object_initializer, csharp_object_initializer_with_enums};
+use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
 use std::collections::HashMap;
+
+#[test]
+fn output_format_unit_variant_is_constructed_as_a_record() {
+    let output_format = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Markdown".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..EnumVariant::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".into()),
+        ..EnumDef::default()
+    };
+    let rendered = csharp_object_initializer_with_enums(
+        serde_json::json!({"output_format": "markdown"})
+            .as_object()
+            .expect("object"),
+        "ExtractionConfig",
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+        &[output_format],
+        &[],
+        "",
+    );
+    assert_eq!(
+        rendered,
+        "new ExtractionConfig { OutputFormat = new OutputFormat.Markdown() }"
+    );
+
+    let true_enum = EnumDef {
+        name: "OutputFormat".into(),
+        variants: vec![EnumVariant {
+            name: "Markdown".into(),
+            ..EnumVariant::default()
+        }],
+        ..EnumDef::default()
+    };
+    let plain = csharp_object_initializer_with_enums(
+        serde_json::json!({"output_format": "markdown"})
+            .as_object()
+            .expect("object"),
+        "ExtractionConfig",
+        &HashMap::new(),
+        &HashMap::new(),
+        &[],
+        &[true_enum],
+        &[],
+        "",
+    );
+    assert_eq!(plain, "new ExtractionConfig { OutputFormat = OutputFormat.Markdown }");
+}
+
+#[test]
+fn normalized_enum_type_name_still_constructs_a_unit_record() {
+    let uri = EnumDef {
+        name: "URI".into(),
+        variants: vec![
+            EnumVariant {
+                name: "File".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..EnumVariant::default()
+            },
+        ],
+        serde_rename_all: Some("lowercase".into()),
+        ..EnumDef::default()
+    };
+    let rendered = csharp_object_initializer_with_enums(
+        serde_json::json!({"uri": "file"}).as_object().expect("object"),
+        "FetchConfig",
+        &HashMap::from([("uri".into(), "Uri".into())]),
+        &HashMap::new(),
+        &[],
+        &[uri],
+        &[],
+        "",
+    );
+    assert_eq!(rendered, "new FetchConfig { Uri = new Uri.File() }");
+}
 
 #[test]
 fn native_initializer_reads_file_pointer_as_bytes() {
