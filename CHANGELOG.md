@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.8] - 2026-10-02
+
 ### Fixed
 
 - `alef verify --exit-code` preserves canonical filenames while formatting fresh-render previews,
