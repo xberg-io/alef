@@ -6,6 +6,8 @@ use super::json_values::{json_to_go, json_to_go_yields_string_literal};
 
 mod args;
 
+pub(super) const GO_PTR_HELPER: &str = "func ptr[T any](value T) *T { return &value }";
+
 fn json_object_go_type<'a>(arg: &'a crate::e2e::config::ArgMapping, options_type: Option<&'a str>) -> Option<&'a str> {
     arg.go_type.as_deref().or(arg.element_type.as_deref()).or(options_type)
 }
@@ -72,7 +74,7 @@ fn ensure_value_helpers(package_decls: &mut Vec<String>, literal: &str) {
             .iter()
             .any(|declaration| declaration.starts_with("func ptr["))
     {
-        package_decls.push("func ptr[T any](value T) *T { return &value }".to_string());
+        package_decls.push(GO_PTR_HELPER.to_string());
     }
     if literal.contains("mustReadFile(")
         && !package_decls

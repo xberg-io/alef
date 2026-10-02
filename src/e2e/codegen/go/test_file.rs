@@ -8,6 +8,21 @@ use super::test_function::{GoTestFunctionContext, fixture_has_go_callable, rende
 use super::visitors::{emit_go_visitor_struct, resolve_go_visitor_binding, visitor_struct_name};
 use crate::e2e::codegen::resolve_field;
 
+fn deduplicate_shared_package_declaration(body: &mut String, declaration: &str) {
+    let mut seen = false;
+    *body = body
+        .split_inclusive('\n')
+        .filter(|line| {
+            if line.trim_end() != declaration {
+                return true;
+            }
+            let keep = !seen;
+            seen = true;
+            keep
+        })
+        .collect();
+}
+
 pub(super) struct GoTestFileContext<'a> {
     pub(super) go_module_path: &'a str,
     pub(super) import_alias: &'a str,
@@ -202,6 +217,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
             let _ = writeln!(body);
         }
     }
+    deduplicate_shared_package_declaration(&mut body, super::setup::GO_PTR_HELPER);
 
     // Emit the `mock.*` once-per-suite request-count helper (alef issue #443) iff this file's
     // rendered bodies actually call it -- mirrors the identical `body.contains(...)` gate the
@@ -409,5 +425,77 @@ mod fmt_import_tests {
         }];
 
         assert!(fixture_needs_fmt_for_declared_error_value(&fixture, &errors));
+    }
+}
+
+#[cfg(test)]
+mod shared_helper_tests {
+    use super::{GoTestFileContext, render_test_file};
+    use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig};
+    use crate::e2e::fixture::{Assertion, Fixture};
+
+    fn optional_u32_fixture(id: &str, value: u32) -> Fixture {
+        Fixture {
+            id: id.to_string(),
+            description: "optional primitive argument".to_string(),
+            input: serde_json::json!({"limit": value}),
+            assertions: vec![Assertion {
+                assertion_type: "not_error".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn ptr_helper_is_emitted_once_for_multiple_fixtures_in_one_file() {
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "inspect".to_string(),
+                module: "example.com/sample".to_string(),
+                returns_result: true,
+                args: vec![ArgMapping {
+                    name: "limit".to_string(),
+                    field: "input.limit".to_string(),
+                    arg_type: "u32".to_string(),
+                    optional: true,
+                    owned: false,
+                    element_type: None,
+                    go_type: None,
+                    vec_inner_is_ref: false,
+                    trait_name: None,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let fixtures = [
+            optional_u32_fixture("first_limit", 1),
+            optional_u32_fixture("second_limit", 2),
+        ];
+        let fixture_refs = fixtures.iter().collect::<Vec<_>>();
+        let config = crate::core::config::ResolvedCrateConfig::default();
+
+        let rendered = render_test_file(
+            "contract",
+            &fixture_refs,
+            GoTestFileContext {
+                go_module_path: "example.com/sample",
+                import_alias: "sample",
+                e2e_config: &e2e_config,
+                adapters: &[],
+                data_enum_names: &std::collections::HashSet::new(),
+                config: &config,
+                type_defs: &[],
+                enums: &[],
+                errors: &[],
+                functions: &[],
+                crate_facts: None,
+            },
+        );
+
+        assert_eq!(rendered.matches("func ptr[T any](value T) *T").count(), 1, "{rendered}");
+        assert!(rendered.contains("ptr(uint32(1))"), "{rendered}");
+        assert!(rendered.contains("ptr(uint32(2))"), "{rendered}");
     }
 }

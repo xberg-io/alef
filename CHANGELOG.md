@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Go e2e files declare the optional-primitive pointer helper once when multiple fixtures
+  in the same category use it.
 - `alef verify --exit-code` preserves canonical filenames while formatting fresh-render previews,
   avoiding false drift reports for filename-routed E2E manifests such as C# project files, Maven
   `pom.xml`, and Zig `build.zig.zon` after generation has already formatted them.
