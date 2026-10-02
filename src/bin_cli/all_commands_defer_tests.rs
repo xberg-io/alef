@@ -294,7 +294,7 @@ fn a_crate_post_build_failure_does_not_abort_its_own_remaining_stages() {
          any other stage would satisfy every other assertion here while proving nothing: {message}"
     );
     assert!(
-        message.contains("failed to load source for dependency"),
+        message.contains("alef-test-nonexistent-path-dep"),
         "the failure must carry the underlying cargo diagnostic verbatim: {message}"
     );
     assert!(
@@ -349,7 +349,7 @@ fn skip_compile_writes_source_without_invoking_the_ffi_build() {
     };
 
     assert!(
-        !message.contains("failed to load source for dependency"),
+        !message.contains("alef-test-nonexistent-path-dep"),
         "--skip-compile must not reach the FFI header refresh -- the only thing in this fixture \
          that can trigger cargo's dependency-resolution failure: {message}"
     );

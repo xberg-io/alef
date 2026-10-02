@@ -35,8 +35,14 @@ const REGISTRY_PROPAGATION_SLEEP_SECS: u64 = 30;
 /// Matching here keeps the retry tight — a genuine resolver / manifest error
 /// still surfaces immediately rather than waiting through six 30 s sleeps.
 fn looks_like_registry_propagation_lag(stderr: &str) -> bool {
-    stderr.contains("failed to select a version for the requirement")
-        || stderr.contains("no matching package named")
+    let searched_registry = stderr.lines().any(|line| {
+        line.trim()
+            .strip_prefix("location searched:")
+            .is_some_and(|location| location.contains("crates.io index") || location.contains("registry"))
+    });
+    (searched_registry
+        && (stderr.contains("failed to select a version for the requirement")
+            || stderr.contains("no matching package named")))
         || (stderr.contains("could not find") && stderr.contains("in registry"))
 }
 

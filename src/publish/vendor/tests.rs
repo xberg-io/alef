@@ -9,6 +9,33 @@ fn normalize_path_text(value: &str) -> String {
     value.replace("\\\\?\\", "").replace('\\', "/")
 }
 
+#[test]
+fn registry_propagation_lag_excludes_local_path_resolution_failures() {
+    for stderr in [
+        "error: no matching package named `ghost` found\nlocation searched: /tmp/does-not-exist",
+        "error: failed to select a version for the requirement `ghost = \"^1\"`\nlocation searched: /tmp/ghost",
+    ] {
+        assert!(
+            !looks_like_registry_propagation_lag(stderr),
+            "unexpected registry-lag classification: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn registry_propagation_lag_includes_crates_io_resolution_failures() {
+    for stderr in [
+        "error: no matching package named `ghost` found\nlocation searched: crates.io index",
+        "error: failed to select a version for the requirement `ghost = \"^1\"`\nlocation searched: crates.io index",
+        "error: could not find `ghost` in registry `crates-io`",
+    ] {
+        assert!(
+            looks_like_registry_propagation_lag(stderr),
+            "expected registry-lag classification: {stderr}"
+        );
+    }
+}
+
 fn setup_workspace(root: &Path) {
     fs::write(
         root.join("Cargo.toml"),
