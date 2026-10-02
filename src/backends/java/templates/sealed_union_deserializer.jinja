@@ -46,12 +46,17 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
 {% endif %}
       };
     }
+{% if not has_external_object_variant %}
+    throw new com.fasterxml.jackson.databind.JsonMappingException(
+        parser, "{% if has_untagged_string_variant %}Untagged variant must be a string{% else %}{{ class_name }} accepts only string variants{% endif %}");
+{% else %}
     if (!wire.isObject() || wire.size() != 1) {
       throw new com.fasterxml.jackson.databind.JsonMappingException(
           parser, "Expected one externally tagged {{ class_name }} variant");
     }
     final String tagValue = wire.fieldNames().next();
     final com.fasterxml.jackson.databind.JsonNode contentNode = wire.get(tagValue);
+{% endif %}
 {% else %}
     final ObjectNode node = parser.getCodec().readTree(parser);
     final com.fasterxml.jackson.databind.JsonNode tagNode = node.get("{{ tag_field }}");
@@ -67,6 +72,7 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
 {% endif %}
 {% endif %}
 
+{% if not is_external or has_external_object_variant %}
     return switch (tagValue) {
 {% for variant in variants %}
 {% if variant.is_unit %}
@@ -108,5 +114,6 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
             parser, "Unknown {{ class_name }} discriminator: " + tagValue);
       }
     };
+{% endif %}
   }
 }

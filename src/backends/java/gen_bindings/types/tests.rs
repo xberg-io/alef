@@ -67,6 +67,10 @@ fn externally_tagged_enum_with_untagged_string_fallback_round_trips_bare_strings
     assert!(emitted.contains("case \"plain\" -> new OutputFormat.Plain();"));
     assert!(emitted.contains("default -> new OutputFormat.Custom(wire.asText());"));
     assert!(emitted.contains("if (value instanceof OutputFormat.Custom untaggedCustom)"));
+    assert!(
+        !emitted.contains("return switch (tagValue)"),
+        "an object branch whose every variant throws cannot be a Java switch expression: {emitted}"
+    );
     assert!(emitted.contains("gen.writeString(untaggedCustom.value());"));
     assert!(emitted.contains("Untagged variant must be a string"));
 }

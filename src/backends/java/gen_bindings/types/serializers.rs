@@ -158,6 +158,9 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             content_field_doc => repr.content().map(escape_java_comment_text),
             is_adjacent => repr.content().is_some(),
             is_external => matches!(repr, SerdeEnumRepr::External),
+            has_external_object_variant => enum_def.variants.iter().any(|variant| {
+                !variant.binding_excluded && !variant.serde_untagged && !is_unit_variant(variant)
+            }),
             has_untagged_string_variant => enum_def.variants.iter().any(|variant| {
                 variant.serde_untagged
                     && variant.fields.len() == 1

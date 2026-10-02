@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Java bindings for externally tagged enums with only string wire variants reject object input
+  without emitting an invalid all-throwing switch expression.
 - Generated C# e2e examples construct unit records for sealed enum variants, keeping examples
   compilable after an enum gains a payload variant.
 
