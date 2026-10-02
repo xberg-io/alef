@@ -359,6 +359,45 @@ fn ordinary_generated_toml_uses_the_fresh_render_without_merge_semantics() {
     assert!(!output.content.contains("consumer-target"));
 }
 
+/// A create-once E2E manifest can have `generated_header = false` in the current render while
+/// the existing file still carries the marker an earlier alef wrote. The real scaffold writer
+/// preserves that on-disk marker before comparing or writing, so verification must predict the
+/// same header-preserving bytes instead of comparing the marked file to a raw render forever. ~keep
+#[test]
+fn drift_preview_preserves_an_existing_marker_for_an_unheadered_render() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cases = [
+        ("test_apps/csharp/Xberg.E2eTests.csproj", "<Project />\n"),
+        (
+            "test_apps/java/pom.xml",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project />\n",
+        ),
+        ("test_apps/zig/build.zig.zon", ".{ .name = .e2e }\n"),
+    ];
+
+    for (relative, raw) in cases {
+        let path = dir.path().join(relative);
+        let marked = crate::cli::pipeline::ensure_generated_header(&path, raw);
+        let file_hash = crate::core::hash::compute_file_hash(&marked);
+        let existing = crate::core::hash::inject_hash_line(&marked, &file_hash);
+        let file = crate::core::backend::GeneratedFile {
+            path: std::path::PathBuf::from(relative),
+            content: raw.to_owned(),
+            generated_header: false,
+        };
+
+        let output = managed_output_for_drift(&file, &existing, dir.path())
+            .into_iter()
+            .next()
+            .expect("managed output");
+
+        assert!(
+            crate::cli::pipeline::matches_alef_output(&path, &existing, &output.content),
+            "{relative}: verify must mirror the writer's disk-aware header preservation"
+        );
+    }
+}
+
 /// alef#465 END TO END, against [`drifted_marked_paths_with`]'s own injectable seam: with poly
 /// unavailable, an `.rs` candidate must still be COMPARED on the fast path, in both directions
 /// -- silent when it matches a fresh render, reported when it does not -- never routed into the

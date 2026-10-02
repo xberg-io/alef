@@ -428,13 +428,17 @@ fn drifted_marked_paths_with(
 }
 
 /// Prepare the bytes the writer would compare for drift, including the TOML merge that preserves
-/// consumer-owned entries and comments in managed manifests such as `poly.toml`. ~keep
+/// consumer-owned entries and comments in managed manifests such as `poly.toml`, and the
+/// disk-aware marker preservation used for formerly generated create-once manifests. ~keep
 fn managed_output_for_drift(
     file: &crate::core::backend::GeneratedFile,
     existing: &str,
     base_dir: &Path,
 ) -> Vec<crate::cli::commands::adopt::ManagedOutput> {
     let mut prepared = file.clone();
+    if crate::core::hash::content_has_alef_marker(existing) {
+        prepared.generated_header = true;
+    }
     if file.generated_header && file.path == Path::new("poly.toml") {
         prepared.content = match crate::cli::pipeline::generate::merge_managed_toml_preview(
             existing,
