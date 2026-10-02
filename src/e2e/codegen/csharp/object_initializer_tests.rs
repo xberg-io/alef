@@ -33,7 +33,7 @@ fn output_format_unit_variant_is_constructed_as_a_record() {
         serde_json::json!({"output_format": "markdown"})
             .as_object()
             .expect("object"),
-        "ExtractionConfig",
+        "SampleConfig",
         &HashMap::new(),
         &HashMap::new(),
         &[],
@@ -43,7 +43,7 @@ fn output_format_unit_variant_is_constructed_as_a_record() {
     );
     assert_eq!(
         rendered,
-        "new ExtractionConfig { OutputFormat = new OutputFormat.Markdown() }"
+        "new SampleConfig { OutputFormat = new OutputFormat.Markdown() }"
     );
 
     let true_enum = EnumDef {
@@ -58,7 +58,7 @@ fn output_format_unit_variant_is_constructed_as_a_record() {
         serde_json::json!({"output_format": "markdown"})
             .as_object()
             .expect("object"),
-        "ExtractionConfig",
+        "SampleConfig",
         &HashMap::new(),
         &HashMap::new(),
         &[],
@@ -66,7 +66,7 @@ fn output_format_unit_variant_is_constructed_as_a_record() {
         &[],
         "",
     );
-    assert_eq!(plain, "new ExtractionConfig { OutputFormat = OutputFormat.Markdown }");
+    assert_eq!(plain, "new SampleConfig { OutputFormat = OutputFormat.Markdown }");
 }
 
 #[test]
