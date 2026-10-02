@@ -161,6 +161,58 @@ fn is_silent_once_poly_fmt_converges_the_render_to_match_disk() {
     assert_eq!(stats.compared, 1);
 }
 
+/// Poly selects these E2E manifest formatters by the canonical filename, not just the suffix.
+/// Verification must therefore preserve that filename when it stages a fresh render, or it
+/// compares formatter-canonical disk bytes against the raw render and reports permanent drift. ~keep
+#[test]
+fn formatter_managed_e2e_manifests_verify_after_generation_formatting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cases = [
+        "test_apps/csharp/Xberg.E2eTests.csproj",
+        "test_apps/java/pom.xml",
+        "test_apps/zig/build.zig.zon",
+    ];
+
+    let mut candidates = Vec::new();
+    for relative in cases {
+        let path = dir.path().join(relative);
+        std::fs::create_dir_all(path.parent().expect("manifest parent")).expect("create manifest parent");
+        std::fs::write(&path, "formatted\n").expect("write formatted manifest");
+        candidates.push(candidate(&path, "formatted\n", "raw render\n"));
+    }
+
+    let run_filename_keyed_formatter = |paths: &[std::path::PathBuf], _base: &std::path::Path| {
+        let mut formatted = 0usize;
+        for path in paths {
+            let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default();
+            if matches!(name, "Xberg.E2eTests.csproj" | "pom.xml" | "build.zig.zon") {
+                std::fs::write(path, "formatted\n")?;
+                formatted += 1;
+            }
+        }
+        anyhow::ensure!(
+            formatted == 3,
+            "formatter reached {formatted} of 3 canonical manifest names"
+        );
+        Ok(())
+    };
+    let (drifted, stats) = real_formatter_drift_with_runner(
+        candidates,
+        dir.path(),
+        &|tool| tool == "poly",
+        &run_filename_keyed_formatter,
+    );
+
+    assert!(
+        drifted.is_empty(),
+        "freshly generated and formatted E2E manifests must verify without false drift: {drifted:?}"
+    );
+    assert_eq!(
+        stats.compared, 3,
+        "all three formatter-managed manifests must be compared"
+    );
+}
+
 /// Helper for the control test above: format `content` once through the real `poly fmt --fix`,
 /// the same way [`real_formatter_drift`] itself does internally, so the test's disk fixture is
 /// built from the identical mechanism under test rather than a hand-written guess at poly's

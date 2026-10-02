@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `alef verify --exit-code` preserves canonical filenames while formatting fresh-render previews,
+  avoiding false drift reports for filename-routed E2E manifests such as C# project files, Maven
+  `pom.xml`, and Zig `build.zig.zon` after generation has already formatted them.
+
 ## [0.103.7] - 2026-10-02
 
 ### Fixed

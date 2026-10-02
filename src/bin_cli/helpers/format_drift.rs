@@ -83,8 +83,8 @@
 //! poly resolves `poly.toml` (and each engine's own project markers -- `pyproject.toml`,
 //! `tsconfig.json`, ...) by walking up from the target file's own directory. A scratch directory
 //! elsewhere would need every one of those mirrored alongside it, which is exactly the
-//! "reproduce poly's behaviour" trap this module exists to avoid. A same-directory sibling
-//! sharing the real file's extension resolves every one of those configs as the real file would.
+//! "reproduce poly's behaviour" trap this module exists to avoid. A temporary child directory
+//! beside the real file preserves its exact basename while resolving the same ancestor configs.
 //!
 //! Staging is now confined to paths [`crate::cli::pipeline::FormattingOwner::Poly`] actually
 //! claims. `alef verify` is documented read-only, and on the consumer above the old
@@ -93,7 +93,7 @@
 //! # Why one batched `poly fmt --fix` invocation, not one per file
 //!
 //! `poly` is a subprocess; spawning one per candidate turns a verify run into hundreds of
-//! process spawns. Every sibling temp file is handed to a single
+//! process spawns. Every staged temp file is handed to a single
 //! [`crate::cli::pipeline::poly_format_strict`] invocation instead. ~keep
 
 use crate::cli::pipeline::{FormattingOwner, PolyCoverage, formatting_owner};
@@ -172,20 +172,33 @@ impl FormatDriftStats {
 }
 
 /// Compare every `candidates` entry against disk through a real `poly fmt --fix` pass over a
-/// same-directory temp copy of its rendered bytes -- see the module doc for why colocated and
-/// why batched. Returns the drifted subset (as `full_path.display()` strings, matching every
+/// colocated temp copy of its rendered bytes -- see the module doc for why the exact basename is
+/// preserved and why formatting is batched. Returns the drifted subset (as `full_path.display()` strings, matching every
 /// other list in [`super::MissingAndFrozenFiles`]) alongside [`FormatDriftStats`].
 ///
 /// Gates the up-front "is poly even installed" decision through the injected `is_available`
 /// rather than reading PATH directly, so the skip-and-count branch is provable without
 /// depending on whether the host running the suite happens to have `poly`. There is
-/// deliberately no seam for the formatting pass itself once this gate passes -- emulating
-/// poly's own output is exactly the prediction this module exists to avoid, so the "poly ran
-/// and found real drift" branch is proven against the real binary instead. ~keep
+/// The production path always runs the real formatter; the runner seam exists only so tests can
+/// prove filename-based dispatch without depending on the host's configured engines. ~keep
 fn real_formatter_drift_with(
     candidates: Vec<RealFormatCandidate>,
     base_dir: &Path,
     is_available: &dyn Fn(&str) -> bool,
+) -> (Vec<String>, FormatDriftStats) {
+    real_formatter_drift_with_runner(
+        candidates,
+        base_dir,
+        is_available,
+        &crate::cli::pipeline::poly_format_strict,
+    )
+}
+
+fn real_formatter_drift_with_runner(
+    candidates: Vec<RealFormatCandidate>,
+    base_dir: &Path,
+    is_available: &dyn Fn(&str) -> bool,
+    run_formatter: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
 ) -> (Vec<String>, FormatDriftStats) {
     if candidates.is_empty() {
         return (Vec::new(), FormatDriftStats::default());
@@ -200,7 +213,7 @@ fn real_formatter_drift_with(
         );
     }
 
-    let temp_files: Vec<Option<tempfile::NamedTempFile>> = candidates
+    let temp_files: Vec<Option<StagedFormatFile>> = candidates
         .iter()
         .map(
             |candidate| match write_sibling_temp_file(&candidate.full_path, &candidate.rendered_content) {
@@ -221,7 +234,7 @@ fn real_formatter_drift_with(
         .iter()
         .filter_map(|temp_file| temp_file.as_ref().map(|file| file.path().to_path_buf()))
         .collect();
-    if let Err(error) = crate::cli::pipeline::poly_format_strict(&temp_paths, base_dir) {
+    if let Err(error) = run_formatter(&temp_paths, base_dir) {
         tracing::warn!("poly fmt over the drift-check temp copies failed (non-fatal): {error:#}");
     }
 
@@ -251,26 +264,36 @@ fn real_formatter_drift_with(
     )
 }
 
-/// Write `content` into a securely-named temp file beside `real_path`, sharing its extension so
-/// poly's per-extension engine dispatch treats it identically -- see the module doc for why this
-/// must be a same-directory sibling rather than a scratch directory.
+/// Write `content` under its exact basename in a securely-named temp directory beside
+/// `real_path` -- see the module doc for why this must stay colocated rather than use scratch.
 ///
-/// `NamedTempFile` is deliberate: it deletes itself on drop, so a panic, an early return, or an
-/// interrupted `alef verify` run cannot leave a stray `.alef-verify-drift-*` file behind in a
-/// consumer's working tree the way a manually paired write+remove could. ~keep
-fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<tempfile::NamedTempFile> {
+/// `TempDir` is deliberate: it preserves the exact basename formatter dispatch needs and deletes
+/// itself on drop, including after a panic or early return. ~keep
+struct StagedFormatFile {
+    _directory: tempfile::TempDir,
+    path: PathBuf,
+}
+
+impl StagedFormatFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<StagedFormatFile> {
     let parent = real_path.parent().unwrap_or_else(|| Path::new("."));
-    let suffix = real_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| format!(".{extension}"))
-        .unwrap_or_default();
-    let temp_file = tempfile::Builder::new()
+    let file_name = real_path
+        .file_name()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "formatter candidate has no file name"))?;
+    let directory = tempfile::Builder::new()
         .prefix(".alef-verify-drift-")
-        .suffix(&suffix)
-        .tempfile_in(parent)?;
-    std::fs::write(temp_file.path(), content)?;
-    Ok(temp_file)
+        .tempdir_in(parent)?;
+    let path = directory.path().join(file_name);
+    std::fs::write(&path, content)?;
+    Ok(StagedFormatFile {
+        _directory: directory,
+        path,
+    })
 }
 
 /// Absolute paths of every file in `files` that already exists on disk, already carries alef's
@@ -299,7 +322,7 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<t
 ///   compare them directly. This is the large majority of a real tree, and the tier the old
 ///   code was missing entirely: it staged a temp copy and ran poly over paths poly never sees.
 /// - **poly reformats it** ([`FormattingOwner::Poly`]) — run the REAL `poly fmt --fix` over the
-///   rendered bytes in a same-directory sibling and compare the result. Exact rather than
+///   rendered bytes under the same basename in a colocated temp directory and compare the result. Exact rather than
 ///   approximate, and immune to poly gaining or losing an engine.
 /// - **alef reformats it with something it cannot model** ([`FormattingOwner::Residual`],
 ///   [`FormattingOwner::E2eOverride`]) — counted into
