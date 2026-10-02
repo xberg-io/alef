@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.9] - 2026-10-02
+
 ### Fixed
 
 - Java bindings for externally tagged enums with only string wire variants reject object input
