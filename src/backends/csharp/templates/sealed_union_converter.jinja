@@ -67,7 +67,7 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 {% endif %}
 
 {% if is_adjacent or is_external %}
-        // The payload sits whole under "{{ content_field }}" and may be a scalar, so it is taken
+        // The payload sits whole under {% if is_external %}the variant name{% else %}"{{ content_field }}"{% endif %} and may be a scalar, so it is taken
         // verbatim rather than reassembled from the sibling fields. Tuple-variant records
         // (`Variant(InnerStruct value)`) expect it under a single "Value" field; struct-variant
         // records (`Variant { field1, field2 }`) expect the payload object itself.
@@ -158,7 +158,11 @@ public sealed class {{ class_name }}JsonConverter : JsonConverter<{{ class_name 
 {% if variant.is_excluded %}
                 throw new JsonException($"{{ class_name }}.{{ variant.pascal }} is excluded from this binding (feature-gated or hidden)"),
 {% elif variant.is_unit %}
+{% if is_external %}
+                throw new JsonException("Externally tagged unit variants must be strings"),
+{% else %}
                 new {{ class_name }}.{{ variant.pascal }}(),
+{% endif %}
 {% elif variant.is_tuple %}
                 JsonSerializer.Deserialize<{{ class_name }}.{{ variant.pascal }}>(wrappedJson, options) ?? throw new JsonException("Failed to deserialize variant"),
 {% else %}

@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated Go e2e calls pass present optional primitive arguments as typed pointers.
 - PHP e2e tests skip callback registration for lifecycle-only trait bridges configured with
   `php:callbacks`, which cannot safely retain Zend callbacks.
-- Generated C# and Java bindings round-trip externally tagged Rust enums with both unit and
-  payload variants, including custom PII categories.
+- Generated C# and Java bindings represent externally tagged Rust enums made up of unit variants
+  and single `String` payload variants as sealed record hierarchies, preserving payloads such as
+  custom PII categories. This replaces the previous payload-dropping plain-enum representation.
 
 ## [0.103.7] - 2026-10-02
 

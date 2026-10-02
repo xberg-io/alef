@@ -413,7 +413,7 @@ fn a_payload_carrying_union_field_renders_a_registered_refusal_in_each_target() 
 /// Collapsing `UnionLoweringTarget::KotlinJvm` onto the data-carrying predicate fails this on the
 /// JVM half; collapsing `KotlinAndroid` onto `emits_get_value` fails it on the Android half.
 #[test]
-fn an_externally_tagged_data_enum_is_refused_on_android_but_kept_on_the_jvm() {
+fn an_externally_tagged_string_data_enum_is_refused_on_both_kotlin_targets() {
     use crate::e2e::codegen::payload_union_skip::{UnionLoweringTarget, lacks_scalar_wire_accessor};
     use crate::e2e::field_access::FieldResolver;
 
@@ -461,9 +461,9 @@ fn an_externally_tagged_data_enum_is_refused_on_android_but_kept_on_the_jvm() {
         "kotlin_android renders an externally tagged data enum as a sealed class with no toWire()"
     );
     assert!(
-        !lacks_scalar_wire_accessor(&resolver, "kind", UnionLoweringTarget::KotlinJvm),
-        "the Java facade folds an externally tagged data enum down to a plain enum that keeps \
-         getValue(), so the JVM target must NOT refuse it"
+        lacks_scalar_wire_accessor(&resolver, "kind", UnionLoweringTarget::KotlinJvm),
+        "the Java facade preserves an externally tagged String payload in a sealed hierarchy, \
+         so the JVM target has no scalar getValue() accessor"
     );
 }
 

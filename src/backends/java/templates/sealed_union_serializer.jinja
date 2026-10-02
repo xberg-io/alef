@@ -51,6 +51,7 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
     gen.writeStartObject();
     gen.writeFieldName(tag);
     gen.writeTree(MAPPER.valueToTree(inner));
+    gen.writeEndObject();
 {% else %}
     gen.writeStartObject();
     gen.writeStringField("{{ tag_field }}", tag);

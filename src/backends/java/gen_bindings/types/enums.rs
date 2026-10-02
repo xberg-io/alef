@@ -21,7 +21,24 @@ use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
 /// re-deriving the same condition, for the same reason. ~keep
 pub(crate) fn emits_get_value(enum_def: &EnumDef) -> bool {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
-    !has_data_variants
+    !((enum_def.serde_tag.is_some() && has_data_variants)
+        || (enum_def.serde_untagged && has_data_variants)
+        || supports_external_string_union(enum_def))
+}
+
+/// External mixed enums need a sealed hierarchy to preserve payloads, but the existing union
+/// emitters only model a single scalar tuple field safely. Keep broader external shapes on their
+/// established plain-enum path until positional and generic payload codecs exist. ~keep
+fn supports_external_string_union(enum_def: &EnumDef) -> bool {
+    matches!(serde_enum_repr(enum_def), SerdeEnumRepr::External)
+        && enum_def.variants.iter().any(|variant| !variant.fields.is_empty())
+        && enum_def.variants.iter().all(|variant| {
+            !variant.binding_excluded
+                && (variant.fields.is_empty()
+                    || (variant.fields.len() == 1
+                        && is_tuple_field_name(&variant.fields[0].name)
+                        && matches!(variant.fields[0].ty, TypeRef::String)))
+        })
 }
 
 pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str, text_types: &[String]) -> String {

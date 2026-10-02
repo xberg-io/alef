@@ -62,7 +62,12 @@ class {{ class_name }}Deserializer extends StdDeserializer<{{ class_name }}> {
     return switch (tagValue) {
 {% for variant in variants %}
 {% if variant.is_unit %}
+{% if is_external %}
+      case "{{ variant.discriminator }}" -> throw new com.fasterxml.jackson.databind.JsonMappingException(
+          parser, "Externally tagged unit variants must be strings");
+{% else %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}();
+{% endif %}
 {% elif is_adjacent or is_external %}
 {% if variant.is_tuple %}
       case "{{ variant.discriminator }}" -> new {{ class_name }}.{{ variant.name }}(

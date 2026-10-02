@@ -60,6 +60,65 @@ fn externally_tagged_mixed_enum_accepts_string_units_and_object_payloads() {
     assert!(emitted.contains("var tagValue = property.Name"));
     assert!(emitted.contains("writer.WriteStringValue(tag)"));
     assert!(emitted.contains("writer.WritePropertyName(tag)"));
+    assert!(emitted.contains("Externally tagged unit variants must be strings"));
+}
+
+#[test]
+fn externally_tagged_complex_payloads_stay_on_the_existing_plain_enum_path() {
+    let cases = [
+        vec![FieldDef {
+            name: "_0".into(),
+            ty: TypeRef::Vec(Box::new(TypeRef::String)),
+            ..FieldDef::default()
+        }],
+        vec![
+            FieldDef {
+                name: "_0".into(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            },
+            FieldDef {
+                name: "_1".into(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            },
+        ],
+    ];
+    for fields in cases {
+        let mut enum_def = tagged_union_enum(
+            vec![
+                struct_variant("Email", vec![]),
+                EnumVariant {
+                    name: "Custom".into(),
+                    fields,
+                    ..EnumVariant::default()
+                },
+            ],
+            None,
+        );
+        enum_def.serde_tag = None;
+        let emitted = gen_enum(&enum_def, "Sample.Namespace", &[]);
+        assert!(!emitted.contains("abstract record SampleUnion"));
+    }
+
+    let mut excluded = tagged_union_enum(
+        vec![
+            struct_variant("Email", vec![]),
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                binding_excluded: true,
+                ..EnumVariant::default()
+            },
+        ],
+        None,
+    );
+    excluded.serde_tag = None;
+    assert!(!gen_enum(&excluded, "Sample.Namespace", &[]).contains("abstract record SampleUnion"));
 }
 
 #[test]

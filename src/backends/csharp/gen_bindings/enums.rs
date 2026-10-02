@@ -5,8 +5,8 @@ use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::naming::{
     csharp_type_name, csharp_variant_name, to_csharp_name, wire_field_name, wire_variant_value,
 };
-use crate::codegen::serde_enum_repr::SerdeEnumRepr;
-use crate::core::ir::EnumDef;
+use crate::codegen::serde_enum_repr::{SerdeEnumRepr, serde_enum_repr};
+use crate::core::ir::{EnumDef, TypeRef};
 
 /// `[JsonPolymorphic]`'s default discriminator name, kept for enums that reach the union path
 /// without declaring a serde tag.
@@ -47,7 +47,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
 
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
-    if has_data_variants && !enum_def.serde_untagged {
+    if (enum_def.serde_tag.is_some() && has_data_variants) || supports_external_string_union(enum_def) {
         return gen_tagged_union(enum_def, namespace);
     }
 
@@ -136,6 +136,21 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String
     ));
 
     out
+}
+
+/// External mixed enums need a sealed hierarchy to preserve payloads, but the existing union
+/// emitters only model a single scalar tuple field safely. Keep broader external shapes on their
+/// established plain-enum path until positional and generic payload codecs exist. ~keep
+fn supports_external_string_union(enum_def: &EnumDef) -> bool {
+    matches!(serde_enum_repr(enum_def), SerdeEnumRepr::External)
+        && enum_def.variants.iter().any(|variant| !variant.fields.is_empty())
+        && enum_def.variants.iter().all(|variant| {
+            !variant.binding_excluded
+                && (variant.fields.is_empty()
+                    || (variant.fields.len() == 1
+                        && is_tuple_field(&variant.fields[0])
+                        && matches!(variant.fields[0].ty, TypeRef::String)))
+        })
 }
 
 /// Generate a C# abstract record hierarchy for internally tagged enums.

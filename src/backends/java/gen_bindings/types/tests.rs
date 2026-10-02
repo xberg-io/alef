@@ -34,6 +34,72 @@ fn externally_tagged_mixed_enum_uses_string_units_and_object_payloads() {
     assert!(emitted.contains("wire.size() != 1"));
     assert!(emitted.contains("gen.writeString(tag)"));
     assert!(emitted.contains("gen.writeFieldName(tag)"));
+    assert!(emitted.contains("gen.writeTree(MAPPER.valueToTree(inner));\n    gen.writeEndObject();"));
+    assert!(emitted.contains("Externally tagged unit variants must be strings"));
+}
+
+#[test]
+fn externally_tagged_complex_payloads_stay_on_the_existing_plain_enum_path() {
+    let cases = [
+        vec![FieldDef {
+            name: "_0".into(),
+            ty: TypeRef::Vec(Box::new(TypeRef::String)),
+            ..FieldDef::default()
+        }],
+        vec![
+            FieldDef {
+                name: "_0".into(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            },
+            FieldDef {
+                name: "_1".into(),
+                ty: TypeRef::String,
+                ..FieldDef::default()
+            },
+        ],
+    ];
+    for fields in cases {
+        let enum_def = EnumDef {
+            name: "PiiCategory".into(),
+            variants: vec![
+                EnumVariant {
+                    name: "Email".into(),
+                    ..EnumVariant::default()
+                },
+                EnumVariant {
+                    name: "Custom".into(),
+                    fields,
+                    ..EnumVariant::default()
+                },
+            ],
+            ..EnumDef::default()
+        };
+        assert!(emits_get_value(&enum_def));
+        assert!(!gen_enum_class("io.xberg", &enum_def, "Xberg", &[]).contains("sealed interface PiiCategory"));
+    }
+
+    let excluded = EnumDef {
+        name: "PiiCategory".into(),
+        variants: vec![
+            EnumVariant {
+                name: "Email".into(),
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                binding_excluded: true,
+                ..EnumVariant::default()
+            },
+        ],
+        ..EnumDef::default()
+    };
+    assert!(emits_get_value(&excluded));
 }
 
 /// Builds the primitive literal-default shape that requires null to distinguish absence from zero. ~keep

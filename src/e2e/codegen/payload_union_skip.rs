@@ -33,11 +33,9 @@ use crate::e2e::field_access::FieldResolver;
 ///
 /// ~keep The four targets do not share one predicate. `Dart`, `KotlinAndroid` and `Swift` each get
 /// their scalar accessor on the branch their backend takes when *every* variant is fieldless, so
-/// the question is simply "does this enum carry data anywhere". `KotlinJvm` asserts against the
-/// Java facade instead, and `emits_get_value` folds an externally tagged data enum down to a plain
-/// Java `enum` — keeping `getValue()` where the other three would have none. Asking one shared
-/// predicate would either emit an unresolved reference on Android/Dart/Swift or needlessly refuse
-/// a working assertion on the JVM.
+/// the question is simply "does this enum carry data anywhere". `KotlinJvm` and `Java` follow
+/// the Java facade's `emits_get_value` predicate, including its sealed-union path for externally
+/// tagged single-`String` payload variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UnionLoweringTarget {
     /// dart, whose `.wireValue` extension is emitted only for an all-fieldless-variants enum.
@@ -188,8 +186,7 @@ mod tests {
         )
     }
 
-    /// The per-target predicate table. The `external` row is the load-bearing one: a single shared
-    /// predicate would answer the same for both Kotlin targets and be wrong in one of them. ~keep
+    /// The per-target predicate table checks every serde representation and target. ~keep
     #[test]
     fn the_predicate_answers_per_target() {
         let resolver = resolver();
@@ -206,8 +203,8 @@ mod tests {
             ("untagged", UnionLoweringTarget::Swift, true),
             ("external", UnionLoweringTarget::Dart, true),
             ("external", UnionLoweringTarget::KotlinAndroid, true),
-            ("external", UnionLoweringTarget::KotlinJvm, false),
-            ("external", UnionLoweringTarget::Java, false),
+            ("external", UnionLoweringTarget::KotlinJvm, true),
+            ("external", UnionLoweringTarget::Java, true),
             ("external", UnionLoweringTarget::Swift, true),
         ];
         for (field, target, want) in expected {
