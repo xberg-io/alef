@@ -261,6 +261,7 @@ struct TaggedUnionFlags<'a> {
     needs_map: bool,
     needs_optional: bool,
     needs_unwrapped: bool,
+    needs_object_node: bool,
 }
 
 fn tagged_union_flags<'a>(enum_def: &'a EnumDef, repr: &SerdeEnumRepr) -> TaggedUnionFlags<'a> {
@@ -312,6 +313,7 @@ fn tagged_union_flags<'a>(enum_def: &'a EnumDef, repr: &SerdeEnumRepr) -> Tagged
         needs_map,
         needs_optional,
         needs_unwrapped,
+        needs_object_node: needs_unwrapped && !matches!(repr, SerdeEnumRepr::External),
     }
 }
 
@@ -340,7 +342,9 @@ fn tagged_union_imports(flags: &TaggedUnionFlags) -> Vec<&'static str> {
         imports.push("com.fasterxml.jackson.core.JsonGenerator");
         imports.push("com.fasterxml.jackson.databind.DeserializationContext");
         imports.push("com.fasterxml.jackson.databind.SerializerProvider");
-        imports.push("com.fasterxml.jackson.databind.node.ObjectNode");
+        if flags.needs_object_node {
+            imports.push("com.fasterxml.jackson.databind.node.ObjectNode");
+        }
         imports.push("com.fasterxml.jackson.databind.annotation.JsonDeserialize");
         imports.push("com.fasterxml.jackson.databind.annotation.JsonSerialize");
     }
@@ -563,5 +567,31 @@ fn push_tagged_union_accessor_methods(
         out.push_str(" variant ? variant.value() : null;\n");
         out.push_str("    }\n");
         out.push('\n');
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_string_union_does_not_import_object_node() {
+        let enum_def = EnumDef {
+            name: "OutputFormat".into(),
+            variants: vec![EnumVariant {
+                name: "Custom".into(),
+                fields: vec![FieldDef {
+                    name: "_0".into(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
+                ..EnumVariant::default()
+            }],
+            ..EnumDef::default()
+        };
+        let repr = serde_enum_repr(&enum_def);
+        let imports = tagged_union_imports(&tagged_union_flags(&enum_def, &repr));
+
+        assert!(!imports.contains(&"com.fasterxml.jackson.databind.node.ObjectNode"));
     }
 }
