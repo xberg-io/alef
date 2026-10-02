@@ -273,7 +273,7 @@ package = "dev.demo"
 }
 
 #[test]
-fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
+fn test_java_serde_default_all_unit_enum_uses_plain_enum_constant() {
     let backend = JavaBackend;
 
     let status_enum = make_enum(
@@ -365,7 +365,11 @@ package = "dev.demo"
     let content = &config_file.content;
 
     assert!(
-        content.contains("new Status.Pending()"),
-        "Builder field should instantiate zero-field variant with new Status.Pending(). Got:\n{content}"
+        content.contains("@Nullable private Status status = Status.PENDING;"),
+        "Builder field should use the plain enum constant. Got:\n{content}"
+    );
+    assert!(
+        !content.contains("new Status.Pending()"),
+        "All-unit enums should not use sealed-record construction. Got:\n{content}"
     );
 }
