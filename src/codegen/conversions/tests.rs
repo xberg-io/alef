@@ -1248,7 +1248,7 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         ..TypeDef::default()
     };
 
-    let to_core = gen_from_binding_to_core(&typ, "my_crate", &AHashSet::new());
+    let to_core = gen_from_binding_to_core(&typ, "my_crate");
     assert!(to_core.contains("my_crate::SecretString::from(val.token)"), "{to_core}");
     assert!(
         to_core.contains("map(|value| my_crate::SecretString::from(value))"),
