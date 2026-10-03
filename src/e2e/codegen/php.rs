@@ -11,7 +11,7 @@ use crate::core::config::Language;
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
-use crate::e2e::fixture::{Fixture, FixtureGroup};
+use crate::e2e::fixture::{Fixture, FixtureGroup, VISITOR_EXCLUDE_FUNCTION_NAME};
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
@@ -21,6 +21,41 @@ use super::E2eCodegen;
 
 /// PHP e2e code generator.
 pub struct PhpCodegen;
+
+fn php_visitor_is_excluded(config: &ResolvedCrateConfig) -> bool {
+    config.php.as_ref().is_some_and(|php| {
+        php.exclude_functions
+            .iter()
+            .any(|name| name == VISITOR_EXCLUDE_FUNCTION_NAME)
+    })
+}
+
+#[cfg(test)]
+mod visitor_exclusion_tests {
+    use super::php_visitor_is_excluded;
+    use crate::core::config::NewAlefConfig;
+
+    #[test]
+    fn visitor_pseudo_function_exclusion_disables_php_visitor_fixtures() {
+        let config: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[crates.php]
+exclude_functions = ["visitor"]
+"#,
+        )
+        .expect("parse config");
+        let resolved = config.resolve().expect("resolve config").remove(0);
+
+        assert!(php_visitor_is_excluded(&resolved));
+    }
+}
 
 impl E2eCodegen for PhpCodegen {
     fn generate(
@@ -252,12 +287,14 @@ impl E2eCodegen for PhpCodegen {
         // without forcing getter syntax for scalar fields where the method does
         // not exist.
         let php_enum_lowering = enum_variant_access::PhpEnumLowering::from_enums(enums);
+        let visitor_is_excluded = php_visitor_is_excluded(config);
 
         for group in groups {
             let active: Vec<&Fixture> = group
                 .fixtures
                 .iter()
                 .filter(|f| super::should_include_fixture(f, lang, e2e_config))
+                .filter(|fixture| !(fixture.visitor.is_some() && visitor_is_excluded))
                 .collect();
 
             if active.is_empty() {
