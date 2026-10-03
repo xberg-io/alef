@@ -137,6 +137,13 @@ fn render_template_readme(
     require_template: bool,
     lang: Option<Language>,
 ) -> anyhow::Result<Option<GeneratedFile>> {
+    let normalized_entry;
+    let entry_json = if lang == Some(Language::Php) && crate::backends::php::visitor_surface_is_excluded(config) {
+        normalized_entry = php_entry_without_visitor_feature(entry_json);
+        &normalized_entry
+    } else {
+        entry_json
+    };
     let discord_url = readme_cfg.discord_url.as_deref().unwrap_or("").to_string();
     let banner_url = readme_cfg.banner_url.as_deref().unwrap_or("").to_string();
 
@@ -353,6 +360,20 @@ fn render_template_readme(
         content,
         generated_header: true,
     }))
+}
+
+fn php_entry_without_visitor_feature(entry: &serde_json::Value) -> serde_json::Value {
+    let mut normalized = entry.clone();
+    let Some(object) = normalized.as_object_mut() else {
+        return normalized;
+    };
+    let features = object
+        .entry("features")
+        .or_insert_with(|| serde_json::Value::Object(Default::default()));
+    if let Some(features) = features.as_object_mut() {
+        features.insert("visitor_pattern".to_string(), serde_json::Value::Bool(false));
+    }
+    normalized
 }
 
 fn readme_functions(api: &ApiSurface, config: &ResolvedCrateConfig, lang: Option<Language>) -> Vec<ReadmeFunction> {

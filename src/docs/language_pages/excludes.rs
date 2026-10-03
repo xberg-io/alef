@@ -43,6 +43,11 @@ pub(crate) fn language_excludes(config: &ResolvedCrateConfig, lang: Language) ->
             if let Some(c) = &config.php {
                 extend_excludes(&mut functions, &mut types, &c.exclude_functions, &c.exclude_types);
             }
+            types.extend(
+                crate::backends::php::excluded_visitor_type_names(config)
+                    .into_iter()
+                    .map(str::to_string),
+            );
         }
         Language::Elixir => {
             if let Some(c) = &config.elixir {

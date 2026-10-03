@@ -54,6 +54,8 @@ impl Backend for PhpBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
+        let visitor_filtered = crate::backends::php::without_excluded_visitor_types(api, config);
+        let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -68,6 +70,8 @@ impl Backend for PhpBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
+        let visitor_filtered = crate::backends::php::without_excluded_visitor_types(api, config);
+        let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -81,6 +85,8 @@ impl Backend for PhpBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
+        let visitor_filtered = crate::backends::php::without_excluded_visitor_types(api, config);
+        let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);
@@ -95,6 +101,8 @@ impl Backend for PhpBackend {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
         service_api::reject_unsafe_handler_bridges(api)?;
+        let visitor_filtered = crate::backends::php::without_excluded_visitor_types(api, config);
+        let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates
         // api.types/enums/functions/errors into a single generated file in Vec order. ~keep
         let sorted_api = crate::backends::ir_order::with_sorted_items(api);

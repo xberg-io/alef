@@ -11,7 +11,7 @@ use crate::core::config::Language;
 use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
-use crate::e2e::fixture::{Fixture, FixtureGroup, VISITOR_EXCLUDE_FUNCTION_NAME};
+use crate::e2e::fixture::{Fixture, FixtureGroup};
 use anyhow::Result;
 use heck::ToUpperCamelCase;
 use std::collections::HashMap;
@@ -23,9 +23,7 @@ use super::E2eCodegen;
 pub struct PhpCodegen;
 
 fn php_visitor_is_excluded(config: &ResolvedCrateConfig) -> bool {
-    crate::docs::language_pages::excludes::language_excludes(config, Language::Php)
-        .0
-        .contains(VISITOR_EXCLUDE_FUNCTION_NAME)
+    crate::backends::php::visitor_surface_is_excluded(config)
 }
 
 #[cfg(test)]
