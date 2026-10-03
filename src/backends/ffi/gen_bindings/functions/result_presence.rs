@@ -31,7 +31,7 @@ use crate::codegen::conversions::core_type_path;
 use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 
 use super::orchestration::{named_handle_type, named_type_path};
-use super::params::{ParamConversionContext, gen_param_conversion_with_enums};
+use super::params::{ParamConversionContext, gen_param_conversion_with_enums, param_has_explicit_newtype};
 use super::support::{ffi_doxygen_block, method_sanitized_recoverable, sanitized_recoverable};
 use crate::backends::ffi::type_map::result_presence_companion_exists;
 
@@ -134,11 +134,11 @@ fn presence_call_arg(p: &ParamDef) -> String {
         TypeRef::Map(_, _) if !p.optional => {
             if p.is_mut {
                 format!("&mut {rs}")
-            } else if p.is_ref && p.map_is_btree {
+            } else if p.is_ref && p.map_is_btree && !param_has_explicit_newtype(p) {
                 format!("&{}_btree", p.name)
             } else if p.is_ref {
                 format!("&{rs}")
-            } else if p.map_is_btree {
+            } else if p.map_is_btree && !param_has_explicit_newtype(p) {
                 format!("{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
             } else {
                 rs
@@ -242,7 +242,12 @@ fn render_presence_param_conversions(
         ));
     }
     for p in params {
-        if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
+        if matches!(p.ty, TypeRef::Map(_, _))
+            && !p.optional
+            && p.is_ref
+            && p.map_is_btree
+            && !param_has_explicit_newtype(p)
+        {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "ffi_btree_binding.jinja",
                 context! { btree => format!("{}_btree", p.name), rs => format!("{}_rs", p.name) },

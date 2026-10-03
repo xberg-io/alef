@@ -143,7 +143,9 @@ pub fn wrap_return_with_mutex_mapped(
             }
         }
         TypeRef::String => {
-            if returns_ref {
+            if returns_cow {
+                format!("{expr}.into_owned()")
+            } else if returns_ref {
                 format!("{expr}.into()")
             } else {
                 expr.to_string()

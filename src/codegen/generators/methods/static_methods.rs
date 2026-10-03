@@ -129,7 +129,18 @@ pub fn gen_static_method(
         )
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", actual_method_name);
-        let return_wrap = format!("{return_type}::from(result)");
+        let result_expr = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+        let return_wrap = wrap_return_with_mutex_mapped(
+            &result_expr,
+            &method.return_type,
+            type_name,
+            opaque_types,
+            mutex_types,
+            typ.is_opaque,
+            method.returns_ref,
+            method.returns_cow,
+            mapper,
+        );
         gen_async_body(
             &core_call,
             cfg,

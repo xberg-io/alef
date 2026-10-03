@@ -1,7 +1,10 @@
 use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
 pub(crate) fn is_explicit_newtype(wrapper: &str) -> bool {
-    !NewtypeWrapper::decode(wrapper).explicit_paths().is_empty()
+    !NewtypeWrapper::decode(wrapper)
+        .expect("newtype metadata must be validated during extraction")
+        .explicit_paths()
+        .is_empty()
 }
 
 pub(crate) fn apply_explicit_field_newtype_to_core(expr: &str, field: &FieldDef) -> Option<String> {
@@ -21,7 +24,7 @@ pub(crate) fn apply_explicit_field_newtype_from_core(expr: &str, field: &FieldDe
 }
 
 pub(crate) fn apply_field_newtype_to_core(expr: &str, ty: &TypeRef, optional: bool, wrapper: &str) -> String {
-    let decoded = NewtypeWrapper::decode(wrapper);
+    let decoded = NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated during extraction");
     if !decoded.explicit_paths().is_empty() {
         return apply_explicit_paths(expr, decoded.explicit_paths(), Direction::ToCore);
     }
@@ -35,7 +38,7 @@ pub(crate) fn apply_field_newtype_to_core(expr: &str, ty: &TypeRef, optional: bo
 }
 
 pub(crate) fn apply_field_newtype_from_core(expr: &str, ty: &TypeRef, optional: bool, wrapper: &str) -> String {
-    let decoded = NewtypeWrapper::decode(wrapper);
+    let decoded = NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated during extraction");
     if !decoded.explicit_paths().is_empty() {
         return apply_explicit_paths(expr, decoded.explicit_paths(), Direction::FromCore);
     }
@@ -56,7 +59,10 @@ pub(crate) fn apply_newtype_from_core(expr: &str, wrapper: &str) -> String {
 }
 
 pub(crate) fn apply_newtype_from_core_after_optionals(expr: &str, wrapper: &str, count: usize) -> String {
-    let mut paths = NewtypeWrapper::decode(wrapper).explicit_paths().to_vec();
+    let mut paths = NewtypeWrapper::decode(wrapper)
+        .expect("newtype metadata must be validated during extraction")
+        .explicit_paths()
+        .to_vec();
     for metadata in &mut paths {
         for _ in 0..count {
             if metadata.containers.first() == Some(&NewtypeContainer::Optional) {
@@ -74,68 +80,106 @@ enum Direction {
 }
 
 fn apply_explicit_paths(expr: &str, paths: &[NewtypeWrapperMetadata], direction: Direction) -> String {
-    paths
+    let cursors: Vec<_> = paths
         .iter()
-        .enumerate()
-        .fold(expr.to_string(), |current, (index, metadata)| {
-            let concrete_intermediate = index + 1 < paths.len();
-            apply_at_container_path(
-                &current,
-                &metadata.containers,
-                direction,
-                concrete_intermediate,
-                &|value| match (&metadata.conversion, direction) {
-                    (NewtypeConversion::TransparentString { from, .. }, Direction::ToCore) => {
-                        format!("{}::{from}({value})", metadata.rust_path)
-                    }
-                    (NewtypeConversion::TransparentString { into, .. }, Direction::FromCore) => {
-                        format!("({value}).{into}()")
-                    }
-                    (NewtypeConversion::TupleField, Direction::ToCore) => {
-                        format!("{}({value})", metadata.rust_path)
-                    }
-                    (NewtypeConversion::TupleField, Direction::FromCore) => format!("({value}).0"),
-                },
-            )
+        .map(|metadata| ConversionPath {
+            metadata,
+            containers: &metadata.containers,
         })
+        .collect();
+    apply_at_container_paths(expr, &cursors, direction)
 }
 
-fn apply_at_container_path(
-    expr: &str,
-    containers: &[NewtypeContainer],
-    direction: Direction,
-    concrete_intermediate: bool,
-    leaf: &impl Fn(&str) -> String,
-) -> String {
-    let Some((container, rest)) = containers.split_first() else {
-        return leaf(expr);
-    };
-    match container {
+#[derive(Clone, Copy)]
+struct ConversionPath<'a> {
+    metadata: &'a NewtypeWrapperMetadata,
+    containers: &'a [NewtypeContainer],
+}
+
+fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction: Direction) -> String {
+    if let [path] = paths {
+        if path.containers.is_empty() {
+            return apply_leaf(expr, path.metadata, direction);
+        }
+    }
+    let first = paths
+        .first()
+        .and_then(|path| path.containers.first())
+        .expect("validated conversion paths must not overlap a leaf");
+    match first {
         NewtypeContainer::Optional => {
-            let converted = apply_at_container_path("value", rest, direction, concrete_intermediate, leaf);
+            let nested = advance_uniform_paths(paths, NewtypeContainer::Optional);
+            let converted = apply_at_container_paths("value", &nested, direction);
             format!("({expr}).map(|value| {converted})")
         }
         NewtypeContainer::Vec => {
-            let converted = apply_at_container_path("value", rest, direction, concrete_intermediate, leaf);
-            let collect = collection_suffix(direction, concrete_intermediate, "Vec<_>");
+            let nested = advance_uniform_paths(paths, NewtypeContainer::Vec);
+            let converted = apply_at_container_paths("value", &nested, direction);
+            let collect = collection_suffix(direction, "Vec<_>");
             format!("({expr}).into_iter().map(|value| {converted}).collect{collect}")
         }
-        NewtypeContainer::MapKey => {
-            let converted = apply_at_container_path("key", rest, direction, concrete_intermediate, leaf);
-            let collect = collection_suffix(direction, concrete_intermediate, "std::collections::HashMap<_, _>");
-            format!("({expr}).into_iter().map(|(key, value)| ({converted}, value)).collect{collect}")
-        }
-        NewtypeContainer::MapValue => {
-            let converted = apply_at_container_path("value", rest, direction, concrete_intermediate, leaf);
-            let collect = collection_suffix(direction, concrete_intermediate, "std::collections::HashMap<_, _>");
-            format!("({expr}).into_iter().map(|(key, value)| (key, {converted})).collect{collect}")
+        NewtypeContainer::MapKey | NewtypeContainer::MapValue => {
+            let key_paths = advance_matching_paths(paths, NewtypeContainer::MapKey);
+            let value_paths = advance_matching_paths(paths, NewtypeContainer::MapValue);
+            let key = if key_paths.is_empty() {
+                "key".to_string()
+            } else {
+                apply_at_container_paths("key", &key_paths, direction)
+            };
+            let value = if value_paths.is_empty() {
+                "value".to_string()
+            } else {
+                apply_at_container_paths("value", &value_paths, direction)
+            };
+            let collect = collection_suffix(direction, "std::collections::HashMap<_, _>");
+            format!("({expr}).into_iter().map(|(key, value)| ({key}, {value})).collect{collect}")
         }
     }
 }
 
-fn collection_suffix(direction: Direction, concrete_intermediate: bool, collection_type: &str) -> String {
-    match (direction, concrete_intermediate) {
-        (Direction::ToCore, false) => "()".to_string(),
-        _ => format!("::<{collection_type}>()"),
+fn advance_uniform_paths<'a>(paths: &[ConversionPath<'a>], expected: NewtypeContainer) -> Vec<ConversionPath<'a>> {
+    paths
+        .iter()
+        .map(|path| {
+            let (first, rest) = path.containers.split_first().expect("validated path has a container");
+            assert_eq!(*first, expected, "validated conversion paths share a container shape");
+            ConversionPath {
+                metadata: path.metadata,
+                containers: rest,
+            }
+        })
+        .collect()
+}
+
+fn advance_matching_paths<'a>(paths: &[ConversionPath<'a>], expected: NewtypeContainer) -> Vec<ConversionPath<'a>> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let (first, rest) = path.containers.split_first()?;
+            (*first == expected).then_some(ConversionPath {
+                metadata: path.metadata,
+                containers: rest,
+            })
+        })
+        .collect()
+}
+
+fn apply_leaf(expr: &str, metadata: &NewtypeWrapperMetadata, direction: Direction) -> String {
+    match (&metadata.conversion, direction) {
+        (NewtypeConversion::TransparentString { from, .. }, Direction::ToCore) => {
+            format!("{}::{from}({expr})", metadata.rust_path)
+        }
+        (NewtypeConversion::TransparentString { into, .. }, Direction::FromCore) => {
+            format!("({expr}).{into}()")
+        }
+        (NewtypeConversion::TupleField, Direction::ToCore) => format!("{}({expr})", metadata.rust_path),
+        (NewtypeConversion::TupleField, Direction::FromCore) => format!("({expr}).0"),
+    }
+}
+
+fn collection_suffix(direction: Direction, collection_type: &str) -> String {
+    match direction {
+        Direction::ToCore => "()".to_string(),
+        Direction::FromCore => format!("::<{collection_type}>()"),
     }
 }

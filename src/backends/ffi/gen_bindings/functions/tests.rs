@@ -93,6 +93,38 @@ fn transparent_string_map_param_has_explicit_core_collection_type() {
 }
 
 #[test]
+fn transparent_string_btree_map_param_does_not_require_hashable_core_keys() {
+    let param = ParamDef {
+        name: "credentials".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        map_is_btree: true,
+        newtype_wrapper: Some(transparent_wrapper(&[
+            vec![NewtypeContainer::MapKey],
+            vec![NewtypeContainer::MapValue],
+        ])),
+        ..ParamDef::default()
+    };
+    let return_type = TypeRef::Unit;
+    let path_map = AHashMap::new();
+    let enum_names = AHashSet::new();
+    let context = conversion_context(&return_type, &path_map, &enum_names);
+    let output = gen_param_conversion_with_enums(&param, &context);
+
+    assert!(
+        output.contains(
+            "let credentials_rs: std::collections::BTreeMap<sample_crate::SecretString, sample_crate::SecretString> ="
+        ),
+        "got:\n{output}"
+    );
+    assert_eq!(
+        output.matches("credentials_rs).into_iter()").count(),
+        1,
+        "got:\n{output}"
+    );
+    assert!(!output.contains("HashMap<sample_crate::SecretString"), "got:\n{output}");
+}
+
+#[test]
 fn return_type_needs_non_serde_named_vec_non_serde() {
     let mut serde_names: AHashSet<String> = AHashSet::new();
     serde_names.insert("ExtractionResult".to_string());

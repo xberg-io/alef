@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::type_ref::TypeRef;
+
 /// One container crossed on the path from a binding field to a resolved transparent newtype. ~keep
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -64,14 +66,21 @@ impl NewtypeWrapperMetadata {
 }
 
 impl NewtypeWrapper {
-    const EXPLICIT_PREFIX: &'static str = "alef:newtype-conversions:";
+    const EXPLICIT_PREFIX: &'static str = "alef:newtype-conversions:v1:";
+    const LEGACY_EXPLICIT_PREFIX: &'static str = "alef:newtype-conversions:";
 
     /// Decode a legacy path or an explicit conversion-path set. ~keep
-    pub fn decode(value: &str) -> Self {
-        value
-            .strip_prefix(Self::EXPLICIT_PREFIX)
-            .and_then(|json| serde_json::from_str(json).ok())
-            .map_or_else(|| Self::Tuple(value.to_string()), Self::Explicit)
+    pub fn decode(value: &str) -> Result<Self, String> {
+        if let Some(json) = value.strip_prefix(Self::EXPLICIT_PREFIX) {
+            return Self::decode_explicit(json);
+        }
+        if let Some(json) = value.strip_prefix(Self::LEGACY_EXPLICIT_PREFIX) {
+            if json.starts_with('v') {
+                return Err("unsupported transparent newtype metadata version".to_string());
+            }
+            return Self::decode_explicit(json);
+        }
+        Ok(Self::Tuple(value.to_string()))
     }
 
     /// Encode explicit paths inside the unchanged `Option<String>` IR field type. ~keep
@@ -97,6 +106,152 @@ impl NewtypeWrapper {
             Self::Tuple(_) => &[],
             Self::Explicit(paths) => paths,
         }
+    }
+
+    /// Validate that each explicit path can traverse the resolved binding type. ~keep
+    pub fn validate_for_type(&self, ty: &TypeRef, outer_optional: bool) -> Result<(), String> {
+        let Self::Explicit(paths) = self else {
+            return Ok(());
+        };
+        for metadata in paths {
+            validate_newtype_path(ty, outer_optional, &metadata.containers)?;
+        }
+        Ok(())
+    }
+
+    fn decode_explicit(json: &str) -> Result<Self, String> {
+        let paths: Vec<NewtypeWrapperMetadata> =
+            serde_json::from_str(json).map_err(|error| format!("invalid transparent newtype metadata: {error}"))?;
+        if paths.is_empty() {
+            return Err("transparent newtype metadata must contain at least one conversion path".to_string());
+        }
+        for (index, path) in paths.iter().enumerate() {
+            if path.rust_path.is_empty() {
+                return Err("transparent newtype metadata contains an empty Rust path".to_string());
+            }
+            let NewtypeConversion::TransparentString { from, into } = &path.conversion else {
+                continue;
+            };
+            if from.is_empty() || into.is_empty() {
+                return Err("transparent newtype metadata contains an empty conversion method".to_string());
+            }
+            if paths[..index]
+                .iter()
+                .any(|previous| previous.containers == path.containers)
+            {
+                return Err(format!(
+                    "transparent newtype metadata contains duplicate container path {:?}",
+                    path.containers
+                ));
+            }
+        }
+        validate_newtype_path_shape(&paths)?;
+        Ok(Self::Explicit(paths))
+    }
+}
+
+fn validate_newtype_path_shape(paths: &[NewtypeWrapperMetadata]) -> Result<(), String> {
+    if paths.len() == 1 && paths[0].containers.is_empty() {
+        return Ok(());
+    }
+    if paths.iter().any(|path| path.containers.is_empty()) {
+        return Err("transparent newtype metadata overlaps a leaf path with a nested path".to_string());
+    }
+    let first = paths[0].containers[0];
+    let is_uniform = matches!(first, NewtypeContainer::Optional | NewtypeContainer::Vec)
+        && paths.iter().all(|path| path.containers[0] == first);
+    let is_map = matches!(first, NewtypeContainer::MapKey | NewtypeContainer::MapValue)
+        && paths.iter().all(|path| {
+            matches!(
+                path.containers[0],
+                NewtypeContainer::MapKey | NewtypeContainer::MapValue
+            )
+        });
+    if !is_uniform && !is_map {
+        return Err("transparent newtype metadata contains incompatible container paths".to_string());
+    }
+    if is_uniform {
+        let nested: Vec<_> = paths
+            .iter()
+            .map(|path| NewtypeWrapperMetadata {
+                rust_path: path.rust_path.clone(),
+                conversion: path.conversion.clone(),
+                containers: path.containers[1..].to_vec(),
+            })
+            .collect();
+        return validate_newtype_path_shape(&nested);
+    }
+    for branch in [NewtypeContainer::MapKey, NewtypeContainer::MapValue] {
+        let nested: Vec<_> = paths
+            .iter()
+            .filter(|path| path.containers[0] == branch)
+            .map(|path| NewtypeWrapperMetadata {
+                rust_path: path.rust_path.clone(),
+                conversion: path.conversion.clone(),
+                containers: path.containers[1..].to_vec(),
+            })
+            .collect();
+        if !nested.is_empty() {
+            validate_newtype_path_shape(&nested)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_newtype_path(
+    ty: &TypeRef,
+    mut outer_optional: bool,
+    containers: &[NewtypeContainer],
+) -> Result<(), String> {
+    let mut current = ty;
+    for container in containers {
+        if *container == NewtypeContainer::Optional && outer_optional {
+            outer_optional = false;
+            continue;
+        }
+        current = match (container, current) {
+            (NewtypeContainer::Optional, TypeRef::Optional(inner)) | (NewtypeContainer::Vec, TypeRef::Vec(inner)) => {
+                inner
+            }
+            (NewtypeContainer::MapKey, TypeRef::Map(key, _)) => key,
+            (NewtypeContainer::MapValue, TypeRef::Map(_, value)) => value,
+            (container, ty) => {
+                return Err(format!(
+                    "transparent newtype path segment {} cannot traverse {}",
+                    newtype_container_name(*container),
+                    type_ref_name(ty)
+                ));
+            }
+        };
+    }
+    if outer_optional {
+        return Err("transparent newtype path does not traverse the outer optional value".to_string());
+    }
+    if current != &TypeRef::String {
+        return Err(format!(
+            "transparent newtype path must terminate at String, not {}",
+            type_ref_name(current)
+        ));
+    }
+    Ok(())
+}
+
+fn newtype_container_name(container: NewtypeContainer) -> &'static str {
+    match container {
+        NewtypeContainer::Optional => "optional",
+        NewtypeContainer::Vec => "vec",
+        NewtypeContainer::MapKey => "map_key",
+        NewtypeContainer::MapValue => "map_value",
+    }
+}
+
+fn type_ref_name(ty: &TypeRef) -> &'static str {
+    match ty {
+        TypeRef::String => "String",
+        TypeRef::Optional(_) => "Option",
+        TypeRef::Vec(_) => "Vec",
+        TypeRef::Map(_, _) => "Map",
+        _ => "non-string type",
     }
 }
 
@@ -257,7 +412,7 @@ impl SerdeContainerConversion {
 
 #[cfg(test)]
 mod metadata_tests {
-    use super::{ErrorTaxonomy, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata};
+    use super::{ErrorTaxonomy, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
     #[test]
     fn explicit_variant_code_is_preserved() {
@@ -276,7 +431,7 @@ mod metadata_tests {
 
     #[test]
     fn tuple_newtype_wrapper_preserves_legacy_string_wire_format() {
-        let wrapper = NewtypeWrapper::decode("sample::Index");
+        let wrapper = NewtypeWrapper::decode("sample::Index").expect("legacy metadata decodes");
 
         assert_eq!(wrapper.tuple_path(), Some("sample::Index"));
         assert!(wrapper.explicit_paths().is_empty());
@@ -291,8 +446,9 @@ mod metadata_tests {
             vec![NewtypeContainer::Optional, NewtypeContainer::MapValue],
         );
         let encoded = NewtypeWrapper::encode_explicit(std::slice::from_ref(&metadata));
-        let decoded = NewtypeWrapper::decode(&encoded);
+        let decoded = NewtypeWrapper::decode(&encoded).expect("versioned metadata decodes");
 
+        assert!(encoded.starts_with("alef:newtype-conversions:v1:"));
         assert_eq!(decoded.explicit_paths(), &[metadata]);
         assert_eq!(
             &decoded.explicit_paths()[0].conversion,
@@ -301,5 +457,48 @@ mod metadata_tests {
                 into: "into_inner".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn malformed_versioned_newtype_metadata_is_rejected() {
+        let error = NewtypeWrapper::decode("alef:newtype-conversions:v1:not-json")
+            .expect_err("malformed metadata must not become a legacy tuple path");
+
+        assert!(error.contains("invalid transparent newtype metadata"), "{error}");
+    }
+
+    #[test]
+    fn empty_and_duplicate_newtype_paths_are_rejected() {
+        let empty = "alef:newtype-conversions:v1:[]";
+        assert!(
+            NewtypeWrapper::decode(empty)
+                .expect_err("empty path set")
+                .contains("at least one")
+        );
+
+        let metadata = NewtypeWrapperMetadata::transparent_string("sample::Secret", "from", "into_inner", vec![]);
+        let duplicate_json = serde_json::to_string(&vec![metadata.clone(), metadata]).expect("metadata serializes");
+        let duplicate = format!("alef:newtype-conversions:v1:{duplicate_json}");
+        assert!(
+            NewtypeWrapper::decode(&duplicate)
+                .expect_err("duplicate paths")
+                .contains("duplicate container path")
+        );
+    }
+
+    #[test]
+    fn impossible_newtype_path_is_rejected_for_resolved_type() {
+        let metadata = NewtypeWrapperMetadata::transparent_string(
+            "sample::Secret",
+            "from",
+            "into_inner",
+            vec![NewtypeContainer::MapKey],
+        );
+        let wrapper = NewtypeWrapper::decode(&NewtypeWrapper::encode_explicit(&[metadata])).expect("metadata decodes");
+
+        let error = wrapper
+            .validate_for_type(&TypeRef::String, false)
+            .expect_err("map path cannot address a string");
+        assert!(error.contains("map_key cannot traverse String"), "{error}");
     }
 }

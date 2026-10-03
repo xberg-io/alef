@@ -34,6 +34,20 @@ impl SecretString {
     }
 }
 
+#[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct OrderedSecret(String);
+
+impl OrderedSecret {
+    pub fn from(value: String) -> Self {
+        Self(value)
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Authentication {
     Bearer(SecretString),
@@ -52,6 +66,7 @@ pub struct Report {
     pub secret_chain: Vec<Option<SecretString>>,
     pub secret_lookup: std::collections::HashMap<SecretString, String>,
     pub secret_pairs: std::collections::HashMap<SecretString, Vec<SecretString>>,
+    pub ordered_secret_pairs: std::collections::BTreeMap<OrderedSecret, OrderedSecret>,
     pub authentication: Authentication,
 }
 
@@ -159,6 +174,14 @@ impl Session {
 
     pub fn replace_secret(&mut self, value: SecretString) -> SecretString {
         SecretString::from(std::mem::replace(&mut self.token, value.into_inner()))
+    }
+
+    pub async fn static_async_secret(value: SecretString) -> SecretString {
+        value
+    }
+
+    pub async fn static_fallible_secret(value: SecretString) -> Result<SecretString, String> {
+        Ok(value)
     }
 
     pub fn analyze(&self, input: String, mode: Mode) -> Result<Report, String> {

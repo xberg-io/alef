@@ -190,13 +190,18 @@ fn syn_type_contains_ref(ty: &syn::Type) -> bool {
     }
 }
 
-/// Check if a method's return type is `Cow<'_, T>` where T is a named type.
+/// Check if a method's return type is `Cow<'_, T>`.
 pub(super) fn detect_cow_return(output: &syn::ReturnType) -> bool {
     if let syn::ReturnType::Type(_, ty) = output {
-        is_cow_named_return(ty)
+        let ty = type_resolver::unwrap_result_type(ty).unwrap_or(ty);
+        is_cow_return(ty)
     } else {
         false
     }
+}
+
+fn is_cow_return(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(type_path) if type_path.path.segments.last().is_some_and(|segment| segment.ident == "Cow"))
 }
 
 /// Check if a type is `Cow<'_, T>` where T is a named (struct/enum) type.

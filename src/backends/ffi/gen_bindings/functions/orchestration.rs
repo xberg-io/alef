@@ -12,7 +12,7 @@ use minijinja::context;
 use super::super::helpers::{
     ffi_null_return_value, gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value,
 };
-use super::params::{ParamConversionContext, gen_param_conversion_with_enums};
+use super::params::{ParamConversionContext, gen_param_conversion_with_enums, param_has_explicit_newtype};
 use super::return_handling::{
     gen_owned_c_char_to_c_with_len, return_type_needs_non_serde_named, returns_bytes_out_params, returns_c_char,
 };
@@ -368,7 +368,12 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     }
 
     for p in &method.params {
-        if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
+        if matches!(p.ty, TypeRef::Map(_, _))
+            && !p.optional
+            && p.is_ref
+            && p.map_is_btree
+            && !param_has_explicit_newtype(p)
+        {
             let rs = format!("{}_rs", p.name);
             let btree = format!("{}_btree", p.name);
             out.push_str(&crate::backends::ffi::template_env::render(
@@ -468,11 +473,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                 TypeRef::Map(_, _) if !p.optional => {
                     if p.is_mut {
                         format!("&mut {rs}")
-                    } else if p.is_ref && p.map_is_btree {
+                    } else if p.is_ref && p.map_is_btree && !param_has_explicit_newtype(p) {
                         format!("&{}_btree", p.name)
                     } else if p.is_ref {
                         format!("&{rs}")
-                    } else if p.map_is_btree {
+                    } else if p.map_is_btree && !param_has_explicit_newtype(p) {
                         format!("{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else {
                         rs
@@ -891,7 +896,12 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     }
 
     for p in &func.params {
-        if matches!(p.ty, TypeRef::Map(_, _)) && !p.optional && p.is_ref && p.map_is_btree {
+        if matches!(p.ty, TypeRef::Map(_, _))
+            && !p.optional
+            && p.is_ref
+            && p.map_is_btree
+            && !param_has_explicit_newtype(p)
+        {
             let rs = format!("{}_rs", p.name);
             let btree = format!("{}_btree", p.name);
             out.push_str(&crate::backends::ffi::template_env::render(
@@ -991,11 +1001,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                 TypeRef::Map(_, _) if !p.optional => {
                     if p.is_mut {
                         format!("&mut {rs}")
-                    } else if p.is_ref && p.map_is_btree {
+                    } else if p.is_ref && p.map_is_btree && !param_has_explicit_newtype(p) {
                         format!("&{}_btree", p.name)
                     } else if p.is_ref {
                         format!("&{rs}")
-                    } else if p.map_is_btree {
+                    } else if p.map_is_btree && !param_has_explicit_newtype(p) {
                         format!("{rs}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
                     } else {
                         rs

@@ -8,7 +8,7 @@ use super::SerdeDefaultsByType;
 
 mod transparent_string;
 
-use transparent_string::validate_transparent_string_methods;
+use transparent_string::{select_unambiguous_candidates, validate_transparent_string_methods};
 
 /// Build a lookup of enum name → the name of its `#[default]`-marked unit variant.
 ///
@@ -193,13 +193,38 @@ fn is_simple_type(ty: &TypeRef) -> bool {
 ///
 /// Tuple structs wrapping complex Named types (e.g., builders) are kept as-is.
 pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
-    let mut newtype_map = AHashMap::new();
+    let mut candidates: AHashMap<String, Vec<(String, TypeRef, ResolvedNewtype)>> = AHashMap::new();
     let mut diagnostics = Vec::new();
     for typ in &surface.types {
         if typ.fields.len() != 1 || typ.fields[0].name != "_0" || !is_simple_type(&typ.fields[0].ty) {
             continue;
         }
-        let decoded = typ.fields[0].newtype_wrapper.as_deref().map(NewtypeWrapper::decode);
+        let decoded = match typ.fields[0].newtype_wrapper.as_deref().map(NewtypeWrapper::decode) {
+            Some(Ok(wrapper)) => Some(wrapper),
+            Some(Err(reason)) => {
+                diagnostics.push(UnsupportedPublicItem {
+                    item_kind: "struct".to_string(),
+                    item_path: typ.rust_path.clone(),
+                    reason,
+                    suggested_fix: "regenerate the transparent newtype metadata from a valid alef annotation"
+                        .to_string(),
+                });
+                continue;
+            }
+            None => None,
+        };
+        if let Some(wrapper) = &decoded {
+            if let Err(reason) = wrapper.validate_for_type(&typ.fields[0].ty, typ.fields[0].optional) {
+                diagnostics.push(UnsupportedPublicItem {
+                    item_kind: "struct".to_string(),
+                    item_path: typ.rust_path.clone(),
+                    reason,
+                    suggested_fix: "make the conversion metadata path match the wrapper's resolved inner type"
+                        .to_string(),
+                });
+                continue;
+            }
+        }
         if typ.binding_exclusion_reason.as_deref() == Some("alef(transparent_string)") {
             let Some(wrapper) = decoded.as_ref().filter(|wrapper| !wrapper.explicit_paths().is_empty()) else {
                 continue;
@@ -221,15 +246,21 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
                 explicit: wrapper.explicit_paths().to_vec(),
             },
         );
-        newtype_map.insert(typ.name.clone(), (typ.fields[0].ty.clone(), wrapper));
+        candidates.entry(typ.name.clone()).or_default().push((
+            typ.rust_path.clone(),
+            typ.fields[0].ty.clone(),
+            wrapper,
+        ));
     }
+
+    let (newtype_map, resolved_paths) = select_unambiguous_candidates(candidates, &mut diagnostics);
     surface.unsupported_public_items.extend(diagnostics);
 
     if newtype_map.is_empty() {
         return;
     }
 
-    surface.types.retain(|t| !newtype_map.contains_key(&t.name));
+    surface.types.retain(|typ| !resolved_paths.contains(&typ.rust_path));
 
     for typ in &mut surface.types {
         for field in &mut typ.fields {

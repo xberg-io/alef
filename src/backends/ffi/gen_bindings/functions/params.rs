@@ -64,8 +64,16 @@ fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str
     format!("    let {rs_name}: {target_type} = {converted};\n")
 }
 
+pub(super) fn param_has_explicit_newtype(param: &ParamDef) -> bool {
+    param
+        .newtype_wrapper
+        .as_deref()
+        .is_some_and(crate::codegen::conversions::helpers::is_explicit_newtype)
+}
+
 fn transparent_newtype_core_type(param: &ParamDef, wrapper: &str, core_import: &str) -> String {
-    let decoded = crate::core::ir::NewtypeWrapper::decode(wrapper);
+    let decoded =
+        crate::core::ir::NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated during extraction");
     if param.optional {
         let path = vec![crate::core::ir::NewtypeContainer::Optional];
         let inner = render_newtype_core_type(&param.ty, &path, param, decoded.explicit_paths(), core_import, true);
@@ -121,7 +129,7 @@ fn render_newtype_core_type(
             let value_type = render_newtype_core_type(value, &value_path, param, metadata, core_import, false);
             let collection = if outer && param.map_is_ahash {
                 "ahash::AHashMap"
-            } else if outer && param.map_is_btree && param.optional {
+            } else if outer && param.map_is_btree {
                 "std::collections::BTreeMap"
             } else {
                 "std::collections::HashMap"
@@ -363,28 +371,30 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
                     },
                 ));
             }
-            TypeRef::Primitive(prim) => match prim {
-                crate::core::ir::PrimitiveType::Bool => {
-                    out.push_str(&crate::backends::ffi::template_env::render(
-                        "param_primitive_bool.jinja",
-                        context! { rs_name => rs_name.clone(), name => name.clone() },
-                    ));
-                }
-                _ => {
-                    if let Some(newtype_path) = param
-                        .newtype_wrapper
-                        .as_deref()
-                        .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
-                    {
-                        out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path.clone(), name => name.clone() }));
-                    } else {
+            TypeRef::Primitive(prim) => {
+                match prim {
+                    crate::core::ir::PrimitiveType::Bool => {
                         out.push_str(&crate::backends::ffi::template_env::render(
-                            "param_primitive_passthrough.jinja",
+                            "param_primitive_bool.jinja",
                             context! { rs_name => rs_name.clone(), name => name.clone() },
                         ));
                     }
+                    _ => {
+                        if let Some(newtype_path) = param
+                            .newtype_wrapper
+                            .as_deref()
+                            .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
+                        {
+                            out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path, name => name.clone() }));
+                        } else {
+                            out.push_str(&crate::backends::ffi::template_env::render(
+                                "param_primitive_passthrough.jinja",
+                                context! { rs_name => rs_name.clone(), name => name.clone() },
+                            ));
+                        }
+                    }
                 }
-            },
+            }
             TypeRef::Named(type_name) if enum_names.contains(type_name.as_str()) => {
                 let enum_snake = c_symbol_component(type_name);
                 out.push_str(&crate::backends::ffi::template_env::render(

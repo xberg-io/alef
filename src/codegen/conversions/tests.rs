@@ -1287,6 +1287,11 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         "{to_core}"
     );
     assert!(to_core.contains("my_crate::SecretString::from(key)"), "{to_core}");
+    assert_eq!(
+        to_core.matches("pairs.into_iter()").count(),
+        1,
+        "map key and value conversions must share one traversal: {to_core}"
+    );
 
     let from_core = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
     assert!(from_core.contains("(val.token).into_inner()"), "{from_core}");
@@ -1297,6 +1302,11 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         "{from_core}"
     );
     assert!(from_core.contains("(key).into_inner()"), "{from_core}");
+    assert_eq!(
+        from_core.matches("pairs.into_iter()").count(),
+        1,
+        "map key and value conversions must share one traversal: {from_core}"
+    );
     assert!(!from_core.contains("token.to_string()"), "{from_core}");
 }
 

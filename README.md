@@ -192,6 +192,8 @@ value leaves Rust. Both operations must be public synchronous inherent methods w
 signatures shown above. The wrapper must implement `Clone`: generated FFI getters clone an owned
 wrapper before calling the consuming `into` method. Alef reports invalid annotations, shapes, or
 methods as unsupported public-item diagnostics and never falls back to `Display` or `ToString`.
+Binding-visible wrappers must also have unique short type names; Alef reports same-named wrappers
+from different modules as ambiguous instead of attaching one module's conversion to the other.
 
 The conversion metadata is preserved through struct and enum fields, parameters and returns,
 including nested `Option`, `Vec`, and map keys and values. Rust-backed shared generators, Dart's

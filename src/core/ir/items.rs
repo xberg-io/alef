@@ -301,7 +301,7 @@ pub struct MethodDef {
     /// Used by code generators to insert `.clone()` before type conversion.
     #[serde(default)]
     pub returns_ref: bool,
-    /// True if the core function returns `Cow<'_, T>` where T is a named type (not str/bytes).
+    /// True if the core function returns `Cow<'_, T>`.
     /// Used by code generators to emit `.into_owned()` before type conversion.
     #[serde(default)]
     pub returns_cow: bool,
@@ -421,7 +421,7 @@ pub struct FunctionDef {
     /// Used by code generators to insert `.clone()` before type conversion.
     #[serde(default)]
     pub returns_ref: bool,
-    /// True if the core function returns `Cow<'_, T>` where T is a named type (not str/bytes).
+    /// True if the core function returns `Cow<'_, T>`.
     /// Used by code generators to emit `.into_owned()` before type conversion.
     #[serde(default)]
     pub returns_cow: bool,

@@ -3,7 +3,7 @@ use crate::core::ir::{NewtypeContainer, NewtypeConversion, NewtypeWrapper, TypeR
 use super::super::extract_from_source;
 
 fn assert_conversion_paths(encoded: &str, expected: &[(&str, Vec<NewtypeContainer>)]) {
-    let decoded = NewtypeWrapper::decode(encoded);
+    let decoded = NewtypeWrapper::decode(encoded).expect("conversion metadata must decode");
     let paths = decoded.explicit_paths();
     assert_eq!(paths.len(), expected.len());
     for (metadata, (rust_path, containers)) in paths.iter().zip(expected) {
@@ -293,4 +293,75 @@ fn duplicate_transparent_string_annotations_are_reported() {
             .iter()
             .any(|item| item.reason.contains("duplicate"))
     );
+}
+
+#[test]
+fn ambiguous_short_wrapper_names_are_reported_without_removing_either_type() {
+    let surface = extract_from_source(
+        r#"
+        pub mod first {
+            #[derive(Clone)]
+            #[alef(transparent_string(from = "from", into = "into_inner"))]
+            pub struct Secret(String);
+            impl Secret {
+                pub fn from(value: String) -> Self { Self(value) }
+                pub fn into_inner(self) -> String { self.0 }
+            }
+        }
+        pub mod second {
+            #[derive(Clone)]
+            #[alef(transparent_string(from = "from", into = "into_inner"))]
+            pub struct Secret(String);
+            impl Secret {
+                pub fn from(value: String) -> Self { Self(value) }
+                pub fn into_inner(self) -> String { self.0 }
+            }
+        }
+        pub struct Pair {
+            pub first: first::Secret,
+            pub second: second::Secret,
+        }
+        "#,
+    );
+
+    assert_eq!(surface.types.iter().filter(|typ| typ.name == "Secret").count(), 2);
+    assert!(surface.unsupported_public_items.iter().any(|item| {
+        item.reason.contains("ambiguous transparent newtype name")
+            && item.reason.contains("test_crate::first::Secret")
+            && item.reason.contains("test_crate::second::Secret")
+    }));
+}
+
+#[test]
+fn borrowed_or_wrapped_transparent_string_methods_are_rejected() {
+    let cases = [
+        r#"pub fn from(value: &str) -> Self { Self(value.to_string()) }
+            pub fn into_inner(self) -> String { self.0 }"#,
+        r#"pub fn from(value: &mut String) -> Self { Self(value.clone()) }
+            pub fn into_inner(self) -> String { self.0 }"#,
+        r#"pub fn from(value: std::borrow::Cow<'static, str>) -> Self { Self(value.into_owned()) }
+            pub fn into_inner(self) -> String { self.0 }"#,
+        r#"pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> &'static str { "redacted" }"#,
+        r#"pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> std::borrow::Cow<'static, str> { self.0.into() }"#,
+    ];
+
+    for methods in cases {
+        let source = format!(
+            r#"#[derive(Clone)]
+                #[alef(transparent_string(from = "from", into = "into_inner"))]
+                pub struct Credential(String);
+                impl Credential {{ {methods} }}"#
+        );
+        let surface = extract_from_source(&source);
+        assert!(
+            surface
+                .unsupported_public_items
+                .iter()
+                .any(|item| item.reason.contains("must be a public synchronous")),
+            "expected an exact-signature diagnostic: {:?}",
+            surface.unsupported_public_items
+        );
+    }
 }
