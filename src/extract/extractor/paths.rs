@@ -61,6 +61,7 @@ pub(super) fn apply_parent_reexport_shortening(
     surface: &mut ApiSurface,
     types_before: usize,
     enums_before: usize,
+    errors_before: usize,
     fns_before: usize,
 ) {
     let parent_dir = match source.parent() {
@@ -109,6 +110,9 @@ pub(super) fn apply_parent_reexport_shortening(
                     for en in &mut surface.enums[enums_before..] {
                         en.rust_path = format!("{parent_prefix}::{}", en.name);
                     }
+                    for error in &mut surface.errors[errors_before..] {
+                        error.rust_path = format!("{parent_prefix}::{}", error.name);
+                    }
                     for func in &mut surface.functions[fns_before..] {
                         func.rust_path = format!("{parent_prefix}::{}", func.name);
                     }
@@ -136,6 +140,9 @@ pub(super) fn apply_parent_reexport_shortening(
         for en in &mut surface.enums[enums_before..] {
             en.rust_path = format!("{parent_prefix}::{}", en.name);
         }
+        for error in &mut surface.errors[errors_before..] {
+            error.rust_path = format!("{parent_prefix}::{}", error.name);
+        }
         for func in &mut surface.functions[fns_before..] {
             func.rust_path = format!("{parent_prefix}::{}", func.name);
         }
@@ -161,6 +168,11 @@ pub(super) fn apply_parent_reexport_shortening(
     for en in &mut surface.enums[enums_before..] {
         if reexported_names.contains(&en.name) {
             en.rust_path = format!("{parent_prefix}::{}", en.name);
+        }
+    }
+    for error in &mut surface.errors[errors_before..] {
+        if reexported_names.contains(&error.name) {
+            error.rust_path = format!("{parent_prefix}::{}", error.name);
         }
     }
     for func in &mut surface.functions[fns_before..] {
@@ -252,6 +264,9 @@ pub(super) fn validate_no_private_path_leaks(
     }
     for en in &surface.enums {
         check(&en.rust_path);
+    }
+    for error in &surface.errors {
+        check(&error.rust_path);
     }
     for func in &surface.functions {
         check(&func.rust_path);

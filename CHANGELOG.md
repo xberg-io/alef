@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Extracted error enums use their public re-export path when their declaration module is private,
+  preventing generated native bindings from naming an unreachable Rust module.
+
 ## [0.103.11] - 2026-10-03
 
 ### Fixed

@@ -96,6 +96,7 @@ pub fn extract(
 
         let types_before = surface.types.len();
         let enums_before = surface.enums.len();
+        let errors_before = surface.errors.len();
         let fns_before = surface.functions.len();
 
         let mut result_wrapping_aliases = ahash::AHashSet::new();
@@ -120,6 +121,7 @@ pub fn extract(
                 &mut surface,
                 types_before,
                 enums_before,
+                errors_before,
                 fns_before,
             );
         }

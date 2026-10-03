@@ -205,6 +205,49 @@ fn test_net_ssrf_policy_chain_alone_reaches_public_path() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+#[test]
+fn private_module_error_reexport_uses_public_path_in_php_converter() {
+    let tmp = std::env::temp_dir().join("alef_test_private_error_reexport");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("src")).unwrap();
+    std::fs::write(tmp.join("src/lib.rs"), "mod faults;\npub use faults::SampleError;\n").unwrap();
+    std::fs::write(
+        tmp.join("src/faults.rs"),
+        r#"
+#[derive(Debug, thiserror::Error)]
+pub enum SampleError {
+    #[error("invalid sample")]
+    InvalidSample,
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_rs = tmp.join("src/lib.rs");
+    let sources: Vec<&std::path::Path> = vec![lib_rs.as_path()];
+    let surface = super::extract(&sources, "sample_core", "0.1.0", None).unwrap();
+
+    assert_eq!(surface.errors.len(), 1, "exactly one error should be extracted");
+    let error = &surface.errors[0];
+    assert_eq!(error.rust_path, "sample_core::SampleError");
+
+    let converter = crate::codegen::error_gen::gen_php_error_converter(error, "sample_core");
+    assert!(
+        converter.contains("fn sample_error_to_php_err(e: sample_core::SampleError)"),
+        "converter must accept the public re-export path: {converter}"
+    );
+    assert!(
+        converter.contains("sample_core::SampleError::InvalidSample"),
+        "converter patterns must use the public re-export path: {converter}"
+    );
+    assert!(
+        !converter.contains("sample_core::faults::SampleError"),
+        "converter must not expose the private declaration module: {converter}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Direct unit coverage for `paths::validate_no_private_path_leaks`: proves the loud-failure
 /// path actually fires (rather than silently letting an unreachable path through) when an
 /// item's `rust_path` still runs through a module recorded as private, and proves it stays

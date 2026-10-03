@@ -299,10 +299,15 @@ pub(crate) fn extract_module(
         Some(ReexportKind::Names(names)) => Some(names),
         _ => None,
     };
-    let (types_before, enums_before, fns_before) = if named_reexports.is_some() {
-        (surface.types.len(), surface.enums.len(), surface.functions.len())
+    let (types_before, enums_before, errors_before, fns_before) = if named_reexports.is_some() {
+        (
+            surface.types.len(),
+            surface.enums.len(),
+            surface.errors.len(),
+            surface.functions.len(),
+        )
     } else {
-        (0, 0, 0)
+        (0, 0, 0, 0)
     };
 
     let mut rwa = ahash::AHashSet::new();
@@ -390,6 +395,11 @@ pub(crate) fn extract_module(
                 en.rust_path = format!("{parent_prefix}::{}", en.name);
             }
         }
+        for error in &mut surface.errors[errors_before..] {
+            if names.contains(&error.name) {
+                error.rust_path = format!("{parent_prefix}::{}", error.name);
+            }
+        }
         for func in &mut surface.functions[fns_before..] {
             if names.contains(&func.name) {
                 func.rust_path = format!("{parent_prefix}::{}", func.name);
@@ -405,6 +415,10 @@ pub(crate) fn extract_module(
             surface
                 .enums
                 .extend(new_enums.into_iter().filter(|en| names.contains(&en.name)));
+            let new_errors: Vec<_> = surface.errors.drain(errors_before..).collect();
+            surface
+                .errors
+                .extend(new_errors.into_iter().filter(|error| names.contains(&error.name)));
             let new_fns: Vec<_> = surface.functions.drain(fns_before..).collect();
             surface
                 .functions
