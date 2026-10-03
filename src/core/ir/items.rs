@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::metadata::{
-    CoreWrapper, DefaultValue, ErrorTaxonomy, NewtypeWrapper, SerdeContainerConversion, VersionAnnotation,
-};
+use super::metadata::{CoreWrapper, DefaultValue, ErrorTaxonomy, SerdeContainerConversion, VersionAnnotation};
 use super::type_ref::TypeRef;
 
 /// A public struct exposed to bindings.
@@ -150,7 +148,7 @@ pub struct FieldDef {
     /// wrappers use their constructor and `.0`; explicit wrappers retain named operations and
     /// the container path to the resolved value. ~keep
     #[serde(default)]
-    pub newtype_wrapper: Option<NewtypeWrapper>,
+    pub newtype_wrapper: Option<String>,
     /// Explicit `#[serde(rename = "...")]` on this field, if any. Preserved so binding
     /// structs that mirror the core struct can serialize/deserialize using the same wire
     /// names (e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as `"type"`).
@@ -309,7 +307,7 @@ pub struct MethodDef {
     pub returns_cow: bool,
     /// Conversion metadata for a newtype resolved away from the return type. ~keep
     #[serde(default)]
-    pub return_newtype_wrapper: Option<NewtypeWrapper>,
+    pub return_newtype_wrapper: Option<String>,
     /// True if this method has a default implementation in the trait definition.
     /// Methods with defaults can be optionally implemented by the foreign object
     /// in trait bridge codegen.
@@ -429,7 +427,7 @@ pub struct FunctionDef {
     pub returns_cow: bool,
     /// Conversion metadata for a newtype resolved away from the return type. ~keep
     #[serde(default)]
-    pub return_newtype_wrapper: Option<NewtypeWrapper>,
+    pub return_newtype_wrapper: Option<String>,
     /// True when source metadata explicitly excludes this function from generated
     /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
     #[serde(default)]
@@ -465,7 +463,7 @@ pub struct ParamDef {
     pub is_mut: bool,
     /// Conversion metadata for a newtype resolved away from this parameter. ~keep
     #[serde(default)]
-    pub newtype_wrapper: Option<NewtypeWrapper>,
+    pub newtype_wrapper: Option<String>,
     /// Original Rust type before sanitization, stored when param.sanitized=true.
     /// Allows codegen to reconstruct proper deserialization logic.
     /// E.g. `"Vec<(PathBuf, Option<FileExtractionConfig>)>"` when sanitized to `Vec<String>`.
@@ -770,6 +768,19 @@ impl ErrorVariant {
 mod tests {
     use super::super::{DefaultValue, TypeRef};
     use super::{EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, TypeDef};
+
+    #[test]
+    fn newtype_wrapper_ir_fields_keep_their_legacy_string_wire_shape() {
+        let field = FieldDef {
+            newtype_wrapper: Some("sample::Index".to_string()),
+            ..FieldDef::default()
+        };
+        let json = serde_json::to_value(&field).expect("field serializes");
+        assert_eq!(json["newtype_wrapper"], "sample::Index");
+
+        let decoded: FieldDef = serde_json::from_value(json).expect("legacy string field deserializes");
+        assert_eq!(decoded.newtype_wrapper.as_deref(), Some("sample::Index"));
+    }
 
     #[test]
     fn bare_serde_enum_default_requires_a_non_optional_enum_variant_field() {

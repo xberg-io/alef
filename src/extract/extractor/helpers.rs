@@ -14,7 +14,7 @@ pub(crate) use attributes::{
     extract_error_message_template, extract_field_binding_exclusion_reason, extract_serde_container_conversion,
     extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
     extract_version_annotation, has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr,
-    has_path_attribute, has_serde_untagged, is_pub, is_test_gated, is_thiserror_enum,
+    has_path_attribute, has_serde_untagged, is_pub, is_test_gated, is_thiserror_enum, parse_alef_transparent_string,
 };
 pub(crate) use enum_variants::extract_enum_variant;
 pub(crate) use field_types::{

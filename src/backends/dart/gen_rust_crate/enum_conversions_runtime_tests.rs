@@ -2,7 +2,7 @@ use super::{
     enum_conversions::{emit_from_impl_for_enum, emit_from_mirror_to_core_enum},
     opaque::emit_enum_from_json_fn,
 };
-use crate::core::ir::{EnumDef, EnumVariant, FieldDef, NewtypeWrapper, TypeRef};
+use crate::core::ir::{EnumDef, EnumVariant, FieldDef, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
 fn unit_variant(name: &str) -> EnumVariant {
     EnumVariant {
@@ -61,31 +61,56 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
     let en = EnumDef {
         name: "Authentication".to_string(),
         rust_path: "mylib::Authentication".to_string(),
-        variants: vec![EnumVariant {
-            name: "Bearer".to_string(),
-            is_tuple: true,
-            fields: vec![FieldDef {
-                name: "_0".to_string(),
-                ty: TypeRef::String,
-                newtype_wrapper: Some(NewtypeWrapper::transparent_string(
-                    "mylib::SecretString",
-                    "from",
-                    "into_inner",
-                    vec![],
-                )),
+        variants: vec![
+            EnumVariant {
+                name: "Bearer".to_string(),
+                is_tuple: true,
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                        NewtypeWrapperMetadata::transparent_string("mylib::SecretString", "from", "into_inner", vec![]),
+                    ])),
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        }],
+            },
+            EnumVariant {
+                name: "Optional".to_string(),
+                fields: vec![FieldDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                        NewtypeWrapperMetadata::transparent_string(
+                            "mylib::SecretString",
+                            "from",
+                            "into_inner",
+                            vec![crate::core::ir::NewtypeContainer::Optional],
+                        ),
+                    ])),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
         ..Default::default()
     };
 
     let mut to_core = String::new();
     emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
     assert!(to_core.contains("mylib::SecretString::from(field0)"), "got:\n{to_core}");
+    assert!(
+        to_core.contains("map(|value| mylib::SecretString::from(value))"),
+        "got:\n{to_core}"
+    );
 
     let mut from_core = String::new();
     emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
     assert!(from_core.contains("(f0).into_inner()"), "got:\n{from_core}");
+    assert!(
+        from_core.contains("map(|value| (value).into_inner())"),
+        "got:\n{from_core}"
+    );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 }

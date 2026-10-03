@@ -21,7 +21,7 @@ pub struct Segment {
 /// bindings must use only these explicit lossless operations, including below containers and in
 /// enum payloads; the full-language emitted tree is the compile oracle for that contract. ~keep
 #[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SecretString(String);
 
 impl SecretString {
@@ -49,7 +49,26 @@ pub struct Report {
     pub credential: SecretString,
     pub optional_credential: Option<SecretString>,
     pub secret_headers: std::collections::HashMap<String, SecretString>,
+    pub secret_chain: Vec<Option<SecretString>>,
+    pub secret_lookup: std::collections::HashMap<SecretString, String>,
+    pub secret_pairs: std::collections::HashMap<SecretString, Vec<SecretString>>,
     pub authentication: Authentication,
+}
+
+pub fn echo_secret(value: SecretString) -> SecretString {
+    value
+}
+
+pub fn optional_secret(value: Option<SecretString>) -> Option<SecretString> {
+    value
+}
+
+pub async fn async_secret(value: SecretString) -> SecretString {
+    value
+}
+
+pub fn fallible_secret(value: SecretString) -> Result<SecretString, String> {
+    Ok(value)
 }
 
 /// `Chunked` is gated on a feature this crate declares but does not default-enable (see
@@ -136,6 +155,10 @@ impl Session {
 
     pub fn token(&self) -> String {
         self.token.clone()
+    }
+
+    pub fn replace_secret(&mut self, value: SecretString) -> SecretString {
+        SecretString::from(std::mem::replace(&mut self.token, value.into_inner()))
     }
 
     pub fn analyze(&self, input: String, mode: Mode) -> Result<Report, String> {

@@ -176,15 +176,29 @@ A core type that deliberately hides its string value from `Display` can still be
 plain string in every binding. Mark the wrapper with explicit conversion operations:
 
 ```rust
+#[derive(Clone)]
 #[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
 pub struct SecretString(String);
+
+impl SecretString {
+    pub fn from(value: String) -> Self { Self(value) }
+    pub fn into_inner(self) -> String { self.0 }
+}
 ```
 
 The wrapper is omitted from generated binding APIs. Alef calls `SecretString::from(String)` when a
 binding value enters Rust and consumes the wrapper with `SecretString::into_inner()` when a core
-value leaves Rust. Both operations must be inherent methods with the declared names; Alef never
-uses `Display` or `ToString` to expose the value. The metadata is preserved through struct fields,
-enum payloads, `Option`, `Vec`, and map keys or values.
+value leaves Rust. Both operations must be public synchronous inherent methods with the exact
+signatures shown above. The wrapper must implement `Clone`: generated FFI getters clone an owned
+wrapper before calling the consuming `into` method. Alef reports invalid annotations, shapes, or
+methods as unsupported public-item diagnostics and never falls back to `Display` or `ToString`.
+
+The conversion metadata is preserved through struct and enum fields, parameters and returns,
+including nested `Option`, `Vec`, and map keys and values. Rust-backed shared generators, Dart's
+bridge crate, and the C FFI layer apply the conversion; Zig and Gleam inherit it through that FFI
+layer. The emitted-tree compile gate covers FFI, Python, Node, Wasm, and JNI. PHP is text-gated
+because its Rust crate needs PHP headers. Dart has direct conversion-generator tests; R, Zig, and
+Gleam do not yet have an annotation-specific downstream toolchain build.
 
 ## Extending Alef
 

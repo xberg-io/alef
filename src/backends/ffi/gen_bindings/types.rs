@@ -1,7 +1,7 @@
 use crate::backends::ffi::type_map::c_return_type_with_paths;
 use crate::codegen::conversions::{core_enum_path, core_type_path};
 use crate::codegen::naming::{pascal_to_snake, wire_variant_value};
-use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, NewtypeConversion, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
@@ -332,14 +332,21 @@ fn gen_field_access_body(
             out.push_str("    }\n");
         } else if let TypeRef::Optional(inner) = &field.ty {
             let inner_null = null_return_value(&TypeRef::Optional(Box::new(*inner.clone())));
-            let inner_val_expr = match field.newtype_wrapper.as_ref().map(|wrapper| wrapper.conversion()) {
-                Some(NewtypeConversion::TransparentString { into, .. }) => {
-                    format!("inner_val.clone().{into}()")
-                }
-                _ => match inner.as_ref() {
+            let inner_val_expr = if let Some(wrapper) = field
+                .newtype_wrapper
+                .as_deref()
+                .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
+            {
+                crate::codegen::conversions::helpers::apply_newtype_from_core_after_optionals(
+                    "inner_val.clone()",
+                    wrapper,
+                    2,
+                )
+            } else {
+                match inner.as_ref() {
                     TypeRef::Primitive(_) => "*inner_val".to_string(),
                     _ => "inner_val".to_string(),
-                },
+                }
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "match_field_start.jinja",
@@ -371,10 +378,10 @@ fn gen_field_access_body(
         } else {
             let val_expr = if let Some(wrapper) = field
                 .newtype_wrapper
-                .as_ref()
-                .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+                .as_deref()
+                .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
             {
-                crate::codegen::conversions::helpers::apply_newtype_from_core("val.clone()", wrapper)
+                crate::codegen::conversions::helpers::apply_newtype_from_core_after_optionals("val.clone()", wrapper, 1)
             } else if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {
                 "val.0".to_string()
             } else if matches!(field.ty, TypeRef::Primitive(_)) {
@@ -418,8 +425,8 @@ fn gen_field_access_body(
     } else {
         let access_expr = if let Some(wrapper) = field
             .newtype_wrapper
-            .as_ref()
-            .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+            .as_deref()
+            .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
         {
             crate::codegen::conversions::helpers::apply_newtype_from_core(&format!("obj.{field_name}.clone()"), wrapper)
         } else if field.newtype_wrapper.is_some() && matches!(field.ty, TypeRef::Primitive(_)) {

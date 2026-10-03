@@ -1,5 +1,5 @@
 use crate::codegen::conversions::ConversionConfig;
-use crate::core::ir::{FieldDef, NewtypeConversion, TypeRef};
+use crate::core::ir::{FieldDef, TypeRef};
 
 use super::field_fragments::sanitized_vec_field_to_core_expr;
 use super::{
@@ -128,10 +128,7 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     let expr = sanitized_field_parse_or_warn(name, variant_name, name);
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
-                if f.newtype_wrapper
-                    .as_ref()
-                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
-                {
+                if f.newtype_wrapper.as_deref().is_some_and(super::is_explicit_newtype) {
                     let expr = explicit_newtype_to_core_expr(f, name, config);
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
@@ -182,10 +179,7 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     let expr = sanitized_field_parse_or_warn(&f.name, variant_name, &f.name);
                     return format!("{}: {expr}", f.name);
                 }
-                if f.newtype_wrapper
-                    .as_ref()
-                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
-                {
+                if f.newtype_wrapper.as_deref().is_some_and(super::is_explicit_newtype) {
                     let expr = explicit_newtype_to_core_expr(f, &f.name, config);
                     return field_init(&f.name, &expr);
                 }
@@ -261,10 +255,7 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                if f.newtype_wrapper
-                    .as_ref()
-                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
-                {
+                if f.newtype_wrapper.as_deref().is_some_and(super::is_explicit_newtype) {
                     let expr = explicit_newtype_from_core_expr(f, &f.name, config);
                     return if binding_uses_tuple_form {
                         expr
@@ -329,10 +320,7 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
-                if f.newtype_wrapper
-                    .as_ref()
-                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
-                {
+                if f.newtype_wrapper.as_deref().is_some_and(super::is_explicit_newtype) {
                     let expr = explicit_newtype_from_core_expr(f, &f.name, config);
                     return field_init(&f.name, &expr);
                 }

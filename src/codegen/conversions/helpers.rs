@@ -20,7 +20,8 @@ pub(crate) use field_fragments::{
 };
 pub(crate) use newtypes::{
     apply_explicit_field_newtype_from_core, apply_explicit_field_newtype_to_core, apply_field_newtype_from_core,
-    apply_field_newtype_to_core, apply_newtype_from_core, apply_newtype_to_core,
+    apply_field_newtype_to_core, apply_newtype_from_core, apply_newtype_from_core_after_optionals,
+    apply_newtype_to_core, is_explicit_newtype,
 };
 pub use paths::{
     apply_crate_remaps, build_type_path_map, core_enum_path, core_enum_path_remapped, core_type_path,

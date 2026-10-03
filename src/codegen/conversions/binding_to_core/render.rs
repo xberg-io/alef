@@ -4,7 +4,7 @@ use crate::codegen::conversions::helpers::{
     field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast,
     needs_i64_cast,
 };
-use crate::core::ir::{CoreWrapper, FieldDef, NewtypeConversion, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 
 use super::fields::field_conversion_to_core_cfg;
 use super::wrappers::apply_core_wrapper_to_core;
@@ -412,8 +412,8 @@ fn field_core_conversion(
 ) -> String {
     let transparent_wrapper = field
         .newtype_wrapper
-        .as_ref()
-        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }));
+        .as_deref()
+        .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper));
     let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
         format!("{}: Default::default()", field.name)
     } else if let Some(wrapper) = transparent_wrapper {
@@ -431,8 +431,8 @@ fn field_core_conversion(
     };
     let conversion = if let Some(wrapper) = field
         .newtype_wrapper
-        .as_ref()
-        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+        .as_deref()
+        .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
     {
         if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
             match &field.ty {

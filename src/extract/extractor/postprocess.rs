@@ -1,9 +1,14 @@
 use crate::core::ir::{
-    ApiSurface, DefaultValue, EnumDef, FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef,
+    UnsupportedPublicItem,
 };
 use ahash::{AHashMap, AHashSet};
 
 use super::SerdeDefaultsByType;
+
+mod transparent_string;
+
+use transparent_string::validate_transparent_string_methods;
 
 /// Build a lookup of enum name → the name of its `#[default]`-marked unit variant.
 ///
@@ -188,26 +193,37 @@ fn is_simple_type(ty: &TypeRef) -> bool {
 ///
 /// Tuple structs wrapping complex Named types (e.g., builders) are kept as-is.
 pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
-    let newtype_map: AHashMap<String, (TypeRef, NewtypeWrapper)> = surface
-        .types
-        .iter()
-        .filter(|typ| {
-            typ.fields.len() == 1
-                && typ.fields[0].name == "_0"
-                && is_simple_type(&typ.fields[0].ty)
-                && (typ.binding_exclusion_reason.as_deref() != Some("alef(transparent_string)")
-                    || typ.fields[0].newtype_wrapper.as_ref().is_some_and(is_explicit_newtype))
-        })
-        .map(|typ| {
-            let wrapper = typ.fields[0]
-                .newtype_wrapper
-                .as_ref()
-                .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
-                .cloned()
-                .unwrap_or_else(|| NewtypeWrapper::from(typ.rust_path.replace('-', "_")));
-            (typ.name.clone(), (typ.fields[0].ty.clone(), wrapper))
-        })
-        .collect();
+    let mut newtype_map = AHashMap::new();
+    let mut diagnostics = Vec::new();
+    for typ in &surface.types {
+        if typ.fields.len() != 1 || typ.fields[0].name != "_0" || !is_simple_type(&typ.fields[0].ty) {
+            continue;
+        }
+        let decoded = typ.fields[0].newtype_wrapper.as_deref().map(NewtypeWrapper::decode);
+        if typ.binding_exclusion_reason.as_deref() == Some("alef(transparent_string)") {
+            let Some(wrapper) = decoded.as_ref().filter(|wrapper| !wrapper.explicit_paths().is_empty()) else {
+                continue;
+            };
+            if let Err(reason) = validate_transparent_string_methods(typ, wrapper.explicit_paths()) {
+                diagnostics.push(UnsupportedPublicItem {
+                    item_kind: "struct".to_string(),
+                    item_path: typ.rust_path.clone(),
+                    reason,
+                    suggested_fix: "provide the exact public conversion methods named by the annotation".to_string(),
+                });
+                continue;
+            }
+        }
+        let wrapper = decoded.map_or_else(
+            || ResolvedNewtype::legacy(typ.rust_path.replace('-', "_")),
+            |wrapper| ResolvedNewtype {
+                legacy: wrapper.tuple_path().map(str::to_string),
+                explicit: wrapper.explicit_paths().to_vec(),
+            },
+        );
+        newtype_map.insert(typ.name.clone(), (typ.fields[0].ty.clone(), wrapper));
+    }
+    surface.unsupported_public_items.extend(diagnostics);
 
     if newtype_map.is_empty() {
         return;
@@ -217,25 +233,34 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
 
     for typ in &mut surface.types {
         for field in &mut typ.fields {
-            field.newtype_wrapper = resolve_typeref(&newtype_map, &mut field.ty, true);
+            let mut resolved = resolve_typeref(&newtype_map, &mut field.ty, true);
+            resolved.prepend_outer_optional(field.optional);
+            field.newtype_wrapper = resolved.encode();
         }
         for method in &mut typ.methods {
             for param in &mut method.params {
-                param.newtype_wrapper = resolve_typeref(&newtype_map, &mut param.ty, false);
+                let mut resolved = resolve_typeref(&newtype_map, &mut param.ty, false);
+                resolved.prepend_outer_optional(param.optional);
+                param.newtype_wrapper = resolved.encode();
             }
-            method.return_newtype_wrapper = resolve_typeref(&newtype_map, &mut method.return_type, false);
+            method.return_newtype_wrapper = resolve_typeref(&newtype_map, &mut method.return_type, false).encode();
         }
     }
     for func in &mut surface.functions {
         for param in &mut func.params {
-            param.newtype_wrapper = resolve_typeref(&newtype_map, &mut param.ty, false);
+            let mut resolved = resolve_typeref(&newtype_map, &mut param.ty, false);
+            resolved.prepend_outer_optional(param.optional);
+            param.newtype_wrapper = resolved.encode();
         }
-        func.return_newtype_wrapper = resolve_typeref(&newtype_map, &mut func.return_type, false);
+        func.return_newtype_wrapper = resolve_typeref(&newtype_map, &mut func.return_type, false).encode();
     }
     for enum_def in &mut surface.enums {
         for variant in &mut enum_def.variants {
             for field in &mut variant.fields {
-                field.newtype_wrapper = resolve_typeref(&newtype_map, &mut field.ty, false).filter(is_explicit_newtype);
+                let mut resolved = resolve_typeref(&newtype_map, &mut field.ty, false);
+                resolved.legacy = None;
+                resolved.prepend_outer_optional(field.optional);
+                field.newtype_wrapper = resolved.encode();
             }
         }
     }
@@ -243,46 +268,85 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
 
 /// Recursively replace `TypeRef::Named(name)` with the newtype's inner type.
 fn resolve_typeref(
-    newtype_map: &AHashMap<String, (TypeRef, NewtypeWrapper)>,
+    newtype_map: &AHashMap<String, (TypeRef, ResolvedNewtype)>,
     ty: &mut TypeRef,
     legacy_field_container: bool,
-) -> Option<NewtypeWrapper> {
+) -> ResolvedNewtype {
     match ty {
         TypeRef::Named(name) => {
             if let Some((inner, wrapper)) = newtype_map.get(name.as_str()) {
                 *ty = inner.clone();
-                return Some(wrapper.clone());
+                return wrapper.clone();
             }
-            None
+            ResolvedNewtype::default()
         }
         TypeRef::Optional(inner) => resolve_typeref(newtype_map, inner, false)
-            .filter(|wrapper| legacy_field_container || is_explicit_newtype(wrapper))
-            .map(|wrapper| prepend_newtype_container(wrapper, NewtypeContainer::Optional)),
+            .retain_legacy(legacy_field_container)
+            .prepend(NewtypeContainer::Optional),
         TypeRef::Vec(inner) => resolve_typeref(newtype_map, inner, false)
-            .filter(|wrapper| legacy_field_container || is_explicit_newtype(wrapper))
-            .map(|wrapper| prepend_newtype_container(wrapper, NewtypeContainer::Vec)),
+            .retain_legacy(legacy_field_container)
+            .prepend(NewtypeContainer::Vec),
         TypeRef::Map(k, v) => {
             let key_wrapper = resolve_typeref(newtype_map, k, false)
-                .filter(is_explicit_newtype)
-                .map(|wrapper| prepend_newtype_container(wrapper, NewtypeContainer::MapKey));
+                .retain_legacy(false)
+                .prepend(NewtypeContainer::MapKey);
             let value_wrapper = resolve_typeref(newtype_map, v, false)
-                .filter(is_explicit_newtype)
-                .map(|wrapper| prepend_newtype_container(wrapper, NewtypeContainer::MapValue));
-            key_wrapper.or(value_wrapper)
+                .retain_legacy(false)
+                .prepend(NewtypeContainer::MapValue);
+            key_wrapper.merge(value_wrapper)
         }
-        _ => None,
+        _ => ResolvedNewtype::default(),
     }
 }
 
-fn is_explicit_newtype(wrapper: &NewtypeWrapper) -> bool {
-    matches!(wrapper, NewtypeWrapper::Explicit(_))
+#[derive(Clone, Default)]
+struct ResolvedNewtype {
+    legacy: Option<String>,
+    explicit: Vec<NewtypeWrapperMetadata>,
 }
 
-fn prepend_newtype_container(mut wrapper: NewtypeWrapper, container: NewtypeContainer) -> NewtypeWrapper {
-    if let NewtypeWrapper::Explicit(metadata) = &mut wrapper {
-        metadata.containers.insert(0, container);
+impl ResolvedNewtype {
+    fn legacy(path: String) -> Self {
+        Self {
+            legacy: Some(path),
+            explicit: vec![],
+        }
     }
-    wrapper
+
+    fn retain_legacy(mut self, retain: bool) -> Self {
+        if !retain {
+            self.legacy = None;
+        }
+        self
+    }
+
+    fn prepend(mut self, container: NewtypeContainer) -> Self {
+        for metadata in &mut self.explicit {
+            metadata.containers.insert(0, container);
+        }
+        self
+    }
+
+    fn prepend_outer_optional(&mut self, optional: bool) {
+        if optional {
+            for metadata in &mut self.explicit {
+                metadata.containers.insert(0, NewtypeContainer::Optional);
+            }
+        }
+    }
+
+    fn merge(mut self, other: Self) -> Self {
+        self.explicit.extend(other.explicit);
+        self
+    }
+
+    fn encode(self) -> Option<String> {
+        if self.explicit.is_empty() {
+            self.legacy
+        } else {
+            Some(NewtypeWrapper::encode_explicit(&self.explicit))
+        }
+    }
 }
 
 /// Resolve unresolved `trait_source` on methods after all source files have been processed.

@@ -25,16 +25,11 @@ pub enum NewtypeConversion {
     TransparentString { from: String, into: String },
 }
 
-/// Metadata retained when extraction resolves a Rust newtype to its binding-native inner type. ~keep
-///
-/// The tuple variant deliberately serializes as the historical bare string, preserving the IR
-/// wire format for ordinary public tuple newtypes. Explicit wrappers use the object form because
-/// their conversion operations and nested container path are part of the public extraction fact.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
+/// Decoded metadata stored in the legacy string-valued newtype IR fields. ~keep
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NewtypeWrapper {
     Tuple(String),
-    Explicit(NewtypeWrapperMetadata),
+    Explicit(Vec<NewtypeWrapperMetadata>),
 }
 
 /// Structured metadata for a source-annotated newtype. ~keep
@@ -49,67 +44,59 @@ pub struct NewtypeWrapperMetadata {
     pub containers: Vec<NewtypeContainer>,
 }
 
-impl NewtypeWrapper {
-    /// Build metadata for a source-annotated transparent string wrapper. ~keep
+impl NewtypeWrapperMetadata {
+    /// Build one source-annotated transparent string conversion path. ~keep
     pub fn transparent_string(
         rust_path: impl Into<String>,
         from: impl Into<String>,
         into: impl Into<String>,
         containers: Vec<NewtypeContainer>,
     ) -> Self {
-        Self::Explicit(NewtypeWrapperMetadata {
+        Self {
             rust_path: rust_path.into(),
             conversion: NewtypeConversion::TransparentString {
                 from: from.into(),
                 into: into.into(),
             },
             containers,
-        })
+        }
+    }
+}
+
+impl NewtypeWrapper {
+    const EXPLICIT_PREFIX: &'static str = "alef:newtype-conversions:";
+
+    /// Decode a legacy path or an explicit conversion-path set. ~keep
+    pub fn decode(value: &str) -> Self {
+        value
+            .strip_prefix(Self::EXPLICIT_PREFIX)
+            .and_then(|json| serde_json::from_str(json).ok())
+            .map_or_else(|| Self::Tuple(value.to_string()), Self::Explicit)
     }
 
-    /// Return the fully qualified Rust wrapper path. ~keep
-    pub fn rust_path(&self) -> &str {
+    /// Encode explicit paths inside the unchanged `Option<String>` IR field type. ~keep
+    pub fn encode_explicit(paths: &[NewtypeWrapperMetadata]) -> String {
+        format!(
+            "{}{}",
+            Self::EXPLICIT_PREFIX,
+            serde_json::to_string(paths).expect("newtype conversion metadata must serialize")
+        )
+    }
+
+    /// Return the legacy tuple-wrapper path, when this is legacy metadata. ~keep
+    pub fn tuple_path(&self) -> Option<&str> {
         match self {
-            Self::Tuple(path) => path,
-            Self::Explicit(metadata) => &metadata.rust_path,
+            Self::Tuple(path) => Some(path),
+            Self::Explicit(_) => None,
         }
     }
 
-    /// Return the conversion strategy declared for this wrapper. ~keep
-    pub fn conversion(&self) -> &NewtypeConversion {
-        static TUPLE_FIELD: NewtypeConversion = NewtypeConversion::TupleField;
-        match self {
-            Self::Tuple(_) => &TUPLE_FIELD,
-            Self::Explicit(metadata) => &metadata.conversion,
-        }
-    }
-
-    /// Return the containers crossed before reaching the wrapper. ~keep
-    pub fn containers(&self) -> &[NewtypeContainer] {
+    /// Return all explicit conversion paths. ~keep
+    pub fn explicit_paths(&self) -> &[NewtypeWrapperMetadata] {
         match self {
             Self::Tuple(_) => &[],
-            Self::Explicit(metadata) => &metadata.containers,
+            Self::Explicit(paths) => paths,
         }
-    }
-}
-
-impl From<String> for NewtypeWrapper {
-    fn from(value: String) -> Self {
-        Self::Tuple(value)
-    }
-}
-
-impl std::fmt::Display for NewtypeWrapper {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.rust_path())
-    }
-}
-
-impl std::ops::Deref for NewtypeWrapper {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        self.rust_path()
     }
 }
 
@@ -270,7 +257,7 @@ impl SerdeContainerConversion {
 
 #[cfg(test)]
 mod metadata_tests {
-    use super::{ErrorTaxonomy, NewtypeContainer, NewtypeConversion, NewtypeWrapper};
+    use super::{ErrorTaxonomy, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata};
 
     #[test]
     fn explicit_variant_code_is_preserved() {
@@ -289,32 +276,26 @@ mod metadata_tests {
 
     #[test]
     fn tuple_newtype_wrapper_preserves_legacy_string_wire_format() {
-        let wrapper = NewtypeWrapper::from("sample::Index".to_string());
+        let wrapper = NewtypeWrapper::decode("sample::Index");
 
-        assert_eq!(
-            serde_json::to_string(&wrapper).expect("serialize"),
-            r#""sample::Index""#
-        );
-        assert_eq!(
-            serde_json::from_str::<NewtypeWrapper>(r#""sample::Index""#).expect("deserialize"),
-            wrapper
-        );
+        assert_eq!(wrapper.tuple_path(), Some("sample::Index"));
+        assert!(wrapper.explicit_paths().is_empty());
     }
 
     #[test]
     fn transparent_string_wrapper_round_trips_conversion_metadata() {
-        let wrapper = NewtypeWrapper::transparent_string(
+        let metadata = NewtypeWrapperMetadata::transparent_string(
             "sample::SecretString",
             "from",
             "into_inner",
             vec![NewtypeContainer::Optional, NewtypeContainer::MapValue],
         );
-        let encoded = serde_json::to_string(&wrapper).expect("serialize");
-        let decoded: NewtypeWrapper = serde_json::from_str(&encoded).expect("deserialize");
+        let encoded = NewtypeWrapper::encode_explicit(std::slice::from_ref(&metadata));
+        let decoded = NewtypeWrapper::decode(&encoded);
 
-        assert_eq!(decoded, wrapper);
+        assert_eq!(decoded.explicit_paths(), &[metadata]);
         assert_eq!(
-            decoded.conversion(),
+            &decoded.explicit_paths()[0].conversion,
             &NewtypeConversion::TransparentString {
                 from: "from".to_string(),
                 into: "into_inner".to_string(),

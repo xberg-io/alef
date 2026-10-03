@@ -275,10 +275,7 @@ pub fn wrap_return(
 }
 
 /// Apply the recorded core-to-binding operation to a resolved newtype return value. ~keep
-pub fn apply_return_newtype_unwrap(
-    expr: &str,
-    return_newtype_wrapper: &Option<crate::core::ir::NewtypeWrapper>,
-) -> String {
+pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<String>) -> String {
     match return_newtype_wrapper {
         Some(wrapper) => crate::codegen::conversions::helpers::apply_newtype_from_core(expr, wrapper),
         None => expr.to_string(),

@@ -1,5 +1,5 @@
 use super::mirror_conversions::{emit_from_impl_for_struct, emit_from_mirror_to_core_struct};
-use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, TypeDef, TypeRef};
+use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeDef, TypeRef};
 
 fn field(name: &str, binding_excluded: bool) -> FieldDef {
     FieldDef {
@@ -176,12 +176,14 @@ fn ungated_type_emits_no_cfg_on_either_impl() {
 
 #[test]
 fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
-    let wrapper = |containers| {
-        Some(NewtypeWrapper::transparent_string(
-            "source::SecretString",
-            "from",
-            "into_inner",
-            containers,
+    let wrapper = |paths: Vec<Vec<NewtypeContainer>>| {
+        Some(NewtypeWrapper::encode_explicit(
+            &paths
+                .into_iter()
+                .map(|containers| {
+                    NewtypeWrapperMetadata::transparent_string("source::SecretString", "from", "into_inner", containers)
+                })
+                .collect::<Vec<_>>(),
         ))
     };
     let ty = typ(
@@ -192,19 +194,26 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
             FieldDef {
                 name: "token".to_string(),
                 ty: TypeRef::String,
-                newtype_wrapper: wrapper(vec![]),
+                newtype_wrapper: wrapper(vec![vec![]]),
                 ..Default::default()
             },
             FieldDef {
                 name: "optional".to_string(),
-                ty: TypeRef::Optional(Box::new(TypeRef::String)),
-                newtype_wrapper: wrapper(vec![NewtypeContainer::Optional]),
+                ty: TypeRef::String,
+                optional: true,
+                newtype_wrapper: wrapper(vec![vec![NewtypeContainer::Optional]]),
                 ..Default::default()
             },
             FieldDef {
                 name: "headers".to_string(),
                 ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
-                newtype_wrapper: wrapper(vec![NewtypeContainer::MapValue]),
+                newtype_wrapper: wrapper(vec![vec![NewtypeContainer::MapValue]]),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "pairs".to_string(),
+                ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                newtype_wrapper: wrapper(vec![vec![NewtypeContainer::MapKey], vec![NewtypeContainer::MapValue]]),
                 ..Default::default()
             },
         ],
@@ -221,6 +230,7 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         from_core.contains("map(|(key, value)| (key, (value).into_inner()))"),
         "got:\n{from_core}"
     );
+    assert!(from_core.contains("((key).into_inner(), value)"), "got:\n{from_core}");
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 
     let mut to_core = String::new();
@@ -237,4 +247,5 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         to_core.contains("map(|(key, value)| (key, source::SecretString::from(value)))"),
         "got:\n{to_core}"
     );
+    assert!(to_core.contains("source::SecretString::from(key)"), "got:\n{to_core}");
 }

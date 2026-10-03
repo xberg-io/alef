@@ -89,10 +89,14 @@ pub(crate) fn extract_impl_block(
         _ => return,
     };
 
-    if binding_excluded_type_names.contains(&type_name)
-        || type_index
-            .get(&type_name)
-            .is_some_and(|&idx| surface.types[idx].binding_excluded)
+    let transparent_string_type = type_index
+        .get(&type_name)
+        .is_some_and(|&idx| surface.types[idx].binding_exclusion_reason.as_deref() == Some("alef(transparent_string)"));
+    if !transparent_string_type
+        && (binding_excluded_type_names.contains(&type_name)
+            || type_index
+                .get(&type_name)
+                .is_some_and(|&idx| surface.types[idx].binding_excluded))
     {
         return;
     }

@@ -1,28 +1,64 @@
-use crate::core::ir::{NewtypeContainer, NewtypeConversion, TypeRef};
+use crate::core::ir::{NewtypeContainer, NewtypeConversion, NewtypeWrapper, TypeRef};
 
 use super::super::extract_from_source;
 
+fn assert_conversion_paths(encoded: &str, expected: &[(&str, Vec<NewtypeContainer>)]) {
+    let decoded = NewtypeWrapper::decode(encoded);
+    let paths = decoded.explicit_paths();
+    assert_eq!(paths.len(), expected.len());
+    for (metadata, (rust_path, containers)) in paths.iter().zip(expected) {
+        assert_eq!(metadata.rust_path, *rust_path);
+        assert_eq!(&metadata.containers, containers);
+        assert_eq!(
+            metadata.conversion,
+            NewtypeConversion::TransparentString {
+                from: "from".to_string(),
+                into: "into_inner".to_string(),
+            }
+        );
+    }
+}
+
 #[test]
-fn marked_private_string_wrapper_is_resolved_with_explicit_conversion_metadata() {
+fn marked_private_string_wrapper_is_resolved_across_all_supported_positions() {
     let surface = extract_from_source(
         r#"
+        #[derive(Clone, PartialEq, Eq, Hash)]
         #[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
-        pub struct SecretString(String);
+        pub struct Credential(String);
+
+        impl Credential {
+            pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> String { self.0 }
+        }
 
         pub struct Credentials {
-            pub token: SecretString,
-            pub optional: Option<SecretString>,
-            pub headers: std::collections::HashMap<String, SecretString>,
+            pub token: Credential,
+            pub optional: Option<Credential>,
+            pub nested: Vec<Option<Credential>>,
+            pub key_lookup: std::collections::HashMap<Credential, String>,
+            pub both: std::collections::HashMap<Credential, Vec<Credential>>,
         }
 
         pub enum Auth {
-            Bearer(SecretString),
-            Header { value: SecretString },
+            Bearer(Credential),
+            Header { value: Option<Credential> },
         }
+
+        pub struct Vault;
+        impl Vault {
+            pub fn echo(&self, value: Credential) -> Credential { value }
+        }
+
+        pub fn echo(value: Credential) -> Credential { value }
+        pub fn optional_echo(value: Option<Credential>) -> Option<Credential> { value }
+        pub async fn async_echo(value: Credential) -> Credential { value }
+        pub fn fallible_echo(value: Credential) -> Result<Credential, String> { Ok(value) }
         "#,
     );
 
-    assert!(surface.types.iter().all(|typ| typ.name != "SecretString"));
+    assert!(surface.types.iter().all(|typ| typ.name != "Credential"));
+    assert!(surface.unsupported_public_items.is_empty());
     let credentials = surface
         .types
         .iter()
@@ -30,46 +66,231 @@ fn marked_private_string_wrapper_is_resolved_with_explicit_conversion_metadata()
         .expect("Credentials must be extracted");
 
     let expected = [
-        ("token", Vec::new()),
-        ("optional", vec![NewtypeContainer::Optional]),
-        ("headers", vec![NewtypeContainer::MapValue]),
+        ("token", false, vec![("test_crate::Credential", vec![])]),
+        (
+            "optional",
+            true,
+            vec![("test_crate::Credential", vec![NewtypeContainer::Optional])],
+        ),
+        (
+            "nested",
+            false,
+            vec![(
+                "test_crate::Credential",
+                vec![NewtypeContainer::Vec, NewtypeContainer::Optional],
+            )],
+        ),
+        (
+            "key_lookup",
+            false,
+            vec![("test_crate::Credential", vec![NewtypeContainer::MapKey])],
+        ),
+        (
+            "both",
+            false,
+            vec![
+                ("test_crate::Credential", vec![NewtypeContainer::MapKey]),
+                (
+                    "test_crate::Credential",
+                    vec![NewtypeContainer::MapValue, NewtypeContainer::Vec],
+                ),
+            ],
+        ),
     ];
-    for (name, containers) in expected {
+    for (name, optional, paths) in expected {
         let field = credentials
             .fields
             .iter()
             .find(|field| field.name == name)
             .expect("field must be extracted");
-        let wrapper = field
-            .newtype_wrapper
-            .as_ref()
-            .expect("wrapper metadata must survive resolution");
-        assert_eq!(wrapper.rust_path(), "test_crate::SecretString");
-        assert_eq!(wrapper.containers(), containers);
-        assert_eq!(
-            wrapper.conversion(),
-            &NewtypeConversion::TransparentString {
-                from: "from".to_string(),
-                into: "into_inner".to_string(),
-            }
+        assert_eq!(field.optional, optional);
+        assert_conversion_paths(
+            field
+                .newtype_wrapper
+                .as_deref()
+                .expect("metadata must survive resolution"),
+            &paths,
         );
     }
 
     assert_eq!(credentials.fields[0].ty, TypeRef::String);
-    assert!(matches!(credentials.fields[1].ty, TypeRef::Optional(_)));
-    assert!(matches!(credentials.fields[2].ty, TypeRef::Map(_, _)));
+    assert_eq!(credentials.fields[1].ty, TypeRef::String);
+    assert!(matches!(credentials.fields[2].ty, TypeRef::Vec(_)));
+    assert!(matches!(credentials.fields[3].ty, TypeRef::Map(_, _)));
 
     let auth = surface
         .enums
         .iter()
-        .find(|enum_def| enum_def.name == "Auth")
+        .find(|item| item.name == "Auth")
         .expect("Auth must be extracted");
-    for variant in &auth.variants {
-        let wrapper = variant.fields[0]
+    assert_conversion_paths(
+        auth.variants[0].fields[0]
             .newtype_wrapper
-            .as_ref()
-            .expect("enum payload wrapper metadata must survive resolution");
-        assert_eq!(wrapper.rust_path(), "test_crate::SecretString");
-        assert!(wrapper.containers().is_empty());
+            .as_deref()
+            .expect("tuple payload metadata"),
+        &[("test_crate::Credential", vec![])],
+    );
+    assert_conversion_paths(
+        auth.variants[1].fields[0]
+            .newtype_wrapper
+            .as_deref()
+            .expect("struct payload metadata"),
+        &[("test_crate::Credential", vec![NewtypeContainer::Optional])],
+    );
+
+    for function_name in ["echo", "async_echo", "fallible_echo"] {
+        let function = surface
+            .functions
+            .iter()
+            .find(|item| item.name == function_name)
+            .expect("function");
+        assert_conversion_paths(
+            function.params[0]
+                .newtype_wrapper
+                .as_deref()
+                .expect("parameter metadata"),
+            &[("test_crate::Credential", vec![])],
+        );
+        assert_conversion_paths(
+            function.return_newtype_wrapper.as_deref().expect("return metadata"),
+            &[("test_crate::Credential", vec![])],
+        );
     }
+    let optional = surface
+        .functions
+        .iter()
+        .find(|item| item.name == "optional_echo")
+        .expect("optional function");
+    assert!(optional.params[0].optional);
+    assert_conversion_paths(
+        optional.params[0]
+            .newtype_wrapper
+            .as_deref()
+            .expect("optional parameter metadata"),
+        &[("test_crate::Credential", vec![NewtypeContainer::Optional])],
+    );
+    assert_conversion_paths(
+        optional
+            .return_newtype_wrapper
+            .as_deref()
+            .expect("optional return metadata"),
+        &[("test_crate::Credential", vec![NewtypeContainer::Optional])],
+    );
+
+    let method = surface
+        .types
+        .iter()
+        .find(|item| item.name == "Vault")
+        .and_then(|item| item.methods.iter().find(|method| method.name == "echo"))
+        .expect("method");
+    assert_conversion_paths(
+        method.params[0]
+            .newtype_wrapper
+            .as_deref()
+            .expect("method parameter metadata"),
+        &[("test_crate::Credential", vec![])],
+    );
+    assert_conversion_paths(
+        method
+            .return_newtype_wrapper
+            .as_deref()
+            .expect("method return metadata"),
+        &[("test_crate::Credential", vec![])],
+    );
+}
+
+#[test]
+fn invalid_transparent_string_annotations_are_reported() {
+    let cases = [
+        ("transparent_string(from = \"from\")", "requires `into"),
+        (
+            "transparent_string(from = \"from\", into = \"into_inner\", extra = \"x\")",
+            "unknown",
+        ),
+        ("transparent_string(from = 1, into = \"into_inner\")", "string literal"),
+        (
+            "transparent_string(from = \"not::an::ident\", into = \"into_inner\")",
+            "identifier",
+        ),
+        (
+            "transparent_string(from = \"from\", from = \"new\", into = \"into_inner\")",
+            "duplicate",
+        ),
+    ];
+    for (annotation, expected_reason) in cases {
+        let source = format!("#[derive(Clone)] #[alef({annotation})] pub struct Credential(String);");
+        let surface = extract_from_source(&source);
+        assert!(
+            surface
+                .unsupported_public_items
+                .iter()
+                .any(|item| item.reason.contains(expected_reason)),
+            "expected `{expected_reason}` diagnostic for {annotation}: {:?}",
+            surface.unsupported_public_items
+        );
+    }
+}
+
+#[test]
+fn invalid_transparent_string_shape_and_methods_are_reported() {
+    let cases = [
+        (
+            "#[derive(Clone)] #[alef(transparent_string(from = \"from\", into = \"into_inner\"))] pub struct Credential { value: String }",
+            "single-field tuple struct",
+        ),
+        (
+            "#[derive(Clone)] #[alef(transparent_string(from = \"from\", into = \"into_inner\"))] pub struct Credential(u64);",
+            "inner String",
+        ),
+        (
+            "#[alef(transparent_string(from = \"from\", into = \"into_inner\"))] pub struct Credential(String);",
+            "requires Clone",
+        ),
+        (
+            r#"#[derive(Clone)]
+               #[alef(transparent_string(from = "from", into = "into_inner"))]
+               pub struct Credential(String);
+               impl Credential { pub fn from(value: String) -> Self { Self(value) } }"#,
+            "into_inner",
+        ),
+        (
+            r#"#[derive(Clone)]
+               #[alef(transparent_string(from = "from", into = "into_inner"))]
+               pub struct Credential(String);
+               impl Credential {
+                   pub fn from(value: u64) -> Self { Self(value.to_string()) }
+                   pub fn into_inner(&self) -> String { self.0.clone() }
+               }"#,
+            "must be a public synchronous",
+        ),
+    ];
+    for (source, expected_reason) in cases {
+        let surface = extract_from_source(source);
+        assert!(
+            surface
+                .unsupported_public_items
+                .iter()
+                .any(|item| item.reason.contains(expected_reason)),
+            "expected `{expected_reason}` diagnostic: {:?}",
+            surface.unsupported_public_items
+        );
+    }
+}
+
+#[test]
+fn duplicate_transparent_string_annotations_are_reported() {
+    let surface = extract_from_source(
+        r#"
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        pub struct Credential(String);
+        "#,
+    );
+    assert!(
+        surface
+            .unsupported_public_items
+            .iter()
+            .any(|item| item.reason.contains("duplicate"))
+    );
 }

@@ -31,7 +31,7 @@ use self::postprocess::{
     warn_on_default_disagreements,
 };
 use self::reexports::{extract_module, resolve_use_tree};
-use self::types::{extract_enum, extract_error_enum, extract_struct};
+use self::types::{extract_enum, extract_error_enum, extract_struct, validate_transparent_string_struct};
 
 /// A struct's field name → the serde reader's default for that field, keyed by the struct's
 /// `rust_path` at the moment it was extracted. Threaded from `extract_struct`
@@ -270,6 +270,16 @@ fn extract_items(
         }
         match item {
             syn::Item::Struct(item_struct) if is_pub(&item_struct.vis) => {
+                if let Err(reason) = validate_transparent_string_struct(item_struct) {
+                    surface.unsupported_public_items.push(unsupported_public_item(
+                        "struct",
+                        crate_name,
+                        module_path,
+                        &item_struct.ident.to_string(),
+                        &reason,
+                    ));
+                    continue;
+                }
                 if has_non_lifetime_generics(&item_struct.generics) {
                     // Generic items annotated with `#[alef::skip]` (or `#[doc(hidden)]`) are
                     if extract_binding_exclusion_reason(&item_struct.attrs).is_none() {

@@ -319,7 +319,7 @@ pub(crate) fn extract_binding_exclusion_reason(attrs: &[syn::Attribute]) -> Opti
     if has_alef_skip(attrs) {
         return Some("alef(skip)".to_string());
     }
-    if extract_alef_transparent_string(attrs).is_some() {
+    if parse_alef_transparent_string(attrs).ok().flatten().is_some() {
         return Some("alef(transparent_string)".to_string());
     }
     None
@@ -332,35 +332,37 @@ pub(crate) fn extract_binding_exclusion_reason(attrs: &[syn::Attribute]) -> Opti
 /// accepted source forms are `#[alef(transparent_string(from = "...", into = "..."))]` and
 /// the same metadata nested at any depth inside `cfg_attr(...)`.
 pub(crate) fn extract_alef_transparent_string(attrs: &[syn::Attribute]) -> Option<(String, String)> {
-    let mut result = None;
+    parse_alef_transparent_string(attrs).ok().flatten()
+}
+
+/// Parse and validate an explicit transparent-string boundary conversion. ~keep
+pub(crate) fn parse_alef_transparent_string(attrs: &[syn::Attribute]) -> Result<Option<(String, String)>, String> {
+    let mut result = Ok(None);
     let mut visit = |meta: &syn::Meta| {
+        if result.is_err() {
+            return;
+        }
         let syn::Meta::List(list) = meta else {
             return;
         };
         if !list.path.is_ident("alef") {
             return;
         }
-        let _ = list.parse_nested_meta(|nested| {
-            if nested.path.is_ident("transparent_string") {
-                let mut from = None;
-                let mut into = None;
-                nested.parse_nested_meta(|conversion| {
-                    if conversion.path.is_ident("from") {
-                        from = Some(conversion.value()?.parse::<syn::LitStr>()?.value());
-                    } else if conversion.path.is_ident("into") {
-                        into = Some(conversion.value()?.parse::<syn::LitStr>()?.value());
-                    }
-                    Ok(())
-                })?;
-                if let (Some(from), Some(into)) = (from, into)
-                    && syn::parse_str::<syn::Ident>(&from).is_ok()
-                    && syn::parse_str::<syn::Ident>(&into).is_ok()
-                {
-                    result = Some((from, into));
-                }
+        let nested = list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated);
+        let Ok(nested) = nested else {
+            result = Err("invalid alef attribute syntax".to_string());
+            return;
+        };
+        for nested in nested {
+            if !nested.path().is_ident("transparent_string") {
+                continue;
             }
-            Ok(())
-        });
+            if matches!(&result, Ok(Some(_))) {
+                result = Err("duplicate alef(transparent_string(...)) annotation".to_string());
+                return;
+            }
+            result = parse_transparent_string_meta(&nested).map(Some);
+        }
     };
     for attr in attrs {
         if attr.path().is_ident("cfg_attr") {
@@ -370,6 +372,50 @@ pub(crate) fn extract_alef_transparent_string(attrs: &[syn::Attribute]) -> Optio
         }
     }
     result
+}
+
+fn parse_transparent_string_meta(meta: &syn::Meta) -> Result<(String, String), String> {
+    let syn::Meta::List(list) = meta else {
+        return Err("transparent_string must use transparent_string(from = \"...\", into = \"...\")".to_string());
+    };
+    let entries = list
+        .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        .map_err(|error| format!("invalid transparent_string annotation: {error}"))?;
+    let mut from = None;
+    let mut into = None;
+    for entry in entries {
+        let key = if entry.path().is_ident("from") {
+            "from"
+        } else if entry.path().is_ident("into") {
+            "into"
+        } else {
+            return Err(format!(
+                "unknown transparent_string option `{}`; expected `from` or `into`",
+                quote::ToTokens::to_token_stream(entry.path())
+            ));
+        };
+        let syn::Meta::NameValue(name_value) = entry else {
+            return Err(format!("transparent_string `{key}` must be a string literal"));
+        };
+        let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(value),
+            ..
+        }) = name_value.value
+        else {
+            return Err(format!("transparent_string `{key}` must be a string literal"));
+        };
+        let destination = if key == "from" { &mut from } else { &mut into };
+        if destination.is_some() {
+            return Err(format!("duplicate transparent_string `{key}` option"));
+        }
+        if syn::parse_str::<syn::Ident>(&value.value()).is_err() {
+            return Err(format!("transparent_string `{key}` must name a Rust method identifier"));
+        }
+        *destination = Some(value.value());
+    }
+    let from = from.ok_or_else(|| "transparent_string requires `from = \"...\"`".to_string())?;
+    let into = into.ok_or_else(|| "transparent_string requires `into = \"...\"`".to_string())?;
+    Ok((from, into))
 }
 
 /// Extract the binding exclusion reason for a struct field.

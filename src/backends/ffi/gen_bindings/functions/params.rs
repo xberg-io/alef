@@ -1,5 +1,5 @@
 use crate::backends::ffi::type_map::is_void_return;
-use crate::core::ir::{NewtypeConversion, ParamDef, TypeRef};
+use crate::core::ir::{ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
@@ -50,17 +50,86 @@ pub(super) struct ParamConversionContext<'a> {
     pub(super) enum_names: &'a AHashSet<String>,
 }
 
-fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str) -> String {
+fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str) -> String {
     let Some(wrapper) = param
         .newtype_wrapper
-        .as_ref()
-        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+        .as_deref()
+        .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
     else {
         return String::new();
     };
     let converted =
         crate::codegen::conversions::helpers::apply_field_newtype_to_core(rs_name, &param.ty, param.optional, wrapper);
-    format!("    let {rs_name} = {converted};\n")
+    let target_type = transparent_newtype_core_type(param, wrapper, core_import);
+    format!("    let {rs_name}: {target_type} = {converted};\n")
+}
+
+fn transparent_newtype_core_type(param: &ParamDef, wrapper: &str, core_import: &str) -> String {
+    let decoded = crate::core::ir::NewtypeWrapper::decode(wrapper);
+    if param.optional {
+        let path = vec![crate::core::ir::NewtypeContainer::Optional];
+        let inner = render_newtype_core_type(&param.ty, &path, param, decoded.explicit_paths(), core_import, true);
+        format!("Option<{inner}>")
+    } else {
+        render_newtype_core_type(&param.ty, &[], param, decoded.explicit_paths(), core_import, true)
+    }
+}
+
+fn render_newtype_core_type(
+    ty: &TypeRef,
+    path: &[crate::core::ir::NewtypeContainer],
+    param: &ParamDef,
+    metadata: &[crate::core::ir::NewtypeWrapperMetadata],
+    core_import: &str,
+    outer: bool,
+) -> String {
+    if let Some(wrapper) = metadata.iter().find(|item| item.containers.as_slice() == path) {
+        return wrapper.rust_path.clone();
+    }
+    match ty {
+        TypeRef::Optional(inner) => {
+            let mut inner_path = path.to_vec();
+            inner_path.push(crate::core::ir::NewtypeContainer::Optional);
+            format!(
+                "Option<{}>",
+                render_newtype_core_type(inner, &inner_path, param, metadata, core_import, false)
+            )
+        }
+        TypeRef::Vec(inner) => {
+            let mut inner_path = path.to_vec();
+            inner_path.push(crate::core::ir::NewtypeContainer::Vec);
+            format!(
+                "Vec<{}>",
+                render_newtype_core_type(inner, &inner_path, param, metadata, core_import, false)
+            )
+        }
+        TypeRef::Map(key, value) => {
+            let mut key_path = path.to_vec();
+            key_path.push(crate::core::ir::NewtypeContainer::MapKey);
+            let mut value_path = path.to_vec();
+            value_path.push(crate::core::ir::NewtypeContainer::MapValue);
+            let key_type = if outer
+                && param.map_key_is_cow
+                && !metadata
+                    .iter()
+                    .any(|item| item.containers.as_slice() == key_path.as_slice())
+            {
+                "std::borrow::Cow<'static, str>".to_string()
+            } else {
+                render_newtype_core_type(key, &key_path, param, metadata, core_import, false)
+            };
+            let value_type = render_newtype_core_type(value, &value_path, param, metadata, core_import, false);
+            let collection = if outer && param.map_is_ahash {
+                "ahash::AHashMap"
+            } else if outer && param.map_is_btree && param.optional {
+                "std::collections::BTreeMap"
+            } else {
+                "std::collections::HashMap"
+            };
+            format!("{collection}<{key_type}, {value_type}>")
+        }
+        _ => type_ref_to_rust_type(ty, core_import),
+    }
 }
 
 pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &ParamConversionContext<'_>) -> String {
@@ -304,8 +373,8 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
                 _ => {
                     if let Some(newtype_path) = param
                         .newtype_wrapper
-                        .as_ref()
-                        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+                        .as_deref()
+                        .filter(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
                     {
                         out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path.clone(), name => name.clone() }));
                     } else {
@@ -397,8 +466,9 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
             }
             TypeRef::Unit => {}
         }
-        out.push_str(&transparent_newtype_shadow(param, &rs_name));
     }
+
+    out.push_str(&transparent_newtype_shadow(param, &rs_name, core_import));
 
     out
 }

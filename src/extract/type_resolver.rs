@@ -337,7 +337,6 @@ fn resolve_path_type(type_path: &syn::TypePath) -> TypeRef {
         }
 
         "Duration" => TypeRef::Duration,
-        "SecretString" => TypeRef::String,
         "Cow" => extract_single_generic_arg(segment).unwrap_or(TypeRef::String),
 
         other => TypeRef::Named(other.to_string()),
@@ -798,8 +797,11 @@ mod tests {
     }
 
     #[test]
-    fn test_secret_string() {
-        assert_eq!(resolve_type(&parse_type("SecretString")), TypeRef::String);
+    fn test_secret_string_is_name_agnostic() {
+        assert_eq!(
+            resolve_type(&parse_type("SecretString")),
+            TypeRef::Named("SecretString".to_string())
+        );
     }
 
     #[test]

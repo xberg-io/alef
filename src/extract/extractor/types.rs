@@ -1,4 +1,7 @@
-use crate::core::ir::{CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, NewtypeWrapper, TypeDef};
+use crate::core::ir::{
+    CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, NewtypeWrapper, NewtypeWrapperMetadata,
+    TypeDef,
+};
 use ahash::AHashMap;
 use syn;
 
@@ -11,8 +14,27 @@ use super::helpers::{
     extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
     extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
     extract_version_annotation, has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr,
-    has_serde_untagged, is_pub, syn_type_is_boxed,
+    has_serde_untagged, is_pub, parse_alef_transparent_string, syn_type_is_boxed,
 };
+
+pub(crate) fn validate_transparent_string_struct(item: &syn::ItemStruct) -> Result<Option<(String, String)>, String> {
+    let Some(conversion) = parse_alef_transparent_string(&item.attrs)? else {
+        return Ok(None);
+    };
+    let syn::Fields::Unnamed(fields) = &item.fields else {
+        return Err("transparent_string requires a single-field tuple struct".to_string());
+    };
+    if fields.unnamed.len() != 1 {
+        return Err("transparent_string requires exactly one tuple field".to_string());
+    }
+    if type_resolver::resolve_type(&fields.unnamed[0].ty) != crate::core::ir::TypeRef::String {
+        return Err("transparent_string requires an inner String field".to_string());
+    }
+    if !has_derive(&item.attrs, "Clone") {
+        return Err("transparent_string requires Clone for generated FFI field getters".to_string());
+    }
+    Ok(Some(conversion))
+}
 
 /// Extract `tag` value from `#[serde(tag = "...")]` or
 /// `#[cfg_attr(..., serde(tag = "..."))]` attributes on enums.
@@ -104,12 +126,13 @@ pub(crate) fn extract_struct(
             if let Some((from, into)) = &transparent_string
                 && extracted.ty == crate::core::ir::TypeRef::String
             {
-                extracted.newtype_wrapper = Some(NewtypeWrapper::transparent_string(
+                let metadata = NewtypeWrapperMetadata::transparent_string(
                     rust_path.replace('-', "_"),
                     from.clone(),
                     into.clone(),
                     vec![],
-                ));
+                );
+                extracted.newtype_wrapper = Some(NewtypeWrapper::encode_explicit(&[metadata]));
             }
             vec![(extracted, serde_default)]
         }

@@ -1,9 +1,96 @@
-use crate::core::ir::{ParamDef, TypeRef};
+use crate::core::ir::{NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
 use super::orchestration::gen_function_wrapper_footer;
 use super::params::{ParamConversionContext, gen_param_conversion_with_enums};
 use super::return_handling::return_type_needs_non_serde_named;
+
+fn transparent_wrapper(paths: &[Vec<NewtypeContainer>]) -> String {
+    NewtypeWrapper::encode_explicit(
+        &paths
+            .iter()
+            .map(|path| {
+                NewtypeWrapperMetadata::transparent_string(
+                    "sample_crate::SecretString",
+                    "from",
+                    "into_inner",
+                    path.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn conversion_context<'a>(
+    return_type: &'a TypeRef,
+    path_map: &'a AHashMap<String, String>,
+    enum_names: &'a AHashSet<String>,
+) -> ParamConversionContext<'a> {
+    ParamConversionContext {
+        has_error: false,
+        is_bytes_result: false,
+        return_type,
+        ffi_return_type: None,
+        core_import: "sample_crate",
+        path_map,
+        enum_names,
+    }
+}
+
+#[test]
+fn transparent_string_optional_param_wraps_after_ffi_decoding() {
+    let param = ParamDef {
+        name: "credential".to_string(),
+        ty: TypeRef::String,
+        optional: true,
+        newtype_wrapper: Some(transparent_wrapper(&[vec![NewtypeContainer::Optional]])),
+        ..ParamDef::default()
+    };
+    let return_type = TypeRef::Unit;
+    let path_map = AHashMap::new();
+    let enum_names = AHashSet::new();
+    let context = conversion_context(&return_type, &path_map, &enum_names);
+    let output = gen_param_conversion_with_enums(&param, &context);
+
+    assert!(
+        output.contains("let credential_rs: Option<sample_crate::SecretString> =")
+            && output.contains("map(|value| sample_crate::SecretString::from(value))"),
+        "got:\n{output}"
+    );
+}
+
+#[test]
+fn transparent_string_map_param_has_explicit_core_collection_type() {
+    let param = ParamDef {
+        name: "credentials".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        newtype_wrapper: Some(transparent_wrapper(&[
+            vec![NewtypeContainer::MapKey],
+            vec![NewtypeContainer::MapValue],
+        ])),
+        ..ParamDef::default()
+    };
+    let return_type = TypeRef::Unit;
+    let path_map = AHashMap::new();
+    let enum_names = AHashSet::new();
+    let context = conversion_context(&return_type, &path_map, &enum_names);
+    let output = gen_param_conversion_with_enums(&param, &context);
+
+    assert!(
+        output.contains(
+            "let credentials_rs: std::collections::HashMap<sample_crate::SecretString, sample_crate::SecretString> ="
+        ),
+        "got:\n{output}"
+    );
+    assert!(
+        output.contains("sample_crate::SecretString::from(key)"),
+        "got:\n{output}"
+    );
+    assert!(
+        output.contains("sample_crate::SecretString::from(value)"),
+        "got:\n{output}"
+    );
+}
 
 #[test]
 fn return_type_needs_non_serde_named_vec_non_serde() {

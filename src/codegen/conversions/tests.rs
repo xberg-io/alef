@@ -1214,14 +1214,31 @@ mod nested_maps;
 mod vec_element_preservation;
 
 fn transparent_secret_field(name: &str, ty: TypeRef, containers: Vec<NewtypeContainer>) -> FieldDef {
+    transparent_secret_field_paths(name, ty, false, &[containers])
+}
+
+fn transparent_secret_field_paths(
+    name: &str,
+    ty: TypeRef,
+    optional: bool,
+    paths: &[Vec<NewtypeContainer>],
+) -> FieldDef {
     FieldDef {
         name: name.to_string(),
         ty,
-        newtype_wrapper: Some(NewtypeWrapper::transparent_string(
-            "my_crate::SecretString",
-            "from",
-            "into_inner",
-            containers,
+        optional,
+        newtype_wrapper: Some(NewtypeWrapper::encode_explicit(
+            &paths
+                .iter()
+                .map(|containers| {
+                    NewtypeWrapperMetadata::transparent_string(
+                        "my_crate::SecretString",
+                        "from",
+                        "into_inner",
+                        containers.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
         )),
         ..FieldDef::default()
     }
@@ -1234,15 +1251,22 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         rust_path: "my_crate::Credentials".to_string(),
         fields: vec![
             transparent_secret_field("token", TypeRef::String, vec![]),
-            transparent_secret_field(
-                "optional",
-                TypeRef::Optional(Box::new(TypeRef::String)),
-                vec![NewtypeContainer::Optional],
-            ),
+            transparent_secret_field_paths("optional", TypeRef::String, true, &[vec![NewtypeContainer::Optional]]),
             transparent_secret_field(
                 "headers",
                 TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
                 vec![NewtypeContainer::MapValue],
+            ),
+            transparent_secret_field(
+                "nested",
+                TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(TypeRef::String)))),
+                vec![NewtypeContainer::Vec, NewtypeContainer::Optional],
+            ),
+            transparent_secret_field_paths(
+                "pairs",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                false,
+                &[vec![NewtypeContainer::MapKey], vec![NewtypeContainer::MapValue]],
             ),
         ],
         ..TypeDef::default()
@@ -1258,11 +1282,21 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         to_core.contains("(key, my_crate::SecretString::from(value))"),
         "{to_core}"
     );
+    assert!(
+        to_core.contains("map(|value| (value).map(|value| my_crate::SecretString::from(value)))"),
+        "{to_core}"
+    );
+    assert!(to_core.contains("my_crate::SecretString::from(key)"), "{to_core}");
 
     let from_core = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
     assert!(from_core.contains("(val.token).into_inner()"), "{from_core}");
     assert!(from_core.contains("map(|value| (value).into_inner())"), "{from_core}");
     assert!(from_core.contains("(key, (value).into_inner())"), "{from_core}");
+    assert!(
+        from_core.contains("collect::<std::collections::HashMap<_, _>>()"),
+        "{from_core}"
+    );
+    assert!(from_core.contains("(key).into_inner()"), "{from_core}");
     assert!(!from_core.contains("token.to_string()"), "{from_core}");
 }
 
@@ -1287,6 +1321,16 @@ fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
                 )],
                 ..EnumVariant::default()
             },
+            EnumVariant {
+                name: "Optional".to_string(),
+                fields: vec![transparent_secret_field_paths(
+                    "value",
+                    TypeRef::String,
+                    true,
+                    &[vec![NewtypeContainer::Optional]],
+                )],
+                ..EnumVariant::default()
+            },
         ],
         ..EnumDef::default()
     };
@@ -1300,6 +1344,7 @@ fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
     assert!(to_core.contains("my_crate::SecretString::from(_0)"), "{to_core}");
     let from_core = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
     assert!(from_core.contains("(_0).into_inner()"), "{from_core}");
+    assert!(from_core.contains("map(|value| (value).into_inner())"), "{from_core}");
     assert!(!from_core.contains("_0.to_string()"), "{from_core}");
 
     let flattened_config = ConversionConfig {

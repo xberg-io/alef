@@ -1,7 +1,7 @@
 use crate::codegen::generators::binding_helpers::{
-    gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings_mutex_json_str,
-    gen_named_let_bindings, gen_named_let_bindings_by_ref, gen_serde_let_bindings, gen_unimplemented_body,
-    has_named_params,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg,
+    gen_call_args_with_let_bindings_mutex_json_str, gen_named_let_bindings, gen_named_let_bindings_by_ref,
+    gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::codegen::mut_writeback;
@@ -320,6 +320,8 @@ pub fn gen_function_with_mutex(
 
             let returns_ref = func.returns_ref;
             let wrap_return = |expr: &str| -> String {
+                let unwrapped = apply_return_newtype_unwrap(expr, &func.return_newtype_wrapper);
+                let expr = unwrapped.as_str();
                 if let Some(cast) = cast_return_expr(
                     &func.return_type,
                     expr,
@@ -429,38 +431,39 @@ pub fn gen_function_with_mutex(
         }
     } else if func.is_async {
         let core_call = format!("{core_fn_path}({call_args})");
+        let result_expr = apply_return_newtype_unwrap("result", &func.return_newtype_wrapper);
         let return_wrap = match &func.return_type {
             TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                 let mapped_n = mapper.named(n);
-                let wrap = arc_wrap_expr("result", n, mutex_types);
+                let wrap = arc_wrap_expr(&result_expr, n, mutex_types);
                 format!("{mapped_n} {{ inner: {wrap} }}")
             }
             TypeRef::Named(_) => {
-                format!("{return_type}::from(result)")
+                format!("{return_type}::from({result_expr})")
             }
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     let mapped_n = mapper.named(n);
                     let wrap = arc_wrap_expr("v", n, mutex_types);
-                    format!("result.into_iter().map(|v| {mapped_n} {{ inner: {wrap} }}).collect::<Vec<_>>()")
+                    format!("{result_expr}.into_iter().map(|v| {mapped_n} {{ inner: {wrap} }}).collect::<Vec<_>>()")
                 }
                 TypeRef::Named(_) => {
                     let inner_mapped = mapper.map_type(inner);
-                    format!("result.into_iter().map({inner_mapped}::from).collect::<Vec<_>>()")
+                    format!("{result_expr}.into_iter().map({inner_mapped}::from).collect::<Vec<_>>()")
                 }
-                _ => "result".to_string(),
+                _ => result_expr.clone(),
             },
-            TypeRef::Unit => "result".to_string(),
+            TypeRef::Unit => result_expr.clone(),
             _ => {
                 let cast = cast_return_expr(
                     &func.return_type,
-                    "result",
+                    &result_expr,
                     cfg.cast_large_ints_to_f64,
                     cfg.cast_uints_to_i32,
                 );
                 cast.unwrap_or_else(|| {
                     super::binding_helpers::wrap_return(
-                        "result",
+                        &result_expr,
                         &func.return_type,
                         "",
                         opaque_types,
@@ -546,6 +549,8 @@ pub fn gen_function_with_mutex(
 
         let returns_ref = func.returns_ref;
         let wrap_return = |expr: &str| -> String {
+            let unwrapped = apply_return_newtype_unwrap(expr, &func.return_newtype_wrapper);
+            let expr = unwrapped.as_str();
             match &func.return_type {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
                     let mapped_name = mapper.named(name);

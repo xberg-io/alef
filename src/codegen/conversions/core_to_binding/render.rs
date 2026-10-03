@@ -3,7 +3,7 @@ use crate::codegen::conversions::helpers::{
     apply_newtype_from_core, core_type_path_remapped, field_references_excluded_type, is_newtype, is_tuple_type_name,
     needs_clippy_allow,
 };
-use crate::core::ir::{CoreWrapper, NewtypeConversion, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
 use ahash::AHashSet;
 
 use super::fields::field_conversion_from_core_cfg;
@@ -70,8 +70,8 @@ pub fn gen_from_core_to_binding_cfg(
         }
         let transparent_wrapper = field
             .newtype_wrapper
-            .as_ref()
-            .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }));
+            .as_deref()
+            .filter(|wrapper| crate::codegen::conversions::helpers::is_explicit_newtype(wrapper));
         let base_conversion = transparent_wrapper.map_or_else(
             || {
                 field_conversion_from_core_cfg(
@@ -129,8 +129,8 @@ pub fn gen_from_core_to_binding_cfg(
         };
         let base_conversion = if field
             .newtype_wrapper
-            .as_ref()
-            .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+            .as_deref()
+            .is_some_and(|wrapper| !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper))
         {
             match &field.ty {
                 TypeRef::Optional(_) => base_conversion.replace(
