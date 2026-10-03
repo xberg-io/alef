@@ -43,6 +43,11 @@ pub fn inspect(settings: RunOptions) -> Result<String, String> {
     let _ = settings;
     Ok(String::new())
 }
+
+pub fn convert(input: String, settings: impl Into<Option<RunOptions>>) -> Result<String, String> {
+    let _ = (input, settings.into());
+    Ok(String::new())
+}
 "#;
 
 const BRIDGE_TOML: &str = r#"
@@ -166,6 +171,23 @@ fn every_wrapper_reads_the_fallback_off_its_own_parameter_name() {
     assert_eq!(
         patched, 2,
         "both options-field wrappers must carry the handle fallback, found {patched}; lib.rs:\n{lib}"
+    );
+}
+
+#[test]
+fn generic_optional_options_are_not_wrapped_twice() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let api = extract(dir.path());
+    let lib = lib_rs(&api, &config_with(""));
+    let body = wrapper_body(&lib, "convert").expect("convert wrapper");
+
+    assert!(
+        body.contains("sample_lib::convert(input, settings_core)"),
+        "the core call must pass its existing Option<RunOptions> directly; body:\n{body}"
+    );
+    assert!(
+        !body.contains("Some(settings_core)"),
+        "wrapping an Option<RunOptions> produces Option<Option<RunOptions>>; body:\n{body}"
     );
 }
 

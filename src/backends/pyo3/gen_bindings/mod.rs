@@ -817,7 +817,7 @@ impl Backend for Pyo3Backend {
 
         let mut content = builder.build();
         postprocess::clear_bridge_builder_opaque_params(&mut content, config);
-        postprocess::wrap_optional_default_args(&mut content, api);
+        postprocess::wrap_optional_default_args(&mut content, api, config);
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),

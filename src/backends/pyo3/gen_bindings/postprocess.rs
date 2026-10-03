@@ -12,9 +12,20 @@ pub(super) fn clear_bridge_builder_opaque_params(content: &mut String, config: &
     }
 }
 
-pub(super) fn wrap_optional_default_args(content: &mut String, api: &ApiSurface) {
+pub(super) fn wrap_optional_default_args(content: &mut String, api: &ApiSurface, config: &ResolvedCrateConfig) {
     for func in &api.functions {
-        for param in &func.params {
+        let bridge_param_indices: ahash::AHashSet<usize> =
+            crate::codegen::generators::trait_bridge::options_field_bridge_sites(
+                func,
+                config.trait_bridges_for(Language::Python),
+            )
+            .into_iter()
+            .map(|site| site.param_index)
+            .collect();
+        for (param_index, param) in func.params.iter().enumerate() {
+            if bridge_param_indices.contains(&param_index) {
+                continue;
+            }
             if !param.optional {
                 continue;
             }
