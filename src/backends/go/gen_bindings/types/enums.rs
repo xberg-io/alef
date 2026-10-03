@@ -19,7 +19,8 @@ pub(crate) enum GoEnumRepresentation {
     /// `type X string` plus a const block — [`gen_unit_enum_type`].
     UnitString,
     /// `type X string` plus a const block covering the unit variants only —
-    /// [`gen_newtype_tuple_enum_type`].
+    /// [`gen_newtype_tuple_enum_type`]. Externally tagged payload variants store their raw
+    /// JSON object in the string and use generated marshalers to preserve the wire shape.
     NewtypeTupleString,
     /// `type X json.RawMessage` — [`gen_passthrough_raw_message_enum`].
     RawMessage,
@@ -104,13 +105,6 @@ pub(crate) fn go_enum_representation(enum_def: &EnumDef) -> GoEnumRepresentation
         // an array). Raw bytes round-trip every one of those forms; a struct would drop them.
         // [`gen_enum_type`] reports this narrowing, so the classifier stays free of side effects
         // for the many callers that only ask it a question. ~keep
-        return GoEnumRepresentation::RawMessage;
-    }
-
-    // Serde's default external representation wraps every data variant in an object such as
-    // `{"custom":"label"}`, while unit variants remain bare strings. A Go string alias cannot
-    // accept both shapes, so preserve the exact JSON bytes instead. ~keep
-    if enum_def.serde_tag.is_none() && !enum_def.serde_untagged {
         return GoEnumRepresentation::RawMessage;
     }
 
@@ -492,9 +486,9 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -
 ///
 /// Used for Rust enums that have one or more unit variants plus one or more
 /// "newtype" (single positional field) variants like `Custom(String)`.
-/// The Go type is `type X string` — unit variants become named constants while
-/// Custom/tuple variants are handled automatically because the underlying type
-/// is `string` and any arbitrary string value round-trips through JSON as-is.
+/// The Go type is `type X string`, so unit variants remain named constants. For serde's
+/// externally tagged representation, generated marshalers keep unit values as JSON strings and
+/// store payload variants as raw JSON object/array text inside the string alias.
 pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
     let mut out = String::with_capacity(1024);
     let go_enum_name = go_type_name(&enum_def.name);
@@ -561,6 +555,15 @@ pub(in crate::backends::go::gen_bindings) fn gen_newtype_tuple_enum_type(enum_de
         "const_block_footer.jinja",
         minijinja::Value::default(),
     ));
+    if enum_def.serde_tag.is_none() && !enum_def.serde_untagged {
+        out.push('\n');
+        out.push_str(&crate::backends::go::template_env::render(
+            "externally_tagged_newtype_string_marshalers.jinja",
+            minijinja::context! {
+                enum_name => &go_enum_name,
+            },
+        ));
+    }
     out
 }
 

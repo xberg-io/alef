@@ -1,0 +1,30 @@
+// MarshalJSON preserves Rust's externally tagged wire form while keeping the public Go type a string alias.
+func (e {{ enum_name }}) MarshalJSON() ([]byte, error) {
+	raw := []byte(e)
+	for len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t' || raw[0] == '\n' || raw[0] == '\r') {
+		raw = raw[1:]
+	}
+	if len(raw) > 0 && (raw[0] == '{' || raw[0] == '[') && json.Valid(raw) {
+		return raw, nil
+	}
+	return json.Marshal(string(e))
+}
+
+// UnmarshalJSON decodes unit variants as plain strings and retains data variants as raw JSON text.
+func (e *{{ enum_name }}) UnmarshalJSON(data []byte) error {
+	var value string
+	stringErr := json.Unmarshal(data, &value)
+	if stringErr == nil {
+		*e = {{ enum_name }}(value)
+		return nil
+	}
+	raw := data
+	for len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t' || raw[0] == '\n' || raw[0] == '\r') {
+		raw = raw[1:]
+	}
+	if len(raw) > 0 && (raw[0] == '{' || raw[0] == '[') && json.Valid(raw) {
+		*e = {{ enum_name }}(string(raw))
+		return nil
+	}
+	return stringErr
+}

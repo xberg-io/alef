@@ -377,6 +377,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/enum_marshal_json.jinja"),
     ),
     (
+        "externally_tagged_newtype_string_marshalers.jinja",
+        include_str!("templates/externally_tagged_newtype_string_marshalers.jinja"),
+    ),
+    (
         "passthrough_raw_message_enum_body.jinja",
         include_str!("templates/passthrough_raw_message_enum_body.jinja"),
     ),
