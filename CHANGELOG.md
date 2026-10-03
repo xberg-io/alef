@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Zig binding generation runs `zig fmt` before finalizing generated hashes, so nested tagged
+  unions and FFI wrapper layouts are persisted in the toolchain's canonical format.
 - PHP e2e generation honors the shared visitor pseudo-function exclusion.
 - WASM error values retain named variant payload fields alongside their code and message.
 - WASM options-field trait-bridge wrappers preserve structured generated error values instead of

@@ -53,7 +53,7 @@ output = "test_apps"
 #[test]
 fn a_path_poly_never_reaches_is_owned_by_nobody() {
     let base = std::path::Path::new("/repo");
-    let path = base.join("packages/zig/src/main.zig");
+    let path = base.join("packages/python/sample.py");
     let coverage = PolyCoverage::covering([]);
 
     assert_eq!(
@@ -66,7 +66,7 @@ fn a_path_poly_never_reaches_is_owned_by_nobody() {
 #[test]
 fn a_path_poly_does_reach_is_owned_by_poly() {
     let base = std::path::Path::new("/repo");
-    let path = base.join("packages/zig/src/main.zig");
+    let path = base.join("packages/python/sample.py");
     let coverage = PolyCoverage::covering([path.clone()]);
 
     assert_eq!(
@@ -75,13 +75,28 @@ fn a_path_poly_does_reach_is_owned_by_poly() {
     );
 }
 
+#[test]
+fn zig_package_source_is_owned_by_zig_fmt_not_poly() {
+    let base = std::path::Path::new("/repo");
+    let config = plain_config();
+    let coverage = PolyCoverage::covering([]);
+
+    for relative in ["packages/zig/src/sample.zig", "packages/zig/build.zig"] {
+        assert_eq!(
+            formatting_owner(&base.join(relative), &config, base, &coverage),
+            FormattingOwner::Residual("zig fmt"),
+            "{relative} is persisted through the native Zig formatter"
+        );
+    }
+}
+
 /// An unavailable probe must never be read as "poly covers nothing". Claiming
 /// [`FormattingOwner::None`] there would assert "the render is the final bytes" on no evidence,
 /// which is the silent-pass direction of the same defect. ~keep
 #[test]
 fn an_unavailable_probe_stays_conservative_rather_than_claiming_nothing_is_formatted() {
     let base = std::path::Path::new("/repo");
-    let path = base.join("packages/zig/src/main.zig");
+    let path = base.join("packages/python/sample.py");
 
     assert_eq!(
         formatting_owner(&path, &plain_config(), base, &PolyCoverage::unavailable()),

@@ -101,7 +101,8 @@ struct RequiredFormatter {
 /// when Elixir is generated: poly's own pass excludes `.ex`/`.exs` files (see
 /// [`owner::POLY_EXCLUDE_GLOBS`]) because its pure-Rust Elixir formatter misindents
 /// them, so `mix format` is the sole formatter for that output and its absence
-/// must not pass unnoticed.
+/// must not pass unnoticed. `zig` is required for Zig because its native formatter
+/// is the authority for generated Zig source and build files. ~keep
 fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
     let mut required = vec![
         RequiredFormatter {
@@ -131,11 +132,17 @@ fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
             install_hint: "install Elixir (https://elixir-lang.org/install.html); `mix` ships with it",
         });
     }
+    if languages.contains(&Language::Zig) {
+        required.push(RequiredFormatter {
+            tool: "zig",
+            install_hint: "install Zig (https://ziglang.org/download/) and put it on PATH",
+        });
+    }
     required
 }
 
 /// Warn (never fail) when a formatter that shapes generated output is missing
-/// from PATH.
+/// from PATH, including Zig's native formatter when Zig is generated. ~keep
 ///
 /// alef always applies formatting when the tools are present — poly in
 /// particular formats through `poly fmt` whenever it is on PATH and the pass is
@@ -275,7 +282,14 @@ fn run_format_pass(
     // directories to format -- see its own comment for why `poly_langs` is derived from `only`
     // directly rather than from a `files` list. ~keep
     match only_languages {
-        None => converge_full_regen(base_dir, &mut pass),
+        None => {
+            converge_full_regen(base_dir, &mut pass);
+            if config.targets(Language::Zig) {
+                for step in language_residuals(config, Language::Zig, base_dir) {
+                    run_residual(&step, "zig", &mut pass);
+                }
+            }
+        }
         // `poly_langs` comes directly from the caller's `only` set, not from which languages
         // happen to be keys in `files`. It used to be `files.iter().filter(|lang|
         // only.contains(lang))` -- an intersection that silently dropped a language `only`
@@ -698,7 +712,8 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// is always present in alef's build environment. C# has no residual: it is
 /// formatted entirely by poly's deterministic pure-Rust tier-2 tier.
 ///
-/// Elixir is the one exception with two residual concerns: the `cargo sort` for
+/// Zig runs `zig fmt` over its generated source tree and build file because poly's
+/// generic pass does not guarantee Zig's canonical layout. Elixir has two residual concerns: the `cargo sort` for
 /// its out-of-workspace native NIF crate, *and* `mix format` for its `.ex`/`.exs`
 /// source. Poly's own Elixir engine is excluded from formatting those files at
 /// all (see [`owner::POLY_EXCLUDE_GLOBS`]) because it misindents constructs `mix
@@ -712,6 +727,7 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// `deps/` before `mix format` can resolve it.
 fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &Path) -> Vec<ResidualStep> {
     match lang {
+        Language::Zig => vec![zig_format(config, base_dir)],
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
@@ -746,6 +762,27 @@ fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &P
         )],
         _ => vec![],
     }
+}
+
+fn zig_format(config: &ResolvedCrateConfig, base_dir: &Path) -> ResidualStep {
+    let work_dir = zig_package_root(config, base_dir);
+    let mut args = vec!["fmt".to_owned(), "src".to_owned()];
+    if work_dir.join("build.zig").is_file() {
+        args.push("build.zig".to_owned());
+    }
+    ResidualStep {
+        command: "zig".to_owned(),
+        args,
+        work_dir,
+    }
+}
+
+fn zig_package_root(config: &ResolvedCrateConfig, base_dir: &Path) -> PathBuf {
+    let relative = config
+        .output_for("zig")
+        .map(|output| crate::core::config::OutputLayout::from_output_dir(&output.to_string_lossy()).root)
+        .unwrap_or_else(|| PathBuf::from(config.package_dir(Language::Zig)));
+    base_dir.join(relative)
 }
 
 /// Construct a `cargo sort -n` residual step. The `-n` flag preserves single-line

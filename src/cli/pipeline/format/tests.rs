@@ -65,6 +65,24 @@ fn required_formatters_add_mix_only_when_elixir_is_generated() {
 }
 
 #[test]
+fn required_formatters_add_zig_only_when_zig_is_generated() {
+    let tools: Vec<&str> = required_formatters(&[Language::Zig])
+        .iter()
+        .map(|formatter| formatter.tool)
+        .collect();
+    assert!(tools.contains(&"zig"), "Zig generation must require `zig` on PATH");
+
+    let python_tools: Vec<&str> = required_formatters(&[Language::Python])
+        .iter()
+        .map(|formatter| formatter.tool)
+        .collect();
+    assert!(
+        !python_tools.contains(&"zig"),
+        "non-Zig generation must not require the Zig toolchain"
+    );
+}
+
+#[test]
 fn formatter_error_includes_stdout_and_stderr() {
     let err = run_formatter(
         "sh",
@@ -228,6 +246,99 @@ fn r_residual_sorts_the_extendr_crate() {
     assert_eq!(steps.len(), 1, "R residual must be a single cargo sort step");
     assert_eq!(steps[0].args, vec!["sort", "-n", "packages/r/src/rust"]);
     assert_eq!(steps[0].work_dir, Path::new("/repo"));
+}
+
+#[test]
+fn zig_residual_formats_source_and_build_file_in_package_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let package = dir.path().join("packages/zig");
+    std::fs::create_dir_all(package.join("src")).expect("zig source dir");
+    std::fs::write(package.join("build.zig"), "pub fn build() void {}\n").expect("Zig build file");
+    let config = make_config("sample-model");
+    let steps = language_residuals(&config, Language::Zig, dir.path());
+    assert_eq!(steps.len(), 1, "Zig residual must be a single native formatter step");
+    assert_eq!(steps[0].command, "zig");
+    assert_eq!(steps[0].args, vec!["fmt", "src", "build.zig"]);
+    assert_eq!(steps[0].work_dir, package);
+}
+
+#[test]
+fn zig_residual_uses_the_package_root_implied_by_configured_source_output() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let package = dir.path().join("sdk/zig-package");
+    std::fs::create_dir_all(package.join("src")).expect("zig source dir");
+    std::fs::write(package.join("build.zig"), "pub fn build() void {}\n").expect("Zig build file");
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["zig"]
+[[crates]]
+name = "sample-model"
+sources = ["src/lib.rs"]
+[crates.output]
+zig = "sdk/zig-package/src"
+"#,
+    )
+    .expect("valid config");
+    let config = cfg.resolve().expect("resolvable config").remove(0);
+
+    let steps = language_residuals(&config, Language::Zig, dir.path());
+
+    assert_eq!(steps[0].work_dir, package);
+    assert_eq!(steps[0].args, vec!["fmt", "src", "build.zig"]);
+}
+
+#[test]
+fn zig_generation_formatting_is_a_stable_native_formatter_fixed_point() {
+    if !is_tool_available("zig") {
+        return;
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    let package = base.join("packages/zig");
+    std::fs::create_dir_all(package.join("src")).expect("zig source dir");
+    let source = package.join("src/sample.zig");
+    std::fs::write(
+        &source,
+        "pub const Event=union(enum){ok:struct{value:u32,},err:struct{code:u32,},};\n",
+    )
+    .expect("unformatted Zig source");
+    std::fs::write(
+        package.join("build.zig"),
+        "const std=@import(\"std\");pub fn build(b:*std.Build)void{_=b;}\n",
+    )
+    .expect("unformatted Zig build file");
+
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["zig"]
+[[crates]]
+name = "sample-model"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .expect("valid config");
+    let config = cfg.resolve().expect("resolvable config").remove(0);
+    let only: HashSet<Language> = [Language::Zig].into_iter().collect();
+
+    let zig_only = |tool: &str| tool == "zig";
+    format_generated_reporting_with(&config, base, Some(&only), false, &zig_only).expect("first Zig formatting pass");
+    let first = std::fs::read_to_string(&source).expect("first formatted source");
+    assert!(
+        first.contains("pub const Event = union(enum) {"),
+        "the native formatter must rewrite the generated Zig source: {first}"
+    );
+    run_formatter("zig", &["fmt", "--check", "src", "build.zig"], &package)
+        .expect("the persisted package must pass zig fmt --check");
+
+    format_generated_reporting_with(&config, base, None, false, &zig_only).expect("second Zig formatting pass");
+    assert_eq!(
+        std::fs::read_to_string(&source).expect("second formatted source"),
+        first,
+        "a second generation formatting pass must be byte-stable"
+    );
 }
 
 #[test]

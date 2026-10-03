@@ -235,7 +235,7 @@ pub(crate) fn formatting_owner(
     if let Some(command) = e2e_override_for(path, config, base_dir) {
         return FormattingOwner::E2eOverride(command);
     }
-    if let Some(residual) = residual_for(path) {
+    if let Some(residual) = residual_for(path, config, base_dir) {
         return FormattingOwner::Residual(residual);
     }
     match coverage.covers(path) {
@@ -257,7 +257,14 @@ pub(crate) fn formatting_owner(
 /// today" is a property of the emitter, not of the pipeline, and a reader that assumed it would
 /// silently start lying the first time a template emitted an out-of-order key. Claiming it here
 /// costs a handful of counted, disclosed skips and cannot rot. ~keep
-fn residual_for(path: &Path) -> Option<&'static str> {
+fn residual_for(path: &Path, config: &ResolvedCrateConfig, base_dir: &Path) -> Option<&'static str> {
+    let zig_root = super::zig_package_root(config, base_dir);
+    if (path.starts_with(zig_root.join("src"))
+        && path.extension().and_then(|extension| extension.to_str()) == Some("zig"))
+        || path == zig_root.join("build.zig")
+    {
+        return Some("zig fmt");
+    }
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("ex" | "exs") => Some("mix format"),
         _ if path.file_name().is_some_and(|name| name == "Cargo.toml") => Some("cargo sort -n -w"),
