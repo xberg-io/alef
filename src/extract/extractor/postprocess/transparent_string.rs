@@ -10,26 +10,26 @@ pub(super) type NewtypeCandidates = AHashMap<String, Vec<(String, TypeRef, Resol
 pub(super) type NewtypeMap = AHashMap<String, (TypeRef, ResolvedNewtype)>;
 
 pub(super) fn extracted_named_paths(surface: &ApiSurface) -> AHashMap<String, Vec<String>> {
-    let mut paths: AHashMap<String, AHashSet<String>> = AHashMap::new();
+    let mut paths: AHashMap<String, Vec<String>> = AHashMap::new();
     for typ in &surface.types {
-        paths.entry(typ.name.clone()).or_default().insert(typ.rust_path.clone());
+        paths.entry(typ.name.clone()).or_default().push(typ.rust_path.clone());
     }
     for enum_def in &surface.enums {
         paths
             .entry(enum_def.name.clone())
             .or_default()
-            .insert(enum_def.rust_path.clone());
+            .push(enum_def.rust_path.clone());
     }
     for error in &surface.errors {
         paths
             .entry(error.name.clone())
             .or_default()
-            .insert(error.rust_path.clone());
+            .push(error.rust_path.clone());
     }
     paths
         .into_iter()
         .map(|(name, paths)| {
-            let mut paths: Vec<_> = paths.into_iter().collect();
+            let mut paths = paths;
             paths.sort_unstable();
             (name, paths)
         })
@@ -43,19 +43,41 @@ pub(super) fn select_unambiguous_candidates(
 ) -> (NewtypeMap, AHashSet<String>) {
     let mut newtype_map = AHashMap::new();
     let mut resolved_paths = AHashSet::new();
-    for (name, mut matching) in candidates {
+    for (name, matching) in candidates {
         let extracted_paths = extracted_names.get(&name).map(Vec::as_slice).unwrap_or_default();
-        if matching.len() == 1 && extracted_paths.len() == 1 {
-            let (rust_path, inner, wrapper) = matching.pop().expect("one candidate");
-            resolved_paths.insert(rust_path);
-            newtype_map.insert(name, (inner, wrapper));
+        let mut unique_paths = extracted_paths.to_vec();
+        unique_paths.sort_unstable();
+        unique_paths.dedup();
+        if let [rust_path] = unique_paths.as_slice() {
+            if matching.len() != extracted_paths.len()
+                || !matching
+                    .iter()
+                    .all(|(candidate_path, _, _)| candidate_path == rust_path)
+            {
+                diagnostics.push(incompatible_cfg_definitions(rust_path));
+                continue;
+            }
+            let (_, inner, wrapper) = &matching[0];
+            if matching
+                .iter()
+                .all(|(_, candidate_inner, candidate_wrapper)| candidate_inner == inner && candidate_wrapper == wrapper)
+            {
+                resolved_paths.insert(rust_path.clone());
+                newtype_map.insert(name, (inner.clone(), wrapper.clone()));
+                continue;
+            }
+            diagnostics.push(incompatible_cfg_definitions(rust_path));
             continue;
         }
         let reason = format!(
             "ambiguous transparent newtype name `{name}` resolves to multiple Rust paths: {}",
-            extracted_paths.join(", ")
+            unique_paths.join(", ")
         );
+        let mut reported_paths = AHashSet::new();
         for (rust_path, _, _) in matching {
+            if !reported_paths.insert(rust_path.clone()) {
+                continue;
+            }
             diagnostics.push(UnsupportedPublicItem {
                 item_kind: "struct".to_string(),
                 item_path: rust_path,
@@ -66,6 +88,16 @@ pub(super) fn select_unambiguous_candidates(
         }
     }
     (newtype_map, resolved_paths)
+}
+
+fn incompatible_cfg_definitions(rust_path: &str) -> UnsupportedPublicItem {
+    UnsupportedPublicItem {
+        item_kind: "struct".to_string(),
+        item_path: rust_path.to_string(),
+        reason: format!("incompatible transparent newtype definitions for Rust path `{rust_path}` across cfg branches"),
+        suggested_fix: "use the same inner type and transparent_string conversion methods in every cfg branch"
+            .to_string(),
+    }
 }
 
 pub(super) fn validate_transparent_string_methods(

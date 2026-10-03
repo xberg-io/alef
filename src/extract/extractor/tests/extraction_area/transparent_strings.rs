@@ -470,6 +470,108 @@ fn skipped_named_items_still_block_ambiguous_wrapper_resolution() {
 }
 
 #[test]
+fn cfg_disjoint_identical_wrapper_definitions_resolve_once() {
+    let surface = extract_from_source(
+        r#"
+        #[cfg(feature = "first")]
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        pub struct Secret(String);
+        #[cfg(feature = "first")]
+        impl Secret {
+            pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> String { self.0 }
+        }
+
+        #[cfg(not(feature = "first"))]
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        pub struct Secret(String);
+        #[cfg(not(feature = "first"))]
+        impl Secret {
+            pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> String { self.0 }
+        }
+
+        pub fn echo(value: Secret) -> Secret { value }
+        "#,
+    );
+
+    assert!(surface.types.iter().all(|typ| typ.name != "Secret"));
+    assert!(
+        surface
+            .unsupported_public_items
+            .iter()
+            .all(|item| !item.reason.contains("ambiguous") && !item.reason.contains("incompatible")),
+        "{:?}",
+        surface.unsupported_public_items
+    );
+    let function = surface
+        .functions
+        .iter()
+        .find(|function| function.name == "echo")
+        .expect("echo function");
+    assert_eq!(function.params[0].ty, TypeRef::String);
+    assert_eq!(function.return_type, TypeRef::String);
+    assert_conversion_paths(
+        function.params[0]
+            .newtype_wrapper
+            .as_deref()
+            .expect("parameter metadata"),
+        &[("test_crate::Secret", vec![])],
+    );
+    assert_conversion_paths(
+        function.return_newtype_wrapper.as_deref().expect("return metadata"),
+        &[("test_crate::Secret", vec![])],
+    );
+}
+
+#[test]
+fn cfg_disjoint_incompatible_wrapper_definitions_are_reported() {
+    let surface = extract_from_source(
+        r#"
+        #[cfg(feature = "first")]
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from_first", into = "into_first"))]
+        pub struct Secret(String);
+        #[cfg(feature = "first")]
+        impl Secret {
+            pub fn from_first(value: String) -> Self { Self(value) }
+            pub fn into_first(self) -> String { self.0 }
+        }
+
+        #[cfg(not(feature = "first"))]
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from_second", into = "into_second"))]
+        pub struct Secret(String);
+        #[cfg(not(feature = "first"))]
+        impl Secret {
+            pub fn from_second(value: String) -> Self { Self(value) }
+            pub fn into_second(self) -> String { self.0 }
+        }
+
+        pub fn echo(value: Secret) -> Secret { value }
+        "#,
+    );
+
+    assert!(surface.unsupported_public_items.iter().any(|item| {
+        item.item_path == "test_crate::Secret"
+            && item
+                .reason
+                .contains("incompatible transparent newtype definitions for Rust path `test_crate::Secret`")
+    }));
+    let function = surface
+        .functions
+        .iter()
+        .find(|function| function.name == "echo")
+        .expect("echo function");
+    assert_eq!(function.params[0].ty, TypeRef::Named("Secret".to_string()));
+    assert_eq!(function.return_type, TypeRef::Named("Secret".to_string()));
+    assert!(function.params[0].newtype_wrapper.is_none());
+    assert!(function.return_newtype_wrapper.is_none());
+}
+
+#[test]
 fn borrowed_or_wrapped_transparent_string_methods_are_rejected() {
     let cases = [
         r#"pub fn from(value: &str) -> Self { Self(value.to_string()) }

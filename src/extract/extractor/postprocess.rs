@@ -230,7 +230,15 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
             let Some(wrapper) = decoded.as_ref().filter(|wrapper| !wrapper.explicit_paths().is_empty()) else {
                 continue;
             };
-            if let Err(reason) = validate_transparent_string_methods(typ, wrapper.explicit_paths()) {
+            let method_validation = validate_transparent_string_methods(typ, wrapper.explicit_paths());
+            let matching_cfg_definition_is_valid = method_validation.is_err()
+                && surface.types.iter().any(|candidate| {
+                    candidate.rust_path == typ.rust_path
+                        && validate_transparent_string_methods(candidate, wrapper.explicit_paths()).is_ok()
+                });
+            if let Err(reason) = method_validation
+                && !matching_cfg_definition_is_valid
+            {
                 diagnostics.push(UnsupportedPublicItem {
                     item_kind: "struct".to_string(),
                     item_path: typ.rust_path.clone(),
@@ -331,7 +339,7 @@ fn resolve_typeref(
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub(super) struct ResolvedNewtype {
     legacy: Option<String>,
     explicit: Vec<NewtypeWrapperMetadata>,
