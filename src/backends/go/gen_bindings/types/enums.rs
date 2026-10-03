@@ -107,6 +107,13 @@ pub(crate) fn go_enum_representation(enum_def: &EnumDef) -> GoEnumRepresentation
         return GoEnumRepresentation::RawMessage;
     }
 
+    // Serde's default external representation wraps every data variant in an object such as
+    // `{"custom":"label"}`, while unit variants remain bare strings. A Go string alias cannot
+    // accept both shapes, so preserve the exact JSON bytes instead. ~keep
+    if enum_def.serde_tag.is_none() && !enum_def.serde_untagged {
+        return GoEnumRepresentation::RawMessage;
+    }
+
     if is_heterogeneous_shape_union(enum_def) {
         return GoEnumRepresentation::RawMessage;
     }

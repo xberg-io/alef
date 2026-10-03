@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.10] - 2026-10-03
+
+### Fixed
+
+- Generated Go bindings preserve default externally tagged enums with payload variants as raw
+  JSON, allowing unit variants and variants such as `Custom(String)` to deserialize losslessly.
+
 ## [0.103.9] - 2026-10-02
 
 ### Fixed
