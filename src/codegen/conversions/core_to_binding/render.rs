@@ -1,7 +1,7 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
-    apply_newtype_from_core, core_type_path_remapped, field_references_excluded_type, is_newtype, is_tuple_type_name,
-    needs_clippy_allow,
+    apply_newtype_from_core, core_type_path_remapped, explicit_newtype_replaces_base_conversion,
+    field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow,
 };
 use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
 use ahash::AHashSet;
@@ -85,7 +85,7 @@ pub fn gen_from_core_to_binding_cfg(
             },
             |wrapper| {
                 let source = apply_newtype_from_core(&format!("val.{}", field.name), wrapper);
-                if matches!(field.ty, TypeRef::String) {
+                if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
                     format!("{}: {source}", field.name)
                 } else {
                     field_conversion_from_core_cfg(

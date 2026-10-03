@@ -1,8 +1,8 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
     apply_newtype_to_core, clippy_allow_attr_line, core_prim_str, core_type_path_remapped,
-    field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast,
-    needs_i64_cast,
+    explicit_newtype_replaces_base_conversion, field_references_excluded_type, is_newtype, is_tuple_type_name,
+    needs_clippy_allow, needs_f64_cast, needs_i32_cast, needs_i64_cast,
 };
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 
@@ -417,7 +417,10 @@ fn field_core_conversion(
     let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
         format!("{}: Default::default()", field.name)
     } else if let Some(wrapper) = transparent_wrapper {
-        let base = if field_was_optionalized {
+        let conversion_optional = if field_was_optionalized { false } else { field.optional };
+        let base = if explicit_newtype_replaces_base_conversion(&field.ty, conversion_optional, wrapper, config) {
+            format!("{}: val.{}", field.name, field.name)
+        } else if field_was_optionalized {
             field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
         } else {
             field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)

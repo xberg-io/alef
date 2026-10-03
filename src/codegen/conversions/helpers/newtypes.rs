@@ -1,3 +1,4 @@
+use crate::codegen::conversions::ConversionConfig;
 use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
 pub(crate) fn is_explicit_newtype(wrapper: &str) -> bool {
@@ -5,6 +6,65 @@ pub(crate) fn is_explicit_newtype(wrapper: &str) -> bool {
         .expect("newtype metadata must be validated during extraction")
         .explicit_paths()
         .is_empty()
+}
+
+pub(crate) fn explicit_newtype_covers_non_identity_leaves(ty: &TypeRef, optional: bool, wrapper: &str) -> bool {
+    let decoded = NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated before codegen");
+    let mut path = Vec::new();
+    if optional {
+        path.push(NewtypeContainer::Optional);
+    }
+    non_identity_leaves_are_wrapped(ty, &path, decoded.explicit_paths())
+}
+
+pub(crate) fn explicit_newtype_replaces_base_conversion(
+    ty: &TypeRef,
+    optional: bool,
+    wrapper: &str,
+    config: &ConversionConfig<'_>,
+) -> bool {
+    explicit_newtype_covers_non_identity_leaves(ty, optional, wrapper)
+        && !(contains_map(ty) && (config.map_uses_jsvalue || config.map_flatten_to_string || config.map_as_string))
+}
+
+fn contains_map(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_map(inner),
+        TypeRef::Map(_, _) => true,
+        _ => false,
+    }
+}
+
+fn non_identity_leaves_are_wrapped(
+    ty: &TypeRef,
+    path: &[NewtypeContainer],
+    metadata: &[NewtypeWrapperMetadata],
+) -> bool {
+    if metadata.iter().any(|item| item.containers == path) {
+        return true;
+    }
+    match ty {
+        TypeRef::String | TypeRef::Unit => true,
+        TypeRef::Optional(inner) => {
+            let mut inner_path = path.to_vec();
+            inner_path.push(NewtypeContainer::Optional);
+            non_identity_leaves_are_wrapped(inner, &inner_path, metadata)
+        }
+        TypeRef::Vec(inner) => {
+            let mut inner_path = path.to_vec();
+            inner_path.push(NewtypeContainer::Vec);
+            non_identity_leaves_are_wrapped(inner, &inner_path, metadata)
+        }
+        TypeRef::Map(key, value) => {
+            let mut key_path = path.to_vec();
+            key_path.push(NewtypeContainer::MapKey);
+            let mut value_path = path.to_vec();
+            value_path.push(NewtypeContainer::MapValue);
+            non_identity_leaves_are_wrapped(key, &key_path, metadata)
+                && non_identity_leaves_are_wrapped(value, &value_path, metadata)
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn apply_explicit_field_newtype_to_core(expr: &str, field: &FieldDef) -> Option<String> {
