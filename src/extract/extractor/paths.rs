@@ -5,6 +5,24 @@ use crate::core::ir::ApiSurface;
 use super::helpers::{ReexportKind, collect_reexport_map, is_pub};
 use super::reexports::{UseFilter, collect_use_names};
 
+pub(super) struct SurfaceOffsets {
+    types: usize,
+    enums: usize,
+    errors: usize,
+    functions: usize,
+}
+
+impl SurfaceOffsets {
+    pub(super) fn from_surface(surface: &ApiSurface) -> Self {
+        Self {
+            types: surface.types.len(),
+            enums: surface.enums.len(),
+            errors: surface.errors.len(),
+            functions: surface.functions.len(),
+        }
+    }
+}
+
 /// Resolve the directory that owns a module file's *children* -- the files backing any
 /// `mod x;` declarations with no inline body found inside it.
 ///
@@ -59,10 +77,7 @@ pub(super) fn apply_parent_reexport_shortening(
     crate_name: &str,
     module_path: &str,
     surface: &mut ApiSurface,
-    types_before: usize,
-    enums_before: usize,
-    errors_before: usize,
-    fns_before: usize,
+    offsets: SurfaceOffsets,
 ) {
     let parent_dir = match source.parent() {
         Some(p) => p,
@@ -104,16 +119,16 @@ pub(super) fn apply_parent_reexport_shortening(
                     } else {
                         format!("{crate_name}::{parent_module_path}")
                     };
-                    for ty in &mut surface.types[types_before..] {
+                    for ty in &mut surface.types[offsets.types..] {
                         ty.rust_path = format!("{parent_prefix}::{}", ty.name);
                     }
-                    for en in &mut surface.enums[enums_before..] {
+                    for en in &mut surface.enums[offsets.enums..] {
                         en.rust_path = format!("{parent_prefix}::{}", en.name);
                     }
-                    for error in &mut surface.errors[errors_before..] {
+                    for error in &mut surface.errors[offsets.errors..] {
                         error.rust_path = format!("{parent_prefix}::{}", error.name);
                     }
-                    for func in &mut surface.functions[fns_before..] {
+                    for func in &mut surface.functions[offsets.functions..] {
                         func.rust_path = format!("{parent_prefix}::{}", func.name);
                     }
                     return;
@@ -134,16 +149,16 @@ pub(super) fn apply_parent_reexport_shortening(
         } else {
             format!("{crate_name}::{parent_module_path}")
         };
-        for ty in &mut surface.types[types_before..] {
+        for ty in &mut surface.types[offsets.types..] {
             ty.rust_path = format!("{parent_prefix}::{}", ty.name);
         }
-        for en in &mut surface.enums[enums_before..] {
+        for en in &mut surface.enums[offsets.enums..] {
             en.rust_path = format!("{parent_prefix}::{}", en.name);
         }
-        for error in &mut surface.errors[errors_before..] {
+        for error in &mut surface.errors[offsets.errors..] {
             error.rust_path = format!("{parent_prefix}::{}", error.name);
         }
-        for func in &mut surface.functions[fns_before..] {
+        for func in &mut surface.functions[offsets.functions..] {
             func.rust_path = format!("{parent_prefix}::{}", func.name);
         }
         return;
@@ -160,22 +175,22 @@ pub(super) fn apply_parent_reexport_shortening(
         format!("{crate_name}::{parent_module_path}")
     };
 
-    for ty in &mut surface.types[types_before..] {
+    for ty in &mut surface.types[offsets.types..] {
         if reexported_names.contains(&ty.name) {
             ty.rust_path = format!("{parent_prefix}::{}", ty.name);
         }
     }
-    for en in &mut surface.enums[enums_before..] {
+    for en in &mut surface.enums[offsets.enums..] {
         if reexported_names.contains(&en.name) {
             en.rust_path = format!("{parent_prefix}::{}", en.name);
         }
     }
-    for error in &mut surface.errors[errors_before..] {
+    for error in &mut surface.errors[offsets.errors..] {
         if reexported_names.contains(&error.name) {
             error.rust_path = format!("{parent_prefix}::{}", error.name);
         }
     }
-    for func in &mut surface.functions[fns_before..] {
+    for func in &mut surface.functions[offsets.functions..] {
         if reexported_names.contains(&func.name) {
             func.rust_path = format!("{parent_prefix}::{}", func.name);
         }

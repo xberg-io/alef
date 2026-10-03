@@ -25,7 +25,7 @@ use self::helpers::{
     extract_doc_comments, extract_version_annotation, is_pub, is_test_gated, is_thiserror_enum,
     resolve_result_alias_scope,
 };
-use self::paths::{apply_parent_reexport_shortening, derive_module_path};
+use self::paths::{SurfaceOffsets, apply_parent_reexport_shortening, derive_module_path};
 use self::postprocess::{
     resolve_enum_field_defaults, resolve_newtypes, resolve_public_default_functions, resolve_trait_sources,
     warn_on_default_disagreements,
@@ -94,10 +94,7 @@ pub fn extract(
 
         let module_path = derive_module_path(source, crate_src_dir.as_deref());
 
-        let types_before = surface.types.len();
-        let enums_before = surface.enums.len();
-        let errors_before = surface.errors.len();
-        let fns_before = surface.functions.len();
+        let offsets = SurfaceOffsets::from_surface(&surface);
 
         let mut result_wrapping_aliases = ahash::AHashSet::new();
         extract_items(
@@ -114,16 +111,7 @@ pub fn extract(
         )?;
 
         if !module_path.is_empty() {
-            apply_parent_reexport_shortening(
-                source,
-                crate_name,
-                &module_path,
-                &mut surface,
-                types_before,
-                enums_before,
-                errors_before,
-                fns_before,
-            );
+            apply_parent_reexport_shortening(source, crate_name, &module_path, &mut surface, offsets);
         }
     }
 
