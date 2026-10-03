@@ -727,7 +727,7 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// `deps/` before `mix format` can resolve it.
 fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &Path) -> Vec<ResidualStep> {
     match lang {
-        Language::Zig => vec![zig_format(config, base_dir)],
+        Language::Zig => zig_format_steps(config, base_dir),
         Language::Wasm => {
             let crate_dir = config
                 .output_for("wasm")
@@ -764,25 +764,42 @@ fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &P
     }
 }
 
-fn zig_format(config: &ResolvedCrateConfig, base_dir: &Path) -> ResidualStep {
-    let work_dir = zig_package_root(config, base_dir);
-    let mut args = vec!["fmt".to_owned(), "src".to_owned()];
+fn zig_format_steps(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<ResidualStep> {
+    zig_format_roots(config, base_dir)
+        .into_iter()
+        .filter_map(zig_format_step)
+        .collect()
+}
+
+fn zig_format_step(work_dir: PathBuf) -> Option<ResidualStep> {
+    let mut args = vec!["fmt".to_owned()];
+    if work_dir.join("src").is_dir() {
+        args.push("src".to_owned());
+    }
     if work_dir.join("build.zig").is_file() {
         args.push("build.zig".to_owned());
     }
-    ResidualStep {
+    if args.len() == 1 {
+        return None;
+    }
+    Some(ResidualStep {
         command: "zig".to_owned(),
         args,
         work_dir,
-    }
+    })
 }
 
-fn zig_package_root(config: &ResolvedCrateConfig, base_dir: &Path) -> PathBuf {
-    let relative = config
-        .output_for("zig")
-        .map(|output| crate::core::config::OutputLayout::from_output_dir(&output.to_string_lossy()).root)
-        .unwrap_or_else(|| PathBuf::from(config.package_dir(Language::Zig)));
-    base_dir.join(relative)
+fn zig_format_roots(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<PathBuf> {
+    let package_root = base_dir.join(config.package_dir(Language::Zig));
+    let mut roots = vec![package_root.clone()];
+    if let Some(output) = config.output_for("zig") {
+        let source_root =
+            base_dir.join(crate::core::config::OutputLayout::from_output_dir(&output.to_string_lossy()).root);
+        if source_root != package_root {
+            roots.push(source_root);
+        }
+    }
+    roots
 }
 
 /// Construct a `cargo sort -n` residual step. The `-n` flag preserves single-line

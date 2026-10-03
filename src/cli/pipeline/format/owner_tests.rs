@@ -90,6 +90,33 @@ fn zig_package_source_is_owned_by_zig_fmt_not_poly() {
     }
 }
 
+#[test]
+fn configured_zig_source_and_canonical_build_are_both_owned_by_zig_fmt() {
+    let base = std::path::Path::new("/repo");
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["zig"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+[crates.output]
+zig = "sdk/zig-package/src"
+"#,
+    )
+    .expect("valid config");
+    let config = cfg.resolve().expect("resolvable config").remove(0);
+    let coverage = PolyCoverage::covering([]);
+
+    for relative in ["sdk/zig-package/src/sample.zig", "packages/zig/build.zig"] {
+        assert_eq!(
+            formatting_owner(&base.join(relative), &config, base, &coverage),
+            FormattingOwner::Residual("zig fmt"),
+            "{relative} must share the writer's two-root Zig formatter ownership"
+        );
+    }
+}
+
 /// An unavailable probe must never be read as "poly covers nothing". Claiming
 /// [`FormattingOwner::None`] there would assert "the render is the final bytes" on no evidence,
 /// which is the silent-pass direction of the same defect. ~keep
