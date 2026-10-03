@@ -6,5 +6,6 @@ fn {{ fn_name }}(e: {{ rust_path }}) -> wasm_bindgen::JsValue {
     let obj = js_sys::Object::new();
     js_sys::Reflect::set(&obj, &"code".into(), &code.into()).ok();
     js_sys::Reflect::set(&obj, &"message".into(), &message.into()).ok();
+{{ payload_projection }}
     obj.into()
 }

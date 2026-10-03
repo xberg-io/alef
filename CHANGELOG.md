@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- WASM error values retain named variant payload fields alongside their code and message.
 - WASM options-field trait-bridge wrappers preserve structured generated error values instead of
   replacing them with generic JavaScript errors.
 - Python options-field trait-bridge wrappers pass their already-optional core options directly,

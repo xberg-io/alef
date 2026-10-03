@@ -4,7 +4,7 @@ use super::shared::{to_screaming_snake, to_snake_case, variant_display_message};
 use super::*;
 use crate::core::ir::{ErrorDef, ErrorVariant};
 
-use crate::core::ir::{CoreWrapper, FieldDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, PrimitiveType, TypeRef};
 
 #[path = "tests/native_methods.rs"]
 mod native_methods;
@@ -432,7 +432,16 @@ fn test_napi_error_class_code_field_resolves_per_variant_and_unit_pattern_has_no
 
 #[test]
 fn test_gen_wasm_error_converter() {
-    let error = sample_error();
+    let mut error = sample_error();
+    let mut observed = named_field("observed_size");
+    observed.ty = TypeRef::Primitive(PrimitiveType::U64);
+    let mut max = named_field("max_size");
+    max.ty = TypeRef::Primitive(PrimitiveType::U64);
+    error.variants.push(ErrorVariant {
+        name: "InputTooLarge".to_string(),
+        fields: vec![observed, max],
+        ..Default::default()
+    });
     let output = gen_wasm_error_converter(&error, "sample_markup_rs", &[]);
     assert!(
         output.contains(
@@ -442,6 +451,9 @@ fn test_gen_wasm_error_converter() {
     assert!(output.contains("js_sys::Object::new()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
+    assert!(output.contains("sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size } =>"));
+    assert!(output.contains("js_sys::Reflect::set(&obj, &\"observed_size\".into(), &observed_size_value).ok()"));
+    assert!(output.contains("js_sys::Reflect::set(&obj, &\"max_size\".into(), &max_size_value).ok()"));
     assert!(output.contains("obj.into()"));
     assert!(output.contains("fn conversion_error_error_code(e: &sample_markup_rs::ConversionError) -> &'static str {"));
     assert!(output.contains("\"parse_error\""));

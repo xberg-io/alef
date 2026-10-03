@@ -73,6 +73,44 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
         code_variants.push((pattern, code));
     }
     let default_code = to_snake_case(&error.name);
+    let payload_arms = error
+        .variants
+        .iter()
+        .filter(|variant| !variant.is_unit && !variant.is_tuple)
+        .filter_map(|variant| {
+            let fields: Vec<_> = variant
+                .fields
+                .iter()
+                .filter(|field| !field.binding_excluded && !field.serde_skip && !field.name.starts_with('_'))
+                .collect();
+            if fields.is_empty() {
+                return None;
+            }
+            let names = fields.iter().map(|field| field.name.as_str()).collect::<Vec<_>>();
+            let writes = names
+                .iter()
+                .map(|name| {
+                    format!(
+                        "            let {name}_value = serde_wasm_bindgen::to_value({name})\n                .unwrap_or(wasm_bindgen::JsValue::NULL);\n            js_sys::Reflect::set(&obj, &\"{name}\".into(), &{name}_value).ok();"
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            Some(format!(
+                "        {rust_path}::{} {{ {} }} => {{\n{writes}\n        }}",
+                variant.name,
+                names.join(", ")
+            ))
+        })
+        .collect::<Vec<_>>();
+    let payload_projection = if payload_arms.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "    match &e {{\n{},\n        _ => {{}}\n    }}\n",
+            payload_arms.join(",\n")
+        )
+    };
 
     let code_fn = crate::codegen::template_env::render(
         "error_gen/wasm_error_code_fn.jinja",
@@ -90,6 +128,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
             rust_path => rust_path.as_str(),
             fn_name => fn_name.as_str(),
             code_fn_name => code_fn_name.as_str(),
+            payload_projection => payload_projection,
         },
     );
 
