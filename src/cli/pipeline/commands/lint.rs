@@ -41,6 +41,7 @@ pub fn fmt_post_generate(_config: &ResolvedCrateConfig, base_dir: &Path) {
 mod tests {
     use super::*;
     use crate::cli::pipeline::format::is_tool_available;
+    use crate::test_support::tool_available_with_stable_path;
 
     fn write_minimal_mix_project(elixir_dir: &Path, content: &str) {
         std::fs::create_dir_all(elixir_dir.join("lib")).unwrap();
@@ -67,9 +68,9 @@ mod tests {
     /// `mix format`.
     #[test]
     fn fmt_runs_mix_format_the_same_way_alef_all_does() {
-        if !is_tool_available("mix") {
+        let Some(_path) = tool_available_with_stable_path("mix") else {
             return;
-        }
+        };
         let dir = tempfile::tempdir().expect("tempdir");
         let base = dir.path();
         let elixir_dir = base.join("packages/elixir");
