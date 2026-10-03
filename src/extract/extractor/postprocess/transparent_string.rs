@@ -9,28 +9,22 @@ use super::ResolvedNewtype;
 pub(super) type NewtypeCandidates = AHashMap<String, Vec<(String, TypeRef, ResolvedNewtype)>>;
 pub(super) type NewtypeMap = AHashMap<String, (TypeRef, ResolvedNewtype)>;
 
-pub(super) fn binding_visible_named_paths(surface: &ApiSurface) -> AHashMap<String, Vec<String>> {
+pub(super) fn extracted_named_paths(surface: &ApiSurface) -> AHashMap<String, Vec<String>> {
     let mut paths: AHashMap<String, AHashSet<String>> = AHashMap::new();
     for typ in &surface.types {
-        if !typ.binding_excluded || typ.binding_exclusion_reason.as_deref() == Some("alef(transparent_string)") {
-            paths.entry(typ.name.clone()).or_default().insert(typ.rust_path.clone());
-        }
+        paths.entry(typ.name.clone()).or_default().insert(typ.rust_path.clone());
     }
     for enum_def in &surface.enums {
-        if !enum_def.binding_excluded {
-            paths
-                .entry(enum_def.name.clone())
-                .or_default()
-                .insert(enum_def.rust_path.clone());
-        }
+        paths
+            .entry(enum_def.name.clone())
+            .or_default()
+            .insert(enum_def.rust_path.clone());
     }
     for error in &surface.errors {
-        if !error.binding_excluded {
-            paths
-                .entry(error.name.clone())
-                .or_default()
-                .insert(error.rust_path.clone());
-        }
+        paths
+            .entry(error.name.clone())
+            .or_default()
+            .insert(error.rust_path.clone());
     }
     paths
         .into_iter()
@@ -44,14 +38,14 @@ pub(super) fn binding_visible_named_paths(surface: &ApiSurface) -> AHashMap<Stri
 
 pub(super) fn select_unambiguous_candidates(
     candidates: NewtypeCandidates,
-    binding_visible_names: &AHashMap<String, Vec<String>>,
+    extracted_names: &AHashMap<String, Vec<String>>,
     diagnostics: &mut Vec<UnsupportedPublicItem>,
 ) -> (NewtypeMap, AHashSet<String>) {
     let mut newtype_map = AHashMap::new();
     let mut resolved_paths = AHashSet::new();
     for (name, mut matching) in candidates {
-        let visible_paths = binding_visible_names.get(&name).map(Vec::as_slice).unwrap_or_default();
-        if matching.len() == 1 && visible_paths.len() == 1 {
+        let extracted_paths = extracted_names.get(&name).map(Vec::as_slice).unwrap_or_default();
+        if matching.len() == 1 && extracted_paths.len() == 1 {
             let (rust_path, inner, wrapper) = matching.pop().expect("one candidate");
             resolved_paths.insert(rust_path);
             newtype_map.insert(name, (inner, wrapper));
@@ -59,7 +53,7 @@ pub(super) fn select_unambiguous_candidates(
         }
         let reason = format!(
             "ambiguous transparent newtype name `{name}` resolves to multiple Rust paths: {}",
-            visible_paths.join(", ")
+            extracted_paths.join(", ")
         );
         for (rust_path, _, _) in matching {
             diagnostics.push(UnsupportedPublicItem {

@@ -8,9 +8,7 @@ use super::SerdeDefaultsByType;
 
 mod transparent_string;
 
-use transparent_string::{
-    binding_visible_named_paths, select_unambiguous_candidates, validate_transparent_string_methods,
-};
+use transparent_string::{extracted_named_paths, select_unambiguous_candidates, validate_transparent_string_methods};
 
 /// Build a lookup of enum name → the name of its `#[default]`-marked unit variant.
 ///
@@ -195,7 +193,7 @@ fn is_simple_type(ty: &TypeRef) -> bool {
 ///
 /// Tuple structs wrapping complex Named types (e.g., builders) are kept as-is.
 pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
-    let binding_visible_names = binding_visible_named_paths(surface);
+    let extracted_names = extracted_named_paths(surface);
     let mut candidates: AHashMap<String, Vec<(String, TypeRef, ResolvedNewtype)>> = AHashMap::new();
     let mut diagnostics = Vec::new();
     for typ in &surface.types {
@@ -256,8 +254,7 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
         ));
     }
 
-    let (newtype_map, resolved_paths) =
-        select_unambiguous_candidates(candidates, &binding_visible_names, &mut diagnostics);
+    let (newtype_map, resolved_paths) = select_unambiguous_candidates(candidates, &extracted_names, &mut diagnostics);
     surface.unsupported_public_items.extend(diagnostics);
 
     if newtype_map.is_empty() {

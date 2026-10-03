@@ -400,6 +400,76 @@ fn wrapper_name_collision_with_enum_is_reported() {
 }
 
 #[test]
+fn skipped_named_items_still_block_ambiguous_wrapper_resolution() {
+    let cases = [
+        (
+            r#"#[alef(skip)] pub struct Secret { pub value: String }"#,
+            "skipped struct",
+        ),
+        (r#"#[alef(skip)] pub enum Secret { Missing }"#, "skipped enum"),
+        (
+            r#"#[derive(Debug, thiserror::Error)]
+                #[alef(skip)]
+                pub enum Secret { #[error("missing")] Missing }"#,
+            "skipped error",
+        ),
+    ];
+
+    for (collision, case_name) in cases {
+        let source = format!(
+            r#"
+            pub mod first {{
+                #[derive(Clone)]
+                #[alef(transparent_string(from = "from", into = "into_inner"))]
+                pub struct Secret(String);
+                impl Secret {{
+                    pub fn from(value: String) -> Self {{ Self(value) }}
+                    pub fn into_inner(self) -> String {{ self.0 }}
+                }}
+            }}
+            pub mod second {{ {collision} }}
+            pub fn echo(value: first::Secret) -> first::Secret {{ value }}
+            "#
+        );
+        let surface = extract_from_source(&source);
+
+        assert!(
+            surface.unsupported_public_items.iter().any(|item| {
+                item.item_path == "test_crate::first::Secret"
+                    && item.reason.contains("test_crate::second::Secret")
+                    && item.reason.contains("ambiguous transparent newtype name")
+            }),
+            "expected collision diagnostic for {case_name}: {:?}",
+            surface.unsupported_public_items
+        );
+        let function = surface
+            .functions
+            .iter()
+            .find(|function| function.name == "echo")
+            .expect("echo function");
+        assert_eq!(
+            function.params[0].ty,
+            TypeRef::Named("Secret".to_string()),
+            "{case_name}"
+        );
+        assert_eq!(
+            function.return_type,
+            TypeRef::Named("Secret".to_string()),
+            "{case_name}"
+        );
+        assert!(function.params[0].newtype_wrapper.is_none(), "{case_name}");
+        assert!(function.return_newtype_wrapper.is_none(), "{case_name}");
+        assert!(
+            surface
+                .types
+                .iter()
+                .any(|typ| typ.rust_path == "test_crate::first::Secret"),
+            "{case_name}"
+        );
+    }
+}
+
+#[test]
 fn borrowed_or_wrapped_transparent_string_methods_are_rejected() {
     let cases = [
         r#"pub fn from(value: &str) -> Self { Self(value.to_string()) }
