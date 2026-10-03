@@ -98,7 +98,11 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
 
 /// Return the WASM converter function name for a given error type.
 pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
-    format!("{}_to_js_value", to_snake_case(&error.name))
+    wasm_converter_fn_name_for_type(&error.name)
+}
+
+pub(crate) fn wasm_converter_fn_name_for_type(error_type: &str) -> String {
+    format!("{}_to_js_value", to_snake_case(error_type))
 }
 
 /// Generate a `#[wasm_bindgen]` opaque struct for an error type together with an

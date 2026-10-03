@@ -874,7 +874,12 @@ pub fn gen_options_field_bridge_function(
     let return_type = mapper.map_type(&func.return_type);
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
-    let err_conv = ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())";
+    let err_conv = func.error_type.as_deref().map_or_else(String::new, |error_type| {
+        format!(
+            ".map_err({})",
+            crate::codegen::error_gen::wasm_converter_fn_name_for_type(error_type)
+        )
+    });
 
     let call_args: String = func
         .params

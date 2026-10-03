@@ -1,7 +1,9 @@
 use alef::backends::wasm::WasmBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{BridgeBinding, NewAlefConfig, TraitBridgeConfig};
-use alef::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use alef::core::ir::{
+    ApiSurface, ErrorDef, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef,
+};
 
 fn resolved_wasm_config() -> alef::core::config::ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(
@@ -100,8 +102,22 @@ fn render_function() -> FunctionDef {
         rust_path: "test_lib::render_document".to_string(),
         params: vec![param("options", TypeRef::Named("RenderOptions".to_string()), true)],
         return_type: TypeRef::String,
-        error_type: Some("Error".to_string()),
+        error_type: Some("ConversionError".to_string()),
         ..Default::default()
+    }
+}
+
+fn conversion_error() -> ErrorDef {
+    ErrorDef {
+        name: "ConversionError".to_string(),
+        rust_path: "test_lib::ConversionError".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![],
+        doc: String::new(),
+        methods: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -127,6 +143,7 @@ fn options_field_bridge_injects_visitor_handle() {
         version: "1.0.0".to_string(),
         types: vec![trait_type(), handle_type(), palette_type(), options_type()],
         functions: vec![render_function()],
+        errors: vec![conversion_error()],
         ..Default::default()
     };
     let mut config = resolved_wasm_config();
@@ -158,9 +175,13 @@ fn options_field_bridge_injects_visitor_handle() {
     assert!(
         content.contains(concat!(
             "test_lib::render_document(options_core).map(|val| val.into())",
-            ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())"
+            ".map_err(conversion_error_to_js_value)"
         )),
-        "options-field bridge body must preserve fallible core call mapping;\n{content}"
+        "options-field bridge body must preserve typed core errors;\n{content}"
+    );
+    assert!(
+        !content.contains("wasm_bindgen::JsError::new(&e.to_string())"),
+        "options-field bridge body must not erase typed core errors;\n{content}"
     );
 }
 
@@ -170,6 +191,7 @@ fn generated_lib_rs() -> String {
         version: "1.0.0".to_string(),
         types: vec![trait_type(), handle_type(), palette_type(), options_type()],
         functions: vec![render_function()],
+        errors: vec![conversion_error()],
         ..Default::default()
     };
     let mut config = resolved_wasm_config();
