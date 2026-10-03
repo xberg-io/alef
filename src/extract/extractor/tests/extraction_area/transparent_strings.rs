@@ -333,6 +333,73 @@ fn ambiguous_short_wrapper_names_are_reported_without_removing_either_type() {
 }
 
 #[test]
+fn wrapper_name_collision_with_ordinary_struct_is_reported() {
+    let surface = extract_from_source(
+        r#"
+        pub mod first {
+            #[derive(Clone)]
+            #[alef(transparent_string(from = "from", into = "into_inner"))]
+            pub struct Secret(String);
+            impl Secret {
+                pub fn from(value: String) -> Self { Self(value) }
+                pub fn into_inner(self) -> String { self.0 }
+            }
+        }
+        pub mod second {
+            pub struct Secret { pub value: String }
+        }
+        pub fn reveal(value: first::Secret) -> String { value.into_inner() }
+        "#,
+    );
+
+    assert_eq!(surface.types.iter().filter(|typ| typ.name == "Secret").count(), 2);
+    assert!(surface.unsupported_public_items.iter().any(|item| {
+        item.item_path == "test_crate::first::Secret"
+            && item.reason.contains("test_crate::second::Secret")
+            && item.reason.contains("ambiguous transparent newtype name")
+    }));
+}
+
+#[test]
+fn wrapper_name_collision_with_enum_is_reported() {
+    let surface = extract_from_source(
+        r#"
+        pub mod first {
+            #[derive(Clone)]
+            #[alef(transparent_string(from = "from", into = "into_inner"))]
+            pub struct Secret(String);
+            impl Secret {
+                pub fn from(value: String) -> Self { Self(value) }
+                pub fn into_inner(self) -> String { self.0 }
+            }
+        }
+        pub mod second {
+            pub enum Secret { Missing }
+        }
+        pub fn reveal(value: first::Secret) -> String { value.into_inner() }
+        "#,
+    );
+
+    assert!(
+        surface
+            .types
+            .iter()
+            .any(|typ| typ.rust_path == "test_crate::first::Secret")
+    );
+    assert!(
+        surface
+            .enums
+            .iter()
+            .any(|item| item.rust_path == "test_crate::second::Secret")
+    );
+    assert!(surface.unsupported_public_items.iter().any(|item| {
+        item.item_path == "test_crate::first::Secret"
+            && item.reason.contains("test_crate::second::Secret")
+            && item.reason.contains("ambiguous transparent newtype name")
+    }));
+}
+
+#[test]
 fn borrowed_or_wrapped_transparent_string_methods_are_rejected() {
     let cases = [
         r#"pub fn from(value: &str) -> Self { Self(value.to_string()) }

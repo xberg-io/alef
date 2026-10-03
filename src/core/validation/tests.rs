@@ -963,3 +963,33 @@ fn api_surface_validation_scoped_to_a_mixed_language_set_still_flags() {
             .any(|d| d.code == ValidationCode::SerdeContainerConversionUnsupported)
     );
 }
+
+#[test]
+fn deserialized_surface_rejects_malformed_newtype_metadata_before_codegen() {
+    let mut credential = field_def("credential", TypeRef::String);
+    credential.newtype_wrapper = Some("alef:newtype-conversions:v1:not-json".to_string());
+    let api = ApiSurface {
+        crate_name: "sample-lib".to_string(),
+        types: vec![TypeDef {
+            name: "Request".to_string(),
+            rust_path: "sample_lib::Request".to_string(),
+            fields: vec![credential],
+            ..TypeDef::default()
+        }],
+        ..ApiSurface::default()
+    };
+    let serialized = serde_json::to_string(&api).expect("surface serializes");
+    let deserialized: ApiSurface = serde_json::from_str(&serialized).expect("surface deserializes");
+
+    let report = validate_api_surface(&deserialized);
+
+    let diagnostic = report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == ValidationCode::InvalidNewtypeMetadata)
+        .expect("malformed metadata must be diagnosed");
+    assert_eq!(diagnostic.severity, ValidationSeverity::Error);
+    assert_eq!(diagnostic.item_path.as_deref(), Some("sample_lib::Request.credential"));
+    assert!(diagnostic.reason.contains("invalid transparent newtype metadata"));
+    assert!(is_critical_unsuppressible(diagnostic.code));
+}

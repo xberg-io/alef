@@ -230,7 +230,15 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         from_core.contains("map(|(key, value)| (key, (value).into_inner()))"),
         "got:\n{from_core}"
     );
-    assert!(from_core.contains("((key).into_inner(), value)"), "got:\n{from_core}");
+    assert!(
+        from_core.contains("((key).into_inner(), (value).into_inner())"),
+        "got:\n{from_core}"
+    );
+    assert_eq!(
+        from_core.matches("v.pairs).into_iter()").count(),
+        1,
+        "map key and value conversions must share one traversal:\n{from_core}"
+    );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 
     let mut to_core = String::new();
@@ -248,4 +256,13 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         "got:\n{to_core}"
     );
     assert!(to_core.contains("source::SecretString::from(key)"), "got:\n{to_core}");
+    assert!(
+        to_core.contains("(source::SecretString::from(key), source::SecretString::from(value))"),
+        "got:\n{to_core}"
+    );
+    assert_eq!(
+        to_core.matches("v.pairs).into_iter()").count(),
+        1,
+        "map key and value conversions must share one traversal:\n{to_core}"
+    );
 }

@@ -102,6 +102,16 @@ impl Fixture {
         )
         .expect("plant cached surface");
     }
+
+    fn plant_malformed_newtype_metadata(&self, base: &ApiSurface) {
+        let mut planted = base.clone();
+        planted.types[0].fields[0].newtype_wrapper = Some("alef:newtype-conversions:v1:not-json".to_string());
+        std::fs::write(
+            self.ir_json_path(),
+            serde_json::to_string_pretty(&planted).expect("serialize planted surface"),
+        )
+        .expect("plant cached surface");
+    }
 }
 
 fn has_sentinel(api: &ApiSurface) -> bool {
@@ -132,6 +142,20 @@ fn ir_cache_is_actually_consulted_within_one_alef_version() {
         "a second extract with the same inputs and the same alef build must serve the cached \
          surface; if it does not, the staleness test in this file proves nothing"
     );
+}
+
+#[test]
+fn malformed_cached_newtype_metadata_is_rejected_before_generation() {
+    let fixture = Fixture::new();
+    let first = fixture.extract();
+    fixture.plant_malformed_newtype_metadata(&first);
+
+    let error = super::super::extract(&fixture.config, &fixture.config_path, false)
+        .expect_err("invalid cached metadata must fail validation");
+    let message = format!("{error:#}");
+
+    assert!(message.contains("invalid_newtype_metadata"), "{message}");
+    assert!(message.contains("invalid transparent newtype metadata"), "{message}");
 }
 
 /// The regression: a cache entry written by a different alef release must not be served.

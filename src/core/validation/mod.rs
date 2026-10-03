@@ -10,10 +10,12 @@ use crate::core::ir::ApiSurface;
 use crate::extract::validation::sanitized_public_api_diagnostics;
 use ahash::AHashSet;
 
+mod newtype_metadata;
 mod readiness;
 mod since_version;
 mod trait_bridge_carrier;
 
+use newtype_metadata::newtype_metadata_diagnostics;
 use readiness::backend_readiness_diagnostics;
 use since_version::since_version_diagnostics;
 use std::fmt;
@@ -50,6 +52,7 @@ pub enum ValidationCode {
     UnconsumedConfig,
     UnreadableFieldDefault,
     SerdeContainerConversionUnsupported,
+    InvalidNewtypeMetadata,
     SinceNewerThanCrateVersion,
     SinceVersionUnparseable,
     UnresolvedModuleDeclaration,
@@ -57,7 +60,10 @@ pub enum ValidationCode {
 
 /// Diagnostics that are never safe to suppress globally.
 pub fn is_critical_unsuppressible(code: ValidationCode) -> bool {
-    matches!(code, ValidationCode::UnsupportedGenericItem)
+    matches!(
+        code,
+        ValidationCode::UnsupportedGenericItem | ValidationCode::InvalidNewtypeMetadata
+    )
 }
 
 impl fmt::Display for ValidationCode {
@@ -75,6 +81,7 @@ impl fmt::Display for ValidationCode {
             Self::UnconsumedConfig => f.write_str("unconsumed_config"),
             Self::UnreadableFieldDefault => f.write_str("unreadable_field_default"),
             Self::SerdeContainerConversionUnsupported => f.write_str("serde_container_conversion_unsupported"),
+            Self::InvalidNewtypeMetadata => f.write_str("invalid_newtype_metadata"),
             Self::SinceNewerThanCrateVersion => f.write_str("since_newer_than_crate_version"),
             Self::SinceVersionUnparseable => f.write_str("since_version_unparseable"),
             Self::UnresolvedModuleDeclaration => f.write_str("unresolved_module_declaration"),
@@ -294,6 +301,7 @@ pub fn validate_api_surface_for_resolved_languages(
             }),
     );
     report.extend(unresolved_module_diagnostics(api));
+    report.extend(newtype_metadata_diagnostics(api));
     report.extend(api.unsupported_public_items.iter().map(|item| {
         ValidationDiagnostic::error(
             ValidationCode::UnsupportedGenericItem,
