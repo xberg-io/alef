@@ -42,9 +42,13 @@ pub(super) fn wrap_optional_default_args(content: &mut String, api: &ApiSurface,
 }
 
 fn replace_in_function(content: &mut String, function_name: &str, pattern: &str, replacement: &str) {
-    let marker = format!("pub fn {function_name}");
+    let markers = [format!("pub fn {function_name}("), format!("pub fn {function_name}<")];
     let mut search_start = 0;
-    while let Some(relative_start) = content[search_start..].find(&marker) {
+    while let Some(relative_start) = markers
+        .iter()
+        .filter_map(|marker| content[search_start..].find(marker))
+        .min()
+    {
         let start = search_start + relative_start;
         let end = content[start..]
             .find("\n#[")

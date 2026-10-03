@@ -48,6 +48,11 @@ pub fn convert(input: String, settings: impl Into<Option<RunOptions>>) -> Result
     let _ = (input, settings.into());
     Ok(String::new())
 }
+
+pub fn convert_many(input: String, settings: impl Into<Option<RunOptions>>) -> Result<String, String> {
+    let _ = (input, settings.into());
+    Ok(String::new())
+}
 "#;
 
 const BRIDGE_TOML: &str = r#"
@@ -198,6 +203,7 @@ fn optional_default_rewrite_is_scoped_to_the_non_bridge_function() {
     let lib = lib_rs(&api, &config_with("exclude_functions = [\"convert\"]\n"));
     let bridge_body = wrapper_body(&lib, "execute").expect("execute wrapper");
     let excluded_body = wrapper_body(&lib, "convert").expect("convert wrapper");
+    let prefixed_bridge_body = wrapper_body(&lib, "convert_many").expect("convert_many wrapper");
 
     assert!(
         !bridge_body.contains("Some(settings_core)"),
@@ -206,6 +212,10 @@ fn optional_default_rewrite_is_scoped_to_the_non_bridge_function() {
     assert!(
         excluded_body.contains("sample_lib::convert(input, Some(settings_core))"),
         "the excluded non-bridge wrapper still needs its optional default adapted:\n{excluded_body}"
+    );
+    assert!(
+        !prefixed_bridge_body.contains("Some(settings_core)"),
+        "an exact-name rewrite for `convert` must not modify the `convert_many` bridge wrapper:\n{prefixed_bridge_body}"
     );
 }
 
