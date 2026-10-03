@@ -37,7 +37,13 @@ pub struct RunOptionsUpdate {
     pub on_progress: Option<ProgressHandle>,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct UnrelatedOptions {
+    pub on_progress: Option<String>,
+}
+
 impl RunOptions {
+    #[cfg_attr(alef, alef(skip))]
     pub fn apply_update(&mut self, update: RunOptionsUpdate) {
         if let Some(retries) = update.retries {
             self.retries = retries;
@@ -157,6 +163,13 @@ fn an_excluded_language_loses_the_carrier_while_every_other_language_keeps_it() 
         "python is in `exclude_languages`, so an update DTO for the config must not retain \
          the same unavailable carrier field; struct:\n{py_update}"
     );
+    let py_unrelated =
+        struct_body(&python, "UnrelatedOptions").expect("pyo3 must emit an `UnrelatedOptions` mirror struct");
+    assert!(
+        py_unrelated.contains("on_progress"),
+        "a same-name field with a different type is not the bridge carrier and must remain; \
+         struct:\n{py_unrelated}"
+    );
 
     let node = surface(&generated, Language::Node);
     let node_dto = struct_body(&node, "JsRunOptions").expect("napi must emit a `JsRunOptions` mirror struct");
@@ -171,5 +184,12 @@ fn an_excluded_language_loses_the_carrier_while_every_other_language_keeps_it() 
     assert!(
         node_update.contains("on_progress"),
         "node is NOT excluded, so its update DTO must KEEP the carrier; struct:\n{node_update}"
+    );
+    let node_unrelated =
+        struct_body(&node, "JsUnrelatedOptions").expect("napi must emit a `JsUnrelatedOptions` mirror struct");
+    assert!(
+        node_unrelated.contains("on_progress"),
+        "a same-name field with a different type must remain in active languages too; \
+         struct:\n{node_unrelated}"
     );
 }
