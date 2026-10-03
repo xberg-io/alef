@@ -249,11 +249,6 @@ pub fn gen_method(
                 )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
-            let newtype_suffix = if method.return_newtype_wrapper.is_some() {
-                ".0"
-            } else {
-                ""
-            };
             let result_wrap = match &method.return_type {
                 TypeRef::Named(n) if n == type_name && (method.returns_cow || method.returns_ref) => {
                     ".into_owned().into()".to_string()
@@ -348,11 +343,11 @@ pub fn gen_method(
                     AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))",
                     _ => ".map_err(|e| e.to_string())",
                 };
-                format!(
-                    "{field_conversions}let result = {core_call}{err_conv}?;\n        Ok(result{newtype_suffix}{result_wrap})"
-                )
+                let unwrapped = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+                format!("{field_conversions}let result = {core_call}{err_conv}?;\n        Ok({unwrapped}{result_wrap})")
             } else {
-                format!("{field_conversions}{core_call}{newtype_suffix}{result_wrap}")
+                let unwrapped = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+                format!("{field_conversions}{unwrapped}{result_wrap}")
             }
         } else if is_opaque
             && !method.sanitized
@@ -417,17 +412,13 @@ pub fn gen_method(
                 )
             };
             let core_call = format!("core_self.{}({call_args})", method.name);
-            let newtype_suffix = if method.return_newtype_wrapper.is_some() {
-                ".0"
-            } else {
-                ""
-            };
             let result_wrap = if method.returns_cow || method.returns_ref {
                 ".into_owned().into()"
             } else {
                 ".into()"
             };
-            format!("{field_conversions}{core_call}{newtype_suffix}{result_wrap}")
+            let unwrapped = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+            format!("{field_conversions}{unwrapped}{result_wrap}")
         } else {
             gen_unimplemented_body(
                 &method.return_type,

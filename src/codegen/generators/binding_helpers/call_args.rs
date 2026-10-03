@@ -1,4 +1,6 @@
-use crate::codegen::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast};
+use crate::codegen::conversions::helpers::{
+    apply_field_newtype_to_core, core_prim_str, needs_f64_cast, needs_i32_cast,
+};
 use crate::core::ir::{ParamDef, TypeRef};
 use ahash::AHashSet;
 
@@ -6,8 +8,8 @@ use ahash::AHashSet;
 /// - Opaque Named types: unwrap Arc wrapper via `(*param.inner).clone()`
 /// - Non-opaque Named types: `.into()` for From conversion
 /// - String/Path/Bytes: `&param` since core functions typically take `&str`/`&Path`/`&[u8]`
-/// - Params with `newtype_wrapper` set: re-wrap the raw value in the newtype constructor
-///   (e.g., `NodeIndex(parent)`) since the binding resolved `NodeIndex(u32)` → `u32`.
+/// - Params with `newtype_wrapper` set: apply the recorded binding-to-core operation after
+///   resolving the wrapper to its binding-native inner type. ~keep
 ///
 /// NOTE: This function does not perform serde-based conversion. For Named params that lack
 /// From impls (e.g., due to sanitized fields), use `gen_serde_let_bindings` instead when
@@ -31,14 +33,13 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
             } else {
                 String::new()
             };
-            if let Some(newtype_path) = &p.newtype_wrapper {
-                return if p.optional {
-                    format!("{}.map({newtype_path})", p.name)
-                } else if promoted {
-                    format!("{newtype_path}({}{})", p.name, unwrap_suffix)
+            if let Some(wrapper) = &p.newtype_wrapper {
+                let expr = if promoted {
+                    format!("{}{}", p.name, unwrap_suffix)
                 } else {
-                    format!("{newtype_path}({})", p.name)
+                    p.name.clone()
                 };
+                return apply_field_newtype_to_core(&expr, &p.ty, p.optional && !promoted, wrapper);
             }
             match &p.ty {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -344,14 +345,13 @@ fn gen_call_args_with_let_bindings_inner(
                     };
                 }
             }
-            if let Some(newtype_path) = &p.newtype_wrapper {
-                return if p.optional {
-                    format!("{}.map({newtype_path})", p.name)
-                } else if promoted {
-                    format!("{newtype_path}({}{})", p.name, unwrap_suffix)
+            if let Some(wrapper) = &p.newtype_wrapper {
+                let expr = if promoted {
+                    format!("{}{}", p.name, unwrap_suffix)
                 } else {
-                    format!("{newtype_path}({})", p.name)
+                    p.name.clone()
                 };
+                return apply_field_newtype_to_core(&expr, &p.ty, p.optional && !promoted, wrapper);
             }
             match &p.ty {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {

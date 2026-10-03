@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use super::metadata::{CoreWrapper, DefaultValue, ErrorTaxonomy, SerdeContainerConversion, VersionAnnotation};
+use super::metadata::{
+    CoreWrapper, DefaultValue, ErrorTaxonomy, NewtypeWrapper, SerdeContainerConversion, VersionAnnotation,
+};
 use super::type_ref::TypeRef;
 
 /// A public struct exposed to bindings.
@@ -144,12 +146,11 @@ pub struct FieldDef {
     /// Core wrapper on Vec inner elements (e.g., `Vec<Arc<T>>`).
     #[serde(default)]
     pub vec_inner_core_wrapper: CoreWrapper,
-    /// Full Rust path of the newtype wrapper that was resolved away for this field,
-    /// e.g. `"my_crate::NodeIndex"` when `NodeIndex(u32)` was resolved to `u32`.
-    /// When set, binding→core codegen must wrap values into the newtype
-    /// (e.g. `my_crate::NodeIndex(val.field)`) and core→binding codegen must unwrap (`.0`).
+    /// Conversion metadata for a newtype resolved away at this field boundary. Legacy tuple
+    /// wrappers use their constructor and `.0`; explicit wrappers retain named operations and
+    /// the container path to the resolved value. ~keep
     #[serde(default)]
-    pub newtype_wrapper: Option<String>,
+    pub newtype_wrapper: Option<NewtypeWrapper>,
     /// Explicit `#[serde(rename = "...")]` on this field, if any. Preserved so binding
     /// structs that mirror the core struct can serialize/deserialize using the same wire
     /// names (e.g. core `tool_type` with `#[serde(rename = "type")]` round-trips as `"type"`).
@@ -306,11 +307,9 @@ pub struct MethodDef {
     /// Used by code generators to emit `.into_owned()` before type conversion.
     #[serde(default)]
     pub returns_cow: bool,
-    /// Full Rust path of the newtype wrapper that was resolved away for the return type,
-    /// e.g. `"my_crate::NodeIndex"` when the return type `NodeIndex(u32)` was resolved to `u32`.
-    /// When set, codegen must unwrap the returned newtype value (e.g. `result.0`) before returning.
+    /// Conversion metadata for a newtype resolved away from the return type. ~keep
     #[serde(default)]
-    pub return_newtype_wrapper: Option<String>,
+    pub return_newtype_wrapper: Option<NewtypeWrapper>,
     /// True if this method has a default implementation in the trait definition.
     /// Methods with defaults can be optionally implemented by the foreign object
     /// in trait bridge codegen.
@@ -428,10 +427,9 @@ pub struct FunctionDef {
     /// Used by code generators to emit `.into_owned()` before type conversion.
     #[serde(default)]
     pub returns_cow: bool,
-    /// Full Rust path of the newtype wrapper that was resolved away for the return type.
-    /// When set, codegen must unwrap the returned newtype value (e.g. `result.0`).
+    /// Conversion metadata for a newtype resolved away from the return type. ~keep
     #[serde(default)]
-    pub return_newtype_wrapper: Option<String>,
+    pub return_newtype_wrapper: Option<NewtypeWrapper>,
     /// True when source metadata explicitly excludes this function from generated
     /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
     #[serde(default)]
@@ -465,12 +463,9 @@ pub struct ParamDef {
     /// Used by codegen to generate `&mut` refs when calling core functions.
     #[serde(default)]
     pub is_mut: bool,
-    /// Full Rust path of the newtype wrapper that was resolved away for this param,
-    /// e.g. `"my_crate::NodeIndex"` when `NodeIndex(u32)` was resolved to `u32`.
-    /// When set, codegen must wrap the raw value back into the newtype when calling core:
-    /// `my_crate::NodeIndex(param)` instead of just `param`.
+    /// Conversion metadata for a newtype resolved away from this parameter. ~keep
     #[serde(default)]
-    pub newtype_wrapper: Option<String>,
+    pub newtype_wrapper: Option<NewtypeWrapper>,
     /// Original Rust type before sanitization, stored when param.sanitized=true.
     /// Allows codegen to reconstruct proper deserialization logic.
     /// E.g. `"Vec<(PathBuf, Option<FileExtractionConfig>)>"` when sanitized to `Vec<String>`.

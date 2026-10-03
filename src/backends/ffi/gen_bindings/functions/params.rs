@@ -1,5 +1,5 @@
 use crate::backends::ffi::type_map::is_void_return;
-use crate::core::ir::{ParamDef, TypeRef};
+use crate::core::ir::{NewtypeConversion, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
@@ -48,6 +48,19 @@ pub(super) struct ParamConversionContext<'a> {
     pub(super) core_import: &'a str,
     pub(super) path_map: &'a AHashMap<String, String>,
     pub(super) enum_names: &'a AHashSet<String>,
+}
+
+fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str) -> String {
+    let Some(wrapper) = param
+        .newtype_wrapper
+        .as_ref()
+        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+    else {
+        return String::new();
+    };
+    let converted =
+        crate::codegen::conversions::helpers::apply_field_newtype_to_core(rs_name, &param.ty, param.optional, wrapper);
+    format!("    let {rs_name} = {converted};\n")
 }
 
 pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &ParamConversionContext<'_>) -> String {
@@ -289,7 +302,11 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
                     ));
                 }
                 _ => {
-                    if let Some(newtype_path) = &param.newtype_wrapper {
+                    if let Some(newtype_path) = param
+                        .newtype_wrapper
+                        .as_ref()
+                        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+                    {
                         out.push_str(&crate::backends::ffi::template_env::render("param_primitive_newtype.jinja", context! { rs_name => rs_name.clone(), newtype_path => newtype_path.clone(), name => name.clone() }));
                     } else {
                         out.push_str(&crate::backends::ffi::template_env::render(
@@ -380,6 +397,7 @@ pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &Par
             }
             TypeRef::Unit => {}
         }
+        out.push_str(&transparent_newtype_shadow(param, &rs_name));
     }
 
     out

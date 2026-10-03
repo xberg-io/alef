@@ -180,12 +180,13 @@ pub(crate) fn gen_php_call_args_vec(
         .iter()
         .map(|p| {
             let php_name = to_php_name(&p.name);
-            if let Some(newtype_path) = &p.newtype_wrapper {
-                return if p.optional {
-                    format!("{php_name}.map({newtype_path})")
-                } else {
-                    format!("{newtype_path}({php_name})")
-                };
+            if let Some(wrapper) = &p.newtype_wrapper {
+                return crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+                    &php_name,
+                    &p.ty,
+                    p.optional,
+                    wrapper,
+                );
             }
             match &p.ty {
                 TypeRef::Primitive(prim) if needs_i64_cast(prim) => {

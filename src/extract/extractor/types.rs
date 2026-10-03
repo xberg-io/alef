@@ -1,4 +1,4 @@
-use crate::core::ir::{CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, TypeDef};
+use crate::core::ir::{CoreWrapper, DefaultValue, EnumDef, ErrorDef, ErrorVariant, FieldDef, NewtypeWrapper, TypeDef};
 use ahash::AHashMap;
 use syn;
 
@@ -6,12 +6,12 @@ use super::helpers::extract_binding_exclusion_reason;
 use crate::extract::type_resolver;
 
 use super::helpers::{
-    build_rust_path, extract_alef_error_code, extract_cfg_condition, extract_doc_comments, extract_enum_variant,
-    extract_error_message_template, extract_field, extract_field_binding_exclusion_reason,
-    extract_field_type_rust_path, extract_serde_container_conversion, extract_serde_rename_all,
-    extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if, extract_version_annotation,
-    has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr, has_serde_untagged, is_pub,
-    syn_type_is_boxed,
+    build_rust_path, extract_alef_error_code, extract_alef_transparent_string, extract_cfg_condition,
+    extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
+    extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
+    extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
+    extract_version_annotation, has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr,
+    has_serde_untagged, is_pub, syn_type_is_boxed,
 };
 
 /// Extract `tag` value from `#[serde(tag = "...")]` or
@@ -77,10 +77,15 @@ pub(crate) fn extract_struct(
     let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&item.attrs);
     let name = item.ident.to_string();
+    let rust_path = build_rust_path(crate_name, module_path, &name);
+    let transparent_string = extract_alef_transparent_string(&item.attrs);
 
     let has_private_fields = match &item.fields {
         syn::Fields::Named(named) => named.named.iter().any(|f| !is_pub(&f.vis)),
-        _ => false,
+        syn::Fields::Unnamed(unnamed) => {
+            transparent_string.is_some() && unnamed.unnamed.iter().any(|f| !is_pub(&f.vis))
+        }
+        syn::Fields::Unit => false,
     };
 
     let extracted_fields: Vec<(FieldDef, Option<DefaultValue>)> = match &item.fields {
@@ -90,10 +95,22 @@ pub(crate) fn extract_struct(
             .filter(|f| is_pub(&f.vis))
             .map(|f| extract_field(f, Some(crate_name)))
             .collect(),
-        syn::Fields::Unnamed(unnamed) if unnamed.unnamed.len() == 1 && is_pub(&unnamed.unnamed[0].vis) => {
+        syn::Fields::Unnamed(unnamed)
+            if unnamed.unnamed.len() == 1 && (is_pub(&unnamed.unnamed[0].vis) || transparent_string.is_some()) =>
+        {
             let field = &unnamed.unnamed[0];
             let (mut extracted, serde_default) = extract_field(field, Some(crate_name));
             extracted.name = "_0".to_string();
+            if let Some((from, into)) = &transparent_string
+                && extracted.ty == crate::core::ir::TypeRef::String
+            {
+                extracted.newtype_wrapper = Some(NewtypeWrapper::transparent_string(
+                    rust_path.replace('-', "_"),
+                    from.clone(),
+                    into.clone(),
+                    vec![],
+                ));
+            }
             vec![(extracted, serde_default)]
         }
         _ => vec![],
@@ -121,7 +138,6 @@ pub(crate) fn extract_struct(
     let serde_rename_all = extract_serde_rename_all(&item.attrs);
     let doc = extract_doc_comments(&item.attrs);
     let is_opaque = fields.is_empty() && !(has_default && has_serde);
-    let rust_path = build_rust_path(crate_name, module_path, &name);
 
     // `#[derive(Default)]` is the one case where `DefaultValue::Empty` is an *assertion* rather
     // than a fallback: the derived impl gives every field its type's zero, so a backend

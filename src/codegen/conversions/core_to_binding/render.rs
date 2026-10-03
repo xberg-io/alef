@@ -1,8 +1,9 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
-    core_type_path_remapped, field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow,
+    apply_newtype_from_core, core_type_path_remapped, field_references_excluded_type, is_newtype, is_tuple_type_name,
+    needs_clippy_allow,
 };
-use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, NewtypeConversion, TypeDef, TypeRef};
 use ahash::AHashSet;
 
 use super::fields::field_conversion_from_core_cfg;
@@ -67,13 +68,37 @@ pub fn gen_from_core_to_binding_cfg(
         {
             continue;
         }
-        let base_conversion = field_conversion_from_core_cfg(
-            &field.name,
-            &field.ty,
-            field.optional,
-            field.sanitized,
-            opaque_types,
-            config,
+        let transparent_wrapper = field
+            .newtype_wrapper
+            .as_ref()
+            .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }));
+        let base_conversion = transparent_wrapper.map_or_else(
+            || {
+                field_conversion_from_core_cfg(
+                    &field.name,
+                    &field.ty,
+                    field.optional,
+                    field.sanitized,
+                    opaque_types,
+                    config,
+                )
+            },
+            |wrapper| {
+                let source = apply_newtype_from_core(&format!("val.{}", field.name), wrapper);
+                if matches!(field.ty, TypeRef::String) {
+                    format!("{}: {source}", field.name)
+                } else {
+                    field_conversion_from_core_cfg(
+                        &field.name,
+                        &field.ty,
+                        field.optional,
+                        field.sanitized,
+                        opaque_types,
+                        config,
+                    )
+                    .replace(&format!("val.{}", field.name), &source)
+                }
+            },
         );
         let base_conversion = if field.is_boxed && matches!(&field.ty, TypeRef::Named(_)) {
             if field.optional {
@@ -102,7 +127,11 @@ pub fn gen_from_core_to_binding_cfg(
         } else {
             base_conversion
         };
-        let base_conversion = if field.newtype_wrapper.is_some() {
+        let base_conversion = if field
+            .newtype_wrapper
+            .as_ref()
+            .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+        {
             match &field.ty {
                 TypeRef::Optional(_) => base_conversion.replace(
                     &format!("val.{}", field.name),

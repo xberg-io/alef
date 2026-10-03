@@ -334,13 +334,8 @@ fn gen_lossy_binding_to_core_fields_inner(
                 }
             }
         };
-        let expr = if let Some(newtype_path) = &field.newtype_wrapper {
-            match &field.ty {
-                TypeRef::Optional(_) => format!("({expr}).map({newtype_path})"),
-                TypeRef::Vec(_) => format!("({expr}).into_iter().map({newtype_path}).collect::<Vec<_>>()"),
-                _ if field.optional => format!("({expr}).map({newtype_path})"),
-                _ => format!("{newtype_path}({expr})"),
-            }
+        let expr = if let Some(wrapper) = &field.newtype_wrapper {
+            crate::codegen::conversions::helpers::apply_field_newtype_to_core(&expr, &field.ty, field.optional, wrapper)
         } else {
             expr
         };

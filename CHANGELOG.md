@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.103.14] - 2026-10-04
 
+### Added
+
+- `#[alef(transparent_string(from = "...", into = "..."))]` preserves explicit, non-`Display`
+  conversions for private string wrappers across generated struct fields, enum payloads, optional
+  values, sequences, and maps.
+
 ### Fixed
 
 - Generated C and PHP e2e shell scripts use canonical shell formatting before any optional

@@ -1212,3 +1212,106 @@ fn test_enum_map_field_without_flatten_flag_keeps_iterator_template() {
 mod boxed_fields;
 mod nested_maps;
 mod vec_element_preservation;
+
+fn transparent_secret_field(name: &str, ty: TypeRef, containers: Vec<NewtypeContainer>) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty,
+        newtype_wrapper: Some(NewtypeWrapper::transparent_string(
+            "my_crate::SecretString",
+            "from",
+            "into_inner",
+            containers,
+        )),
+        ..FieldDef::default()
+    }
+}
+
+#[test]
+fn transparent_string_struct_fields_wrap_and_consume_without_display() {
+    let typ = TypeDef {
+        name: "Credentials".to_string(),
+        rust_path: "my_crate::Credentials".to_string(),
+        fields: vec![
+            transparent_secret_field("token", TypeRef::String, vec![]),
+            transparent_secret_field(
+                "optional",
+                TypeRef::Optional(Box::new(TypeRef::String)),
+                vec![NewtypeContainer::Optional],
+            ),
+            transparent_secret_field(
+                "headers",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                vec![NewtypeContainer::MapValue],
+            ),
+        ],
+        ..TypeDef::default()
+    };
+
+    let to_core = gen_from_binding_to_core(&typ, "my_crate", &AHashSet::new());
+    assert!(to_core.contains("my_crate::SecretString::from(val.token)"), "{to_core}");
+    assert!(
+        to_core.contains("map(|value| my_crate::SecretString::from(value))"),
+        "{to_core}"
+    );
+    assert!(
+        to_core.contains("(key, my_crate::SecretString::from(value))"),
+        "{to_core}"
+    );
+
+    let from_core = gen_from_core_to_binding(&typ, "my_crate", &AHashSet::new());
+    assert!(from_core.contains("(val.token).into_inner()"), "{from_core}");
+    assert!(from_core.contains("map(|value| (value).into_inner())"), "{from_core}");
+    assert!(from_core.contains("(key, (value).into_inner())"), "{from_core}");
+    assert!(!from_core.contains("token.to_string()"), "{from_core}");
+}
+
+#[test]
+fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
+    let enum_def = EnumDef {
+        name: "Auth".to_string(),
+        rust_path: "my_crate::Auth".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Bearer".to_string(),
+                fields: vec![transparent_secret_field("_0", TypeRef::String, vec![])],
+                is_tuple: true,
+                ..EnumVariant::default()
+            },
+            EnumVariant {
+                name: "Headers".to_string(),
+                fields: vec![transparent_secret_field(
+                    "values",
+                    TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    vec![NewtypeContainer::MapValue],
+                )],
+                ..EnumVariant::default()
+            },
+        ],
+        ..EnumDef::default()
+    };
+    let config = ConversionConfig {
+        binding_enums_have_data: true,
+        binding_tuple_form_for_variants: true,
+        ..ConversionConfig::default()
+    };
+
+    let to_core = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
+    assert!(to_core.contains("my_crate::SecretString::from(_0)"), "{to_core}");
+    let from_core = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
+    assert!(from_core.contains("(_0).into_inner()"), "{from_core}");
+    assert!(!from_core.contains("_0.to_string()"), "{from_core}");
+
+    let flattened_config = ConversionConfig {
+        binding_enums_have_data: true,
+        binding_tuple_form_for_variants: true,
+        map_flatten_to_string: true,
+        ..ConversionConfig::default()
+    };
+    let to_core = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &flattened_config);
+    assert!(to_core.contains("serde_json::from_str(&values)"), "{to_core}");
+    assert!(to_core.contains("my_crate::SecretString::from(value)"), "{to_core}");
+    let from_core = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &flattened_config);
+    assert!(from_core.contains("serde_json::to_string"), "{from_core}");
+    assert!(from_core.contains("(value).into_inner()"), "{from_core}");
+}

@@ -205,6 +205,11 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
 fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
     let name = &field.name;
     let _ = source_crate_name;
+    if let Some(converted) =
+        crate::codegen::conversions::helpers::apply_explicit_field_newtype_from_core(&format!("v.{name}"), field)
+    {
+        return converted;
+    }
     match &field.ty {
         TypeRef::Json => {
             if field.optional {
@@ -480,6 +485,11 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
 /// This is the inverse of `field_from_expr` (which handles core-to-mirror).
 fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String {
     let name = &field.name;
+    if let Some(converted) =
+        crate::codegen::conversions::helpers::apply_explicit_field_newtype_to_core(&format!("v.{name}"), field)
+    {
+        return converted;
+    }
     match &field.ty {
         TypeRef::String => {
             // `#[allow(clippy::useless_conversion)]` absorbs the `String → String`

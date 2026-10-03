@@ -150,21 +150,17 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
         } else {
             let conversion =
                 crate::codegen::conversions::field_conversion_to_core_cfg(name, &field.ty, field.optional, config);
-            let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
+            let conversion = if let Some(wrapper) = &field.newtype_wrapper {
                 if let Some(expr) = conversion.strip_prefix(&format!("{name}: ")) {
-                    match &field.ty {
-                        TypeRef::Optional(_) => format!("{name}: ({expr}).map({newtype_path})"),
-                        TypeRef::Vec(_) => {
-                            let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
-                                format!("{prefix}.collect::<Vec<_>>()")
-                            } else {
-                                expr.to_string()
-                            };
-                            format!("{name}: ({inner_expr}).into_iter().map({newtype_path}).collect()")
-                        }
-                        _ if field.optional => format!("{name}: ({expr}).map({newtype_path})"),
-                        _ => format!("{name}: {newtype_path}({expr})"),
-                    }
+                    format!(
+                        "{name}: {}",
+                        crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+                            expr,
+                            &field.ty,
+                            field.optional,
+                            wrapper,
+                        )
+                    )
                 } else {
                     conversion
                 }

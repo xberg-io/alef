@@ -274,20 +274,13 @@ pub fn wrap_return(
     )
 }
 
-/// Unwrap a newtype return value when `return_newtype_wrapper` is set.
-///
-/// Core function returns a newtype (e.g. `NodeIndex(u32)`), but the binding return type
-/// is the inner type (e.g. `u32`). Access `.0` to unwrap the newtype.
-pub fn apply_return_newtype_unwrap(expr: &str, return_newtype_wrapper: &Option<String>) -> String {
+/// Apply the recorded core-to-binding operation to a resolved newtype return value. ~keep
+pub fn apply_return_newtype_unwrap(
+    expr: &str,
+    return_newtype_wrapper: &Option<crate::core::ir::NewtypeWrapper>,
+) -> String {
     match return_newtype_wrapper {
-        Some(_) => crate::codegen::template_env::render(
-            "binding_helpers/return_newtype_unwrap.jinja",
-            minijinja::context! {
-                expr => expr,
-            },
-        )
-        .trim_end_matches('\n')
-        .to_string(),
+        Some(wrapper) => crate::codegen::conversions::helpers::apply_newtype_from_core(expr, wrapper),
         None => expr.to_string(),
     }
 }

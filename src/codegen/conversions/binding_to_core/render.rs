@@ -1,9 +1,10 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
-    clippy_allow_attr_line, core_prim_str, core_type_path_remapped, field_references_excluded_type, is_newtype,
-    is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast, needs_i64_cast,
+    apply_newtype_to_core, clippy_allow_attr_line, core_prim_str, core_type_path_remapped,
+    field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast,
+    needs_i64_cast,
 };
-use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{CoreWrapper, FieldDef, NewtypeConversion, TypeDef, TypeRef};
 
 use super::fields::field_conversion_to_core_cfg;
 use super::wrappers::apply_core_wrapper_to_core;
@@ -409,30 +410,43 @@ fn field_core_conversion(
     field_was_optionalized: bool,
     references_excluded: bool,
 ) -> String {
+    let transparent_wrapper = field
+        .newtype_wrapper
+        .as_ref()
+        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }));
     let conversion = if (field.sanitized && field.core_wrapper != CoreWrapper::Cow) || references_excluded {
         format!("{}: Default::default()", field.name)
+    } else if let Some(wrapper) = transparent_wrapper {
+        let base = if field_was_optionalized {
+            field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
+        } else {
+            field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
+        };
+        let expr = base.strip_prefix(&format!("{}: ", field.name)).unwrap_or(&base);
+        format!("{}: {}", field.name, apply_newtype_to_core(expr, wrapper))
     } else if field_was_optionalized {
         field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
     } else {
         field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
     };
-    let conversion = if let Some(newtype_path) = &field.newtype_wrapper {
+    let conversion = if let Some(wrapper) = field
+        .newtype_wrapper
+        .as_ref()
+        .filter(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TupleField))
+    {
         if let Some(expr) = conversion.strip_prefix(&format!("{}: ", field.name)) {
             match &field.ty {
-                TypeRef::Optional(_) => format!("{}: ({expr}).map({newtype_path})", field.name),
+                TypeRef::Optional(_) => format!("{}: ({expr}).map({wrapper})", field.name),
                 TypeRef::Vec(_) => {
                     let inner_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
                         format!("{prefix}.collect::<Vec<_>>()")
                     } else {
                         expr.to_string()
                     };
-                    format!(
-                        "{}: ({inner_expr}).into_iter().map({newtype_path}).collect()",
-                        field.name
-                    )
+                    format!("{}: ({inner_expr}).into_iter().map({wrapper}).collect()", field.name)
                 }
-                _ if field.optional => format!("{}: ({expr}).map({newtype_path})", field.name),
-                _ => format!("{}: {newtype_path}({expr})", field.name),
+                _ if field.optional => format!("{}: ({expr}).map({wrapper})", field.name),
+                _ => format!("{}: {wrapper}({expr})", field.name),
             }
         } else {
             conversion

@@ -1,8 +1,10 @@
 use crate::codegen::conversions::ConversionConfig;
-use crate::core::ir::{FieldDef, TypeRef};
+use crate::core::ir::{FieldDef, NewtypeConversion, TypeRef};
 
 use super::field_fragments::sanitized_vec_field_to_core_expr;
-use super::{field_references_excluded_type, is_tuple_variant};
+use super::{
+    apply_field_newtype_from_core, apply_field_newtype_to_core, field_references_excluded_type, is_tuple_variant,
+};
 
 /// Emit a named-field initializer, collapsing `field_name: field_name` to the shorthand
 /// `field_name` when the conversion expression is just the field itself (no conversion
@@ -13,6 +15,41 @@ fn field_init(field_name: &str, expr: &str) -> String {
     } else {
         format!("{field_name}: {expr}")
     }
+}
+
+fn explicit_newtype_to_core_expr(field: &FieldDef, binding: &str, config: &ConversionConfig) -> String {
+    use crate::codegen::conversions::field_conversion_to_core_cfg;
+
+    let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
+    let base = field_conversion_to_core_cfg(binding, &field.ty, field.optional, config);
+    let source = if let Some(expr) = base.strip_prefix(&format!("{binding}: ")) {
+        expr.replace(&format!("val.{binding}"), binding)
+    } else {
+        base
+    };
+    apply_field_newtype_to_core(&source, &field.ty, field.optional, wrapper)
+}
+
+fn explicit_newtype_from_core_expr(field: &FieldDef, binding: &str, config: &ConversionConfig) -> String {
+    use crate::codegen::conversions::field_conversion_from_core_cfg;
+    use ahash::AHashSet;
+
+    let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
+    let converted = apply_field_newtype_from_core(binding, &field.ty, field.optional, wrapper);
+    if matches!(field.ty, TypeRef::String) {
+        return converted;
+    }
+    let base = field_conversion_from_core_cfg(
+        binding,
+        &field.ty,
+        field.optional,
+        field.sanitized,
+        &AHashSet::new(),
+        config,
+    );
+    base.strip_prefix(&format!("{binding}: "))
+        .unwrap_or(&base)
+        .replace(&format!("val.{binding}"), &converted)
 }
 
 /// Wrap a sanitized field's JSON deserialize so a value that fails to parse emits a
@@ -91,6 +128,13 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     let expr = sanitized_field_parse_or_warn(name, variant_name, name);
                     return if f.is_boxed { format!("Box::new({expr})") } else { expr };
                 }
+                if f.newtype_wrapper
+                    .as_ref()
+                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+                {
+                    let expr = explicit_newtype_to_core_expr(f, name, config);
+                    return if f.is_boxed { format!("Box::new({expr})") } else { expr };
+                }
                 let conv = field_conversion_to_core_cfg(name, &f.ty, f.optional, config);
                 let expr = if let Some(expr) = conv.strip_prefix(&format!("{name}: ")) {
                     let expr = expr.replace(&format!("val.{name}"), name);
@@ -110,6 +154,11 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 } else {
                     expr
                 };
+                let expr = f
+                    .newtype_wrapper
+                    .as_ref()
+                    .map(|wrapper| apply_field_newtype_to_core(&expr, &f.ty, f.optional, wrapper))
+                    .unwrap_or(expr);
                 if f.is_boxed { format!("Box::new({expr})") } else { expr }
             })
             .collect();
@@ -132,6 +181,13 @@ pub fn binding_to_core_match_arm_ext_cfg(
                     }
                     let expr = sanitized_field_parse_or_warn(&f.name, variant_name, &f.name);
                     return format!("{}: {expr}", f.name);
+                }
+                if f.newtype_wrapper
+                    .as_ref()
+                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+                {
+                    let expr = explicit_newtype_to_core_expr(f, &f.name, config);
+                    return field_init(&f.name, &expr);
                 }
                 let conv = field_conversion_to_core_cfg(&f.name, &f.ty, f.optional, config);
                 let expr = if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
@@ -157,6 +213,11 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 } else {
                     expr
                 };
+                let expr = f
+                    .newtype_wrapper
+                    .as_ref()
+                    .map(|wrapper| apply_field_newtype_to_core(&expr, &f.ty, f.optional, wrapper))
+                    .unwrap_or(expr);
                 field_init(&f.name, &expr)
             })
             .collect();
@@ -200,10 +261,26 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
+                if f.newtype_wrapper
+                    .as_ref()
+                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+                {
+                    let expr = explicit_newtype_from_core_expr(f, &f.name, config);
+                    return if binding_uses_tuple_form {
+                        expr
+                    } else {
+                        field_init(&f.name, &expr)
+                    };
+                }
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
-                    let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
+                    let source = f
+                        .newtype_wrapper
+                        .as_ref()
+                        .map(|wrapper| apply_field_newtype_from_core(&f.name, &f.ty, f.optional, wrapper))
+                        .unwrap_or_else(|| f.name.clone());
+                    let mut expr = expr.replace(&format!("val.{}", f.name), &source);
                     if f.is_boxed {
                         if config.binding_enum_fields_are_boxed {
                             if f.optional {
@@ -252,10 +329,22 @@ pub fn core_to_binding_match_arm_ext_cfg(
         let binding_fields: Vec<String> = fields
             .iter()
             .map(|f| {
+                if f.newtype_wrapper
+                    .as_ref()
+                    .is_some_and(|wrapper| matches!(wrapper.conversion(), NewtypeConversion::TransparentString { .. }))
+                {
+                    let expr = explicit_newtype_from_core_expr(f, &f.name, config);
+                    return field_init(&f.name, &expr);
+                }
                 let conv =
                     field_conversion_from_core_cfg(&f.name, &f.ty, f.optional, f.sanitized, &AHashSet::new(), config);
                 if let Some(expr) = conv.strip_prefix(&format!("{}: ", f.name)) {
-                    let mut expr = expr.replace(&format!("val.{}", f.name), &f.name);
+                    let source = f
+                        .newtype_wrapper
+                        .as_ref()
+                        .map(|wrapper| apply_field_newtype_from_core(&f.name, &f.ty, f.optional, wrapper))
+                        .unwrap_or_else(|| f.name.clone());
+                    let mut expr = expr.replace(&format!("val.{}", f.name), &source);
                     if f.is_boxed {
                         if config.binding_enum_fields_are_boxed {
                             if f.optional {

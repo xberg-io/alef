@@ -1,5 +1,8 @@
-use super::{enum_conversions::emit_from_impl_for_enum, opaque::emit_enum_from_json_fn};
-use crate::core::ir::{EnumDef, EnumVariant};
+use super::{
+    enum_conversions::{emit_from_impl_for_enum, emit_from_mirror_to_core_enum},
+    opaque::emit_enum_from_json_fn,
+};
+use crate::core::ir::{EnumDef, EnumVariant, FieldDef, NewtypeWrapper, TypeRef};
 
 fn unit_variant(name: &str) -> EnumVariant {
     EnumVariant {
@@ -51,4 +54,38 @@ fn generated_json_decoder_returns_error_for_excluded_variant_at_runtime() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn transparent_string_enum_payload_uses_explicit_operations() {
+    let en = EnumDef {
+        name: "Authentication".to_string(),
+        rust_path: "mylib::Authentication".to_string(),
+        variants: vec![EnumVariant {
+            name: "Bearer".to_string(),
+            is_tuple: true,
+            fields: vec![FieldDef {
+                name: "_0".to_string(),
+                ty: TypeRef::String,
+                newtype_wrapper: Some(NewtypeWrapper::transparent_string(
+                    "mylib::SecretString",
+                    "from",
+                    "into_inner",
+                    vec![],
+                )),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mut to_core = String::new();
+    emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
+    assert!(to_core.contains("mylib::SecretString::from(field0)"), "got:\n{to_core}");
+
+    let mut from_core = String::new();
+    emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
+    assert!(from_core.contains("(f0).into_inner()"), "got:\n{from_core}");
+    assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 }

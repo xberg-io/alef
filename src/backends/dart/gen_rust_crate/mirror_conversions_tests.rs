@@ -1,5 +1,5 @@
 use super::mirror_conversions::{emit_from_impl_for_struct, emit_from_mirror_to_core_struct};
-use crate::core::ir::{FieldDef, TypeDef, TypeRef};
+use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, TypeDef, TypeRef};
 
 fn field(name: &str, binding_excluded: bool) -> FieldDef {
     FieldDef {
@@ -171,5 +171,70 @@ fn ungated_type_emits_no_cfg_on_either_impl() {
     assert!(
         !out_mirror.contains("#[cfg("),
         "ungated type must not emit #[cfg(...)] in From<Mirror> impl, got:\n{out_mirror}"
+    );
+}
+
+#[test]
+fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
+    let wrapper = |containers| {
+        Some(NewtypeWrapper::transparent_string(
+            "source::SecretString",
+            "from",
+            "into_inner",
+            containers,
+        ))
+    };
+    let ty = typ(
+        "Credentials",
+        false,
+        false,
+        vec![
+            FieldDef {
+                name: "token".to_string(),
+                ty: TypeRef::String,
+                newtype_wrapper: wrapper(vec![]),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "optional".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                newtype_wrapper: wrapper(vec![NewtypeContainer::Optional]),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "headers".to_string(),
+                ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                newtype_wrapper: wrapper(vec![NewtypeContainer::MapValue]),
+                ..Default::default()
+            },
+        ],
+    );
+
+    let mut from_core = String::new();
+    emit_from_impl_for_struct(&mut from_core, &ty, "source");
+    assert!(from_core.contains("token: (v.token).into_inner()"), "got:\n{from_core}");
+    assert!(
+        from_core.contains("(v.optional).map(|value| (value).into_inner())"),
+        "got:\n{from_core}"
+    );
+    assert!(
+        from_core.contains("map(|(key, value)| (key, (value).into_inner()))"),
+        "got:\n{from_core}"
+    );
+    assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
+
+    let mut to_core = String::new();
+    emit_from_mirror_to_core_struct(&mut to_core, &ty, "source");
+    assert!(
+        to_core.contains("token: source::SecretString::from(v.token)"),
+        "got:\n{to_core}"
+    );
+    assert!(
+        to_core.contains("map(|value| source::SecretString::from(value))"),
+        "got:\n{to_core}"
+    );
+    assert!(
+        to_core.contains("map(|(key, value)| (key, source::SecretString::from(value)))"),
+        "got:\n{to_core}"
     );
 }

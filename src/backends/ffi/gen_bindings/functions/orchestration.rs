@@ -559,12 +559,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
             context! { has_error, is_optional => is_optional_bytes_result },
         ));
     } else {
-        let result_expr =
-            if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
-                "result.0"
-            } else {
-                "result"
-            };
+        let result_expr = method
+            .return_newtype_wrapper
+            .as_ref()
+            .map(|wrapper| crate::codegen::conversions::helpers::apply_newtype_from_core("result", wrapper))
+            .unwrap_or_else(|| "result".to_string());
         if returns_ref && !has_error {
             match &method.return_type {
                 TypeRef::String => {
@@ -607,19 +606,18 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                     context! {},
                 ));
             } else {
-                let val_expr =
-                    if method.return_newtype_wrapper.is_some() && matches!(method.return_type, TypeRef::Primitive(_)) {
-                        "val.0"
-                    } else {
-                        "val"
-                    };
+                let val_expr = method
+                    .return_newtype_wrapper
+                    .as_ref()
+                    .map(|wrapper| crate::codegen::conversions::helpers::apply_newtype_from_core("val", wrapper))
+                    .unwrap_or_else(|| "val".to_string());
                 let ok_body = if returns_serialized_self {
                     crate::backends::ffi::template_env::render(
                         "serialized_value_to_c.jinja",
-                        context! { value => val_expr, indent => "            " },
+                        context! { value => &val_expr, indent => "            " },
                     )
                 } else {
-                    gen_owned_value_to_c(val_expr, &method.return_type, "            ", enum_names)
+                    gen_owned_value_to_c(&val_expr, &method.return_type, "            ", enum_names)
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_non_void.jinja",
@@ -634,13 +632,13 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         } else if returns_serialized_self {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "serialized_value_to_c.jinja",
-                context! { value => result_expr, indent => "    " },
+                context! { value => &result_expr, indent => "    " },
             ));
         } else {
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",
                 context! {
-                    content => gen_owned_value_to_c(result_expr, &method.return_type, "    ", enum_names),
+                    content => gen_owned_value_to_c(&result_expr, &method.return_type, "    ", enum_names),
                 },
             ));
         }
@@ -1071,12 +1069,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             context! { has_error, is_optional => is_optional_bytes_result },
         ));
     } else {
-        let result_expr = if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_))
-        {
-            "result.0"
-        } else {
-            "result"
-        };
+        let result_expr = func
+            .return_newtype_wrapper
+            .as_ref()
+            .map(|wrapper| crate::codegen::conversions::helpers::apply_newtype_from_core("result", wrapper))
+            .unwrap_or_else(|| "result".to_string());
         if func.returns_ref
             && !has_error
             && matches!(&func.return_type, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
@@ -1093,23 +1090,25 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     context! {},
                 ));
             } else {
-                let val_expr =
-                    if func.return_newtype_wrapper.is_some() && matches!(func.return_type, TypeRef::Primitive(_)) {
-                        "val.0"
-                    } else {
-                        "val"
-                    };
+                let val_expr = func
+                    .return_newtype_wrapper
+                    .as_ref()
+                    .map(|wrapper| crate::codegen::conversions::helpers::apply_newtype_from_core("val", wrapper))
+                    .unwrap_or_else(|| "val".to_string());
                 let ok_body = if returns_serialized_handle {
                     crate::backends::ffi::template_env::render(
                         "serialized_value_to_c.jinja",
-                        context! { value => val_expr, indent => "            " },
+                        context! { value => &val_expr, indent => "            " },
                     )
                 } else if capsule_cfg.is_some() {
-                    format!("            {}", super::super::capsule::capsule_into_raw_expr(val_expr))
+                    format!(
+                        "            {}",
+                        super::super::capsule::capsule_into_raw_expr(&val_expr)
+                    )
                 } else if returns_c_char(&func.return_type) {
-                    gen_owned_c_char_to_c_with_len(val_expr, &func.return_type, "            ", &ffi_name)
+                    gen_owned_c_char_to_c_with_len(&val_expr, &func.return_type, "            ", &ffi_name)
                 } else {
-                    gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
+                    gen_owned_value_to_c(&val_expr, &func.return_type, "            ", enum_names)
                 };
                 let null_ret = if capsule_cfg.is_some() {
                     "std::ptr::null()"
@@ -1130,14 +1129,14 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
             let content = if returns_serialized_handle {
                 crate::backends::ffi::template_env::render(
                     "serialized_value_to_c.jinja",
-                    context! { value => result_expr, indent => "    " },
+                    context! { value => &result_expr, indent => "    " },
                 )
             } else if capsule_cfg.is_some() {
-                format!("    {}", super::super::capsule::capsule_into_raw_expr(result_expr))
+                format!("    {}", super::super::capsule::capsule_into_raw_expr(&result_expr))
             } else if returns_c_char(&func.return_type) {
-                gen_owned_c_char_to_c_with_len(result_expr, &func.return_type, "    ", &ffi_name)
+                gen_owned_c_char_to_c_with_len(&result_expr, &func.return_type, "    ", &ffi_name)
             } else {
-                gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
+                gen_owned_value_to_c(&result_expr, &func.return_type, "    ", enum_names)
             };
             out.push_str(&crate::backends::ffi::template_env::render(
                 "emitted_code_block.jinja",

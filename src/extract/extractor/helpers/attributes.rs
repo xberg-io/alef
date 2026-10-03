@@ -319,7 +319,57 @@ pub(crate) fn extract_binding_exclusion_reason(attrs: &[syn::Attribute]) -> Opti
     if has_alef_skip(attrs) {
         return Some("alef(skip)".to_string());
     }
+    if extract_alef_transparent_string(attrs).is_some() {
+        return Some("alef(transparent_string)".to_string());
+    }
     None
+}
+
+/// Extract an explicit transparent-string boundary conversion. ~keep
+///
+/// Both operation names are required: Alef must never guess that `Display` exposes the raw
+/// string, because redacting secret wrappers intentionally make that assumption false. The
+/// accepted source forms are `#[alef(transparent_string(from = "...", into = "..."))]` and
+/// the same metadata nested at any depth inside `cfg_attr(...)`.
+pub(crate) fn extract_alef_transparent_string(attrs: &[syn::Attribute]) -> Option<(String, String)> {
+    let mut result = None;
+    let mut visit = |meta: &syn::Meta| {
+        let syn::Meta::List(list) = meta else {
+            return;
+        };
+        if !list.path.is_ident("alef") {
+            return;
+        }
+        let _ = list.parse_nested_meta(|nested| {
+            if nested.path.is_ident("transparent_string") {
+                let mut from = None;
+                let mut into = None;
+                nested.parse_nested_meta(|conversion| {
+                    if conversion.path.is_ident("from") {
+                        from = Some(conversion.value()?.parse::<syn::LitStr>()?.value());
+                    } else if conversion.path.is_ident("into") {
+                        into = Some(conversion.value()?.parse::<syn::LitStr>()?.value());
+                    }
+                    Ok(())
+                })?;
+                if let (Some(from), Some(into)) = (from, into)
+                    && syn::parse_str::<syn::Ident>(&from).is_ok()
+                    && syn::parse_str::<syn::Ident>(&into).is_ok()
+                {
+                    result = Some((from, into));
+                }
+            }
+            Ok(())
+        });
+    };
+    for attr in attrs {
+        if attr.path().is_ident("cfg_attr") {
+            cfg_attr_walk_inner_metas(attr, &mut visit);
+        } else {
+            visit(&attr.meta);
+        }
+    }
+    result
 }
 
 /// Extract the binding exclusion reason for a struct field.

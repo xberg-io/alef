@@ -170,6 +170,22 @@ Generated binding files carry Alef hashes and are overwritten by generation comm
 package files are generated once unless the command explicitly opts into overwrite behavior; generated
 README and API doc files are owned by `alef readme` and `alef docs`.
 
+### Transparent String Wrappers
+
+A core type that deliberately hides its string value from `Display` can still be exposed as a
+plain string in every binding. Mark the wrapper with explicit conversion operations:
+
+```rust
+#[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
+pub struct SecretString(String);
+```
+
+The wrapper is omitted from generated binding APIs. Alef calls `SecretString::from(String)` when a
+binding value enters Rust and consumes the wrapper with `SecretString::into_inner()` when a core
+value leaves Rust. Both operations must be inherent methods with the declared names; Alef never
+uses `Display` or `ToString` to expose the value. The metadata is preserved through struct fields,
+enum payloads, `Option`, `Vec`, and map keys or values.
+
 ## Extending Alef
 
 Alef is opinionated about codegen and neutral about domain. The `Extension` trait lets you ship domain-specific generation logic (HTTP service APIs, plugin registries, custom bindings) without bloat in alef.

@@ -17,12 +17,39 @@ pub struct Segment {
     pub text: String,
 }
 
+/// A private-field wrapper whose `Display` representation could be redacted. The generated
+/// bindings must use only these explicit lossless operations, including below containers and in
+/// enum payloads; the full-language emitted tree is the compile oracle for that contract. ~keep
+#[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn from(value: String) -> Self {
+        Self(value)
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum Authentication {
+    Bearer(SecretString),
+    Header { value: SecretString },
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Report {
     pub id: String,
     pub total: u64,
     pub segments: Vec<Segment>,
     pub attachment: Attachment,
+    pub credential: SecretString,
+    pub optional_credential: Option<SecretString>,
+    pub secret_headers: std::collections::HashMap<String, SecretString>,
+    pub authentication: Authentication,
 }
 
 /// `Chunked` is gated on a feature this crate declares but does not default-enable (see
