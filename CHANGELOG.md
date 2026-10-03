@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Excluding a language from an options-field trait bridge also removes that bridge's carrier
+  from linked update DTOs, preventing generated bindings from converting an unavailable handle.
+
 ## [0.103.10] - 2026-10-03
 
 ### Fixed

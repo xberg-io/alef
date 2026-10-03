@@ -30,6 +30,24 @@ pub struct RunOptions {
     pub on_progress: Option<ProgressHandle>,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct RunOptionsUpdate {
+    pub retries: Option<u32>,
+    #[serde(skip)]
+    pub on_progress: Option<ProgressHandle>,
+}
+
+impl RunOptions {
+    pub fn apply_update(&mut self, update: RunOptionsUpdate) {
+        if let Some(retries) = update.retries {
+            self.retries = retries;
+        }
+        if let Some(on_progress) = update.on_progress {
+            self.on_progress = Some(on_progress);
+        }
+    }
+}
+
 pub fn inspect(settings: RunOptions) -> Result<String, String> {
     let _ = settings;
     Ok(String::new())
@@ -132,6 +150,13 @@ fn an_excluded_language_loses_the_carrier_while_every_other_language_keeps_it() 
         "python is in `exclude_languages`, so its config DTO must not carry the bridge's \
          field -- it has no bridge with which to construct a `ProgressHandle`; struct:\n{py_dto}"
     );
+    let py_update =
+        struct_body(&python, "RunOptionsUpdate").expect("pyo3 must emit a `RunOptionsUpdate` mirror struct");
+    assert!(
+        !py_update.contains("on_progress"),
+        "python is in `exclude_languages`, so an update DTO for the config must not retain \
+         the same unavailable carrier field; struct:\n{py_update}"
+    );
 
     let node = surface(&generated, Language::Node);
     let node_dto = struct_body(&node, "JsRunOptions").expect("napi must emit a `JsRunOptions` mirror struct");
@@ -140,5 +165,11 @@ fn an_excluded_language_loses_the_carrier_while_every_other_language_keeps_it() 
         "node is NOT excluded, so its config DTO must KEEP the carrier -- a prune that removes \
          it here has leaked across languages and stripped the field from every backend the \
          bridge still targets; struct:\n{node_dto}"
+    );
+    let node_update =
+        struct_body(&node, "JsRunOptionsUpdate").expect("napi must emit a `JsRunOptionsUpdate` mirror struct");
+    assert!(
+        node_update.contains("on_progress"),
+        "node is NOT excluded, so its update DTO must KEEP the carrier; struct:\n{node_update}"
     );
 }

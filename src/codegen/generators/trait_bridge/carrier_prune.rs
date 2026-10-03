@@ -2,8 +2,8 @@
 //!
 //! `exclude_languages` suppresses the **bridge** for a target but said nothing about the
 //! **field** the bridge binds to, so an excluded backend still emitted the carrier on its
-//! config DTO -- typed as a handle it had no bridge to construct. Reported for node, elixir
-//! and dart, and measured for pyo3, where the public dataclass advertised
+//! config DTO and linked update DTOs -- typed as a handle it had no bridge to construct.
+//! Reported for node, elixir and dart, and measured for pyo3, where the public dataclass advertised
 //! `on_progress: ProgressHandle | None` for a class with no constructor exposed to the host
 //! (alef #480).
 //!
@@ -17,7 +17,7 @@
 //! `exclude_types` / `exclude_functions` stay where each backend applies them today.
 
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::ApiSurface;
+use crate::core::ir::{ApiSurface, FieldDef, TypeDef, TypeRef};
 
 use super::bridge_targets_language;
 
@@ -34,7 +34,63 @@ fn inactive_carriers<'a>(trait_bridges: &'a [TraitBridgeConfig], target_spelling
         .collect()
 }
 
+fn direct_named_type(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name),
+        TypeRef::Optional(inner) => direct_named_type(inner),
+        _ => None,
+    }
+}
+
+fn is_matching_carrier(candidate: &FieldDef, carrier: &FieldDef) -> bool {
+    candidate.name == carrier.name && candidate.ty == carrier.ty && candidate.type_rust_path == carrier.type_rust_path
+}
+
+fn carrier_owner_names(api: &ApiSurface, options_type: &str, field_name: &str) -> Vec<String> {
+    let Some(options) = api.types.iter().find(|typ| typ.name == options_type) else {
+        return Vec::new();
+    };
+    let Some(carrier) = options.fields.iter().find(|field| field.name == field_name) else {
+        return Vec::new();
+    };
+
+    let mut owners = vec![options.name.clone()];
+    for related_name in options
+        .methods
+        .iter()
+        .flat_map(|method| &method.params)
+        .filter_map(|param| direct_named_type(&param.ty))
+    {
+        let Some(related) = api.types.iter().find(|typ| typ.name == related_name) else {
+            continue;
+        };
+        if related.fields.iter().any(|field| is_matching_carrier(field, carrier))
+            && !owners.iter().any(|owner| owner == related_name)
+        {
+            owners.push(related_name.to_string());
+        }
+    }
+    owners
+}
+
+fn exclude_carrier(typ: &mut TypeDef, field_name: &str) -> bool {
+    let Some(field) = typ
+        .fields
+        .iter_mut()
+        .find(|field| field.name == field_name && !field.binding_excluded)
+    else {
+        return false;
+    };
+    field.binding_excluded = true;
+    field.binding_exclusion_reason = Some("trait bridge excluded for this language via exclude_languages".to_string());
+    true
+}
+
 /// A copy of `api` with every inactive bridge's carrier field marked `binding_excluded`.
+///
+/// The carrier is removed from the configured options type and from DTOs passed to its methods
+/// when those DTOs contain the same field and core type, covering partial-update inputs without
+/// relying on an `Update` naming convention.
 ///
 /// Returns `None` when nothing needs marking, so the common case -- no bridges, or every
 /// bridge active for this target -- does not clone the surface. This runs once per language
@@ -49,21 +105,22 @@ pub fn prune_inactive_bridge_carriers(
         return None;
     }
 
+    let owners = carriers
+        .iter()
+        .flat_map(|(options_type, field_name)| {
+            carrier_owner_names(api, options_type, field_name)
+                .into_iter()
+                .map(|owner| (owner, *field_name))
+        })
+        .collect::<Vec<_>>();
     let mut pruned = api.clone();
     let mut marked = false;
     for typ in &mut pruned.types {
-        for (options_type, field_name) in &carriers {
-            if typ.name != *options_type {
+        for (owner, field_name) in &owners {
+            if typ.name != *owner {
                 continue;
             }
-            for field in &mut typ.fields {
-                if field.name == *field_name && !field.binding_excluded {
-                    field.binding_excluded = true;
-                    field.binding_exclusion_reason =
-                        Some("trait bridge excluded for this language via exclude_languages".to_string());
-                    marked = true;
-                }
-            }
+            marked |= exclude_carrier(typ, field_name);
         }
     }
 
