@@ -23,17 +23,19 @@ use super::E2eCodegen;
 pub struct PhpCodegen;
 
 fn php_visitor_is_excluded(config: &ResolvedCrateConfig) -> bool {
-    config.php.as_ref().is_some_and(|php| {
-        php.exclude_functions
-            .iter()
-            .any(|name| name == VISITOR_EXCLUDE_FUNCTION_NAME)
-    })
+    crate::docs::language_pages::excludes::language_excludes(config, Language::Php)
+        .0
+        .contains(VISITOR_EXCLUDE_FUNCTION_NAME)
 }
 
 #[cfg(test)]
 mod visitor_exclusion_tests {
-    use super::php_visitor_is_excluded;
+    use super::{PhpCodegen, php_visitor_is_excluded};
     use crate::core::config::NewAlefConfig;
+    use crate::e2e::codegen::E2eCodegen;
+    use crate::e2e::config::E2eConfig;
+    use crate::e2e::fixture::{Fixture, FixtureGroup, VisitorSpec};
+    use std::collections::BTreeMap;
 
     #[test]
     fn visitor_pseudo_function_exclusion_disables_php_visitor_fixtures() {
@@ -54,6 +56,48 @@ exclude_functions = ["visitor"]
         let resolved = config.resolve().expect("resolve config").remove(0);
 
         assert!(php_visitor_is_excluded(&resolved));
+    }
+
+    #[test]
+    fn php_generation_omits_visitor_fixture_when_globally_excluded() {
+        let config: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["php"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[crates.exclude]
+functions = ["visitor"]
+
+[crates.php]
+"#,
+        )
+        .expect("parse config");
+        let resolved = config.resolve().expect("resolve config").remove(0);
+        let groups = [FixtureGroup {
+            category: "visitor".to_string(),
+            fixtures: vec![Fixture {
+                id: "visitor_basic".to_string(),
+                visitor: Some(VisitorSpec {
+                    callbacks: BTreeMap::new(),
+                }),
+                ..Fixture::default()
+            }],
+        }];
+
+        let files = PhpCodegen
+            .generate(&groups, &E2eConfig::default(), &resolved, &[], &[], &[], &[])
+            .expect("generate PHP e2e output");
+
+        assert!(
+            !files
+                .iter()
+                .any(|file| file.path.to_string_lossy().ends_with("VisitorTest.php")),
+            "a visitor-only test class must not be emitted when the visitor pseudo-function is excluded"
+        );
     }
 }
 
