@@ -185,6 +185,75 @@ fn options_field_bridge_injects_visitor_handle() {
     );
 }
 
+fn generated_error_mapping(error_type: &str, error: ErrorDef, exclude_error: bool) -> String {
+    let mut function = render_function();
+    function.error_type = Some(error_type.to_string());
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![trait_type(), handle_type(), palette_type(), options_type()],
+        functions: vec![function],
+        errors: vec![error],
+        ..Default::default()
+    };
+    let mut config = resolved_wasm_config();
+    if exclude_error {
+        config
+            .wasm
+            .as_mut()
+            .expect("wasm config")
+            .exclude_types
+            .push("ConversionError".to_string());
+    }
+    config.replace_trait_bridges(vec![options_field_bridge()]);
+
+    WasmBackend
+        .generate_bindings(&api, &config)
+        .expect("options-field trait bridge generation should succeed")
+        .into_iter()
+        .find(|file| file.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs must be generated")
+        .content
+}
+
+#[test]
+fn options_field_bridge_only_uses_a_converter_for_an_exact_visible_error() {
+    let qualified = generated_error_mapping("test_lib::ConversionError", conversion_error(), false);
+    assert!(
+        qualified.contains(".map_err(conversion_error_to_js_value)"),
+        "{qualified}"
+    );
+
+    let string_error = generated_error_mapping("String", conversion_error(), false);
+    assert!(
+        string_error.contains(".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())"),
+        "a source error without an emitted converter must use the generic fallback:\n{string_error}"
+    );
+    assert!(!string_error.contains(".map_err(string_to_js_value)"), "{string_error}");
+
+    let mut excluded = conversion_error();
+    excluded.binding_excluded = true;
+    let excluded_error = generated_error_mapping("ConversionError", excluded, false);
+    assert!(
+        excluded_error.contains(".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())"),
+        "an excluded error has no emitted converter and must use the generic fallback:\n{excluded_error}"
+    );
+    assert!(
+        !excluded_error.contains(".map_err(conversion_error_to_js_value)"),
+        "{excluded_error}"
+    );
+
+    let config_excluded = generated_error_mapping("ConversionError", conversion_error(), true);
+    assert!(
+        config_excluded.contains(".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())"),
+        "a config-excluded error has no emitted converter and must use the generic fallback:\n{config_excluded}"
+    );
+    assert!(
+        !config_excluded.contains(".map_err(conversion_error_to_js_value)"),
+        "{config_excluded}"
+    );
+}
+
 fn generated_lib_rs() -> String {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),

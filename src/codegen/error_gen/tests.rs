@@ -437,9 +437,21 @@ fn test_gen_wasm_error_converter() {
     observed.ty = TypeRef::Primitive(PrimitiveType::U64);
     let mut max = named_field("max_size");
     max.ty = TypeRef::Primitive(PrimitiveType::U64);
+    let mut source = named_field("source");
+    source.ty = TypeRef::Named("std::io::Error".to_string());
+    let mut excluded = named_field("internal_limit");
+    excluded.ty = TypeRef::Primitive(PrimitiveType::U64);
+    excluded.binding_excluded = true;
+    let mut skipped = named_field("skipped_limit");
+    skipped.ty = TypeRef::Primitive(PrimitiveType::U64);
+    skipped.serde_skip = true;
+    let mut cfg_field = named_field("feature_limit");
+    cfg_field.ty = TypeRef::Primitive(PrimitiveType::U64);
+    cfg_field.cfg = Some("feature = \"limits\"".to_string());
     error.variants.push(ErrorVariant {
         name: "InputTooLarge".to_string(),
-        fields: vec![observed, max],
+        fields: vec![observed, max, source, excluded, skipped, cfg_field],
+        has_source: true,
         ..Default::default()
     });
     let output = gen_wasm_error_converter(&error, "sample_markup_rs", &[]);
@@ -451,9 +463,15 @@ fn test_gen_wasm_error_converter() {
     assert!(output.contains("js_sys::Object::new()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
-    assert!(output.contains("sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size } =>"));
+    assert!(output.contains("sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size, .. } =>"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"observed_size\".into(), &observed_size_value).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"max_size\".into(), &max_size_value).ok()"));
+    for field in ["source", "internal_limit", "skipped_limit", "feature_limit"] {
+        assert!(
+            !output.contains(&format!("&\"{field}\".into()")),
+            "unsafe or unavailable field `{field}` must not be projected:\n{output}"
+        );
+    }
     assert!(output.contains("obj.into()"));
     assert!(output.contains("fn conversion_error_error_code(e: &sample_markup_rs::ConversionError) -> &'static str {"));
     assert!(output.contains("\"parse_error\""));

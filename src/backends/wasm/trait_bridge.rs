@@ -830,6 +830,7 @@ pub fn gen_options_field_bridge_function(
     bridge_cfg: &TraitBridgeConfig,
     mapper: &dyn crate::codegen::type_mapper::TypeMapper,
     opaque_types: &ahash::AHashSet<String>,
+    exclude_types: &[String],
     core_import: &str,
     prefix: &str,
 ) -> String {
@@ -875,10 +876,21 @@ pub fn gen_options_field_bridge_function(
     let ret = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     let err_conv = func.error_type.as_deref().map_or_else(String::new, |error_type| {
-        format!(
-            ".map_err({})",
-            crate::codegen::error_gen::wasm_converter_fn_name_for_type(error_type)
-        )
+        let normalized = error_type.replace('-', "_");
+        api.errors
+            .iter()
+            .find(|error| {
+                !error.binding_excluded
+                    && !exclude_types.contains(&error.name)
+                    && (error.name == normalized
+                        || error.rust_path.replace('-', "_") == normalized
+                        || (!error.original_rust_path.is_empty()
+                            && error.original_rust_path.replace('-', "_") == normalized))
+            })
+            .map_or_else(
+                || ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())".to_string(),
+                |error| format!(".map_err({})", crate::codegen::error_gen::wasm_converter_fn_name(error)),
+            )
     });
 
     let call_args: String = func

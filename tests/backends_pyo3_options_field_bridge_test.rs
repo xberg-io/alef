@@ -192,6 +192,24 @@ fn generic_optional_options_are_not_wrapped_twice() {
 }
 
 #[test]
+fn optional_default_rewrite_is_scoped_to_the_non_bridge_function() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let api = extract(dir.path());
+    let lib = lib_rs(&api, &config_with("exclude_functions = [\"convert\"]\n"));
+    let bridge_body = wrapper_body(&lib, "execute").expect("execute wrapper");
+    let excluded_body = wrapper_body(&lib, "convert").expect("convert wrapper");
+
+    assert!(
+        !bridge_body.contains("Some(settings_core)"),
+        "a rewrite required by another function must not create a nested optional in the bridge wrapper:\n{bridge_body}"
+    );
+    assert!(
+        excluded_body.contains("sample_lib::convert(input, Some(settings_core))"),
+        "the excluded non-bridge wrapper still needs its optional default adapted:\n{excluded_body}"
+    );
+}
+
+#[test]
 fn a_bare_callable_is_rejected_by_name_instead_of_being_skipped() {
     let dir = tempfile::tempdir().expect("tempdir");
     let api = extract(dir.path());

@@ -598,6 +598,7 @@ impl Backend for WasmBackend {
                         bridge_cfg,
                         &mapper,
                         &opaque_types,
+                        &exclude_types,
                         &core_import,
                         &prefix,
                     );

@@ -35,8 +35,22 @@ pub(super) fn wrap_optional_default_args(content: &mut String, api: &ApiSurface,
                 let core_var = format!("{}_core", param.name);
                 let call_pattern = format!(", {core_var})");
                 let call_replacement = format!(", Some({core_var}))");
-                *content = content.replace(&call_pattern, &call_replacement);
+                replace_in_function(content, &func.name, &call_pattern, &call_replacement);
             }
         }
+    }
+}
+
+fn replace_in_function(content: &mut String, function_name: &str, pattern: &str, replacement: &str) {
+    let marker = format!("pub fn {function_name}");
+    let mut search_start = 0;
+    while let Some(relative_start) = content[search_start..].find(&marker) {
+        let start = search_start + relative_start;
+        let end = content[start..]
+            .find("\n#[")
+            .map_or(content.len(), |relative_end| start + relative_end);
+        let rewritten = content[start..end].replace(pattern, replacement);
+        content.replace_range(start..end, &rewritten);
+        search_start = start + rewritten.len();
     }
 }

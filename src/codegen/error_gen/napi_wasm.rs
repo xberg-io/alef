@@ -81,7 +81,14 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
             let fields: Vec<_> = variant
                 .fields
                 .iter()
-                .filter(|field| !field.binding_excluded && !field.serde_skip && !field.name.starts_with('_'))
+                .filter(|field| {
+                    !field.binding_excluded
+                        && !field.serde_skip
+                        && field.cfg.is_none()
+                        && !field.sanitized
+                        && !field.name.starts_with('_')
+                        && wasm_payload_type_is_safe(&field.ty)
+                })
                 .collect();
             if fields.is_empty() {
                 return None;
@@ -97,7 +104,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
                 .collect::<Vec<_>>()
                 .join("\n");
             Some(format!(
-                "        {rust_path}::{} {{ {} }} => {{\n{writes}\n        }}",
+                "        {rust_path}::{} {{ {}, .. }} => {{\n{writes}\n        }}",
                 variant.name,
                 names.join(", ")
             ))
@@ -135,13 +142,20 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
     format!("{}\n\n{}", code_fn, converter_fn)
 }
 
-/// Return the WASM converter function name for a given error type.
-pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
-    wasm_converter_fn_name_for_type(&error.name)
+fn wasm_payload_type_is_safe(ty: &crate::core::ir::TypeRef) -> bool {
+    use crate::core::ir::TypeRef;
+
+    match ty {
+        TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => wasm_payload_type_is_safe(inner),
+        TypeRef::Map(key, value) => wasm_payload_type_is_safe(key) && wasm_payload_type_is_safe(value),
+        TypeRef::Named(_) | TypeRef::Path | TypeRef::Unit | TypeRef::Duration => false,
+    }
 }
 
-pub(crate) fn wasm_converter_fn_name_for_type(error_type: &str) -> String {
-    format!("{}_to_js_value", to_snake_case(error_type))
+/// Return the WASM converter function name for a given error type.
+pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
+    format!("{}_to_js_value", to_snake_case(&error.name))
 }
 
 /// Generate a `#[wasm_bindgen]` opaque struct for an error type together with an
