@@ -7,13 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.103.14] - 2026-10-04
+## [0.103.15] - 2026-10-04
 
 ### Added
 
 - Rust e2e call overrides can set `handle_teardown` to await explicit cleanup of generated handle
   owners after fixture assertions.
-
 - E2E fixtures can set `test_timeout_ms` to override the inferred TypeScript test timeout for one
   test without widening the timeout of the generated suite.
 - `#[alef(transparent_string(from = "...", into = "..."))]` preserves explicit, non-`Display`
@@ -30,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated Java mappers serialize `Path` values as native file-system paths instead of `file:` URIs.
 - Generated Java serializers for tagged struct variants serialize the variant payload without
   recursively re-entering the enclosing union serializer.
+- Generated NAPI, Python, and WASM bindings preserve transparent string wrappers across fields,
+  parameters, returns, promoted methods, boxed enum payloads, and container shapes.
+- Transparent wrapper metadata is validated across borrowed, mutable, map, and promoted surfaces
+  so unsupported signatures fail during extraction instead of producing invalid bindings.
+- Real compiler and formatter probes reuse isolated target directories and serialize shared
+  environment mutations, preventing cold-build timeouts and cross-test `PATH` races.
+
+## [0.103.14] - 2026-10-04
+
+### Fixed
+
 - Generated C and PHP e2e shell scripts use canonical shell formatting before any optional
   formatter runs, keeping `alef verify` output identical on hosts with and without `shfmt`.
 
