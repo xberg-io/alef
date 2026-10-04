@@ -66,6 +66,7 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
 
     if method.error_type.is_some() {
         let mut ok_body = String::new();
+        emit_value_method_newtype_return(&mut ok_body, method, "            ");
         emit_return_marshal(&mut ok_body, &return_type, ret_null);
         render_call_result_body(
             out,
@@ -80,6 +81,7 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
         );
     } else {
         let mut value_body = String::new();
+        emit_value_method_newtype_return(&mut value_body, method, "    ");
         emit_return_marshal_with_indent(&mut value_body, &return_type, "    ", ret_null);
         render_call_result_body(
             out,
@@ -93,6 +95,14 @@ fn emit_value_method_shim(out: &mut String, symbol: &str, type_name: &str, metho
             },
         );
     }
+}
+
+fn emit_value_method_newtype_return(out: &mut String, method: &MethodDef, indent: &str) {
+    let Some(wrapper) = &method.return_newtype_wrapper else {
+        return;
+    };
+    let converted = jni_return_newtype_from_core("v", wrapper);
+    out.push_str(&format!("{indent}let v = {converted};\n"));
 }
 
 /// Unmarshal every parameter out of the `request_json` object and return the
@@ -117,6 +127,11 @@ fn emit_value_param_unmarshal(out: &mut String, params: &[ParamDef], ret_null: &
         } else {
             type_ref_to_core_path_with_btree(&param.ty, "core_crate", param.map_is_btree)
         };
+        let type_path = if param.optional {
+            format!("Option<{type_path}>")
+        } else {
+            type_path
+        };
         out.push_str(&template_env::render(
             "request_map_param_unmarshal.rs.jinja",
             context! {
@@ -125,12 +140,18 @@ fn emit_value_param_unmarshal(out: &mut String, params: &[ParamDef], ret_null: &
                 ret_null => ret_null,
             },
         ));
-        if is_path {
+        if is_path && param.optional {
+            out.push_str(&format!(
+                "    let {rust_name} = {rust_name}.map(std::path::PathBuf::from);\n"
+            ));
+        } else if is_path {
             out.push_str(&format!(
                 "    let {rust_name} = std::path::PathBuf::from({rust_name});\n"
             ));
         }
-        if needs_vec_string_refs(param, &param.ty) {
+        if param.newtype_wrapper.is_some() {
+            args.push(method_newtype_call_arg(out, param, &rust_name, param.optional));
+        } else if needs_vec_string_refs(param, &param.ty) {
             out.push_str(&render_vec_string_refs_binding(&rust_name));
             args.push(vec_string_refs_arg(&rust_name));
         } else if param.is_ref {

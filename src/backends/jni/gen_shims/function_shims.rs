@@ -119,7 +119,7 @@ fn project_function_param(
 ) -> FunctionParamProjection {
     let rust_name = param.name.replace('-', "_");
     let base_type = method_param_base_type(param);
-    match base_type {
+    let projection = match base_type {
         TypeRef::String => project_string_function_param(param, &rust_name, return_null),
         TypeRef::Primitive(primitive) => project_primitive_function_param(param, primitive, &rust_name, return_null),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
@@ -131,7 +131,39 @@ fn project_function_param(
             project_opaque_function_param(type_name, &rust_name, return_null)
         }
         _ => project_complex_function_param(param, base_type, &rust_name, return_null),
+    };
+    project_function_newtype_param(param, base_type, &rust_name, projection)
+}
+
+fn project_function_newtype_param(
+    param: &ParamDef,
+    base_type: &TypeRef,
+    rust_name: &str,
+    mut projection: FunctionParamProjection,
+) -> FunctionParamProjection {
+    if param.newtype_wrapper.is_none() {
+        return projection;
     }
+    let source = if param.optional && matches!(base_type, TypeRef::String) {
+        format!("if {rust_name}.is_empty() {{ None }} else {{ Some({rust_name}) }}")
+    } else {
+        rust_name.to_string()
+    };
+    let converted = jni_param_newtype_to_core(&source, param).expect("newtype wrapper is present");
+    if !param.is_ref {
+        projection.call_arg = converted;
+        return projection;
+    }
+    let binding = format!("{rust_name}_newtype");
+    projection
+        .unmarshal
+        .push_str(&format!("    let {binding} = {converted};\n"));
+    projection.call_arg = if param.optional {
+        format!("{binding}.as_ref()")
+    } else {
+        format!("&{binding}")
+    };
+    projection
 }
 
 fn project_string_function_param(param: &ParamDef, rust_name: &str, return_null: &str) -> FunctionParamProjection {
@@ -319,6 +351,10 @@ fn render_function_return_body(
         );
     }
     let mut body = String::new();
+    if let Some(wrapper) = &function.return_newtype_wrapper {
+        let converted = jni_return_newtype_from_core("v", wrapper);
+        body.push_str(&format!("{indent}let v = {converted};\n"));
+    }
     emit_return_marshal_with_indent(&mut body, &function.return_type, indent, return_null);
     body
 }

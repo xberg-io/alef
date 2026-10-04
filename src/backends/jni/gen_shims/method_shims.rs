@@ -163,6 +163,9 @@ fn method_call_arg(
     rust_name: &str,
     produces_option: bool,
 ) -> String {
+    if param.newtype_wrapper.is_some() {
+        return method_newtype_call_arg(out, param, rust_name, produces_option);
+    }
     if produces_option {
         return if param.is_ref && is_byte_slice(base_type) {
             format!("{rust_name}.as_deref()")
@@ -185,6 +188,25 @@ fn method_call_arg(
         format!("&{rust_name}")
     } else {
         rust_name.to_string()
+    }
+}
+
+fn method_newtype_call_arg(out: &mut String, param: &ParamDef, rust_name: &str, produces_option: bool) -> String {
+    let source = if param.optional && !produces_option {
+        format!("Some({rust_name})")
+    } else {
+        rust_name.to_string()
+    };
+    let converted = jni_param_newtype_to_core(&source, param).expect("newtype wrapper is present");
+    if !param.is_ref {
+        return converted;
+    }
+    let binding = format!("{rust_name}_newtype");
+    out.push_str(&format!("    let {binding} = {converted};\n"));
+    if param.optional {
+        format!("{binding}.as_ref()")
+    } else {
+        format!("&{binding}")
     }
 }
 
@@ -285,6 +307,10 @@ fn render_method_return_body(
         );
     }
     let mut body = String::new();
+    if let Some(wrapper) = &method.return_newtype_wrapper {
+        let converted = jni_return_newtype_from_core("v", wrapper);
+        body.push_str(&format!("{indent}let v = {converted};\n"));
+    }
     emit_return_marshal_with_indent(&mut body, &method.return_type, indent, return_null);
     body
 }

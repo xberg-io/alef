@@ -131,6 +131,35 @@ fn type_ref_to_core_path(ty: &TypeRef, core_prefix: &str) -> String {
     type_ref_to_core_path_with_btree(ty, core_prefix, false)
 }
 
+fn jni_param_newtype_to_core(expr: &str, param: &ParamDef) -> Option<String> {
+    let wrapper = param.newtype_wrapper.as_deref()?;
+    let mut jni_param = param.clone();
+    jni_param.newtype_wrapper = Some(jni_newtype_wrapper(wrapper));
+    crate::codegen::conversions::helpers::apply_param_newtype_to_core(expr, &jni_param)
+}
+
+fn jni_return_newtype_from_core(expr: &str, wrapper: &str) -> String {
+    let wrapper = jni_newtype_wrapper(wrapper);
+    crate::codegen::conversions::helpers::apply_newtype_from_core(expr, &wrapper)
+}
+
+fn jni_newtype_wrapper(wrapper: &str) -> String {
+    let decoded = crate::core::ir::NewtypeWrapper::decode(wrapper)
+        .expect("newtype metadata must be validated before JNI code generation");
+    let crate::core::ir::NewtypeWrapper::Explicit(mut paths) = decoded else {
+        return wrapper.to_string();
+    };
+    for path in &mut paths {
+        let type_path = path
+            .rust_path
+            .split_once("::")
+            .map_or(path.rust_path.as_str(), |(_, suffix)| suffix)
+            .to_string();
+        path.rust_path = format!("core_crate::{type_path}");
+    }
+    crate::core::ir::NewtypeWrapper::encode_explicit(&paths)
+}
+
 /// Like [`type_ref_to_core_path`] but honours the concrete map container declared
 /// by the core function. When `map_is_btree` is true and `ty` is a `Map`, the
 /// outermost (possibly `Option`/`Vec`-wrapped) map is emitted as

@@ -43,5 +43,6 @@ include!("gen_shims/constructor_shims.rs");
 include!("gen_shims/streaming_shims.rs");
 include!("gen_shims/type_helpers.rs");
 include!("gen_shims/tests.rs");
+include!("gen_shims/transparent_string_tests.rs");
 include!("gen_shims/backend_tests.rs");
 include!("gen_shims/target_gate_tests.rs");
