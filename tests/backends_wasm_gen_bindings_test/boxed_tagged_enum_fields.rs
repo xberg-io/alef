@@ -111,9 +111,12 @@ fn test_boxed_named_field_in_tagged_enum_variant_wraps_and_unwraps_box() {
     let content = generate_tagged_enum_lib_content(field);
 
     assert!(
-        content.contains("config: val.config.clone().map(Into::into).map(Box::new).unwrap_or_default()"),
+        content.contains(
+            "config: val.config.clone().map(Into::into).map(Box::new).unwrap_or_else(|| \
+             wasm_bindgen::throw_str(\"missing enum field config\"))"
+        ),
         "binding->core conversion for a bare Box<T> variant field must wrap the converted value \
-         in Box::new before falling back to a default:\n{content}"
+         in Box::new before rejecting a missing required field:\n{content}"
     );
     assert!(
         content.contains("config: Some((*config).into())"),
@@ -150,8 +153,12 @@ fn test_non_boxed_named_field_in_tagged_enum_variant_is_not_wrapped_in_box() {
     let content = generate_tagged_enum_lib_content(field);
 
     assert!(
-        content.contains("plain: val.plain.clone().map(Into::into).unwrap_or_default()"),
-        "binding->core conversion for a non-boxed variant field must not be Box::new-wrapped:\n{content}"
+        content.contains(
+            "plain: val.plain.clone().map(Into::into).unwrap_or_else(|| \
+             wasm_bindgen::throw_str(\"missing enum field plain\"))"
+        ),
+        "binding->core conversion for a non-boxed required variant field must remain unboxed and \
+         reject a missing value:\n{content}"
     );
     assert!(
         content.contains("plain: Some(plain.into())"),
