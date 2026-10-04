@@ -52,5 +52,6 @@ pub(crate) use wasm::{
 };
 pub(crate) use zig::scaffold_zig;
 pub(crate) use zig_migrations::{
-    migrate_build_zig_test_target, migrate_zig_build_ffi_include_default, migrate_zig_example,
+    migrate_build_zig_test_target, migrate_zig_build_c_translation, migrate_zig_build_ffi_include_default,
+    migrate_zig_example,
 };

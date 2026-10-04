@@ -99,6 +99,7 @@ pub fn package_zig(
 /// exports the `{module_name}` module; a consumer links it with
 /// `b.dependency("<pkg>", .{ ... }).module("{module_name}")`.
 fn render_distributable_build_zig(module_name: &str, ffi_lib_name: &str, config: &ResolvedCrateConfig) -> String {
+    let ffi_header_name = config.ffi_header_name();
     let capsule_imports_block: String = config
         .zig
         .as_ref()
@@ -125,12 +126,20 @@ pub fn build(b: *std.Build) void {{
     const target = b.standardTargetOptions(.{{}});
     const optimize = b.standardOptimizeOption(.{{}});
 
+    const translate_c = b.addTranslateC(.{{
+        .root_source_file = b.path("include/{ffi_header_name}"),
+        .target = target,
+        .optimize = optimize,
+    }});
+    translate_c.addIncludePath(b.path("include"));
+
     const module = b.addModule("{module_name}", .{{
         .root_source_file = b.path("src/{module_name}.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     }});
+    module.addImport("c", translate_c.createModule());
     module.addLibraryPath(b.path("lib"));
     module.addIncludePath(b.path("include"));
     module.linkSystemLibrary("{ffi_lib_name}", .{{}});
@@ -247,6 +256,11 @@ sources = []
             "must add bundled include/:\n{s}"
         );
         assert!(
+            s.contains(".root_source_file = b.path(\"include/sample_lib.h\")")
+                && s.contains("module.addImport(\"c\", translate_c.createModule())"),
+            "must translate and inject the bundled C header:\n{s}"
+        );
+        assert!(
             s.contains("module.linkSystemLibrary(\"sample_router_ffi\""),
             "must link the FFI lib:\n{s}"
         );
@@ -258,6 +272,140 @@ sources = []
         assert!(
             !s.contains("../../target/release"),
             "must not reference the workspace target dir:\n{s}"
+        );
+    }
+
+    fn zig_package_fingerprint(name: &[u8]) -> u64 {
+        let mut crc: u32 = 0xffff_ffff;
+        for byte in name {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+            }
+        }
+        let mut id: u32 = 0x811c_9dc5;
+        for byte in name {
+            id ^= u32::from(*byte);
+            id = id.wrapping_mul(0x0100_0193);
+        }
+        (u64::from(!crc) << 32) | u64::from(id)
+    }
+
+    fn write_distributable_package_fixture(directory: &Path) -> std::path::PathBuf {
+        let package = directory.join("package");
+        fs::create_dir_all(package.join("src")).expect("create package source directory");
+        fs::create_dir_all(package.join("include")).expect("create package include directory");
+        fs::create_dir_all(package.join("lib")).expect("create package library directory");
+        fs::write(
+            package.join("build.zig"),
+            render_distributable_build_zig("sample_router", "sample_router_ffi", &config_no_capsule()),
+        )
+        .expect("write distributable build.zig");
+        fs::write(
+            package.join("build.zig.zon"),
+            format!(
+                ".{{\n    .name = .sample_router,\n    .version = \"0.0.0\",\n    \
+                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.16.0\",\n    \
+                 .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\", \"include\", \"lib\" }},\n}}\n",
+                zig_package_fingerprint(b"sample_router")
+            ),
+        )
+        .expect("write distributable build.zig.zon");
+        fs::write(
+            package.join("src/sample_router.zig"),
+            "const c = @import(\"c\");\npub fn value() c_int { return c.fixture_value(); }\n",
+        )
+        .expect("write package module");
+        fs::write(package.join("include/sample_lib.h"), "int fixture_value(void);\n").expect("write package C header");
+        fs::write(
+            package.join("fixture.zig"),
+            "export fn fixture_value() callconv(.c) c_int { return 7; }\n",
+        )
+        .expect("write native fixture source");
+        package
+    }
+
+    fn build_native_fixture(package: &Path) {
+        let library = package.join("lib/libsample_router_ffi.a");
+        let output = std::process::Command::new("zig")
+            .args(["build-lib", "-static"])
+            .arg(package.join("fixture.zig"))
+            .arg(format!("-femit-bin={}", library.display()))
+            .output()
+            .expect("build fixture library");
+        assert!(
+            output.status.success(),
+            "fixture library build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn write_distributable_consumer_fixture(directory: &Path) -> std::path::PathBuf {
+        let consumer = directory.join("consumer");
+        fs::create_dir_all(consumer.join("src")).expect("create consumer source directory");
+        fs::write(
+            consumer.join("build.zig.zon"),
+            format!(
+                ".{{\n    .name = .consumer,\n    .version = \"0.0.0\",\n    \
+                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.16.0\",\n    \
+                 .dependencies = .{{ .sample_router = .{{ .path = \"../package\" }} }},\n    \
+                 .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\" }},\n}}\n",
+                zig_package_fingerprint(b"consumer")
+            ),
+        )
+        .expect("write consumer build.zig.zon");
+        fs::write(
+            consumer.join("build.zig"),
+            r#"const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const dependency = b.dependency("sample_router", .{ .target = target, .optimize = optimize });
+    const root = b.createModule(.{ .root_source_file = b.path("src/main.zig"), .target = target, .optimize = optimize });
+    root.addImport("sample_router", dependency.module("sample_router"));
+    const executable = b.addExecutable(.{ .name = "consumer", .root_module = root });
+    b.default_step.dependOn(&executable.step);
+}
+"#,
+        )
+        .expect("write consumer build.zig");
+        fs::write(
+            consumer.join("src/main.zig"),
+            "const sample_router = @import(\"sample_router\");\npub fn main() void { _ = sample_router.value(); }\n",
+        )
+        .expect("write consumer source");
+        consumer
+    }
+
+    /// Compiles a consumer through the staged package's exported module. Calling `value` forces
+    /// analysis of the nested `@import("c")`; a package build that only links `include/` but does
+    /// not inject the translated module fails with `no module named 'c'`. ~keep
+    #[test]
+    fn distributable_package_compiles_a_real_consumer_with_the_translated_header() {
+        if !std::process::Command::new("zig")
+            .arg("version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+        {
+            return;
+        }
+        let directory = tempfile::tempdir().expect("package fixture");
+        let package = write_distributable_package_fixture(directory.path());
+        build_native_fixture(&package);
+        let consumer = write_distributable_consumer_fixture(directory.path());
+
+        let output = std::process::Command::new("zig")
+            .args(["build", "--summary", "none"])
+            .current_dir(&consumer)
+            .env("ZIG_LOCAL_CACHE_DIR", consumer.join("zig-cache"))
+            .env("ZIG_GLOBAL_CACHE_DIR", directory.path().join("global-cache"))
+            .output()
+            .expect("build packaged consumer");
+        assert!(
+            output.status.success(),
+            "packaged consumer build failed: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 

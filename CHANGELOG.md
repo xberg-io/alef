@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Generated Zig packages translate their C header through the build system, and generated package
-  and e2e build scripts avoid removed Zig 0.17 path APIs while retaining the Zig 0.16 minimum.
-
 ## [0.103.14] - 2026-10-04
 
 ### Added
@@ -28,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Zig packages translate their C header through the build system, and generated package
+  and e2e build scripts avoid removed Zig 0.17 path APIs while retaining the Zig 0.16 minimum.
 - CLI releases include an Intel macOS archive, avoiding source-build fallback when consumers
   install Alef on `x86_64-apple-darwin` runners.
 - Generated Java mappers serialize `Path` values as native file-system paths instead of `file:` URIs.

@@ -39,16 +39,27 @@ pub(crate) fn zig_manifest_include_paths(manifest: &Path) -> Result<Vec<String>>
 }
 
 fn path_call_expressions<'a>(source: &'a str, method: &str) -> Vec<&'a str> {
-    let wrapped = format!("{method}(.{{ .cwd_relative = ");
-    let bare = format!("{method}(");
+    let bare_call = format!("{method}(");
+    let receiver_call = format!(".{method}(");
     source
         .lines()
         .filter_map(|line| {
             let line = line.trim();
-            if let Some(expression) = line.strip_prefix(&wrapped) {
-                return expression.strip_suffix(" });").map(str::trim);
-            }
-            line.strip_prefix(&bare)?.strip_suffix(");").map(str::trim)
+            let arguments = line
+                .strip_prefix(&bare_call)
+                .or_else(|| {
+                    line.find(&receiver_call)
+                        .map(|start| &line[start + receiver_call.len()..])
+                })?
+                .strip_suffix(");")?
+                .trim();
+            Some(
+                arguments
+                    .strip_prefix(".{ .cwd_relative = ")
+                    .and_then(|expression| expression.strip_suffix(" }"))
+                    .unwrap_or(arguments)
+                    .trim(),
+            )
         })
         .collect()
 }
@@ -391,6 +402,18 @@ pub(crate) mod tests {
         let paths = zig_manifest_include_paths(&manifest).unwrap();
 
         assert_eq!(paths, ["include"]);
+    }
+
+    /// Generated build scripts always qualify path methods with a receiver. Pin both the
+    /// translated-header and native-library forms so this parser cannot silently return an empty
+    /// set after matching only the impossible unqualified shape. ~keep
+    #[test]
+    fn receiver_qualified_path_calls_return_their_actual_expressions() {
+        let source = "translate_c.addIncludePath(ffi_include);\n\
+                      module.addLibraryPath(.{ .cwd_relative = ffi_path });\n";
+
+        assert_eq!(path_call_expressions(source, "addIncludePath"), ["ffi_include"]);
+        assert_eq!(path_call_expressions(source, "addLibraryPath"), ["ffi_path"]);
     }
 
     #[test]

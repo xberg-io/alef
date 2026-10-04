@@ -106,6 +106,117 @@ pub(crate) fn migrate_zig_build_ffi_include_default(base_dir: &Path, generated: 
     Ok(true)
 }
 
+/// Upgrade a recognized Alef-owned `build.zig` graph from direct `cwd_relative` paths and
+/// source-level `@cImport` support to package-root-aware lazy paths plus a translated `c` module.
+/// The file is create-once, so this deliberately patches only exact historical scaffold anchors
+/// and retains every unrelated consumer line byte-for-byte. ~keep
+pub(crate) fn migrate_zig_build_c_translation(base_dir: &Path, generated: &str) -> anyhow::Result<bool> {
+    let path = crate::cli::pipeline::generate::write::contained_output_path(base_dir, BUILD_ZIG_RELATIVE.as_ref())?;
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    let Some(repaired) = repair_zig_build_c_translation(&content, generated) else {
+        return Ok(false);
+    };
+
+    replace_in_place(&path, &repaired)?;
+    tracing::info!(
+        path = %path.display(),
+        "repaired pre-existing build.zig: C header translation and Zig 0.17-compatible paths are wired"
+    );
+    Ok(true)
+}
+
+fn repair_zig_build_c_translation(content: &str, generated: &str) -> Option<String> {
+    const MODULE_START: &str = "    const module = b.addModule(";
+    const TRANSLATION_START: &str = "    const ffi_header = b.pathJoin(";
+    const TRANSLATION_END: &str = "    translate_c.addIncludePath(ffi_include);\n";
+
+    if content.contains("module.addImport(\"c\", translate_c.createModule());")
+        || content.contains("const translate_c = b.addTranslateC(")
+    {
+        return None;
+    }
+    let translation_start = generated.find(TRANSLATION_START)?;
+    let translation_end =
+        generated[translation_start..].find(TRANSLATION_END)? + translation_start + TRANSLATION_END.len();
+    let translation = &generated[translation_start..translation_end];
+
+    let mut repaired = if content.contains("    const ffi_path = b.option(")
+        && content.contains("    const ffi_include = b.option(")
+    {
+        upgrade_direct_option(content, "ffi_path").and_then(|value| upgrade_direct_option(&value, "ffi_include"))?
+    } else if content.contains("    const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });")
+        && content.contains("    const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });")
+    {
+        content
+            .replacen("    const build_root = b.build_root.path orelse \".\";\n\n", "", 1)
+            .replacen(
+                "    const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });",
+                lazy_path_declaration("ffi_path"),
+                1,
+            )
+            .replacen(
+                "    const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });",
+                lazy_path_declaration("ffi_include"),
+                1,
+            )
+    } else {
+        return None;
+    };
+
+    if !repaired.contains("    module.addLibraryPath(.{ .cwd_relative = ffi_path });")
+        || !repaired.contains("    module.addIncludePath(.{ .cwd_relative = ffi_include });")
+    {
+        return None;
+    }
+    repaired = repaired.replace(
+        ".addLibraryPath(.{ .cwd_relative = ffi_path });",
+        ".addLibraryPath(ffi_path);",
+    );
+    repaired = repaired.replace(
+        ".addIncludePath(.{ .cwd_relative = ffi_include });",
+        ".addIncludePath(ffi_include);",
+    );
+
+    let module_start = repaired.find(MODULE_START)?;
+    repaired.insert_str(module_start, &format!("{translation}\n\n"));
+    let module_start = module_start + translation.len() + 2;
+    if !repaired[module_start..].starts_with(MODULE_START) {
+        return None;
+    }
+    let module_end = repaired[module_start..].find("    });\n")? + module_start + "    });\n".len();
+    repaired.insert_str(module_end, "    module.addImport(\"c\", translate_c.createModule());\n");
+    Some(repaired)
+}
+
+fn upgrade_direct_option(content: &str, binding: &str) -> Option<String> {
+    let declaration = format!("    const {binding} = b.option(");
+    let start = content.find(&declaration)?;
+    let statement_end = content[start..].find(';')? + start + 1;
+    let line_end = content[statement_end..]
+        .find('\n')
+        .map(|offset| statement_end + offset + 1)
+        .unwrap_or(content.len());
+    let mut repaired = content.to_owned();
+    repaired.replace_range(
+        start..start + declaration.len(),
+        &format!("    const {binding}_option = b.option("),
+    );
+    let shift = "_option".len();
+    repaired.insert_str(line_end + shift, &format!("{}\n", lazy_path_declaration(binding)));
+    Some(repaired)
+}
+
+fn lazy_path_declaration(binding: &str) -> String {
+    format!(
+        r#"    const {binding}: std.Build.LazyPath = if (std.fs.path.isAbsolute({binding}_option))
+        .{{ .cwd_relative = {binding}_option }}
+    else
+        b.path({binding}_option);"#
+    )
+}
+
 /// Repair a pre-existing `packages/zig/build.zig` whose `test_module` still points at the
 /// generated `src/<module>.zig` (zero `test` blocks) instead of the seeded
 /// `test/<module>_test.zig` — the exact defect fixed in [`scaffold_zig`] above.
@@ -337,6 +448,115 @@ pub fn build(b: *std.Build) void {
         .to_string()
     }
 
+    #[test]
+    fn c_translation_migration_upgrades_the_direct_option_scaffold() {
+        let original = known_bad_build_zig();
+        assert!(original.contains("const ffi_path = b.option("));
+        assert!(original.contains("module.addIncludePath(.{ .cwd_relative = ffi_include });"));
+
+        let repaired = repair_zig_build_c_translation(&original, &freshly_generated_build_zig())
+            .expect("historical Alef scaffold must be recognized");
+
+        assert!(
+            repaired.contains("const ffi_path_option = b.option("),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("const ffi_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path_option))"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("const ffi_header = b.pathJoin(&.{ ffi_include_option, \"my_lib.h\" });"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("const translate_c = b.addTranslateC(.{"),
+            "got:\n{repaired}"
+        );
+        assert_eq!(
+            repaired
+                .matches("module.addImport(\"c\", translate_c.createModule());")
+                .count(),
+            1,
+            "translated C module must be wired exactly once:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("module.addLibraryPath(ffi_path);"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("module.addIncludePath(ffi_include);"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            !repaired.contains("module.addLibraryPath(.{ .cwd_relative"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("orelse \"../../crates/my-lib-ffi/include\"; // hand-fixed after a crate rename"),
+            "unrelated hand edit must survive:\n{repaired}"
+        );
+        assert!(
+            repair_zig_build_c_translation(&repaired, &freshly_generated_build_zig()).is_none(),
+            "second pass must be a no-op"
+        );
+    }
+
+    #[test]
+    fn c_translation_migration_upgrades_the_interim_build_root_scaffold() {
+        let generated = freshly_generated_build_zig();
+        let translation_start = generated
+            .find("    const ffi_header = b.pathJoin(")
+            .expect("translation start");
+        let module_start = generated[translation_start..]
+            .find("    const module = b.addModule(")
+            .unwrap()
+            + translation_start;
+        let mut interim = generated.clone();
+        interim.replace_range(translation_start..module_start, "");
+        interim = interim
+            .replacen("    module.addImport(\"c\", translate_c.createModule());\n", "", 1)
+            .replacen(
+                &lazy_path_declaration("ffi_path"),
+                "    const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });",
+                1,
+            )
+            .replacen(
+                &lazy_path_declaration("ffi_include"),
+                "    const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });",
+                1,
+            )
+            .replacen(
+                "    const ffi_path_option = b.option(",
+                "    const build_root = b.build_root.path orelse \".\";\n\n    const ffi_path_option = b.option(",
+                1,
+            )
+            .replace(
+                ".addLibraryPath(ffi_path);",
+                ".addLibraryPath(.{ .cwd_relative = ffi_path });",
+            )
+            .replace(
+                ".addIncludePath(ffi_include);",
+                ".addIncludePath(.{ .cwd_relative = ffi_include });",
+            );
+        assert!(interim.contains("const build_root = b.build_root.path orelse \".\";"));
+        assert!(interim.contains("const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });"));
+
+        let repaired =
+            repair_zig_build_c_translation(&interim, &generated).expect("interim Alef scaffold must be recognized");
+
+        assert!(!repaired.contains("b.build_root"), "got:\n{repaired}");
+        assert!(!repaired.contains("b.pathResolve"), "got:\n{repaired}");
+        assert!(
+            repaired.contains("const translate_c = b.addTranslateC(.{"),
+            "got:\n{repaired}"
+        );
+        assert!(
+            repaired.contains("module.addImport(\"c\", translate_c.createModule());"),
+            "got:\n{repaired}"
+        );
+    }
+
     /// The core repair: only the `test_module` block's `.root_source_file` is repointed at
     /// `test/my_lib_test.zig`, and the missing `addImport` wiring is inserted right after
     /// that block — while the identical-looking line in the *library* `module` block, and
@@ -538,6 +758,26 @@ pub fn build(b: *std.Build) void {
         std::fs::create_dir_all(path.parent().expect("build.zig has a parent")).expect("create packages/zig");
         std::fs::write(&path, content).expect("write build.zig");
         path
+    }
+
+    #[test]
+    fn c_translation_migration_repairs_on_disk_and_is_idempotent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let original = known_bad_build_zig();
+        let path = write_build_zig(dir.path(), &original);
+        let generated = freshly_generated_build_zig();
+
+        let first = migrate_zig_build_c_translation(dir.path(), &generated).expect("first migration");
+        let once = std::fs::read_to_string(&path).expect("read first migration");
+        let second = migrate_zig_build_c_translation(dir.path(), &generated).expect("second migration");
+        let twice = std::fs::read_to_string(&path).expect("read second migration");
+
+        assert!(first, "known historical scaffold must migrate");
+        assert!(!second, "second pass must report no change");
+        assert_eq!(once, twice, "second pass must preserve bytes");
+        assert_ne!(once, original, "first pass must actually modify the file");
+        assert!(once.contains("module.addImport(\"c\", translate_c.createModule());"));
+        assert!(once.contains("// hand-fixed after a crate rename"));
     }
 
     /// Regression for the defect that failed every generated Zig snippet in a consumer repo whose

@@ -30,7 +30,7 @@ pub(crate) use languages::{
     migrate_java_checkstyle_line_length, migrate_kotlin_build_gradle, migrate_node_package_json_service_export,
     migrate_php_composer_phpunit_constraint, migrate_poly_toml_drop_snippet_hook,
     migrate_poly_toml_drop_unrunnable_snapshot_hooks, migrate_swift_placeholder_test,
-    migrate_wasm_cargo_config_allow_multiple_definition, migrate_wasm_package_json,
+    migrate_wasm_cargo_config_allow_multiple_definition, migrate_wasm_package_json, migrate_zig_build_c_translation,
     migrate_zig_build_ffi_include_default, migrate_zig_example, ruby_native_manifest_path,
 };
 

@@ -99,6 +99,7 @@ fn write_fixture(directory: &Path, service_source: &str, header_name: &str) {
     fs::write(directory.join(header_name), C_HEADER).expect("write C header");
     fs::write(directory.join("service_fixture.c"), C_SOURCE).expect("write C source");
     fs::write(directory.join("allocator_test.zig"), ZIG_HARNESS).expect("write Zig harness");
+    fs::write(directory.join("build.zig"), ZIG_BUILD).expect("write Zig build script");
 }
 
 fn output_or_panic(action: &str, output: Output) {
@@ -164,6 +165,38 @@ test "service registration preserves allocator pairing" {
 }
 "#;
 
+const ZIG_BUILD: &str = r#"const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("test.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    translate_c.addIncludePath(b.path("."));
+
+    const test_module = b.createModule(.{
+        .root_source_file = b.path("allocator_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    test_module.addImport("c", translate_c.createModule());
+    test_module.addCSourceFile(.{
+        .file = b.path("service_fixture.c"),
+        .flags = &.{},
+    });
+    test_module.addIncludePath(b.path("."));
+
+    const tests = b.addTest(.{ .root_module = test_module });
+    const run_tests = b.addRunArtifact(tests);
+    const test_step = b.step("test", "Run allocator ABI test");
+    test_step.dependOn(&run_tests.step);
+}
+"#;
+
 #[test]
 fn generated_zig_service_matches_allocator_callback_abi_at_runtime() {
     if which::which("zig").is_err() || which::which("cc").is_err() {
@@ -179,7 +212,7 @@ fn generated_zig_service_matches_allocator_callback_abi_at_runtime() {
     let directory = tempfile::tempdir().expect("create fixture directory");
     write_fixture(directory.path(), service_source, &config.ffi_header_name());
     let output = Command::new("zig")
-        .args(["test", "allocator_test.zig", "service_fixture.c", "-I", ".", "-lc"])
+        .args(["build", "test", "--summary", "none"])
         .current_dir(directory.path())
         .output()
         .expect("run Zig service allocator harness");

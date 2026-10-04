@@ -58,6 +58,8 @@ fn migrate_zig_build_config(files: &[GeneratedFile], base_dir: &Path) -> anyhow:
         // than re-derived from config, so the two can never disagree. ~keep
         crate::scaffold::migrate_zig_build_ffi_include_default(base_dir, &build_zig.content)
             .context("failed to migrate pre-existing packages/zig/build.zig ffi include default")?;
+        crate::scaffold::migrate_zig_build_c_translation(base_dir, &build_zig.content)
+            .context("failed to migrate pre-existing packages/zig/build.zig C translation")?;
     }
     Ok(())
 }
