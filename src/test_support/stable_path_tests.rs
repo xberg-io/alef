@@ -37,7 +37,7 @@ fn extensionless_tool_name_matches_a_pathext_executable() {
 fn stable_path_resolution_waits_for_mutation_guard_before_resolving_tool() {
     let tool_name = if cfg!(windows) { "rustc.exe" } else { "rustc" };
     let expected = super::tool_path_with_stable_path(tool_name).expect("cargo tests require rustc on PATH");
-    let without_tool = super::PathWithoutToolGuard::exclude(tool_name);
+    let without_tool = super::PathWithoutToolGuard::exclude("alef-missing-poly-negative-control-487488");
     let (started_tx, started_rx) = std::sync::mpsc::channel();
     let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
     let worker = std::thread::spawn(move || {
@@ -52,7 +52,7 @@ fn stable_path_resolution_waits_for_mutation_guard_before_resolving_tool() {
     assert_eq!(
         resolved_rx.recv_timeout(Duration::from_millis(250)),
         Err(std::sync::mpsc::RecvTimeoutError::Timeout),
-        "absolute-path resolution must wait while another test has removed the tool from PATH"
+        "absolute-path resolution must wait while another guard owns the PATH mutation lock"
     );
 
     drop(without_tool);
