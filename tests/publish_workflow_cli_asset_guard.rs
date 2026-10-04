@@ -219,6 +219,38 @@ fn resolve_step_follows_the_target_list_rather_than_a_baked_in_set() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn release_publishes_the_intel_macos_archive_expected_by_install_alef() {
+    let targets: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(repo_root().join(TARGETS_FILE)).expect("read CLI targets"))
+            .expect("CLI targets are valid JSON");
+    let matching: Vec<&serde_json::Value> = targets
+        .as_array()
+        .expect("CLI targets are an array")
+        .iter()
+        .filter(|target| target["target"].as_str() == Some("x86_64-apple-darwin"))
+        .collect();
+
+    assert_eq!(
+        matching.len(),
+        1,
+        concat!(
+            "install-alef resolves Intel macOS to x86_64-apple-darwin, ",
+            "so the release must build exactly one matching target"
+        )
+    );
+    let target = matching[0];
+    assert_eq!(target["label"].as_str(), Some("macos-x86_64"));
+    assert_eq!(target["runner"].as_str(), Some("macos-15-intel"));
+    assert_eq!(target["archive_ext"].as_str(), Some("tar.gz"));
+    assert_eq!(
+        archive_name_for(target),
+        "alef-x86_64-apple-darwin.tar.gz",
+        "archive naming must match install-alef's release download URL"
+    );
+}
+
 #[test]
 fn binstall_archive_overrides_match_published_cli_targets() {
     let targets: serde_json::Value =

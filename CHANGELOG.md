@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CLI releases include an Intel macOS archive, avoiding source-build fallback when consumers
+  install Alef on `x86_64-apple-darwin` runners.
 - Generated C and PHP e2e shell scripts use canonical shell formatting before any optional
   formatter runs, keeping `alef verify` output identical on hosts with and without `shfmt`.
 
