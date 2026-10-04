@@ -200,9 +200,12 @@ fn required_untagged_data_enum_field_becomes_js_value_not_fieldless_wasm_enum() 
         "core->binding conversion must serialize the real enum value via serde_wasm_bindgen;\nactual:\n{lib_rs}"
     );
     assert!(
-        lib_rs.contains("input: serde_wasm_bindgen::from_value(val.input.clone()).unwrap_or_default()"),
-        "binding->core conversion must deserialize the JsValue back into the real enum via \
-         serde_wasm_bindgen;\nactual:\n{lib_rs}"
+        lib_rs.contains(
+            "input: serde_wasm_bindgen::from_value(val.input.clone()).unwrap_or_else(|error| \
+             wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+        ),
+        "binding->core conversion must deserialize the JsValue back into the real enum and throw \
+         malformed required input rather than silently defaulting it;\nactual:\n{lib_rs}"
     );
 }
 
