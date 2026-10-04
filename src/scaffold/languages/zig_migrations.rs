@@ -132,9 +132,7 @@ fn repair_zig_build_c_translation(content: &str, generated: &str) -> Option<Stri
     const TRANSLATION_START: &str = "    const ffi_header = b.pathJoin(";
     const TRANSLATION_END: &str = "    translate_c.addIncludePath(ffi_include);\n";
 
-    if content.contains("module.addImport(\"c\", translate_c.createModule());")
-        || content.contains("const translate_c = b.addTranslateC(")
-    {
+    if content.contains(".addImport(\"c\",") || content.contains(".addTranslateC(") {
         return None;
     }
     let translation_start = generated.find(TRANSLATION_START)?;
@@ -778,6 +776,37 @@ pub fn build(b: *std.Build) void {
         assert_ne!(once, original, "first pass must actually modify the file");
         assert!(once.contains("module.addImport(\"c\", translate_c.createModule());"));
         assert!(once.contains("// hand-fixed after a crate rename"));
+    }
+
+    #[test]
+    fn c_translation_migration_preserves_custom_existing_translation_wiring() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let existing = known_bad_build_zig()
+            .replacen(
+                "    const module = b.addModule(",
+                concat!(
+                    "    const c_bindings = b.addTranslateC(.{\n",
+                    "        .root_source_file = b.path(\"custom.h\"),\n",
+                    "        .target = target,\n",
+                    "        .optimize = optimize,\n",
+                    "    });\n\n",
+                    "    const module = b.addModule(",
+                ),
+                1,
+            )
+            .replacen(
+                "    });\n    module.addLibraryPath",
+                "    });\n    module.addImport(\"c\", c_bindings.createModule());\n    module.addLibraryPath",
+                1,
+            );
+        let path = write_build_zig(dir.path(), &existing);
+
+        let changed = migrate_zig_build_c_translation(dir.path(), &freshly_generated_build_zig())
+            .expect("custom translation migration check");
+        let after = std::fs::read_to_string(path).expect("read preserved build.zig");
+
+        assert!(!changed, "custom C translation wiring must not be migrated");
+        assert_eq!(after, existing, "custom C translation wiring must remain byte-identical");
     }
 
     /// Regression for the defect that failed every generated Zig snippet in a consumer repo whose
