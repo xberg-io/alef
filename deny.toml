@@ -39,11 +39,8 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 
 skip = [
-  { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
-  { crate = "getrandom@0.2", reason = "transitive via ring/rustls; getrandom 0.3 comes from ahash" },
-  { crate = "getrandom@0.4", reason = "transitive via tempfile; getrandom 0.3 comes from ahash" },
-  { crate = "r-efi@5.3", reason = "transitive via getrandom 0.3; r-efi 6 comes from getrandom 0.4" },
-  { crate = "windows-sys@0.52", reason = "transitive via ring; current tooling uses windows-sys 0.61" },
+  { crate = "getrandom@0.2", reason = "transitive via ring/rustls; getrandom 0.3 comes from ahash/tempfile" },
+  { crate = "windows-sys@0.52", reason = "transitive via ring/tempfile/rustix/errno/winapi-util; current tooling uses windows-sys 0.61" },
 ]
 allow = []
 deny = []

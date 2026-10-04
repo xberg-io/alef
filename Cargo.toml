@@ -100,7 +100,7 @@ windows-sys = { version = "0.61", features = [
 # exercises the same `[defines]`-matching behavior consumers hit. ~keep
 cbindgen = "0.29"
 criterion = { version = "0.8", features = ["html_reports"] }
-insta = { version = "1.48", features = ["redactions"] }
+insta = { version = "1.49", features = ["redactions"] }
 tracing-test = "0.2"
 
 # Diagnostics must flow through `tracing`; genuine command results through the sanctioned
