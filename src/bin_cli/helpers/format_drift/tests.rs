@@ -27,6 +27,45 @@ sources = ["src/lib.rs"]
     cfg.resolve().expect("resolvable").remove(0)
 }
 
+fn e2e_poly_config() -> crate::core::config::ResolvedCrateConfig {
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["rust"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.call]
+function = "run"
+[crates.e2e.registry]
+output = "test_apps"
+"#,
+    )
+    .expect("valid config");
+    cfg.resolve().expect("resolvable").remove(0)
+}
+
+#[test]
+fn poly_probe_roots_match_the_e2e_writers_per_language_working_directories() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for relative in ["e2e/java", "e2e/python", "test_apps/java"] {
+        std::fs::create_dir_all(dir.path().join(relative)).unwrap();
+    }
+
+    assert_eq!(
+        poly_probe_roots(&e2e_poly_config(), dir.path()),
+        vec![
+            dir.path().to_path_buf(),
+            dir.path().join("e2e/java"),
+            dir.path().join("e2e/python"),
+            dir.path().join("test_apps/java"),
+        ]
+    );
+}
+
 /// Test-only convenience wrapper around [`real_formatter_drift_with`], bound to the real
 /// [`crate::cli::pipeline::is_tool_available`] -- production has no call site for this exact
 /// binding since alef#458 threads a single `is_available` closure through both
@@ -45,6 +84,7 @@ fn candidate(full_path: &std::path::Path, disk_content: &str, rendered_content: 
         full_path: full_path.to_path_buf(),
         disk_content: disk_content.to_string(),
         rendered_content: rendered_content.to_string(),
+        format_context: full_path.parent().unwrap_or(full_path).to_path_buf(),
     }
 }
 
@@ -191,8 +231,9 @@ fn formatter_managed_e2e_manifests_verify_after_generation_formatting() {
             }
         }
         anyhow::ensure!(
-            formatted == 3,
-            "formatter reached {formatted} of 3 canonical manifest names"
+            formatted == paths.len(),
+            "formatter reached {formatted} of {} canonical manifest names",
+            paths.len()
         );
         Ok(())
     };
@@ -211,6 +252,65 @@ fn formatter_managed_e2e_manifests_verify_after_generation_formatting() {
         stats.compared, 3,
         "all three formatter-managed manifests must be compared"
     );
+}
+
+/// The E2E writer runs poly from `<output>/<language>`, not from the repository root. This is
+/// observable when the repo config excludes `**/e2e/**`: root-relative discovery declines Java
+/// packages containing an `e2e` component, while language-local discovery formats them. ~keep
+#[test]
+fn formatter_candidates_run_in_the_same_language_context_as_the_e2e_writer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let language_root = dir.path().join("e2e/java");
+    let real_path = language_root.join("src/test/java/io/example/e2e/SmokeTest.java");
+    std::fs::create_dir_all(real_path.parent().expect("test parent")).unwrap();
+    std::fs::write(&real_path, "formatted\n").unwrap();
+    let mut item = candidate(&real_path, "formatted\n", "raw render\n");
+    item.format_context = language_root.clone();
+
+    let runner = |paths: &[std::path::PathBuf], context: &std::path::Path| {
+        anyhow::ensure!(
+            context == language_root,
+            "wrong formatter context: {}",
+            context.display()
+        );
+        anyhow::ensure!(paths.len() == 1, "expected one staged path, got {}", paths.len());
+        std::fs::write(&paths[0], "formatted\n")?;
+        Ok(())
+    };
+    let (drifted, stats) = real_formatter_drift_with_runner(vec![item], dir.path(), &|tool| tool == "poly", &runner);
+
+    assert!(
+        drifted.is_empty(),
+        "writer-context formatting must converge: {drifted:?}"
+    );
+    assert_eq!(stats.compared, 1);
+}
+
+#[test]
+fn drift_check_ignores_create_once_seeds_even_if_an_older_copy_has_a_marker() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join(".gitattributes");
+    let old = crate::cli::pipeline::ensure_generated_header(&path, "old/** linguist-generated=true\n");
+    let hash = crate::core::hash::compute_file_hash(&old);
+    std::fs::write(&path, crate::core::hash::inject_hash_line(&old, &hash)).unwrap();
+    let seed = crate::core::backend::GeneratedFile {
+        path: std::path::PathBuf::from(".gitattributes"),
+        content: "new/** linguist-generated=true\n".to_string(),
+        generated_header: false,
+    };
+
+    let (drifted, stats) = drifted_marked_paths_with(
+        std::slice::from_ref(&seed),
+        dir.path(),
+        &drift_test_config(),
+        &|_tool| false,
+    );
+
+    assert!(
+        drifted.is_empty(),
+        "create-once content is consumer-owned after creation"
+    );
+    assert_eq!(stats, FormatDriftStats::default());
 }
 
 /// Helper for the control test above: format `content` once through the real `poly fmt --fix`,

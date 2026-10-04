@@ -75,6 +75,44 @@ fn a_path_poly_does_reach_is_owned_by_poly() {
     );
 }
 
+/// E2E generation invokes poly with both its target and working directory set to the language
+/// directory. A repo-root probe can exclude that same path through `**/e2e/**`, so the most
+/// specific writer scope must replace the broader repo answer rather than being unioned with it.
+/// ~keep
+#[test]
+fn the_e2e_language_scope_replaces_repo_root_coverage_for_its_paths() {
+    let base = std::path::Path::new("/repo");
+    let language_root = base.join("e2e/java");
+    let path = language_root.join("src/test/java/io/example/e2e/SmokeTest.java");
+    let coverage = PolyCoverage::covering_scopes([
+        (base.to_path_buf(), Vec::new()),
+        (language_root.clone(), vec![path.clone()]),
+    ]);
+
+    assert_eq!(coverage.covers(&path), Some(true));
+    assert_eq!(coverage.format_context(&path), Some(language_root.as_path()));
+    assert_eq!(
+        formatting_owner(&path, &plain_config(), base, &coverage),
+        FormattingOwner::Poly
+    );
+}
+
+#[test]
+fn a_more_specific_e2e_scope_can_decline_a_path_the_repo_scope_reached() {
+    let base = std::path::Path::new("/repo");
+    let language_root = base.join("e2e/java");
+    let path = language_root.join("pom.xml");
+    let coverage =
+        PolyCoverage::covering_scopes([(base.to_path_buf(), vec![path.clone()]), (language_root, Vec::new())]);
+
+    assert_eq!(coverage.covers(&path), Some(false));
+    assert_eq!(
+        formatting_owner(&path, &plain_config(), base, &coverage),
+        FormattingOwner::None,
+        "the writer's language-local scope is authoritative for an E2E path"
+    );
+}
+
 #[test]
 fn zig_package_source_is_owned_by_zig_fmt_not_poly() {
     let base = std::path::Path::new("/repo");

@@ -93,11 +93,12 @@
 //! # Why one batched `poly fmt --fix` invocation, not one per file
 //!
 //! `poly` is a subprocess; spawning one per candidate turns a verify run into hundreds of
-//! process spawns. Every staged temp file is handed to a single
-//! [`crate::cli::pipeline::poly_format_strict`] invocation instead. ~keep
+//! process spawns. Staged files are batched by the writer context that owns them: one repo-root
+//! invocation plus one per E2E language directory represented in the candidates. ~keep
 
 use crate::cli::pipeline::{FormattingOwner, PolyCoverage, formatting_owner};
 use crate::core::config::ResolvedCrateConfig;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// One file whose fast (`.rs`) prediction does not apply and whose bytes poly does shape,
@@ -108,6 +109,7 @@ pub(super) struct RealFormatCandidate {
     pub(super) full_path: PathBuf,
     pub(super) disk_content: String,
     pub(super) rendered_content: String,
+    pub(super) format_context: PathBuf,
 }
 
 /// What [`drifted_marked_paths`] was able to say about each candidate, and what it could not.
@@ -172,8 +174,8 @@ impl FormatDriftStats {
 }
 
 /// Compare every `candidates` entry against disk through a real `poly fmt --fix` pass over a
-/// colocated temp copy of its rendered bytes -- see the module doc for why the exact basename is
-/// preserved and why formatting is batched. Returns the drifted subset (as `full_path.display()` strings, matching every
+/// colocated temp copy of its rendered bytes -- see the module doc for why the exact basename and
+/// writer working directory are preserved and why formatting is batched. Returns the drifted subset (as `full_path.display()` strings, matching every
 /// other list in [`super::MissingAndFrozenFiles`]) alongside [`FormatDriftStats`].
 ///
 /// Gates the up-front "is poly even installed" decision through the injected `is_available`
@@ -196,7 +198,7 @@ fn real_formatter_drift_with(
 
 fn real_formatter_drift_with_runner(
     candidates: Vec<RealFormatCandidate>,
-    base_dir: &Path,
+    _base_dir: &Path,
     is_available: &dyn Fn(&str) -> bool,
     run_formatter: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
 ) -> (Vec<String>, FormatDriftStats) {
@@ -230,12 +232,22 @@ fn real_formatter_drift_with_runner(
         )
         .collect();
 
-    let temp_paths: Vec<PathBuf> = temp_files
-        .iter()
-        .filter_map(|temp_file| temp_file.as_ref().map(|file| file.path().to_path_buf()))
-        .collect();
-    if let Err(error) = run_formatter(&temp_paths, base_dir) {
-        tracing::warn!("poly fmt over the drift-check temp copies failed (non-fatal): {error:#}");
+    let mut paths_by_context: BTreeMap<&Path, Vec<PathBuf>> = BTreeMap::new();
+    for (candidate, temp_file) in candidates.iter().zip(&temp_files) {
+        if let Some(temp_file) = temp_file {
+            paths_by_context
+                .entry(&candidate.format_context)
+                .or_default()
+                .push(temp_file.path().to_path_buf());
+        }
+    }
+    for (context, paths) in paths_by_context {
+        if let Err(error) = run_formatter(&paths, context) {
+            tracing::warn!(
+                context = %context.display(),
+                "poly fmt over the drift-check temp copies failed (non-fatal): {error:#}"
+            );
+        }
     }
 
     let mut drifted = Vec::new();
@@ -331,7 +343,9 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<S
 /// `.rs` short-circuits ahead of all three, and `.md` does too when poly is absent -- see
 /// [`render_predicts_final_bytes`] and the module doc for why those two are not the same case.
 ///
-/// Deliberately excludes every file `frozen_managed_paths` would already report: an unmarked
+/// Deliberately excludes every create-once seed: after its first creation the writer preserves
+/// its consumer-owned bytes, so a current render is not an authoritative freshness prediction.
+/// Also excludes every file `frozen_managed_paths` would already report: an unmarked
 /// file is that check's condition, not this one's, and reporting the same withheld write under
 /// two headings would describe it as two findings with two remedies. Also excludes
 /// [`crate::cli::pipeline::is_base64_binary_output`] paths.
@@ -382,6 +396,9 @@ fn drifted_marked_paths_with(
         if crate::cli::pipeline::is_base64_binary_output(&file.path) {
             continue;
         }
+        if crate::cli::commands::adopt::is_create_once_seed(file) {
+            continue;
+        }
         let rendered = managed_output_for_drift(file, &existing, base_dir);
         let Some(output) = rendered.into_iter().next() else {
             continue;
@@ -403,6 +420,10 @@ fn drifted_marked_paths_with(
                 full_path,
                 disk_content: existing,
                 rendered_content: output.content,
+                format_context: coverage
+                    .format_context(&base_dir.join(&file.path))
+                    .unwrap_or(base_dir)
+                    .to_path_buf(),
             }),
             FormattingOwner::Residual(command) => {
                 tracing::debug!(
@@ -462,8 +483,8 @@ fn managed_output_for_drift(
 /// The roots to ask poly about, matching the roots alef's own formatting pass hands it.
 ///
 /// `base_dir` is what [`crate::cli::pipeline::converge_full_regen_formatting`] formats on a full
-/// regen. The e2e output roots are added because `e2e::format::format_language` names each
-/// `<output>/<lang>` directory DIRECTLY, and poly's discovery answers differently for a
+/// regen. Each existing e2e language directory is added because `e2e::format::format_language`
+/// names each `<output>/<lang>` directory DIRECTLY and runs from there, and poly's discovery answers differently for a
 /// directory it was handed than for the same directory reached by walking down from a parent --
 /// a gitignored tree is the ordinary case. Asking about both is what keeps the reader's notion
 /// of coverage equal to the writer's rather than merely similar. Non-existent roots are dropped:
@@ -471,10 +492,21 @@ fn managed_output_for_drift(
 fn poly_probe_roots(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<PathBuf> {
     let mut roots = vec![base_dir.to_path_buf()];
     if let Some(e2e) = &config.e2e {
-        for root in [e2e.output.as_str(), e2e.registry.output.as_str()] {
-            let path = base_dir.join(root);
-            if path.is_dir() && !roots.contains(&path) {
-                roots.push(path);
+        for output in [e2e.output.as_str(), e2e.registry.output.as_str()] {
+            let output_root = base_dir.join(output);
+            let Ok(entries) = std::fs::read_dir(output_root) else {
+                continue;
+            };
+            let mut language_roots: Vec<PathBuf> = entries
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir())
+                .collect();
+            language_roots.sort();
+            for path in language_roots {
+                if !roots.contains(&path) {
+                    roots.push(path);
+                }
             }
         }
     }

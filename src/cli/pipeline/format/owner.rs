@@ -34,8 +34,10 @@
 //! gitignore-style glob matching in Rust. A reimplementation is a second generator of the same
 //! answer and would drift from poly's behaviour the moment poly changes an engine, a default
 //! exclude, or its depth-matching rules -- which is the very failure this module exists to end.
-//! One probe over the same roots the writer formats costs ~5s on a large consumer tree and
-//! replaces staging thousands of temp files. ~keep
+//! Probing each writer scope separately preserves poly's root-relative discovery semantics and
+//! replaces staging thousands of temp files. E2E scopes cannot be unioned into the repo-root
+//! probe: their writer runs with `<output>/<language>` as both target and working directory, so
+//! the same repository exclude can classify a path differently in the two contexts. ~keep
 
 use crate::core::config::ResolvedCrateConfig;
 use std::collections::HashSet;
@@ -99,19 +101,24 @@ pub(crate) enum FormattingOwner {
     None,
 }
 
-/// The set of paths poly's own pass actually reaches, as reported by poly itself.
+/// The paths poly's own pass actually reaches in each writer scope, as reported by poly itself.
 ///
 /// `None` means the probe could not run (poly absent, or it failed); callers must treat that as
 /// "unknown", never as "covers nothing" -- an empty coverage set and an unavailable probe would
 /// otherwise render identically, and the second would silently reclassify every poly-owned path
 /// as [`FormattingOwner::None`], which is exactly the vacuous pass this module exists to stop.
 pub(crate) struct PolyCoverage {
+    scopes: Option<Vec<PolyScope>>,
+}
+
+struct PolyScope {
+    root: PathBuf,
     covered: Option<HashSet<PathBuf>>,
 }
 
 impl PolyCoverage {
-    /// Ask poly which files it would process under `roots`, using the same excludes the writer's
-    /// own pass applies.
+    /// Ask poly which files it would process under each root, using that root as both target and
+    /// working directory exactly as the corresponding writer pass does. ~keep
     ///
     /// `--fix-generated` is **load-bearing and must never be dropped**. poly skips any file
     /// carrying a `<tool>:hash:<hex>` line (`"hash-stamped generated file (pass --fix-generated
@@ -126,27 +133,36 @@ impl PolyCoverage {
     /// `--check` throughout: this writes nothing.
     pub(crate) fn probe(roots: &[PathBuf], base_dir: &Path) -> Self {
         if roots.is_empty() || !super::is_tool_available("poly") {
-            return Self { covered: None };
+            return Self { scopes: None };
         }
-        let mut args: Vec<String> = vec![
-            "fmt".to_owned(),
-            "--check".to_owned(),
-            "--format".to_owned(),
-            "json".to_owned(),
-            "--fix-generated".to_owned(),
-        ];
-        args.extend(roots.iter().map(|root| root.to_string_lossy().into_owned()));
-        push_poly_format_excludes(&mut args);
-        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        match super::run_poly_capturing(&arg_refs, base_dir) {
-            Ok(stdout) => Self {
-                covered: parse_poly_coverage(&stdout, base_dir),
-            },
-            Err(error) => {
-                tracing::debug!("poly coverage probe failed ({error:#}); drift check will not claim poly coverage");
-                Self { covered: None }
-            }
-        }
+        let scopes = roots
+            .iter()
+            .map(|root| {
+                let root = normalize_path(root, base_dir);
+                let mut args: Vec<String> = vec![
+                    "fmt".to_owned(),
+                    "--check".to_owned(),
+                    "--format".to_owned(),
+                    "json".to_owned(),
+                    "--fix-generated".to_owned(),
+                    root.to_string_lossy().into_owned(),
+                ];
+                push_poly_format_excludes(&mut args);
+                let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+                let covered = match super::run_poly_capturing(&arg_refs, &root) {
+                    Ok(stdout) => parse_poly_coverage(&stdout, &root),
+                    Err(error) => {
+                        tracing::debug!(
+                            scope = %root.display(),
+                            "poly coverage probe failed ({error:#}); drift check will not claim coverage in this scope"
+                        );
+                        None
+                    }
+                };
+                PolyScope { root, covered }
+            })
+            .collect();
+        Self { scopes: Some(scopes) }
     }
 
     /// An explicitly empty coverage set: poly reaches nothing. Test-only seam, so the
@@ -155,19 +171,54 @@ impl PolyCoverage {
     #[cfg(test)]
     pub(crate) fn covering(paths: impl IntoIterator<Item = PathBuf>) -> Self {
         Self {
-            covered: Some(paths.into_iter().collect()),
+            scopes: Some(vec![PolyScope {
+                root: PathBuf::new(),
+                covered: Some(paths.into_iter().collect()),
+            }]),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn covering_scopes(scopes: impl IntoIterator<Item = (PathBuf, Vec<PathBuf>)>) -> Self {
+        Self {
+            scopes: Some(
+                scopes
+                    .into_iter()
+                    .map(|(root, paths)| PolyScope {
+                        root,
+                        covered: Some(paths.into_iter().collect()),
+                    })
+                    .collect(),
+            ),
         }
     }
 
     /// An unavailable probe -- see the type doc for why this is distinct from an empty one.
     #[cfg(test)]
     pub(crate) fn unavailable() -> Self {
-        Self { covered: None }
+        Self { scopes: None }
     }
 
     /// `Some(true)`/`Some(false)` once the probe has run; `None` when it could not.
     pub(crate) fn covers(&self, path: &Path) -> Option<bool> {
-        self.covered.as_ref().map(|covered| covered.contains(path))
+        self.scope_for(path)?
+            .covered
+            .as_ref()
+            .map(|covered| covered.contains(path))
+    }
+
+    /// The working directory the writer uses when it asks poly to format `path`. This remains
+    /// known even when that scope's coverage probe failed. ~keep
+    pub(crate) fn format_context(&self, path: &Path) -> Option<&Path> {
+        self.scope_for(path).map(|scope| scope.root.as_path())
+    }
+
+    fn scope_for(&self, path: &Path) -> Option<&PolyScope> {
+        self.scopes
+            .as_ref()?
+            .iter()
+            .filter(|scope| path.starts_with(&scope.root))
+            .max_by_key(|scope| scope.root.components().count())
     }
 }
 
@@ -200,7 +251,10 @@ fn parse_poly_coverage(stdout: &str, base_dir: &Path) -> Option<HashSet<PathBuf>
 
 /// Resolve one path poly reported to the same absolute, `.`-free form alef uses internally.
 fn normalize_reported_path(reported: &str, base_dir: &Path) -> PathBuf {
-    let raw = Path::new(reported);
+    normalize_path(Path::new(reported), base_dir)
+}
+
+fn normalize_path(raw: &Path, base_dir: &Path) -> PathBuf {
     let joined = if raw.is_absolute() {
         raw.to_path_buf()
     } else {
