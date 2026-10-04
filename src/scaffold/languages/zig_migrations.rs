@@ -806,7 +806,10 @@ pub fn build(b: *std.Build) void {
         let after = std::fs::read_to_string(path).expect("read preserved build.zig");
 
         assert!(!changed, "custom C translation wiring must not be migrated");
-        assert_eq!(after, existing, "custom C translation wiring must remain byte-identical");
+        assert_eq!(
+            after, existing,
+            "custom C translation wiring must remain byte-identical"
+        );
     }
 
     /// Regression for the defect that failed every generated Zig snippet in a consumer repo whose
