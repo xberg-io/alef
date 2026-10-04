@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The GNU Make security control probe quotes a normalized marker path and invokes its intended
+  target, avoiding Windows path parsing false failures before the security assertion runs.
+
 ## [0.105.0] - 2026-10-06
 
 ### Added
@@ -1801,14 +1806,6 @@ Three generator fixes, all found by a consumer whose bindings were shipping brok
   The former `class <Name>` declarations and references are removed.
 
 ### Fixed
-
-- **The GNU Make control probe now uses a portable quoted path on Windows.**
-  Its test-only shell expansion check now runs the `all` target with a Git-for-Windows-compatible
-  marker path, avoiding a false failure before the generated Makefile security assertion runs.
-
-- **The PHP extension-directory resolution test now passes portable paths on Windows.**
-  The isolated PHP subprocess receives a forward-slash `extension_dir` value so its registry-mode
-  fallback is exercised instead of silently retaining the nonexistent local-build path.
 
 - **PyO3 enum variant and tag getters no longer emit Rust-rejected raw identifiers.**
   The special Rust path keywords `self`, `Self`, `crate`, and `super` cannot be written as
