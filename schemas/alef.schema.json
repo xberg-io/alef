@@ -828,6 +828,14 @@
             "null"
           ]
         },
+        "handle_teardown": {
+          "default": null,
+          "description": "Async function that consumes a generated handle after fixture assertions\ncomplete (Rust generator only).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "header": {
           "default": null,
           "description": "C header file name (C only).",

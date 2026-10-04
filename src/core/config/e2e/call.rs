@@ -594,6 +594,10 @@ pub struct CallOverride {
     /// (e.g. visitor) the fixture cannot supply directly. (Rust generator only.)
     #[serde(default)]
     pub extra_args: Vec<String>,
+    /// Async function that consumes a generated handle after fixture assertions
+    /// complete (Rust generator only).
+    #[serde(default)]
+    pub handle_teardown: Option<String>,
     /// Per-rust override of the call-level `returns_result`. When set, takes
     /// precedence over `CallConfig.returns_result` for the Rust generator only.
     /// Useful when one binding is fallible while others are not.

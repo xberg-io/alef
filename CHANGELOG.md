@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Rust e2e call overrides can set `handle_teardown` to await explicit cleanup of generated handle
+  owners after fixture assertions.
+
 - E2E fixtures can set `test_timeout_ms` to override the inferred TypeScript test timeout for one
   test without widening the timeout of the generated suite.
 - `#[alef(transparent_string(from = "...", into = "..."))]` preserves explicit, non-`Display`

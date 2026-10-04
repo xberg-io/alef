@@ -141,6 +141,7 @@ pub fn render_test_function(
     // Resolve Rust-specific overrides early since we need them for returns_result.
     let call_recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
     let rust_overrides = call_recipe.override_config;
+    let handle_teardown = call_recipe.rust_handle_teardown(e2e_config.call.overrides.get("rust"));
 
     // Determine if this call returns Result<T, E>. Per-rust override takes precedence.
     // When client_factory is set, methods always return Result<T>.
@@ -152,8 +153,9 @@ pub fn render_test_function(
             call_config.returns_result
         });
 
-    // Tests with a mock server are always async (Axum requires a Tokio runtime).
-    let is_async = call_config.r#async || has_mock;
+    // Tests with a mock server or an async handle teardown need a Tokio runtime.
+    let call_is_async = call_config.r#async || has_mock;
+    let is_async = call_is_async || handle_teardown.is_some();
     let _ = writeln!(out, "#[test]");
     let _ = writeln!(out, "fn test_{fn_name}() {{");
     if is_async {
@@ -384,7 +386,7 @@ pub fn render_test_function(
 
     let args_str = arg_exprs.join(", ");
 
-    let await_suffix = if is_async { ".await" } else { "" };
+    let await_suffix = if call_is_async { ".await" } else { "" };
 
     // When client_factory is configured, emit a `create_client` call and dispatch
     // methods on the returned client object instead of calling free functions.
@@ -430,12 +432,25 @@ pub fn render_test_function(
         // Wrap the primary call in a match so engine-creation errors propagate as Err
         // instead of panicking via .expect().
         if let Some(ref handle_name) = error_context_handle_name {
-            let _ = writeln!(out, "    let {result_var} = match {handle_name}_result {{");
-            let _ = writeln!(out, "        Err(e) => Err(e),");
-            let _ = writeln!(out, "        Ok({handle_name}) => {{");
-            let _ = writeln!(out, "            {call_expr}{await_suffix}");
-            let _ = writeln!(out, "        }}");
-            let _ = writeln!(out, "    }};");
+            if handle_teardown.is_some_and(|(_, teardown_handle)| teardown_handle == handle_name.as_str()) {
+                let _ = writeln!(
+                    out,
+                    "    let ({result_var}, {handle_name}) = match {handle_name}_result {{"
+                );
+                let _ = writeln!(out, "        Err(e) => (Err(e), None),");
+                let _ = writeln!(out, "        Ok({handle_name}) => {{");
+                let _ = writeln!(out, "            let {result_var} = {call_expr}{await_suffix};");
+                let _ = writeln!(out, "            ({result_var}, Some({handle_name}))");
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "    }};");
+            } else {
+                let _ = writeln!(out, "    let {result_var} = match {handle_name}_result {{");
+                let _ = writeln!(out, "        Err(e) => Err(e),");
+                let _ = writeln!(out, "        Ok({handle_name}) => {{");
+                let _ = writeln!(out, "            {call_expr}{await_suffix}");
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "    }};");
+            }
         } else {
             let _ = writeln!(out, "    let {result_var} = {call_expr}{await_suffix};");
         }
@@ -470,6 +485,7 @@ pub fn render_test_function(
                 None,
             );
         }
+        render_handle_teardown(out, handle_teardown, true);
         if is_async {
             let _ = writeln!(out, "    }});");
         }
@@ -729,11 +745,26 @@ pub fn render_test_function(
         );
     }
 
+    render_handle_teardown(out, handle_teardown, false);
+
     if is_async {
         let _ = writeln!(out, "    }});");
     }
     let _ = writeln!(out, "}}");
     finalize_test_body(final_out, fixture, e2e_config, has_mock, &body_buf);
+}
+
+fn render_handle_teardown(out: &mut String, teardown: Option<(&str, &str)>, handle_is_optional: bool) {
+    let Some((function, handle)) = teardown else {
+        return;
+    };
+    if handle_is_optional {
+        let _ = writeln!(out, "    if let Some({handle}) = {handle} {{");
+        let _ = writeln!(out, "        {function}({handle}).await;");
+        let _ = writeln!(out, "    }}");
+    } else {
+        let _ = writeln!(out, "    {function}({handle}).await;");
+    }
 }
 
 /// Emit mock-server setup (if needed) and the rendered body to the test file output.

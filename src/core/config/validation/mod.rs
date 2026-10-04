@@ -35,12 +35,42 @@ pub fn validate_resolved(config: &ResolvedCrateConfig) -> Result<(), AlefError> 
     validate_tools(&config.tools)?;
     validate_package_metadata(config)?;
     validate_e2e_env_keys(config)?;
+    validate_rust_handle_teardown(config)?;
     validate_extra_lint_paths(config)?;
     dependency_versions::validate_dependency_version_overrides(config)?;
     validate_section("test", &config.test, test_main_fields, |c| c.precondition.as_deref())?;
     validate_test_e2e_precondition(&config.test)?;
     validate_trait_bridges(config)?;
     validate_dart_library_name(config)?;
+    Ok(())
+}
+
+fn validate_rust_handle_teardown(config: &ResolvedCrateConfig) -> Result<(), AlefError> {
+    let Some(e2e) = &config.e2e else {
+        return Ok(());
+    };
+    for (call_name, call) in
+        std::iter::once(("call", &e2e.call)).chain(e2e.calls.iter().map(|(name, call)| (name.as_str(), call)))
+    {
+        let Some(value) = call
+            .overrides
+            .get("rust")
+            .and_then(|rust| rust.handle_teardown.as_deref())
+        else {
+            continue;
+        };
+        let trimmed = value.trim();
+        if trimmed.is_empty()
+            || trimmed != value
+            || !crate::core::keywords::is_valid_rust_ident_chars(trimmed)
+            || crate::core::keywords::RUST_KEYWORDS.contains(&trimmed)
+        {
+            return Err(AlefError::Config(format!(
+                "crate `{}`: e2e.{call_name}.overrides.rust.handle_teardown value `{value}` must be a bare, non-keyword Rust identifier without surrounding whitespace",
+                config.name
+            )));
+        }
+    }
     Ok(())
 }
 

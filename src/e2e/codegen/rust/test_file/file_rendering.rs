@@ -62,9 +62,10 @@ pub fn render_test_file(
     let rust_call_override = e2e_config.call.overrides.get("rust");
     let client_factory = rust_call_override.and_then(|o| o.client_factory.as_deref());
 
+    let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
+
     // Http fixtures and pure stub fixtures use different code paths and don't import the call function.
     if file_has_call_based && client_factory.is_none() {
-        let mut imported: std::collections::BTreeSet<(String, String)> = std::collections::BTreeSet::new();
         for fixture in fixtures.iter().filter(|f| {
             if f.mock_response.is_some() {
                 return true;
@@ -93,18 +94,36 @@ pub fn render_test_file(
             let mod_name = resolve_module_for_call(call_config, dep_name);
             imported.insert((mod_name, fn_name));
         }
-        // Emit use statements, grouping by module when possible.
-        let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
-        for (mod_name, fn_name) in &imported {
-            by_module.entry(mod_name.clone()).or_default().push(fn_name.clone());
+    }
+
+    for fixture in fixtures.iter().filter(|fixture| fixture.http.is_none()) {
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        if resolve_function_name_for_call(call_config).is_empty() {
+            continue;
         }
-        for (mod_name, fns) in &by_module {
-            if fns.len() == 1 {
-                let _ = writeln!(out, "use {mod_name}::{};", fns[0]);
-            } else {
-                let joined = fns.join(", ");
-                let _ = writeln!(out, "use {mod_name}::{{{joined}}};");
-            }
+        let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+        if let Some((teardown, _)) = recipe.rust_handle_teardown(rust_call_override) {
+            imported.insert((resolve_module_for_call(call_config, dep_name), teardown.to_string()));
+        }
+    }
+
+    // Emit use statements, grouping by module when possible.
+    let mut by_module: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for (mod_name, fn_name) in &imported {
+        by_module.entry(mod_name.clone()).or_default().push(fn_name.clone());
+    }
+    for (mod_name, fns) in &by_module {
+        if fns.len() == 1 {
+            let _ = writeln!(out, "use {mod_name}::{};", fns[0]);
+        } else {
+            let joined = fns.join(", ");
+            let _ = writeln!(out, "use {mod_name}::{{{joined}}};");
         }
     }
 
@@ -249,11 +268,19 @@ pub fn render_test_file(
     // plain fixture whose resolved call config sets `async = true`) — not only the ones
     // that also spawn a mock server — so `mod common;` is declared whenever any of those
     // are present, independent of `mod mock_server;` below. ~keep
-    let file_needs_common = fixtures.iter().any(|f| {
-        f.needs_mock_server()
-            || e2e_config
-                .resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input)
-                .r#async
+    let file_needs_common = fixtures.iter().any(|fixture| {
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let recipe = crate::e2e::codegen::recipe::E2eCallRecipe::resolve("rust", fixture, call_config, type_defs);
+        let has_handle_teardown = fixture.http.is_none()
+            && !resolve_function_name_for_call(call_config).is_empty()
+            && recipe.rust_handle_teardown(rust_call_override).is_some();
+        fixture.needs_mock_server() || call_config.r#async || has_handle_teardown
     });
     if file_needs_common {
         let _ = writeln!(out, "mod common;");

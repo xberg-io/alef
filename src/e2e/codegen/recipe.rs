@@ -83,6 +83,20 @@ impl<'a> E2eCallRecipe<'a> {
         arg.element_type.as_deref().or(self.options_type)
     }
 
+    /// Resolve the configured Rust teardown function together with its owned handle.
+    pub fn rust_handle_teardown(&self, default_override: Option<&'a CallOverride>) -> Option<(&'a str, &'a str)> {
+        let function = self
+            .override_config
+            .and_then(|config| config.handle_teardown.as_deref())
+            .or_else(|| default_override.and_then(|config| config.handle_teardown.as_deref()))?
+            .trim();
+        if function.is_empty() {
+            return None;
+        }
+        let handle = self.args.iter().find(|arg| arg.arg_type == "handle")?;
+        Some((function, handle.name.as_str()))
+    }
+
     /// Resolve the concrete constructor/deserializer type for one `json_object`
     /// argument value.
     ///
