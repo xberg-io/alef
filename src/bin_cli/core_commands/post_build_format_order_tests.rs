@@ -180,6 +180,7 @@ fn run_generate(root: &Path) {
 /// it planted its fake `out/`. Clearing it leaves cargo to resolve the fixture's own tree, which
 /// is what `point_cargo_at_an_external_target_dir` then redirects via `.cargo/config.toml`. ~keep
 fn try_generate(root: &Path) -> anyhow::Result<()> {
+    let _poly_path = crate::test_support::tool_available_with_stable_path("poly");
     let _skip_guard = SkipCommandsGuard::set("cargo");
     let _target_dir_guard = crate::test_support::ClearedCargoTargetDirGuard::clear();
     let _cwd = crate::test_support::CwdGuard::enter(root);
@@ -212,9 +213,9 @@ fn try_generate(root: &Path) -> anyhow::Result<()> {
 /// nothing to do. ~keep
 #[test]
 fn generate_formats_post_build_output_before_stamping_it() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(poly) = crate::test_support::tool_path_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);
@@ -248,7 +249,7 @@ fn generate_formats_post_build_output_before_stamping_it() {
     // and a silent pass on the pre-fix ordering. With the flag, poly inspects the stamped body
     // regardless of the hash line, so this assertion is a genuine second check on the same
     // property, not a check that cannot fail. ~keep
-    let check = std::process::Command::new("poly")
+    let check = std::process::Command::new(poly)
         .args(["fmt", "--check", "--fix-generated", "."])
         .current_dir(&root)
         .output()
@@ -275,9 +276,9 @@ fn generate_formats_post_build_output_before_stamping_it() {
 /// `poly fmt --fix .`) able to invalidate the stamp again. ~keep
 #[test]
 fn generate_reaches_a_fixed_point_on_post_build_output_across_repeat_runs() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    let Some(poly) = crate::test_support::tool_path_with_stable_path("poly") else {
         return;
-    }
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path().canonicalize().unwrap_or_else(|_| dir.path().to_path_buf());
     write_fixture_workspace(&root);
@@ -301,7 +302,7 @@ fn generate_reaches_a_fixed_point_on_post_build_output_across_repeat_runs() {
     // fmt --fix .` before committing" trigger the observed incident described. A file that
     // reached a genuine fixed point on the first `alef generate` run must survive this
     // untouched too.
-    let fix = std::process::Command::new("poly")
+    let fix = std::process::Command::new(poly)
         .args(["fmt", "--fix", "."])
         .current_dir(&root)
         .output()
@@ -369,6 +370,7 @@ fn write_all_fixture_workspace(root: &Path) {
 /// `test_support::REAL_CARGO_LOCK`'s doc. ~keep
 fn run_all(root: &Path) {
     let _cargo_lock = crate::test_support::RealCargoGuard::acquire();
+    let _poly_path = crate::test_support::tool_available_with_stable_path("poly");
     let _skip_guard = SkipCommandsGuard::set("cargo");
     let _target_dir_guard = crate::test_support::ClearedCargoTargetDirGuard::clear();
     let _cwd = crate::test_support::CwdGuard::enter(root);
@@ -418,7 +420,9 @@ fn poly_would_reformat(file_name: &str, content: &str) -> bool {
     let probe = tempfile::tempdir().expect("probe tempdir");
     let path = probe.path().join(file_name);
     std::fs::write(&path, content).expect("write probe file");
-    let output = crate::test_support::spawn_from_stable_dir("poly")
+    let poly = crate::test_support::tool_path_with_stable_path("poly")
+        .expect("poly was available at test entry but disappeared before the format probe");
+    let output = crate::test_support::spawn_from_stable_dir(poly)
         .args(["fmt", "--check", "--fix-generated", "--no-cache"])
         .arg(&path)
         .output()
@@ -459,7 +463,7 @@ fn raw_scaffold_content(root: &Path, relative_path: &str) -> String {
 /// shipped with whatever the scaffold template emitted. ~keep
 #[test]
 fn all_formats_scaffold_output_before_stamping_it() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    if crate::test_support::tool_path_with_stable_path("poly").is_none() {
         return;
     }
     let dir = tempfile::tempdir().expect("tempdir");
@@ -505,7 +509,7 @@ fn all_formats_scaffold_output_before_stamping_it() {
 /// `alef:hash:` line, which is byte-for-byte what a pre-fix run left behind. ~keep
 #[test]
 fn all_reformats_a_scaffold_file_left_stamped_and_uncanonical_by_an_earlier_run() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    if crate::test_support::tool_path_with_stable_path("poly").is_none() {
         return;
     }
     let dir = tempfile::tempdir().expect("tempdir");
@@ -552,6 +556,7 @@ fn all_reformats_a_scaffold_file_left_stamped_and_uncanonical_by_an_earlier_run(
 /// five per-phase `finalize_hashes` checkpoints, all ahead of its single format pass) landed
 /// in, and which `all_commands.rs`'s author could not touch.
 fn run_generate_python(root: &Path) {
+    let _poly_path = crate::test_support::tool_available_with_stable_path("poly");
     let _skip_guard = SkipCommandsGuard::set("cargo");
     let _cwd = crate::test_support::CwdGuard::enter(root);
     let context = DispatchContext {
@@ -580,7 +585,7 @@ fn run_generate_python(root: &Path) {
 /// reach. ~keep
 #[test]
 fn generate_formats_scaffold_output_before_stamping_it() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    if crate::test_support::tool_path_with_stable_path("poly").is_none() {
         return;
     }
     let dir = tempfile::tempdir().expect("tempdir");
@@ -626,7 +631,7 @@ fn generate_formats_scaffold_output_before_stamping_it() {
 /// empty `Some(&changed_languages)`. ~keep
 #[test]
 fn generate_reformats_a_scaffold_file_left_stamped_and_uncanonical_by_an_earlier_run() {
-    if !crate::cli::pipeline::is_tool_available("poly") {
+    if crate::test_support::tool_path_with_stable_path("poly").is_none() {
         return;
     }
     let dir = tempfile::tempdir().expect("tempdir");

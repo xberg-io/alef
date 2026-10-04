@@ -127,10 +127,16 @@ impl PathWithoutToolGuard {
     pub(crate) fn exclude(tool_name: &str) -> Self {
         let lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
         let previous = std::env::var_os("PATH");
+        let path_extensions = if cfg!(windows) {
+            Some(std::env::var_os("PATHEXT").unwrap_or_else(|| std::ffi::OsString::from(".COM;.EXE;.BAT;.CMD")))
+        } else {
+            None
+        };
         let filtered = previous
             .as_ref()
             .map(|path| {
-                let kept = std::env::split_paths(path).filter(|dir| !dir.join(tool_name).is_file());
+                let kept = std::env::split_paths(path)
+                    .filter(|dir| !directory_contains_tool(dir, tool_name, path_extensions.as_deref()));
                 std::env::join_paths(kept).unwrap_or_default()
             })
             .unwrap_or_default();
@@ -139,6 +145,29 @@ impl PathWithoutToolGuard {
         unsafe { std::env::set_var("PATH", &filtered) };
         Self { _lock: lock, previous }
     }
+}
+
+fn directory_contains_tool(dir: &Path, tool_name: &str, path_extensions: Option<&std::ffi::OsStr>) -> bool {
+    if dir.join(tool_name).is_file() {
+        return true;
+    }
+    if Path::new(tool_name).extension().is_some() {
+        return false;
+    }
+    path_extensions.is_some_and(|extensions| {
+        extensions.to_string_lossy().split(';').any(|extension| {
+            let extension = extension.trim();
+            if extension.is_empty() {
+                return false;
+            }
+            let mut candidate = std::ffi::OsString::from(tool_name);
+            if !extension.starts_with('.') {
+                candidate.push(".");
+            }
+            candidate.push(extension);
+            dir.join(candidate).is_file()
+        })
+    })
 }
 
 impl Drop for PathWithoutToolGuard {
@@ -169,16 +198,19 @@ pub(crate) fn tool_available_with_stable_path(tool_name: &str) -> Option<MutexGu
     crate::cli::pipeline::is_tool_available(tool_name).then_some(lock)
 }
 
-#[cfg(test)]
-mod stable_path_tests {
-    #[test]
-    fn stable_path_probe_returns_none_for_a_missing_tool() {
-        assert!(
-            super::tool_available_with_stable_path("alef-missing-poly-negative-control-487488").is_none(),
-            "a genuinely absent tool must keep the guarded availability check's skip path reachable"
-        );
-    }
+/// Resolve `tool_name` while [`PATH_LOCK`] prevents a concurrent test from rewriting `PATH`.
+///
+/// Use this instead of [`tool_available_with_stable_path`] when the caller can spawn an absolute
+/// executable path: resolution is protected from [`PathWithoutToolGuard`], but the lock is not
+/// held for the potentially long-running subprocess. ~keep
+pub(crate) fn tool_path_with_stable_path(tool_name: &str) -> Option<PathBuf> {
+    let _lock = PATH_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    which::which(tool_name).ok()
 }
+
+#[cfg(test)]
+#[path = "test_support/stable_path_tests.rs"]
+mod stable_path_tests;
 
 /// The single lock serializing every test in this crate that spawns a REAL `cargo` subprocess
 /// (`cargo fmt --all`, `cargo sort -n -w`, `cargo sort --check`, ...) outside of alef's own
