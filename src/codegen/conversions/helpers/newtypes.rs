@@ -106,7 +106,7 @@ pub(crate) fn apply_field_newtype_from_core(expr: &str, ty: &TypeRef, optional: 
         TypeRef::Optional(_) => format!("({expr}).map(|value| value.0)"),
         TypeRef::Vec(_) => format!("({expr}).into_iter().map(|value| value.0).collect()"),
         _ if optional => format!("({expr}).map(|value| value.0)"),
-        _ => apply_newtype_from_core(expr, wrapper),
+        _ => format!("({expr}).0"),
     }
 }
 
