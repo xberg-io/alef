@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.14] - 2026-10-04
+
 ### Fixed
 
 - Generated C and PHP e2e shell scripts use canonical shell formatting before any optional
