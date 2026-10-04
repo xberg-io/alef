@@ -463,7 +463,11 @@ fn test_gen_wasm_error_converter() {
     assert!(output.contains("js_sys::Object::new()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
-    assert!(output.contains("sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size, .. } =>"));
+    assert!(
+        output
+            .contains("if let sample_markup_rs::ConversionError::InputTooLarge { observed_size, max_size, .. } = &e {")
+    );
+    assert!(!output.contains("match &e {"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"observed_size\".into(), &observed_size_value).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"max_size\".into(), &max_size_value).ok()"));
     for field in ["source", "internal_limit", "skipped_limit", "feature_limit"] {
@@ -478,6 +482,25 @@ fn test_gen_wasm_error_converter() {
     assert!(output.contains("\"io_error\""));
     assert!(output.contains("\"other\""));
     assert!(output.contains("#[allow(dead_code)]"));
+}
+
+#[test]
+fn test_gen_wasm_error_converter_uses_match_for_multiple_payload_variants() {
+    let mut error = sample_error();
+    for (name, field_name) in [("InputTooLarge", "observed_size"), ("RateLimited", "retry_after")] {
+        let mut field = named_field(field_name);
+        field.ty = TypeRef::Primitive(PrimitiveType::U64);
+        error.variants.push(ErrorVariant {
+            name: name.to_string(),
+            fields: vec![field],
+            ..Default::default()
+        });
+    }
+
+    let output = gen_wasm_error_converter(&error, "sample_markup_rs", &[]);
+    assert!(output.contains("match &e {"));
+    assert!(output.contains("sample_markup_rs::ConversionError::InputTooLarge { observed_size, .. } =>"));
+    assert!(output.contains("sample_markup_rs::ConversionError::RateLimited { retry_after, .. } =>"));
 }
 
 #[test]

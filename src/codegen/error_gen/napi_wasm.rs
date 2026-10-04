@@ -73,7 +73,7 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
         code_variants.push((pattern, code));
     }
     let default_code = to_snake_case(&error.name);
-    let payload_arms = error
+    let payload_variants = error
         .variants
         .iter()
         .filter(|variant| !variant.is_unit && !variant.is_tuple)
@@ -94,29 +94,31 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
                 return None;
             }
             let names = fields.iter().map(|field| field.name.as_str()).collect::<Vec<_>>();
-            let writes = names
-                .iter()
-                .map(|name| {
-                    format!(
-                        "            let {name}_value = serde_wasm_bindgen::to_value({name})\n                .unwrap_or(wasm_bindgen::JsValue::NULL);\n            js_sys::Reflect::set(&obj, &\"{name}\".into(), &{name}_value).ok();"
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            Some(format!(
-                "        {rust_path}::{} {{ {}, .. }} => {{\n{writes}\n        }}",
-                variant.name,
-                names.join(", ")
+            Some((
+                format!("{rust_path}::{} {{ {}, .. }}", variant.name, names.join(", ")),
+                names,
             ))
         })
         .collect::<Vec<_>>();
-    let payload_projection = if payload_arms.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "    match &e {{\n{},\n        _ => {{}}\n    }}\n",
-            payload_arms.join(",\n")
-        )
+    let payload_projection = match payload_variants.as_slice() {
+        [] => String::new(),
+        [(pattern, names)] => format!(
+            "    if let {pattern} = &e {{\n{}\n    }}\n",
+            wasm_payload_writes(names, "        ")
+        ),
+        variants => {
+            let arms = variants
+                .iter()
+                .map(|(pattern, names)| {
+                    format!(
+                        "        {pattern} => {{\n{}\n        }}",
+                        wasm_payload_writes(names, "            ")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",\n");
+            format!("    match &e {{\n{arms},\n        _ => {{}}\n    }}\n")
+        }
     };
 
     let code_fn = crate::codegen::template_env::render(
@@ -140,6 +142,18 @@ pub fn gen_wasm_error_converter(error: &ErrorDef, core_import: &str, source_rema
     );
 
     format!("{}\n\n{}", code_fn, converter_fn)
+}
+
+fn wasm_payload_writes(names: &[&str], indent: &str) -> String {
+    names
+        .iter()
+        .map(|name| {
+            format!(
+                "{indent}let {name}_value = serde_wasm_bindgen::to_value({name})\n{indent}    .unwrap_or(wasm_bindgen::JsValue::NULL);\n{indent}js_sys::Reflect::set(&obj, &\"{name}\".into(), &{name}_value).ok();"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn wasm_payload_type_is_safe(ty: &crate::core::ir::TypeRef) -> bool {
