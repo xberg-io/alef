@@ -23,7 +23,8 @@ import java.util.Optional;
 {%- endif %}
 @SuppressWarnings("PMD")
 public final class {{ class_name }} {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER =
+        JsonMapperFactory.withNativePathSerialization(new ObjectMapper());
 {% for writer in typed_list_writers %}
     private static final ObjectWriter {{ writer.constant }} =
         {{ writer.expression }};

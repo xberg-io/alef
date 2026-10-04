@@ -506,10 +506,8 @@ mod object_mapper_tests {
         gen_helper_methods(&mut output, "sample", "Sample", &crate::core::ir::ApiSurface::default());
 
         assert!(
-            output.contains(
-                "module.addSerializer(java.nio.file.Path.class, com.fasterxml.jackson.databind.ser.std.ToStringSerializer.instance);"
-            ),
-            "generated Java must serialize Path with Path.toString(), not Jackson's file URI default:\n{output}"
+            output.contains("return JsonMapperFactory.withNativePathSerialization(mapper);"),
+            "generated Java must apply the native Path serializer after its other modules:\n{output}"
         );
     }
 }

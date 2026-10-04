@@ -10,6 +10,7 @@ pub(crate) use opaque::gen_opaque_handle_class;
 pub(crate) use records::gen_record_type;
 pub(crate) use serializers::{
     gen_byte_array_serializer, gen_duration_millis_deserializer, gen_duration_millis_serializer,
+    gen_json_mapper_factory,
 };
 
 #[cfg(test)]

@@ -30,7 +30,7 @@ use helpers::{gen_exception_class, gen_infrastructure_exception_class, gen_json_
 use native_lib::gen_native_lib;
 use types::{
     gen_byte_array_serializer, gen_duration_millis_deserializer, gen_duration_millis_serializer, gen_enum_class,
-    gen_opaque_handle_class, gen_record_type,
+    gen_json_mapper_factory, gen_opaque_handle_class, gen_record_type,
 };
 
 /// Re-exported so e2e assertion codegen can ask "did the Java binding backend emit this enum
@@ -402,6 +402,12 @@ impl Backend for JavaBackend {
         files.push(GeneratedFile {
             path: base_path.join("ByteArraySerializer.java"),
             content: gen_byte_array_serializer(&package),
+            generated_header: true,
+        });
+
+        files.push(GeneratedFile {
+            path: base_path.join("JsonMapperFactory.java"),
+            content: gen_json_mapper_factory(&package),
             generated_header: true,
         });
 

@@ -41,12 +41,13 @@
     private static final ObjectMapper STREAM_MAPPER = createStreamMapper();
 
     private static ObjectMapper createStreamMapper() {
-        return new ObjectMapper()
+        var mapper = new ObjectMapper()
             .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
             .findAndRegisterModules()
             .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
             .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
             .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true);
+        return JsonMapperFactory.withNativePathSerialization(mapper);
     }
 {%- endif %}
     // CPD-ON

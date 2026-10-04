@@ -8,12 +8,16 @@
 class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
   private static final long serialVersionUID = 1L;
   /** ObjectMapper for serializing inner variant values. */
-  private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER =
-      new com.fasterxml.jackson.databind.ObjectMapper()
-          .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
-          .setPropertyNamingStrategy(
-              com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
-          .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
+  private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = createMapper();
+
+  private static com.fasterxml.jackson.databind.ObjectMapper createMapper() {
+    var mapper = new com.fasterxml.jackson.databind.ObjectMapper()
+        .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())
+        .setPropertyNamingStrategy(
+            com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
+        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
+    return JsonMapperFactory.withNativePathSerialization(mapper);
+  }
 
   /** Creates a new {{ class_name }}Serializer. */
   {{ class_name }}Serializer() {

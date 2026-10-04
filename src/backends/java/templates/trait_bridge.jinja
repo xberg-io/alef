@@ -27,7 +27,8 @@ public final class {{ bridge_class }} implements AutoCloseable {
 
     private static final Linker LINKER = Linker.nativeLinker();
     private static final MethodHandles.Lookup LOOKUP = MethodHandles.lookup();
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON =
+        JsonMapperFactory.withNativePathSerialization(new ObjectMapper());
     private static final System.Logger LOGGER = System.getLogger({{ bridge_class }}.class.getName());
 
     /** Live registry — keeps Arenas and upcall stubs alive past the register call. */

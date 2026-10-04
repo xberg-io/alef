@@ -69,6 +69,20 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
     out
 }
 
+pub(crate) fn gen_json_mapper_factory(package: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = crate::backends::java::template_env::render(
+        "java_file_header.jinja",
+        minijinja::context! { header => header, package => package, imports => Vec::<&str>::new() },
+    );
+    out.push('\n');
+    out.push_str(&crate::backends::java::template_env::render(
+        "json_mapper_factory.jinja",
+        minijinja::context! {},
+    ));
+    out
+}
+
 /// Generate `DurationMillisSerializer.java`: converts the ergonomic millisecond `Long`
 /// used for Rust `Duration` fields into the `{"secs":<u64>,"nanos":<u32>}` object shape
 /// `std::time::Duration`'s serde derive actually produces. See
