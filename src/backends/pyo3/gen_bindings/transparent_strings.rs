@@ -1,9 +1,191 @@
 use crate::codegen::generators::{AdapterBodies, RustBindingConfig};
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{MethodDef, NewtypeWrapper, ParamDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{
+    FieldDef, MethodDef, NewtypeContainer, NewtypeWrapper, ParamDef, ReceiverKind, TypeDef, TypeRef,
+};
 
 fn has_explicit_paths(wrapper: &str) -> bool {
     NewtypeWrapper::decode(wrapper).is_ok_and(|decoded| !decoded.explicit_paths().is_empty())
+}
+
+fn flattened_optional_wrapper(wrapper: &str) -> String {
+    let NewtypeWrapper::Explicit(mut paths) =
+        NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated before PyO3 codegen")
+    else {
+        return wrapper.to_string();
+    };
+    for path in &mut paths {
+        if path.containers.first() == Some(&NewtypeContainer::Optional) {
+            path.containers.remove(0);
+        }
+    }
+    NewtypeWrapper::encode_explicit(&paths)
+}
+
+fn contains_named(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_named(inner),
+        TypeRef::Map(key, value) => contains_named(key) || contains_named(value),
+        _ => false,
+    }
+}
+
+fn convert_named_leaves(expr: &str, ty: &TypeRef) -> String {
+    if !contains_named(ty) {
+        return expr.to_string();
+    }
+    match ty {
+        TypeRef::Named(_) => format!("({expr}).into()"),
+        TypeRef::Optional(inner) => {
+            let converted = convert_named_leaves("value", inner);
+            format!("({expr}).map(|value| {converted})")
+        }
+        TypeRef::Vec(inner) => {
+            let converted = convert_named_leaves("value", inner);
+            format!("({expr}).into_iter().map(|value| {converted}).collect()")
+        }
+        TypeRef::Map(key, value) => {
+            let converted_key = convert_named_leaves("key", key);
+            let converted_value = convert_named_leaves("value", value);
+            format!("({expr}).into_iter().map(|(key, value)| ({converted_key}, {converted_value})).collect()")
+        }
+        _ => expr.to_string(),
+    }
+}
+
+fn explicit_field_wrapper(field: &FieldDef) -> Option<&str> {
+    field
+        .newtype_wrapper
+        .as_deref()
+        .filter(|wrapper| has_explicit_paths(wrapper))
+}
+
+fn binding_to_core_field_expr(field: &FieldDef, binding_name: &str) -> Option<String> {
+    let wrapper = explicit_field_wrapper(field)?;
+    let source = format!("val.{binding_name}");
+    let flattened = field.optional && matches!(field.ty, TypeRef::Optional(_));
+    if !flattened {
+        return None;
+    }
+    let adjusted_wrapper = flattened_optional_wrapper(wrapper);
+    let converted =
+        crate::codegen::conversions::helpers::apply_field_newtype_to_core(&source, &field.ty, false, &adjusted_wrapper);
+    let converted = convert_named_leaves(&converted, &field.ty);
+    Some(format!("({converted}).map(Some)"))
+}
+
+fn core_to_binding_field_expr(field: &FieldDef) -> Option<String> {
+    let wrapper = explicit_field_wrapper(field)?;
+    let flattened = field.optional && matches!(field.ty, TypeRef::Optional(_));
+    if !flattened {
+        return None;
+    }
+    let source = format!("val.{}.flatten()", field.name);
+    let adjusted_wrapper = flattened_optional_wrapper(wrapper);
+    let converted = crate::codegen::conversions::helpers::apply_field_newtype_from_core(
+        &source,
+        &field.ty,
+        false,
+        &adjusted_wrapper,
+    );
+    Some(convert_named_leaves(&converted, &field.ty))
+}
+
+fn expression_terminator(source: &str, terminator: char) -> Option<usize> {
+    let mut delimiters = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in source.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '(' | '[' | '{' | '<' => delimiters.push(ch),
+            ')' | ']' | '}' | '>' => {
+                delimiters.pop()?;
+            }
+            _ if ch == terminator && delimiters.is_empty() => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn replace_field_conversion(generated: &str, field_name: &str, expr: &str) -> Option<String> {
+    let initializer_prefix = format!("{field_name}: ");
+    let assignment_prefix = format!("__result.{field_name} = ");
+    let initializers: Vec<_> = generated
+        .match_indices(&initializer_prefix)
+        .map(|(index, _)| index)
+        .collect();
+    let assignments: Vec<_> = generated
+        .match_indices(&assignment_prefix)
+        .map(|(index, _)| index)
+        .collect();
+    let (start, prefix, terminator) = match (initializers.as_slice(), assignments.as_slice()) {
+        ([start], []) => (*start, initializer_prefix, ','),
+        ([], [start]) => (*start, assignment_prefix, ';'),
+        _ => return None,
+    };
+    let expression_start = start + prefix.len();
+    let relative_end = expression_terminator(&generated[expression_start..], terminator)?;
+    let end = expression_start + relative_end + terminator.len_utf8();
+    let mut output = generated.to_string();
+    output.replace_range(start..end, &format!("{prefix}{expr}{terminator}"));
+    Some(output)
+}
+
+pub(super) fn rewrite_binding_to_core_fields(
+    mut generated: String,
+    typ: &TypeDef,
+    config: &crate::codegen::conversions::ConversionConfig<'_>,
+) -> String {
+    for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
+        let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
+        if let Some(expr) = binding_to_core_field_expr(field, &binding_name) {
+            generated = replace_field_conversion(&generated, &field.name, &expr).unwrap_or_else(|| {
+                panic!(
+                    "PyO3 explicit-wrapper binding-to-core conversion for {}.{} must replace exactly one field",
+                    typ.name, field.name
+                )
+            });
+        }
+    }
+    generated
+}
+
+pub(super) fn rewrite_core_to_binding_fields(
+    mut generated: String,
+    typ: &TypeDef,
+    config: &crate::codegen::conversions::ConversionConfig<'_>,
+) -> String {
+    for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
+        let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
+        if let Some(expr) = core_to_binding_field_expr(field) {
+            generated = replace_field_conversion(&generated, &binding_name, &expr).unwrap_or_else(|| {
+                panic!(
+                    "PyO3 explicit-wrapper core-to-binding conversion for {}.{} must replace exactly one field",
+                    typ.name, field.name
+                )
+            });
+        }
+    }
+    generated
 }
 
 fn converted_param(param: &ParamDef, promoted: bool, index: usize) -> Option<(String, String)> {
@@ -215,15 +397,35 @@ pub(super) fn add_adapters(
 mod tests {
     use super::*;
     use crate::backends::pyo3::type_map::Pyo3Mapper;
-    use crate::core::ir::{NewtypeContainer, NewtypeWrapperMetadata, PrimitiveType};
+    use crate::core::ir::{NewtypeWrapperMetadata, PrimitiveType};
 
     fn wrapper(containers: Vec<NewtypeContainer>) -> String {
+        wrapper_with_operations(containers, "from", "into_inner")
+    }
+
+    fn wrapper_with_operations(containers: Vec<NewtypeContainer>, from: &str, into: &str) -> String {
         NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
             "toolkit::SecretString",
-            "from",
-            "into_inner",
+            from,
+            into,
             containers,
         )])
+    }
+
+    fn wrappers(paths: &[Vec<NewtypeContainer>]) -> String {
+        NewtypeWrapper::encode_explicit(
+            &paths
+                .iter()
+                .map(|containers| {
+                    NewtypeWrapperMetadata::transparent_string(
+                        "toolkit::SecretString",
+                        "from",
+                        "into_inner",
+                        containers.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn adapter(typ: &TypeDef, method: &MethodDef) -> Option<String> {
@@ -272,6 +474,232 @@ mod tests {
                 "__alef_wrapper_arg_0.as_ref()".to_string()
             ))
         );
+    }
+
+    #[test]
+    fn flattened_nested_optional_field_uses_explicit_wrapper_operations_in_both_directions() {
+        let field = FieldDef {
+            name: "credential".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: true,
+            newtype_wrapper: Some(wrapper_with_operations(
+                vec![NewtypeContainer::Optional, NewtypeContainer::Optional],
+                "new_secret",
+                "expose_secret",
+            )),
+            ..FieldDef::default()
+        };
+
+        let to_core = binding_to_core_field_expr(&field, "credential").expect("binding-to-core conversion");
+        assert!(to_core.contains("SecretString::new_secret(value)"), "{to_core}");
+        assert!(to_core.ends_with(".map(Some)"), "{to_core}");
+        assert!(!to_core.contains("(value).map(|value|"), "{to_core}");
+
+        let from_core = core_to_binding_field_expr(&field).expect("core-to-binding conversion");
+        assert!(from_core.contains("val.credential.flatten()"), "{from_core}");
+        assert!(from_core.contains("expose_secret()"), "{from_core}");
+        assert!(!from_core.contains("to_string()"), "{from_core}");
+    }
+
+    #[test]
+    fn flattened_nested_collection_converts_wrapper_keys_and_named_values() {
+        let field = FieldDef {
+            name: "segments".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("Segment".to_string())),
+            ))))),
+            optional: true,
+            newtype_wrapper: Some(wrappers(&[vec![
+                NewtypeContainer::Optional,
+                NewtypeContainer::Optional,
+                NewtypeContainer::Vec,
+                NewtypeContainer::MapKey,
+            ]])),
+            ..FieldDef::default()
+        };
+
+        let to_core = binding_to_core_field_expr(&field, "segments").expect("binding-to-core conversion");
+        assert!(to_core.contains("toolkit::SecretString::from(key)"), "{to_core}");
+        assert!(to_core.contains("(value).into()"), "{to_core}");
+        assert!(to_core.ends_with(".map(Some)"), "{to_core}");
+
+        let from_core = core_to_binding_field_expr(&field).expect("core-to-binding conversion");
+        assert!(from_core.contains("val.segments.flatten()"), "{from_core}");
+        assert!(from_core.contains("(key).into_inner()"), "{from_core}");
+        assert!(from_core.contains("(value).into()"), "{from_core}");
+    }
+
+    #[test]
+    fn field_conversion_replacement_requires_exactly_one_emitted_form() {
+        let initializer = "        Self {\n            credential: stale,\n        }\n";
+        let replaced =
+            replace_field_conversion(initializer, "credential", "converted").expect("one initializer must be replaced");
+        assert!(replaced.contains("credential: converted,"), "{replaced}");
+        assert!(!replaced.contains("credential: stale,"), "{replaced}");
+
+        let assignment = "        let mut __result = Config::default();\n        __result.credential = stale;\n";
+        let replaced = replace_field_conversion(assignment, "credential", "converted")
+            .expect("one default-seeded assignment must be replaced");
+        assert!(replaced.contains("__result.credential = converted;"), "{replaced}");
+        assert!(!replaced.contains("__result.credential = stale;"), "{replaced}");
+
+        assert_eq!(
+            replace_field_conversion("Self { other: stale }\n", "credential", "converted"),
+            None
+        );
+        assert_eq!(
+            replace_field_conversion("__result.credential = stale", "credential", "converted"),
+            None
+        );
+        assert_eq!(
+            replace_field_conversion(
+                "            credential: first,\n            credential: second,\n",
+                "credential",
+                "converted",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn field_conversion_replacement_respects_expression_boundaries() {
+        let cases = [
+            (
+                "compact initializer",
+                "Self { credential: stale, other: keep }",
+                "Self { credential: converted, other: keep }",
+            ),
+            (
+                "compact assignment",
+                "let mut out = Config::default(); __result.credential = stale; __result.other = keep;",
+                "let mut out = Config::default(); __result.credential = converted; __result.other = keep;",
+            ),
+            (
+                "nested delimiters",
+                "Self { credential: call((a, b), [c, d], Thing { x: 1, y: 2 }), other: keep }",
+                "Self { credential: converted, other: keep }",
+            ),
+            (
+                "quoted terminators",
+                r#"Self { credential: call("a,;\"quoted\""), other: keep }"#,
+                "Self { credential: converted, other: keep }",
+            ),
+            (
+                "generic comma",
+                "Self { credential: values.collect::<HashMap<_, _>>(), other: keep }",
+                "Self { credential: converted, other: keep }",
+            ),
+        ];
+
+        for (case_name, input, expected) in cases {
+            assert_eq!(
+                replace_field_conversion(input, "credential", "converted").as_deref(),
+                Some(expected),
+                "{case_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_flattened_optional_boxed_wrapper_keeps_shared_conversions() {
+        let typ = TypeDef {
+            name: "Config".to_string(),
+            rust_path: "toolkit::Config".to_string(),
+            fields: vec![FieldDef {
+                name: "secret".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                is_boxed: true,
+                newtype_wrapper: Some(wrapper_with_operations(
+                    vec![NewtypeContainer::Optional],
+                    "new_secret",
+                    "expose_secret",
+                )),
+                ..FieldDef::default()
+            }],
+            ..TypeDef::default()
+        };
+        let config = crate::codegen::conversions::ConversionConfig::default();
+        let shared_to_core = crate::codegen::conversions::gen_from_binding_to_core_cfg(&typ, "toolkit", &config);
+        assert_eq!(
+            rewrite_binding_to_core_fields(shared_to_core.clone(), &typ, &config),
+            shared_to_core
+        );
+
+        let shared_from_core = crate::codegen::conversions::gen_from_core_to_binding_cfg(
+            &typ,
+            "toolkit",
+            &ahash::AHashSet::new(),
+            &config,
+        );
+        assert_eq!(
+            rewrite_core_to_binding_fields(shared_from_core.clone(), &typ, &config),
+            shared_from_core
+        );
+    }
+
+    #[test]
+    fn field_rewrite_preserves_default_seed_and_binding_exclusions() {
+        let typ = TypeDef {
+            name: "Config".to_string(),
+            rust_path: "toolkit::Config".to_string(),
+            has_default: true,
+            fields: vec![
+                FieldDef {
+                    name: "credential".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    optional: true,
+                    newtype_wrapper: Some(wrapper(vec![NewtypeContainer::Optional, NewtypeContainer::Optional])),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "hidden".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    optional: true,
+                    binding_excluded: true,
+                    newtype_wrapper: Some(wrapper(vec![NewtypeContainer::Optional, NewtypeContainer::Optional])),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "timeout".to_string(),
+                    ty: TypeRef::Duration,
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        };
+        let config = crate::codegen::conversions::ConversionConfig {
+            option_duration_on_defaults: true,
+            ..Default::default()
+        };
+        let to_core = rewrite_binding_to_core_fields(
+            crate::codegen::conversions::gen_from_binding_to_core_cfg(&typ, "toolkit", &config),
+            &typ,
+            &config,
+        );
+        assert!(to_core.contains("__result.credential ="), "{to_core}");
+        assert!(to_core.contains("SecretString::from(value)"), "{to_core}");
+        assert!(
+            to_core.contains("let mut __result = toolkit::Config::default()"),
+            "{to_core}"
+        );
+        assert!(!to_core.contains("(value).map(|value|"), "{to_core}");
+        assert!(!to_core.contains("hidden:"), "{to_core}");
+
+        let from_core = rewrite_core_to_binding_fields(
+            crate::codegen::conversions::gen_from_core_to_binding_cfg(
+                &typ,
+                "toolkit",
+                &ahash::AHashSet::new(),
+                &config,
+            ),
+            &typ,
+            &config,
+        );
+        assert!(from_core.contains("credential:"), "{from_core}");
+        assert!(from_core.contains("into_inner()"), "{from_core}");
+        assert!(!from_core.contains("hidden:"), "{from_core}");
     }
 
     #[test]

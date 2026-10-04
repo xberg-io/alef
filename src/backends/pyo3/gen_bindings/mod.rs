@@ -765,17 +765,24 @@ impl Backend for Pyo3Backend {
             if input_types.contains(&typ.name)
                 && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
+                let conversion =
+                    crate::codegen::conversions::gen_from_binding_to_core_cfg(typ, &core_import, &pyo3_conversion_cfg);
+                builder.add_item(&transparent_strings::rewrite_binding_to_core_fields(
+                    conversion,
                     typ,
-                    &core_import,
                     &pyo3_conversion_cfg,
                 ));
             }
             if crate::codegen::conversions::core_to_binding_from_impl_emitted(typ, &core_to_binding) {
-                builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
+                let conversion = crate::codegen::conversions::gen_from_core_to_binding_cfg(
                     typ,
                     &core_import,
                     &conversion_opaque_set,
+                    &pyo3_conversion_cfg,
+                );
+                builder.add_item(&transparent_strings::rewrite_core_to_binding_fields(
+                    conversion,
+                    typ,
                     &pyo3_conversion_cfg,
                 ));
             }
