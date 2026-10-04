@@ -5,14 +5,13 @@ use ahash::AHashSet;
 
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::cfg::is_host_owned_rust_path;
-use crate::codegen::conversions::helpers::{
-    apply_explicit_field_newtype_from_core, apply_explicit_field_newtype_to_core, is_explicit_newtype,
-};
+use crate::codegen::conversions::helpers::{apply_explicit_field_newtype_from_core, is_explicit_newtype};
 use crate::codegen::field_init::struct_field_init;
 use crate::codegen::naming::{to_node_name, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 
 use super::functions::{emit_rustdoc, typeref_to_core_type_str};
+use super::types::types_helpers::apply_newtype_to_core;
 use super::types::types_helpers::class_backed_field_type;
 use super::types::types_helpers::complex_newtype_field_uses_jsvalue;
 
@@ -245,6 +244,14 @@ fn box_explicit_newtype_expr(expr: String, field: &FieldDef) -> String {
     }
 }
 
+fn apply_wasm_explicit_field_newtype_to_core(expr: &str, field: &FieldDef) -> Option<String> {
+    field
+        .newtype_wrapper
+        .as_deref()
+        .filter(|wrapper| is_explicit_newtype(wrapper))
+        .map(|wrapper| apply_newtype_to_core(expr, &field.ty, field.optional, wrapper))
+}
+
 fn tagged_enum_binding_to_core_expr(
     field: &FieldDef,
     field_ident: &str,
@@ -267,7 +274,7 @@ fn tagged_enum_binding_to_core_expr(
                  wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
             )
         };
-        let converted = apply_explicit_field_newtype_to_core(&decoded, field).unwrap_or(decoded);
+        let converted = apply_wasm_explicit_field_newtype_to_core(&decoded, field).unwrap_or(decoded);
         return box_explicit_newtype_expr(converted, field);
     }
 
@@ -282,7 +289,7 @@ fn tagged_enum_binding_to_core_expr(
             "val.{field_ident}.clone().unwrap_or_else(|| \
              wasm_bindgen::throw_str(\"missing enum field {field_ident}\"))"
         );
-        let converted = apply_explicit_field_newtype_to_core(&required, field).unwrap_or(required);
+        let converted = apply_wasm_explicit_field_newtype_to_core(&required, field).unwrap_or(required);
         return box_explicit_newtype_expr(converted, field);
     }
     if field_optional {
@@ -294,7 +301,7 @@ fn tagged_enum_binding_to_core_expr(
             }
             _ => format!("val.{field_ident}.clone()"),
         };
-        let converted = apply_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
+        let converted = apply_wasm_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
         return box_explicit_newtype_expr(converted, field);
     }
     let base = match field_ty {
@@ -319,7 +326,7 @@ fn tagged_enum_binding_to_core_expr(
         ),
         _ => format!("val.{field_ident}.clone().unwrap_or_default()"),
     };
-    let converted = apply_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
+    let converted = apply_wasm_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
     box_explicit_newtype_expr(converted, field)
 }
 

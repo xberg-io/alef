@@ -3718,6 +3718,119 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
 }
 
 #[test]
+fn test_required_tagged_data_enum_field_decode_does_not_require_default() {
+    let backend = WasmBackend;
+    let authentication = EnumDef {
+        name: "Authentication".to_string(),
+        rust_path: "test_lib::Authentication".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![EnumVariant {
+            serde_untagged: false,
+            name: "Bearer".to_string(),
+            fields: vec![make_field("token", TypeRef::String, false)],
+            is_tuple: false,
+            doc: String::new(),
+            is_default: false,
+            serde_rename: Some("bearer".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            originally_had_data_fields: true,
+            cfg: None,
+            version: Default::default(),
+        }],
+        methods: vec![],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        has_default: false,
+        serde_tag: Some("type".to_string()),
+        serde_content: None,
+        serde_untagged: false,
+        serde_rename_all: None,
+        rename_all_fields: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    };
+    assert!(!authentication.has_default, "fixture must reproduce a non-Default enum");
+
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![make_type_def(
+            "Report",
+            vec![make_field(
+                "authentication",
+                TypeRef::Named("Authentication".to_string()),
+                false,
+            )],
+        )],
+        functions: vec![FunctionDef {
+            name: "submit_report".to_string(),
+            rust_path: "test_lib::submit_report".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "report".to_string(),
+                ty: TypeRef::Named("Report".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![authentication],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config())
+        .expect("generate_bindings should succeed");
+    let content = &files.iter().find(|file| file.path.ends_with("lib.rs")).unwrap().content;
+    let required_decode = "authentication: serde_wasm_bindgen::from_value(val.authentication.clone())\
+        .unwrap_or_else(|error| wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))";
+
+    assert!(
+        content.contains(required_decode),
+        "required tagged enum must throw on invalid input: {content}"
+    );
+    assert!(
+        !content
+            .contains("authentication: serde_wasm_bindgen::from_value(val.authentication.clone()).unwrap_or_default()"),
+        "required tagged enum must not impose Default: {content}"
+    );
+}
+
+#[test]
 fn test_constructor_params_camel_case() {
     let backend = WasmBackend;
 

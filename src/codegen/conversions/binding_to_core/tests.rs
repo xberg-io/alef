@@ -2,8 +2,10 @@ use super::gen_from_binding_to_core;
 use super::gen_from_binding_to_core_cfg;
 use super::gen_from_lifetime_type_constructor;
 use crate::codegen::conversions::ConversionConfig;
-use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, MethodDef, TypeDef, TypeRef};
+use crate::codegen::conversions::config::WasmCamelRecasedEnum;
+use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, MethodDef, ParamDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
+use std::collections::HashMap;
 
 fn type_with_field(field: FieldDef) -> TypeDef {
     TypeDef {
@@ -33,6 +35,206 @@ fn type_with_field(field: FieldDef) -> TypeDef {
         has_private_fields: false,
         version: Default::default(),
     }
+}
+
+fn wasm_required_tagged_config(tagged_names: &AHashSet<String>) -> ConversionConfig<'_> {
+    ConversionConfig {
+        type_name_prefix: "Wasm",
+        map_uses_jsvalue: true,
+        tagged_data_enum_names: Some(tagged_names),
+        wasm_required_tagged_enum_decode_throws: true,
+        option_duration_on_defaults: true,
+        ..Default::default()
+    }
+}
+
+fn required_authentication_field(boxed: bool) -> FieldDef {
+    FieldDef {
+        name: "authentication".to_string(),
+        ty: TypeRef::Named("Authentication".to_string()),
+        is_boxed: boxed,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn wasm_required_tagged_decode_is_structural_across_owner_construction_paths() {
+    let tagged_names: AHashSet<String> = ["Authentication".to_string()].into_iter().collect();
+    let config = wasm_required_tagged_config(&tagged_names);
+
+    let mut ordinary = type_with_field(required_authentication_field(false));
+    ordinary.has_default = false;
+    let ordinary_out = gen_from_binding_to_core_cfg(&ordinary, "sample_core", &config);
+    assert!(
+        ordinary_out.contains("authentication: serde_wasm_bindgen::from_value"),
+        "{ordinary_out}"
+    );
+
+    let mut boxed = ordinary.clone();
+    boxed.fields[0].is_boxed = true;
+    let boxed_out = gen_from_binding_to_core_cfg(&boxed, "sample_core", &config);
+    assert!(
+        boxed_out.contains("authentication: Box::new(serde_wasm_bindgen::from_value"),
+        "{boxed_out}"
+    );
+
+    let mut private_default = ordinary.clone();
+    private_default.has_default = true;
+    private_default.has_private_fields = true;
+    let private_out = gen_from_binding_to_core_cfg(&private_default, "sample_core", &config);
+    assert!(
+        private_out.contains("let mut __result = crate::ProcessConfig::default()"),
+        "{private_out}"
+    );
+    assert!(
+        private_out.contains("__result.authentication = serde_wasm_bindgen::from_value"),
+        "{private_out}"
+    );
+
+    let mut default_seeded = ordinary.clone();
+    default_seeded.has_default = true;
+    default_seeded.fields.push(FieldDef {
+        name: "timeout".to_string(),
+        ty: TypeRef::Duration,
+        ..Default::default()
+    });
+    let default_seeded_out = gen_from_binding_to_core_cfg(&default_seeded, "sample_core", &config);
+    assert!(
+        default_seeded_out.contains("let mut __result = crate::ProcessConfig::default()"),
+        "{default_seeded_out}"
+    );
+    assert!(
+        default_seeded_out.contains("__result.authentication = serde_wasm_bindgen::from_value"),
+        "{default_seeded_out}"
+    );
+
+    let mut explicit_constructor = ordinary;
+    explicit_constructor.methods.push(MethodDef {
+        name: "new".to_string(),
+        params: vec![ParamDef {
+            name: "authentication".to_string(),
+            ty: TypeRef::Named("Authentication".to_string()),
+            ..Default::default()
+        }],
+        return_type: TypeRef::Named("ProcessConfig".to_string()),
+        is_static: true,
+        ..Default::default()
+    });
+    let constructor_out = gen_from_binding_to_core_cfg(&explicit_constructor, "sample_core", &config);
+    assert!(constructor_out.contains("Self::new("), "{constructor_out}");
+    assert!(
+        constructor_out.contains("serde_wasm_bindgen::from_value(val.authentication.clone())"),
+        "{constructor_out}"
+    );
+
+    for output in [
+        &ordinary_out,
+        &boxed_out,
+        &private_out,
+        &default_seeded_out,
+        &constructor_out,
+    ] {
+        assert_strict_wasm_decode(output);
+    }
+}
+
+fn assert_strict_wasm_decode(output: &str) {
+    assert!(output.contains("wasm_bindgen::throw_val"), "{output}");
+    assert!(
+        !output.contains("from_value(val.authentication.clone()).unwrap_or_default()"),
+        "{output}"
+    );
+}
+
+fn lifetime_authentication_owner() -> TypeDef {
+    let mut typ = type_with_field(required_authentication_field(false));
+    typ.has_default = false;
+    typ.has_lifetime_params = true;
+    typ.methods.push(MethodDef {
+        name: "with_owned".to_string(),
+        params: vec![ParamDef {
+            name: "authentication".to_string(),
+            ty: TypeRef::Named("Authentication".to_string()),
+            ..Default::default()
+        }],
+        return_type: TypeRef::Named("ProcessConfig".to_string()),
+        is_static: true,
+        ..Default::default()
+    });
+    typ
+}
+
+#[test]
+fn wasm_lifetime_constructor_required_tagged_field_uses_throwing_decode() {
+    let tagged_names: AHashSet<String> = ["Authentication".to_string()].into_iter().collect();
+    let config = wasm_required_tagged_config(&tagged_names);
+    let output = gen_from_lifetime_type_constructor(
+        &lifetime_authentication_owner(),
+        "crate::ProcessConfig",
+        "WasmProcessConfig",
+        "crate",
+        &config,
+    )
+    .expect("lifetime constructor conversion");
+
+    assert!(
+        output.contains("serde_wasm_bindgen::from_value(val.authentication.clone())"),
+        "{output}"
+    );
+    assert!(output.contains("wasm_bindgen::throw_val"), "{output}");
+    assert!(!output.contains("val.authentication.into()"), "{output}");
+    assert!(!output.contains("unwrap_or_default"), "{output}");
+
+    let non_wasm_output = gen_from_lifetime_type_constructor(
+        &lifetime_authentication_owner(),
+        "crate::ProcessConfig",
+        "ProcessConfigBinding",
+        "crate",
+        &ConversionConfig::default(),
+    )
+    .expect("non-WASM lifetime constructor conversion");
+    assert!(
+        non_wasm_output.contains("val.authentication.into()"),
+        "{non_wasm_output}"
+    );
+    assert!(
+        !non_wasm_output.contains("wasm_bindgen::throw_val"),
+        "{non_wasm_output}"
+    );
+}
+
+#[test]
+fn wasm_lifetime_constructor_recased_required_tagged_field_keeps_fallible_pipeline() {
+    let tagged_names: AHashSet<String> = ["Authentication".to_string()].into_iter().collect();
+    let recased = HashMap::from([(
+        "Authentication".to_string(),
+        WasmCamelRecasedEnum {
+            out_wire_type: "__AlefWireOutWasmAuthentication",
+            in_wire_type: "__AlefWireInWasmAuthentication",
+            retag_fn_name: "__alef_wire_retag_wasm",
+            core_tag_key: "auth_type",
+            js_tag_key: "authType",
+        },
+    )]);
+    let config = ConversionConfig {
+        wasm_camel_recased_enums: Some(&recased),
+        ..wasm_required_tagged_config(&tagged_names)
+    };
+    let output = gen_from_lifetime_type_constructor(
+        &lifetime_authentication_owner(),
+        "crate::ProcessConfig",
+        "WasmProcessConfig",
+        "crate",
+        &config,
+    )
+    .expect("lifetime constructor conversion");
+
+    assert!(output.contains("__AlefWireInWasmAuthentication"), "{output}");
+    assert!(output.contains("__alef_wire_retag_wasm"), "{output}");
+    assert_eq!(output.matches("unwrap_or_else(|error|").count(), 4, "{output}");
+    assert!(!output.contains("val.authentication.into()"), "{output}");
+    assert!(!output.contains("unwrap_or_default"), "{output}");
+    assert!(!output.contains(".ok()"), "{output}");
 }
 
 #[test]

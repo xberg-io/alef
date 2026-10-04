@@ -704,77 +704,90 @@ pub fn gen_from_lifetime_type_constructor(
     for param in &constructor.params {
         if let Some(field) = typ.fields.iter().find(|f| f.name == param.name) {
             let binding_field = config.binding_field_name_owned(&typ.name, &field.name);
-            let expr = match &field.ty {
-                TypeRef::String if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) => {
-                    if field.optional {
-                        format!("val.{binding_field}.map(Into::into)")
-                    } else {
-                        format!("val.{binding_field}.into()")
-                    }
-                }
-                TypeRef::Map(_k, _v) => {
-                    format!(
-                        "val.{binding_field}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>()"
-                    )
-                }
-                TypeRef::Named(type_name) => {
-                    // A PHP-facing enum-as-String field can hold anything a script assigned
-                    // before this conversion runs -- it is a public property, not something
-                    // this generator controls -- so a bad value is a genuine runtime
-                    // possibility, not just an internal-bug signal. `.expect()` panicking here
-                    // unwinds across the FFI boundary into Zend's C frames: undefined
-                    // behaviour and a process crash, not a catchable PHP exception. A parse
-                    // failure is now reported via `PhpException::throw()` (which sets the
-                    // pending Zend exception directly, without needing this `From` impl to
-                    // return early) and the conversion still yields a valid `Self` so the
-                    // surrounding constructor call type-checks -- a fieldless fallback variant
-                    // supplied by the caller via `enum_string_fallback_variant`, when one is
-                    // known for this enum. ~keep
-                    let is_enum_string = config
-                        .enum_string_names
-                        .is_some_and(|names| names.contains(type_name.as_str()));
-                    if is_enum_string {
-                        let fallback_variant = config
-                            .enum_string_fallback_variant
-                            .and_then(|variants| variants.get(type_name.as_str()));
+            let required_wasm_tagged = config.wasm_required_tagged_enum_decode_throws
+                && !field.optional
+                && matches!(&field.ty, TypeRef::Named(name) if config
+                    .tagged_data_enum_names
+                    .is_some_and(|names| names.contains(name)));
+            let expr = if required_wasm_tagged {
+                let conversion = field_conversion_to_core_cfg(&field.name, &field.ty, false, config);
+                let expression = conversion
+                    .strip_prefix(&format!("{}: ", field.name))
+                    .unwrap_or(&conversion);
+                expression.replace(&format!("val.{}", field.name), &format!("val.{binding_field}"))
+            } else {
+                match &field.ty {
+                    TypeRef::String if matches!(field.core_wrapper, CoreWrapper::Cow | CoreWrapper::Box) => {
                         if field.optional {
-                            format!(
-                                "val.{binding_field}.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).map_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); None }}, Some))"
-                            )
-                        } else if let Some(variant) = fallback_variant {
-                            format!(
-                                "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).unwrap_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); {core_import}::{type_name}::{variant} }})"
-                            )
+                            format!("val.{binding_field}.map(Into::into)")
                         } else {
-                            // No known fallback variant (should not happen -- populated 1:1
-                            // with `enum_string_names`); fabricating an unsound placeholder
-                            // would be worse than the original panic, so this keeps it. ~keep
-                            format!(
-                                "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).expect(\"valid {type_name}\")"
-                            )
+                            format!("val.{binding_field}.into()")
                         }
-                    } else if field.optional {
-                        format!("val.{binding_field}.map(Into::into)")
-                    } else {
-                        format!("val.{binding_field}.into()")
                     }
-                }
-                TypeRef::Primitive(p) => {
-                    let needs_cast = (config.cast_large_ints_to_i64 && needs_i64_cast(p))
-                        || (config.cast_large_ints_to_f64 && needs_f64_cast(p))
-                        || (config.cast_uints_to_i32 && needs_i32_cast(p));
-                    if needs_cast {
-                        let core_ty = core_prim_str(p);
-                        format!("val.{binding_field} as {core_ty}")
-                    } else {
+                    TypeRef::Map(_k, _v) => {
+                        format!(
+                            "val.{binding_field}.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<std::collections::BTreeMap<_, _>>()"
+                        )
+                    }
+                    TypeRef::Named(type_name) => {
+                        // A PHP-facing enum-as-String field can hold anything a script assigned
+                        // before this conversion runs -- it is a public property, not something
+                        // this generator controls -- so a bad value is a genuine runtime
+                        // possibility, not just an internal-bug signal. `.expect()` panicking here
+                        // unwinds across the FFI boundary into Zend's C frames: undefined
+                        // behaviour and a process crash, not a catchable PHP exception. A parse
+                        // failure is now reported via `PhpException::throw()` (which sets the
+                        // pending Zend exception directly, without needing this `From` impl to
+                        // return early) and the conversion still yields a valid `Self` so the
+                        // surrounding constructor call type-checks -- a fieldless fallback variant
+                        // supplied by the caller via `enum_string_fallback_variant`, when one is
+                        // known for this enum. ~keep
+                        let is_enum_string = config
+                            .enum_string_names
+                            .is_some_and(|names| names.contains(type_name.as_str()));
+                        if is_enum_string {
+                            let fallback_variant = config
+                                .enum_string_fallback_variant
+                                .and_then(|variants| variants.get(type_name.as_str()));
+                            if field.optional {
+                                format!(
+                                    "val.{binding_field}.and_then(|s| serde_json::from_value(serde_json::Value::String(s)).map_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); None }}, Some))"
+                                )
+                            } else if let Some(variant) = fallback_variant {
+                                format!(
+                                    "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).unwrap_or_else(|e| {{ ext_php_rs::exception::PhpException::from_message(format!(\"invalid {type_name}: {{e}}\")).throw(); {core_import}::{type_name}::{variant} }})"
+                                )
+                            } else {
+                                // No known fallback variant (should not happen -- populated 1:1
+                                // with `enum_string_names`); fabricating an unsound placeholder
+                                // would be worse than the original panic, so this keeps it. ~keep
+                                format!(
+                                    "serde_json::from_value(serde_json::Value::String(val.{binding_field}.clone())).expect(\"valid {type_name}\")"
+                                )
+                            }
+                        } else if field.optional {
+                            format!("val.{binding_field}.map(Into::into)")
+                        } else {
+                            format!("val.{binding_field}.into()")
+                        }
+                    }
+                    TypeRef::Primitive(p) => {
+                        let needs_cast = (config.cast_large_ints_to_i64 && needs_i64_cast(p))
+                            || (config.cast_large_ints_to_f64 && needs_f64_cast(p))
+                            || (config.cast_uints_to_i32 && needs_i32_cast(p));
+                        if needs_cast {
+                            let core_ty = core_prim_str(p);
+                            format!("val.{binding_field} as {core_ty}")
+                        } else {
+                            format!("val.{binding_field}")
+                        }
+                    }
+                    TypeRef::String | TypeRef::Unit => {
                         format!("val.{binding_field}")
                     }
+                    TypeRef::Optional(_) => format!("val.{binding_field}.map(Into::into)"),
+                    _ => format!("val.{binding_field}.into()"),
                 }
-                TypeRef::String | TypeRef::Unit => {
-                    format!("val.{binding_field}")
-                }
-                TypeRef::Optional(_) => format!("val.{binding_field}.map(Into::into)"),
-                _ => format!("val.{binding_field}.into()"),
             };
             args.push(constructor_field_default_expr(field, &binding_field, expr, config));
         } else {

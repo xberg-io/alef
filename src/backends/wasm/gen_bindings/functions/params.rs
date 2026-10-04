@@ -172,7 +172,7 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_newtype_param_bindings(
         if param.is_ref
             && let Some(wrapper) = param.newtype_wrapper.as_deref()
         {
-            let converted = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+            let converted = super::super::types::types_helpers::apply_newtype_to_core(
                 &param.name,
                 &param.ty,
                 param.optional,
@@ -193,10 +193,20 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
     opaque_types: &AHashSet<String>,
     use_named_let_bindings: bool,
 ) -> String {
-    if !params
+    let has_borrowed_wrapper = params
         .iter()
-        .any(|param| param.newtype_wrapper.is_some() && param.is_ref)
-    {
+        .any(|param| param.newtype_wrapper.is_some() && param.is_ref);
+    let has_root_optional_owned_wrapper = params.iter().enumerate().any(|(index, param)| {
+        !param.is_ref
+            && (param.optional || matches!(param.ty, TypeRef::Optional(_)))
+            && !crate::codegen::shared::is_promoted_optional(params, index)
+            && param
+                .newtype_wrapper
+                .as_deref()
+                .and_then(super::super::types::types_helpers::root_optional_transparent_constructor)
+                .is_some()
+    });
+    if !has_borrowed_wrapper && !has_root_optional_owned_wrapper {
         return if use_named_let_bindings {
             generators::gen_call_args_with_let_bindings(params, opaque_types)
         } else {
@@ -206,7 +216,8 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
 
     params
         .iter()
-        .map(|param| {
+        .enumerate()
+        .map(|(index, param)| {
             if param.newtype_wrapper.is_some() && param.is_ref {
                 if param.optional {
                     let accessor = if param.is_mut { "as_mut" } else { "as_ref" };
@@ -216,6 +227,17 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
                 } else {
                     format!("&{}_newtype", param.name)
                 }
+            } else if (param.optional || matches!(param.ty, TypeRef::Optional(_)))
+                && !crate::codegen::shared::is_promoted_optional(params, index)
+                && let Some(wrapper) = param.newtype_wrapper.as_deref()
+                && super::super::types::types_helpers::root_optional_transparent_constructor(wrapper).is_some()
+            {
+                super::super::types::types_helpers::apply_newtype_to_core(
+                    &param.name,
+                    &param.ty,
+                    param.optional,
+                    wrapper,
+                )
             } else if use_named_let_bindings {
                 generators::gen_call_args_with_let_bindings(std::slice::from_ref(param), opaque_types)
             } else {

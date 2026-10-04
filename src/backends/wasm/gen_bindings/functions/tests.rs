@@ -25,9 +25,16 @@ fn param(name: &str, ty: TypeRef) -> ParamDef {
 }
 
 fn transparent_string_wrapper(containers: Vec<crate::core::ir::NewtypeContainer>) -> String {
+    transparent_string_wrapper_with_constructor("from", containers)
+}
+
+fn transparent_string_wrapper_with_constructor(
+    constructor: &str,
+    containers: Vec<crate::core::ir::NewtypeContainer>,
+) -> String {
     crate::core::ir::NewtypeWrapper::encode_explicit(&[crate::core::ir::NewtypeWrapperMetadata::transparent_string(
         "sample_fixture::SecretString",
-        "from",
+        constructor,
         "into_inner",
         containers,
     )])
@@ -296,6 +303,49 @@ fn dto_vec_field_conversion_wraps_some_when_core_is_optional() {
     let conv = dto_field_conversion(&ty, false, true);
 
     assert_eq!(conv, "Some(v.into_iter().collect())");
+}
+
+#[test]
+fn root_optional_transparent_string_dto_field_uses_configured_constructor_item() {
+    use crate::core::ir::{FieldDef, NewtypeContainer};
+
+    let field = FieldDef {
+        name: "credential".to_string(),
+        ty: TypeRef::String,
+        optional: true,
+        newtype_wrapper: Some(transparent_string_wrapper_with_constructor(
+            "new_secret",
+            vec![NewtypeContainer::Optional],
+        )),
+        ..Default::default()
+    };
+    let conversion = input_dto_field_conversion(&field);
+
+    assert_eq!(conversion, "(Some(v)).map(sample_fixture::SecretString::new_secret)");
+    assert!(!conversion.contains("map(|value|"), "{conversion}");
+}
+
+#[test]
+fn nested_optional_transparent_string_dto_field_keeps_recursive_conversion() {
+    use crate::core::ir::{FieldDef, NewtypeContainer};
+
+    let field = FieldDef {
+        name: "credential".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        newtype_wrapper: Some(transparent_string_wrapper_with_constructor(
+            "new_secret",
+            vec![NewtypeContainer::Optional, NewtypeContainer::Optional],
+        )),
+        ..Default::default()
+    };
+    let conversion = input_dto_field_conversion(&field);
+
+    assert!(conversion.contains("map(|value|"), "{conversion}");
+    assert!(
+        conversion.contains("sample_fixture::SecretString::new_secret(value)"),
+        "{conversion}"
+    );
 }
 
 #[test]
@@ -928,6 +978,55 @@ fn sanitized_fallible_path_recovers_nested_wrapper_jsvalue_once() {
     assert!(
         out.contains("sample_fixture::SecretString::from(value)"),
         "nested wrapper leaves must be reconstructed after JsValue recovery: {out}"
+    );
+}
+
+#[test]
+fn root_optional_transparent_string_function_args_use_configured_constructor_items() {
+    use crate::core::ir::NewtypeContainer;
+
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut owned = param("owned", TypeRef::String);
+    owned.optional = true;
+    owned.newtype_wrapper = Some(transparent_string_wrapper_with_constructor(
+        "new_secret",
+        vec![NewtypeContainer::Optional],
+    ));
+    let mut borrowed = param("borrowed", TypeRef::String);
+    borrowed.optional = true;
+    borrowed.is_ref = true;
+    borrowed.newtype_wrapper = Some(transparent_string_wrapper_with_constructor(
+        "new_secret",
+        vec![NewtypeContainer::Optional],
+    ));
+    let mut func = async_function(vec![owned, borrowed]);
+    func.is_async = false;
+    func.error_type = None;
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert!(
+        out.contains("let borrowed_newtype = (borrowed).map(sample_fixture::SecretString::new_secret);"),
+        "borrowed input must keep the converted option alive: {out}"
+    );
+    assert!(
+        out.contains(
+            "sample_fixture::interact((owned).map(sample_fixture::SecretString::new_secret), borrowed_newtype.as_ref())"
+        ),
+        "ordinary and borrowed call arguments must use the configured constructor: {out}"
+    );
+    assert!(
+        !out.contains("map(|value| sample_fixture::SecretString::new_secret(value))"),
+        "{out}"
     );
 }
 

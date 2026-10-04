@@ -27,6 +27,8 @@ use input_dto::gen_input_dto_for_type_at_path;
 #[cfg(test)]
 use input_dto::gen_input_dto_for_type_with_cfg;
 #[cfg(test)]
+use input_dto::input_dto_field_conversion;
+#[cfg(test)]
 use orchestration::gen_function_with_emitted_dtos;
 #[cfg(test)]
 use returns::{to_turbofish_from, type_has_default};

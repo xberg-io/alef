@@ -658,6 +658,7 @@ impl Backend for WasmBackend {
             type_name_prefix: &prefix,
             map_uses_jsvalue: true,
             wasm_explicit_newtype_containers_use_jsvalue: true,
+            wasm_required_tagged_enum_decode_throws: true,
             core_type_paths: Some(&wasm_type_paths),
             option_duration_on_defaults: true,
             optionalize_defaults: false,

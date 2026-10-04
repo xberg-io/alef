@@ -936,7 +936,7 @@ fn gen_tagged_enum_binding_to_core_uses_serde_for_mixed_named_field() {
         "mixed named-variant field must not use Into::into from a JsValue field;\nactual:\n{result}"
     );
     assert!(
-        result.contains("meta: val.meta.clone().map(Into::into).unwrap_or_default()"),
+        result.contains("meta: val.meta.clone().map(Into::into).unwrap_or_else"),
         "a wrapper-typed field must still use Into::into;\nactual:\n{result}"
     );
 }
@@ -1216,9 +1216,10 @@ fn tagged_enum_optional_boxed_transparent_string_payload_composes_boxing() {
 
     let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
     assert!(
-        binding_to_core.contains("test_lib::SecretString::from(value)"),
+        binding_to_core.contains(".map(test_lib::SecretString::from)"),
         "{binding_to_core}"
     );
+    assert!(!binding_to_core.contains("map(|value|"), "{binding_to_core}");
     assert!(binding_to_core.contains(".map(Box::new)"), "{binding_to_core}");
 
     let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
@@ -1227,6 +1228,30 @@ fn tagged_enum_optional_boxed_transparent_string_payload_composes_boxing() {
         "{core_to_binding}"
     );
     assert!(core_to_binding.contains("(value).into_inner()"), "{core_to_binding}");
+}
+
+#[test]
+fn tagged_enum_root_optional_transparent_string_payload_uses_constructor_item() {
+    use crate::core::ir::NewtypeContainer::Optional;
+
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    enum_def.variants[0].is_tuple = false;
+    let field = &mut enum_def.variants[0].fields[0];
+    field.name = "value".to_string();
+    field.ty = TypeRef::String;
+    field.optional = true;
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![Optional]));
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+    assert!(
+        binding_to_core.contains("value: (val.value.clone()).map(test_lib::SecretString::from)"),
+        "{binding_to_core}"
+    );
+    assert!(
+        !binding_to_core.contains("map(|value| test_lib::SecretString::from(value))"),
+        "{binding_to_core}"
+    );
 }
 
 #[test]

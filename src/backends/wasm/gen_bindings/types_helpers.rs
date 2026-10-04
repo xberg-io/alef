@@ -30,6 +30,42 @@ pub(in crate::backends::wasm::gen_bindings) fn complex_newtype_wrapper_uses_jsva
     })
 }
 
+/// Reconstruct an explicit transparent-string wrapper for a WASM input.
+///
+/// A single root `Optional` path can pass its configured constructor directly to `Option::map`.
+/// Nested and multi-path metadata stays on the shared recursive converter because each inner
+/// container still needs its own traversal. ~keep
+pub(in crate::backends::wasm::gen_bindings) fn apply_newtype_to_core(
+    expression: &str,
+    ty: &TypeRef,
+    optional: bool,
+    wrapper: &str,
+) -> String {
+    if (optional || matches!(ty, TypeRef::Optional(_)))
+        && let Some(constructor) = root_optional_transparent_constructor(wrapper)
+    {
+        return format!("({expression}).map({constructor})");
+    }
+    crate::codegen::conversions::helpers::apply_field_newtype_to_core(expression, ty, optional, wrapper)
+}
+
+pub(in crate::backends::wasm::gen_bindings) fn root_optional_transparent_constructor(wrapper: &str) -> Option<String> {
+    let crate::core::ir::NewtypeWrapper::Explicit(paths) = crate::core::ir::NewtypeWrapper::decode(wrapper).ok()?
+    else {
+        return None;
+    };
+    let [metadata] = paths.as_slice() else {
+        return None;
+    };
+    if metadata.containers.as_slice() != [crate::core::ir::NewtypeContainer::Optional] {
+        return None;
+    }
+    let crate::core::ir::NewtypeConversion::TransparentString { from, .. } = &metadata.conversion else {
+        return None;
+    };
+    Some(format!("{}::{from}", metadata.rust_path))
+}
+
 /// Return a core-to-binding-only field view that avoids the shared optional flatten fallback.
 ///
 /// `FieldDef::optional` and a leading `TypeRef::Optional` are distinct real option layers. The
@@ -198,10 +234,63 @@ pub(in crate::backends::wasm::gen_bindings) fn class_backed_vec_element_type(
 
 #[cfg(test)]
 mod tests {
-    use super::suppress_explicit_newtype_flatten_for_core_to_binding;
+    use super::{apply_newtype_to_core, suppress_explicit_newtype_flatten_for_core_to_binding};
     use crate::codegen::conversions::{ConversionConfig, gen_from_binding_to_core_cfg, gen_from_core_to_binding_cfg};
     use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeDef, TypeRef};
     use ahash::{AHashMap, AHashSet};
+
+    #[test]
+    fn root_optional_constructor_item_does_not_collapse_nested_or_multi_path_metadata() {
+        let root = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "fixture::Credential",
+            "new_secret",
+            "expose_secret",
+            vec![NewtypeContainer::Optional],
+        )]);
+        let nested = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "fixture::Credential",
+            "new_secret",
+            "expose_secret",
+            vec![NewtypeContainer::Optional, NewtypeContainer::Optional],
+        )]);
+        let multi_path = NewtypeWrapper::encode_explicit(&[
+            NewtypeWrapperMetadata::transparent_string(
+                "fixture::MapKey",
+                "new_key",
+                "expose_key",
+                vec![NewtypeContainer::Optional, NewtypeContainer::MapKey],
+            ),
+            NewtypeWrapperMetadata::transparent_string(
+                "fixture::MapValue",
+                "new_value",
+                "expose_value",
+                vec![NewtypeContainer::Optional, NewtypeContainer::MapValue],
+            ),
+        ]);
+
+        assert_eq!(
+            apply_newtype_to_core("value", &TypeRef::String, true, &root),
+            "(value).map(fixture::Credential::new_secret)"
+        );
+        let nested_out = apply_newtype_to_core("value", &TypeRef::Optional(Box::new(TypeRef::String)), true, &nested);
+        assert!(nested_out.contains("map(|value|"), "{nested_out}");
+        assert!(
+            nested_out.contains("fixture::Credential::new_secret(value)"),
+            "{nested_out}"
+        );
+
+        let map_ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        let multi_path_out = apply_newtype_to_core("value", &map_ty, true, &multi_path);
+        assert!(multi_path_out.contains("map(|value|"), "{multi_path_out}");
+        assert!(
+            multi_path_out.contains("fixture::MapKey::new_key(key)"),
+            "{multi_path_out}"
+        );
+        assert!(
+            multi_path_out.contains("fixture::MapValue::new_value(value)"),
+            "{multi_path_out}"
+        );
+    }
 
     #[test]
     fn explicit_nested_optional_conversions_keep_configured_method_names() {

@@ -160,13 +160,17 @@ fn input_dto_field_context(field: &crate::core::ir::FieldDef, config: &InputDtoC
     }
 }
 
-fn input_dto_field_conversion(field: &crate::core::ir::FieldDef) -> String {
+pub(super) fn input_dto_field_conversion(field: &crate::core::ir::FieldDef) -> String {
     let Some(wrapper) = field.newtype_wrapper.as_deref() else {
         return dto_field_conversion(&field.ty, field.sanitized, field.optional);
     };
     let source = if field.optional { "Some(v)" } else { "v" };
-    let converted =
-        crate::codegen::conversions::helpers::apply_field_newtype_to_core(source, &field.ty, field.optional, wrapper);
+    let converted = crate::backends::wasm::gen_bindings::types::types_helpers::apply_newtype_to_core(
+        source,
+        &field.ty,
+        field.optional,
+        wrapper,
+    );
     if !field.is_boxed || !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper) {
         return converted;
     }

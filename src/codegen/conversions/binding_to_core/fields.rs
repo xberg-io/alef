@@ -9,12 +9,38 @@ use ahash::AHashSet;
 
 /// `raw_js_expr` must evaluate to a `JsValue` (owned, per `serde_wasm_bindgen::from_value`'s
 /// signature -- callers pass `val.{name}.clone()` or `v.clone()`). Produces a bare core-value
-/// Rust expression, falling back to `Default::default()` at every stage exactly like the raw
-/// (non-recased) `tagged_data_enum_names` path's own `.unwrap_or_default()`. The outer
+/// Rust expression. Optional values retain the established `Default` fallback; required WASM
+/// scalar fields instead throw the concrete decode error when their backend policy requests it.
+/// The outer
 /// `serde_json::from_value(...)` has no explicit turbofish: the target type is inferred from the
 /// surrounding struct-literal field position, the same convention this file's
 /// `untagged_data_enum_names` branch below already relies on. ~keep
-fn camel_core_value(raw_js_expr: &str, rec: &WasmCamelRecasedEnum) -> String {
+fn throw_on_decode_error(expression: &str) -> String {
+    format!(
+        "{expression}.unwrap_or_else(|error| \
+         wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+    )
+}
+
+fn escape_rust_string_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn camel_core_value(raw_js_expr: &str, rec: &WasmCamelRecasedEnum, required: bool) -> String {
+    if required {
+        let decoded = throw_on_decode_error(&format!(
+            "serde_wasm_bindgen::from_value::<serde_json::Value>({raw_js_expr})"
+        ));
+        let wire = throw_on_decode_error(&format!("serde_json::from_value::<{}>({decoded})", rec.in_wire_type));
+        let encoded = throw_on_decode_error(&format!("serde_json::to_value({wire})"));
+        let js_tag_key = escape_rust_string_literal(rec.js_tag_key);
+        let core_tag_key = escape_rust_string_literal(rec.core_tag_key);
+        let inner = format!(
+            "{}({encoded}, \"{}\", \"{}\")",
+            rec.retag_fn_name, js_tag_key, core_tag_key
+        );
+        return throw_on_decode_error(&format!("serde_json::from_value({inner})"));
+    }
     let decoded = format!("serde_wasm_bindgen::from_value::<serde_json::Value>({raw_js_expr}).unwrap_or_default()");
     let inner = in_pipeline_expr(
         &decoded,
@@ -338,10 +364,17 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                     return if optional {
                         format!(
                             "{name}: val.{name}.as_ref().map(|v| {})",
-                            camel_core_value("v.clone()", rec)
+                            camel_core_value("v.clone()", rec, false)
                         )
                     } else {
-                        format!("{name}: {}", camel_core_value(&format!("val.{name}.clone()"), rec))
+                        format!(
+                            "{name}: {}",
+                            camel_core_value(
+                                &format!("val.{name}.clone()"),
+                                rec,
+                                config.wasm_required_tagged_enum_decode_throws,
+                            )
+                        )
                     };
                 }
                 if optional {
@@ -349,13 +382,18 @@ pub fn field_conversion_to_core_cfg(name: &str, ty: &TypeRef, optional: bool, co
                         "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::from_value(v.clone()).ok())"
                     );
                 }
-                return format!("{name}: serde_wasm_bindgen::from_value(val.{name}.clone()).unwrap_or_default()");
+                let decoded = format!("serde_wasm_bindgen::from_value(val.{name}.clone())");
+                return if config.wasm_required_tagged_enum_decode_throws {
+                    format!("{name}: {}", throw_on_decode_error(&decoded))
+                } else {
+                    format!("{name}: {decoded}.unwrap_or_default()")
+                };
             }
             Some(TaggedShape::Optional(n)) => {
                 if let Some(rec) = recased(n) {
                     return format!(
                         "{name}: val.{name}.as_ref().map(|v| {})",
-                        camel_core_value("v.clone()", rec)
+                        camel_core_value("v.clone()", rec, false)
                     );
                 }
                 return format!(
@@ -690,6 +728,16 @@ mod wasm_camel_recase_tests {
         }
     }
 
+    fn strict_config<'a>(
+        tagged_names: &'a ahash::AHashSet<String>,
+        recased: Option<&'a HashMap<String, WasmCamelRecasedEnum<'a>>>,
+    ) -> ConversionConfig<'a> {
+        ConversionConfig {
+            wasm_required_tagged_enum_decode_throws: true,
+            ..config(tagged_names, recased)
+        }
+    }
+
     /// CONTROL: no `wasm_camel_recased_enums` entry -> the exact pre-existing raw expression,
     /// byte for byte.
     #[test]
@@ -701,6 +749,25 @@ mod wasm_camel_recase_tests {
             out, "format: serde_wasm_bindgen::from_value(val.format.clone()).unwrap_or_default()",
             "unexpected output: {out}"
         );
+    }
+
+    #[test]
+    fn required_bare_field_can_throw_without_a_default_bound() {
+        let tagged: ahash::AHashSet<String> = ["Authentication".to_string()].into_iter().collect();
+        let cfg = strict_config(&tagged, None);
+        let out = field_conversion_to_core_cfg(
+            "authentication",
+            &TypeRef::Named("Authentication".to_string()),
+            false,
+            &cfg,
+        );
+
+        assert_eq!(
+            out,
+            "authentication: serde_wasm_bindgen::from_value(val.authentication.clone()).unwrap_or_else(|error| \
+             wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+        );
+        assert!(!out.contains("unwrap_or_default"), "{out}");
     }
 
     #[test]
@@ -718,6 +785,37 @@ mod wasm_camel_recase_tests {
              .unwrap_or_default(), \"formatType\", \"format_type\")).unwrap_or_default()",
             "unexpected output: {out}"
         );
+    }
+
+    #[test]
+    fn required_recased_field_throws_at_every_decode_stage() {
+        let tagged: ahash::AHashSet<String> = ["FormatMetadata".to_string()].into_iter().collect();
+        let mut recased = HashMap::new();
+        recased.insert("FormatMetadata".to_string(), format_metadata_rec());
+        let cfg = strict_config(&tagged, Some(&recased));
+        let out = field_conversion_to_core_cfg("format", &TypeRef::Named("FormatMetadata".to_string()), false, &cfg);
+
+        assert_eq!(out.matches("unwrap_or_else(|error|").count(), 4, "{out}");
+        assert!(
+            out.contains("serde_json::from_value::<__AlefWireInWasmFormatMetadata>"),
+            "{out}"
+        );
+        assert!(out.contains("__alef_wire_retag_Wasm"), "{out}");
+        assert!(!out.contains("unwrap_or_default"), "{out}");
+        assert!(!out.contains(".ok()"), "{out}");
+    }
+
+    #[test]
+    fn optional_recased_field_keeps_optional_fallback_policy() {
+        let tagged: ahash::AHashSet<String> = ["FormatMetadata".to_string()].into_iter().collect();
+        let mut recased = HashMap::new();
+        recased.insert("FormatMetadata".to_string(), format_metadata_rec());
+        let cfg = strict_config(&tagged, Some(&recased));
+        let out = field_conversion_to_core_cfg("format", &TypeRef::Named("FormatMetadata".to_string()), true, &cfg);
+
+        assert!(out.contains("val.format.as_ref().map"), "{out}");
+        assert!(out.contains("unwrap_or_default"), "{out}");
+        assert!(!out.contains("throw_val"), "{out}");
     }
 
     #[test]

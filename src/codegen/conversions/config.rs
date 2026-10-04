@@ -63,6 +63,11 @@ pub struct ConversionConfig<'a> {
     /// `String`/binding DTO containers instead of the private core wrapper. WASM alone enables
     /// this mode when its declaration uses `JsValue` for the field. ~keep
     pub wasm_explicit_newtype_containers_use_jsvalue: bool,
+    /// When true, a required scalar tagged-data enum stored as `JsValue` reports malformed
+    /// input as a JavaScript exception instead of requiring the core enum to implement
+    /// `Default`. Optional and collection shapes retain their existing fallback semantics.
+    /// WASM enables this because a required object has no meaningful fallback value. ~keep
+    pub wasm_required_tagged_enum_decode_throws: bool,
     /// Fully resolved core paths for named types inside WASM `JsValue` containers. Values must
     /// already include source-crate remapping and nested modules. ~keep
     pub core_type_paths: Option<&'a AHashMap<String, String>>,
