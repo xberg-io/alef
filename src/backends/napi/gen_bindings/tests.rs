@@ -6,6 +6,27 @@ use crate::core::config::Language;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeRef};
 use ahash::AHashSet;
 
+fn transparent_string_wrapper(paths: Vec<Vec<crate::core::ir::NewtypeContainer>>) -> String {
+    transparent_string_wrapper_with_methods(paths, "from", "into_inner")
+}
+
+fn transparent_string_wrapper_with_methods(
+    paths: Vec<Vec<crate::core::ir::NewtypeContainer>>,
+    from: &str,
+    into: &str,
+) -> String {
+    use crate::core::ir::{NewtypeWrapper, NewtypeWrapperMetadata};
+
+    NewtypeWrapper::encode_explicit(
+        &paths
+            .into_iter()
+            .map(|containers| {
+                NewtypeWrapperMetadata::transparent_string("fixture_core::SecretString", from, into, containers)
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 /// NapiBackend::name returns "napi".
 #[test]
 fn napi_backend_name_is_napi() {
@@ -719,4 +740,166 @@ fn promoted_required_method_and_constructor_parameters_return_invalid_arg() {
         );
         assert!(!output.contains("expect("), "{output}");
     }
+}
+
+#[test]
+fn flattened_optional_transparent_wrapper_uses_one_binding_option_layer() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, NewtypeContainer, TypeDef, TypeRef};
+
+    let typ = TypeDef {
+        name: "Report".into(),
+        rust_path: "fixture_core::Report".into(),
+        fields: vec![FieldDef {
+            name: "nested_optional_credential".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: true,
+            newtype_wrapper: Some(transparent_string_wrapper_with_methods(
+                vec![vec![NewtypeContainer::Optional, NewtypeContainer::Optional]],
+                "new_secret",
+                "expose_secret",
+            )),
+            ..Default::default()
+        }],
+        has_default: true,
+        ..Default::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        cast_large_ints_to_i64: true,
+        cast_f32_to_f64: true,
+        optionalize_defaults: true,
+        optionalize_bare_field_defaults: true,
+        ..Default::default()
+    };
+
+    let to_core = super::transparent_newtypes::gen_from_binding_to_core(&typ, "fixture_core", &config);
+    assert!(
+        to_core.contains("__result.nested_optional_credential =")
+            && to_core.contains("map(|value| fixture_core::SecretString::new_secret(value))")
+            && to_core.contains(".map(Some)"),
+        "the single JS optional must convert once and reconstruct the outer Rust Option:\n{to_core}"
+    );
+    assert!(
+        !to_core.contains("map(|value| (value).map("),
+        "a String inside the flattened JS Option is not another iterator/Option:\n{to_core}"
+    );
+
+    let from_core =
+        super::transparent_newtypes::gen_from_core_to_binding(&typ, "fixture_core", &AHashSet::new(), &config);
+    assert!(
+        from_core.contains("flatten()") && from_core.contains("expose_secret()"),
+        "the two Rust options must flatten before consuming the wrapper:\n{from_core}"
+    );
+    assert!(
+        !from_core.contains("nested_optional_credential.flatten().map(|v| v.to_string())"),
+        "an explicit transparent wrapper must not require Display:\n{from_core}"
+    );
+}
+
+#[test]
+fn flattened_optional_wrapper_recurses_through_vec_map_and_named_sibling() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, NewtypeContainer, TypeDef, TypeRef};
+
+    let typ = TypeDef {
+        name: "Report".into(),
+        rust_path: "fixture_core::Report".into(),
+        fields: vec![FieldDef {
+            name: "nested_optional_segments".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("Segment".into())),
+            ))))),
+            optional: true,
+            newtype_wrapper: Some(transparent_string_wrapper(vec![vec![
+                NewtypeContainer::Optional,
+                NewtypeContainer::Optional,
+                NewtypeContainer::Vec,
+                NewtypeContainer::MapKey,
+            ]])),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        cast_large_ints_to_i64: true,
+        cast_f32_to_f64: true,
+        optionalize_defaults: true,
+        optionalize_bare_field_defaults: true,
+        ..Default::default()
+    };
+
+    let to_core = super::transparent_newtypes::gen_from_binding_to_core(&typ, "fixture_core", &config);
+    assert!(to_core.contains("fixture_core::SecretString::from(key)"), "{to_core}");
+    assert!(
+        to_core.contains("(value).into()"),
+        "the JsSegment map value must convert to Segment:\n{to_core}"
+    );
+
+    let from_core =
+        super::transparent_newtypes::gen_from_core_to_binding(&typ, "fixture_core", &AHashSet::new(), &config);
+    assert!(from_core.contains("(key).into_inner()"), "{from_core}");
+    assert!(
+        from_core.contains("(value).into()"),
+        "the Segment map value must convert to JsSegment:\n{from_core}"
+    );
+}
+
+#[test]
+fn excluded_flattened_optional_wrapper_requires_no_generated_conversion() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, NewtypeContainer, TypeDef, TypeRef};
+
+    let typ = TypeDef {
+        name: "HiddenReport".into(),
+        rust_path: "fixture_core::HiddenReport".into(),
+        fields: vec![FieldDef {
+            name: "hidden_credential".into(),
+            ty: TypeRef::Optional(Box::new(TypeRef::String)),
+            optional: true,
+            binding_excluded: true,
+            newtype_wrapper: Some(transparent_string_wrapper(vec![vec![
+                NewtypeContainer::Optional,
+                NewtypeContainer::Optional,
+            ]])),
+            ..Default::default()
+        }],
+        has_default: true,
+        ..Default::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        ..Default::default()
+    };
+
+    let to_core = super::transparent_newtypes::gen_from_binding_to_core(&typ, "fixture_core", &config);
+    let from_core =
+        super::transparent_newtypes::gen_from_core_to_binding(&typ, "fixture_core", &AHashSet::new(), &config);
+
+    assert!(!to_core.contains("hidden_credential"), "{to_core}");
+    assert!(!from_core.contains("hidden_credential"), "{from_core}");
+}
+
+#[test]
+fn nested_optional_boxed_enum_fallback_defaults_the_complete_container() {
+    use crate::core::ir::{FieldDef, NewtypeContainer, TypeRef};
+
+    let field = FieldDef {
+        name: "_0".into(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        is_boxed: true,
+        newtype_wrapper: Some(transparent_string_wrapper(vec![vec![
+            NewtypeContainer::Optional,
+            NewtypeContainer::Optional,
+        ]])),
+        ..Default::default()
+    };
+
+    assert_eq!(
+        super::transparent_newtypes::default_to_core(&field),
+        "Default::default()"
+    );
 }

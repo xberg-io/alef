@@ -79,6 +79,14 @@ fn tagged_enum_transparent_string_fields_convert_without_wrapper_default() {
         "binding payloads must construct the wrapper:\n{binding_to_core}"
     );
     assert!(
+        binding_to_core.contains("_ => Self::Bearer(test_core::SecretString::from(Default::default()))"),
+        "the unknown-tag fallback must construct a wrapped default without requiring the wrapper itself to implement Default:\n{binding_to_core}"
+    );
+    assert!(
+        !binding_to_core.contains("_ => Self::Bearer(Default::default())"),
+        "the transparent wrapper deliberately has no Default bound:\n{binding_to_core}"
+    );
+    assert!(
         binding_to_core.contains(".map(Box::new)"),
         "an optional boxed wrapper must box the mapped payload:\n{binding_to_core}"
     );

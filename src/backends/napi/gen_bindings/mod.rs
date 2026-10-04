@@ -9,6 +9,7 @@ pub mod functions;
 pub mod methods;
 pub mod service_api;
 mod support;
+mod transparent_newtypes;
 mod type_stubs;
 pub mod types;
 mod wire_types;
@@ -572,14 +573,14 @@ impl Backend for NapiBackend {
             if input_types.contains(&typ.name)
                 && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
             {
-                builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
+                builder.add_item(&transparent_newtypes::gen_from_binding_to_core(
                     typ,
                     &core_import,
                     &napi_conv_config,
                 ));
             }
             if crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding) {
-                builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
+                builder.add_item(&transparent_newtypes::gen_from_core_to_binding(
                     typ,
                     &core_import,
                     &opaque_types,

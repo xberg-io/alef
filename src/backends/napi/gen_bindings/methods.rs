@@ -323,7 +323,11 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                     is_tuple => false,
                 }
             } else if is_tuple {
-                let defaults: Vec<&str> = first.fields.iter().map(|_| "Default::default()").collect();
+                let defaults: Vec<String> = first
+                    .fields
+                    .iter()
+                    .map(super::transparent_newtypes::default_to_core)
+                    .collect();
                 minijinja::context! {
                     name => first.name.clone(),
                     is_empty => false,
@@ -334,7 +338,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(
                 let default_fields: Vec<String> = first
                     .fields
                     .iter()
-                    .map(|f| format!("{}: Default::default()", f.name))
+                    .map(|f| format!("{}: {}", f.name, super::transparent_newtypes::default_to_core(f)))
                     .collect();
                 minijinja::context! {
                     name => first.name.clone(),

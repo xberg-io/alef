@@ -2,6 +2,10 @@ use minijinja::{Environment, UndefinedBehavior};
 
 static TEMPLATES: &[(&str, &str)] = &[
     (
+        "converted_field_assignment.jinja",
+        include_str!("templates/converted_field_assignment.jinja"),
+    ),
+    (
         "adjacent_enum_namespace.rs.jinja",
         include_str!("templates/adjacent_enum_namespace.rs.jinja"),
     ),
