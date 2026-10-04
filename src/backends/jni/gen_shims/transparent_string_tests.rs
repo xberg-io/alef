@@ -26,9 +26,13 @@ package = "dev.demo"
     }
 
     fn wrapper_with_path(path: &str, containers: Vec<NewtypeContainer>) -> String {
+        wrapper_with_constructor(path, "from", containers)
+    }
+
+    fn wrapper_with_constructor(path: &str, constructor: &str, containers: Vec<NewtypeContainer>) -> String {
         NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
             path,
-            "from",
+            constructor,
             "into_inner",
             containers,
         )])
@@ -104,13 +108,17 @@ package = "dev.demo"
             "borrowed input must keep an owned wrapper alive for the call: {content}"
         );
         assert!(
-            content.contains("core_crate::optional_secret((if value.is_empty() { None } else { Some(value) }).map(|value| core_crate::SecretString::from(value)))"),
+            content.contains("core_crate::optional_secret((if value.is_empty() { None } else { Some(value) }).map(core_crate::SecretString::from))"),
             "optional input must convert only Some: {content}"
         );
         assert!(
-            content.contains("let value_newtype = (if value.is_empty() { None } else { Some(value) }).map(|value| core_crate::SecretString::from(value));")
+            content.contains("let value_newtype = (if value.is_empty() { None } else { Some(value) }).map(core_crate::SecretString::from);")
                 && content.contains("core_crate::borrow_optional_secret(value_newtype.as_ref())"),
             "optional borrowed input must convert before borrowing: {content}"
+        );
+        assert!(
+            !content.contains("map(|value| core_crate::SecretString::from(value))"),
+            "root optional wrappers must not emit Clippy's redundant-closure shape: {content}"
         );
         assert!(
             content.contains("runtime().block_on(core_crate::async_secret(core_crate::SecretString::from(value)))"),
@@ -138,6 +146,37 @@ package = "dev.demo"
             "wrapper return must not require AsRef<str>"
         );
         syn::parse_file(&content).expect("generated JNI crate parses");
+    }
+
+    #[test]
+    fn optional_param_uses_the_configured_constructor_as_a_function_item() {
+        let function = crate::core::ir::FunctionDef {
+            name: "optional_secret".to_string(),
+            rust_path: "demo::optional_secret".to_string(),
+            params: vec![ParamDef {
+                name: "value".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                newtype_wrapper: Some(wrapper_with_constructor(
+                    "demo::SecretString",
+                    "new_secret",
+                    vec![NewtypeContainer::Optional],
+                )),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let content = emit_lib_rs(&api_with_functions(vec![function]), &config());
+
+        assert!(
+            content.contains(".map(core_crate::SecretString::new_secret)"),
+            "configured constructor must be emitted directly: {content}"
+        );
+        assert!(
+            !content.contains("map(|value| core_crate::SecretString::new_secret(value))"),
+            "configured constructor must not be wrapped in a redundant closure: {content}"
+        );
     }
 
     #[test]

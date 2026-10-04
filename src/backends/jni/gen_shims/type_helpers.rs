@@ -133,9 +133,27 @@ fn type_ref_to_core_path(ty: &TypeRef, core_prefix: &str) -> String {
 
 fn jni_param_newtype_to_core(expr: &str, param: &ParamDef) -> Option<String> {
     let wrapper = param.newtype_wrapper.as_deref()?;
+    let wrapper = jni_newtype_wrapper(wrapper);
+    if let Some(constructor) = root_optional_transparent_constructor(&wrapper) {
+        return Some(format!("({expr}).map({constructor})"));
+    }
     let mut jni_param = param.clone();
-    jni_param.newtype_wrapper = Some(jni_newtype_wrapper(wrapper));
+    jni_param.newtype_wrapper = Some(wrapper);
     crate::codegen::conversions::helpers::apply_param_newtype_to_core(expr, &jni_param)
+}
+
+fn root_optional_transparent_constructor(wrapper: &str) -> Option<String> {
+    let decoded = crate::core::ir::NewtypeWrapper::decode(wrapper).ok()?;
+    let [metadata] = decoded.explicit_paths() else {
+        return None;
+    };
+    if metadata.containers.as_slice() != [crate::core::ir::NewtypeContainer::Optional] {
+        return None;
+    }
+    let crate::core::ir::NewtypeConversion::TransparentString { from, .. } = &metadata.conversion else {
+        return None;
+    };
+    Some(format!("{}::{from}", metadata.rust_path))
 }
 
 fn jni_return_newtype_from_core(expr: &str, wrapper: &str) -> String {
