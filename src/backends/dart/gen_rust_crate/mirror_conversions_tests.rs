@@ -225,6 +225,28 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
                 newtype_wrapper: wrapper(vec![vec![NewtypeContainer::Vec, NewtypeContainer::MapKey]]),
                 ..Default::default()
             },
+            FieldDef {
+                name: "full_nested".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                newtype_wrapper: wrapper(vec![vec![NewtypeContainer::Optional, NewtypeContainer::Optional]]),
+                ..Default::default()
+            },
+            FieldDef {
+                name: "partial_nested".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("Segment".to_string())),
+                ))))),
+                optional: true,
+                newtype_wrapper: wrapper(vec![vec![
+                    NewtypeContainer::Optional,
+                    NewtypeContainer::Optional,
+                    NewtypeContainer::Vec,
+                    NewtypeContainer::MapKey,
+                ]]),
+                ..Default::default()
+            },
         ],
     );
 
@@ -257,6 +279,15 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         1,
         "got:\n{from_core}"
     );
+    assert!(
+        from_core.contains("(v.full_nested).flatten().map(|value| (value).into_inner())"),
+        "nested optional wrapper must flatten to the mirror's single Option:\n{from_core}"
+    );
+    assert!(
+        from_core.contains("(v.partial_nested).flatten().map(|value|")
+            && from_core.contains("((key).into_inner(), Segment::from(value))"),
+        "partial nested conversion must flatten once and preserve the named conversion:\n{from_core}"
+    );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 
     let mut to_core = String::new();
@@ -288,4 +319,14 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         "mixed wrapper and named conversions must share one traversal:\n{to_core}"
     );
     assert_eq!(to_core.matches("v.mixed).into_iter()").count(), 1, "got:\n{to_core}");
+    assert!(
+        to_core.contains("(v.full_nested).map(|value| source::SecretString::from(value)).map(Some)"),
+        "nested optional wrapper must reconstruct the core's outer Option:\n{to_core}"
+    );
+    assert!(
+        to_core.contains("(v.partial_nested).map(|value|")
+            && to_core.contains("(source::SecretString::from(key), (value).into())")
+            && to_core.contains(".map(Some)"),
+        "partial nested conversion must reconstruct the outer Option in one traversal:\n{to_core}"
+    );
 }

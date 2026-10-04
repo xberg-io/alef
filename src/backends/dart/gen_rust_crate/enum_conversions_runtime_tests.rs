@@ -124,7 +124,7 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
     emit_from_mirror_to_core_enum(&mut to_core, &en, "mylib", None);
     assert!(to_core.contains("mylib::SecretString::from(field0)"), "got:\n{to_core}");
     assert!(
-        to_core.contains("map(|value| mylib::SecretString::from(value))"),
+        to_core.contains("if (value).is_empty() { None } else { Some(mylib::SecretString::from(value)) }"),
         "got:\n{to_core}"
     );
     assert!(
@@ -137,7 +137,7 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
     emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
     assert!(from_core.contains("(f0).into_inner()"), "got:\n{from_core}");
     assert!(
-        from_core.contains("map(|value| (value).into_inner())"),
+        from_core.contains("map(|value| (value).into_inner()).unwrap_or_default()"),
         "got:\n{from_core}"
     );
     assert!(

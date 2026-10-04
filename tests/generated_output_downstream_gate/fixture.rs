@@ -52,6 +52,7 @@ impl OrderedSecret {
 pub enum Authentication {
     Bearer(SecretString),
     Header { value: SecretString },
+    Optional { value: Option<SecretString> },
     Pairs {
         values: std::collections::HashMap<SecretString, SecretString>,
     },
@@ -65,11 +66,14 @@ pub struct Report {
     pub attachment: Attachment,
     pub credential: SecretString,
     pub optional_credential: Option<SecretString>,
+    pub nested_optional_credential: Option<Option<SecretString>>,
     pub secret_headers: std::collections::HashMap<String, SecretString>,
     pub secret_chain: Vec<Option<SecretString>>,
     pub secret_lookup: std::collections::HashMap<SecretString, String>,
     pub secret_pairs: std::collections::HashMap<SecretString, Vec<SecretString>>,
     pub ordered_secret_pairs: std::collections::BTreeMap<OrderedSecret, OrderedSecret>,
+    pub nested_optional_segments:
+        Option<Option<Vec<std::collections::HashMap<SecretString, Segment>>>>,
     pub authentication: Authentication,
 }
 

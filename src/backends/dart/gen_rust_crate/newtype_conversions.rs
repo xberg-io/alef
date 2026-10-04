@@ -1,25 +1,36 @@
 use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
-pub(super) fn from_core(expr: &str, field: &FieldDef) -> Option<String> {
-    convert_field(expr, field, Direction::FromCore)
+pub(super) fn struct_from_core(expr: &str, field: &FieldDef) -> Option<String> {
+    convert_struct_field(expr, field, Direction::FromCore)
 }
 
-pub(super) fn to_core(expr: &str, field: &FieldDef) -> Option<String> {
-    convert_field(expr, field, Direction::ToCore)
+pub(super) fn struct_to_core(expr: &str, field: &FieldDef) -> Option<String> {
+    convert_struct_field(expr, field, Direction::ToCore)
 }
 
-fn convert_field(expr: &str, field: &FieldDef, direction: Direction) -> Option<String> {
-    let wrapper = field.newtype_wrapper.as_deref()?;
+pub(super) fn enum_from_core(expr: &str, field: &FieldDef) -> Option<String> {
+    convert_enum_field(expr, field, Direction::FromCore)
+}
+
+pub(super) fn enum_to_core(expr: &str, field: &FieldDef) -> Option<String> {
+    convert_enum_field(expr, field, Direction::ToCore)
+}
+
+fn explicit_paths(wrapper: &str) -> Option<Vec<NewtypeWrapperMetadata>> {
     let decoded = NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated before codegen");
     let paths = decoded.explicit_paths();
-    if paths.is_empty() {
-        return None;
-    }
+    (!paths.is_empty()).then(|| paths.to_vec())
+}
+
+fn convert_struct_field(expr: &str, field: &FieldDef, direction: Direction) -> Option<String> {
+    let wrapper = field.newtype_wrapper.as_deref()?;
+    let paths = explicit_paths(wrapper)?;
     if crate::codegen::conversions::helpers::explicit_newtype_covers_non_identity_leaves(
         &field.ty,
         field.optional,
         wrapper,
-    ) {
+    ) && !(field.optional && matches!(field.ty, TypeRef::Optional(_)))
+    {
         return match direction {
             Direction::FromCore => {
                 crate::codegen::conversions::helpers::apply_explicit_field_newtype_from_core(expr, field)
@@ -30,12 +41,69 @@ fn convert_field(expr: &str, field: &FieldDef, direction: Direction) -> Option<S
         };
     }
     if field.optional {
-        let nested = advance_matching(paths, NewtypeContainer::Optional);
-        let converted = convert("value", &field.ty, &nested, direction);
+        let after_outer = advance_matching(&paths, NewtypeContainer::Optional);
+        if let TypeRef::Optional(inner) = &field.ty {
+            let after_inner = advance_matching(&after_outer, NewtypeContainer::Optional);
+            let converted = convert("value", inner, &after_inner, direction);
+            return Some(match direction {
+                Direction::FromCore => format!("({expr}).flatten().map(|value| {converted})"),
+                Direction::ToCore => format!("({expr}).map(|value| {converted}).map(Some)"),
+            });
+        }
+        let converted = convert("value", &field.ty, &after_outer, direction);
         Some(format!("({expr}).map(|value| {converted})"))
     } else {
-        Some(convert(expr, &field.ty, paths, direction))
+        Some(convert(expr, &field.ty, &paths, direction))
     }
+}
+
+fn convert_enum_field(expr: &str, field: &FieldDef, direction: Direction) -> Option<String> {
+    let wrapper = field.newtype_wrapper.as_deref()?;
+    let paths = explicit_paths(wrapper)?;
+    if !field.optional
+        && crate::codegen::conversions::helpers::explicit_newtype_covers_non_identity_leaves(&field.ty, false, wrapper)
+    {
+        return match direction {
+            Direction::FromCore => {
+                crate::codegen::conversions::helpers::apply_explicit_field_newtype_from_core(expr, field)
+            }
+            Direction::ToCore => {
+                crate::codegen::conversions::helpers::apply_explicit_field_newtype_to_core(expr, field)
+            }
+        };
+    }
+    if !field.optional {
+        return Some(convert(expr, &field.ty, &paths, direction));
+    }
+    let after_outer = advance_matching(&paths, NewtypeContainer::Optional);
+    if let TypeRef::Optional(inner) = &field.ty {
+        return Some(match direction {
+            Direction::FromCore => {
+                let converted = convert(
+                    "value",
+                    inner,
+                    &advance_matching(&after_outer, NewtypeContainer::Optional),
+                    direction,
+                );
+                format!("({expr}).flatten().map(|value| {converted})")
+            }
+            Direction::ToCore => {
+                let converted = convert(expr, &field.ty, &after_outer, direction);
+                format!("({converted}).map(Some)")
+            }
+        });
+    }
+    Some(match direction {
+        Direction::FromCore => {
+            let converted = convert("value", &field.ty, &after_outer, direction);
+            format!("({expr}).map(|value| {converted}).unwrap_or_default()")
+        }
+        Direction::ToCore if matches!(field.ty, TypeRef::String) => {
+            let converted = convert(expr, &field.ty, &after_outer, direction);
+            format!("if ({expr}).is_empty() {{ None }} else {{ Some({converted}) }}")
+        }
+        Direction::ToCore => format!("Some({})", convert(expr, &field.ty, &after_outer, direction)),
+    })
 }
 
 #[derive(Clone, Copy)]
