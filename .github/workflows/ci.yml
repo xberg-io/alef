@@ -171,7 +171,7 @@ jobs:
       # Kotlin grammar was measured against, so a `fwilhe2/setup-kotlin` default-version bump
       # can't silently change what CI verifies against. ~keep
       - name: Install kotlinc
-        uses: fwilhe2/setup-kotlin@v2
+        uses: fwilhe2/setup-kotlin@v2.1
         with:
           version: "2.4.10"
       # Swift is the one toolchain here that genuinely cannot be installed on every leg: it ships
