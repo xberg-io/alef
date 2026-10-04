@@ -17,12 +17,7 @@ pub(super) fn default_to_core(field: &FieldDef) -> String {
     else {
         return "Default::default()".to_string();
     };
-    let value = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
-        "Default::default()",
-        &field.ty,
-        field.optional,
-        wrapper,
-    );
+    let value = apply_to_core("Default::default()", &field.ty, field.optional, wrapper);
     if field.is_boxed {
         if field.optional {
             format!("({value}).map(Box::new)")
@@ -32,6 +27,27 @@ pub(super) fn default_to_core(field: &FieldDef) -> String {
     } else {
         value
     }
+}
+
+pub(super) fn apply_to_core(expression: &str, ty: &TypeRef, optional: bool, wrapper: &str) -> String {
+    if let Some(constructor) = root_optional_transparent_constructor(wrapper) {
+        return format!("({expression}).map({constructor})");
+    }
+    crate::codegen::conversions::helpers::apply_field_newtype_to_core(expression, ty, optional, wrapper)
+}
+
+fn root_optional_transparent_constructor(wrapper: &str) -> Option<String> {
+    let decoded = NewtypeWrapper::decode(wrapper).ok()?;
+    let [metadata] = decoded.explicit_paths() else {
+        return None;
+    };
+    if metadata.containers.as_slice() != [NewtypeContainer::Optional] {
+        return None;
+    }
+    let NewtypeConversion::TransparentString { from, .. } = &metadata.conversion else {
+        return None;
+    };
+    Some(format!("{}::{from}", metadata.rust_path))
 }
 
 fn wrapper_needs_leaf_default(field: &FieldDef, wrapper: &str) -> bool {
@@ -46,7 +62,7 @@ fn wrapper_needs_leaf_default(field: &FieldDef, wrapper: &str) -> bool {
 
 pub(super) fn gen_from_binding_to_core(typ: &TypeDef, core_import: &str, config: &ConversionConfig<'_>) -> String {
     let generated = crate::codegen::conversions::gen_from_binding_to_core_cfg(typ, core_import, config);
-    repair_flattened_fields(generated, typ, Direction::ToCore)
+    repair_flattened_fields(generated, typ, config, Direction::ToCore)
 }
 
 pub(super) fn gen_from_core_to_binding(
@@ -56,7 +72,7 @@ pub(super) fn gen_from_core_to_binding(
     config: &ConversionConfig<'_>,
 ) -> String {
     let generated = crate::codegen::conversions::gen_from_core_to_binding_cfg(typ, core_import, opaque_types, config);
-    repair_flattened_fields(generated, typ, Direction::FromCore)
+    repair_flattened_fields(generated, typ, config, Direction::FromCore)
 }
 
 #[derive(Clone, Copy)]
@@ -65,15 +81,14 @@ enum Direction {
     FromCore,
 }
 
-fn repair_flattened_fields(mut generated: String, typ: &TypeDef, direction: Direction) -> String {
+fn repair_flattened_fields(
+    mut generated: String,
+    typ: &TypeDef,
+    config: &ConversionConfig<'_>,
+    direction: Direction,
+) -> String {
     for field in &typ.fields {
         if field.binding_excluded {
-            continue;
-        }
-        let TypeRef::Optional(inner) = &field.ty else {
-            continue;
-        };
-        if !field.optional {
             continue;
         }
         let Some(wrapper) = field.newtype_wrapper.as_deref() else {
@@ -82,6 +97,31 @@ fn repair_flattened_fields(mut generated: String, typ: &TypeDef, direction: Dire
         let Ok(NewtypeWrapper::Explicit(mut paths)) = NewtypeWrapper::decode(wrapper) else {
             continue;
         };
+        let binding_name = config.binding_field_name_owned(&typ.name, &field.name);
+        if matches!(direction, Direction::ToCore)
+            && let Some(constructor) = root_optional_transparent_constructor(wrapper)
+        {
+            let converted = format!("(val.{binding_name}).map({constructor})");
+            let expression = if field.is_boxed {
+                format!("({converted}).map(Box::new)")
+            } else {
+                converted
+            };
+            generated = replace_to_core_conversion(&generated, &field.name, &binding_name, &expression)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "generated NAPI conversion for root-optional explicit-newtype field `{}.{}` had no replaceable field initializer, assignment, or constructor argument",
+                        typ.name, field.name
+                    )
+                });
+            continue;
+        }
+        let TypeRef::Optional(inner) = &field.ty else {
+            continue;
+        };
+        if !field.optional {
+            continue;
+        }
         if paths.is_empty()
             || paths
                 .iter()
@@ -95,7 +135,7 @@ fn repair_flattened_fields(mut generated: String, typ: &TypeDef, direction: Dire
 
         let expression = match direction {
             Direction::ToCore => {
-                let converted = convert(&format!("val.{}", field.name), &field.ty, &paths, Direction::ToCore);
+                let converted = convert(&format!("val.{binding_name}"), &field.ty, &paths, Direction::ToCore);
                 format!("({converted}).map(Some)")
             }
             Direction::FromCore => convert(
@@ -105,14 +145,49 @@ fn repair_flattened_fields(mut generated: String, typ: &TypeDef, direction: Dire
                 Direction::FromCore,
             ),
         };
-        generated = replace_field_conversion(generated, &field.name, &expression).unwrap_or_else(|| {
+        generated = match direction {
+            Direction::ToCore => replace_to_core_conversion(&generated, &field.name, &binding_name, &expression),
+            Direction::FromCore => replace_field_conversion(generated, &field.name, &expression),
+        }
+        .unwrap_or_else(|| {
             panic!(
-                "generated NAPI conversion for flattened explicit-newtype field `{}.{}` had no replaceable field initializer or assignment",
+                "generated NAPI conversion for flattened explicit-newtype field `{}.{}` had no replaceable field initializer, assignment, or constructor argument",
                 typ.name, field.name
             )
         });
     }
     generated
+}
+
+fn replace_to_core_conversion(
+    generated: &str,
+    field_name: &str,
+    binding_name: &str,
+    expression: &str,
+) -> Option<String> {
+    replace_field_conversion(generated.to_string(), field_name, expression)
+        .or_else(|| replace_constructor_argument(generated, binding_name, expression))
+}
+
+fn replace_constructor_argument(generated: &str, binding_name: &str, expression: &str) -> Option<String> {
+    let marker = format!("val.{binding_name}");
+    let matches: Vec<_> = generated
+        .match_indices(&marker)
+        .filter_map(|(index, _)| {
+            let next = generated[index + marker.len()..].chars().next();
+            (!next.is_some_and(|character| character == '_' || character.is_alphanumeric())).then_some(index)
+        })
+        .collect();
+    let [marker_start] = matches.as_slice() else {
+        return None;
+    };
+    let line_start = generated[..*marker_start].rfind('\n').map_or(0, |index| index + 1);
+    let expression_start = line_start + generated[line_start..].find(|character: char| !character.is_whitespace())?;
+    let relative_end = top_level_delimiter(&generated[expression_start..], ',')?;
+    let expression_end = expression_start + relative_end;
+    let mut output = generated.to_string();
+    output.replace_range(expression_start..expression_end, expression);
+    Some(output)
 }
 
 fn replace_field_conversion(generated: String, name: &str, expression: &str) -> Option<String> {
@@ -171,6 +246,11 @@ fn convert(expression: &str, ty: &TypeRef, paths: &[NewtypeWrapperMetadata], dir
 
     match ty {
         TypeRef::Optional(inner) => {
+            if matches!(direction, Direction::ToCore)
+                && let Some(constructor) = optional_leaf_constructor(paths)
+            {
+                return format!("({expression}).map({constructor})");
+            }
             let nested = advance(paths, NewtypeContainer::Optional);
             let converted = convert("value", inner, &nested, direction);
             format!("({expression}).map(|value| {converted})")
@@ -210,6 +290,19 @@ fn convert(expression: &str, ty: &TypeRef, paths: &[NewtypeWrapperMetadata], dir
         },
         TypeRef::Primitive(_) | TypeRef::String | TypeRef::Unit | TypeRef::Json => expression.to_string(),
     }
+}
+
+fn optional_leaf_constructor(paths: &[NewtypeWrapperMetadata]) -> Option<String> {
+    let [metadata] = paths else {
+        return None;
+    };
+    if metadata.containers.as_slice() != [NewtypeContainer::Optional] {
+        return None;
+    }
+    let NewtypeConversion::TransparentString { from, .. } = &metadata.conversion else {
+        return None;
+    };
+    Some(format!("{}::{from}", metadata.rust_path))
 }
 
 fn advance(paths: &[NewtypeWrapperMetadata], container: NewtypeContainer) -> Vec<NewtypeWrapperMetadata> {

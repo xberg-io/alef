@@ -13,12 +13,14 @@ fn newtype_call_arg(param: &ParamDef) -> Option<String> {
             format!("&{}_newtype", param.name)
         });
     }
-    Some(crate::codegen::conversions::helpers::apply_field_newtype_to_core(
-        &param.name,
-        &param.ty,
-        param.optional,
-        wrapper,
-    ))
+    Some(
+        crate::backends::napi::gen_bindings::transparent_newtypes::apply_to_core(
+            &param.name,
+            &param.ty,
+            param.optional,
+            wrapper,
+        ),
+    )
 }
 
 pub(in crate::backends::napi::gen_bindings) fn napi_newtype_param_bindings(params: &[ParamDef]) -> String {
@@ -27,7 +29,7 @@ pub(in crate::backends::napi::gen_bindings) fn napi_newtype_param_bindings(param
         .filter(|param| param.is_ref && param.newtype_wrapper.is_some())
         .map(|param| {
             let wrapper = param.newtype_wrapper.as_deref().expect("filtered transparent wrapper");
-            let converted = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+            let converted = crate::backends::napi::gen_bindings::transparent_newtypes::apply_to_core(
                 &param.name,
                 &param.ty,
                 param.optional,

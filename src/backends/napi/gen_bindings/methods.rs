@@ -6,8 +6,8 @@ use crate::{
         conversions::{
             enum_conversion_needs_catch_all_for_features,
             helpers::{
-                apply_field_newtype_from_core, apply_field_newtype_to_core, sanitized_field_to_binding_expr,
-                sanitized_map_field_to_core_expr, sanitized_vec_field_to_core_expr,
+                apply_field_newtype_from_core, sanitized_field_to_binding_expr, sanitized_map_field_to_core_expr,
+                sanitized_vec_field_to_core_expr,
             },
         },
         naming::wire_variant_value,
@@ -123,7 +123,7 @@ fn binding_to_core_field_expr(
         } else {
             format!("val.{binding_field_name}.unwrap_or_default()")
         };
-        let converted = apply_field_newtype_to_core(&source, &field.ty, field.optional, wrapper);
+        let converted = super::transparent_newtypes::apply_to_core(&source, &field.ty, field.optional, wrapper);
         return if field.is_boxed {
             if field.optional {
                 format!("({converted}).map(Box::new)")

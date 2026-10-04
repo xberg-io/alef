@@ -79,6 +79,14 @@ fn tagged_enum_transparent_string_fields_convert_without_wrapper_default() {
         "binding payloads must construct the wrapper:\n{binding_to_core}"
     );
     assert!(
+        binding_to_core.contains("(val.value).map(test_core::SecretString::from)"),
+        "root optional enum payload must use the constructor function directly:\n{binding_to_core}"
+    );
+    assert!(
+        !binding_to_core.contains("map(|value| test_core::SecretString::from(value))"),
+        "root optional enum payload must not emit Clippy's redundant-closure shape:\n{binding_to_core}"
+    );
+    assert!(
         binding_to_core.contains("_ => Self::Bearer(test_core::SecretString::from(Default::default()))"),
         "the unknown-tag fallback must construct a wrapped default without requiring the wrapper itself to implement Default:\n{binding_to_core}"
     );

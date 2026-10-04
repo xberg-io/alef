@@ -834,7 +834,7 @@ mod tests {
                 true,
                 vec![NewtypeContainer::Optional],
                 TypeRef::Optional(Box::new(TypeRef::String)),
-                "sample_core::SecretString::from",
+                "(value).map(sample_core::SecretString::from)",
             ),
             (
                 "map",
@@ -870,6 +870,18 @@ mod tests {
                 output.contains(call_fragment),
                 "{name} input wrapper was not constructed:\n{output}"
             );
+            if name == "optional" {
+                assert!(
+                    !output.contains("map(|value| sample_core::SecretString::from(value))"),
+                    "root optional input must not emit Clippy's redundant-closure shape:\n{output}"
+                );
+            }
+            if name == "map" {
+                assert!(
+                    output.contains("(value).map(|value| (value).into_iter().map(|(key, value)| (key, sample_core::SecretString::from(value))).collect())"),
+                    "nested optional/map conversion must retain its container traversal:\n{output}"
+                );
+            }
             assert!(
                 output.contains("into_inner()"),
                 "{name} output wrapper was not consumed:\n{output}"

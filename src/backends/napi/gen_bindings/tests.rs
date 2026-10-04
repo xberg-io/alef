@@ -776,9 +776,13 @@ fn flattened_optional_transparent_wrapper_uses_one_binding_option_layer() {
     let to_core = super::transparent_newtypes::gen_from_binding_to_core(&typ, "fixture_core", &config);
     assert!(
         to_core.contains("__result.nested_optional_credential =")
-            && to_core.contains("map(|value| fixture_core::SecretString::new_secret(value))")
+            && to_core.contains("map(fixture_core::SecretString::new_secret)")
             && to_core.contains(".map(Some)"),
         "the single JS optional must convert once and reconstruct the outer Rust Option:\n{to_core}"
+    );
+    assert!(
+        !to_core.contains("map(|value| fixture_core::SecretString::new_secret(value))"),
+        "flattened optional wrapper must not emit Clippy's redundant-closure shape:\n{to_core}"
     );
     assert!(
         !to_core.contains("map(|value| (value).map("),
@@ -794,6 +798,172 @@ fn flattened_optional_transparent_wrapper_uses_one_binding_option_layer() {
     assert!(
         !from_core.contains("nested_optional_credential.flatten().map(|v| v.to_string())"),
         "an explicit transparent wrapper must not require Display:\n{from_core}"
+    );
+}
+
+#[test]
+fn root_optional_transparent_wrapper_field_uses_configured_constructor_function() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, NewtypeContainer, TypeDef, TypeRef};
+
+    let typ = TypeDef {
+        name: "Report".into(),
+        rust_path: "fixture_core::Report".into(),
+        fields: vec![FieldDef {
+            name: "optional_credential".into(),
+            ty: TypeRef::String,
+            optional: true,
+            newtype_wrapper: Some(transparent_string_wrapper_with_methods(
+                vec![vec![NewtypeContainer::Optional]],
+                "new_secret",
+                "expose_secret",
+            )),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let output = super::transparent_newtypes::gen_from_binding_to_core(
+        &typ,
+        "fixture_core",
+        &ConversionConfig {
+            type_name_prefix: "Js",
+            ..Default::default()
+        },
+    );
+
+    assert!(
+        output.contains("optional_credential: (val.optional_credential).map(fixture_core::SecretString::new_secret)"),
+        "root optional wrapper must use the configured constructor function:\n{output}"
+    );
+    assert!(
+        !output.contains("map(|value| fixture_core::SecretString::new_secret(value))"),
+        "root optional wrapper must not emit Clippy's redundant-closure shape:\n{output}"
+    );
+}
+
+#[test]
+fn constructor_owned_root_optional_wrapper_uses_configured_constructor_function() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, MethodDef, NewtypeContainer, ParamDef, TypeDef, TypeRef};
+
+    for has_lifetime_params in [false, true] {
+        let field = FieldDef {
+            name: "optional_credential".into(),
+            ty: TypeRef::String,
+            optional: true,
+            newtype_wrapper: Some(transparent_string_wrapper_with_methods(
+                vec![vec![NewtypeContainer::Optional]],
+                "new_secret",
+                "expose_secret",
+            )),
+            ..Default::default()
+        };
+        let typ = TypeDef {
+            name: "Report".into(),
+            rust_path: "fixture_core::Report".into(),
+            fields: vec![field],
+            methods: vec![MethodDef {
+                name: "new".into(),
+                params: vec![ParamDef {
+                    name: "optional_credential".into(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..Default::default()
+                }],
+                is_static: true,
+                ..Default::default()
+            }],
+            has_lifetime_params,
+            ..Default::default()
+        };
+
+        let output = super::transparent_newtypes::gen_from_binding_to_core(
+            &typ,
+            "fixture_core",
+            &ConversionConfig {
+                type_name_prefix: "Js",
+                ..Default::default()
+            },
+        );
+
+        assert!(output.contains("::new("), "constructor path must be emitted:\n{output}");
+        assert!(
+            output.contains("(val.optional_credential).map(fixture_core::SecretString::new_secret)"),
+            "constructor argument must use the configured wrapper constructor:\n{output}"
+        );
+        assert!(
+            !output.contains("map(|value| fixture_core::SecretString::new_secret(value))"),
+            "constructor argument must not emit a redundant closure:\n{output}"
+        );
+    }
+}
+
+#[test]
+fn constructor_owned_flattened_wrapper_preserves_nested_container_traversal() {
+    use crate::codegen::conversions::ConversionConfig;
+    use crate::core::ir::{FieldDef, MethodDef, NewtypeContainer, ParamDef, TypeDef, TypeRef};
+
+    let ty = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::String),
+    )))));
+    let wrapper = transparent_string_wrapper(vec![
+        vec![
+            NewtypeContainer::Optional,
+            NewtypeContainer::Optional,
+            NewtypeContainer::Vec,
+            NewtypeContainer::MapKey,
+        ],
+        vec![
+            NewtypeContainer::Optional,
+            NewtypeContainer::Optional,
+            NewtypeContainer::Vec,
+            NewtypeContainer::MapValue,
+        ],
+    ]);
+    let typ = TypeDef {
+        name: "Report".into(),
+        rust_path: "fixture_core::Report".into(),
+        fields: vec![FieldDef {
+            name: "secrets".into(),
+            ty: ty.clone(),
+            optional: true,
+            newtype_wrapper: Some(wrapper),
+            ..Default::default()
+        }],
+        methods: vec![MethodDef {
+            name: "new".into(),
+            params: vec![ParamDef {
+                name: "secrets".into(),
+                ty,
+                optional: true,
+                ..Default::default()
+            }],
+            is_static: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let output = super::transparent_newtypes::gen_from_binding_to_core(
+        &typ,
+        "fixture_core",
+        &ConversionConfig {
+            type_name_prefix: "Js",
+            ..Default::default()
+        },
+    );
+
+    assert!(output.contains("::new("), "constructor path must be emitted:\n{output}");
+    assert!(
+        output.contains("fixture_core::SecretString::from(key)")
+            && output.contains("fixture_core::SecretString::from(value)"),
+        "nested map keys and values must still construct wrappers:\n{output}"
+    );
+    assert!(
+        output.contains(".map(Some)"),
+        "outer Rust option must be restored:\n{output}"
     );
 }
 
