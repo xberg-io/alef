@@ -157,10 +157,10 @@ struct ConversionPath<'a> {
 }
 
 fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction: Direction) -> String {
-    if let [path] = paths {
-        if path.containers.is_empty() {
-            return apply_leaf(expr, path.metadata, direction);
-        }
+    if let [path] = paths
+        && path.containers.is_empty()
+    {
+        return apply_leaf(expr, path.metadata, direction);
     }
     let first = paths
         .first()

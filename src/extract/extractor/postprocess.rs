@@ -214,17 +214,16 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
             }
             None => None,
         };
-        if let Some(wrapper) = &decoded {
-            if let Err(reason) = wrapper.validate_for_type(&typ.fields[0].ty, typ.fields[0].optional) {
-                diagnostics.push(UnsupportedPublicItem {
-                    item_kind: "struct".to_string(),
-                    item_path: typ.rust_path.clone(),
-                    reason,
-                    suggested_fix: "make the conversion metadata path match the wrapper's resolved inner type"
-                        .to_string(),
-                });
-                continue;
-            }
+        if let Some(wrapper) = &decoded
+            && let Err(reason) = wrapper.validate_for_type(&typ.fields[0].ty, typ.fields[0].optional)
+        {
+            diagnostics.push(UnsupportedPublicItem {
+                item_kind: "struct".to_string(),
+                item_path: typ.rust_path.clone(),
+                reason,
+                suggested_fix: "make the conversion metadata path match the wrapper's resolved inner type".to_string(),
+            });
+            continue;
         }
         if typ.binding_exclusion_reason.as_deref() == Some("alef(transparent_string)") {
             let Some(wrapper) = decoded.as_ref().filter(|wrapper| !wrapper.explicit_paths().is_empty()) else {
