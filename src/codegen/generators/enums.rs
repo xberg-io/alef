@@ -425,7 +425,7 @@ fn gen_pyo3_enum_variant_constructors_content(
                 let expr = if let Some((dto, shape)) = coercible_payload(&p.ty, coercible_dto_names) {
                     coercible_field_init(&p.name, dto, shape, p.optional, promoted)
                 } else {
-                    variant_field_init(p, promoted, false, false, ctor.boxed[idx])
+                    pyo3_variant_field_init(p, promoted, ctor.boxed[idx])
                 };
                 if ctor.is_tuple {
                     expr
@@ -477,6 +477,28 @@ fn gen_pyo3_enum_variant_constructors_content(
     }
 
     out.trim_end().to_string()
+}
+
+fn pyo3_variant_field_init(param: &crate::core::ir::ParamDef, promoted: bool, is_boxed: bool) -> String {
+    if let Some(wrapper) = &param.newtype_wrapper {
+        let access = if promoted {
+            format!("{}.unwrap_or_default()", param.name)
+        } else {
+            param.name.clone()
+        };
+        let optional = param.optional && !promoted;
+        let converted =
+            crate::codegen::conversions::helpers::apply_field_newtype_to_core(&access, &param.ty, optional, wrapper);
+        if !is_boxed {
+            converted
+        } else if optional {
+            format!("{converted}.map(Box::new)")
+        } else {
+            format!("Box::new({converted})")
+        }
+    } else {
+        variant_field_init(param, promoted, false, false, is_boxed)
+    }
 }
 
 /// Apply a serde `rename_all = "..."` rule to a Rust-style variant name. Returns the
