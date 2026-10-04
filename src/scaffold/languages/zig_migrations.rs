@@ -153,12 +153,12 @@ fn repair_zig_build_c_translation(content: &str, generated: &str) -> Option<Stri
             .replacen("    const build_root = b.build_root.path orelse \".\";\n\n", "", 1)
             .replacen(
                 "    const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });",
-                lazy_path_declaration("ffi_path"),
+                &lazy_path_declaration("ffi_path"),
                 1,
             )
             .replacen(
                 "    const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });",
-                lazy_path_declaration("ffi_include"),
+                &lazy_path_declaration("ffi_include"),
                 1,
             )
     } else {
