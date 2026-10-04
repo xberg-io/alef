@@ -6,7 +6,8 @@ use crate::{
         conversions::{
             enum_conversion_needs_catch_all_for_features,
             helpers::{
-                sanitized_field_to_binding_expr, sanitized_map_field_to_core_expr, sanitized_vec_field_to_core_expr,
+                apply_field_newtype_from_core, apply_field_newtype_to_core, sanitized_field_to_binding_expr,
+                sanitized_map_field_to_core_expr, sanitized_vec_field_to_core_expr,
             },
         },
         naming::wire_variant_value,
@@ -116,6 +117,23 @@ fn binding_to_core_field_expr(
     is_mixed: bool,
     core_import: &str,
 ) -> String {
+    if let Some(wrapper) = field.newtype_wrapper.as_deref() {
+        let source = if field.optional {
+            format!("val.{binding_field_name}")
+        } else {
+            format!("val.{binding_field_name}.unwrap_or_default()")
+        };
+        let converted = apply_field_newtype_to_core(&source, &field.ty, field.optional, wrapper);
+        return if field.is_boxed {
+            if field.optional {
+                format!("({converted}).map(Box::new)")
+            } else {
+                format!("Box::new({converted})")
+            }
+        } else {
+            converted
+        };
+    }
     if field.sanitized {
         let expr = sanitized_binding_to_core_expr(binding_field_name, &field.ty, field.optional);
         return if field.is_boxed {
@@ -348,6 +366,23 @@ pub(super) fn gen_tagged_enum_binding_to_core(
 /// never diverge on how a given field type converts.
 fn core_to_binding_field_init(f: &str, field: &FieldDef, _has_binding: bool, is_mixed: bool) -> String {
     use crate::core::ir::TypeRef;
+    if let Some(wrapper) = field.newtype_wrapper.as_deref() {
+        let source = if field.is_boxed {
+            if field.optional {
+                format!("{f}.map(|value| *value)")
+            } else {
+                format!("*{f}")
+            }
+        } else {
+            f.to_string()
+        };
+        let converted = apply_field_newtype_from_core(&source, &field.ty, field.optional, wrapper);
+        return if field.optional {
+            format!("{f}: {converted}")
+        } else {
+            format!("{f}: Some({converted})")
+        };
+    }
     let boxed_deref = if field.is_boxed { "*" } else { "" };
     if field.sanitized {
         return sanitized_core_to_binding_expr(f, &field.ty, field.optional);
@@ -598,6 +633,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(
         },
     )
 }
+
+#[cfg(test)]
+mod transparent_string_tests;
 
 #[cfg(test)]
 mod tests {

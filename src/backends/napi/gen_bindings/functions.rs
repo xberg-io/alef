@@ -7,12 +7,14 @@ mod return_wrapping;
 
 pub(super) use adapter_wrappers::{gen_adapter_wrapper, gen_tokio_runtime};
 pub(super) use call_args::{
-    core_prim_str, napi_apply_primitive_casts_to_call_args, napi_gen_call_args, needs_napi_cast,
+    core_prim_str, napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_newtype_param_bindings,
+    needs_napi_cast,
 };
 use call_args::{is_bytes_param, needs_vec_f32_conversion};
 use conversion_bindings::{gen_napi_buffer_conversion_bindings, gen_vec_f32_conversion_bindings};
 pub(super) use return_wrapping::{napi_wrap_return, napi_wrap_return_fn};
 
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::generators::{self, RustBindingConfig};
 use crate::codegen::naming::to_node_name;
 use crate::codegen::shared::{self, function_params};
@@ -181,8 +183,9 @@ pub(super) fn gen_function(
 
     let body = if !can_delegate_fn {
         if cfg.has_serde && use_let_bindings && func.error_type.is_some() {
-            let serde_bindings =
+            let mut serde_bindings =
                 generators::gen_serde_let_bindings(&func.params, opaque_types, core_import, err_conv, "    ");
+            serde_bindings.push_str(&napi_newtype_param_bindings(&func.params));
             let vec_str_bindings: String = func.params.iter().filter(|p| {
                 p.is_ref && p.vec_inner_is_ref && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char))
             }).map(|p| {
@@ -194,8 +197,9 @@ pub(super) fn gen_function(
             if matches!(func.return_type, TypeRef::Unit) {
                 format!("{vec_str_bindings}{serde_bindings}{core_call}{await_kw}{err_conv}?;\n    Ok(())")
             } else {
+                let value = apply_return_newtype_unwrap("val", &func.return_newtype_wrapper);
                 let wrapped = napi_wrap_return_fn(
-                    "val",
+                    &value,
                     &func.return_type,
                     opaque_types,
                     func.returns_ref,
@@ -236,6 +240,7 @@ pub(super) fn gen_function(
         };
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
+        let_bindings.push_str(&napi_newtype_param_bindings(&func.params));
         let core_call = format!("{core_fn_path}({call_args})");
         if let Some(var) = &writeback_var {
             // Async `&mut` DTO write-back: the core future resolves to `()` (or `Result<(), E>`),
@@ -247,8 +252,9 @@ pub(super) fn gen_function(
                 format!("{let_bindings}{core_call}.await;\n            {var}.into()")
             }
         } else {
+            let result = apply_return_newtype_unwrap("result", &func.return_newtype_wrapper);
             let return_wrap = napi_wrap_return_fn(
-                "result",
+                &result,
                 &func.return_type,
                 opaque_types,
                 func.returns_ref,
@@ -286,6 +292,7 @@ pub(super) fn gen_function(
         };
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
+        let_bindings.push_str(&napi_newtype_param_bindings(&func.params));
 
         if let Some(var) = &writeback_var {
             // The core call mutates `{var}` and returns `()`; the binding hands back the
@@ -296,8 +303,9 @@ pub(super) fn gen_function(
                 format!("{let_bindings}{core_call};\n    {var}.into()")
             }
         } else if func.error_type.is_some() {
+            let value = apply_return_newtype_unwrap("val", &func.return_newtype_wrapper);
             let wrapped = napi_wrap_return_fn(
-                "val",
+                &value,
                 &func.return_type,
                 opaque_types,
                 func.returns_ref,
@@ -311,10 +319,11 @@ pub(super) fn gen_function(
                 format!("{let_bindings}{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
+            let result = apply_return_newtype_unwrap(&core_call, &func.return_newtype_wrapper);
             format!(
                 "{let_bindings}{}",
                 napi_wrap_return_fn(
-                    &core_call,
+                    &result,
                     &func.return_type,
                     opaque_types,
                     func.returns_ref,
@@ -365,6 +374,17 @@ pub(super) fn gen_function(
 #[cfg(test)]
 mod tests {
     use super::gen_tokio_runtime;
+
+    fn transparent_string_wrapper(containers: Vec<crate::core::ir::NewtypeContainer>) -> String {
+        use crate::core::ir::{NewtypeWrapper, NewtypeWrapperMetadata};
+
+        NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "sample_core::SecretString",
+            "from",
+            "into_inner",
+            containers,
+        )])
+    }
 
     /// gen_tokio_runtime produces a static runtime with an enlarged worker stack so deep
     /// consumer futures (e.g. an OCR pipeline) do not overflow the default ~2 MB stack (SIGBUS).
@@ -793,5 +813,103 @@ mod tests {
             !output.contains("record_core.into()"),
             "owned param must not gain a write-back tail:\n{output}"
         );
+    }
+
+    #[test]
+    fn napi_transparent_string_owned_optional_and_map_calls_round_trip() {
+        use crate::core::ir::{FunctionDef, NewtypeContainer, ParamDef, TypeRef};
+
+        let cases = [
+            (
+                "owned",
+                TypeRef::String,
+                false,
+                Vec::new(),
+                TypeRef::String,
+                "sample_core::SecretString::from(value)",
+            ),
+            (
+                "optional",
+                TypeRef::String,
+                true,
+                vec![NewtypeContainer::Optional],
+                TypeRef::Optional(Box::new(TypeRef::String)),
+                "sample_core::SecretString::from",
+            ),
+            (
+                "map",
+                TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                true,
+                vec![NewtypeContainer::Optional, NewtypeContainer::MapValue],
+                TypeRef::Optional(Box::new(TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::String),
+                ))),
+                "sample_core::SecretString::from(value)",
+            ),
+        ];
+
+        for (name, ty, optional, containers, return_type, call_fragment) in cases {
+            let wrapper = transparent_string_wrapper(containers);
+            let output = gen_probe_function(&FunctionDef {
+                name: format!("round_trip_{name}"),
+                rust_path: format!("sample_core::round_trip_{name}"),
+                params: vec![ParamDef {
+                    name: "value".to_owned(),
+                    ty: ty.clone(),
+                    optional,
+                    newtype_wrapper: Some(wrapper.clone()),
+                    ..ParamDef::default()
+                }],
+                return_type,
+                return_newtype_wrapper: Some(wrapper),
+                ..FunctionDef::default()
+            });
+
+            assert!(
+                output.contains(call_fragment),
+                "{name} input wrapper was not constructed:\n{output}"
+            );
+            assert!(
+                output.contains("into_inner()"),
+                "{name} output wrapper was not consumed:\n{output}"
+            );
+            assert!(
+                !output.contains("to_string()"),
+                "{name} must not require Display:\n{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn napi_transparent_string_borrows_use_stable_wrapper_locals() {
+        use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
+
+        for (name, is_mut, declaration, call) in [
+            ("borrow", false, "let value_newtype", "&value_newtype"),
+            ("borrow_mut", true, "let mut value_newtype", "&mut value_newtype"),
+        ] {
+            let output = gen_probe_function(&FunctionDef {
+                name: name.to_owned(),
+                rust_path: format!("sample_core::{name}"),
+                params: vec![ParamDef {
+                    name: "value".to_owned(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    is_mut,
+                    newtype_wrapper: Some(transparent_string_wrapper(Vec::new())),
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::Unit,
+                ..FunctionDef::default()
+            });
+
+            let declaration_index = output.find(declaration).expect("wrapper local declaration");
+            let call_index = output.find(call).expect("wrapper local borrow");
+            assert!(
+                declaration_index < call_index,
+                "wrapper local must be declared before it is borrowed:\n{output}"
+            );
+        }
     }
 }

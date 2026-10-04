@@ -2,6 +2,7 @@
 
 use crate::backends::napi::type_map::NapiMapper;
 use crate::codegen::builder::{ImplBuilder, StructBuilder};
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::generators::{
     self, RustBindingConfig, gen_delegating_deserialize_impl, struct_wants_deserialize_delegation,
 };
@@ -14,8 +15,8 @@ use heck::{ToPascalCase, ToSnakeCase};
 
 use super::enums::string_enum_js_values;
 use super::functions::{
-    napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_wrap_return, promoted_required,
-    wrap_promoted_required_body,
+    napi_apply_primitive_casts_to_call_args, napi_gen_call_args, napi_newtype_param_bindings, napi_wrap_return,
+    promoted_required, wrap_promoted_required_body,
 };
 
 /// Whether the generated NAPI binding declares `field` of `owner` as `Option<T>`, i.e. whether
@@ -494,8 +495,9 @@ pub(super) fn gen_opaque_instance_method(
         }
     };
 
+    let async_result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
     let async_result_wrap = napi_wrap_return(
-        "result",
+        &async_result,
         &method.return_type,
         type_name,
         opaque_types,
@@ -516,8 +518,9 @@ pub(super) fn gen_opaque_instance_method(
             && crate::codegen::shared::is_opaque_delegatable_type(&method.return_type)
         {
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
-            let serde_bindings =
+            let mut serde_bindings =
                 generators::gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
+            serde_bindings.push_str(&napi_newtype_param_bindings(&method.params));
             let serde_call_args = if has_promoted_required {
                 generators::gen_call_args_with_let_bindings_mutex_no_promote(&method.params, opaque_types, mutex_types)
             } else {
@@ -536,8 +539,9 @@ pub(super) fn gen_opaque_instance_method(
                     "{serde_bindings}{core_call}{await_suffix}{err_conv}?;\n    Ok(Self {{ inner: self.inner.clone() }})"
                 )
             } else {
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
                 let wrap = napi_wrap_return(
-                    "result",
+                    &result,
                     &method.return_type,
                     type_name,
                     opaque_types,
@@ -559,7 +563,10 @@ pub(super) fn gen_opaque_instance_method(
             )
         }
     } else if method.is_async {
-        let inner_clone_line = "let inner = self.inner.clone();\n    ";
+        let inner_clone_line = format!(
+            "let inner = self.inner.clone();\n    {}",
+            napi_newtype_param_bindings(&method.params)
+        );
         let core_call_str = make_async_core_call(&method.name);
         generators::gen_async_body(
             &core_call_str,
@@ -567,13 +574,13 @@ pub(super) fn gen_opaque_instance_method(
             method.error_type.is_some(),
             &async_result_wrap,
             true,
-            inner_clone_line,
+            &inner_clone_line,
             matches!(method.return_type, TypeRef::Unit),
             Some(&return_type),
         )
     } else {
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
-        let (let_bindings, call_args_for_call) = if use_let_bindings {
+        let (mut let_bindings, call_args_for_call) = if use_let_bindings {
             let bindings = if has_promoted_required {
                 generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, cfg.core_import)
             } else {
@@ -595,6 +602,7 @@ pub(super) fn gen_opaque_instance_method(
         } else {
             (String::new(), napi_gen_call_args(&method.params, opaque_types))
         };
+        let_bindings.push_str(&napi_newtype_param_bindings(&method.params));
         let core_call = if is_owned_receiver {
             format!("(*self.inner).clone().{}({})", method.name, call_args_for_call)
         } else if has_mut_methods {
@@ -609,8 +617,9 @@ pub(super) fn gen_opaque_instance_method(
             } else if self_ref_return {
                 format!("{let_bindings}{core_call}{err_conv}?;\n    Ok(Self {{ inner: self.inner.clone() }})")
             } else {
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
                 let wrap = napi_wrap_return(
-                    "result",
+                    &result,
                     &method.return_type,
                     type_name,
                     opaque_types,
@@ -624,10 +633,11 @@ pub(super) fn gen_opaque_instance_method(
         } else if self_ref_return {
             format!("{let_bindings}{core_call};\n    Self {{ inner: self.inner.clone() }}")
         } else {
+            let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
             format!(
                 "{let_bindings}{}",
                 napi_wrap_return(
-                    &core_call,
+                    &result,
                     &method.return_type,
                     type_name,
                     opaque_types,
@@ -715,8 +725,9 @@ pub(super) fn gen_static_method(
         )
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
+        let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
         let return_wrap = napi_wrap_return(
-            "result",
+            &result,
             &method.return_type,
             type_name,
             opaque_types,
@@ -731,7 +742,7 @@ pub(super) fn gen_static_method(
             method.error_type.is_some(),
             &return_wrap,
             false,
-            "",
+            &napi_newtype_param_bindings(&method.params),
             matches!(method.return_type, TypeRef::Unit),
             Some(&return_type),
         )
@@ -739,8 +750,9 @@ pub(super) fn gen_static_method(
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
             let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+            let value = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
             let wrapped = napi_wrap_return(
-                "val",
+                &value,
                 &method.return_type,
                 type_name,
                 opaque_types,
@@ -755,8 +767,9 @@ pub(super) fn gen_static_method(
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
+            let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
             napi_wrap_return(
-                &core_call,
+                &result,
                 &method.return_type,
                 type_name,
                 opaque_types,
@@ -766,6 +779,12 @@ pub(super) fn gen_static_method(
                 mutex_types,
             )
         }
+    };
+
+    let body = if can_delegate_static && !method.is_async {
+        format!("{}{body}", napi_newtype_param_bindings(&method.params))
+    } else {
+        body
     };
 
     let body = wrap_promoted_required_body(
@@ -865,7 +884,7 @@ pub(super) fn gen_dto_method_fns(
         let params_str = param_parts.join(", ");
 
         let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
-        let (call_args_str, dto_let_bindings) = if use_let_bindings {
+        let (call_args_str, mut dto_let_bindings) = if use_let_bindings {
             (
                 napi_apply_primitive_casts_to_call_args(
                     &if has_promoted_required {
@@ -888,6 +907,7 @@ pub(super) fn gen_dto_method_fns(
         } else {
             (napi_gen_call_args(&method.params, opaque_types), String::new())
         };
+        dto_let_bindings.push_str(&napi_newtype_param_bindings(&method.params));
 
         let body = if is_static {
             let core_call = if method.name == "from" && method.params.len() == 1 {
@@ -910,8 +930,9 @@ pub(super) fn gen_dto_method_fns(
             };
             if method.error_type.is_some() {
                 let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
+                let value = apply_return_newtype_unwrap("val", &method.return_newtype_wrapper);
                 let wrapped = napi_wrap_return(
-                    "val",
+                    &value,
                     &method.return_type,
                     &typ.name,
                     opaque_types,
@@ -926,8 +947,9 @@ pub(super) fn gen_dto_method_fns(
                     format!("{core_call}.map(|val| {wrapped}){err_conv}")
                 }
             } else {
+                let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
                 napi_wrap_return(
-                    &core_call,
+                    &result,
                     &method.return_type,
                     &typ.name,
                     opaque_types,
@@ -958,7 +980,7 @@ pub(super) fn gen_dto_method_fns(
             }
         };
 
-        let body = if is_static && !dto_let_bindings.is_empty() {
+        let body = if !dto_let_bindings.is_empty() {
             format!("{dto_let_bindings}{body}")
         } else {
             body

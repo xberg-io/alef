@@ -1,6 +1,44 @@
 use crate::core::ir::{CoreWrapper, ParamDef, TypeRef};
 use ahash::AHashSet;
 
+fn newtype_call_arg(param: &ParamDef) -> Option<String> {
+    let wrapper = param.newtype_wrapper.as_deref()?;
+    if param.is_ref {
+        return Some(if param.optional {
+            let accessor = if param.is_mut { "as_mut" } else { "as_ref" };
+            format!("{}_newtype.{accessor}()", param.name)
+        } else if param.is_mut {
+            format!("&mut {}_newtype", param.name)
+        } else {
+            format!("&{}_newtype", param.name)
+        });
+    }
+    Some(crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+        &param.name,
+        &param.ty,
+        param.optional,
+        wrapper,
+    ))
+}
+
+pub(in crate::backends::napi::gen_bindings) fn napi_newtype_param_bindings(params: &[ParamDef]) -> String {
+    params
+        .iter()
+        .filter(|param| param.is_ref && param.newtype_wrapper.is_some())
+        .map(|param| {
+            let wrapper = param.newtype_wrapper.as_deref().expect("filtered transparent wrapper");
+            let converted = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+                &param.name,
+                &param.ty,
+                param.optional,
+                wrapper,
+            );
+            let mut_kw = if param.is_mut { "mut " } else { "" };
+            format!("let {mut_kw}{}_newtype = {converted};\n    ", param.name)
+        })
+        .collect()
+}
+
 /// Split a comma-joined call-argument list on top-level commas only, ignoring commas nested inside
 /// angle brackets (`<...>`), parentheses or square brackets. A naive `split(',')` would break an
 /// argument such as `x.into_iter().collect::<BTreeMap<_, _>>()` into pieces at the inner comma.
@@ -35,6 +73,9 @@ pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_cal
         .iter()
         .zip(params.iter())
         .map(|(arg, p)| {
+            if let Some(converted) = newtype_call_arg(p) {
+                return converted;
+            }
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }
@@ -76,6 +117,9 @@ pub(in crate::backends::napi::gen_bindings) fn napi_gen_call_args(
     params
         .iter()
         .map(|p| {
+            if let Some(converted) = newtype_call_arg(p) {
+                return converted;
+            }
             if needs_vec_f32_conversion(&p.ty) && p.is_ref {
                 return format!("&{}_f32", p.name);
             }

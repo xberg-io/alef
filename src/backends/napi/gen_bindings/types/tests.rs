@@ -1,6 +1,50 @@
-use super::{gen_struct, napi_field_is_optional};
+use super::{gen_dto_method_fns, gen_opaque_instance_method, gen_static_method, gen_struct, napi_field_is_optional};
 use crate::backends::napi::type_map::NapiMapper;
-use crate::core::ir::{FieldDef, SerdeContainerConversion, TypeDef, TypeRef};
+use crate::core::ir::{
+    FieldDef, MethodDef, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef, ReceiverKind, SerdeContainerConversion,
+    TypeDef, TypeRef,
+};
+
+fn transparent_string_wrapper() -> String {
+    NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "sample_core::SecretString",
+        "from",
+        "into_inner",
+        Vec::new(),
+    )])
+}
+
+fn secret_method(name: &str) -> MethodDef {
+    let wrapper = transparent_string_wrapper();
+    MethodDef {
+        name: name.to_owned(),
+        params: vec![ParamDef {
+            name: "value".to_owned(),
+            ty: TypeRef::String,
+            newtype_wrapper: Some(wrapper.clone()),
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::String,
+        return_newtype_wrapper: Some(wrapper),
+        ..MethodDef::default()
+    }
+}
+
+fn secret_owner(method: MethodDef, is_opaque: bool) -> TypeDef {
+    TypeDef {
+        name: "SecretStore".to_owned(),
+        rust_path: "sample_core::SecretStore".to_owned(),
+        methods: vec![method],
+        is_opaque,
+        ..TypeDef::default()
+    }
+}
+
+fn napi_binding_config() -> crate::codegen::generators::RustBindingConfig<'static> {
+    use crate::backends::napi::gen_bindings::NapiBackend;
+
+    NapiBackend::binding_config("sample_core", "Js", true)
+}
 
 /// gen_struct (pub(super)) is accessible from mod.rs — smoke test via trait.
 /// The actual output is tested via the integration test (gen_bindings_test.rs).
@@ -391,5 +435,111 @@ fn delegating_deserialize_return_type_is_immune_to_the_napi_result_alias() {
     assert!(
         out.contains("fn deserialize<D>(deserializer: D) -> ::core::result::Result<Self, D::Error>"),
         "the delegating impl's return type must not be resolvable to napi's `Result` alias: {out}"
+    );
+}
+
+#[test]
+fn napi_instance_transparent_string_method_converts_both_boundaries() {
+    let mut method = secret_method("replace_secret");
+    method.receiver = Some(ReceiverKind::RefMut);
+    let owner = secret_owner(method.clone(), true);
+    let mapper = NapiMapper::new("Js".to_owned());
+    let opaque_types = [owner.name.clone()].into_iter().collect();
+
+    let output = gen_opaque_instance_method(
+        &method,
+        &mapper,
+        &owner,
+        &napi_binding_config(),
+        &opaque_types,
+        "Js",
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+
+    assert!(
+        output.contains("replace_secret(sample_core::SecretString::from(value))"),
+        "instance input must construct the wrapper:\n{output}"
+    );
+    assert!(
+        output.contains("into_inner()"),
+        "instance return must consume the wrapper:\n{output}"
+    );
+}
+
+#[test]
+fn napi_static_async_and_fallible_transparent_string_methods_convert_both_boundaries() {
+    let mapper = NapiMapper::new("Js".to_owned());
+    let opaque_types = ahash::AHashSet::default();
+    let mutex_types = ahash::AHashSet::default();
+
+    for (name, is_async, error_type) in [
+        ("replace_async", true, None),
+        ("replace_fallible", false, Some("sample_core::Error".to_owned())),
+    ] {
+        let mut method = secret_method(name);
+        method.is_static = true;
+        method.is_async = is_async;
+        method.error_type = error_type;
+        method.params[0].is_ref = name == "replace_fallible";
+        let owner = secret_owner(method.clone(), true);
+        let output = gen_static_method(
+            &method,
+            &mapper,
+            &owner,
+            &napi_binding_config(),
+            &opaque_types,
+            "Js",
+            &mutex_types,
+        );
+
+        assert!(
+            output.contains("sample_core::SecretString::from(value)"),
+            "{name} input must construct the wrapper:\n{output}"
+        );
+        assert!(
+            output.contains("into_inner()"),
+            "{name} return must consume the wrapper:\n{output}"
+        );
+        if method.params[0].is_ref {
+            let declaration = output.find("let value_newtype").expect("wrapper local declaration");
+            let call = output
+                .find("replace_fallible(&value_newtype)")
+                .expect("wrapper local borrow");
+            assert!(
+                declaration < call,
+                "static wrapper local must be declared before it is borrowed:\n{output}"
+            );
+        }
+    }
+}
+
+#[test]
+fn napi_dto_instance_wither_declares_borrowed_wrapper_local_before_use() {
+    let mut method = secret_method("with_secret");
+    method.receiver = Some(ReceiverKind::Ref);
+    method.params[0].is_ref = true;
+    method.return_type = TypeRef::Named("SecretStore".to_owned());
+    method.return_newtype_wrapper = None;
+    let owner = secret_owner(method, false);
+    let output = gen_dto_method_fns(
+        &owner,
+        &NapiMapper::new("Js".to_owned()),
+        &napi_binding_config(),
+        &ahash::AHashSet::default(),
+        "Js",
+        &ahash::AHashSet::default(),
+        &crate::core::ir::ApiSurface::default(),
+    );
+
+    let declaration = output.find("let value_newtype").expect("wrapper local declaration");
+    let call = output
+        .find("with_secret(&value_newtype)")
+        .expect("wrapper local borrow");
+    assert!(
+        declaration < call,
+        "wrapper local must be declared before the wither borrows it:\n{output}"
     );
 }
