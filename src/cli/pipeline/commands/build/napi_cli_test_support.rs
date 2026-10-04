@@ -12,6 +12,25 @@
 //! [`OnceLock`]: std::sync::OnceLock
 
 use crate::core::template_versions as tv;
+use std::path::{Path, PathBuf};
+
+/// Apply the shared, serialized Cargo lane used by both real `napi build` fixtures.
+///
+/// `napi build` delegates compilation to Cargo. A temp-local target makes each fixture rebuild
+/// the complete napi dependency tree, while one checkout-local target lets Cargo reuse it across
+/// the two cases. Callers hold [`crate::test_support::RealCargoGuard`] for the command's lifetime,
+/// so the shared directory has only one writer within this test process. ~keep
+pub(super) fn apply_napi_cargo_test_environment(command: &mut std::process::Command) {
+    command
+        .env("CARGO_TARGET_DIR", napi_cargo_target_directory())
+        .env("CARGO_BUILD_JOBS", "1");
+}
+
+fn napi_cargo_target_directory() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("napi-real-build-probes")
+}
 
 /// Whether `npx` runs, not merely resolves, and `@napi-rs/cli` is installed in its cache.
 ///
@@ -50,4 +69,39 @@ fn warm_napi_cli_cache() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
+}
+
+#[test]
+fn real_napi_builds_share_one_bounded_checkout_local_cargo_lane() {
+    let mut command = std::process::Command::new("sh");
+
+    apply_napi_cargo_test_environment(&mut command);
+
+    let environment = command
+        .get_envs()
+        .filter_map(|(name, value)| Some((name.to_str()?, value?.to_str()?)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let expected_target = napi_cargo_target_directory();
+    assert_eq!(
+        environment["CARGO_TARGET_DIR"],
+        expected_target.to_str().expect("UTF-8 target directory")
+    );
+    assert_eq!(environment["CARGO_BUILD_JOBS"], "1");
+}
+
+#[test]
+fn every_real_napi_build_acquires_the_guard_and_shared_cargo_lane() {
+    for source in [
+        include_str!("napi_js_ownership_tests.rs"),
+        include_str!("napi_package_json_path_tests.rs"),
+    ] {
+        assert!(
+            source.contains("RealCargoGuard::acquire()"),
+            "every real napi build must serialize with other real-Cargo tests"
+        );
+        assert!(
+            source.contains("apply_napi_cargo_test_environment(&mut process)"),
+            "every real napi build must reuse the checkout-local Cargo target"
+        );
+    }
 }

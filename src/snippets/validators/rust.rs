@@ -53,7 +53,27 @@ impl RustValidator {
         if let Some(session) = session {
             session.apply_environment(&mut command);
         }
+        #[cfg(test)]
+        if session.is_none() {
+            Self::apply_test_cargo_environment(&mut command);
+        }
         command
+    }
+
+    #[cfg(test)]
+    fn apply_test_cargo_environment(command: &mut std::process::Command) {
+        // A stable checkout-local target makes these compile probes incremental. The tests that
+        // execute them hold `RealCargoGuard`, so no two fixtures mutate it concurrently. ~keep
+        command
+            .env("CARGO_TARGET_DIR", Self::test_cargo_target_directory())
+            .env("CARGO_BUILD_JOBS", "1");
+    }
+
+    #[cfg(test)]
+    fn test_cargo_target_directory() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("rust-snippet-validator-probes")
     }
 
     fn batch_results(filenames: &[String], success: bool, output: &str) -> Vec<(SnippetStatus, Option<String>)> {
@@ -153,6 +173,10 @@ impl RustValidator {
         command.args(args).current_dir(dir.path());
         if let Some(session) = session {
             session.apply_environment(&mut command);
+        }
+        #[cfg(test)]
+        if session.is_none() {
+            Self::apply_test_cargo_environment(&mut command);
         }
         let (success, output) = run_command(&mut command, timeout_secs)?;
         Ok(if success {
@@ -502,6 +526,7 @@ mod tests {
         if which::which("cargo").is_err() {
             return;
         }
+        let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
         let project = tempfile::tempdir().expect("project directory");
         std::fs::create_dir_all(project.path().join("src")).expect("source directory");
         let manifest = project.path().join("Cargo.toml");
@@ -511,7 +536,7 @@ mod tests {
         )
         .expect("package manifest");
         std::fs::write(project.path().join("src/lib.rs"), "pub const VALUE: usize = 1;\n").expect("package source");
-        let session = ValidationSession {
+        let mut session = ValidationSession {
             language: Language::Rust,
             working_directory: project.path().to_path_buf(),
             manifest: Some(manifest),
@@ -521,6 +546,12 @@ mod tests {
             rust_features: Vec::new(),
             rust_dependencies: BTreeMap::new(),
         };
+        session.env.insert(
+            "CARGO_TARGET_DIR".into(),
+            RustValidator::test_cargo_target_directory()
+                .to_string_lossy()
+                .into_owned(),
+        );
         let snippet = Snippet {
             id: None,
             path: "snippet.rs".into(),
@@ -660,6 +691,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn real_cargo_tests_share_one_bounded_checkout_local_build_lane() {
+        let scratch = tempfile::tempdir().expect("scratch directory");
+
+        let command = RustValidator::batch_check_command(scratch.path(), None);
+
+        let environment = command
+            .get_envs()
+            .filter_map(|(name, value)| Some((name.to_str()?, value?.to_str()?)))
+            .collect::<BTreeMap<_, _>>();
+        let expected_target = RustValidator::test_cargo_target_directory();
+        assert_eq!(
+            environment["CARGO_TARGET_DIR"],
+            expected_target.to_str().expect("UTF-8 target directory")
+        );
+        assert_eq!(environment["CARGO_BUILD_JOBS"], "1");
+    }
+
     /// Two sessions must never share compiled artifacts when their CONFIGURATION differs: they can
     /// link different path dependencies, different features and different dependency versions into
     /// a package with the same name. The separation is keyed on configuration, not on a
@@ -739,6 +788,7 @@ mod tests {
         if which::which("cargo").is_err() {
             return;
         }
+        let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
         let first = snippet("fn main() { let value: usize = 1; assert_eq!(value, 1); }");
         let second = snippet("fn main() { let value: usize = \"wrong\"; }");
 
@@ -868,6 +918,7 @@ mod tests {
         if which::which("cargo").is_err() {
             return;
         }
+        let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
         let code = "use serde_json::Value;\n\nfn main() {\n    let options: Value = serde_json::from_str(r#\"{\"width\": 80}\"#).unwrap();\n    assert_eq!(options[\"width\"], 80);\n}\n";
         let mut declared = snippet(code);
         declared.metadata.requires = vec!["crate:serde_json".into()];
@@ -904,6 +955,7 @@ mod tests {
         if which::which("cargo").is_err() {
             return;
         }
+        let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
         let code = "#[tokio::main]\nasync fn main() {\n    let value = 1u8;\n    println!(\"{value:?}\");\n}\n";
 
         let (status, output) = RustValidator::validate_with_context(

@@ -17,7 +17,7 @@
 //!
 //! [`NAPI_AUTO_DTS_FILENAME`]: crate::core::template_versions::npm::NAPI_AUTO_DTS_FILENAME
 
-use super::napi_cli_test_support::napi_cli_is_runnable;
+use super::napi_cli_test_support::{apply_napi_cargo_test_environment, napi_cli_is_runnable};
 use super::*;
 use crate::core::backend::{BuildConfig, BuildDependency};
 use crate::core::config::NewAlefConfig;
@@ -134,6 +134,9 @@ fn napi_build_never_clobbers_alefs_scaffolded_index_js() {
     if !napi_cli_is_runnable() {
         return;
     }
+    // `napi build` launches Cargo internally, so it shares the same package-cache lock and test
+    // serialization lane as direct real-Cargo probes. ~keep
+    let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
 
     let crate_dir = tempfile::tempdir().expect("failed to create temp dir for napi fixture");
     let crate_path = crate_dir.path();
@@ -162,12 +165,10 @@ fn napi_build_never_clobbers_alefs_scaffolded_index_js() {
     // the consumer invoked it (typically the project root, which the produced command's
     // relative `crates/<crate>-node/...` paths are already written against). This fixture's
     // crate dir carries its own `package.json`, satisfying that lookup directly. ~keep
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&command)
-        .current_dir(crate_path)
-        .output()
-        .expect("failed to spawn napi build");
+    let mut process = std::process::Command::new("sh");
+    process.arg("-c").arg(&command).current_dir(crate_path);
+    apply_napi_cargo_test_environment(&mut process);
+    let output = process.output().expect("failed to spawn napi build");
     assert!(
         output.status.success(),
         "napi build failed (command: {command}):\nstdout: {}\nstderr: {}",

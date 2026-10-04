@@ -26,7 +26,7 @@
 //! `PATH`, matching this repo's convention for tests that depend on an external toolchain
 //! (see e.g. `snippets::validators::typescript`).
 
-use super::napi_cli_test_support::napi_cli_is_runnable;
+use super::napi_cli_test_support::{apply_napi_cargo_test_environment, napi_cli_is_runnable};
 use super::*;
 use crate::core::backend::{BuildConfig, BuildDependency};
 use std::io::Write as _;
@@ -43,6 +43,9 @@ fn napi_build_bakes_the_crate_local_package_name_not_the_workspace_roots() {
     if !napi_cli_is_runnable() {
         return;
     }
+    // `napi build` launches Cargo internally, so it shares the same package-cache lock and test
+    // serialization lane as direct real-Cargo probes. ~keep
+    let _cargo_guard = crate::test_support::RealCargoGuard::acquire();
 
     let project = tempfile::tempdir().expect("create tempdir");
     let root = project.path();
@@ -101,12 +104,10 @@ sources = ["src/lib.rs"]
         r#"{"name":"crate-local-pkg","version":"0.1.0","napi":{"binaryName":"crate-local-pkg","targets":["x86_64-apple-darwin","aarch64-apple-darwin","x86_64-unknown-linux-gnu"]}}"#,
     );
 
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(&command)
-        .current_dir(root)
-        .status()
-        .expect("spawn napi build");
+    let mut process = std::process::Command::new("sh");
+    process.arg("-c").arg(&command).current_dir(root);
+    apply_napi_cargo_test_environment(&mut process);
+    let status = process.status().expect("spawn napi build");
     assert!(status.success(), "napi build must succeed: {command}");
 
     // `--no-js` (alef#376) suppresses napi-rs's generated loader entirely, so the loader can no
