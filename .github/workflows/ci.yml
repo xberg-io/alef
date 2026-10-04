@@ -324,7 +324,7 @@ jobs:
       # `--ignored` would run none of them and still exit 0 — which is why
       # `ci_workflow_runs_the_generated_output_gate` asserts this flag is still here.
       - name: Run downstream gate over the emitted tree
-        run: cargo test --test generated_output_downstream_gate -- --ignored --nocapture
+        run: cargo test --test generated_output_downstream_gate -- --ignored --nocapture --test-threads=1
 
   # Compiles alef at the exact floor `Cargo.toml` declares. Nothing else in this workflow
   # does: `rust-toolchain.toml` pins a far newer toolchain, so every other job builds with a
