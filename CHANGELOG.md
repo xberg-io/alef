@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Generated Zig packages translate their C header through the build system and avoid the removed
-  `Build.build_root` API, compiling with Zig 0.17 while retaining the Zig 0.16 minimum.
+- Generated Zig packages translate their C header through the build system, and generated package
+  and e2e build scripts avoid removed Zig 0.17 path APIs while retaining the Zig 0.16 minimum.
 
 ## [0.103.14] - 2026-10-04
 

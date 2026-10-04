@@ -84,6 +84,10 @@ fn local_mode_build_zig_uses_workspace_paths() {
         content.contains("addImport(\"c\", translate_c.createModule())"),
         "local mode must translate the generated C header through the build system, got:\n{content}"
     );
+    assert!(
+        !content.contains("pathFromRoot") && !content.contains("b.build_root"),
+        "local mode must avoid Zig 0.17-removed build-root APIs, got:\n{content}"
+    );
 }
 
 /// Non-empty env vars are injected via setEnvironmentVariable in alphabetical
@@ -504,5 +508,9 @@ fn build_zig_bakes_configured_alt_host_into_the_mock_server_spawn() {
     assert!(
         content.contains("_alef_spawn_env.put(\"ALEF_MOCK_ALT_HOST\", \"alt-host-from-config.test\")"),
         "build.zig must bake the configured alt_host into the mock-server spawn env, got:\n{content}"
+    );
+    assert!(
+        content.contains("@hasField(std.Build, \"root\")") && !content.contains("pathFromRoot"),
+        "mock-server paths must use the Zig 0.16/0.17 build-root compatibility branch, got:\n{content}"
     );
 }

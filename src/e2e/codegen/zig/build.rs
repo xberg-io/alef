@@ -354,9 +354,10 @@ pub fn build(b: *std.Build) void {
                 content,
                 "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
             );
-            // Compute absolute FFI path for rpath declarations so dylib loading works
-            // regardless of the test binary's working directory (e.g., when chdir'd into test_documents).
-            let _ = writeln!(content, "    const ffi_path_abs = b.pathFromRoot(ffi_path);");
+            let _ = writeln!(
+                content,
+                "    const ffi_path_lazy: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path)) .{{ .cwd_relative = ffi_path }} else b.path(ffi_path);"
+            );
             let _ = writeln!(
                 content,
                 "    const ffi_include_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_include)) .{{ .cwd_relative = ffi_include }} else b.path(ffi_include);"
@@ -390,24 +391,15 @@ pub fn build(b: *std.Build) void {
                 content,
                 "    {module_name}_module.addImport(\"c\", translate_c.createModule());"
             );
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"
-            );
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.addIncludePath(.{{ .cwd_relative = ffi_include }});"
-            );
+            let _ = writeln!(content, "    {module_name}_module.addLibraryPath(ffi_path_lazy);");
+            let _ = writeln!(content, "    {module_name}_module.addIncludePath(ffi_include_path);");
             let _ = writeln!(
                 content,
                 "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
             );
             push_extra_system_libs(&mut content, module_name, extra_system_libs);
             // Add rpath support for macOS dylib runtime linking using the absolute path.
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.addRPath(.{{ .cwd_relative = ffi_path_abs }});"
-            );
+            let _ = writeln!(content, "    {module_name}_module.addRPath(ffi_path_lazy);");
             // Host-capsule passthrough: Local mode rebuilds the binding module from source,
             // so it must receive the same `tree_sitter` (host-capsule) import the published
             // package's build.zig wires in. The dependency itself is declared in build.zig.zon.
@@ -475,9 +467,7 @@ pub fn build(b: *std.Build) void {
         // Add rpath support for macOS dylib runtime linking in test artifacts (Local mode only).
         // The test binary itself needs an rpath in its load commands to locate the FFI dylib when run.
         if matches!(dep_mode, crate::e2e::config::DependencyMode::Local) {
-            content.push_str(&format!(
-                "    {test_name}_tests.root_module.addRPath(.{{ .cwd_relative = ffi_path_abs }});\n"
-            ));
+            content.push_str(&format!("    {test_name}_tests.root_module.addRPath(ffi_path_lazy);\n"));
         }
         // Run the test binary via `addRunArtifact`. When any fixture reads
         // files from `test_documents/` (arg type `file_path` or `bytes`),
@@ -565,11 +555,8 @@ fn push_run_step_config(
 ) {
     // Point the working directory at the repo-root `test_documents/` so fixtures
     // that read files (arg type `file_path`/`bytes`) resolve. Only emitted when
-    // file fixtures exist. Guarded on the directory's existence: Zig's RunStep
-    // chdirs before exec, and an unguarded `setCwd` into a directory that does
-    // not exist fails the spawn with `FileNotFound` -- the same unguarded-fork
-    // hazard already fixed for Gradle (`gradle/guarded_working_dir.kt.jinja`)
-    // and Maven Surefire (`java`'s profile-activated `<workingDirectory>`). ~keep
+    // file fixtures exist. A missing directory is therefore a missing required fixture and should
+    // fail the run rather than silently running relative file reads from the wrong directory. ~keep
     if has_file_fixtures {
         content.push_str(&crate::e2e::template_env::render(
             "zig/guarded_set_cwd.zig.jinja",
@@ -621,7 +608,7 @@ fn push_run_step_config(
 ///
 /// The spawned child is intentionally not awaited: it lives for the duration of
 /// the `zig build` process, which spans test execution. A pre-set
-/// `MOCK_SERVER_URL` short-circuits the spawn. Targets Zig 0.16 std APIs.
+/// `MOCK_SERVER_URL` short-circuits the spawn. Targets Zig 0.16 and 0.17 std APIs. ~keep
 fn render_zig_mock_server_spawn(alt_host: &str) -> String {
     let before_spawn = r#"    const _alloc = b.allocator;
     var mock_server_url: ?[]const u8 = b.graph.environ_map.get("MOCK_SERVER_URL");
@@ -630,11 +617,16 @@ fn render_zig_mock_server_spawn(alt_host: &str) -> String {
     if (mock_server_url == null) {
         // The runner resolves the binary via `cargo metadata` (following
         // CARGO_TARGET_DIR/.cargo/config.toml overrides) and exports its absolute path as
-        // ALEF_E2E_MOCK_SERVER; the pathFromRoot join is the fallback for running `zig build`
-        // directly, outside the runner. ~keep
+        // ALEF_E2E_MOCK_SERVER; the build-root join is the fallback for running `zig build`
+        // directly, outside the runner. The compile-time field check preserves Zig 0.16's
+        // `build_root` while using Zig 0.17's replacement `root`. ~keep
+        const _build_root = if (@hasField(std.Build, "root"))
+            b.root.toString(_alloc) catch @panic("failed to resolve build root")
+        else
+            b.build_root.path orelse ".";
         const _bin = b.graph.environ_map.get("ALEF_E2E_MOCK_SERVER") orelse
-            b.pathFromRoot("../rust/target/release/mock-server");
-        const _fixtures = b.pathFromRoot("../../fixtures");
+            b.pathResolve(&.{ _build_root, "../rust/target/release/mock-server" });
+        const _fixtures = b.pathResolve(&.{ _build_root, "../../fixtures" });
         var _threaded = std.Io.Threaded.init(_alloc, .{});
         const _io = _threaded.io();
 "#;

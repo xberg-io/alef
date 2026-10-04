@@ -248,7 +248,7 @@ fn java_pom_xml_guards_working_directory_on_existence() {
 }
 
 #[test]
-fn zig_build_zig_guards_set_cwd_on_working_directory_existence() {
+fn zig_build_zig_uses_a_build_root_owned_test_documents_path() {
     let e2e_config = E2eConfig {
         call: CallConfig {
             function: "detect_mime_type_from_bytes".to_string(),
@@ -291,8 +291,13 @@ fn zig_build_zig_guards_set_cwd_on_working_directory_existence() {
         .expect("zig e2e generation succeeds for a file-fixture-bearing fixture set");
     let build_zig = generated_file_ending_in(&files, "build.zig");
     assert!(
-        build_zig.content.contains("openDir("),
-        "build.zig must guard RunStep.setCwd on the test_documents directory's existence, got:\n{}",
+        build_zig.content.contains(".setCwd(b.path("),
+        "build.zig must give RunStep a build-root-owned test_documents path, got:\n{}",
+        build_zig.content
+    );
+    assert!(
+        !build_zig.content.contains("b.build_root"),
+        "generated build.zig must not use Zig 0.17's removed Build.build_root field, got:\n{}",
         build_zig.content
     );
 }

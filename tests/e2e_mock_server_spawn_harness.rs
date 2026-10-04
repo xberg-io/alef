@@ -171,7 +171,7 @@ fn zig_http_fixture_build_spawns_mock_server() {
 /// `../rust/target/release/mock-server` via `b.pathFromRoot`, which breaks under
 /// `CARGO_TARGET_DIR`/a `.cargo/config.toml` `build.target-dir` override. The runner
 /// (`alef test-apps run`) now exports the resolved absolute path as `ALEF_E2E_MOCK_SERVER`;
-/// `build.zig` must read it before falling back to the historical `pathFromRoot` join.
+/// `build.zig` must read it before falling back to a version-compatible build-root join. ~keep
 #[test]
 fn zig_build_mock_server_bin_prefers_alef_e2e_mock_server_env_var() {
     let files = generate(&ZigE2eCodegen, "zig");
@@ -185,8 +185,9 @@ fn zig_build_mock_server_bin_prefers_alef_e2e_mock_server_env_var() {
         "build.zig should read ALEF_E2E_MOCK_SERVER before falling back. Rendered:\n{content}"
     );
     assert!(
-        content.contains("b.pathFromRoot(\"../rust/target/release/mock-server\")"),
-        "build.zig should still fall back to the historical pathFromRoot join. Rendered:\n{content}"
+        content.contains("@hasField(std.Build, \"root\")")
+            && content.contains("b.pathResolve(&.{ _build_root, \"../rust/target/release/mock-server\" })"),
+        "build.zig should fall back through the Zig 0.16/0.17-compatible build-root join. Rendered:\n{content}"
     );
 }
 
