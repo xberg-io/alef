@@ -28,7 +28,7 @@ pub(crate) use extract::sanitize_binding_projection;
 pub(crate) use format::{
     FormattingOwner, PolyCoverage, format_generated_reporting_with_extra_paths, formatting_owner,
     generated_tree_needs_formatting, install_poly_hooks, is_tool_available, languages_owning_changed_paths,
-    poly_format, poly_format_strict, unowned_changed_paths,
+    poly_format, poly_format_strict, poly_format_strict_including_excluded, unowned_changed_paths,
 };
 pub use format::{format_generated, format_generated_reporting, unstamp_before_formatting, warn_missing_formatters};
 pub use generate::{

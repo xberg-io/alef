@@ -287,29 +287,61 @@ fn formatter_candidates_run_in_the_same_language_context_as_the_e2e_writer() {
 }
 
 #[test]
-fn real_poly_formats_a_staged_e2e_render_in_the_writer_context() {
+fn real_poly_formats_a_gitignored_staged_e2e_render() {
     let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
         return;
     };
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join("poly.toml"), "[discovery]\nexclude = [\"**/e2e/**\"]\n").unwrap();
-    let language_root = dir.path().join("test_apps/python");
+    std::fs::write(dir.path().join(".gitignore"), "e2e/python/alef-verify-drift-*/\n").unwrap();
+    let language_root = dir.path().join("e2e/python");
     let real_path = language_root.join("test_smoke.py");
     std::fs::create_dir_all(real_path.parent().expect("test parent")).unwrap();
     let raw = "value=1\n";
     std::fs::write(&real_path, raw).unwrap();
-    crate::cli::pipeline::poly_format_strict(std::slice::from_ref(&language_root), &language_root)
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["config", "user.email", "alef-tests@example.invalid"],
+        vec!["config", "user.name", "Alef Tests"],
+        vec!["add", "poly.toml", ".gitignore"],
+        vec!["add", "e2e/python/test_smoke.py"],
+        vec!["commit", "--quiet", "-m", "fixture"],
+    ] {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .status()
+            .expect("git must run");
+        assert!(status.success(), "git fixture setup must succeed");
+    }
+    crate::cli::pipeline::poly_format_strict(&[std::path::PathBuf::from(".")], &language_root)
         .expect("the writer-context formatter must run");
     let formatted = std::fs::read_to_string(&real_path).unwrap();
     assert_ne!(formatted, raw, "fixture must prove the real Python formatter ran");
 
     let mut item = candidate(&real_path, &formatted, raw);
     item.format_context = language_root;
-    let (drifted, stats) = real_formatter_drift(vec![item], dir.path());
+    let saw_ignored_staging_path = std::cell::Cell::new(false);
+    let runner = |paths: &[std::path::PathBuf], context: &std::path::Path| {
+        assert_eq!(paths.len(), 1, "one staged candidate must reach poly");
+        let ignored = std::process::Command::new("git")
+            .args(["check-ignore", "--quiet", "--"])
+            .arg(&paths[0])
+            .current_dir(dir.path())
+            .status()?;
+        assert!(ignored.success(), "the staging directory must be gitignored");
+        saw_ignored_staging_path.set(true);
+        crate::cli::pipeline::poly_format_strict_including_excluded(paths, context)
+    };
+    let (drifted, stats) = real_formatter_drift_with_runner(vec![item], dir.path(), &|tool| tool == "poly", &runner);
 
     assert!(
         drifted.is_empty(),
-        "a discoverable staged copy must converge to the writer's real output: {drifted:?}"
+        "a gitignored staged copy must converge to the writer's real output: {drifted:?}"
+    );
+    assert!(
+        saw_ignored_staging_path.get(),
+        "the gitignore negative control must run"
     );
     assert_eq!(stats.compared, 1);
 }

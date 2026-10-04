@@ -195,7 +195,7 @@ fn real_formatter_drift_with(
         candidates,
         base_dir,
         is_available,
-        &crate::cli::pipeline::poly_format_strict,
+        &crate::cli::pipeline::poly_format_strict_including_excluded,
     )
 }
 

@@ -558,6 +558,21 @@ const CARGO_FMT_STEP: &str = "cargo fmt --all";
 const CARGO_SORT_STEP: &str = "cargo sort -n -w";
 
 pub(crate) fn poly_format_strict(paths: &[PathBuf], config_start: &Path) -> anyhow::Result<()> {
+    poly_format_strict_with_discovery(paths, config_start, false)
+}
+
+/// Format verifier staging copies even when their synthetic paths match repository exclusions.
+/// This is only safe after ownership was established against each real output path; normal writes
+/// must continue respecting the consumer's exclusions. ~keep
+pub(crate) fn poly_format_strict_including_excluded(paths: &[PathBuf], config_start: &Path) -> anyhow::Result<()> {
+    poly_format_strict_with_discovery(paths, config_start, true)
+}
+
+fn poly_format_strict_with_discovery(
+    paths: &[PathBuf],
+    config_start: &Path,
+    include_excluded: bool,
+) -> anyhow::Result<()> {
     if paths.is_empty() {
         return Ok(());
     }
@@ -566,6 +581,9 @@ pub(crate) fn poly_format_strict(paths: &[PathBuf], config_start: &Path) -> anyh
     }
     let executable_modes = snapshot_executable_modes(paths);
     let mut args: Vec<String> = vec!["fmt".to_owned(), "--fix".to_owned()];
+    if include_excluded {
+        args.push("--include-excluded".to_owned());
+    }
     args.extend(paths.iter().map(|path| path.to_string_lossy().into_owned()));
     push_poly_format_excludes(&mut args);
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
