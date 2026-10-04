@@ -18,6 +18,12 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
     gen_call_args_vec(params, opaque_types).join(", ")
 }
 
+/// Build call arguments without optional-parameter promotion for backends whose ABI permits
+/// required parameters after optional ones. ~keep
+pub fn gen_call_args_no_promote(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_vec_inner(params, opaque_types, false).join(", ")
+}
+
 fn apply_param_newtype_argument(expr: &str, param: &ParamDef, promoted: bool) -> Option<String> {
     let mut effective = param.clone();
     if promoted {
@@ -38,11 +44,15 @@ fn apply_param_newtype_argument(expr: &str, param: &ParamDef, promoted: bool) ->
 /// expression with its source param (e.g. building `field: <expr>` struct literals) so there is no
 /// need to re-split a comma-joined string. [`gen_call_args`] is `gen_call_args_vec(..).join(", ")`.
 pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -> Vec<String> {
+    gen_call_args_vec_inner(params, opaque_types, true)
+}
+
+fn gen_call_args_vec_inner(params: &[ParamDef], opaque_types: &AHashSet<String>, promote: bool) -> Vec<String> {
     params
         .iter()
         .enumerate()
         .map(|(idx, p)| {
-            let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
+            let promoted = promote && crate::codegen::shared::is_promoted_optional(params, idx);
             let unwrap_suffix = if promoted {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
@@ -282,6 +292,11 @@ pub fn gen_call_args_cfg(
 /// String is parsed into `serde_json::Value` at the call site.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
     gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false, true).join(", ")
+}
+
+/// Build let-bound call arguments without optional-parameter promotion. ~keep
+pub fn gen_call_args_with_let_bindings_no_promote(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false, false).join(", ")
 }
 
 /// Like [`gen_call_args_with_let_bindings`] but converts `String`-typed Json params into

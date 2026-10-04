@@ -277,18 +277,28 @@ pub(super) fn gen_method_with_type_paths(
     } else if method.is_static {
         let body = if can_delegate {
             let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
-            let mut let_bindings = if has_named {
+            let let_bindings = if has_named {
                 crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };
-            let_bindings.push_str(&wasm_newtype_param_bindings(
-                &method.params,
+            let non_lifetime_container_params = method
+                .params
+                .iter()
+                .filter(|param| {
+                    !typ.has_lifetime_params
+                        || !matches!(param.ty, TypeRef::Map(_, _))
+                        || param.newtype_wrapper.is_some()
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let newtype_bindings = wasm_newtype_param_bindings(
+                &non_lifetime_container_params,
                 mapper,
                 core_import,
                 source_crate_remaps,
                 type_paths,
-            ));
+            );
 
             let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
             let lifetime_bindings = if typ.has_lifetime_params {
@@ -309,7 +319,7 @@ pub(super) fn gen_method_with_type_paths(
                             ));
                             bindings.push_str("    ");
                         }
-                        TypeRef::Map(_, _) => {
+                        TypeRef::Map(_, _) if p.newtype_wrapper.is_none() => {
                             bindings.push_str(&crate::backends::wasm::template_env::render(
                                 "lifetime_map_required",
                                 minijinja::context! {
@@ -367,7 +377,7 @@ pub(super) fn gen_method_with_type_paths(
                 (base_call_args, method.name.clone())
             };
 
-            let combined_let_bindings = format!("{let_bindings}{lifetime_bindings}");
+            let combined_let_bindings = format!("{let_bindings}{newtype_bindings}{lifetime_bindings}");
             let core_call = format!("{qualified_type_path}::{actual_method_name}({call_args})");
             if method.error_type.is_some() {
                 let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);

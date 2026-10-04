@@ -208,9 +208,9 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
     });
     if !has_borrowed_wrapper && !has_root_optional_owned_wrapper {
         return if use_named_let_bindings {
-            generators::gen_call_args_with_let_bindings(params, opaque_types)
+            generators::gen_call_args_with_let_bindings_no_promote(params, opaque_types)
         } else {
-            generators::gen_call_args(params, opaque_types)
+            generators::gen_call_args_no_promote(params, opaque_types)
         };
     }
 
@@ -239,9 +239,9 @@ pub(in crate::backends::wasm::gen_bindings) fn wasm_call_args(
                     wrapper,
                 )
             } else if use_named_let_bindings {
-                generators::gen_call_args_with_let_bindings(std::slice::from_ref(param), opaque_types)
+                generators::gen_call_args_with_let_bindings_no_promote(std::slice::from_ref(param), opaque_types)
             } else {
-                generators::gen_call_args(std::slice::from_ref(param), opaque_types)
+                generators::gen_call_args_no_promote(std::slice::from_ref(param), opaque_types)
             }
         })
         .collect::<Vec<_>>()

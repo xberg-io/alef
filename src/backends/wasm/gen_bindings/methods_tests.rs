@@ -197,6 +197,138 @@ fn gen_method_rewrites_the_source_crate_prefix_when_a_remap_is_configured() {
     );
 }
 
+#[test]
+fn lifetime_static_method_deserializes_map_from_jsvalue_once_and_keeps_required_bool() {
+    let typ = TypeDef {
+        name: "NodeContext".to_string(),
+        rust_path: "sample_fixture::NodeContext".to_string(),
+        has_lifetime_params: true,
+        ..Default::default()
+    };
+    let mut parent_tag = param("parent_tag", TypeRef::String);
+    parent_tag.optional = true;
+    let mut attributes = param(
+        "attributes",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+    );
+    attributes.map_is_btree = true;
+    let method = MethodDef {
+        name: "with_owned_attributes".to_string(),
+        is_static: true,
+        params: vec![
+            param("node_type", TypeRef::Named("NodeType".to_string())),
+            param("tag_name", TypeRef::String),
+            attributes,
+            param("depth", TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize)),
+            param(
+                "index_in_parent",
+                TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize),
+            ),
+            parent_tag,
+            param("is_inline", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)),
+        ],
+        return_type: TypeRef::Named("NodeContext".to_string()),
+        ..Default::default()
+    };
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "NodeContext",
+        "sample_fixture",
+        &AHashSet::default(),
+        "Wasm",
+        &typ,
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &[],
+    );
+
+    assert!(
+        out.contains("attributes: JsValue"),
+        "map must enter through JsValue:\n{out}"
+    );
+    assert!(
+        out.contains("serde_wasm_bindgen::from_value(attributes.clone())"),
+        "the lifetime map conversion must read the incoming JsValue:\n{out}"
+    );
+    assert!(
+        !out.contains("let attributes: std::collections::HashMap"),
+        "a generic container conversion must not shadow the incoming JsValue:\n{out}"
+    );
+    let normalized = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains("parent_tag_converted, is_inline)"),
+        "WASM keeps required parameters required even when they follow an optional one:\n{out}"
+    );
+    assert!(
+        !out.contains("is_inline.expect"),
+        "a required bool is not an Option and cannot be unwrapped:\n{out}"
+    );
+}
+
+#[test]
+fn lifetime_static_method_preserves_borrowed_map_newtype_binding() {
+    let typ = TypeDef {
+        name: "NodeContext".to_string(),
+        rust_path: "sample_fixture::NodeContext".to_string(),
+        has_lifetime_params: true,
+        ..Default::default()
+    };
+    let mut attributes = param(
+        "attributes",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+    );
+    attributes.is_ref = true;
+    attributes.newtype_wrapper = Some(crate::core::ir::NewtypeWrapper::encode_explicit(&[
+        crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+            "sample_fixture::AttributeValue",
+            "from",
+            "into_inner",
+            vec![crate::core::ir::NewtypeContainer::MapValue],
+        ),
+    ]));
+    let method = MethodDef {
+        name: "with_attributes".to_string(),
+        is_static: true,
+        params: vec![attributes],
+        return_type: TypeRef::Named("NodeContext".to_string()),
+        ..Default::default()
+    };
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "NodeContext",
+        "sample_fixture",
+        &AHashSet::default(),
+        "Wasm",
+        &typ,
+        &AHashSet::default(),
+        &ahash::AHashMap::default(),
+        &[],
+    );
+
+    assert!(
+        out.contains(
+            "let attributes: std::collections::HashMap<String, String> = serde_wasm_bindgen::from_value(attributes)"
+        ),
+        "a wrapped map must still deserialize before rebuilding its values:\n{out}"
+    );
+    assert!(
+        out.contains("let attributes_newtype ="),
+        "a borrowed wrapper requires a stable local for the core reference:\n{out}"
+    );
+    assert!(
+        out.contains("sample_fixture::NodeContext::with_attributes(&attributes_newtype)"),
+        "the core call must borrow the rebuilt wrapper local:\n{out}"
+    );
+    assert!(
+        !out.contains("attributes_converted"),
+        "the lifetime map conversion is superseded by explicit newtype reconstruction:\n{out}"
+    );
+}
+
 /// Same defect as `functions::tests::sync_opaque_handle_param_is_taken_by_reference`, but for the
 /// method-parameter path: wasm-bindgen's glue for a by-value exported struct calls
 /// `arg.__destroy_into_raw()`, nulling the JS object's `__wbg_ptr`, so a handle passed by value is
