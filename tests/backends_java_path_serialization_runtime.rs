@@ -7,7 +7,6 @@ use alef::core::ir::{
 use regex::Regex;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 fn java_config(crate_name: &str, package: &str, extra: &str) -> ResolvedCrateConfig {
     let config: NewAlefConfig = toml::from_str(&format!(
@@ -247,7 +246,7 @@ register_fn = "register_renderer"
         JAVA_TEST,
     );
 
-    let output = Command::new("mvn")
+    let output = alef::core::tool_command("mvn")
         .args(["-q", "test"])
         .current_dir(directory.path())
         .output()
