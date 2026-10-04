@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- WASM constructors preserve non-`None` defaults for optional fields when JavaScript callers omit
+  an argument, while setters still allow explicit reassignment.
+- Kotlin renders nested optional metadata with one nullable marker instead of invalid types such
+  as `Long??`.
+- PHP's `exclude_functions = ["visitor"]` removes the bridge-owned visitor handle and trait from
+  generated runtime registration, stubs, API docs, and visitor-gated README sections.
 - Zig binding generation runs `zig fmt` before finalizing generated hashes, so nested tagged
   unions and FFI wrapper layouts are persisted in the toolchain's canonical format.
 - PHP e2e generation honors the shared visitor pseudo-function exclusion.
