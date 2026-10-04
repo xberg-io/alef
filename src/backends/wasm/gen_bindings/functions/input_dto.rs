@@ -24,6 +24,7 @@ pub(in crate::backends::wasm::gen_bindings) fn should_have_input_dto(type_def: &
 /// Reads actual struct fields from the `ApiSurface` TypeDef.
 /// Accepts exclude_types and enabled_features to properly gate fields whose types
 /// are not available in the target's feature set.
+#[cfg(test)]
 pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type(
     type_name: &str,
     core_import: &str,
@@ -39,6 +40,36 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type(
     )
 }
 
+pub(in crate::backends::wasm::gen_bindings) struct InputDtoConfig<'a> {
+    pub core_path: &'a str,
+    pub core_import: &'a str,
+    pub core_type_paths: &'a ahash::AHashMap<String, String>,
+    pub exclude_types: &'a [String],
+    pub enabled_features: &'a [String],
+    pub non_deserializable_type_names: &'a std::collections::HashSet<String>,
+}
+
+pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_at_path(
+    type_name: &str,
+    core_path: &str,
+    core_import: &str,
+    core_type_paths: &ahash::AHashMap<String, String>,
+    type_def: &crate::core::ir::TypeDef,
+) -> (String, String) {
+    gen_input_dto_for_type_with_cfg_at_path(
+        type_name,
+        type_def,
+        InputDtoConfig {
+            core_path,
+            core_import,
+            core_type_paths,
+            exclude_types: &[],
+            enabled_features: &[],
+            non_deserializable_type_names: &std::collections::HashSet::new(),
+        },
+    )
+}
+
 /// Generate an Input DTO struct with feature-gate awareness.
 /// exclude_types: list of types that don't compile in the target (e.g., LayoutDetectionConfig on WASM)
 /// enabled_features: list of features enabled in the target's feature set
@@ -46,6 +77,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type(
 ///   implement `serde::Deserialize` — typically trait objects, type aliases over
 ///   `dyn Trait`, or opaque handles. Fields referencing one of these by Named type
 ///   are emitted with `#[serde(skip)]` so the DTO derives `Deserialize` cleanly.
+#[cfg(test)]
 pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
     type_name: &str,
     core_import: &str,
@@ -54,44 +86,30 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
     enabled_features: &[String],
     non_deserializable_type_names: &std::collections::HashSet<String>,
 ) -> (String, String) {
-    let input_name = format!("{}Input", type_name);
     let core_path = format!("{}::{}", core_import, type_name);
+    gen_input_dto_for_type_with_cfg_at_path(
+        type_name,
+        type_def,
+        InputDtoConfig {
+            core_path: &core_path,
+            core_import,
+            core_type_paths: &ahash::AHashMap::new(),
+            exclude_types,
+            enabled_features,
+            non_deserializable_type_names,
+        },
+    )
+}
+
+pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg_at_path(
+    type_name: &str,
+    type_def: &crate::core::ir::TypeDef,
+    config: InputDtoConfig<'_>,
+) -> (String, String) {
+    let input_name = format!("{}Input", type_name);
 
     let fields: Vec<_> = crate::codegen::shared::binding_fields(&type_def.fields)
-        .map(|f| {
-            let field_references_excluded = field_references_excluded_type(&f.ty, exclude_types);
-            let field_cfg = f.cfg.as_deref();
-
-            let cfg_satisfied = if let Some(cfg_str) = field_cfg {
-                cfg_condition_enabled(cfg_str, enabled_features)
-            } else {
-                true
-            };
-
-            let inner_ty = match &f.ty {
-                crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
-                other => other,
-            };
-            let field_references_non_deserializable = matches!(
-                inner_ty,
-                crate::core::ir::TypeRef::Named(name) if non_deserializable_type_names.contains(name)
-            );
-
-            let is_skipped = field_references_excluded || !cfg_satisfied || field_references_non_deserializable;
-
-            let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
-            let camel_case_name = to_node_name(&f.name);
-
-            minijinja::context! {
-                name => &f.name,
-                ty => &dto_ty,
-                core_name => &f.name,
-                serde_rename => &camel_case_name,
-                conv => dto_field_conversion(&f.ty, f.sanitized, f.optional),
-                cfg => field_cfg,
-                is_skipped => is_skipped,
-            }
-        })
+        .map(|field| input_dto_field_context(field, &config))
         .collect::<Vec<_>>();
 
     let code = if !fields.is_empty() || !type_def.fields.is_empty() {
@@ -99,7 +117,7 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
             "gen_input_dto",
             minijinja::context! {
                 input_name => &input_name,
-                core_path => &core_path,
+                core_path => config.core_path,
                 fields => &fields,
                 has_default => type_def.has_default,
             },
@@ -111,13 +129,59 @@ pub(in crate::backends::wasm::gen_bindings) fn gen_input_dto_for_type_with_cfg(
     (code, input_name)
 }
 
-/// Convert a TypeRef to a DTO field type string.
-///
-/// `Named` types are core-qualified (`{core_import}::{name}`) because the DTO is
-/// deserialized via serde and converted into the core type: the core type already
-/// derives `Deserialize`, and emitting the bare name would leave it unresolved in
-/// the binding crate (the wasm-mapped wrapper enum is not the DTO field type).
-pub(super) fn type_ref_to_dto_type(ty: &crate::core::ir::TypeRef, core_import: &str) -> String {
+fn input_dto_field_context(field: &crate::core::ir::FieldDef, config: &InputDtoConfig<'_>) -> minijinja::Value {
+    let field_cfg = field.cfg.as_deref();
+    let cfg_satisfied = field_cfg.is_none_or(|cfg| cfg_condition_enabled(cfg, config.enabled_features));
+    let inner_ty = match &field.ty {
+        crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
+        other => other,
+    };
+    let is_skipped = field_references_excluded_type(&field.ty, config.exclude_types)
+        || !cfg_satisfied
+        || matches!(
+            inner_ty,
+            crate::core::ir::TypeRef::Named(name) if config.non_deserializable_type_names.contains(name)
+        );
+    let dto_ty = format!(
+        "Option<{}>",
+        type_ref_to_dto_type_with_paths(&field.ty, config.core_import, config.core_type_paths)
+    );
+    let wire_name = field.serde_rename.clone().unwrap_or_else(|| to_node_name(&field.name));
+    let conversion = input_dto_field_conversion(field);
+
+    minijinja::context! {
+        name => &field.name,
+        ty => &dto_ty,
+        core_name => &field.name,
+        serde_rename => &wire_name,
+        conv => conversion,
+        cfg => field_cfg,
+        is_skipped => is_skipped,
+    }
+}
+
+fn input_dto_field_conversion(field: &crate::core::ir::FieldDef) -> String {
+    let Some(wrapper) = field.newtype_wrapper.as_deref() else {
+        return dto_field_conversion(&field.ty, field.sanitized, field.optional);
+    };
+    let source = if field.optional { "Some(v)" } else { "v" };
+    let converted =
+        crate::codegen::conversions::helpers::apply_field_newtype_to_core(source, &field.ty, field.optional, wrapper);
+    if !field.is_boxed || !crate::codegen::conversions::helpers::is_explicit_newtype(wrapper) {
+        return converted;
+    }
+    if field.optional || matches!(field.ty, crate::core::ir::TypeRef::Optional(_)) {
+        format!("({converted}).map(Box::new)")
+    } else {
+        format!("Box::new({converted})")
+    }
+}
+
+fn type_ref_to_dto_type_with_paths(
+    ty: &crate::core::ir::TypeRef,
+    core_import: &str,
+    core_type_paths: &ahash::AHashMap<String, String>,
+) -> String {
     use crate::core::ir::TypeRef;
 
     match ty {
@@ -137,18 +201,27 @@ pub(super) fn type_ref_to_dto_type(ty: &crate::core::ir::TypeRef, core_import: &
             crate::core::ir::PrimitiveType::Usize => "usize".to_string(),
             crate::core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_dto_type(inner, core_import)),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_dto_type(inner, core_import)),
+        TypeRef::Vec(inner) => format!(
+            "Vec<{}>",
+            type_ref_to_dto_type_with_paths(inner, core_import, core_type_paths)
+        ),
+        TypeRef::Optional(inner) => format!(
+            "Option<{}>",
+            type_ref_to_dto_type_with_paths(inner, core_import, core_type_paths)
+        ),
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",
-            type_ref_to_dto_type(k, core_import),
-            type_ref_to_dto_type(v, core_import)
+            type_ref_to_dto_type_with_paths(k, core_import, core_type_paths),
+            type_ref_to_dto_type_with_paths(v, core_import, core_type_paths)
         ),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
         TypeRef::Path => "String".to_string(),
         TypeRef::Duration => "u64".to_string(),
-        TypeRef::Named(n) => format!("{core_import}::{n}"),
+        TypeRef::Named(n) => core_type_paths
+            .get(n)
+            .cloned()
+            .unwrap_or_else(|| format!("{core_import}::{n}")),
         TypeRef::Unit => "()".to_string(),
     }
 }

@@ -4,6 +4,49 @@ use crate::codegen::generators;
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 
+pub(in crate::backends::wasm::gen_bindings) fn wrap_jsvalue_mapped_return(
+    expr: &str,
+    mapped_type: &str,
+) -> Option<String> {
+    if crate::codegen::shared::maps_to_js_value(mapped_type) {
+        return Some(format!(
+            "serde_wasm_bindgen::to_value(&({expr})).unwrap_or(wasm_bindgen::JsValue::NULL)"
+        ));
+    }
+    let mapped_type = mapped_type.trim();
+    if let Some(inner) = mapped_type
+        .strip_prefix("Option<")
+        .and_then(|inner| inner.strip_suffix('>'))
+        && let Some(wrapped) = wrap_jsvalue_mapped_return("value", inner)
+    {
+        return Some(format!("{expr}.map(|value| {wrapped})"));
+    }
+    if let Some(inner) = mapped_type
+        .strip_prefix("Vec<")
+        .and_then(|inner| inner.strip_suffix('>'))
+        && let Some(wrapped) = wrap_jsvalue_mapped_return("value", inner)
+    {
+        return Some(format!("{expr}.into_iter().map(|value| {wrapped}).collect()"));
+    }
+    None
+}
+
+pub(in crate::backends::wasm::gen_bindings) fn wasm_mapped_return_type(
+    return_type: &TypeRef,
+    return_newtype_wrapper: &Option<String>,
+    mapper: &crate::backends::wasm::type_map::WasmMapper,
+) -> String {
+    if return_newtype_wrapper
+        .as_deref()
+        .is_some_and(crate::backends::wasm::gen_bindings::types::types_helpers::complex_newtype_wrapper_uses_jsvalue)
+    {
+        "JsValue".to_string()
+    } else {
+        crate::codegen::type_mapper::TypeMapper::map_type(mapper, return_type)
+    }
+}
+
+#[cfg(test)]
 pub(super) fn to_turbofish_from(type_name: &str) -> String {
     if let Some(idx) = type_name.find('<') {
         format!("{}::{}", &type_name[..idx], &type_name[idx..])

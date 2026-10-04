@@ -5,6 +5,31 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, FieldDef, MethodDef, TypeRef};
 use ahash::AHashSet;
 
+/// Whether a transparent-wrapper field needs an opaque serde bridge at the WASM boundary.
+/// Scalar, one-option, and flat-vector strings have native wasm-bindgen shapes. Maps and deeper
+/// container paths do not, so they cross as `JsValue` after unwrapping the wrapper leaves. ~keep
+pub(in crate::backends::wasm::gen_bindings) fn complex_newtype_field_uses_jsvalue(field: &FieldDef) -> bool {
+    let Some(wrapper) = field.newtype_wrapper.as_deref() else {
+        return false;
+    };
+    complex_newtype_wrapper_uses_jsvalue(wrapper)
+}
+
+pub(in crate::backends::wasm::gen_bindings) fn complex_newtype_wrapper_uses_jsvalue(wrapper: &str) -> bool {
+    let Ok(decoded) = crate::core::ir::NewtypeWrapper::decode(wrapper) else {
+        return false;
+    };
+    decoded.explicit_paths().iter().any(|metadata| {
+        metadata.containers.len() > 1
+            || metadata.containers.iter().any(|container| {
+                matches!(
+                    container,
+                    crate::core::ir::NewtypeContainer::MapKey | crate::core::ir::NewtypeContainer::MapValue
+                )
+            })
+    })
+}
+
 /// Return a WASM binding surface whose struct fields and methods match the backend feature set.
 ///
 /// The extractor can retain a cfg-gated field or method when the source crate was extracted with

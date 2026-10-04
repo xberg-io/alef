@@ -24,6 +24,18 @@ fn param(name: &str, ty: TypeRef) -> ParamDef {
     }
 }
 
+fn transparent_string_wrapper(containers: Vec<crate::core::ir::NewtypeContainer>) -> String {
+    crate::core::ir::NewtypeWrapper::encode_explicit(&[crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+        "sample_fixture::SecretString",
+        "from",
+        "into_inner",
+        containers,
+    )])
+}
+
+#[path = "path_and_wrapper_tests.rs"]
+mod path_and_wrapper_tests;
+
 fn async_function(params: Vec<ParamDef>) -> FunctionDef {
     FunctionDef {
         name: "interact".to_string(),
@@ -621,7 +633,7 @@ fn async_free_function_returning_js_value_mapped_type_uses_serde() {
     );
 
     assert!(
-        out.contains("serde_wasm_bindgen::to_value(&result)"),
+        out.contains("serde_wasm_bindgen::to_value(&(result))"),
         "a JsValue-mapped return must be serialized:\n{out}"
     );
     assert!(
@@ -648,11 +660,11 @@ fn async_free_function_returning_wrapper_mapped_type_keeps_from() {
     );
 
     assert!(
-        out.contains("WasmReport::from(result)"),
+        out.contains("result.into()"),
         "a wrapper-mapped return must keep the direct From conversion:\n{out}"
     );
     assert!(
-        !out.contains("serde_wasm_bindgen::to_value(&result)"),
+        !out.contains("serde_wasm_bindgen::to_value(&(result))"),
         "a wrapper-mapped return must not detour through serde:\n{out}"
     );
 }
@@ -848,5 +860,104 @@ fn sync_opaque_handle_param_is_taken_by_reference() {
     assert!(
         out.contains("engine: &WasmCrawlEngineHandle"),
         "opaque handle param must be by reference in the sync path too:\n{out}"
+    );
+}
+
+#[test]
+fn ordinary_vec_of_optional_strings_recovers_jsvalue_before_core_call() {
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut func = async_function(vec![param(
+        "values",
+        TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(TypeRef::String)))),
+    )]);
+    func.is_async = false;
+    func.error_type = None;
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert!(out.contains("values: JsValue"), "{out}");
+    assert!(
+        out.contains("let values: Vec<Option<String>> = serde_wasm_bindgen::from_value(values)"),
+        "{out}"
+    );
+    assert!(out.contains("sample_fixture::interact(values)"), "{out}");
+}
+
+#[test]
+fn sanitized_fallible_path_recovers_nested_wrapper_jsvalue_once() {
+    use crate::core::ir::NewtypeContainer::{Optional, Vec as VecContainer};
+
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut values = param(
+        "values",
+        TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(TypeRef::String)))),
+    );
+    values.newtype_wrapper = Some(transparent_string_wrapper(vec![VecContainer, Optional]));
+    let mut marker = param("marker", TypeRef::String);
+    marker.sanitized = true;
+    let mut func = async_function(vec![values, marker]);
+    func.is_async = false;
+    func.sanitized = true;
+    func.return_type = TypeRef::String;
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert_eq!(
+        out.matches("serde_wasm_bindgen::from_value(values)").count(),
+        1,
+        "{out}"
+    );
+    assert!(
+        out.contains("sample_fixture::SecretString::from(value)"),
+        "nested wrapper leaves must be reconstructed after JsValue recovery: {out}"
+    );
+}
+
+#[test]
+fn externally_optional_deep_wrapper_param_uses_single_jsvalue_without_losing_depth() {
+    use crate::core::ir::NewtypeContainer::Optional;
+
+    let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+    let mut value = param("value", TypeRef::Optional(Box::new(TypeRef::String)));
+    value.optional = true;
+    value.newtype_wrapper = Some(transparent_string_wrapper(vec![Optional, Optional]));
+    let mut func = async_function(vec![value]);
+    func.is_async = false;
+    func.error_type = None;
+
+    let out = gen_function_with_emitted_dtos(
+        &func,
+        &mapper,
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &AHashSet::new(),
+        &empty_surface(),
+        &AHashSet::new(),
+    );
+
+    assert!(out.contains("value: Option<JsValue>"), "{out}");
+    assert!(out.contains("let value: Option<Option<String>>"), "{out}");
+    assert!(
+        out.contains("value.map(|value| serde_wasm_bindgen::from_value(value)"),
+        "{out}"
     );
 }

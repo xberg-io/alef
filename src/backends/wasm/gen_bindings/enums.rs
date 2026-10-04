@@ -5,12 +5,16 @@ use ahash::AHashSet;
 
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::cfg::is_host_owned_rust_path;
+use crate::codegen::conversions::helpers::{
+    apply_explicit_field_newtype_from_core, apply_explicit_field_newtype_to_core, is_explicit_newtype,
+};
 use crate::codegen::field_init::struct_field_init;
 use crate::codegen::naming::{to_node_name, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 
-use super::functions::emit_rustdoc;
+use super::functions::{emit_rustdoc, typeref_to_core_type_str};
 use super::types::types_helpers::class_backed_field_type;
+use super::types::types_helpers::complex_newtype_field_uses_jsvalue;
 
 #[path = "enums_accessors.rs"]
 mod enums_accessors;
@@ -230,14 +234,59 @@ fn box_wrap_map_into(base: String, is_boxed: bool) -> String {
     }
 }
 
+fn box_explicit_newtype_expr(expr: String, field: &FieldDef) -> String {
+    if !field.is_boxed || !field.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+        return expr;
+    }
+    if field.optional || matches!(field.ty, TypeRef::Optional(_)) {
+        format!("({expr}).map(Box::new)")
+    } else {
+        format!("Box::new({expr})")
+    }
+}
+
 fn tagged_enum_binding_to_core_expr(
+    field: &FieldDef,
     field_ident: &str,
-    field_ty: &TypeRef,
-    field_optional: bool,
-    is_boxed: bool,
+    core_import: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &ahash::AHashMap<String, String>,
 ) -> String {
+    if complex_newtype_field_uses_jsvalue(field) {
+        let core_ty = typeref_to_core_type_str(&field.ty, core_import, source_crate_remaps, type_paths);
+        let decoded = if field.optional {
+            format!(
+                "val.{field_ident}.clone().map(|value| \
+                 serde_wasm_bindgen::from_value::<{core_ty}>(value).unwrap_or_else(|error| \
+                 wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string()))))"
+            )
+        } else {
+            format!(
+                "serde_wasm_bindgen::from_value::<{core_ty}>(val.{field_ident}.clone().unwrap_or_else(|| \
+                 wasm_bindgen::throw_str(\"missing enum field {field_ident}\"))).unwrap_or_else(|error| \
+                 wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+            )
+        };
+        let converted = apply_explicit_field_newtype_to_core(&decoded, field).unwrap_or(decoded);
+        return box_explicit_newtype_expr(converted, field);
+    }
+
+    let field_ty = &field.ty;
+    let field_optional = field.optional;
+    let is_boxed = field.is_boxed;
+    if !field_optional
+        && !matches!(field_ty, TypeRef::Optional(_))
+        && field.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype)
+    {
+        let required = format!(
+            "val.{field_ident}.clone().unwrap_or_else(|| \
+             wasm_bindgen::throw_str(\"missing enum field {field_ident}\"))"
+        );
+        let converted = apply_explicit_field_newtype_to_core(&required, field).unwrap_or(required);
+        return box_explicit_newtype_expr(converted, field);
+    }
     if field_optional {
-        return match field_ty {
+        let base = match field_ty {
             TypeRef::Named(_) => box_wrap_map_into(format!("val.{field_ident}.clone().map(Into::into)"), is_boxed),
             TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into)"),
             TypeRef::Map(_, _) => {
@@ -245,8 +294,10 @@ fn tagged_enum_binding_to_core_expr(
             }
             _ => format!("val.{field_ident}.clone()"),
         };
+        let converted = apply_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
+        return box_explicit_newtype_expr(converted, field);
     }
-    match field_ty {
+    let base = match field_ty {
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) => box_wrap_map_into(format!("val.{field_ident}.clone().map(Into::into)"), is_boxed),
             TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into)"),
@@ -267,7 +318,9 @@ fn tagged_enum_binding_to_core_expr(
             "val.{field_ident}.clone().and_then(|v| serde_wasm_bindgen::from_value(v).ok()).unwrap_or_default()"
         ),
         _ => format!("val.{field_ident}.clone().unwrap_or_default()"),
-    }
+    };
+    let converted = apply_explicit_field_newtype_to_core(&base, field).unwrap_or(base);
+    box_explicit_newtype_expr(converted, field)
 }
 
 /// Deref a boxed `.into()` conversion (bare `Box<T>` field). Mirrors the box-unwrap handling
@@ -290,52 +343,76 @@ fn box_unwrap_map_into(local: &str, is_boxed: bool) -> String {
     }
 }
 
-fn tagged_enum_core_to_binding_expr(
-    field_ident: &str,
-    local: &str,
-    field_ty: &TypeRef,
-    field_optional: bool,
-    is_boxed: bool,
-) -> String {
+fn tagged_enum_core_to_binding_expr(field: &FieldDef, field_ident: &str, local: &str) -> String {
+    let explicit_wrapper = field.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype);
+    let source = if field.is_boxed && explicit_wrapper {
+        if field.optional || matches!(field.ty, TypeRef::Optional(_)) {
+            format!("{local}.map(|value| *value)")
+        } else {
+            format!("*{local}")
+        }
+    } else {
+        local.to_string()
+    };
+    let converted = apply_explicit_field_newtype_from_core(&source, field).unwrap_or(source);
+    if complex_newtype_field_uses_jsvalue(field) {
+        if field.optional || matches!(field.ty, TypeRef::Optional(_)) {
+            return format!(
+                "                {field_ident}: \
+                 {converted}.and_then(|value| serde_wasm_bindgen::to_value(&value).ok())"
+            );
+        }
+        return format!("                {field_ident}: serde_wasm_bindgen::to_value(&{converted}).ok()");
+    }
+
+    let field_ty = &field.ty;
+    let field_optional = field.optional;
+    let is_boxed = field.is_boxed && !explicit_wrapper;
     if field_optional {
         return match field_ty {
             TypeRef::Named(_) => format!(
                 "                {field_ident}: {}",
-                box_unwrap_map_into(local, is_boxed)
+                box_unwrap_map_into(&converted, is_boxed)
             ),
-            TypeRef::Path => format!("                {field_ident}: {local}.map(|p| p.to_string_lossy().to_string())"),
+            TypeRef::Path => {
+                format!("                {field_ident}: {converted}.map(|p| p.to_string_lossy().to_string())")
+            }
             TypeRef::Map(_, _) => {
                 format!(
-                    "                {field_ident}: {local}.as_ref().and_then(|m| serde_wasm_bindgen::to_value(m).ok())"
+                    "                {field_ident}: \
+                     {converted}.as_ref().and_then(|m| serde_wasm_bindgen::to_value(m).ok())"
                 )
             }
-            _ => format!("                {}", struct_field_init(field_ident, local)),
+            _ => format!("                {}", struct_field_init(field_ident, &converted)),
         };
     }
     match field_ty {
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::Named(_) => format!(
                 "                {field_ident}: {}",
-                box_unwrap_map_into(local, is_boxed)
+                box_unwrap_map_into(&converted, is_boxed)
             ),
-            TypeRef::Path => format!("                {field_ident}: {local}.map(|p| p.to_string_lossy().to_string())"),
+            TypeRef::Path => {
+                format!("                {field_ident}: {converted}.map(|p| p.to_string_lossy().to_string())")
+            }
             TypeRef::Map(_, _) => {
                 format!(
-                    "                {field_ident}: {local}.as_ref().and_then(|m| serde_wasm_bindgen::to_value(m).ok())"
+                    "                {field_ident}: \
+                     {converted}.as_ref().and_then(|m| serde_wasm_bindgen::to_value(m).ok())"
                 )
             }
-            _ => format!("                {}", struct_field_init(field_ident, local)),
+            _ => format!("                {}", struct_field_init(field_ident, &converted)),
         },
         TypeRef::Named(_) => format!(
             "                {field_ident}: Some({})",
-            box_unwrap_into(local, is_boxed)
+            box_unwrap_into(&converted, is_boxed)
         ),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
-            format!("                {field_ident}: Some({local}.into_iter().map(Into::into).collect())")
+            format!("                {field_ident}: Some({converted}.into_iter().map(Into::into).collect())")
         }
-        TypeRef::Path => format!("                {field_ident}: Some({local}.to_string_lossy().to_string())"),
-        TypeRef::Map(_, _) => format!("                {field_ident}: serde_wasm_bindgen::to_value(&{local}).ok()"),
-        _ => format!("                {field_ident}: Some({local})"),
+        TypeRef::Path => format!("                {field_ident}: Some({converted}.to_string_lossy().to_string())"),
+        TypeRef::Map(_, _) => format!("                {field_ident}: serde_wasm_bindgen::to_value(&{converted}).ok()"),
+        _ => format!("                {field_ident}: Some({converted})"),
     }
 }
 
@@ -428,7 +505,9 @@ pub(super) fn gen_tagged_enum_as_struct(
             if !seen.insert(field.name.clone()) {
                 continue;
             }
-            let degraded = mixed.contains(&field.name) || tuple_vec_fields.contains(&field.name);
+            let degraded = mixed.contains(&field.name)
+                || tuple_vec_fields.contains(&field.name)
+                || complex_newtype_field_uses_jsvalue(field);
             let field_ty = if degraded {
                 "Option<JsValue>".to_string()
             } else {
@@ -580,8 +659,19 @@ fn wasm_tagged_variant_kept(enum_def: &EnumDef, variant: &EnumVariant, is_host_e
     false
 }
 
+#[cfg(test)]
 pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
-    let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
+    gen_tagged_enum_binding_to_core_with_paths(enum_def, core_import, prefix, &[], &ahash::AHashMap::new())
+}
+
+pub(super) fn gen_tagged_enum_binding_to_core_with_paths(
+    enum_def: &EnumDef,
+    core_import: &str,
+    prefix: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &ahash::AHashMap<String, String>,
+) -> String {
+    let core_path = crate::codegen::conversions::core_enum_path_remapped(enum_def, core_import, source_crate_remaps);
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
     let tag_field_ident = escape_rust_keyword(tag_field);
@@ -627,7 +717,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                             "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{orig}>(v.clone()).ok()).unwrap_or_default()"
                         )
                     } else {
-                        tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional, f.is_boxed)
+                        tagged_enum_binding_to_core_expr(f, &f_ident, core_import, source_crate_remaps, type_paths)
                     }
                 })
                 .collect();
@@ -654,7 +744,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                         format!(
                             "{}: {}",
                             f.name,
-                            tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional, f.is_boxed)
+                            tagged_enum_binding_to_core_expr(f, &f_ident, core_import, source_crate_remaps, type_paths)
                         )
                     }
                 })
@@ -676,7 +766,17 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
         .find(|v| v.cfg.is_none())
         .or_else(|| enum_def.variants.first());
     if let Some(first) = default_variant {
-        if first.fields.is_empty() {
+        if enum_def
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .any(|field| field.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype))
+        {
+            lines.push(format!(
+                "            _ => wasm_bindgen::throw_str(\"unknown {} variant\"),",
+                enum_def.name
+            ));
+        } else if first.fields.is_empty() {
             lines.push(format!("            _ => Self::{},", first.name));
         } else if first.is_tuple {
             let args: Vec<String> = first.fields.iter().map(|_| "Default::default()".to_string()).collect();
@@ -701,8 +801,18 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
 }
 
 /// Generate `From<core::{Enum}> for Wasm{Enum}` for a tagged-struct enum representation.
+#[cfg(test)]
 pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &str, prefix: &str) -> String {
-    let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
+    gen_tagged_enum_core_to_binding_with_remaps(enum_def, core_import, prefix, &[])
+}
+
+pub(super) fn gen_tagged_enum_core_to_binding_with_remaps(
+    enum_def: &EnumDef,
+    core_import: &str,
+    prefix: &str,
+    source_crate_remaps: &[(&str, &str)],
+) -> String {
+    let core_path = crate::codegen::conversions::core_enum_path_remapped(enum_def, core_import, source_crate_remaps);
     let binding_name = format!("{prefix}{}", enum_def.name);
     let tag_field = crate::codegen::serde_enum_repr::tagged_object_tag_key(enum_def);
     let tag_field_ident = escape_rust_keyword(tag_field);
@@ -773,7 +883,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
                     } else if tuple_vec_fields.contains(name) {
                         format!("                {n_ident}: serde_wasm_bindgen::to_value(&{local}).ok()")
                     } else if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
-                        tagged_enum_core_to_binding_expr(&n_ident, local, &field.ty, field.optional, field.is_boxed)
+                        tagged_enum_core_to_binding_expr(field, &n_ident, local)
                     } else {
                         format!("                {n_ident}: None")
                     };
@@ -803,7 +913,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
                     let init = if mixed.contains(name) || tuple_vec_fields.contains(name) {
                         format!("                {n_ident}: serde_wasm_bindgen::to_value(&{n_ident}).ok()")
                     } else if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
-                        tagged_enum_core_to_binding_expr(&n_ident, &n_ident, &field.ty, field.optional, field.is_boxed)
+                        tagged_enum_core_to_binding_expr(field, &n_ident, &n_ident)
                     } else {
                         format!("                {n_ident}: None")
                     };

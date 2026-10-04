@@ -843,7 +843,7 @@ fn async_method_returning_map_bridges_through_serde_not_from() {
     );
 
     assert!(
-        output.contains("serde_wasm_bindgen::to_value(&result)"),
+        output.contains("serde_wasm_bindgen::to_value(&(result))"),
         "a JsValue-mapped return must be serialized:\n{output}"
     );
     assert!(
@@ -885,11 +885,11 @@ fn async_method_returning_named_still_uses_from() {
     );
 
     assert!(
-        output.contains("WasmReport::from(result)"),
+        output.contains("result.into()"),
         "a wrapper-mapped return must keep the direct From conversion:\n{output}"
     );
     assert!(
-        !output.contains("serde_wasm_bindgen::to_value(&result)"),
+        !output.contains("serde_wasm_bindgen::to_value(&(result))"),
         "a wrapper-mapped return must not detour through serde:\n{output}"
     );
 }

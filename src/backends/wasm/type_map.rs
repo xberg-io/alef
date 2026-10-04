@@ -35,9 +35,9 @@ impl TypeMapper for WasmMapper {
         "JsValue".to_string()
     }
 
-    /// WASM can't handle nested Vec (Vec<Vec<T>>) — use JsValue instead.
+    /// WASM can't handle nested Vec or optional elements — use JsValue instead.
     fn vec(&self, inner: &str) -> String {
-        if inner.starts_with("Vec<") || inner == "JsValue" {
+        if inner.starts_with("Vec<") || inner.starts_with("Option<") || inner == "JsValue" {
             "JsValue".to_string()
         } else {
             format!("Vec<{inner}>")
@@ -55,5 +55,22 @@ impl TypeMapper for WasmMapper {
         } else {
             base.to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vec_of_optional_values_uses_jsvalue() {
+        let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+
+        assert_eq!(
+            mapper.map_type(&crate::core::ir::TypeRef::Vec(Box::new(
+                crate::core::ir::TypeRef::Optional(Box::new(crate::core::ir::TypeRef::String)),
+            ))),
+            "JsValue"
+        );
     }
 }

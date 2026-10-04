@@ -17,6 +17,19 @@ pub struct Segment {
     pub text: String,
 }
 
+impl Segment {
+    pub fn borrow_secret(&self, value: &SecretString) -> SecretString {
+        value.clone()
+    }
+
+    pub fn optional_secret_map(
+        &self,
+        value: Option<&std::collections::HashMap<String, SecretString>>,
+    ) -> Option<std::collections::HashMap<String, SecretString>> {
+        value.cloned()
+    }
+}
+
 /// A private-field wrapper whose `Display` representation could be redacted. The generated
 /// bindings must use only these explicit lossless operations, including below containers and in
 /// enum payloads; the full-language emitted tree is the compile oracle for that contract. ~keep
@@ -46,6 +59,25 @@ impl OrderedSecret {
     pub fn into_inner(self) -> String {
         self.0
     }
+}
+
+#[cfg_attr(alef, alef(transparent_string(from = "from", into = "into_inner")))]
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct NonSerdeSecret(String);
+
+impl NonSerdeSecret {
+    pub fn from(value: String) -> Self {
+        Self(value)
+    }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
+#[derive(Clone)]
+pub struct NonSerdeSecrets {
+    pub values: std::collections::HashMap<NonSerdeSecret, NonSerdeSecret>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -83,6 +115,24 @@ pub fn echo_secret(value: SecretString) -> SecretString {
 
 pub fn optional_secret(value: Option<SecretString>) -> Option<SecretString> {
     value
+}
+
+pub fn borrow_secret(value: &SecretString) -> SecretString {
+    value.clone()
+}
+
+pub fn borrow_optional_secret(value: Option<&SecretString>) -> Option<SecretString> {
+    value.cloned()
+}
+
+pub fn optional_secret_map(
+    value: Option<std::collections::HashMap<String, SecretString>>,
+) -> Option<std::collections::HashMap<String, SecretString>> {
+    value
+}
+
+pub fn join_optional(values: Vec<Option<String>>) -> String {
+    values.into_iter().flatten().collect::<Vec<_>>().join(",")
 }
 
 pub async fn async_secret(value: SecretString) -> SecretString {

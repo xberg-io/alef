@@ -1,13 +1,17 @@
 //! WASM struct method code generation.
 
 use crate::backends::wasm::type_map::WasmMapper;
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name, shared};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToPascalCase;
 
-use super::functions::{borrow_opaque_param, emit_rustdoc, format_param_unused, wasm_wrap_return};
+use super::functions::{
+    borrow_opaque_param, emit_rustdoc, format_param_unused, wasm_call_args, wasm_mapped_param_type,
+    wasm_mapped_return_type, wasm_newtype_param_bindings, wasm_wrap_return, wrap_jsvalue_mapped_return,
+};
 
 #[cfg(test)]
 #[path = "methods_tests.rs"]
@@ -15,6 +19,7 @@ mod methods_tests;
 
 /// Generate a method binding for a struct method.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(super) fn gen_method(
     method: &MethodDef,
     mapper: &WasmMapper,
@@ -26,6 +31,41 @@ pub(super) fn gen_method(
     mutex_types: &AHashSet<String>,
     streaming_item_types: &ahash::AHashMap<String, String>,
     source_crate_remaps: &[(&str, &str)],
+) -> String {
+    let type_paths = [(
+        typ.name.clone(),
+        crate::codegen::conversions::core_type_path_remapped(typ, core_import, source_crate_remaps),
+    )]
+    .into_iter()
+    .collect();
+    gen_method_with_type_paths(
+        method,
+        mapper,
+        type_name,
+        core_import,
+        opaque_types,
+        prefix,
+        typ,
+        mutex_types,
+        streaming_item_types,
+        source_crate_remaps,
+        &type_paths,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn gen_method_with_type_paths(
+    method: &MethodDef,
+    mapper: &WasmMapper,
+    type_name: &str,
+    core_import: &str,
+    opaque_types: &AHashSet<String>,
+    prefix: &str,
+    typ: &TypeDef,
+    mutex_types: &AHashSet<String>,
+    streaming_item_types: &ahash::AHashMap<String, String>,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &ahash::AHashMap<String, String>,
 ) -> String {
     // `type_name` is the bare IR name (`typ.name`) and is only safe to interpolate as
     // `{core_import}::{type_name}` when the type happens to be re-exported at the core crate
@@ -63,7 +103,7 @@ pub(super) fn gen_method(
         .params
         .iter()
         .map(|p| {
-            let ty = mapper.map_type(&p.ty);
+            let ty = wasm_mapped_param_type(p, mapper);
             let mapped_ty = if p.optional {
                 format!("Option<{}>", ty)
             } else {
@@ -78,7 +118,7 @@ pub(super) fn gen_method(
     let return_type = if stream_item.is_some() {
         format!("{}Iterator", method.name.to_pascal_case())
     } else {
-        mapper.map_type(&method.return_type)
+        wasm_mapped_return_type(&method.return_type, &method.return_newtype_wrapper, mapper)
     };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -105,7 +145,7 @@ pub(super) fn gen_method(
         attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
     }
 
-    if method.is_async {
+    if method.is_async && !method.is_static {
         let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
 
         let async_params: Vec<String> = if has_named {
@@ -122,7 +162,7 @@ pub(super) fn gen_method(
                         format!("{}: {}", p.name, mapped_ty)
                     }
                     _ => {
-                        let ty = mapper.map_type(&p.ty);
+                        let ty = wasm_mapped_param_type(p, mapper);
                         let mapped_ty = if p.optional {
                             format!("Option<{}>", ty)
                         } else {
@@ -142,7 +182,10 @@ pub(super) fn gen_method(
                 if let crate::core::ir::TypeRef::Named(name) = &p.ty
                     && !opaque_types.contains(name.as_str())
                 {
-                    let core_path = format!("{}::{}", core_import, name);
+                    let core_path = type_paths
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_else(|| format!("{}::{}", core_import, name));
                     let err_conv = ".map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))";
                     if p.optional {
                         serde_bindings.push_str(&crate::backends::wasm::template_env::render(
@@ -172,12 +215,15 @@ pub(super) fn gen_method(
             }
         }
 
-        let let_bindings = serde_bindings;
-        let call_args = if let_bindings.is_empty() {
-            generators::gen_call_args(&method.params, opaque_types)
-        } else {
-            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
-        };
+        let mut let_bindings = serde_bindings;
+        let_bindings.push_str(&wasm_newtype_param_bindings(
+            &method.params,
+            mapper,
+            core_import,
+            source_crate_remaps,
+            type_paths,
+        ));
+        let call_args = wasm_call_args(&method.params, opaque_types, has_named);
         let is_opaque_type = opaque_types.contains(type_name);
         let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
             format!(
@@ -190,18 +236,20 @@ pub(super) fn gen_method(
                 method_name = method.name
             )
         };
-        // `return_type` is what the mapper rendered, and `{T}::from(result)` is only valid when
-        // that `T` has a `From<CoreType>`. The wasm mapper degrades whole families of return
-        // types to the opaque `JsValue` — every `Map`, every `Json`, and any `Named` a
-        // `type_overrides` entry redirects — and `JsValue` implements no such conversion, so the
-        // turbofish `from` is an E0277 there. serde is the bridge, matching the generated
-        // `From<CoreType> for WasmType` bodies. ~keep
-        let return_expr = if shared::maps_to_js_value(&return_type) {
-            "serde_wasm_bindgen::to_value(&result).unwrap_or(wasm_bindgen::JsValue::NULL)".to_string()
-        } else {
-            let return_type_tf = to_turbofish_from(&return_type);
-            format!("{return_type_tf}::from(result)")
-        };
+        let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+        let return_expr = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+            wasm_wrap_return(
+                &result,
+                &method.return_type,
+                type_name,
+                opaque_types,
+                false,
+                method.returns_ref,
+                method.returns_cow,
+                prefix,
+                mutex_types,
+            )
+        });
         let body = crate::backends::wasm::template_env::render(
             "gen_result_body",
             minijinja::context! {
@@ -211,7 +259,7 @@ pub(super) fn gen_method(
                 is_async => true,
                 map_wasm_error => method.error_type.is_some(),
                 map_js_error => false,
-                ok_return => true,
+                ok_return => method.error_type.is_some(),
             },
         );
         crate::backends::wasm::template_env::render(
@@ -228,11 +276,19 @@ pub(super) fn gen_method(
         )
     } else if method.is_static {
         let body = if can_delegate {
-            let let_bindings = if crate::codegen::generators::has_named_params(&method.params, opaque_types) {
+            let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
+            let mut let_bindings = if has_named {
                 crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };
+            let_bindings.push_str(&wasm_newtype_param_bindings(
+                &method.params,
+                mapper,
+                core_import,
+                source_crate_remaps,
+                type_paths,
+            ));
 
             let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
             let lifetime_bindings = if typ.has_lifetime_params {
@@ -280,11 +336,7 @@ pub(super) fn gen_method(
             };
 
             let (call_args, actual_method_name) = if !lifetime_bindings.is_empty() {
-                let base_call_args = if let_bindings.is_empty() {
-                    generators::gen_call_args(&method.params, opaque_types)
-                } else {
-                    generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
-                };
+                let base_call_args = wasm_call_args(&method.params, opaque_types, has_named);
                 let mut adjusted = base_call_args;
                 for p in &method.params {
                     match &p.ty {
@@ -311,52 +363,81 @@ pub(super) fn gen_method(
                 };
                 (adjusted, method_name)
             } else {
-                let base_call_args = if let_bindings.is_empty() {
-                    generators::gen_call_args(&method.params, opaque_types)
-                } else {
-                    generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
-                };
+                let base_call_args = wasm_call_args(&method.params, opaque_types, has_named);
                 (base_call_args, method.name.clone())
             };
 
             let combined_let_bindings = format!("{let_bindings}{lifetime_bindings}");
             let core_call = format!("{qualified_type_path}::{actual_method_name}({call_args})");
             if method.error_type.is_some() {
-                let wrap = wasm_wrap_return(
-                    "result",
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    method.returns_cow,
-                    prefix,
-                    mutex_types,
-                );
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+                let wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
                 crate::backends::wasm::template_env::render(
                     "gen_result_body",
                     minijinja::context! {
                         let_bindings => &combined_let_bindings,
                         core_call => &core_call,
                         return_expr => &wrap,
-                        is_async => false,
+                        is_async => method.is_async,
                         map_wasm_error => false,
                         map_js_error => true,
                         ok_return => true,
                     },
                 )
+            } else if method.is_async {
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+                let return_expr = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
+                crate::backends::wasm::template_env::render(
+                    "gen_result_body",
+                    minijinja::context! {
+                        let_bindings => &combined_let_bindings,
+                        core_call => &core_call,
+                        return_expr => &return_expr,
+                        is_async => true,
+                        map_wasm_error => false,
+                        map_js_error => false,
+                        ok_return => false,
+                    },
+                )
             } else {
-                let return_expr = wasm_wrap_return(
-                    &core_call,
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    method.returns_cow,
-                    prefix,
-                    mutex_types,
-                );
+                let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+                let return_expr = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
                 crate::backends::wasm::template_env::render(
                     "gen_direct_body",
                     minijinja::context! {
@@ -381,20 +462,25 @@ pub(super) fn gen_method(
                 params => params.join(", "),
                 return_annotation => &return_annotation,
                 body => body.trim_end(),
+                is_async => method.is_async,
             },
         )
     } else {
         let body = if can_delegate {
-            let let_bindings = if crate::codegen::generators::has_named_params(&method.params, opaque_types) {
+            let has_named = crate::codegen::generators::has_named_params(&method.params, opaque_types);
+            let mut let_bindings = if has_named {
                 crate::codegen::generators::gen_named_let_bindings_no_promote(&method.params, opaque_types, core_import)
             } else {
                 String::new()
             };
-            let call_args = if let_bindings.is_empty() {
-                generators::gen_call_args(&method.params, opaque_types)
-            } else {
-                generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
-            };
+            let_bindings.push_str(&wasm_newtype_param_bindings(
+                &method.params,
+                mapper,
+                core_import,
+                source_crate_remaps,
+                type_paths,
+            ));
+            let call_args = wasm_call_args(&method.params, opaque_types, has_named);
             let is_opaque_type = opaque_types.contains(type_name);
             let core_call = if is_opaque_type && has_mut_methods && !is_ref_mut_receiver {
                 format!(
@@ -408,17 +494,20 @@ pub(super) fn gen_method(
                 )
             };
             if method.error_type.is_some() {
-                let wrap = wasm_wrap_return(
-                    "result",
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    method.returns_cow,
-                    prefix,
-                    mutex_types,
-                );
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+                let wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
                 crate::backends::wasm::template_env::render(
                     "gen_result_body",
                     minijinja::context! {
@@ -432,17 +521,20 @@ pub(super) fn gen_method(
                     },
                 )
             } else {
-                let return_expr = wasm_wrap_return(
-                    &core_call,
-                    &method.return_type,
-                    type_name,
-                    opaque_types,
-                    false,
-                    method.returns_ref,
-                    method.returns_cow,
-                    prefix,
-                    mutex_types,
-                );
+                let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+                let return_expr = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        false,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
                 crate::backends::wasm::template_env::render(
                     "gen_direct_body",
                     minijinja::context! {
@@ -470,18 +562,5 @@ pub(super) fn gen_method(
                 body => body.trim_end(),
             },
         )
-    }
-}
-
-/// Returns a type name in turbofish form for use before `::from(expr)`.
-///
-/// Rust requires turbofish when a type has generic parameters and sits before `::`:
-///   `Vec<T>::from(x)` is a syntax error — `Vec::<T>::from(x)` is required.
-/// Non-generic type names are returned unchanged.
-fn to_turbofish_from(type_name: &str) -> String {
-    if let Some(idx) = type_name.find('<') {
-        format!("{}::{}", &type_name[..idx], &type_name[idx..])
-    } else {
-        type_name.to_string()
     }
 }

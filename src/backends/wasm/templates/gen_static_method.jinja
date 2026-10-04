@@ -1,4 +1,4 @@
 {{ attrs }}#[wasm_bindgen{{ js_name_attr }}]
-pub fn {{ method_name }}({{ params }}) -> {{ return_annotation }} {
+pub {% if is_async %}async {% endif %}fn {{ method_name }}({{ params }}) -> {{ return_annotation }} {
     {{ body }}
 }

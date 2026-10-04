@@ -1,8 +1,9 @@
 //! Async free-function wrapper generation for WASM.
 
-use super::returns::{to_turbofish_from, type_has_default};
+use super::params::{wasm_call_args, wasm_mapped_param_type, wasm_newtype_param_bindings};
+use super::returns::{type_has_default, wasm_mapped_return_type, wasm_wrap_return_fn, wrap_jsvalue_mapped_return};
 use crate::backends::wasm::type_map::WasmMapper;
-use crate::codegen::generators;
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{ApiSurface, FunctionDef, TypeRef};
 use ahash::AHashSet;
@@ -17,11 +18,12 @@ pub(super) fn gen_async_free_function(
     mutex_types: &AHashSet<String>,
     api: &ApiSurface,
     params: &[String],
-    return_type: &str,
     attrs: &str,
     js_name_attr: &str,
     return_annotation: &str,
     core_fn_path: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &ahash::AHashMap<String, String>,
 ) -> String {
     let has_named = crate::codegen::generators::has_named_params(&func.params, opaque_types);
 
@@ -53,7 +55,7 @@ pub(super) fn gen_async_free_function(
                     }
                 }
                 _ => {
-                    let ty = mapper.map_type(&p.ty);
+                    let ty = wasm_mapped_param_type(p, mapper);
                     let mapped_ty = if p.optional {
                         format!("Option<{}>", ty)
                     } else {
@@ -72,7 +74,10 @@ pub(super) fn gen_async_free_function(
         for p in &func.params {
             if let TypeRef::Named(name) = &p.ty {
                 if !opaque_types.contains(name.as_str()) {
-                    let core_path = format!("{}::{}", core_import, name);
+                    let core_path = type_paths
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_else(|| format!("{}::{}", core_import, name));
                     let wasm_ty = mapper.map_type(&p.ty);
                     if crate::codegen::shared::maps_to_js_value(&wasm_ty) {
                         let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
@@ -127,7 +132,10 @@ pub(super) fn gen_async_free_function(
                 && let TypeRef::Named(name) = inner.as_ref()
                 && !opaque_types.contains(name.as_str())
             {
-                let core_path = format!("{}::{}", core_import, name);
+                let core_path = type_paths
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}::{}", core_import, name));
                 let template_name = if p.optional {
                     "serde_vec_named_from_optional"
                 } else {
@@ -145,55 +153,29 @@ pub(super) fn gen_async_free_function(
         }
     }
 
-    let let_bindings = serde_bindings;
-    let call_args = if let_bindings.is_empty() {
-        generators::gen_call_args(&func.params, opaque_types)
-    } else {
-        generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
-    };
+    let mut let_bindings = serde_bindings;
+    let_bindings.push_str(&wasm_newtype_param_bindings(
+        &func.params,
+        mapper,
+        core_import,
+        source_crate_remaps,
+        type_paths,
+    ));
+    let call_args = wasm_call_args(&func.params, opaque_types, has_named);
     let core_call = format!("{core_fn_path}({call_args})");
-    let return_expr = match &func.return_type {
-        TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-                if mutex_types.contains(n.as_str()) {
-                    format!(
-                        "result.into_iter().map(|v| {} {{ inner: Arc::new(std::sync::Mutex::new(v)) }}).collect::<Vec<_>>()",
-                        mapper.map_type(inner)
-                    )
-                } else {
-                    format!(
-                        "result.into_iter().map(|v| {} {{ inner: Arc::new(v) }}).collect::<Vec<_>>()",
-                        mapper.map_type(inner)
-                    )
-                }
-            }
-            TypeRef::Named(_) => {
-                let inner_mapped = mapper.map_type(inner);
-                format!("result.into_iter().map({inner_mapped}::from).collect::<Vec<_>>()")
-            }
-            _ => "result".to_string(),
-        },
-        TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
-            let prefixed = mapper.map_type(&func.return_type);
-            if mutex_types.contains(n.as_str()) {
-                format!("{prefixed} {{ inner: Arc::new(std::sync::Mutex::new(result)) }}")
-            } else {
-                format!("{prefixed} {{ inner: Arc::new(result) }}")
-            }
-        }
-        // `{T}::from(result)` exists only when the mapper gave this return type a binding
-        // wrapper. A `type_overrides` entry can redirect it to the opaque `JsValue`, which
-        // implements no `From<CoreType>` — an E0277 against the signature written from that same
-        // mapper. Mirrors the instance-method path in `gen_bindings::methods`. ~keep
-        TypeRef::Named(_) if crate::codegen::shared::maps_to_js_value(return_type) => {
-            "serde_wasm_bindgen::to_value(&result).unwrap_or(wasm_bindgen::JsValue::NULL)".to_string()
-        }
-        TypeRef::Named(_) => {
-            format!("{}::from(result)", to_turbofish_from(return_type))
-        }
-        TypeRef::Unit => "result".to_string(),
-        _ => "result".to_string(),
-    };
+    let result = apply_return_newtype_unwrap("result", &func.return_newtype_wrapper);
+    let mapped_return = wasm_mapped_return_type(&func.return_type, &func.return_newtype_wrapper, mapper);
+    let return_expr = wrap_jsvalue_mapped_return(&result, &mapped_return).unwrap_or_else(|| {
+        wasm_wrap_return_fn(
+            &result,
+            &func.return_type,
+            opaque_types,
+            func.returns_ref,
+            func.returns_cow,
+            &mapper.prefix,
+            mutex_types,
+        )
+    });
     let body = crate::backends::wasm::template_env::render(
         "gen_result_body",
         minijinja::context! {

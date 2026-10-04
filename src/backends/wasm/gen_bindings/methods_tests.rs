@@ -288,3 +288,44 @@ fn async_method_opaque_handle_param_is_taken_by_reference() {
         "by-value opaque handle param leaks into the async signature:\n{out}"
     );
 }
+
+#[test]
+fn nonopaque_static_async_fallible_method_has_no_self_and_awaits_core_call() {
+    let method = MethodDef {
+        name: "create_async".to_string(),
+        is_static: true,
+        is_async: true,
+        error_type: Some("Error".to_string()),
+        return_type: TypeRef::String,
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Factory".to_string(),
+        rust_path: "sample_fixture::nested::Factory".to_string(),
+        methods: vec![method.clone()],
+        ..Default::default()
+    };
+
+    let out = gen_method(
+        &method,
+        &mapper(),
+        "Factory",
+        "sample_fixture",
+        &AHashSet::new(),
+        "Wasm",
+        &typ,
+        &AHashSet::new(),
+        &ahash::AHashMap::new(),
+        &[],
+    );
+
+    assert!(out.contains("pub async fn create_async()"), "{out}");
+    assert!(
+        out.contains("sample_fixture::nested::Factory::create_async().await"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("self.clone()"),
+        "static async dispatch must not use self: {out}"
+    );
+}

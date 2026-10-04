@@ -28,6 +28,82 @@ fn class_field(name: &str, type_name: &str, optional: bool) -> FieldDef {
 }
 
 #[test]
+fn opaque_static_async_methods_await_core_calls_and_preserve_fallibility() {
+    let secret = TypeRef::String;
+    let wrapper = crate::core::ir::NewtypeWrapper::encode_explicit(&[
+        crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+            "fixture::SecretString",
+            "from",
+            "into_inner",
+            vec![],
+        ),
+    ]);
+    let param = crate::core::ir::ParamDef {
+        name: "value".to_string(),
+        ty: secret.clone(),
+        newtype_wrapper: Some(wrapper.clone()),
+        ..Default::default()
+    };
+    let make_method = |name: &str, error_type: Option<&str>| MethodDef {
+        name: name.to_string(),
+        params: vec![param.clone()],
+        return_type: secret.clone(),
+        return_newtype_wrapper: Some(wrapper.clone()),
+        is_async: true,
+        is_static: true,
+        error_type: error_type.map(str::to_string),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Session".to_string(),
+        rust_path: "fixture::nested::Session".to_string(),
+        methods: vec![
+            make_method("static_async_secret", None),
+            make_method("static_fallible_secret", Some("Error")),
+            MethodDef {
+                name: "refresh".to_string(),
+                is_async: true,
+                receiver: Some(ReceiverKind::Ref),
+                return_type: TypeRef::String,
+                ..Default::default()
+            },
+        ],
+        is_opaque: true,
+        ..Default::default()
+    };
+    let type_paths = ahash::AHashMap::from_iter([("Session".to_string(), "fixture::nested::Session".to_string())]);
+
+    let out = gen_opaque_struct_methods(
+        &typ,
+        &mapper(),
+        &AHashSet::from_iter(["Session".to_string()]),
+        "fixture",
+        &[],
+        &type_paths,
+        "Wasm",
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &[],
+    );
+
+    assert!(out.contains("pub async fn static_async_secret"), "{out}");
+    assert!(
+        out.contains("fixture::nested::Session::static_async_secret") && out.contains(".await;"),
+        "{out}"
+    );
+    assert!(out.contains("pub async fn static_fallible_secret"), "{out}");
+    assert!(out.contains(".await.map_err(|e| JsValue::from_str"), "{out}");
+    assert!(out.contains("pub async fn refresh(&self"), "{out}");
+    assert!(out.contains("let result = self.inner.refresh().await;"), "{out}");
+    assert!(
+        !out.contains("Ok(result)"),
+        "infallible async method must return its declared value: {out}"
+    );
+}
+
+#[test]
 fn gen_getter_option_vec_unit_enum_flattens_option() {
     let field = FieldDef {
         name: "modalities".to_string(),

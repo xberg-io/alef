@@ -2,6 +2,7 @@
 
 use crate::backends::wasm::type_map::WasmMapper;
 use crate::codegen::builder::ImplBuilder;
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name, shared};
 use crate::core::config::TraitBridgeConfig;
@@ -9,8 +10,11 @@ use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeR
 use ahash::{AHashMap, AHashSet};
 use heck::ToPascalCase;
 
-use super::functions::{emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_wrap_return};
-use super::methods::gen_method;
+use super::functions::{
+    emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_call_args, wasm_mapped_param_type,
+    wasm_mapped_return_type, wasm_newtype_param_bindings, wasm_wrap_return, wrap_jsvalue_mapped_return,
+};
+use super::methods::gen_method_with_type_paths;
 
 #[path = "types_accessors.rs"]
 mod types_accessors;
@@ -25,7 +29,10 @@ mod types_tests;
 
 use types_accessors::{gen_clear_method, gen_getter, gen_setter};
 pub(in crate::backends::wasm::gen_bindings) use types_helpers::filter_cfg_fields_for_features;
-use types_helpers::{is_bare_tagged_data_enum, is_option_of_tagged_data_enum, is_vec_of_tagged_data_enum};
+use types_helpers::{
+    complex_newtype_field_uses_jsvalue, is_bare_tagged_data_enum, is_option_of_tagged_data_enum,
+    is_vec_of_tagged_data_enum,
+};
 
 /// Generate an opaque wasm-bindgen struct with inner Arc or Arc<Mutex<>>.
 pub(super) fn gen_opaque_struct(
@@ -65,6 +72,8 @@ pub(super) fn gen_opaque_struct_methods(
     mapper: &WasmMapper,
     opaque_types: &AHashSet<String>,
     core_import: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &AHashMap<String, String>,
     prefix: &str,
     adapter_bodies: &crate::adapters::AdapterBodies,
     mutex_types: &AHashSet<String>,
@@ -113,12 +122,21 @@ pub(super) fn gen_opaque_struct_methods(
         if method.is_static {
             impl_builder.add_method(&gen_opaque_static_method(
                 method,
-                mapper,
-                &typ.name,
-                opaque_types,
-                core_import,
-                prefix,
-                mutex_types,
+                OpaqueStaticMethodContext {
+                    mapper,
+                    type_name: &typ.name,
+                    opaque_types,
+                    core_import,
+                    source_crate_remaps,
+                    qualified_type_path: &crate::codegen::conversions::core_type_path_remapped(
+                        typ,
+                        core_import,
+                        source_crate_remaps,
+                    ),
+                    type_paths,
+                    prefix,
+                    mutex_types,
+                },
             ));
         } else {
             impl_builder.add_method(&gen_opaque_method(
@@ -126,6 +144,9 @@ pub(super) fn gen_opaque_struct_methods(
                 mapper,
                 &typ.name,
                 opaque_types,
+                core_import,
+                source_crate_remaps,
+                type_paths,
                 prefix,
                 adapter_bodies,
                 mutex_types,
@@ -144,6 +165,9 @@ fn gen_opaque_method(
     mapper: &WasmMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    core_import: &str,
+    source_crate_remaps: &[(&str, &str)],
+    type_paths: &AHashMap<String, String>,
     prefix: &str,
     adapter_bodies: &crate::adapters::AdapterBodies,
     mutex_types: &AHashSet<String>,
@@ -171,7 +195,7 @@ fn gen_opaque_method(
         .params
         .iter()
         .map(|p| {
-            let ty = mapper.map_type(&p.ty);
+            let ty = wasm_mapped_param_type(p, mapper);
             let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
             format_param_unused(&p.name, &mapped_ty, params_unused)
         })
@@ -182,7 +206,7 @@ fn gen_opaque_method(
     let return_type = if stream_item.is_some() {
         format!("{}Iterator", method.name.to_pascal_case())
     } else {
-        mapper.map_type(&method.return_type)
+        wasm_mapped_return_type(&method.return_type, &method.return_newtype_wrapper, mapper)
     };
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -198,7 +222,9 @@ fn gen_opaque_method(
     let needs_clone = matches!(method.receiver, Some(ReceiverKind::Owned));
 
     let body = if can_delegate {
-        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let let_bindings =
+            wasm_newtype_param_bindings(&method.params, mapper, core_import, source_crate_remaps, type_paths);
+        let call_args = wasm_call_args(&method.params, opaque_types, false);
         let core_call = if is_ref_mut {
             format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
         } else if needs_clone {
@@ -213,32 +239,10 @@ fn gen_opaque_method(
             format!("self.inner.{}({})", method.name, call_args)
         };
         if method.is_async {
-            let result_wrap = wasm_wrap_return(
-                "result",
-                &method.return_type,
-                type_name,
-                opaque_types,
-                true,
-                method.returns_ref,
-                method.returns_cow,
-                prefix,
-                mutex_types,
-            );
-            if method.error_type.is_some() {
-                format!(
-                    "let result = {core_call}.await\n        \
-                     .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-                     Ok({result_wrap})"
-                )
-            } else {
-                format!("let result = {core_call}.await;\n    Ok({result_wrap})")
-            }
-        } else if method.error_type.is_some() {
-            if matches!(method.return_type, TypeRef::Unit) {
-                format!("{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
-            } else {
-                let wrap = wasm_wrap_return(
-                    "result",
+            let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+            let result_wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                wasm_wrap_return(
+                    &result,
                     &method.return_type,
                     type_name,
                     opaque_types,
@@ -247,21 +251,55 @@ fn gen_opaque_method(
                     method.returns_cow,
                     prefix,
                     mutex_types,
-                );
-                format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
+                )
+            });
+            if method.error_type.is_some() {
+                format!(
+                    "{let_bindings}let result = {core_call}.await\n        \
+                     .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
+                     Ok({result_wrap})"
+                )
+            } else {
+                format!("{let_bindings}let result = {core_call}.await;\n    {result_wrap}")
+            }
+        } else if method.error_type.is_some() {
+            if matches!(method.return_type, TypeRef::Unit) {
+                format!("{let_bindings}{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
+            } else {
+                let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+                let wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                    wasm_wrap_return(
+                        &result,
+                        &method.return_type,
+                        type_name,
+                        opaque_types,
+                        true,
+                        method.returns_ref,
+                        method.returns_cow,
+                        prefix,
+                        mutex_types,
+                    )
+                });
+                format!(
+                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                )
             }
         } else {
-            wasm_wrap_return(
-                &core_call,
-                &method.return_type,
-                type_name,
-                opaque_types,
-                true,
-                method.returns_ref,
-                method.returns_cow,
-                prefix,
-                mutex_types,
-            )
+            let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+            let wrapped = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                wasm_wrap_return(
+                    &result,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                )
+            });
+            format!("{let_bindings}{wrapped}")
         }
     } else if let Some(body) = adapter_bodies.get(&adapter_key) {
         body.clone()
@@ -298,30 +336,45 @@ fn gen_opaque_method(
     )
 }
 
+struct OpaqueStaticMethodContext<'a> {
+    mapper: &'a WasmMapper,
+    type_name: &'a str,
+    opaque_types: &'a AHashSet<String>,
+    core_import: &'a str,
+    source_crate_remaps: &'a [(&'a str, &'a str)],
+    qualified_type_path: &'a str,
+    type_paths: &'a AHashMap<String, String>,
+    prefix: &'a str,
+    mutex_types: &'a AHashSet<String>,
+}
+
 /// Generate a static method for an opaque wasm-bindgen struct.
 /// Static methods call CoreType::method() instead of self.inner.method().
-fn gen_opaque_static_method(
-    method: &MethodDef,
-    mapper: &WasmMapper,
-    type_name: &str,
-    opaque_types: &AHashSet<String>,
-    core_import: &str,
-    prefix: &str,
-    mutex_types: &AHashSet<String>,
-) -> String {
+fn gen_opaque_static_method(method: &MethodDef, context: OpaqueStaticMethodContext<'_>) -> String {
+    let OpaqueStaticMethodContext {
+        mapper,
+        type_name,
+        opaque_types,
+        core_import,
+        source_crate_remaps,
+        qualified_type_path,
+        type_paths,
+        prefix,
+        mutex_types,
+    } = context;
     let can_delegate = shared::can_auto_delegate(method, opaque_types);
 
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            let ty = mapper.map_type(&p.ty);
+            let ty = wasm_mapped_param_type(p, mapper);
             let mapped_ty = if p.optional { format!("Option<{}>", ty) } else { ty };
             format_param_unused(&p.name, &mapped_ty, !can_delegate)
         })
         .collect();
 
-    let return_type = mapper.map_type(&method.return_type);
+    let return_type = wasm_mapped_return_type(&method.return_type, &method.return_newtype_wrapper, mapper);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let js_name = to_node_name(&method.name);
@@ -332,33 +385,62 @@ fn gen_opaque_static_method(
     };
 
     let body = if can_delegate {
-        let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let core_call = format!("{core_import}::{type_name}::{}({call_args})", method.name);
+        let let_bindings =
+            wasm_newtype_param_bindings(&method.params, mapper, core_import, source_crate_remaps, type_paths);
+        let call_args = wasm_call_args(&method.params, opaque_types, false);
+        let core_call = format!("{qualified_type_path}::{}({call_args})", method.name);
         if method.error_type.is_some() {
-            let wrap = wasm_wrap_return(
-                "result",
-                &method.return_type,
-                type_name,
-                opaque_types,
-                true,
-                method.returns_ref,
-                method.returns_cow,
-                prefix,
-                mutex_types,
-            );
-            format!("let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})")
-        } else {
-            wasm_wrap_return(
-                &core_call,
-                &method.return_type,
-                type_name,
-                opaque_types,
-                true,
-                method.returns_ref,
-                method.returns_cow,
-                prefix,
-                mutex_types,
+            let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+            let wrap = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                wasm_wrap_return(
+                    &result,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                )
+            });
+            let await_suffix = if method.is_async { ".await" } else { "" };
+            format!(
+                "{let_bindings}let result = {core_call}{await_suffix}.map_err(|e| \
+                 JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
             )
+        } else if method.is_async {
+            let result = apply_return_newtype_unwrap("result", &method.return_newtype_wrapper);
+            let wrapped = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                wasm_wrap_return(
+                    &result,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                )
+            });
+            format!("{let_bindings}let result = {core_call}.await;\n    {wrapped}")
+        } else {
+            let result = apply_return_newtype_unwrap(&core_call, &method.return_newtype_wrapper);
+            let wrapped = wrap_jsvalue_mapped_return(&result, &return_type).unwrap_or_else(|| {
+                wasm_wrap_return(
+                    &result,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    true,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                )
+            });
+            format!("{let_bindings}{wrapped}")
         }
     } else {
         gen_wasm_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -375,11 +457,11 @@ fn gen_opaque_static_method(
         attrs.push_str("#[allow(clippy::should_implement_trait)]\n");
     }
     format!(
-        "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
+        "{attrs}#[wasm_bindgen{js_name_attr}]\npub {async_kw}fn {method_name}({params}) -> {return_annotation} {{\n    \
          {body}\n}}",
-        method.name,
-        params.join(", "),
-        return_annotation
+        async_kw = if method.is_async { "async " } else { "" },
+        method_name = method.name,
+        params = params.join(", "),
     )
 }
 
@@ -413,7 +495,13 @@ pub(super) fn gen_struct(
         let is_bare_tagged_enum = !is_vec_tagged_enum
             && !is_option_tagged_enum
             && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
-        let field_type = if force_optional {
+        let field_type = if complex_newtype_field_uses_jsvalue(field) {
+            if field.optional {
+                "Option<JsValue>".to_string()
+            } else {
+                "JsValue".to_string()
+            }
+        } else if force_optional {
             mapper.optional(&mapper.map_type(&field.ty))
         } else if is_vec_tagged_enum {
             "JsValue".to_string()
@@ -481,6 +569,19 @@ pub(super) fn gen_struct_methods(
     impl_builder.add_attr("wasm_bindgen");
 
     let enum_names: AHashSet<String> = api_enums.iter().map(|e| e.name.clone()).collect();
+    let mut type_paths = AHashMap::new();
+    for api_type in api_types.iter().filter(|api_type| !api_type.is_trait) {
+        type_paths.insert(
+            api_type.name.clone(),
+            crate::codegen::conversions::core_type_path_remapped(api_type, core_import, source_crate_remaps),
+        );
+    }
+    for enum_def in api_enums {
+        type_paths.insert(
+            enum_def.name.clone(),
+            crate::codegen::conversions::core_enum_path_remapped(enum_def, core_import, source_crate_remaps),
+        );
+    }
     // Mirrors the emission loop in `mod.rs`: every non-trait, non-excluded type becomes a
     // `#[wasm_bindgen]` class, whether it is an opaque wrapper or a field-carrying struct. ~keep
     let class_type_names: AHashSet<String> = api_types
@@ -565,7 +666,7 @@ pub(super) fn gen_struct_methods(
             if refs_excluded {
                 continue;
             }
-            impl_builder.add_method(&gen_method(
+            impl_builder.add_method(&gen_method_with_type_paths(
                 method,
                 mapper,
                 &typ.name,
@@ -576,6 +677,7 @@ pub(super) fn gen_struct_methods(
                 mutex_types,
                 streaming_item_types,
                 source_crate_remaps,
+                &type_paths,
             ));
         }
     }
@@ -721,8 +823,15 @@ fn gen_new_method(
     use super::field_references_excluded_type;
     use crate::codegen::shared::constructor_parts;
 
+    let complex_newtype_types: Vec<&TypeRef> = typ
+        .fields
+        .iter()
+        .filter(|field| complex_newtype_field_uses_jsvalue(field))
+        .map(|field| &field.ty)
+        .collect();
     let map_fn = |ty: &crate::core::ir::TypeRef| {
-        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
+        if complex_newtype_types.contains(&ty)
+            || is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
             || is_bare_tagged_data_enum(ty, tagged_data_enum_names)
         {
             "JsValue".to_string()

@@ -1089,3 +1089,167 @@ fn unit_only_enum_is_not_fully_flattened_internal() {
     assert!(!super::is_tagged_data_enum(&e, &[]));
     assert!(!super::is_json_passthrough_data_enum(&e, &[]));
 }
+
+fn transparent_string_wrapper(containers: Vec<crate::core::ir::NewtypeContainer>) -> String {
+    crate::core::ir::NewtypeWrapper::encode_explicit(&[crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+        "test_lib::SecretString",
+        "from",
+        "into_inner",
+        containers,
+    )])
+}
+
+#[test]
+fn tagged_enum_transparent_string_payload_converts_both_directions_and_rejects_unknown_tag() {
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    enum_def.variants[0].fields[0].ty = TypeRef::String;
+    enum_def.variants[0].fields[0].newtype_wrapper = Some(transparent_string_wrapper(vec![]));
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+    assert!(
+        binding_to_core.contains("test_lib::SecretString::from(val._0.clone().unwrap_or_else"),
+        "{binding_to_core}"
+    );
+    assert!(
+        binding_to_core.contains("wasm_bindgen::throw_str(\"missing enum field _0\")"),
+        "missing required wrapper payload must throw: {binding_to_core}"
+    );
+    assert!(
+        binding_to_core.contains("wasm_bindgen::throw_str(\"unknown Message variant\")"),
+        "malformed external tags must throw rather than synthesize a wrapper: {binding_to_core}"
+    );
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains("Some((field0).into_inner())"),
+        "{core_to_binding}"
+    );
+}
+
+#[test]
+fn tagged_enum_nested_transparent_string_payload_uses_jsvalue_without_wrapper_serde() {
+    use crate::core::ir::NewtypeContainer::MapValue;
+
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![MapValue]));
+
+    let declaration = super::gen_tagged_enum_as_struct(&enum_def, &mapper("Wasm"), &[], &[]);
+    assert!(declaration.contains("pub(crate) _0: Option<JsValue>"), "{declaration}");
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+    assert!(
+        binding_to_core.contains("serde_wasm_bindgen::from_value::<std::collections::HashMap<String, String>>"),
+        "{binding_to_core}"
+    );
+    assert!(binding_to_core.contains("wasm_bindgen::throw_val"), "{binding_to_core}");
+    assert!(
+        binding_to_core.contains("test_lib::SecretString::from(value)"),
+        "{binding_to_core}"
+    );
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains("serde_wasm_bindgen::to_value"),
+        "{core_to_binding}"
+    );
+    assert!(core_to_binding.contains("(value).into_inner()"), "{core_to_binding}");
+}
+
+#[test]
+fn tagged_enum_required_boxed_transparent_string_payload_composes_boxing() {
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.ty = TypeRef::String;
+    field.is_boxed = true;
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![]));
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+    assert!(
+        binding_to_core.contains("Box::new(test_lib::SecretString::from(val._0.clone().unwrap_or_else"),
+        "{binding_to_core}"
+    );
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains("Some((*field0).into_inner())"),
+        "{core_to_binding}"
+    );
+}
+
+#[test]
+fn tagged_enum_optional_boxed_transparent_string_payload_composes_boxing() {
+    use crate::core::ir::NewtypeContainer::Optional;
+
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.ty = TypeRef::String;
+    field.optional = true;
+    field.is_boxed = true;
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![Optional]));
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+    assert!(
+        binding_to_core.contains("test_lib::SecretString::from(value)"),
+        "{binding_to_core}"
+    );
+    assert!(binding_to_core.contains(".map(Box::new)"), "{binding_to_core}");
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains("field0.map(|value| *value)"),
+        "{core_to_binding}"
+    );
+    assert!(core_to_binding.contains("(value).into_inner()"), "{core_to_binding}");
+}
+
+#[test]
+fn tagged_enum_optional_complex_wrapper_serializes_only_present_values() {
+    use crate::core::ir::NewtypeContainer::{MapValue, Optional};
+
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+    field.optional = true;
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![Optional, MapValue]));
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains(".and_then(|value| serde_wasm_bindgen::to_value(&value).ok())"),
+        "{core_to_binding}"
+    );
+    assert!(
+        !core_to_binding.contains("serde_wasm_bindgen::to_value(&(field0"),
+        "the outer Option must not be serialized into a present JsValue: {core_to_binding}"
+    );
+}
+
+#[test]
+fn tagged_enum_intrinsic_optional_complex_wrapper_serializes_only_present_values() {
+    use crate::core::ir::NewtypeContainer::{MapValue, Optional};
+
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.ty = TypeRef::Optional(Box::new(TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::String),
+    )));
+    field.newtype_wrapper = Some(transparent_string_wrapper(vec![Optional, MapValue]));
+
+    let core_to_binding = gen_tagged_enum_core_to_binding(&enum_def, "test_lib", "Wasm");
+    assert!(
+        core_to_binding.contains(".and_then(|value| serde_wasm_bindgen::to_value(&value).ok())"),
+        "{core_to_binding}"
+    );
+    assert!(
+        !core_to_binding.contains("serde_wasm_bindgen::to_value(&(field0"),
+        "the intrinsic Option must not be serialized into a present JsValue: {core_to_binding}"
+    );
+}

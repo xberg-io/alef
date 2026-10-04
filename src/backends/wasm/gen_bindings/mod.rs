@@ -42,7 +42,7 @@ use cfg::{
 };
 use enums::gen_enum;
 use errors::{gen_error_converter, gen_error_methods};
-use functions::{gen_env_shims, gen_function_with_emitted_dtos};
+use functions::gen_env_shims;
 #[cfg(test)]
 use helpers::function_is_exported;
 use types::{gen_opaque_struct, gen_opaque_struct_methods, gen_struct, gen_struct_methods};
@@ -131,6 +131,7 @@ impl Backend for WasmBackend {
             .iter()
             .map(|(o, n)| (o.as_str(), n.as_str()))
             .collect();
+        let wasm_type_paths = functions::wasm_type_path_map(api, &core_import, &source_remaps_borrowed);
         let dropped_crates: AHashSet<String> = wasm_config
             .map(|c| c.exclude_extra_dependencies.clone())
             .unwrap_or_default()
@@ -418,6 +419,8 @@ impl Backend for WasmBackend {
                     &mapper,
                     &opaque_types,
                     &core_import,
+                    &source_remaps_borrowed,
+                    &wasm_type_paths,
                     &prefix,
                     &adapter_bodies,
                     &mutex_types,
@@ -527,13 +530,21 @@ impl Backend for WasmBackend {
                                 .filter(|t| !t.has_serde || t.is_trait || t.is_opaque)
                                 .map(|t| t.name.clone())
                                 .collect();
-                            let (dto_code, _dto_name) = functions::gen_input_dto_for_type_with_cfg(
+                            let core_path = wasm_type_paths
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_else(|| format!("{core_import}::{name}"));
+                            let (dto_code, _dto_name) = functions::gen_input_dto_for_type_with_cfg_at_path(
                                 name.as_str(),
-                                &core_import,
                                 type_def,
-                                &exclude_types,
-                                &enabled_features,
-                                &non_deserializable_type_names,
+                                functions::InputDtoConfig {
+                                    core_path: &core_path,
+                                    core_import: &core_import,
+                                    core_type_paths: &wasm_type_paths,
+                                    exclude_types: &exclude_types,
+                                    enabled_features: &enabled_features,
+                                    non_deserializable_type_names: &non_deserializable_type_names,
+                                },
                             );
                             if !dto_code.is_empty() {
                                 input_dto_code.push_str(&dto_code);
@@ -605,7 +616,7 @@ impl Backend for WasmBackend {
                     let item = prepend_cfg(func.cfg.as_deref(), item);
                     builder.add_item(&item);
                 } else {
-                    let item = gen_function_with_emitted_dtos(
+                    let item = functions::gen_function_with_emitted_dtos_and_remaps(
                         func,
                         &mapper,
                         &core_import,
@@ -614,6 +625,7 @@ impl Backend for WasmBackend {
                         &mutex_types,
                         api,
                         &emitted_input_dtos,
+                        &source_remaps_borrowed,
                     );
                     let item = prepend_cfg(func.cfg.as_deref(), item);
                     builder.add_item(&item);
@@ -645,6 +657,8 @@ impl Backend for WasmBackend {
         let wasm_conv_config = crate::codegen::conversions::ConversionConfig {
             type_name_prefix: &prefix,
             map_uses_jsvalue: true,
+            wasm_explicit_newtype_containers_use_jsvalue: true,
+            core_type_paths: Some(&wasm_type_paths),
             option_duration_on_defaults: true,
             optionalize_defaults: false,
             exclude_types: &exclude_types,
@@ -718,9 +732,20 @@ impl Backend for WasmBackend {
                     // No `Wasm{Enum}` type to write a `From` impl against; see the `gen_enum` skip above. ~keep
                 } else if enums::is_tagged_data_enum(e, &api.types) {
                     if input_types.contains(&e.name) {
-                        builder.add_item(&enums::gen_tagged_enum_binding_to_core(e, &core_import, &prefix));
+                        builder.add_item(&enums::gen_tagged_enum_binding_to_core_with_paths(
+                            e,
+                            &core_import,
+                            &prefix,
+                            &source_remaps_borrowed,
+                            &wasm_type_paths,
+                        ));
                     }
-                    builder.add_item(&enums::gen_tagged_enum_core_to_binding(e, &core_import, &prefix));
+                    builder.add_item(&enums::gen_tagged_enum_core_to_binding_with_remaps(
+                        e,
+                        &core_import,
+                        &prefix,
+                        &source_remaps_borrowed,
+                    ));
                 } else {
                     if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
                         builder.add_item(&crate::codegen::conversions::gen_enum_from_binding_to_core_cfg(

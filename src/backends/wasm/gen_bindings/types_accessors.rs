@@ -7,8 +7,8 @@ use crate::core::ir::{FieldDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
 use super::types_helpers::{
-    class_backed_field_type, class_backed_vec_element_type, is_bare_tagged_data_enum, is_copy_type,
-    is_option_of_tagged_data_enum, is_vec_of_tagged_data_enum, optional_inner,
+    class_backed_field_type, class_backed_vec_element_type, complex_newtype_field_uses_jsvalue,
+    is_bare_tagged_data_enum, is_copy_type, is_option_of_tagged_data_enum, is_vec_of_tagged_data_enum, optional_inner,
 };
 use super::types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
 
@@ -75,7 +75,14 @@ pub(super) fn gen_getter(
     class_type_names: &AHashSet<String>,
 ) -> String {
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    let field_type = if force_optional {
+    let complex_newtype = complex_newtype_field_uses_jsvalue(field);
+    let field_type = if complex_newtype {
+        if field.optional {
+            "Option<JsValue>".to_string()
+        } else {
+            "JsValue".to_string()
+        }
+    } else if force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
         mapper.map_type(&field.ty)
@@ -115,7 +122,9 @@ pub(super) fn gen_getter(
         && !is_vec_of_tagged_data_enum(inner_ty, tagged_data_enum_names);
     let untagged_ts = untagged_ts_value_type(field, untagged_ts_value_types);
 
-    let (field_type, return_expr) = if let Some((true, value_type)) = &untagged_ts {
+    let (field_type, return_expr) = if complex_newtype {
+        (field_type, format!("self.{}.clone()", field.name))
+    } else if let Some((true, value_type)) = &untagged_ts {
         let expr = format!("self.{}.clone().map(|v| v.unchecked_into())", field.name);
         (format!("Option<{value_type}>"), expr)
     } else if let Some((false, value_type)) = &untagged_ts {
@@ -205,6 +214,7 @@ pub(super) fn gen_setter(
     class_type_names: &AHashSet<String>,
 ) -> String {
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    let complex_newtype = complex_newtype_field_uses_jsvalue(field);
     let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
     let is_option_tagged_enum = !is_vec_tagged_enum
         && (is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names)
@@ -286,7 +296,13 @@ pub(super) fn gen_setter(
         .to_string();
     }
 
-    let field_type = if force_optional {
+    let field_type = if complex_newtype {
+        if field.optional {
+            "Option<JsValue>".to_string()
+        } else {
+            "JsValue".to_string()
+        }
+    } else if force_optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else if is_vec_tagged_enum || is_bare_tagged_enum {
         "JsValue".to_string()
