@@ -16,8 +16,19 @@ class {{ class_name }}Serializer extends StdSerializer<{{ class_name }}> {
         .setPropertyNamingStrategy(
             com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)
         .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
+{% for variant in variants %}
+{% if not variant.is_unit and not variant.is_tuple %}
+    mapper.addMixIn({{ class_name }}.{{ variant.name }}.class, VariantDefaultSerializerMixin.class);
+{% endif %}
+{% endfor %}
     return JsonMapperFactory.withNativePathSerialization(mapper);
   }
+
+{% if has_struct_variants %}
+  @com.fasterxml.jackson.databind.annotation.JsonSerialize(
+      using = com.fasterxml.jackson.databind.JsonSerializer.None.class)
+  private abstract static class VariantDefaultSerializerMixin {}
+{% endif %}
 
   /** Creates a new {{ class_name }}Serializer. */
   {{ class_name }}Serializer() {

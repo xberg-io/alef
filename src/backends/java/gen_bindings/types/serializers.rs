@@ -202,6 +202,9 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
 pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum_def: &EnumDef) {
     let repr = serde_enum_repr(enum_def);
     let variants = variant_contexts(enum_def, enum_def.variants.iter());
+    let has_struct_variants = enum_def.variants.iter().any(|variant| {
+        !is_unit_variant(variant) && !(variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name))
+    });
     out.push_str(&crate::backends::java::template_env::render(
         "sealed_union_serializer.jinja",
         minijinja::context! {
@@ -218,6 +221,7 @@ pub(super) fn gen_sealed_union_serializer(out: &mut String, _package: &str, enum
                     && is_tuple_field_name(&variant.fields[0].name)
                     && matches!(variant.fields[0].ty, TypeRef::String)
             }),
+            has_struct_variants => has_struct_variants,
             variants => variants,
         },
     ));

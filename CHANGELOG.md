@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI releases include an Intel macOS archive, avoiding source-build fallback when consumers
   install Alef on `x86_64-apple-darwin` runners.
 - Generated Java mappers serialize `Path` values as native file-system paths instead of `file:` URIs.
+- Generated Java serializers for tagged struct variants serialize the variant payload without
+  recursively re-entering the enclosing union serializer.
 - Generated C and PHP e2e shell scripts use canonical shell formatting before any optional
   formatter runs, keeping `alef verify` output identical on hosts with and without `shfmt`.
 
