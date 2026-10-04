@@ -1,11 +1,49 @@
 use crate::codegen::conversions::ConversionConfig;
-use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
+use crate::core::ir::{
+    FieldDef, NewtypeContainer, NewtypeConversion, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef, TypeRef,
+};
 
 pub(crate) fn is_explicit_newtype(wrapper: &str) -> bool {
     !NewtypeWrapper::decode(wrapper)
         .expect("newtype metadata must be validated during extraction")
         .explicit_paths()
         .is_empty()
+}
+
+pub(crate) fn explicit_newtype_uses_wasm_jsvalue(wrapper: &str) -> bool {
+    NewtypeWrapper::decode(wrapper).is_ok_and(|decoded| {
+        decoded.explicit_paths().iter().any(|metadata| {
+            metadata.containers.len() > 1
+                || metadata
+                    .containers
+                    .iter()
+                    .any(|container| matches!(container, NewtypeContainer::MapKey | NewtypeContainer::MapValue))
+        })
+    })
+}
+
+pub(crate) fn core_container_type(ty: &TypeRef, type_paths: Option<&ahash::AHashMap<String, String>>) -> String {
+    match ty {
+        TypeRef::Primitive(value) => value.rust_source_display().to_string(),
+        TypeRef::String => "String".to_string(),
+        TypeRef::Char => "char".to_string(),
+        TypeRef::Bytes => "Vec<u8>".to_string(),
+        TypeRef::Optional(inner) => format!("Option<{}>", core_container_type(inner, type_paths)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", core_container_type(inner, type_paths)),
+        TypeRef::Map(key, value) => format!(
+            "std::collections::HashMap<{}, {}>",
+            core_container_type(key, type_paths),
+            core_container_type(value, type_paths)
+        ),
+        TypeRef::Named(name) => type_paths
+            .and_then(|paths| paths.get(name))
+            .cloned()
+            .unwrap_or_else(|| name.clone()),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Unit => "()".to_string(),
+        TypeRef::Json => "serde_json::Value".to_string(),
+        TypeRef::Duration => "u64".to_string(),
+    }
 }
 
 pub(crate) fn explicit_newtype_covers_non_identity_leaves(ty: &TypeRef, optional: bool, wrapper: &str) -> bool {
@@ -84,9 +122,31 @@ pub(crate) fn apply_explicit_field_newtype_from_core(expr: &str, field: &FieldDe
 }
 
 pub(crate) fn apply_field_newtype_to_core(expr: &str, ty: &TypeRef, optional: bool, wrapper: &str) -> String {
+    apply_field_newtype_to_core_with_map_collection(expr, ty, optional, wrapper, None)
+}
+
+pub(crate) fn apply_param_newtype_to_core(expr: &str, param: &ParamDef) -> Option<String> {
+    let wrapper = param.newtype_wrapper.as_deref()?;
+    let map_collection = param.map_is_btree.then_some("std::collections::BTreeMap<_, _>");
+    Some(apply_field_newtype_to_core_with_map_collection(
+        expr,
+        &param.ty,
+        param.optional,
+        wrapper,
+        map_collection,
+    ))
+}
+
+fn apply_field_newtype_to_core_with_map_collection(
+    expr: &str,
+    ty: &TypeRef,
+    optional: bool,
+    wrapper: &str,
+    map_collection: Option<&str>,
+) -> String {
     let decoded = NewtypeWrapper::decode(wrapper).expect("newtype metadata must be validated during extraction");
     if !decoded.explicit_paths().is_empty() {
-        return apply_explicit_paths(expr, decoded.explicit_paths(), Direction::ToCore);
+        return apply_explicit_paths(expr, decoded.explicit_paths(), Direction::ToCore { map_collection });
     }
     let path = decoded.tuple_path().expect("legacy wrapper must have a tuple path");
     match ty {
@@ -110,10 +170,6 @@ pub(crate) fn apply_field_newtype_from_core(expr: &str, ty: &TypeRef, optional: 
     }
 }
 
-pub(crate) fn apply_newtype_to_core(expr: &str, wrapper: &str) -> String {
-    apply_field_newtype_to_core(expr, &TypeRef::String, false, wrapper)
-}
-
 pub(crate) fn apply_newtype_from_core(expr: &str, wrapper: &str) -> String {
     apply_field_newtype_from_core(expr, &TypeRef::String, false, wrapper)
 }
@@ -134,12 +190,12 @@ pub(crate) fn apply_newtype_from_core_after_optionals(expr: &str, wrapper: &str,
 }
 
 #[derive(Clone, Copy)]
-enum Direction {
-    ToCore,
+enum Direction<'a> {
+    ToCore { map_collection: Option<&'a str> },
     FromCore,
 }
 
-fn apply_explicit_paths(expr: &str, paths: &[NewtypeWrapperMetadata], direction: Direction) -> String {
+fn apply_explicit_paths(expr: &str, paths: &[NewtypeWrapperMetadata], direction: Direction<'_>) -> String {
     let cursors: Vec<_> = paths
         .iter()
         .map(|metadata| ConversionPath {
@@ -156,7 +212,7 @@ struct ConversionPath<'a> {
     containers: &'a [NewtypeContainer],
 }
 
-fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction: Direction) -> String {
+fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction: Direction<'_>) -> String {
     if let [path] = paths
         && path.containers.is_empty()
     {
@@ -181,15 +237,19 @@ fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction:
         NewtypeContainer::MapKey | NewtypeContainer::MapValue => {
             let key_paths = advance_matching_paths(paths, NewtypeContainer::MapKey);
             let value_paths = advance_matching_paths(paths, NewtypeContainer::MapValue);
+            let nested_direction = match direction {
+                Direction::ToCore { .. } => Direction::ToCore { map_collection: None },
+                Direction::FromCore => Direction::FromCore,
+            };
             let key = if key_paths.is_empty() {
                 "key".to_string()
             } else {
-                apply_at_container_paths("key", &key_paths, direction)
+                apply_at_container_paths("key", &key_paths, nested_direction)
             };
             let value = if value_paths.is_empty() {
                 "value".to_string()
             } else {
-                apply_at_container_paths("value", &value_paths, direction)
+                apply_at_container_paths("value", &value_paths, nested_direction)
             };
             let collect = collection_suffix(direction, "std::collections::HashMap<_, _>");
             format!("({expr}).into_iter().map(|(key, value)| ({key}, {value})).collect{collect}")
@@ -224,22 +284,25 @@ fn advance_matching_paths<'a>(paths: &[ConversionPath<'a>], expected: NewtypeCon
         .collect()
 }
 
-fn apply_leaf(expr: &str, metadata: &NewtypeWrapperMetadata, direction: Direction) -> String {
+fn apply_leaf(expr: &str, metadata: &NewtypeWrapperMetadata, direction: Direction<'_>) -> String {
     match (&metadata.conversion, direction) {
-        (NewtypeConversion::TransparentString { from, .. }, Direction::ToCore) => {
+        (NewtypeConversion::TransparentString { from, .. }, Direction::ToCore { .. }) => {
             format!("{}::{from}({expr})", metadata.rust_path)
         }
         (NewtypeConversion::TransparentString { into, .. }, Direction::FromCore) => {
             format!("({expr}).{into}()")
         }
-        (NewtypeConversion::TupleField, Direction::ToCore) => format!("{}({expr})", metadata.rust_path),
+        (NewtypeConversion::TupleField, Direction::ToCore { .. }) => format!("{}({expr})", metadata.rust_path),
         (NewtypeConversion::TupleField, Direction::FromCore) => format!("({expr}).0"),
     }
 }
 
-fn collection_suffix(direction: Direction, collection_type: &str) -> String {
+fn collection_suffix(direction: Direction<'_>, collection_type: &str) -> String {
     match direction {
-        Direction::ToCore => "()".to_string(),
+        Direction::ToCore { map_collection } if collection_type.starts_with("std::collections::HashMap") => {
+            map_collection.map_or_else(|| "()".to_string(), |collection| format!("::<{collection}>()"))
+        }
+        Direction::ToCore { .. } => "()".to_string(),
         Direction::FromCore => format!("::<{collection_type}>()"),
     }
 }

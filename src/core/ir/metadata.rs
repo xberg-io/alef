@@ -24,7 +24,13 @@ pub enum NewtypeConversion {
     #[default]
     TupleField,
     /// An explicitly marked private string wrapper. Both names come from source metadata. ~keep
-    TransparentString { from: String, into: String },
+    TransparentString {
+        from: String,
+        into: String,
+        /// Whether extraction proved that the source wrapper implements `Clone`. ~keep
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wrapper_is_clone: Option<bool>,
+    },
 }
 
 /// Decoded metadata stored in the legacy string-valued newtype IR fields. ~keep
@@ -59,6 +65,7 @@ impl NewtypeWrapperMetadata {
             conversion: NewtypeConversion::TransparentString {
                 from: from.into(),
                 into: into.into(),
+                wrapper_is_clone: None,
             },
             containers,
         }
@@ -108,6 +115,24 @@ impl NewtypeWrapper {
         }
     }
 
+    /// Clone explicit paths while recording source wrapper Clone capability. ~keep
+    pub fn explicit_paths_with_clone(&self, wrapper_is_clone: bool) -> Vec<NewtypeWrapperMetadata> {
+        self.explicit_paths()
+            .iter()
+            .cloned()
+            .map(|mut metadata| {
+                if let NewtypeConversion::TransparentString {
+                    wrapper_is_clone: value,
+                    ..
+                } = &mut metadata.conversion
+                {
+                    *value = Some(wrapper_is_clone);
+                }
+                metadata
+            })
+            .collect()
+    }
+
     /// Validate that each explicit path can traverse the resolved binding type. ~keep
     pub fn validate_for_type(&self, ty: &TypeRef, outer_optional: bool) -> Result<(), String> {
         let Self::Explicit(paths) = self else {
@@ -129,7 +154,7 @@ impl NewtypeWrapper {
             if path.rust_path.is_empty() {
                 return Err("transparent newtype metadata contains an empty Rust path".to_string());
             }
-            let NewtypeConversion::TransparentString { from, into } = &path.conversion else {
+            let NewtypeConversion::TransparentString { from, into, .. } = &path.conversion else {
                 continue;
             };
             if from.is_empty() || into.is_empty() {
@@ -455,6 +480,7 @@ mod metadata_tests {
             &NewtypeConversion::TransparentString {
                 from: "from".to_string(),
                 into: "into_inner".to_string(),
+                wrapper_is_clone: None,
             }
         );
     }

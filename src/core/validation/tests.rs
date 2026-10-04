@@ -941,6 +941,7 @@ fn api_surface_validation_scoped_to_ffi_only_languages_does_not_flag() {
     );
 }
 
+mod newtype_metadata;
 mod unresolved_modules;
 
 #[test]

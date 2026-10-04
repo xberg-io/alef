@@ -3,8 +3,9 @@ use crate::core::ir::{FieldDef, TypeRef};
 
 use super::field_fragments::sanitized_vec_field_to_core_expr;
 use super::{
-    apply_field_newtype_from_core, apply_field_newtype_to_core, explicit_newtype_replaces_base_conversion,
-    field_references_excluded_type, is_tuple_variant,
+    apply_field_newtype_from_core, apply_field_newtype_to_core, core_container_type,
+    explicit_newtype_replaces_base_conversion, explicit_newtype_uses_wasm_jsvalue, field_references_excluded_type,
+    is_tuple_variant,
 };
 
 /// Emit a named-field initializer, collapsing `field_name: field_name` to the shorthand
@@ -22,7 +23,22 @@ fn explicit_newtype_to_core_expr(field: &FieldDef, binding: &str, config: &Conve
     use crate::codegen::conversions::field_conversion_to_core_cfg;
 
     let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
-    let source = if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
+    let wasm_jsvalue =
+        config.wasm_explicit_newtype_containers_use_jsvalue && explicit_newtype_uses_wasm_jsvalue(wrapper);
+    let source = if wasm_jsvalue {
+        let binding_ty = core_container_type(&field.ty, config.core_type_paths);
+        let deserialize = |value: &str| {
+            format!(
+                "serde_wasm_bindgen::from_value::<{binding_ty}>({value}).unwrap_or_else(|error| \
+                 wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+            )
+        };
+        if field.optional {
+            format!("({binding}).map(|value| {})", deserialize("value"))
+        } else {
+            deserialize(binding)
+        }
+    } else if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
         binding.to_string()
     } else {
         let base = field_conversion_to_core_cfg(binding, &field.ty, field.optional, config);
@@ -40,7 +56,22 @@ fn explicit_newtype_from_core_expr(field: &FieldDef, binding: &str, config: &Con
     use ahash::AHashSet;
 
     let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
+    let wasm_jsvalue =
+        config.wasm_explicit_newtype_containers_use_jsvalue && explicit_newtype_uses_wasm_jsvalue(wrapper);
     let converted = apply_field_newtype_from_core(binding, &field.ty, field.optional, wrapper);
+    if wasm_jsvalue {
+        return if field.optional {
+            format!(
+                "({converted}).map(|value| serde_wasm_bindgen::to_value(&value).unwrap_or_else(|error| \
+                 wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string()))))"
+            )
+        } else {
+            format!(
+                "serde_wasm_bindgen::to_value(&{converted}).unwrap_or_else(|error| \
+                 wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+            )
+        };
+    }
     if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
         return converted;
     }

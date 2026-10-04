@@ -107,7 +107,7 @@ pub(super) fn validate_transparent_string_methods(
     let [metadata] = metadata else {
         return Err("transparent_string wrapper metadata must contain exactly one conversion path".to_string());
     };
-    let NewtypeConversion::TransparentString { from, into } = &metadata.conversion else {
+    let NewtypeConversion::TransparentString { from, into, .. } = &metadata.conversion else {
         return Err("transparent_string wrapper metadata has the wrong conversion kind".to_string());
     };
     validate_from_method(typ, from)?;

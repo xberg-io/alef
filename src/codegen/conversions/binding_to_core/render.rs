@@ -1,8 +1,8 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
-    apply_newtype_to_core, clippy_allow_attr_line, core_prim_str, core_type_path_remapped,
-    explicit_newtype_replaces_base_conversion, field_references_excluded_type, is_newtype, is_tuple_type_name,
-    needs_clippy_allow, needs_f64_cast, needs_i32_cast, needs_i64_cast,
+    apply_field_newtype_to_core, clippy_allow_attr_line, core_container_type, core_prim_str, core_type_path_remapped,
+    explicit_newtype_replaces_base_conversion, explicit_newtype_uses_wasm_jsvalue, field_references_excluded_type,
+    is_newtype, is_tuple_type_name, needs_clippy_allow, needs_f64_cast, needs_i32_cast, needs_i64_cast,
 };
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 
@@ -418,7 +418,27 @@ fn field_core_conversion(
         format!("{}: Default::default()", field.name)
     } else if let Some(wrapper) = transparent_wrapper {
         let conversion_optional = if field_was_optionalized { false } else { field.optional };
-        let base = if explicit_newtype_replaces_base_conversion(&field.ty, conversion_optional, wrapper, config) {
+        let wasm_jsvalue =
+            config.wasm_explicit_newtype_containers_use_jsvalue && explicit_newtype_uses_wasm_jsvalue(wrapper);
+        let base = if wasm_jsvalue {
+            let binding_ty = core_container_type(&field.ty, config.core_type_paths);
+            let deserialize = |value: &str| {
+                format!(
+                    "serde_wasm_bindgen::from_value::<{binding_ty}>({value}).unwrap_or_else(|error| \
+                     wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))"
+                )
+            };
+            if conversion_optional {
+                format!(
+                    "{}: val.{}.map(|value| {})",
+                    field.name,
+                    field.name,
+                    deserialize("value")
+                )
+            } else {
+                format!("{}: {}", field.name, deserialize(&format!("val.{}", field.name)))
+            }
+        } else if explicit_newtype_replaces_base_conversion(&field.ty, conversion_optional, wrapper, config) {
             format!("{}: val.{}", field.name, field.name)
         } else if field_was_optionalized {
             field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
@@ -426,7 +446,8 @@ fn field_core_conversion(
             field_conversion_to_core_cfg(&field.name, &field.ty, field.optional, config)
         };
         let expr = base.strip_prefix(&format!("{}: ", field.name)).unwrap_or(&base);
-        format!("{}: {}", field.name, apply_newtype_to_core(expr, wrapper))
+        let converted = apply_field_newtype_to_core(expr, &field.ty, conversion_optional, wrapper);
+        format!("{}: {converted}", field.name)
     } else if field_was_optionalized {
         field_conversion_to_core_cfg(&field.name, &field.ty, false, config)
     } else {

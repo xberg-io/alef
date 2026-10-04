@@ -251,7 +251,7 @@ pub(super) fn resolve_newtypes(surface: &mut ApiSurface) {
             || ResolvedNewtype::legacy(typ.rust_path.replace('-', "_")),
             |wrapper| ResolvedNewtype {
                 legacy: wrapper.tuple_path().map(str::to_string),
-                explicit: wrapper.explicit_paths().to_vec(),
+                explicit: wrapper.explicit_paths_with_clone(typ.is_clone),
             },
         );
         candidates.entry(typ.name.clone()).or_default().push((

@@ -30,9 +30,6 @@ pub(crate) fn validate_transparent_string_struct(item: &syn::ItemStruct) -> Resu
     if type_resolver::resolve_type(&fields.unnamed[0].ty) != crate::core::ir::TypeRef::String {
         return Err("transparent_string requires an inner String field".to_string());
     }
-    if !has_derive(&item.attrs, "Clone") {
-        return Err("transparent_string requires Clone for generated FFI field getters".to_string());
-    }
     Ok(Some(conversion))
 }
 

@@ -21,8 +21,8 @@ pub(crate) use field_fragments::{
 pub(crate) use newtypes::{
     apply_explicit_field_newtype_from_core, apply_explicit_field_newtype_to_core, apply_field_newtype_from_core,
     apply_field_newtype_to_core, apply_newtype_from_core, apply_newtype_from_core_after_optionals,
-    apply_newtype_to_core, explicit_newtype_covers_non_identity_leaves, explicit_newtype_replaces_base_conversion,
-    is_explicit_newtype,
+    apply_param_newtype_to_core, core_container_type, explicit_newtype_covers_non_identity_leaves,
+    explicit_newtype_replaces_base_conversion, explicit_newtype_uses_wasm_jsvalue, is_explicit_newtype,
 };
 pub use paths::{
     apply_crate_remaps, build_type_path_map, core_enum_path, core_enum_path_remapped, core_type_path,

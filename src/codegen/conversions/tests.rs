@@ -1,6 +1,6 @@
 use super::*;
 use crate::core::ir::*;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 
 fn simple_type() -> TypeDef {
     TypeDef {
@@ -1316,6 +1316,123 @@ fn transparent_string_struct_fields_wrap_and_consume_without_display() {
         "map key and value conversions must share one traversal: {from_core}"
     );
     assert!(!from_core.contains("token.to_string()"), "{from_core}");
+}
+
+#[test]
+fn transparent_map_key_composes_with_named_dto_value_conversion() {
+    let typ = TypeDef {
+        name: "SecretSegments".to_string(),
+        rust_path: "my_crate::SecretSegments".to_string(),
+        fields: vec![transparent_secret_field(
+            "values",
+            TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::Named("Segment".to_string())),
+            ),
+            vec![NewtypeContainer::MapKey],
+        )],
+        ..TypeDef::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Js",
+        ..ConversionConfig::default()
+    };
+
+    let to_core = gen_from_binding_to_core_cfg(&typ, "my_crate", &config);
+    assert!(to_core.contains("my_crate::SecretString::from(key)"), "{to_core}");
+    assert!(to_core.contains("(k.into(), v.into())"), "{to_core}");
+    assert!(!to_core.contains("serde_json"), "{to_core}");
+
+    let from_core = gen_from_core_to_binding_cfg(&typ, "my_crate", &AHashSet::new(), &config);
+    assert!(from_core.contains("(key).into_inner()"), "{from_core}");
+    assert!(from_core.contains("(k, v.into())"), "{from_core}");
+    assert!(!from_core.contains("serde_json"), "{from_core}");
+}
+
+#[test]
+fn transparent_btree_param_uses_an_explicit_btree_collection() {
+    let param = ParamDef {
+        name: "values".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+            NewtypeWrapperMetadata::transparent_string(
+                "my_crate::SecretString",
+                "from",
+                "into_inner",
+                vec![NewtypeContainer::MapKey],
+            ),
+        ])),
+        map_is_btree: true,
+        ..ParamDef::default()
+    };
+
+    let converted = crate::codegen::conversions::helpers::apply_param_newtype_to_core("values", &param)
+        .expect("transparent wrapper conversion");
+
+    assert!(
+        converted.contains("collect::<std::collections::BTreeMap<_, _>>()"),
+        "{converted}"
+    );
+    assert!(
+        !converted.contains("collect::<std::collections::HashMap<_, _>>()"),
+        "{converted}"
+    );
+}
+
+#[test]
+fn wasm_complex_wrapper_serializes_only_the_resolved_container() {
+    let core_type_paths = AHashMap::from_iter([("Segment".to_string(), "override_core::models::Segment".to_string())]);
+    let typ = TypeDef {
+        name: "Secrets".to_string(),
+        rust_path: "my_crate::Secrets".to_string(),
+        fields: vec![
+            transparent_secret_field(
+                "values",
+                TypeRef::Vec(Box::new(TypeRef::Optional(Box::new(TypeRef::String)))),
+                vec![NewtypeContainer::Vec, NewtypeContainer::Optional],
+            ),
+            transparent_secret_field(
+                "segments",
+                TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("Segment".to_string())),
+                ),
+                vec![NewtypeContainer::MapKey],
+            ),
+        ],
+        ..TypeDef::default()
+    };
+    let config = ConversionConfig {
+        type_name_prefix: "Wasm",
+        wasm_explicit_newtype_containers_use_jsvalue: true,
+        core_type_paths: Some(&core_type_paths),
+        ..ConversionConfig::default()
+    };
+
+    let to_core = gen_from_binding_to_core_cfg(&typ, "my_crate", &config);
+    let deserialize = to_core
+        .find("serde_wasm_bindgen::from_value::<Vec<Option<String>>>(val.values)")
+        .expect("resolved container must deserialize from JsValue");
+    let wrap = to_core
+        .find("my_crate::SecretString::from(value)")
+        .expect("wrapper conversion must run after serde");
+    assert!(deserialize < wrap, "{to_core}");
+    assert!(to_core.contains("wasm_bindgen::throw_val"), "{to_core}");
+    assert!(
+        to_core
+            .contains("serde_wasm_bindgen::from_value::<std::collections::HashMap<String, override_core::models::Segment>>(val.segments)"),
+        "{to_core}"
+    );
+    assert!(!to_core.contains("my_crate::Segment"), "{to_core}");
+    assert!(!to_core.contains("WasmSegment"), "{to_core}");
+
+    let from_core = gen_from_core_to_binding_cfg(&typ, "my_crate", &AHashSet::new(), &config);
+    assert!(from_core.contains("serde_wasm_bindgen::to_value"), "{from_core}");
+    assert!(from_core.contains("(value).into_inner()"), "{from_core}");
+    assert!(!from_core.contains("to_value(&val.values)"), "{from_core}");
+    assert!(!from_core.contains("to_value(&val.segments)"), "{from_core}");
+    assert!(!from_core.contains("WasmSegment"), "{from_core}");
+    assert!(from_core.contains("wasm_bindgen::throw_val"), "{from_core}");
 }
 
 #[test]

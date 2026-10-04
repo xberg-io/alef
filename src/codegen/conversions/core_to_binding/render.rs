@@ -1,7 +1,8 @@
 use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::conversions::helpers::{
-    apply_newtype_from_core, core_type_path_remapped, explicit_newtype_replaces_base_conversion,
-    field_references_excluded_type, is_newtype, is_tuple_type_name, needs_clippy_allow,
+    apply_field_newtype_from_core, core_type_path_remapped, explicit_newtype_replaces_base_conversion,
+    explicit_newtype_uses_wasm_jsvalue, field_references_excluded_type, is_newtype, is_tuple_type_name,
+    needs_clippy_allow,
 };
 use crate::core::ir::{CoreWrapper, TypeDef, TypeRef};
 use ahash::AHashSet;
@@ -84,8 +85,25 @@ pub fn gen_from_core_to_binding_cfg(
                 )
             },
             |wrapper| {
-                let source = apply_newtype_from_core(&format!("val.{}", field.name), wrapper);
-                if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
+                let wasm_jsvalue =
+                    config.wasm_explicit_newtype_containers_use_jsvalue && explicit_newtype_uses_wasm_jsvalue(wrapper);
+                let source =
+                    apply_field_newtype_from_core(&format!("val.{}", field.name), &field.ty, field.optional, wrapper);
+                if wasm_jsvalue {
+                    if field.optional {
+                        format!(
+                            "{}: ({source}).map(|value| serde_wasm_bindgen::to_value(&value).unwrap_or_else(|error| \
+                             wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string()))))",
+                            field.name
+                        )
+                    } else {
+                        format!(
+                            "{}: serde_wasm_bindgen::to_value(&{source}).unwrap_or_else(|error| \
+                             wasm_bindgen::throw_val(wasm_bindgen::JsValue::from_str(&error.to_string())))",
+                            field.name
+                        )
+                    }
+                } else if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
                     format!("{}: {source}", field.name)
                 } else {
                     field_conversion_from_core_cfg(

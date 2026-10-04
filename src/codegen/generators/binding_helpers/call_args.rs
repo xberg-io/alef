@@ -1,5 +1,5 @@
 use crate::codegen::conversions::helpers::{
-    apply_field_newtype_to_core, core_prim_str, needs_f64_cast, needs_i32_cast,
+    apply_param_newtype_to_core, core_prim_str, needs_f64_cast, needs_i32_cast,
 };
 use crate::core::ir::{ParamDef, TypeRef};
 use ahash::AHashSet;
@@ -18,6 +18,22 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
     gen_call_args_vec(params, opaque_types).join(", ")
 }
 
+fn apply_param_newtype_argument(expr: &str, param: &ParamDef, promoted: bool) -> Option<String> {
+    let mut effective = param.clone();
+    if promoted {
+        effective.optional = false;
+    }
+    let converted = apply_param_newtype_to_core(expr, &effective)?;
+    if !effective.is_ref {
+        return Some(converted);
+    }
+    if effective.optional {
+        Some(format!("({converted}).as_ref()"))
+    } else {
+        Some(format!("&({converted})"))
+    }
+}
+
 /// Per-parameter call-argument expressions, before joining. Use this when callers must pair each
 /// expression with its source param (e.g. building `field: <expr>` struct literals) so there is no
 /// need to re-split a comma-joined string. [`gen_call_args`] is `gen_call_args_vec(..).join(", ")`.
@@ -27,19 +43,20 @@ pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -
         .enumerate()
         .map(|(idx, p)| {
             let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
-            // Note: promoted params that are not Optional<T> will NOT call .expect() because
-            let unwrap_suffix = if promoted && p.optional {
+            let unwrap_suffix = if promoted {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
             };
-            if let Some(wrapper) = &p.newtype_wrapper {
+            if p.newtype_wrapper.is_some() {
                 let expr = if promoted {
                     format!("{}{}", p.name, unwrap_suffix)
                 } else {
                     p.name.clone()
                 };
-                return apply_field_newtype_to_core(&expr, &p.ty, p.optional && !promoted, wrapper);
+                if let Some(converted) = apply_param_newtype_argument(&expr, p, promoted) {
+                    return converted;
+                }
             }
             match &p.ty {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -229,19 +246,13 @@ pub fn gen_call_args_cfg(
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
 ) -> String {
+    let base_args = gen_call_args_vec(params, opaque_types);
     params
         .iter()
         .enumerate()
-        .map(|(idx, p)| {
+        .zip(base_args)
+        .map(|((idx, p), base)| {
             let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
-            let unwrap_suffix = if promoted && p.optional {
-                format!(".expect(\"'{}' is required\")", p.name)
-            } else {
-                String::new()
-            };
-            if p.newtype_wrapper.is_some() {
-                return gen_call_args(std::slice::from_ref(p), opaque_types);
-            }
             if let TypeRef::Primitive(prim) = &p.ty {
                 let core_ty = core_prim_str(prim);
                 let needs_cast =
@@ -250,13 +261,13 @@ pub fn gen_call_args_cfg(
                     return if p.optional {
                         format!("{}.map(|v| v as {core_ty})", p.name)
                     } else if promoted {
-                        format!("({}{}) as {core_ty}", p.name, unwrap_suffix)
+                        format!("({base}) as {core_ty}")
                     } else {
                         format!("{} as {core_ty}", p.name)
                     };
                 }
             }
-            gen_call_args(std::slice::from_ref(p), opaque_types)
+            base
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -324,9 +335,7 @@ fn gen_call_args_with_let_bindings_inner(
         .enumerate()
         .map(|(idx, p)| {
             let promoted = promote && crate::codegen::shared::is_promoted_optional(params, idx);
-            // Only emit `.expect()` when the core param type is itself `Option<T>`
-            // calling `.expect()` on it would be a type error.
-            let unwrap_suffix = if promoted && p.optional {
+            let unwrap_suffix = if promoted {
                 format!(".expect(\"'{}' is required\")", p.name)
             } else {
                 String::new()
@@ -345,13 +354,15 @@ fn gen_call_args_with_let_bindings_inner(
                     };
                 }
             }
-            if let Some(wrapper) = &p.newtype_wrapper {
+            if p.newtype_wrapper.is_some() {
                 let expr = if promoted {
                     format!("{}{}", p.name, unwrap_suffix)
                 } else {
                     p.name.clone()
                 };
-                return apply_field_newtype_to_core(&expr, &p.ty, p.optional && !promoted, wrapper);
+                if let Some(converted) = apply_param_newtype_argument(&expr, p, promoted) {
+                    return converted;
+                }
             }
             match &p.ty {
                 TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
@@ -597,4 +608,102 @@ fn gen_call_args_with_let_bindings_mutex_inner(
         }
     }
     patched
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata};
+
+    fn optional_then_required_wrapper() -> Vec<ParamDef> {
+        vec![
+            ParamDef {
+                name: "label".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                ..ParamDef::default()
+            },
+            ParamDef {
+                name: "secret".to_string(),
+                ty: TypeRef::String,
+                newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                    NewtypeWrapperMetadata::transparent_string("sample::SecretString", "from", "into_inner", vec![]),
+                ])),
+                ..ParamDef::default()
+            },
+        ]
+    }
+
+    #[test]
+    fn promoted_required_wrapper_is_unwrapped_before_conversion() {
+        let params = optional_then_required_wrapper();
+
+        let args = gen_call_args(&params, &AHashSet::new());
+
+        assert_eq!(
+            args,
+            "label, sample::SecretString::from(secret.expect(\"'secret' is required\"))"
+        );
+    }
+
+    #[test]
+    fn configured_call_args_preserve_promoted_wrapper_unwrap() {
+        let params = optional_then_required_wrapper();
+
+        let args = gen_call_args_cfg(&params, &AHashSet::new(), false, false);
+
+        assert_eq!(
+            args,
+            "label, sample::SecretString::from(secret.expect(\"'secret' is required\"))"
+        );
+    }
+
+    fn btree_wrapper_param(is_ref: bool, optional: bool) -> ParamDef {
+        ParamDef {
+            name: "values".to_string(),
+            ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            optional,
+            is_ref,
+            newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                NewtypeWrapperMetadata::transparent_string(
+                    "sample::SecretString",
+                    "from",
+                    "into_inner",
+                    if optional {
+                        vec![NewtypeContainer::Optional, NewtypeContainer::MapKey]
+                    } else {
+                        vec![NewtypeContainer::MapKey]
+                    },
+                ),
+            ])),
+            map_is_btree: true,
+            ..ParamDef::default()
+        }
+    }
+
+    #[test]
+    fn wrapper_map_arguments_preserve_btree_and_borrowing_shape() {
+        let owned = gen_call_args(&[btree_wrapper_param(false, false)], &AHashSet::new());
+        let borrowed = gen_call_args(&[btree_wrapper_param(true, false)], &AHashSet::new());
+        let optional_borrowed = gen_call_args(&[btree_wrapper_param(true, true)], &AHashSet::new());
+
+        assert!(
+            owned.ends_with("collect::<std::collections::BTreeMap<_, _>>()"),
+            "{owned}"
+        );
+        assert!(borrowed.starts_with("&((values).into_iter()"), "{borrowed}");
+        assert!(
+            borrowed.ends_with("collect::<std::collections::BTreeMap<_, _>>())"),
+            "{borrowed}"
+        );
+        assert!(
+            optional_borrowed.starts_with("((values).map(|value|"),
+            "{optional_borrowed}"
+        );
+        assert!(optional_borrowed.ends_with(").as_ref()"), "{optional_borrowed}");
+        assert!(
+            optional_borrowed.contains("collect::<std::collections::BTreeMap<_, _>>()"),
+            "{optional_borrowed}"
+        );
+    }
 }

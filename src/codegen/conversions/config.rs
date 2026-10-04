@@ -58,6 +58,14 @@ pub struct ConversionConfig<'a> {
     /// When true, Map fields use `serde_wasm_bindgen` for conversion instead of
     /// iterator-based collect patterns (JsValue is not iterable).
     pub map_uses_jsvalue: bool,
+    /// Route complex explicit-newtype containers through `serde_wasm_bindgen` only after
+    /// replacing every wrapper leaf with its resolved binding value. This keeps serde bounds on
+    /// `String`/binding DTO containers instead of the private core wrapper. WASM alone enables
+    /// this mode when its declaration uses `JsValue` for the field. ~keep
+    pub wasm_explicit_newtype_containers_use_jsvalue: bool,
+    /// Fully resolved core paths for named types inside WASM `JsValue` containers. Values must
+    /// already include source-crate remapping and nested modules. ~keep
+    pub core_type_paths: Option<&'a AHashMap<String, String>>,
     /// When true, f32 is mapped to f64 (NAPI only — JS has no f32).
     pub cast_f32_to_f64: bool,
     /// When true, non-optional fields on defaultable types are wrapped in `Option<T>`

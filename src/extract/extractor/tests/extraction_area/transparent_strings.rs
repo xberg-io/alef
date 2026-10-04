@@ -14,6 +14,7 @@ fn assert_conversion_paths(encoded: &str, expected: &[(&str, Vec<NewtypeContaine
             NewtypeConversion::TransparentString {
                 from: "from".to_string(),
                 into: "into_inner".to_string(),
+                wrapper_is_clone: Some(true),
             }
         );
     }
@@ -243,10 +244,6 @@ fn invalid_transparent_string_shape_and_methods_are_reported() {
             "inner String",
         ),
         (
-            "#[alef(transparent_string(from = \"from\", into = \"into_inner\"))] pub struct Credential(String);",
-            "requires Clone",
-        ),
-        (
             r#"#[derive(Clone)]
                #[alef(transparent_string(from = "from", into = "into_inner"))]
                pub struct Credential(String);
@@ -275,6 +272,78 @@ fn invalid_transparent_string_shape_and_methods_are_reported() {
             surface.unsupported_public_items
         );
     }
+}
+
+#[test]
+fn transparent_string_without_clone_is_extracted_for_non_cloning_surfaces() {
+    let surface = extract_from_source(
+        r#"
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        pub struct Credential(String);
+
+        impl Credential {
+            pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> String { self.0 }
+        }
+
+        pub struct Credentials {
+            pub secret: Credential,
+        }
+
+        pub struct SkippedCredentials {
+            #[cfg_attr(alef, alef(skip))]
+            pub secret: Credential,
+        }
+
+        pub fn round_trip(value: Credential) -> Credential { value }
+        "#,
+    );
+
+    assert!(
+        surface
+            .unsupported_public_items
+            .iter()
+            .all(|item| !item.reason.contains("requires Clone")),
+        "{:?}",
+        surface.unsupported_public_items
+    );
+    assert!(
+        surface.types.iter().all(|typ| typ.name != "Credential"),
+        "resolved wrapper TypeDef must be removed"
+    );
+    let function = surface
+        .functions
+        .iter()
+        .find(|function| function.name == "round_trip")
+        .expect("round_trip function");
+    let encoded = function
+        .return_newtype_wrapper
+        .as_deref()
+        .expect("return wrapper metadata");
+    let decoded = NewtypeWrapper::decode(encoded).expect("valid wrapper metadata");
+    let NewtypeConversion::TransparentString { wrapper_is_clone, .. } = &decoded.explicit_paths()[0].conversion else {
+        panic!("transparent string conversion metadata");
+    };
+    assert_eq!(*wrapper_is_clone, Some(false));
+
+    let report = crate::core::validation::validate_api_surface(&surface);
+    let clone_diagnostics: Vec<_> = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.reason.contains("requires Clone"))
+        .collect();
+    assert_eq!(clone_diagnostics.len(), 1, "{report:?}");
+    assert_eq!(
+        clone_diagnostics[0].item_path.as_deref(),
+        Some("test_crate::Credentials.secret")
+    );
+    assert!(
+        report.diagnostics.iter().all(|diagnostic| !diagnostic
+            .item_path
+            .as_deref()
+            .is_some_and(|path| { path.contains("round_trip") || path.contains("SkippedCredentials") })),
+        "{report:?}"
+    );
 }
 
 #[test]
@@ -603,4 +672,43 @@ fn borrowed_or_wrapped_transparent_string_methods_are_rejected() {
             surface.unsupported_public_items
         );
     }
+}
+
+#[test]
+fn borrowed_returns_and_mutable_parameters_retain_wrapper_validation_metadata() {
+    let surface = extract_from_source(
+        r#"
+        #[derive(Clone)]
+        #[alef(transparent_string(from = "from", into = "into_inner"))]
+        pub struct Secret(String);
+
+        impl Secret {
+            pub fn from(value: String) -> Self { Self(value) }
+            pub fn into_inner(self) -> String { self.0 }
+        }
+
+        pub fn borrowed(secret: &Secret) -> &Secret { secret }
+        pub fn mutate(secret: &mut Secret) { *secret = Secret::from(String::new()); }
+        "#,
+    );
+
+    let borrowed = surface
+        .functions
+        .iter()
+        .find(|function| function.name == "borrowed")
+        .expect("borrowed function");
+    assert!(borrowed.returns_ref);
+    assert!(borrowed.return_newtype_wrapper.is_some());
+    assert!(borrowed.params[0].is_ref);
+    assert!(!borrowed.params[0].is_mut);
+    assert!(borrowed.params[0].newtype_wrapper.is_some());
+
+    let mutate = surface
+        .functions
+        .iter()
+        .find(|function| function.name == "mutate")
+        .expect("mutate function");
+    assert!(mutate.params[0].is_ref);
+    assert!(mutate.params[0].is_mut);
+    assert!(mutate.params[0].newtype_wrapper.is_some());
 }
