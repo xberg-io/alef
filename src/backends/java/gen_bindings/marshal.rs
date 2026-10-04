@@ -495,6 +495,25 @@ fn emit_read_json_list_helper(out: &mut String, prefix: &str, class_name: &str) 
     ));
 }
 
+#[cfg(test)]
+mod object_mapper_tests {
+    use super::*;
+
+    #[test]
+    fn path_values_are_serialized_as_native_file_system_paths() {
+        let mut output = "MAPPER.writeValueAsString(value)".to_string();
+
+        gen_helper_methods(&mut output, "sample", "Sample", &crate::core::ir::ApiSurface::default());
+
+        assert!(
+            output.contains(
+                "module.addSerializer(java.nio.file.Path.class, com.fasterxml.jackson.databind.ser.std.ToStringSerializer.instance);"
+            ),
+            "generated Java must serialize Path with Path.toString(), not Jackson's file URI default:\n{output}"
+        );
+    }
+}
+
 pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &str, api: &crate::core::ir::ApiSurface) {
     let needs = HelperNeeds::from_output(out);
     if needs.is_empty() {
