@@ -31,6 +31,7 @@ pub mod service_api;
 mod support_items;
 #[cfg(test)]
 mod tests;
+mod transparent_strings;
 pub mod types;
 pub(in crate::backends::pyo3) use types::type_has_from_json;
 // pub(crate): e2e::codegen::python calls `crate_has_serde` to mirror the pyo3 backend's
@@ -115,7 +116,7 @@ impl Backend for Pyo3Backend {
         let mut cfg = config::binding_config(&core_import, has_serde);
         let mut cfg_unsendable = config::unsendable_binding_config(&core_import, has_serde);
 
-        let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Python)?;
+        let mut adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Python)?;
 
         let mut builder = RustFileBuilder::new().with_generated_header();
         support_items::add_generated_module_attributes(
@@ -170,6 +171,7 @@ impl Backend for Pyo3Backend {
             .collect();
         let conversion_opaque_set: AHashSet<String> =
             opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
+        transparent_strings::add_adapters(&mut adapter_bodies, api, &core_import, &opaque_types, &mapper, &cfg);
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
         let serializable_opaque_names_vec: Vec<String> = data_enum_names.clone();
         opaque_names_vec.extend(data_enum_names);
