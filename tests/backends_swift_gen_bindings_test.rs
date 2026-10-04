@@ -1678,7 +1678,7 @@ fn async_bytes_function_emits_async_forwarder() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public func fetchBytes(content: [UInt8], config: FetchConfig) async -> FetchResult"),
+        content.contains("public func fetchBytes(content: [UInt8], config: FetchConfig) async throws -> FetchResult"),
         "async bytes function should generate an async forwarder: {content}"
     );
     assert!(
@@ -1686,7 +1686,7 @@ fn async_bytes_function_emits_async_forwarder() {
         "async bytes forwarder should convert byte parameters: {content}"
     );
     assert!(
-        content.contains("return await Task.detached(priority: .userInitiated)"),
+        content.contains("return try await Task.detached(priority: .userInitiated)"),
         "async bytes forwarder should call through a detached task: {content}"
     );
 }
