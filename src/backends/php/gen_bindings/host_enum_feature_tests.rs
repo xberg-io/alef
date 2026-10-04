@@ -1,6 +1,61 @@
 use crate::core::config::{NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, TypeRef};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// ~keep A cold full-release build can exceed two minutes after dependency upgrades, so real
+/// toolchain probes get a bounded five-minute cold-start budget. The persistent cache below makes
+/// subsequent cases incremental.
+pub(super) const HOST_ENUM_CARGO_PROBE_TIMEOUT_SECS: u64 = 300;
+
+/// ~keep Cargo fingerprints path dependencies by source path, so the fixture workspace and target
+/// directory must both be stable. The real-Cargo guard serializes fixture rewrites and keeps this
+/// checkout-local cache isolated from every other worktree.
+pub(super) struct HostEnumCargoProbe {
+    _cargo_guard: crate::test_support::RealCargoGuard,
+    root: PathBuf,
+    target_dir: PathBuf,
+}
+
+impl HostEnumCargoProbe {
+    pub(super) fn acquire() -> Self {
+        let cargo_guard = crate::test_support::RealCargoGuard::acquire();
+        let (root, target_dir) = host_enum_cargo_probe_paths();
+        std::fs::create_dir_all(&root).expect("host enum probe workspace");
+        std::fs::create_dir_all(&target_dir).expect("host enum probe target directory");
+        Self {
+            _cargo_guard: cargo_guard,
+            root,
+            target_dir,
+        }
+    }
+
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub(super) fn command(&self, subcommand: &str) -> std::process::Command {
+        let mut command = crate::test_support::spawn_from_stable_dir("cargo");
+        command
+            .current_dir(&self.root)
+            .arg(subcommand)
+            .args(["--offline", "--quiet", "--manifest-path"])
+            .arg(self.root.join("crates/core-lib-php/Cargo.toml"))
+            .env("CARGO_TARGET_DIR", &self.target_dir)
+            .env("CARGO_BUILD_JOBS", "1");
+        command
+    }
+}
+
+fn host_enum_cargo_probe_paths() -> (PathBuf, PathBuf) {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("php-host-enum-feature-probes");
+    (base.join("workspace"), base.join("cargo-target"))
+}
+
+pub(super) fn assert_probe_succeeded(success: bool, output: &str) {
+    assert!(success, "{output}");
+}
 
 pub(super) fn surface(shared_function: bool) -> ApiSurface {
     ApiSurface {
@@ -163,7 +218,9 @@ pub enum Backend { #[default] Memory, #[cfg(feature="remote")] Remote { endpoint
         .as_table_mut()
         .expect("dependencies")
         .retain(|name, _| name == "core-lib");
-    manifest.as_table_mut().expect("manifest table").remove("lib");
+    let root = manifest.as_table_mut().expect("manifest table");
+    root.remove("lib");
+    root.insert("workspace".into(), toml::Value::Table(toml::Table::new()));
     std::fs::write(
         binding.join("Cargo.toml"),
         toml::to_string(&manifest).expect("fixture manifest"),
@@ -198,24 +255,19 @@ pub enum Backend { #[default] Memory, #[cfg(feature="remote")] Remote { endpoint
 }
 
 fn compile_fixture(enabled: bool, no_defaults: bool, target: Option<bool>, opt_in: bool, aggregate: bool) {
-    let root = tempfile::tempdir().expect("fixture directory");
-    write_fixture(root.path(), enabled, target, opt_in, aggregate);
-    let mut command = std::process::Command::new("cargo");
-    command
-        .args(["run", "--offline", "--quiet", "--manifest-path"])
-        .arg(root.path().join("crates/core-lib-php/Cargo.toml"))
-        .env("CARGO_TARGET_DIR", root.path().join("target"))
-        .env("CARGO_BUILD_JOBS", "1")
-        .env("RUSTFLAGS", "-Dunexpected_cfgs");
+    let probe = HostEnumCargoProbe::acquire();
+    write_fixture(probe.root(), enabled, target, opt_in, aggregate);
+    let mut command = probe.command("run");
+    command.env("RUSTFLAGS", "-Dunexpected_cfgs");
     if no_defaults {
         command.arg("--no-default-features");
     }
     if opt_in {
         command.args(["--features", if aggregate { "extra" } else { "remote" }]);
     }
-    let (success, output) = crate::snippets::validators::run_command(&mut command, 60)
+    let (success, output) = crate::snippets::validators::run_command(&mut command, HOST_ENUM_CARGO_PROBE_TIMEOUT_SECS)
         .expect("compile and execute generated conversion within deadline");
-    assert!(success, "{output}");
+    assert_probe_succeeded(success, &output);
 }
 
 #[test]
@@ -251,4 +303,53 @@ fn emitted_conversion_respects_target_override_enabling_core_feature() {
 #[test]
 fn aggregate_passthrough_enables_transitive_core_variant_on_overridden_target() {
     compile_fixture(true, true, Some(false), true, true);
+}
+
+#[test]
+fn cargo_probes_share_a_checkout_scoped_workspace_and_target() {
+    let first = host_enum_cargo_probe_paths();
+    let second = host_enum_cargo_probe_paths();
+    let expected_base = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("php-host-enum-feature-probes");
+
+    assert_eq!(first, second);
+    assert_eq!(first.0, expected_base.join("workspace"));
+    assert_eq!(first.1, expected_base.join("cargo-target"));
+}
+
+#[test]
+fn cargo_probe_command_uses_the_shared_target_and_bounded_budget() {
+    let probe = HostEnumCargoProbe::acquire();
+    write_fixture(probe.root(), true, None, false, false);
+    let command = probe.command("run");
+    let target_dir = command
+        .get_envs()
+        .find_map(|(key, value)| (key == "CARGO_TARGET_DIR").then_some(value))
+        .flatten();
+
+    assert_eq!(target_dir, Some(probe.target_dir.as_os_str()));
+    assert_eq!(command.get_current_dir(), Some(probe.root()));
+    assert_eq!(HOST_ENUM_CARGO_PROBE_TIMEOUT_SECS, 300);
+    let manifest =
+        std::fs::read_to_string(probe.root().join("crates/core-lib-php/Cargo.toml")).expect("fixture manifest");
+    let manifest: toml::Value = toml::from_str(&manifest).expect("fixture manifest TOML");
+    let workspace = manifest
+        .get("workspace")
+        .and_then(toml::Value::as_table)
+        .expect("fixture must be its own workspace root");
+    assert!(workspace.is_empty(), "{workspace:?}");
+}
+
+#[test]
+fn failed_cargo_probe_output_remains_a_test_failure() {
+    let result = std::panic::catch_unwind(|| assert_probe_succeeded(false, "fixture compile failed"));
+    let panic = result.expect_err("failed subprocess must fail the test");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .expect("panic payload");
+
+    assert!(message.contains("fixture compile failed"), "{message}");
 }

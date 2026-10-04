@@ -294,18 +294,16 @@ mod tests {
 
     #[test]
     fn specialized_variants_pass_real_clippy_without_redundant_cfg() {
-        let root = tempfile::tempdir().expect("fixture");
-        super::super::host_enum_feature_tests::write_fixture(root.path(), true, None, false, false);
-        let mut command = std::process::Command::new("cargo");
-        command
-            .args(["clippy", "--offline", "--quiet", "--manifest-path"])
-            .arg(root.path().join("crates/core-lib-php/Cargo.toml"))
-            .args(["--", "-Dclippy::non_minimal_cfg", "-Dunexpected_cfgs"])
-            .env("CARGO_TARGET_DIR", root.path().join("target"))
-            .env("CARGO_BUILD_JOBS", "1");
-        let (success, output) =
-            crate::snippets::validators::run_command(&mut command, 60).expect("bounded generated conversion Clippy");
-        assert!(success, "{output}");
+        let probe = super::super::host_enum_feature_tests::HostEnumCargoProbe::acquire();
+        super::super::host_enum_feature_tests::write_fixture(probe.root(), true, None, false, false);
+        let mut command = probe.command("clippy");
+        command.args(["--", "-Dclippy::non_minimal_cfg", "-Dunexpected_cfgs"]);
+        let (success, output) = crate::snippets::validators::run_command(
+            &mut command,
+            super::super::host_enum_feature_tests::HOST_ENUM_CARGO_PROBE_TIMEOUT_SECS,
+        )
+        .expect("bounded generated conversion Clippy");
+        super::super::host_enum_feature_tests::assert_probe_succeeded(success, &output);
     }
 
     #[test]
