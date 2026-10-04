@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated C and PHP e2e shell scripts use canonical shell formatting before any optional
+  formatter runs, keeping `alef verify` output identical on hosts with and without `shfmt`.
+
 ## [0.103.13] - 2026-10-03
 
 ### Fixed

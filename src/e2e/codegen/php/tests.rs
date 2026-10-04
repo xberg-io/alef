@@ -779,7 +779,7 @@ mod composer_json_tests {
             "install.sh must guard against duplicate extension entries, got:\n{content}"
         );
         assert!(
-            content.contains(">> \"$PHP_INI\""),
+            content.contains(">>\"$PHP_INI\""),
             "install.sh must append to php.ini, got:\n{content}"
         );
     }

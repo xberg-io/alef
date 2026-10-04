@@ -357,7 +357,7 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "  mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "  cp -R \"${{ALEF_FFI_LOCAL_DIR}}/include\" \"$FFI_DIR/include\"");
     let _ = writeln!(out, "  cp -R \"${{ALEF_FFI_LOCAL_DIR}}/lib\" \"$FFI_DIR/lib\"");
-    let _ = writeln!(out, "  echo \"$EXPECTED\" > \"$MARKER\"");
+    let _ = writeln!(out, "  echo \"$EXPECTED\" >\"$MARKER\"");
     let _ = writeln!(out, "  echo \"FFI library staged into $FFI_DIR/ from local override.\"");
     let _ = writeln!(out, "  exit 0");
     let _ = writeln!(out, "fi");
@@ -393,10 +393,10 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
         out,
         "  for libpat in \"lib${{FFI_PKG_NAME}}.so\" \"lib${{FFI_PKG_NAME}}.dylib\" \"lib${{FFI_PKG_NAME}}.a\" \"${{FFI_PKG_NAME}}.dll\" \"${{FFI_PKG_NAME}}.lib\"; do"
     );
-    let _ = writeln!(
-        out,
-        "    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then HAS_LIB=1; break; fi"
-    );
+    let _ = writeln!(out, "    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then");
+    let _ = writeln!(out, "      HAS_LIB=1");
+    let _ = writeln!(out, "      break");
+    let _ = writeln!(out, "    fi");
     let _ = writeln!(out, "  done");
     let _ = writeln!(out, "  if [ -n \"$HAS_LIB\" ]; then");
     let _ = writeln!(
@@ -415,7 +415,7 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
         "      if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then cp -a \"$LOCAL_TARGET_DIR/$libpat\" \"$FFI_DIR/lib/\"; fi"
     );
     let _ = writeln!(out, "    done");
-    let _ = writeln!(out, "    echo \"$EXPECTED\" > \"$MARKER\"");
+    let _ = writeln!(out, "    echo \"$EXPECTED\" >\"$MARKER\"");
     let _ = writeln!(out, "    echo \"FFI library staged from local cargo build.\"");
     let _ = writeln!(out, "    exit 0");
     let _ = writeln!(out, "  fi");
@@ -449,7 +449,7 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     // Record the version stamp so subsequent invocations of this script can
     // short-circuit. The Makefile calls this script unconditionally on every
     // build; the marker is what makes the call cheap.
-    let _ = writeln!(out, "echo \"$EXPECTED\" > \"$MARKER\"");
+    let _ = writeln!(out, "echo \"$EXPECTED\" >\"$MARKER\"");
     let _ = writeln!(out, "echo \"FFI library extracted to $FFI_DIR/\"");
     out
 }
@@ -563,9 +563,14 @@ mod tests {
             script.contains("[ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]"),
             "script must compare marker contents to the expected stem; got: {script}"
         );
+        assert_eq!(
+            script.matches("echo \"$EXPECTED\" >\"$MARKER\"").count(),
+            3,
+            "every marker write must use the canonical shell format; got: {script}"
+        );
         assert!(
-            script.contains("echo \"$EXPECTED\" > \"$MARKER\""),
-            "script must write the marker after a successful download; got: {script}"
+            script.contains("    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then\n      HAS_LIB=1\n      break\n    fi"),
+            "the local-library probe must use the canonical multiline shell format; got: {script}"
         );
     }
 

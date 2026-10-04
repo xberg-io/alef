@@ -237,7 +237,7 @@ else
   else
     # Guard against duplicate: check if extension line already exists (uncommented).
     if ! grep -Fqx "extension=$EXTENSION_NAME" "$PHP_INI"; then
-      printf 'extension=%s\n' "$EXTENSION_NAME" >> "$PHP_INI"
+      printf 'extension=%s\n' "$EXTENSION_NAME" >>"$PHP_INI"
     fi
   fi
 fi
