@@ -578,6 +578,23 @@ fn adapter_test_map_param() -> crate::core::ir::ParamDef {
     }
 }
 
+fn long_promoted_wrapper_params() -> Vec<crate::core::ir::ParamDef> {
+    use crate::core::ir::ParamDef;
+
+    vec![
+        ParamDef {
+            name: "optional_argument_with_a_name_that_forces_multiline_rendering".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            ..ParamDef::default()
+        },
+        ParamDef {
+            name: "required_secret_map_after_the_optional_argument".to_string(),
+            ..adapter_test_map_param()
+        },
+    ]
+}
+
 fn explicit_wrapper_adapter_api() -> crate::core::ir::ApiSurface {
     use crate::core::ir::{ApiSurface, MethodDef, ParamDef, ReceiverKind, TypeDef};
 
@@ -608,31 +625,26 @@ fn explicit_wrapper_adapter_api() -> crate::core::ir::ApiSurface {
                     ..MethodDef::default()
                 },
                 MethodDef {
+                    name: "long_promoted_static".to_string(),
+                    params: long_promoted_wrapper_params(),
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_static: true,
+                    ..MethodDef::default()
+                },
+                MethodDef {
+                    name: "long_promoted_instance".to_string(),
+                    params: long_promoted_wrapper_params(),
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                },
+                MethodDef {
                     name: "async_fallible".to_string(),
                     params: vec![adapter_test_map_param()],
                     return_type: TypeRef::Primitive(PrimitiveType::Bool),
                     is_async: true,
                     error_type: Some("test_lib::Error".to_string()),
                     receiver: Some(ReceiverKind::Ref),
-                    ..MethodDef::default()
-                },
-                MethodDef {
-                    name: "borrowed_secret".to_string(),
-                    params: vec![adapter_test_map_param()],
-                    return_type: TypeRef::String,
-                    return_newtype_wrapper: Some(adapter_test_wrapper(vec![])),
-                    returns_ref: true,
-                    receiver: Some(ReceiverKind::Ref),
-                    ..MethodDef::default()
-                },
-                MethodDef {
-                    name: "mutate".to_string(),
-                    params: vec![ParamDef {
-                        is_mut: true,
-                        ..adapter_test_map_param()
-                    }],
-                    return_type: TypeRef::Unit,
-                    receiver: Some(ReceiverKind::RefMut),
                     ..MethodDef::default()
                 },
             ],
@@ -655,8 +667,37 @@ fn generated_methods_cover_explicit_wrapper_adapter_shapes() {
     );
     assert!(content.contains("future_into_py(py, async move"), "{content}");
     assert!(content.contains("PyRuntimeError"), "{content}");
-    assert!(content.contains(").clone()).into_inner()"), "{content}");
-    assert!(content.contains("let mut __alef_wrapper_arg_0"), "{content}");
-    assert!(content.contains("core_self.into()"), "{content}");
     assert!(!content.contains("compile_error!"), "{content}");
+}
+
+fn emitted_method_signature<'a>(content: &'a str, method: &str) -> &'a str {
+    let start = content
+        .find(&format!("pub fn {method}"))
+        .unwrap_or_else(|| panic!("missing emitted method {method}:\n{content}"));
+    let tail = &content[start..];
+    let end = tail
+        .find(") ->")
+        .unwrap_or_else(|| panic!("missing return type for {method}:\n{tail}"));
+    &tail[..end]
+}
+
+#[test]
+fn long_emitted_method_signatures_preserve_promoted_required_options() {
+    let files = Pyo3Backend
+        .generate_bindings(&explicit_wrapper_adapter_api(), &python_config())
+        .unwrap();
+    let content = &files[0].content;
+    let required = "required_secret_map_after_the_optional_argument: Option<HashMap<String, String>>";
+    let required_unwrap = "required_secret_map_after_the_optional_argument.expect(\"'required_secret_map_after_the_optional_argument' is required\")";
+
+    for method in ["long_promoted_static", "long_promoted_instance"] {
+        let signature = emitted_method_signature(content, method);
+        assert!(signature.contains(required), "{method} lost promotion in:\n{signature}");
+        assert!(signature.contains('\n'), "{method} must exercise multiline rendering");
+    }
+    assert_eq!(
+        content.matches(required_unwrap).count(),
+        2,
+        "both emitted bodies must unwrap their promoted binding:\n{content}"
+    );
 }

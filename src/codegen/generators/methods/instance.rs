@@ -6,7 +6,7 @@ use crate::codegen::generators::binding_helpers::{
     is_simple_non_opaque_param, wrap_return_with_mutex_mapped,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
-use crate::codegen::shared::{function_params, function_sig_defaults};
+use crate::codegen::shared::{function_params_vec, function_sig_defaults};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
@@ -34,7 +34,8 @@ pub fn gen_method(
     let core_type_path = typ.rust_path.replace('-', "_");
 
     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
-    let params = function_params(&method.params, &map_fn);
+    let param_strings = function_params_vec(&method.params, &map_fn);
+    let params = param_strings.join(", ");
     let return_type = mapper.map_type(&method.return_type);
     let ret = mapper.wrap_return(&return_type, method.error_type.is_some());
 
@@ -555,19 +556,7 @@ pub fn gen_method(
     let method_lifetime = if needs_py { "<'py>" } else { "" };
 
     let (sig_start, sig_params, sig_end) = if self_param.len() + params.len() > 100 {
-        let wrapped_params = method
-            .params
-            .iter()
-            .map(|p| {
-                let ty = if p.optional {
-                    format!("Option<{}>", mapper.map_type(&p.ty))
-                } else {
-                    mapper.map_type(&p.ty)
-                };
-                format!("{}: {}", p.name, ty)
-            })
-            .collect::<Vec<_>>()
-            .join(",\n        ");
+        let wrapped_params = param_strings.join(",\n        ");
         let py_param = if needs_py { "\n        py: Python<'py>," } else { "" };
         (
             format!(
