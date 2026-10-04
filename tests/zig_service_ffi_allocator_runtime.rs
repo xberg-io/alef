@@ -149,7 +149,7 @@ const service = @import("test_service.zig");
 fn handler(context: *anyopaque, request: [*:0]const u8) callconv(.c) [*:0]u8 {
     _ = context;
     _ = request;
-    return std.heap.c_allocator.dupeZ(u8, "{}") catch unreachable;
+    return std.fmt.allocPrintSentinel(std.heap.c_allocator, "{s}", .{"{}"}, 0) catch unreachable;
 }
 
 fn freeResponse(response: [*:0]u8) callconv(.c) void {
