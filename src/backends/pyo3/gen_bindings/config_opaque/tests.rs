@@ -3,7 +3,7 @@ use crate::core::backend::Backend;
 use crate::core::config::{CapsuleTypeConfig, NewAlefConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, MethodDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 use std::path::Path;
-use std::process::Output;
+use std::process::{Command, Output};
 
 mod fixture;
 
@@ -144,13 +144,18 @@ fn generate_fixture(binding: &Path, send_sync_types: &[&str]) -> String {
     source
 }
 
-fn run_cargo(binding: &Path, command: &str) -> Output {
-    std::process::Command::new("cargo")
+fn cargo_command(binding: &Path, command: &str) -> Command {
+    let mut cargo = crate::test_support::spawn_from_stable_dir("cargo");
+    cargo
         .args([command, "--quiet", "--manifest-path"])
         .arg(binding.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", binding.parent().unwrap().join("target"))
-        .output()
-        .unwrap()
+        .current_dir(binding);
+    cargo
+}
+
+fn run_cargo(binding: &Path, command: &str) -> Output {
+    cargo_command(binding, command).output().unwrap()
 }
 
 fn diagnostics(output: &Output) -> String {
@@ -159,6 +164,14 @@ fn diagnostics(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     )
+}
+
+#[test]
+fn cargo_command_should_use_fixture_as_working_directory() {
+    let temporary_directory = tempfile::tempdir().unwrap();
+    let binding = write_fixture(temporary_directory.path());
+    let command = cargo_command(&binding, "check");
+    assert_eq!(command.get_current_dir(), Some(binding.as_path()));
 }
 
 #[test]

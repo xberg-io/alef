@@ -33,8 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters, returns, promoted methods, boxed enum payloads, and container shapes.
 - Transparent wrapper metadata is validated across borrowed, mutable, map, and promoted surfaces
   so unsupported signatures fail during extraction instead of producing invalid bindings.
-- Real compiler and formatter probes reuse isolated target directories and serialize shared
-  environment mutations, preventing cold-build timeouts and cross-test `PATH` races.
+- Real compiler and formatter probes reuse isolated target directories, pin live working
+  directories, and serialize shared environment mutations, preventing cold-build timeouts and
+  cross-test `PATH` or removed-directory races.
 
 ## [0.103.14] - 2026-10-04
 
