@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recursively re-entering the enclosing union serializer.
 - Generated NAPI, Python, and WASM bindings preserve transparent string wrappers across fields,
   parameters, returns, promoted methods, boxed enum payloads, and container shapes.
+- Generated C FFI borrows decoded optional transparent wrappers correctly in free functions,
+  methods, presence companions, and opaque constructors.
 - Transparent wrapper metadata is validated across borrowed, mutable, map, and promoted surfaces
   so unsupported signatures fail during extraction instead of producing invalid bindings.
 - Real compiler and formatter probes reuse isolated target directories, pin live working

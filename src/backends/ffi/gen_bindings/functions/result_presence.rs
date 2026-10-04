@@ -31,7 +31,10 @@ use crate::codegen::conversions::core_type_path;
 use crate::core::ir::{CoreWrapper, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 
 use super::orchestration::{named_handle_type, named_type_path};
-use super::params::{ParamConversionContext, gen_param_conversion_with_enums, param_has_explicit_newtype};
+use super::params::{
+    ParamConversionContext, gen_param_conversion_with_enums, optional_borrowed_param_call_arg,
+    param_has_explicit_newtype,
+};
 use super::support::{ffi_doxygen_block, method_sanitized_recoverable, sanitized_recoverable};
 use crate::backends::ffi::type_map::result_presence_companion_exists;
 
@@ -85,7 +88,7 @@ fn presence_call_arg(p: &ParamDef) -> String {
         }
         TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
             if p.is_ref {
-                format!("{rs}.as_deref()")
+                optional_borrowed_param_call_arg(p, &rs)
             } else if p.core_wrapper == CoreWrapper::Cow {
                 format!("{rs}.map(std::borrow::Cow::Owned)")
             } else {

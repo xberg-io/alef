@@ -424,7 +424,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     if p.is_ref {
-                        format!("{rs}.as_deref()")
+                        super::params::optional_borrowed_param_call_arg(p, &rs)
                     } else if p.core_wrapper == CoreWrapper::Cow {
                         format!("{rs}.map(std::borrow::Cow::Owned)")
                     } else {
@@ -952,7 +952,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     if p.is_ref {
-                        format!("{rs}.as_deref()")
+                        super::params::optional_borrowed_param_call_arg(p, &rs)
                     } else if p.core_wrapper == CoreWrapper::Cow {
                         format!("{rs}.map(std::borrow::Cow::Owned)")
                     } else {

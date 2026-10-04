@@ -6,6 +6,10 @@ use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
 use super::field_ownership::field_accessor_ownership_lines;
+use super::functions::{
+    ParamConversionContext, gen_param_conversion_with_enums, optional_borrowed_param_call_arg,
+    param_has_explicit_newtype,
+};
 use super::helpers::{gen_ffi_unimplemented_body, gen_value_to_c, null_return_value};
 
 fn is_primitive_c_type_override(c_type: &str) -> bool {
@@ -839,13 +843,25 @@ pub(super) fn gen_opaque_static_constructor(
         return out;
     }
 
+    let conversion = ParamConversionContext {
+        has_error: method.error_type.is_some(),
+        is_bytes_result: false,
+        return_type: &method.return_type,
+        ffi_return_type: Some("AlefHandle"),
+        core_import,
+        path_map,
+        enum_names,
+    };
     for p in &method.params {
         match &p.ty {
-            TypeRef::String => {
+            TypeRef::String if !p.optional && !param_has_explicit_newtype(p) => {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "ffi_opaque_constructor_string_param.jinja",
                     context! { name => p.name.clone() },
                 ));
+            }
+            TypeRef::String | TypeRef::Char | TypeRef::Bytes => {
+                out.push_str(&gen_param_conversion_with_enums(p, &conversion));
             }
             TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
                 let enum_snake = c_symbol_component(n);
@@ -895,10 +911,13 @@ pub(super) fn gen_opaque_static_constructor(
         .params
         .iter()
         .map(|p| {
-            if p.is_ref {
-                format!("&{}_rs", p.name)
+            let rs_name = format!("{}_rs", p.name);
+            if p.optional && p.is_ref && matches!(p.ty, TypeRef::String | TypeRef::Char | TypeRef::Bytes) {
+                optional_borrowed_param_call_arg(p, &rs_name)
+            } else if p.is_ref {
+                format!("&{rs_name}")
             } else {
-                format!("{}_rs", p.name)
+                rs_name
             }
         })
         .collect::<Vec<_>>()

@@ -40,14 +40,14 @@ fn type_ref_to_rust_type(ty: &TypeRef, core_import: &str) -> String {
     }
 }
 
-pub(super) struct ParamConversionContext<'a> {
-    pub(super) has_error: bool,
-    pub(super) is_bytes_result: bool,
-    pub(super) return_type: &'a TypeRef,
-    pub(super) ffi_return_type: Option<&'a str>,
-    pub(super) core_import: &'a str,
-    pub(super) path_map: &'a AHashMap<String, String>,
-    pub(super) enum_names: &'a AHashSet<String>,
+pub(in crate::backends::ffi::gen_bindings) struct ParamConversionContext<'a> {
+    pub(in crate::backends::ffi::gen_bindings) has_error: bool,
+    pub(in crate::backends::ffi::gen_bindings) is_bytes_result: bool,
+    pub(in crate::backends::ffi::gen_bindings) return_type: &'a TypeRef,
+    pub(in crate::backends::ffi::gen_bindings) ffi_return_type: Option<&'a str>,
+    pub(in crate::backends::ffi::gen_bindings) core_import: &'a str,
+    pub(in crate::backends::ffi::gen_bindings) path_map: &'a AHashMap<String, String>,
+    pub(in crate::backends::ffi::gen_bindings) enum_names: &'a AHashSet<String>,
 }
 
 fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str) -> String {
@@ -64,11 +64,22 @@ fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str
     format!("    let {rs_name}: {target_type} = {converted};\n")
 }
 
-pub(super) fn param_has_explicit_newtype(param: &ParamDef) -> bool {
+pub(in crate::backends::ffi::gen_bindings) fn param_has_explicit_newtype(param: &ParamDef) -> bool {
     param
         .newtype_wrapper
         .as_deref()
         .is_some_and(crate::codegen::conversions::helpers::is_explicit_newtype)
+}
+
+pub(in crate::backends::ffi::gen_bindings) fn optional_borrowed_param_call_arg(
+    param: &ParamDef,
+    rs_name: &str,
+) -> String {
+    if param_has_explicit_newtype(param) {
+        format!("{rs_name}.as_ref()")
+    } else {
+        format!("{rs_name}.as_deref()")
+    }
 }
 
 fn transparent_newtype_core_type(param: &ParamDef, wrapper: &str, core_import: &str) -> String {
@@ -140,7 +151,10 @@ fn render_newtype_core_type(
     }
 }
 
-pub(super) fn gen_param_conversion_with_enums(param: &ParamDef, conversion: &ParamConversionContext<'_>) -> String {
+pub(in crate::backends::ffi::gen_bindings) fn gen_param_conversion_with_enums(
+    param: &ParamDef,
+    conversion: &ParamConversionContext<'_>,
+) -> String {
     let ParamConversionContext {
         has_error,
         is_bytes_result,

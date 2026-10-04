@@ -1,4 +1,5 @@
 use super::super::FfiBackend;
+use super::super::types::gen_opaque_static_constructor;
 use super::common::*;
 use crate::core::backend::Backend;
 use crate::core::ir::*;
@@ -180,6 +181,127 @@ fn opaque_with_constructor_api() -> ApiSurface {
         unsupported_public_items: Vec::new(),
         unresolved_modules: Vec::new(),
     }
+}
+
+#[test]
+fn optional_borrowed_constructor_params_use_converted_local_borrowing_shape() {
+    let transparent_secret = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "sample_crate::SecretString",
+        "from",
+        "into_inner",
+        vec![NewtypeContainer::Optional],
+    )]);
+    let method = MethodDef {
+        name: "new".to_string(),
+        params: vec![
+            ParamDef {
+                name: "value".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                is_ref: true,
+                newtype_wrapper: Some(transparent_secret),
+                ..ParamDef::default()
+            },
+            ParamDef {
+                name: "label".to_string(),
+                ty: TypeRef::String,
+                optional: true,
+                is_ref: true,
+                ..ParamDef::default()
+            },
+            ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Bytes,
+                optional: true,
+                is_ref: true,
+                ..ParamDef::default()
+            },
+        ],
+        return_type: TypeRef::Named("Vault".to_string()),
+        is_static: true,
+        ..MethodDef::default()
+    };
+    let typ = TypeDef {
+        name: "Vault".to_string(),
+        rust_path: "sample_crate::Vault".to_string(),
+        is_opaque: true,
+        ..TypeDef::default()
+    };
+
+    let output = gen_opaque_static_constructor(
+        &typ,
+        &method,
+        "sample",
+        "sample_crate",
+        &ahash::AHashMap::new(),
+        &ahash::AHashSet::new(),
+    );
+
+    assert!(
+        output.contains("let value_rs: Option<sample_crate::SecretString> ="),
+        "got:\n{output}"
+    );
+    assert!(
+        output.contains("sample_crate::Vault::new(value_rs.as_ref(), label_rs.as_deref(), payload_rs.as_deref())"),
+        "got:\n{output}"
+    );
+    assert!(!output.contains("value_rs.as_deref()"), "got:\n{output}");
+}
+
+#[test]
+fn required_ordinary_string_constructor_preserves_legacy_lossy_conversion() {
+    let api = opaque_with_constructor_api();
+    let typ = api
+        .types
+        .iter()
+        .find(|typ| typ.name == "RouteBuilder")
+        .expect("opaque constructor owner");
+    let method = typ.methods.first().expect("static constructor");
+    let enum_names = ahash::AHashSet::from_iter(["Method".to_string()]);
+
+    let output = gen_opaque_static_constructor(typ, method, "my_lib", "my_lib", &ahash::AHashMap::new(), &enum_names);
+
+    assert!(output.contains("let path_rs = if path.is_null() {"), "got:\n{output}");
+    assert!(output.contains("String::new()"), "got:\n{output}");
+    assert!(output.contains("to_string_lossy().into_owned()"), "got:\n{output}");
+}
+
+#[test]
+fn required_bytes_constructor_param_uses_pointer_and_length() {
+    let method = MethodDef {
+        name: "new".to_string(),
+        params: vec![ParamDef {
+            name: "payload".to_string(),
+            ty: TypeRef::Bytes,
+            is_ref: true,
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::Named("Vault".to_string()),
+        is_static: true,
+        ..MethodDef::default()
+    };
+    let typ = TypeDef {
+        name: "Vault".to_string(),
+        rust_path: "sample_crate::Vault".to_string(),
+        is_opaque: true,
+        ..TypeDef::default()
+    };
+
+    let output = gen_opaque_static_constructor(
+        &typ,
+        &method,
+        "sample",
+        "sample_crate",
+        &ahash::AHashMap::new(),
+        &ahash::AHashSet::new(),
+    );
+
+    assert!(output.contains("payload: *const u8"), "got:\n{output}");
+    assert!(output.contains("payload_len: usize"), "got:\n{output}");
+    assert!(
+        output.contains("sample_crate::Vault::new(&payload_rs)"),
+        "got:\n{output}"
+    );
 }
 
 #[test]
