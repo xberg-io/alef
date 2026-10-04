@@ -4128,11 +4128,14 @@ fn test_has_default_constructor_preserves_optional_core_default() {
             name: "ConversionOptions".to_string(),
             rust_path: "test_lib::ConversionOptions".to_string(),
             original_rust_path: String::new(),
-            fields: vec![make_field(
-                "max_input_size",
-                TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
-                true,
-            )],
+            fields: vec![
+                make_field("max_input_size", TypeRef::Primitive(PrimitiveType::Usize), true),
+                make_field(
+                    "fallback_size",
+                    TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+                    false,
+                ),
+            ],
             methods: vec![],
             is_opaque: false,
             is_clone: true,
@@ -4176,7 +4179,11 @@ fn test_has_default_constructor_preserves_optional_core_default() {
     );
     assert!(
         content.contains("max_input_size: maxInputSize.or(defaults.max_input_size)"),
-        "omission must preserve the core default while Some(value) remains an explicit override: {content}"
+        "field metadata optionality must preserve the core default while Some(value) remains an explicit override: {content}"
+    );
+    assert!(
+        content.contains("fallback_size: fallbackSize.or(defaults.fallback_size)"),
+        "TypeRef optionality must preserve the core default while Some(value) remains an explicit override: {content}"
     );
 }
 

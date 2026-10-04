@@ -682,7 +682,7 @@ fn preserve_optional_constructor_defaults(assignments: &str, fields: &[FieldDef]
     let mut use_defaults = false;
     for field in fields
         .iter()
-        .filter(|field| field.cfg.is_none() && matches!(field.ty, TypeRef::Optional(_)))
+        .filter(|field| field.cfg.is_none() && (field.optional || matches!(field.ty, TypeRef::Optional(_))))
     {
         let direct = format!("{}: {}", field.name, field.name);
         let preserved = format!("{}: {}.or(defaults.{})", field.name, field.name, field.name);
