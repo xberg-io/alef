@@ -153,10 +153,10 @@ fn union_api() -> ApiSurface {
                 name: "Choice".into(),
                 rust_path: "union_lib::Choice".into(),
                 has_serde: true,
+                serde_tag: Some("type".into()),
                 variants: vec![EnumVariant {
                     name: "Local".into(),
-                    fields: vec![newtype_field(TypeRef::Path)],
-                    is_tuple: true,
+                    fields: vec![path_field("path")],
                     ..Default::default()
                 }],
                 ..Default::default()
@@ -368,7 +368,7 @@ final class PathSerializationTest {
     var choice = new com.test.union.Choice.Local(PATH);
     var json = new ObjectMapper().writeValueAsString(choice);
     assertFalse(json.contains("file:"), json);
-    assertEquals(PATH.toString(), new ObjectMapper().readTree(json).elements().next().textValue());
+    assertEquals(PATH.toString(), new ObjectMapper().readTree(json).path("path").textValue());
   }
 
   @Test
