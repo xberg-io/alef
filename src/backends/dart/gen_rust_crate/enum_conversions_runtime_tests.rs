@@ -1,8 +1,11 @@
 use super::{
     enum_conversions::{emit_from_impl_for_enum, emit_from_mirror_to_core_enum},
+    mirror_conversions::{emit_from_impl_for_struct, emit_from_mirror_to_core_struct},
     opaque::emit_enum_from_json_fn,
 };
-use crate::core::ir::{EnumDef, EnumVariant, FieldDef, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
+use crate::core::ir::{
+    EnumDef, EnumVariant, FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeDef, TypeRef,
+};
 
 fn unit_variant(name: &str) -> EnumVariant {
     EnumVariant {
@@ -150,4 +153,148 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
         "got:\n{from_core}"
     );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
+}
+
+#[test]
+fn generated_optional_transparent_string_paths_compile() {
+    let wrapper = |containers| {
+        Some(NewtypeWrapper::encode_explicit(&[
+            NewtypeWrapperMetadata::transparent_string("fixture::SecretString", "from", "into_inner", containers),
+        ]))
+    };
+    let full_field = FieldDef {
+        name: "full".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        newtype_wrapper: wrapper(vec![NewtypeContainer::Optional, NewtypeContainer::Optional]),
+        ..Default::default()
+    };
+    let partial_field = FieldDef {
+        name: "partial".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Named("Segment".to_string())),
+        ))))),
+        optional: true,
+        newtype_wrapper: wrapper(vec![
+            NewtypeContainer::Optional,
+            NewtypeContainer::Optional,
+            NewtypeContainer::Vec,
+            NewtypeContainer::MapKey,
+        ]),
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Config".to_string(),
+        rust_path: "fixture::Config".to_string(),
+        fields: vec![full_field.clone(), partial_field.clone()],
+        ..Default::default()
+    };
+    let en = EnumDef {
+        name: "Choice".to_string(),
+        rust_path: "fixture::Choice".to_string(),
+        variants: vec![EnumVariant {
+            name: "Values".to_string(),
+            fields: vec![full_field, partial_field],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mut generated = String::new();
+    emit_from_impl_for_struct(&mut generated, &typ, "fixture");
+    emit_from_mirror_to_core_struct(&mut generated, &typ, "fixture");
+    emit_from_impl_for_enum(&mut generated, &en, "fixture", None);
+    emit_from_mirror_to_core_enum(&mut generated, &en, "fixture", None);
+
+    let source = format!(
+        r#"#![allow(dead_code)]
+use std::collections::HashMap;
+
+mod fixture {{
+    use std::collections::HashMap;
+
+    #[derive(Clone, PartialEq, Eq, Hash)]
+    pub struct SecretString(String);
+
+    impl SecretString {{
+        pub fn from(value: String) -> Self {{ Self(value) }}
+        pub fn into_inner(self) -> String {{ self.0 }}
+    }}
+
+    pub struct Segment;
+
+    pub struct Config {{
+        pub full: Option<Option<SecretString>>,
+        pub partial: Option<Option<Vec<HashMap<SecretString, Segment>>>>,
+    }}
+
+    pub enum Choice {{
+        Values {{
+            full: Option<Option<SecretString>>,
+            partial: Option<Option<Vec<HashMap<SecretString, Segment>>>>,
+        }},
+    }}
+}}
+
+pub struct Segment;
+
+impl From<fixture::Segment> for Segment {{
+    fn from(_: fixture::Segment) -> Self {{ Self }}
+}}
+
+impl From<Segment> for fixture::Segment {{
+    fn from(_: Segment) -> Self {{ Self }}
+}}
+
+pub struct Config {{
+    pub full: Option<String>,
+    pub partial: Option<Vec<HashMap<String, Segment>>>,
+}}
+
+pub enum Choice {{
+    Values {{
+        full: Option<String>,
+        partial: Option<Vec<HashMap<String, Segment>>>,
+    }},
+}}
+
+{generated}
+
+fn require_all_directions(
+    core_config: fixture::Config,
+    mirror_config: Config,
+    core_choice: fixture::Choice,
+    mirror_choice: Choice,
+) {{
+    let _: Config = core_config.into();
+    let _: fixture::Config = mirror_config.into();
+    let _: Choice = core_choice.into();
+    let _: fixture::Choice = mirror_choice.into();
+}}
+
+fn main() {{}}
+"#
+    );
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir(temp.path().join("src")).expect("create src");
+    std::fs::write(
+        temp.path().join("Cargo.toml"),
+        "[package]\nname = \"dart-transparent-option-compile\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(temp.path().join("src/main.rs"), source).expect("write generated bridge source");
+    let output = std::process::Command::new("cargo")
+        .args(["check", "--quiet"])
+        .env("CARGO_TARGET_DIR", temp.path().join("target"))
+        .current_dir(temp.path())
+        .output()
+        .expect("check generated Dart Rust conversions");
+
+    assert!(
+        output.status.success(),
+        "generated Dart Rust optional wrapper paths must compile:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
