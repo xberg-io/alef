@@ -390,7 +390,8 @@ final class PathSerializationTest {
   }
 
   private static void assertNativePath(ObjectMapper mapper) throws Exception {
-    assertEquals("\"" + PATH + "\"", mapper.writeValueAsString(PATH));
+    var json = mapper.writeValueAsString(PATH);
+    assertEquals(PATH.toString(), mapper.readTree(json).textValue());
   }
 }
 "#;
