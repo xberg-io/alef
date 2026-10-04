@@ -412,7 +412,11 @@ mod tests {
     use crate::snippets::types::{SnippetMetadata, SnippetStatus, SourceOrigin};
     use std::path::PathBuf;
 
-    const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
+    // Zig 0.17 moved C translation into the build graph. Cold `zig build` regression fixtures now
+    // compile that graph against libc headers, which can exceed the generic two-minute tool
+    // timeout on a contended developer or CI host even though the build is progressing normally.
+    // ~keep
+    const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 
     #[test]
     fn compiles_a_snippet_under_the_sanitized_environment() {
