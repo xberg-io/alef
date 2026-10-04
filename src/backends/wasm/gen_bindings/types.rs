@@ -496,7 +496,7 @@ pub(super) fn gen_struct(
             && !is_option_tagged_enum
             && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
         let field_type = if complex_newtype_field_uses_jsvalue(field) {
-            if field.optional {
+            if field.optional || matches!(field.ty, TypeRef::Optional(_)) {
                 "Option<JsValue>".to_string()
             } else {
                 "JsValue".to_string()
@@ -823,15 +823,8 @@ fn gen_new_method(
     use super::field_references_excluded_type;
     use crate::codegen::shared::constructor_parts;
 
-    let complex_newtype_types: Vec<&TypeRef> = typ
-        .fields
-        .iter()
-        .filter(|field| complex_newtype_field_uses_jsvalue(field))
-        .map(|field| &field.ty)
-        .collect();
     let map_fn = |ty: &crate::core::ir::TypeRef| {
-        if complex_newtype_types.contains(&ty)
-            || is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
+        if is_vec_of_tagged_data_enum(ty, tagged_data_enum_names)
             || is_bare_tagged_data_enum(ty, tagged_data_enum_names)
         {
             "JsValue".to_string()
@@ -860,6 +853,7 @@ fn gen_new_method(
     } else {
         constructor_parts(&filtered_fields, &map_fn)
     };
+    let param_list = rewrite_complex_newtype_constructor_params(&param_list, &filtered_fields, typ.has_default);
 
     let (assignments, use_defaults) = if typ.has_default {
         preserve_optional_constructor_defaults(&assignments, &filtered_fields)
@@ -890,6 +884,39 @@ fn gen_new_method(
     )
     .trim_end()
     .to_string()
+}
+
+/// Replace constructor parameter types for the specific fields whose explicit container path
+/// crosses the WASM boundary as `JsValue`.
+///
+/// A `TypeMapper` receives only `&TypeRef`, so using it to recognize these fields also changes an
+/// ordinary sibling with an equal `TypeRef`, and an excluded complex field can poison an included
+/// sibling. Shared constructor generation gets the ordinary mapper; this pass then rewrites only
+/// included fields carrying the explicit complex-wrapper marker. ~keep
+fn rewrite_complex_newtype_constructor_params(
+    param_list: &str,
+    fields: &[FieldDef],
+    optionalize_all_fields: bool,
+) -> String {
+    let mut rewritten = param_list.to_string();
+    for field in fields.iter().filter(|field| complex_newtype_field_uses_jsvalue(field)) {
+        let optional_parameter = optionalize_all_fields || field.optional || field.has_bare_serde_enum_default();
+        let jsvalue_type = if matches!(field.ty, TypeRef::Optional(_)) || optional_parameter {
+            "Option<JsValue>".to_string()
+        } else {
+            "JsValue".to_string()
+        };
+        let marker = format!("{}: ", field.name);
+        let Some(marker_start) = rewritten.find(&marker) else {
+            continue;
+        };
+        let type_start = marker_start + marker.len();
+        let type_end = rewritten[type_start..]
+            .find(',')
+            .map_or(rewritten.len(), |offset| type_start + offset);
+        rewritten.replace_range(type_start..type_end, &jsvalue_type);
+    }
+    rewritten
 }
 
 /// The fields whose constructor parameter can be taken as `&Wasm{Type}` instead of by value.

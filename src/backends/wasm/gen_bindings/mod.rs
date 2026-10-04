@@ -703,6 +703,7 @@ impl Backend for WasmBackend {
             }
             let is_strict = crate::codegen::conversions::can_generate_conversion(typ, &convertible);
             let is_relaxed = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding_convertible);
+            let core_to_binding_typ = types::types_helpers::suppress_explicit_newtype_flatten_for_core_to_binding(typ);
             if is_strict {
                 if input_types.contains(&typ.name) || self_delegating_types.contains(&typ.name) {
                     builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
@@ -712,14 +713,14 @@ impl Backend for WasmBackend {
                     ));
                 }
                 builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
-                    typ,
+                    &core_to_binding_typ,
                     &core_import,
                     &opaque_types,
                     &wasm_conv_config,
                 ));
             } else if is_relaxed {
                 builder.add_item(&crate::codegen::conversions::gen_from_core_to_binding_cfg(
-                    typ,
+                    &core_to_binding_typ,
                     &core_import,
                     &opaque_types,
                     &wasm_conv_config,

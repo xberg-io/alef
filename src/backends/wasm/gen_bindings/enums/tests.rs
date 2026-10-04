@@ -1128,6 +1128,27 @@ fn tagged_enum_transparent_string_payload_converts_both_directions_and_rejects_u
 }
 
 #[test]
+fn tagged_enum_required_named_payload_does_not_require_default() {
+    let mut enum_def = make_tagged_tuple_enum();
+    enum_def.variants.truncate(1);
+    let field = &mut enum_def.variants[0].fields[0];
+    field.name = "authentication".to_string();
+    field.ty = TypeRef::Named("Authentication".to_string());
+    field.optional = false;
+
+    let binding_to_core = gen_tagged_enum_binding_to_core(&enum_def, "test_lib", "Wasm");
+
+    assert!(
+        binding_to_core.contains("wasm_bindgen::throw_str(\"missing enum field authentication\")"),
+        "a missing required payload must throw: {binding_to_core}"
+    );
+    assert!(
+        !binding_to_core.contains("authentication.clone().map(Into::into).unwrap_or_default()"),
+        "required named payloads must not impose Default on the core enum: {binding_to_core}"
+    );
+}
+
+#[test]
 fn tagged_enum_nested_transparent_string_payload_uses_jsvalue_without_wrapper_serde() {
     use crate::core::ir::NewtypeContainer::MapValue;
 

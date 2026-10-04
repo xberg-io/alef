@@ -30,6 +30,35 @@ pub(in crate::backends::wasm::gen_bindings) fn complex_newtype_wrapper_uses_jsva
     })
 }
 
+/// Return a core-to-binding-only field view that avoids the shared optional flatten fallback.
+///
+/// `FieldDef::optional` and a leading `TypeRef::Optional` are distinct real option layers. The
+/// explicit metadata describes both, and the WASM explicit-newtype branch converts both before
+/// serializing the inner value. The shared renderer nevertheless follows that correct branch
+/// with a generic `.flatten()` rewrite whenever both markers are present, replacing the explicit
+/// conversion entirely. Hiding the inner structural marker from shape dispatch prevents only
+/// that late rewrite; the emitted expression still reads the original core field and follows the
+/// untouched explicit path metadata. Binding-to-core must use the original IR. ~keep
+pub(in crate::backends::wasm::gen_bindings) fn suppress_explicit_newtype_flatten_for_core_to_binding(
+    typ: &crate::core::ir::TypeDef,
+) -> crate::core::ir::TypeDef {
+    let mut conversion_view = typ.clone();
+    for field in &mut conversion_view.fields {
+        if !field.optional
+            || !field
+                .newtype_wrapper
+                .as_deref()
+                .is_some_and(crate::codegen::conversions::helpers::is_explicit_newtype)
+        {
+            continue;
+        }
+        if let TypeRef::Optional(inner) = &field.ty {
+            field.ty = (**inner).clone();
+        }
+    }
+    conversion_view
+}
+
 /// Return a WASM binding surface whose struct fields and methods match the backend feature set.
 ///
 /// The extractor can retain a cfg-gated field or method when the source crate was extracted with
@@ -165,4 +194,97 @@ pub(in crate::backends::wasm::gen_bindings) fn class_backed_vec_element_type(
     }
     let mapped = mapper.named(name).into_owned();
     (mapped == format!("{}{name}", mapper.prefix)).then_some(mapped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::suppress_explicit_newtype_flatten_for_core_to_binding;
+    use crate::codegen::conversions::{ConversionConfig, gen_from_binding_to_core_cfg, gen_from_core_to_binding_cfg};
+    use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeDef, TypeRef};
+    use ahash::{AHashMap, AHashSet};
+
+    #[test]
+    fn explicit_nested_optional_conversions_keep_configured_method_names() {
+        let credential_wrapper = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "fixture::Credential",
+            "from_secret",
+            "expose_secret",
+            vec![NewtypeContainer::Optional, NewtypeContainer::Optional],
+        )]);
+        let segment_key_wrapper = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "fixture::SecretString",
+            "from_key",
+            "expose_key",
+            vec![
+                NewtypeContainer::Optional,
+                NewtypeContainer::Vec,
+                NewtypeContainer::MapKey,
+            ],
+        )]);
+        let typ = TypeDef {
+            name: "Options".to_string(),
+            rust_path: "fixture::Options".to_string(),
+            has_default: true,
+            fields: vec![
+                FieldDef {
+                    name: "nested_optional_credential".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    optional: true,
+                    newtype_wrapper: Some(credential_wrapper),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "nested_optional_segments".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Map(
+                        Box::new(TypeRef::String),
+                        Box::new(TypeRef::Named("Segment".to_string())),
+                    ))),
+                    optional: true,
+                    newtype_wrapper: Some(segment_key_wrapper),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "excluded_secret".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    optional: true,
+                    newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                        NewtypeWrapperMetadata::transparent_string(
+                            "fixture::Credential",
+                            "from_excluded",
+                            "expose_excluded",
+                            vec![NewtypeContainer::Optional, NewtypeContainer::Optional],
+                        ),
+                    ])),
+                    binding_excluded: true,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let core_to_binding_typ = suppress_explicit_newtype_flatten_for_core_to_binding(&typ);
+        let type_paths = AHashMap::from_iter([("Segment".to_string(), "fixture::Segment".to_string())]);
+        let config = ConversionConfig {
+            type_name_prefix: "Wasm",
+            map_uses_jsvalue: true,
+            wasm_explicit_newtype_containers_use_jsvalue: true,
+            core_type_paths: Some(&type_paths),
+            ..Default::default()
+        };
+
+        let to_binding = gen_from_core_to_binding_cfg(&core_to_binding_typ, "fixture", &AHashSet::new(), &config);
+        let to_core = gen_from_binding_to_core_cfg(&typ, "fixture", &config);
+
+        assert!(to_binding.contains("expose_secret()"), "{to_binding}");
+        assert!(to_binding.contains("expose_key()"), "{to_binding}");
+        assert!(!to_binding.contains(".flatten()"), "{to_binding}");
+        assert!(!to_binding.contains("v.to_string()"), "{to_binding}");
+        assert!(to_core.contains("fixture::Credential::from_secret(value)"), "{to_core}");
+        assert!(to_core.contains("fixture::SecretString::from_key(key)"), "{to_core}");
+        assert!(
+            to_core.contains("Vec<std::collections::HashMap<String, fixture::Segment>>"),
+            "named values must cross the opaque boundary through their resolved core type: {to_core}"
+        );
+        assert!(!to_binding.contains("excluded_secret"), "{to_binding}");
+        assert!(!to_core.contains("excluded_secret"), "{to_core}");
+    }
 }

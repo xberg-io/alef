@@ -77,7 +77,7 @@ pub(super) fn gen_getter(
     let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
     let complex_newtype = complex_newtype_field_uses_jsvalue(field);
     let field_type = if complex_newtype {
-        if field.optional {
+        if stores_option(field) {
             "Option<JsValue>".to_string()
         } else {
             "JsValue".to_string()
@@ -297,7 +297,7 @@ pub(super) fn gen_setter(
     }
 
     let field_type = if complex_newtype {
-        if field.optional {
+        if stores_option(field) {
             "Option<JsValue>".to_string()
         } else {
             "JsValue".to_string()

@@ -307,8 +307,8 @@ fn tagged_enum_binding_to_core_expr(
             _ => format!("val.{field_ident}.clone()"),
         },
         TypeRef::Named(_) => {
-            let base = box_wrap_map_into(format!("val.{field_ident}.clone().map(Into::into)"), is_boxed);
-            format!("{base}.unwrap_or_default()")
+            let converted = box_wrap_map_into(format!("val.{field_ident}.clone().map(Into::into)"), is_boxed);
+            format!("{converted}.unwrap_or_else(|| wasm_bindgen::throw_str(\"missing enum field {field_ident}\"))")
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
             format!("val.{field_ident}.clone().unwrap_or_default().into_iter().map(Into::into).collect()")

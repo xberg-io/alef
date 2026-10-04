@@ -27,6 +27,253 @@ fn class_field(name: &str, type_name: &str, optional: bool) -> FieldDef {
     }
 }
 
+fn nested_optional_secret_field() -> FieldDef {
+    FieldDef {
+        name: "nested_optional_credential".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        newtype_wrapper: Some(crate::core::ir::NewtypeWrapper::encode_explicit(&[
+            crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+                "fixture::Credential",
+                "from_secret",
+                "expose_secret",
+                vec![
+                    crate::core::ir::NewtypeContainer::Optional,
+                    crate::core::ir::NewtypeContainer::Optional,
+                ],
+            ),
+        ])),
+        ..Default::default()
+    }
+}
+
+fn nested_optional_segments_field() -> FieldDef {
+    FieldDef {
+        name: "nested_optional_segments".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Named("Segment".to_string())),
+        ))),
+        optional: true,
+        newtype_wrapper: Some(crate::core::ir::NewtypeWrapper::encode_explicit(&[
+            crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+                "fixture::SecretString",
+                "from_key",
+                "expose_key",
+                vec![
+                    crate::core::ir::NewtypeContainer::Optional,
+                    crate::core::ir::NewtypeContainer::Vec,
+                    crate::core::ir::NewtypeContainer::MapKey,
+                ],
+            ),
+        ])),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn nested_optional_jsvalue_constructor_matches_storage_without_core_default() {
+    let typ = TypeDef {
+        name: "Options".to_string(),
+        fields: vec![nested_optional_secret_field(), nested_optional_segments_field()],
+        ..Default::default()
+    };
+
+    let declaration = gen_struct(&typ, &mapper(), &[], "fixture", "Wasm", &AHashSet::new(), &[], true);
+    let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
+    let getter = gen_getter(
+        &typ.fields[0],
+        &mapper(),
+        &AHashSet::new(),
+        &AHashSet::new(),
+        false,
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+    let setter = gen_setter(
+        &typ.fields[0],
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+    let segments_getter = gen_getter(
+        &typ.fields[1],
+        &mapper(),
+        &AHashSet::new(),
+        &AHashSet::new(),
+        false,
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+    let segments_setter = gen_setter(
+        &typ.fields[1],
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+
+    assert!(
+        declaration.contains("nested_optional_credential: Option<JsValue>"),
+        "nested optional storage must remain nullable: {declaration}"
+    );
+    assert!(
+        constructor.contains("nestedOptionalCredential: Option<JsValue>"),
+        "constructor parameter must match the stored field: {constructor}"
+    );
+    assert!(
+        getter.contains("-> Option<JsValue>"),
+        "getter must preserve nullability: {getter}"
+    );
+    assert!(
+        setter.contains("value: Option<JsValue>"),
+        "setter must preserve nullability: {setter}"
+    );
+    assert!(
+        declaration.contains("nested_optional_segments: Option<JsValue>"),
+        "nested container storage must remain nullable: {declaration}"
+    );
+    assert!(
+        constructor.contains("nestedOptionalSegments: Option<JsValue>"),
+        "nested container constructor parameter must match storage: {constructor}"
+    );
+    assert!(
+        segments_getter.contains("-> Option<JsValue>"),
+        "nested container getter must preserve nullability: {segments_getter}"
+    );
+    assert!(
+        segments_setter.contains("value: Option<JsValue>"),
+        "nested container setter must preserve nullability: {segments_setter}"
+    );
+}
+
+#[test]
+fn nested_optional_jsvalue_constructor_matches_storage_with_core_default() {
+    let typ = TypeDef {
+        name: "Options".to_string(),
+        rust_path: "fixture::Options".to_string(),
+        fields: vec![nested_optional_secret_field(), nested_optional_segments_field()],
+        has_default: true,
+        ..Default::default()
+    };
+
+    let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
+
+    assert!(
+        constructor.contains("nestedOptionalCredential: Option<JsValue>"),
+        "defaultable constructor parameter must still match the stored field: {constructor}"
+    );
+    assert!(
+        constructor
+            .contains("nested_optional_credential: nestedOptionalCredential.or(defaults.nested_optional_credential)"),
+        "omission must preserve the core default: {constructor}"
+    );
+    assert!(
+        constructor.contains("nested_optional_segments: nestedOptionalSegments.or(defaults.nested_optional_segments)"),
+        "nested container omission must preserve the core default: {constructor}"
+    );
+}
+
+#[test]
+fn complex_wrapper_does_not_change_ordinary_sibling_with_same_type() {
+    let ordinary = FieldDef {
+        name: "ordinary_nested".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Options".to_string(),
+        fields: vec![nested_optional_secret_field(), ordinary.clone()],
+        ..Default::default()
+    };
+
+    let declaration = gen_struct(&typ, &mapper(), &[], "fixture", "Wasm", &AHashSet::new(), &[], true);
+    let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
+    let ordinary_getter = gen_getter(
+        &ordinary,
+        &mapper(),
+        &AHashSet::new(),
+        &AHashSet::new(),
+        false,
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+    let ordinary_setter = gen_setter(
+        &ordinary,
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+
+    assert!(
+        declaration.contains("nested_optional_credential: Option<JsValue>"),
+        "{declaration}"
+    );
+    assert!(declaration.contains("ordinary_nested: Option<String>"), "{declaration}");
+    assert!(
+        constructor.contains("nestedOptionalCredential: Option<JsValue>"),
+        "{constructor}"
+    );
+    assert!(constructor.contains("ordinaryNested: Option<String>"), "{constructor}");
+    assert!(ordinary_getter.contains("-> Option<String>"), "{ordinary_getter}");
+    assert!(ordinary_setter.contains("value: Option<String>"), "{ordinary_setter}");
+}
+
+#[test]
+fn excluded_complex_wrapper_does_not_change_included_sibling_with_same_type() {
+    let mut excluded = nested_optional_secret_field();
+    excluded.name = "excluded_nested".to_string();
+    excluded.binding_excluded = true;
+    let ordinary = FieldDef {
+        name: "ordinary_nested".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        optional: true,
+        ..Default::default()
+    };
+    let typ = TypeDef {
+        name: "Options".to_string(),
+        fields: vec![excluded, ordinary.clone()],
+        ..Default::default()
+    };
+
+    let declaration = gen_struct(&typ, &mapper(), &[], "fixture", "Wasm", &AHashSet::new(), &[], true);
+    let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
+    let ordinary_getter = gen_getter(
+        &ordinary,
+        &mapper(),
+        &AHashSet::new(),
+        &AHashSet::new(),
+        false,
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+    let ordinary_setter = gen_setter(
+        &ordinary,
+        &mapper(),
+        &AHashSet::new(),
+        false,
+        &AHashSet::new(),
+        &AHashMap::new(),
+        &AHashSet::new(),
+    );
+
+    assert!(!declaration.contains("excluded_nested"), "{declaration}");
+    assert!(!constructor.contains("excludedNested"), "{constructor}");
+    assert!(declaration.contains("ordinary_nested: Option<String>"), "{declaration}");
+    assert!(constructor.contains("ordinaryNested: Option<String>"), "{constructor}");
+    assert!(ordinary_getter.contains("-> Option<String>"), "{ordinary_getter}");
+    assert!(ordinary_setter.contains("value: Option<String>"), "{ordinary_setter}");
+}
+
 #[test]
 fn opaque_static_async_methods_await_core_calls_and_preserve_fallibility() {
     let secret = TypeRef::String;
