@@ -1323,6 +1323,30 @@ fn short_data_class_emits_single_line() {
     );
 }
 
+#[test]
+fn optional_field_metadata_emits_one_nullable_marker() {
+    let ty = make_type(
+        "ConversionOptions",
+        vec![make_field(
+            "max_input_size",
+            TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+            true,
+        )],
+    );
+    let mut out = String::new();
+    let mut imports = std::collections::BTreeSet::new();
+    emit_type_pub(&ty, &mut out, &mut imports);
+
+    assert!(
+        out.contains("val maxInputSize: Long? = null"),
+        "optional field must be nullable exactly once: {out}"
+    );
+    assert!(
+        !out.contains("Long??"),
+        "Kotlin has no double-nullable type syntax: {out}"
+    );
+}
+
 /// A data class whose single-line form exceeds 100 chars must be emitted multi-line so ktfmt leaves it unchanged.
 #[test]
 fn long_data_class_emits_multi_line() {

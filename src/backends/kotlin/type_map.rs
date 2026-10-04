@@ -10,6 +10,10 @@ use std::borrow::Cow;
 /// primitive Java already returns.
 pub struct KotlinMapper;
 
+pub(crate) fn nullable_kotlin_type(inner: &str) -> String {
+    format!("{}?", inner.trim_end_matches('?'))
+}
+
 impl TypeMapper for KotlinMapper {
     fn primitive(&self, prim: &PrimitiveType) -> Cow<'static, str> {
         use crate::core::ir::PrimitiveType;
@@ -51,7 +55,7 @@ impl TypeMapper for KotlinMapper {
     }
 
     fn optional(&self, inner: &str) -> String {
-        format!("{inner}?")
+        nullable_kotlin_type(inner)
     }
 
     fn vec(&self, inner: &str) -> String {

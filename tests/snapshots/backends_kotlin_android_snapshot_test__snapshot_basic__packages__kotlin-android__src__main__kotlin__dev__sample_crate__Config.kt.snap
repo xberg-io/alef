@@ -32,4 +32,4 @@ package dev.sample_crate
 
 /** A demo configuration struct. */
 @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-data class Config(val value: Int, val label: String, val tag: String?? = null)
+data class Config(val value: Int, val label: String, val tag: String? = null)

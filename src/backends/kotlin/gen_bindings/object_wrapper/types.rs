@@ -1,5 +1,5 @@
 use crate::backends::kotlin::gen_bindings::shared::to_screaming_snake;
-use crate::backends::kotlin::type_map::KotlinMapper;
+use crate::backends::kotlin::type_map::{KotlinMapper, nullable_kotlin_type};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{PrimitiveType, TypeRef};
 use std::collections::BTreeSet;
@@ -48,7 +48,7 @@ pub(super) fn fits_single_line(indent: &str, prefix: &str, field_strings: &[Stri
 
 pub(crate) fn kotlin_type_with_string_imports(ty: &TypeRef, optional: bool, imports: &mut BTreeSet<String>) -> String {
     let inner = render_type_ref_with_string_imports(ty, imports);
-    if optional { format!("{inner}?") } else { inner }
+    if optional { nullable_kotlin_type(&inner) } else { inner }
 }
 
 fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String {
@@ -59,7 +59,7 @@ fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<Stri
             imports.insert("import kotlin.time.Duration".to_string());
             mapper.map_type(ty)
         }
-        TypeRef::Optional(inner) => format!("{}?", render_type_ref_with_string_imports(inner, imports)),
+        TypeRef::Optional(inner) => nullable_kotlin_type(&render_type_ref_with_string_imports(inner, imports)),
         TypeRef::Vec(inner) => {
             format!("List<{}>", render_type_ref_with_string_imports(inner, imports))
         }
@@ -336,7 +336,7 @@ pub(super) fn kotlin_type_disambiguated(
     package: &str,
 ) -> String {
     let inner = render_type_ref_disambiguated(ty, variant_names, package);
-    if optional { format!("{inner}?") } else { inner }
+    if optional { nullable_kotlin_type(&inner) } else { inner }
 }
 
 fn render_type_ref_disambiguated(
@@ -358,9 +358,7 @@ fn render_type_ref_disambiguated(
         TypeRef::Named(n) if !package.is_empty() && variant_names.contains(n.as_str()) => {
             format!("{package}.{n}")
         }
-        TypeRef::Optional(inner) => {
-            format!("{}?", render_type_ref_disambiguated(inner, variant_names, package))
-        }
+        TypeRef::Optional(inner) => nullable_kotlin_type(&render_type_ref_disambiguated(inner, variant_names, package)),
         TypeRef::Vec(inner) => {
             format!(
                 "{list_name}<{}>",
@@ -386,7 +384,7 @@ fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static st
             imports.insert("import kotlin.time.Duration");
             mapper.map_type(ty)
         }
-        TypeRef::Optional(inner) => format!("{}?", render_type_ref_with_imports(inner, imports)),
+        TypeRef::Optional(inner) => nullable_kotlin_type(&render_type_ref_with_imports(inner, imports)),
         TypeRef::Vec(inner) => {
             format!("List<{}>", render_type_ref_with_imports(inner, imports))
         }
