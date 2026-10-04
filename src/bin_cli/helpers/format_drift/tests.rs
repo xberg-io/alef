@@ -552,6 +552,53 @@ fn managed_toml_drift_preview_preserves_the_existing_provenance_header() {
     );
 }
 
+/// `alef all` leaves poly.toml in poly's canonical form (the writer unstamps, runs `poly fmt
+/// --fix`, then restamps), but the generator spells `[[hooks.sources]].hooks` as a multi-line
+/// array and the merge replaces the consumer's array-of-tables with that spelling verbatim. The
+/// preserved on-disk hash line used to make poly skip the staged copy, so verify compared the
+/// raw multi-line merge against the canonical file and reported drift no `alef all` could clear. ~keep
+#[test]
+fn managed_poly_toml_drift_is_predicted_through_the_formatter_not_the_raw_merge() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
+    let dir = tempfile::tempdir().expect("tempdir");
+    let generated = "[discovery]\nexclude = [\"generated/**\"]\n\n[[hooks.sources]]\nid = \"ai-rulez\"\ngit = \"https://example.invalid/ai-rulez.git\"\nrevision = \"v1\"\nhooks = [\n  \"ai-rulez-validate\",\n]\n";
+    let canonical = "[discovery]\nexclude = [\"generated/**\"]\n\n[[hooks.sources]]\nid = \"ai-rulez\"\ngit = \"https://example.invalid/ai-rulez.git\"\nrevision = \"v1\"\nhooks = [\"ai-rulez-validate\"]\n";
+    let path = dir.path().join("poly.toml");
+    let header = crate::cli::pipeline::ensure_generated_header(&path, canonical);
+    let hash = crate::core::hash::compute_file_hash(&header);
+    std::fs::write(&path, crate::core::hash::inject_hash_line(&header, &hash)).unwrap();
+    let file = crate::core::backend::GeneratedFile {
+        path: std::path::PathBuf::from("poly.toml"),
+        content: generated.to_string(),
+        generated_header: true,
+    };
+
+    let probe_dir = dir.path().join("probe");
+    std::fs::create_dir_all(&probe_dir).unwrap();
+    let probe = probe_dir.join("poly.toml");
+    std::fs::write(&probe, generated).unwrap();
+    crate::cli::pipeline::poly_format_strict(std::slice::from_ref(&probe), &probe_dir)
+        .expect("poly must format the negative-control render");
+    assert_eq!(
+        std::fs::read_to_string(&probe).unwrap(),
+        canonical,
+        "negative control: poly's canonical spelling of the generated array is the compact one"
+    );
+
+    let (drifted, stats) =
+        drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
+            tool == "poly"
+        });
+
+    assert!(
+        drifted.is_empty(),
+        "poly.toml already at poly's fixed point must not be reported as drift: {drifted:?}"
+    );
+    assert_eq!(stats.compared, 1, "the formatter pass must actually have run");
+}
+
 #[test]
 fn ordinary_generated_toml_uses_the_fresh_render_without_merge_semantics() {
     let dir = tempfile::tempdir().expect("tempdir");

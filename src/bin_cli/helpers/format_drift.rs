@@ -502,7 +502,14 @@ fn managed_output_for_drift(
             base_dir,
             &file.path,
         ) {
-            Ok(content) => content,
+            // The merge keeps the on-disk header, hash line included, and `poly fmt` skips a
+            // hash-stamped file. Left in, the staged copy would never be formatted, so the
+            // check would compare disk against the raw merge -- whose generator-spelled arrays
+            // (`[[hooks.sources]]`'s multi-line `hooks`) differ from the poly-canonical bytes
+            // the writer's own format pass leaves on disk, and `alef all` followed by
+            // `alef verify` could never agree. The writer unstamps before formatting
+            // (`unstamp_before_formatting`); do the same here. ~keep
+            Ok(content) => crate::core::hash::strip_hash_line(&content),
             Err(error) => {
                 tracing::warn!(
                     path = %file.path.display(),
