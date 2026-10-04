@@ -9,6 +9,7 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let meta = scaffold_meta(config);
     let version = &api.version;
     let ffi_lib_name = config.ffi_lib_name();
+    let ffi_header_name = config.ffi_header_name();
     let module_name = config.zig_module_name();
     let ffi_crate_path = config.ffi_crate_path();
 
@@ -59,8 +60,8 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .link_libc = true,
     }});
     test_module.addImport("{module_name}", module);
-    test_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
-    test_module.addIncludePath(.{{ .cwd_relative = ffi_include }});
+    test_module.addLibraryPath(ffi_path);
+    test_module.addIncludePath(ffi_include);
     test_module.linkSystemLibrary("{ffi_lib}", .{{}});
 {test_capsule_imports}
     const tests = b.addTest(.{{
@@ -90,26 +91,36 @@ pub fn build(b: *std.Build) void {{
     // layout. `alef publish package --lang zig` rewrites this file for the
     // distributed tarball so consumers link the bundled lib/ and include/ dirs.
     // Override with -Dffi_path=... and -Dffi_include_path=... if your layout differs.
-    // Both are rebased onto this package's own build root before use: `.cwd_relative`
-    // below resolves against the invoking process's working directory, so without this
-    // the defaults only find anything when zig is run from inside this directory, and
-    // never when the package is built as a `.path`/`.url` dependency of another
-    // project -- which is exactly how alef's own snippet validator consumes it. ~keep
-    const build_root = b.build_root.path orelse ".";
-
     const ffi_path_option = b.option(
         []const u8,
         "ffi_path",
         "Path to directory containing lib{ffi_lib}.{{dylib,so,dll,a}}"
     ) orelse "../../target/release";
-    const ffi_path = b.pathResolve(&.{{ build_root, ffi_path_option }});
+    const ffi_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path_option))
+        .{{ .cwd_relative = ffi_path_option }}
+    else
+        b.path(ffi_path_option);
 
     const ffi_include_option = b.option(
         []const u8,
         "ffi_include_path",
         "Path to directory containing the FFI C header"
     ) orelse "{ffi_crate_path}/include";
-    const ffi_include = b.pathResolve(&.{{ build_root, ffi_include_option }});
+    const ffi_include: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_include_option))
+        .{{ .cwd_relative = ffi_include_option }}
+    else
+        b.path(ffi_include_option);
+
+    const ffi_header = b.pathJoin(&.{{ ffi_include_option, "{ffi_header}" }});
+    const translate_c = b.addTranslateC(.{{
+        .root_source_file = if (std.fs.path.isAbsolute(ffi_header))
+            .{{ .cwd_relative = ffi_header }}
+        else
+            b.path(ffi_header),
+        .target = target,
+        .optimize = optimize,
+    }});
+    translate_c.addIncludePath(ffi_include);
 
     const module = b.addModule("{module_name}", .{{
         .root_source_file = b.path("src/{module_name}.zig"),
@@ -117,8 +128,9 @@ pub fn build(b: *std.Build) void {{
         .optimize = optimize,
         .link_libc = true,
     }});
-    module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
-    module.addIncludePath(.{{ .cwd_relative = ffi_include }});
+    module.addImport("c", translate_c.createModule());
+    module.addLibraryPath(ffi_path);
+    module.addIncludePath(ffi_include);
     module.linkSystemLibrary("{ffi_lib}", .{{}});
 {module_capsule_imports}{test_target_block}
     const example_module = b.createModule(.{{
@@ -128,8 +140,8 @@ pub fn build(b: *std.Build) void {{
         .link_libc = true,
     }});
     example_module.addImport("{module_name}", module);
-    example_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
-    example_module.addIncludePath(.{{ .cwd_relative = ffi_include }});
+    example_module.addLibraryPath(ffi_path);
+    example_module.addIncludePath(ffi_include);
     example_module.linkSystemLibrary("{ffi_lib}", .{{}});
 
     const example_exe = b.addExecutable(.{{
@@ -143,6 +155,7 @@ pub fn build(b: *std.Build) void {{
 "#,
         module_name = module_name,
         ffi_lib = ffi_lib_name,
+        ffi_header = ffi_header_name,
         ffi_crate_path = ffi_crate_path,
         module_capsule_imports = module_capsule_imports,
         test_target_block = test_target_block,
@@ -1030,27 +1043,31 @@ ffi = "crates/html-to-markdown-ffi/src/"
         );
     }
 
-    /// Regression: both FFI search paths are attached with `.{ .cwd_relative = ... }`, which zig
-    /// resolves against the *invoking process's* working directory. With the raw defaults the
-    /// package therefore only builds when zig is run from inside `packages/zig` — `zig build
-    /// --build-file packages/zig/build.zig` from the repo root fails with `unable to open library
-    /// directory '../../target/release'`, and consuming the package as a `.path` dependency (which
-    /// is exactly what the Zig snippet validator does) fails with `C import failed`. Rebasing both
-    /// defaults onto `b.build_root` makes the paths independent of the caller's cwd. ~keep
+    /// Relative search paths must be owned by the package build, while absolute `-D` overrides
+    /// remain cwd-relative lazy paths. This works on both Zig 0.16 and 0.17; `Build.build_root`,
+    /// which the previous implementation used for rebasing, was removed in Zig 0.17. ~keep
     #[test]
     fn ffi_search_paths_resolve_against_the_packages_own_build_root() {
         let build_zig = build_zig_of(&minimal_config());
 
         assert!(
-            build_zig.contains("const build_root = b.build_root.path orelse \".\";"),
+            build_zig.contains("if (std.fs.path.isAbsolute(ffi_path_option))"),
+            "got:\n{build_zig}"
+        );
+        assert!(build_zig.contains("b.path(ffi_path_option);"), "got:\n{build_zig}");
+        assert!(build_zig.contains("b.path(ffi_include_option);"), "got:\n{build_zig}");
+    }
+
+    #[test]
+    fn ffi_header_is_translated_by_the_build_system() {
+        let build_zig = build_zig_of(&minimal_config());
+
+        assert!(
+            build_zig.contains("const translate_c = b.addTranslateC(.{"),
             "got:\n{build_zig}"
         );
         assert!(
-            build_zig.contains("const ffi_path = b.pathResolve(&.{ build_root, ffi_path_option });"),
-            "got:\n{build_zig}"
-        );
-        assert!(
-            build_zig.contains("const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });"),
+            build_zig.contains("module.addImport(\"c\", translate_c.createModule());"),
             "got:\n{build_zig}"
         );
     }

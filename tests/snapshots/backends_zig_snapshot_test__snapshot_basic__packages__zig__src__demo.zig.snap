@@ -6,7 +6,7 @@ expression: "&file.content"
 // alef:handle-abi:1
 
 const std = @import("std");
-pub const c = @cImport(@cInclude("demo.h"));
+pub const c = @import("c");
 
 /// Free a string allocated by the FFI layer.
 /// Free a string allocated by the FFI layer.

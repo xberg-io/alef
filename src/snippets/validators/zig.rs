@@ -783,8 +783,8 @@ mod tests {
             manifest::tests::build_root_rebased_build_zig(PACKAGE)
         } else {
             manifest::tests::build_root_rebased_build_zig(PACKAGE).replace(
-                "const ffi_include = b.pathResolve(&.{ build_root, ffi_include_option });",
-                "const ffi_include = ffi_include_option;",
+                "const ffi_include = b.path(ffi_include_option);",
+                "const ffi_include: std.Build.LazyPath = .{ .cwd_relative = ffi_include_option };",
             )
         };
         std::fs::write(package.join("build.zig"), manifest).unwrap();
@@ -800,9 +800,10 @@ mod tests {
         )
         .unwrap();
         std::fs::write(package.join("vendor/include/fixture.h"), "#define FIXTURE_VALUE 7\n").unwrap();
+        std::fs::write(package.join("src/c.h"), "#include <fixture.h>\n").unwrap();
         std::fs::write(
             package.join("src/root.zig"),
-            "pub const c = @cImport(@cInclude(\"fixture.h\"));\n\npub fn value() c_int {\n    return c.FIXTURE_VALUE;\n}\n",
+            "const c = @import(\"c\");\n\npub fn value() c_int {\n    return c.FIXTURE_VALUE;\n}\n",
         )
         .unwrap();
 
@@ -840,10 +841,22 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::create_dir_all(root.join("vendor/include")).unwrap();
         std::fs::write(root.join("build.zig"), manifest::tests::sample_build_zig(with_include)).unwrap();
+        let fingerprint = package_fingerprint(b"sample_binding");
+        std::fs::write(
+            root.join("build.zig.zon"),
+            format!(
+                ".{{\n    .name = .sample_binding,\n    .version = \"0.0.0\",\n    \
+                 .fingerprint = 0x{fingerprint:016x},\n    \
+                 .minimum_zig_version = \"0.16.0\",\n    \
+                 .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\", \"vendor\" }},\n}}\n"
+            ),
+        )
+        .unwrap();
         std::fs::write(root.join("vendor/include/fixture.h"), "#define FIXTURE_VALUE 7\n").unwrap();
+        std::fs::write(root.join("src/c.h"), "#include <fixture.h>\n").unwrap();
         std::fs::write(
             root.join("src/root.zig"),
-            "pub const c = @cImport(@cInclude(\"fixture.h\"));\n\npub fn value() c_int {\n    return c.FIXTURE_VALUE;\n}\n",
+            "const c = @import(\"c\");\n\npub fn value() c_int {\n    return c.FIXTURE_VALUE;\n}\n",
         )
         .unwrap();
 

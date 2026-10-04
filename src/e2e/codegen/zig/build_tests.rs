@@ -14,6 +14,7 @@ fn registry_mode_build_zig_links_ffi_from_bundled_paths() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -56,6 +57,7 @@ fn local_mode_build_zig_uses_workspace_paths() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -78,6 +80,10 @@ fn local_mode_build_zig_uses_workspace_paths() {
         content.contains("linkSystemLibrary(\"demo_client_ffi\""),
         "local mode build.zig must link the FFI system library, got:\n{content}"
     );
+    assert!(
+        content.contains("addImport(\"c\", translate_c.createModule())"),
+        "local mode must translate the generated C header through the build system, got:\n{content}"
+    );
 }
 
 /// Non-empty env vars are injected via setEnvironmentVariable in alphabetical
@@ -95,6 +101,7 @@ fn env_vars_injected_alphabetically_after_run_artifact() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -145,6 +152,7 @@ fn empty_env_produces_no_env_block() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -188,6 +196,7 @@ fn test_step_dependencies_do_not_duplicate_run_suffix() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -259,6 +268,7 @@ fn local_mode_build_zig_with_harness_extras_add_import_wiring() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -341,6 +351,7 @@ fn extra_system_libs_are_linked_in_both_modes() {
             "demo_client",
             "demo_client",
             "demo_client_ffi",
+            "demo_client.h",
             "../../crates/demo-client-ffi",
             ZigBuildFlags {
                 has_file_fixtures: false,
@@ -377,6 +388,7 @@ fn multiple_extra_system_libs_each_linked() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -412,6 +424,7 @@ fn empty_extra_system_libs_emit_no_extra_links() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,
@@ -473,6 +486,7 @@ fn build_zig_bakes_configured_alt_host_into_the_mock_server_spawn() {
         "demo_client",
         "demo_client",
         "demo_client_ffi",
+        "demo_client.h",
         "../../crates/demo-client-ffi",
         ZigBuildFlags {
             has_file_fixtures: false,

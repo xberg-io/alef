@@ -76,9 +76,9 @@ fn zig_module_content(files: &[alef::core::backend::GeneratedFile]) -> &str {
 
 /// Regression: a `#[cfg(feature = "tokenizer")]`-gated FFI export must not appear in the
 /// generated Zig module when the configured Zig feature set doesn't enable that feature.
-/// `@cImport` compiles the C header verbatim and Zig resolves declared externs at
+/// Build-system C translation compiles the header verbatim and Zig resolves declared externs at
 /// comptime/link time, so an unconditionally emitted call into a symbol the linked FFI library
-/// never compiled is a build-time failure, not a graceful runtime error.
+/// never compiled is a build-time failure, not a graceful runtime error. ~keep
 #[test]
 fn zig_omits_gated_function_when_feature_disabled() {
     let backend = ZigBackend;

@@ -174,8 +174,8 @@ fn struct_emits_zig_struct() {
     assert_eq!(files.len(), 1);
     let content = &files[0].content;
     assert!(
-        content.contains("@cImport(@cInclude(\"demo.h\"))"),
-        "missing cImport: {content}"
+        content.contains("pub const c = @import(\"c\");"),
+        "missing build-system C translation import: {content}"
     );
     assert!(content.contains("pub const Point = struct {"));
     assert!(content.contains("x: i32,"));

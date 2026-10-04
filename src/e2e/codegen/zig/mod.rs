@@ -516,6 +516,7 @@ impl E2eCodegen for ZigE2eCodegen {
                         &pkg_name,
                         &module_name,
                         &config.ffi_lib_name(),
+                        &config.ffi_header_name(),
                         &config.ffi_crate_path(),
                         ZigBuildFlags {
                             has_file_fixtures,
@@ -745,10 +746,10 @@ prefix = "SampleCore"
         );
     }
 
-    /// Zig reaches the visitor types through `@cImport` of the generated C header, so it must
-    /// spell them with cbindgen's `[export] prefix`. Deriving that prefix here from the helper
+    /// Zig reaches visitor types through build-system translation of the generated C header, so
+    /// it must spell them with cbindgen's `[export] prefix`. Deriving that prefix from the helper
     /// the header producer itself calls is the point: asserting a literal would pin whichever
-    /// spelling the emitter happens to use.
+    /// spelling the emitter happens to use. ~keep
     #[test]
     fn visitor_snippet_names_the_c_types_the_header_declares() {
         let mut e2e = E2eConfig::default();

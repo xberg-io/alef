@@ -6,12 +6,13 @@
 //! *never* null, so before this gate every `None` reached the caller as `0`.
 //!
 //! Zig needs no declaration for the companion: the backend pulls the entire C surface in through
-//! one `@cImport(@cInclude(...))` (see `c_import.jinja`), so `c.{sym}_has_result` is already in
-//! scope wherever the primary is. What it does need is to call the companion only when the FFI
+//! one build-system-translated C header import (see `c_import.jinja`), so
+//! `c.{sym}_has_result` is already in scope wherever the primary is. What it does need is to call
+//! the companion only when the FFI
 //! crate actually exported one, which is asked of
 //! [`crate::backends::ffi::type_map::result_presence_companion_exists`] — the same predicate
 //! `gen_method_result_presence_wrapper` uses to decide whether to emit the symbol. Re-deriving
-//! "is this an ambiguous `Option` leaf" here would let the two sides drift, and `@cImport`
+//! "is this an ambiguous `Option` leaf" here would let the two sides drift, and C translation
 //! resolves externs at comptime: a name the header never declared is a build error in the
 //! consumer's package, not a wrong value. See `two-generators-disagree` in the repo's skill set.
 //! ~keep
@@ -122,7 +123,7 @@ pub(super) fn result_presence_gate(
         .unwrap_or_else(|| panic!("a Zig C call expression must have an argument list: {primary_c_call}"));
     let symbol = callee
         .strip_prefix("c.")
-        .unwrap_or_else(|| panic!("a Zig C call expression must be `@cImport`-qualified: {primary_c_call}"));
+        .unwrap_or_else(|| panic!("a Zig C call expression must be translated-C-module-qualified: {primary_c_call}"));
     let args = rest
         .strip_suffix(')')
         .unwrap_or_else(|| panic!("a Zig C call expression must close its argument list: {primary_c_call}"));

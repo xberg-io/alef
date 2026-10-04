@@ -91,8 +91,8 @@ pub(super) fn emit_visitor_test_body(
     let _ = writeln!(out);
 
     // 1. Per-fixture visitor struct + callbacks table.
-    // Zig reaches these types through `@cImport` of the same generated header, so they carry
-    // cbindgen's `[export] prefix` — shouty-snake, not a bare uppercase. Derive it from the
+    // Zig reaches these types through build-system translation of the same generated header, so
+    // they carry cbindgen's `[export] prefix` — shouty-snake, not a bare uppercase. Derive it from the
     // helper the header producer uses rather than re-deriving it here. ~keep
     let c_prefix = crate::codegen::c_consumer::export_type_prefix(&symbols.visitor_prefix);
     let visitor_type_stem = symbols.visitor_prefix.to_pascal_case();

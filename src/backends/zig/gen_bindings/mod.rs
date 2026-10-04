@@ -162,8 +162,8 @@ impl Backend for ZigBackend {
         crate::codegen::cfg::warn_on_ffi_feature_drift(&api, config, Language::Zig);
         let zig_features = crate::codegen::cfg::enabled_features_for_language(config, Language::Zig);
         let enabled_features: std::collections::HashSet<&str> = zig_features.iter().map(String::as_str).collect();
-        // `@cImport` compiles the C header verbatim and Zig resolves declared externs at
-        // comptime/link time — same failure mode as Go's cgo: a function/type/enum the FFI
+        // The build-system C translation compiles the header verbatim and Zig resolves declared
+        // externs at comptime/link time — same failure mode as Go's cgo: a function/type/enum the FFI
         // library dropped under `#[cfg(feature = "X")]` is a build-time error, not a graceful
         // fallback. Filtering to what the configured Zig feature set actually satisfies (and
         // dropping cfg-gated fields/variants on surviving types) keeps the generated module
@@ -384,8 +384,8 @@ impl Backend for ZigBackend {
 
         // The emitted module hand-declares the opaque handle as `_handle: u64` (see
         // `opaque_handle_header.jinja` / `opaque_stream_struct.jinja`) rather than reading the
-        // width back from the `@cImport`ed header, so a pointer-vs-`uint64_t` straddle against
-        // the FFI crate still compiles and links — `@cImport` only has to agree that the extern
+        // width back from the translated C header, so a pointer-vs-`uint64_t` straddle against
+        // the FFI crate still compiles and links — C translation only has to agree that the extern
         // exists — and misbehaves at runtime. Stamping lets `find_stamp_disagreement` fail
         // `alef verify` when one tree holds a zig binding and an FFI artifact from two handle
         // generations, which is the exact pair that gate was built for. Injected here, inside
@@ -541,7 +541,7 @@ sources = ["src/lib.rs"]
     }
 
     /// The zig module hand-declares the opaque handle's width instead of reading it back from
-    /// the `@cImport`ed header, so a pointer-vs-`uint64_t` straddle against the FFI crate links
+    /// the translated C header, so a pointer-vs-`uint64_t` straddle against the FFI crate links
     /// cleanly and only misbehaves at runtime — the exact pair `find_stamp_disagreement` exists
     /// to catch. Asserting the emitted `_handle: u64` *first* is what keeps this from passing
     /// vacuously over an output that never declared a handle at all; only then is the stamp

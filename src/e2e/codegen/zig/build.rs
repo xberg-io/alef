@@ -146,6 +146,7 @@ pub(super) fn render_build_zig(
     pkg_name: &str,
     module_name: &str,
     ffi_lib_name: &str,
+    ffi_header_name: &str,
     ffi_crate_path: &str,
     flags: ZigBuildFlags,
     test_documents_path: &str,
@@ -356,6 +357,19 @@ pub fn build(b: *std.Build) void {
             // Compute absolute FFI path for rpath declarations so dylib loading works
             // regardless of the test binary's working directory (e.g., when chdir'd into test_documents).
             let _ = writeln!(content, "    const ffi_path_abs = b.pathFromRoot(ffi_path);");
+            let _ = writeln!(
+                content,
+                "    const ffi_include_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_include)) .{{ .cwd_relative = ffi_include }} else b.path(ffi_include);"
+            );
+            let _ = writeln!(
+                content,
+                "    const ffi_header = b.pathJoin(&.{{ ffi_include, \"{ffi_header_name}\" }});"
+            );
+            let _ = writeln!(
+                content,
+                "    const translate_c = b.addTranslateC(.{{ .root_source_file = if (std.fs.path.isAbsolute(ffi_header)) .{{ .cwd_relative = ffi_header }} else b.path(ffi_header), .target = target, .optimize = optimize }});"
+            );
+            let _ = writeln!(content, "    translate_c.addIncludePath(ffi_include_path);");
             let _ = writeln!(content);
             let _ = writeln!(
                 content,
@@ -372,6 +386,10 @@ pub fn build(b: *std.Build) void {
             // binding module pulls in the FFI header, so libc is always required.
             content.push_str("        .link_libc = true,\n");
             content.push_str("    });\n");
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addImport(\"c\", translate_c.createModule());"
+            );
             let _ = writeln!(
                 content,
                 "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"

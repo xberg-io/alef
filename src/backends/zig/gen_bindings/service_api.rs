@@ -99,9 +99,7 @@ fn gen_service_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     out.push_str(crate::core::hash::SELF_MARKING_HEADER_LINE);
     out.push_str("\n\n");
     out.push_str("const std = @import(\"std\");\n");
-    out.push_str("const c = @cImport(@cInclude(\"");
-    out.push_str(&config.ffi_header_name());
-    out.push_str("\"));\n\n");
+    out.push_str("const c = @import(\"c\");\n\n");
 
     for service in &api.services {
         gen_service_struct(&mut out, service, api, &prefix, &prefix_lower);
@@ -440,7 +438,7 @@ mod tests {
         let zig = gen_service_zig(&api, &config);
 
         assert!(zig.contains("const std = @import(\"std\")"));
-        assert!(zig.contains("const c = @cImport"));
+        assert!(zig.contains("const c = @import(\"c\")"));
         assert!(zig.contains("TestService"));
         assert!(zig.contains("pub fn init()"));
         assert!(

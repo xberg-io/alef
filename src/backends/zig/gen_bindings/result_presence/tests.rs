@@ -210,8 +210,8 @@ fn should_not_call_a_companion_for_an_owned_receiver_because_ffi_exports_none() 
 }
 
 /// Zig's decision to call `{fn}_has_result` must equal the FFI backend's decision to export it,
-/// for every shape and receiver. `@cImport` resolves externs at comptime, so calling a symbol the
-/// FFI crate never exported is a build error in the consumer's package rather than a wrong value.
+/// for every shape and receiver. C translation resolves externs at comptime, so calling a symbol
+/// the FFI crate never exported is a build error in the consumer's package rather than a wrong value.
 /// This compares the rendered Zig against the authority instead of restating the rule. ~keep
 #[test]
 fn zig_calls_a_companion_exactly_when_the_ffi_backend_exports_one() {

@@ -21,18 +21,13 @@ use std::path::{Path, PathBuf};
 /// Paths are returned verbatim, relative to the manifest's own directory — the build root the
 /// scaffolded manifest rebases them onto, which the caller supplies.
 pub(crate) fn zig_manifest_include_paths(manifest: &Path) -> Result<Vec<String>> {
-    const DECLARATION: &str = "addIncludePath(.{ .cwd_relative = ";
-
     let source = std::fs::read_to_string(manifest)?;
     let mut paths: Vec<String> = Vec::new();
-    for occurrence in source.split(DECLARATION).skip(1) {
-        let Some(end) = occurrence.find(" })") else {
-            continue;
-        };
-        let expression = occurrence[..end].trim();
+    for expression in path_call_expressions(&source, "addIncludePath") {
         let Some(path) = string_literal(expression)
             .map(str::to_owned)
             .or_else(|| binding_default(&source, expression))
+            .or_else(|| binding_default(&source, &format!("{expression}_option")))
         else {
             continue;
         };
@@ -41,6 +36,21 @@ pub(crate) fn zig_manifest_include_paths(manifest: &Path) -> Result<Vec<String>>
         }
     }
     Ok(paths)
+}
+
+fn path_call_expressions<'a>(source: &'a str, method: &str) -> Vec<&'a str> {
+    let wrapped = format!("{method}(.{{ .cwd_relative = ");
+    let bare = format!("{method}(");
+    source
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if let Some(expression) = line.strip_prefix(&wrapped) {
+                return expression.strip_suffix(" });").map(str::trim);
+            }
+            line.strip_prefix(&bare)?.strip_suffix(");").map(str::trim)
+        })
+        .collect()
 }
 
 fn string_literal(expression: &str) -> Option<&str> {
@@ -86,7 +96,7 @@ fn resolve_binding_statement(source: &str, name: &str) -> Option<String> {
 /// `const <name> = b.pathResolve(&.{ <build root>, <inner> });` whose `<inner>` is itself a
 /// binding resolved the same way. The build-root argument is deliberately dropped rather than
 /// joined in: the caller already knows that directory as the manifest's own, and it is an
-/// expression here (`b.build_root.path orelse "."`) rather than a literal this could read. ~keep
+/// build-root expression rather than a literal this could read. ~keep
 fn binding_default(source: &str, name: &str) -> Option<String> {
     orelse_literal(&resolve_binding_statement(source, name)?)
 }
@@ -119,21 +129,19 @@ fn option_name_in_statement(statement: &str) -> Option<String> {
 /// (nothing to override through `-D`/dependency args, so there is nothing this can hand back).
 /// ~keep
 pub(crate) fn zig_manifest_library_path_option(manifest: &Path) -> Result<Option<(String, PathBuf)>> {
-    const DECLARATION: &str = "addLibraryPath(.{ .cwd_relative = ";
-
     let source = std::fs::read_to_string(manifest)?;
-    let Some(occurrence) = source.split(DECLARATION).nth(1) else {
+    let Some(expression) = path_call_expressions(&source, "addLibraryPath").into_iter().next() else {
         return Ok(None);
     };
-    let Some(end) = occurrence.find(" })") else {
-        return Ok(None);
-    };
-    let expression = occurrence[..end].trim();
-    let Some(statement) = resolve_binding_statement(&source, expression) else {
-        return Ok(None);
-    };
-    let (Some(option_name), Some(default_literal)) = (option_name_in_statement(&statement), orelse_literal(&statement))
-    else {
+    let statement = resolve_binding_statement(&source, expression);
+    let parsed = statement
+        .as_deref()
+        .and_then(|statement| Some((option_name_in_statement(statement)?, orelse_literal(statement)?)));
+    let parsed = parsed.or_else(|| {
+        let statement = resolve_binding_statement(&source, &format!("{expression}_option"))?;
+        Some((option_name_in_statement(&statement)?, orelse_literal(&statement)?))
+    });
+    let Some((option_name, default_literal)) = parsed else {
         return Ok(None);
     };
     let build_root = manifest.parent().unwrap_or(Path::new("."));
@@ -249,7 +257,7 @@ pub(crate) mod tests {
 
     pub(crate) fn sample_build_zig(with_include: bool) -> String {
         let include = if with_include {
-            "module.addIncludePath(.{ .cwd_relative = ffi_include });\n"
+            "translate_c.addIncludePath(.{ .cwd_relative = ffi_include });\n"
         } else {
             ""
         };
@@ -261,38 +269,52 @@ pub(crate) mod tests {
              \x20       \"ffi_include_path\",\n\
              \x20       \"Path to directory containing the FFI C header\"\n\
              \x20   ) orelse \"vendor/include\";\n\
-             \x20   const module = b.addModule(\"sample_binding\", .{{\n\
-             \x20       .root_source_file = b.path(\"src/root.zig\"),\n\
-             \x20       .link_libc = true,\n\
+             \x20   const target = b.standardTargetOptions(.{{}});\n\
+             \x20   const optimize = b.standardOptimizeOption(.{{}});\n\
+             \x20   const translate_c = b.addTranslateC(.{{\n\
+             \x20       .root_source_file = b.path(\"src/c.h\"),\n\
+             \x20       .target = target,\n\
+             \x20       .optimize = optimize,\n\
              \x20   }});\n\
              \x20   {include}\
+             \x20   const module = b.addModule(\"sample_binding\", .{{\n\
+             \x20       .root_source_file = b.path(\"src/root.zig\"),\n\
+             \x20       .target = target,\n\
+             \x20       .optimize = optimize,\n\
+             \x20       .link_libc = true,\n\
+             \x20   }});\n\
+             \x20   module.addImport(\"c\", translate_c.createModule());\n\
              }}\n"
         )
     }
 
-    /// The include declaration alef's scaffold emits today: the option default is rebased onto the
-    /// package's own build root before it reaches `.cwd_relative`, so the literal the parser needs
-    /// sits one `const` further away than it used to.
+    /// The include declaration alef's scaffold emits today. C translation belongs to the build
+    /// system because Zig 0.17 removed the `@cImport` builtin. ~keep
     pub(crate) fn build_root_rebased_build_zig(package_name: &str) -> String {
         format!(
             "const std = @import(\"std\");\n\
              pub fn build(b: *std.Build) void {{\n\
              \x20   const target = b.standardTargetOptions(.{{}});\n\
              \x20   const optimize = b.standardOptimizeOption(.{{}});\n\
-             \x20   const build_root = b.build_root.path orelse \".\";\n\
              \x20   const ffi_include_option = b.option(\n\
              \x20       []const u8,\n\
              \x20       \"ffi_include_path\",\n\
              \x20       \"Path to directory containing the FFI C header\"\n\
              \x20   ) orelse \"vendor/include\";\n\
-             \x20   const ffi_include = b.pathResolve(&.{{ build_root, ffi_include_option }});\n\
+             \x20   const ffi_include = b.path(ffi_include_option);\n\
+             \x20   const translate_c = b.addTranslateC(.{{\n\
+             \x20       .root_source_file = b.path(\"src/c.h\"),\n\
+             \x20       .target = target,\n\
+             \x20       .optimize = optimize,\n\
+             \x20   }});\n\
+             \x20   translate_c.addIncludePath(ffi_include);\n\
              \x20   const module = b.addModule(\"{package_name}\", .{{\n\
              \x20       .root_source_file = b.path(\"src/root.zig\"),\n\
              \x20       .target = target,\n\
              \x20       .optimize = optimize,\n\
              \x20       .link_libc = true,\n\
              \x20   }});\n\
-             \x20   module.addIncludePath(.{{ .cwd_relative = ffi_include }});\n\
+             \x20   module.addImport(\"c\", translate_c.createModule());\n\
              }}\n"
         )
     }
@@ -322,20 +344,22 @@ pub(crate) mod tests {
              pub fn build(b: *std.Build) void {{\n\
              \x20   const target = b.standardTargetOptions(.{{}});\n\
              \x20   const optimize = b.standardOptimizeOption(.{{}});\n\
-             \x20   const build_root = b.build_root.path orelse \".\";\n\
              \x20   const ffi_path_option = b.option(\n\
              \x20       []const u8,\n\
              \x20       \"ffi_path\",\n\
              \x20       \"Path to directory containing lib{lib_name}.{{dylib,so,dll,a}}\"\n\
              \x20   ) orelse \"{default_dir}\";\n\
-             \x20   const ffi_path = b.pathResolve(&.{{ build_root, ffi_path_option }});\n\
+             \x20   const ffi_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path_option))\n\
+             \x20       .{{ .cwd_relative = ffi_path_option }}\n\
+             \x20   else\n\
+             \x20       b.path(ffi_path_option);\n\
              \x20   const module = b.addModule(\"sample_binding\", .{{\n\
              \x20       .root_source_file = b.path(\"src/root.zig\"),\n\
              \x20       .target = target,\n\
              \x20       .optimize = optimize,\n\
              \x20       .link_libc = true,\n\
              \x20   }});\n\
-             \x20   module.addLibraryPath(.{{ .cwd_relative = ffi_path }});\n\
+             \x20   module.addLibraryPath(ffi_path);\n\
              \x20   module.linkSystemLibrary(\"{lib_name}\", .{{}});\n\
              }}\n"
         )
