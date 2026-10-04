@@ -72,14 +72,13 @@ fn load_fixtures_recursive(base: &Path, dir: &Path, fixtures: &mut Vec<Fixture>)
                     .with_context(|| format!("failed to parse fixture array: {}", path.display()))?;
                 values
                     .into_iter()
-                    .map(normalize_fixture_value)
-                    .map(serde_json::from_value)
-                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map(deserialize_fixture_value)
+                    .collect::<Result<Vec<_>>>()
                     .with_context(|| format!("failed to parse fixture array: {}", path.display()))?
             } else {
                 let value: serde_json::Value = serde_json::from_str(&content)
                     .with_context(|| format!("failed to parse fixture: {}", path.display()))?;
-                let single: Fixture = serde_json::from_value(normalize_fixture_value(value))
+                let single = deserialize_fixture_value(value)
                     .with_context(|| format!("failed to parse fixture: {}", path.display()))?;
                 vec![single]
             };
@@ -186,6 +185,56 @@ fn normalize_fixture_value(mut value: serde_json::Value) -> serde_json::Value {
     value
 }
 
+fn deserialize_fixture_value(mut value: serde_json::Value) -> Result<Fixture> {
+    let carrier_timeout_ms = timeout_from_carrier_tag(&value)?;
+    let test_timeout_ms = value
+        .as_object_mut()
+        .and_then(|object| object.remove("test_timeout_ms"))
+        .map(|timeout| parse_test_timeout_ms(&timeout))
+        .transpose()?;
+    if test_timeout_ms.is_some() && carrier_timeout_ms.is_some() {
+        bail!("test_timeout_ms conflicts with the reserved timeout carrier tag");
+    }
+    let mut fixture: Fixture = serde_json::from_value(normalize_fixture_value(value))?;
+    if let Some(test_timeout_ms) = test_timeout_ms {
+        fixture
+            .tags
+            .push(format!("{}{test_timeout_ms}", Fixture::TEST_TIMEOUT_TAG_PREFIX));
+    }
+    Ok(fixture)
+}
+
+fn parse_test_timeout_ms(value: &serde_json::Value) -> Result<u64> {
+    let timeout = value.as_u64().context("test_timeout_ms must be a positive integer")?;
+    if !(1..=Fixture::MAX_TEST_TIMEOUT_MS).contains(&timeout) {
+        bail!("test_timeout_ms must be between 1 and {}", Fixture::MAX_TEST_TIMEOUT_MS);
+    }
+    Ok(timeout)
+}
+
+fn timeout_from_carrier_tag(value: &serde_json::Value) -> Result<Option<u64>> {
+    let Some(tags) = value.get("tags").and_then(serde_json::Value::as_array) else {
+        return Ok(None);
+    };
+    let mut timeout = None;
+    for tag in tags.iter().filter_map(serde_json::Value::as_str) {
+        if !tag.starts_with(Fixture::TEST_TIMEOUT_TAG_NAMESPACE) {
+            continue;
+        }
+        let raw_timeout = tag
+            .strip_prefix(Fixture::TEST_TIMEOUT_TAG_PREFIX)
+            .context("malformed reserved timeout carrier tag")?;
+        let parsed_timeout = raw_timeout
+            .parse::<u64>()
+            .context("malformed reserved timeout carrier tag")?;
+        parse_test_timeout_ms(&serde_json::Value::from(parsed_timeout))?;
+        if timeout.replace(parsed_timeout).is_some() {
+            bail!("fixture has more than one reserved timeout carrier tag");
+        }
+    }
+    Ok(timeout)
+}
+
 /// Recursively expand fixture template expressions in all string values of a JSON tree.
 fn expand_json_templates(value: &mut serde_json::Value) {
     match value {
@@ -257,6 +306,99 @@ mod tests {
             normalized.pointer("/input/config/output_format"),
             Some(&serde_json::json!("html"))
         );
+    }
+
+    #[test]
+    fn fixture_test_timeout_round_trips_as_generator_metadata() {
+        let value = serde_json::json!({
+            "id": "bounded_call",
+            "description": "Bounded call",
+            "test_timeout_ms": 60_000
+        });
+
+        let fixture = deserialize_fixture_value(value).unwrap();
+
+        assert_eq!(fixture.test_timeout_ms(), Some(60_000));
+        let serialized = serde_json::to_value(&fixture).unwrap();
+        assert!(
+            serialized.get("test_timeout_ms").is_none() && serialized.pointer("/env/test_timeout_ms").is_none(),
+            "the loader-only carrier must not become a fixture field"
+        );
+        assert_eq!(
+            serialized.pointer("/tags/0"),
+            Some(&serde_json::json!("alef:test_timeout_ms=60000"))
+        );
+        let round_tripped = deserialize_fixture_value(serialized).unwrap();
+        assert_eq!(round_tripped.test_timeout_ms(), Some(60_000));
+    }
+
+    #[test]
+    fn fixture_test_timeout_loads_from_fixture_arrays() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("fixtures.json"),
+            r#"[
+                {"id": "first", "description": "first", "test_timeout_ms": 60000},
+                {"id": "second", "description": "second"}
+            ]"#,
+        )
+        .unwrap();
+
+        let fixtures = load_fixtures(directory.path()).unwrap();
+
+        assert_eq!(fixtures[0].test_timeout_ms(), Some(60_000));
+        assert_eq!(fixtures[1].test_timeout_ms(), None);
+    }
+
+    #[test]
+    fn fixture_test_timeout_rejects_malformed_or_duplicate_carrier_tags() {
+        for tags in [
+            serde_json::json!(["alef:test_timeout_ms="]),
+            serde_json::json!(["alef:test_timeout_ms=0"]),
+            serde_json::json!(["alef:test_timeout_ms=1.5"]),
+            serde_json::json!(["alef:test_timeout_ms=2147483648"]),
+            serde_json::json!(["alef:test_timeout_ms:60000"]),
+            serde_json::json!(["alef:test_timeout_ms=60000", "alef:test_timeout_ms=60000"]),
+            serde_json::json!(["alef:test_timeout_ms=60000", "alef:test_timeout_ms=90000"]),
+        ] {
+            let value = serde_json::json!({
+                "id": "reserved_tag",
+                "description": "reserved tag",
+                "tags": tags
+            });
+
+            assert!(deserialize_fixture_value(value).is_err());
+        }
+    }
+
+    #[test]
+    fn fixture_test_timeout_rejects_conflicting_sources() {
+        let value = serde_json::json!({
+            "id": "conflicting_timeout",
+            "description": "conflicting timeout",
+            "test_timeout_ms": 60_000,
+            "tags": ["alef:test_timeout_ms=60000"]
+        });
+
+        let error = deserialize_fixture_value(value).expect_err("conflicting timeout sources must fail");
+        assert!(error.to_string().contains("conflicts"));
+    }
+
+    #[test]
+    fn fixture_test_timeout_enforces_bounds_without_schema_validation() {
+        for timeout in [
+            serde_json::json!(0),
+            serde_json::json!(2_147_483_648_u64),
+            serde_json::json!("60000"),
+        ] {
+            let value = serde_json::json!({
+                "id": "invalid_timeout",
+                "description": "invalid timeout",
+                "test_timeout_ms": timeout
+            });
+
+            assert!(deserialize_fixture_value(value).is_err());
+        }
     }
 
     #[test]

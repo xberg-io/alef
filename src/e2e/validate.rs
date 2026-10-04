@@ -909,6 +909,56 @@ mod tests {
     }
 
     #[test]
+    fn fixture_test_timeout_must_be_positive() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("fixture.json"),
+            r#"[{
+                "id": "invalid_timeout",
+                "description": "invalid timeout",
+                "test_timeout_ms": 0
+            }]"#,
+        )
+        .unwrap();
+
+        let errors = validate_fixtures(directory.path()).unwrap();
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "zero timeout must fail exactly one schema rule: {errors:?}"
+        );
+        assert_eq!(errors[0].file, "fixture.json[0]");
+        assert!(errors[0].message.contains("/test_timeout_ms"));
+        assert!(errors[0].message.contains("1"));
+    }
+
+    #[test]
+    fn fixture_test_timeout_must_fit_the_javascript_timer_range() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("fixture.json"),
+            r#"[{
+                "id": "invalid_timeout",
+                "description": "invalid timeout",
+                "test_timeout_ms": 2147483648
+            }]"#,
+        )
+        .unwrap();
+
+        let errors = validate_fixtures(directory.path()).unwrap();
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "oversized timeout must fail exactly one schema rule: {errors:?}"
+        );
+        assert_eq!(errors[0].file, "fixture.json[0]");
+        assert!(errors[0].message.contains("/test_timeout_ms"));
+        assert!(errors[0].message.contains("2147483647"));
+    }
+
+    #[test]
     fn fixture_schema_accepts_current_docs_metadata() {
         let directory = tempfile::tempdir().unwrap();
         std::fs::write(

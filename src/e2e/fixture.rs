@@ -449,6 +449,18 @@ impl Default for Fixture {
 }
 
 impl Fixture {
+    pub(crate) const MAX_TEST_TIMEOUT_MS: u64 = i32::MAX as u64;
+    pub(crate) const TEST_TIMEOUT_TAG_NAMESPACE: &str = "alef:test_timeout_ms";
+    pub(crate) const TEST_TIMEOUT_TAG_PREFIX: &str = "alef:test_timeout_ms=";
+
+    pub(crate) fn test_timeout_ms(&self) -> Option<u64> {
+        self.tags.iter().find_map(|tag| {
+            tag.strip_prefix(Self::TEST_TIMEOUT_TAG_PREFIX)
+                .and_then(|value| value.parse().ok())
+                .filter(|timeout| (1..=Self::MAX_TEST_TIMEOUT_MS).contains(timeout))
+        })
+    }
+
     /// The client construction this fixture's *documentation snippet* must use, if it
     /// declares one.
     ///

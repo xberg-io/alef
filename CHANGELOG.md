@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- E2E fixtures can set `test_timeout_ms` to override the inferred TypeScript test timeout for one
+  test without widening the timeout of the generated suite.
 - `#[alef(transparent_string(from = "...", into = "..."))]` preserves explicit, non-`Display`
   conversions for cloneable private string wrappers across generated fields, parameters, returns,
   optional values, sequences, and both map sides. Invalid annotations and conversion methods are

@@ -64,6 +64,12 @@
           "items": { "type": "string" },
           "description": "Optional tags for filtering"
         },
+        "test_timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "description": "Optional per-test wall-clock timeout in milliseconds. TypeScript generators emit this value for only this fixture instead of their inferred default"
+        },
         "skip": { "$ref": "#/$defs/skip" },
         "env": { "$ref": "#/$defs/env" },
         "setup": {
