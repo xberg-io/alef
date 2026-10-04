@@ -556,3 +556,107 @@ fn generate_bindings_rejects_mut_dto_param_with_non_unit_return() {
         "diagnostic must name the offending function:\n{message}"
     );
 }
+
+fn adapter_test_wrapper(containers: Vec<crate::core::ir::NewtypeContainer>) -> String {
+    crate::core::ir::NewtypeWrapper::encode_explicit(&[crate::core::ir::NewtypeWrapperMetadata::transparent_string(
+        "test_lib::SecretString",
+        "from",
+        "into_inner",
+        containers,
+    )])
+}
+
+fn adapter_test_map_param() -> crate::core::ir::ParamDef {
+    use crate::core::ir::{NewtypeContainer, ParamDef};
+
+    ParamDef {
+        name: "value".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        is_ref: true,
+        newtype_wrapper: Some(adapter_test_wrapper(vec![NewtypeContainer::MapKey])),
+        ..ParamDef::default()
+    }
+}
+
+fn explicit_wrapper_adapter_api() -> crate::core::ir::ApiSurface {
+    use crate::core::ir::{ApiSurface, MethodDef, ParamDef, ReceiverKind, TypeDef};
+
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Record".to_string(),
+            rust_path: "test_lib::Record".to_string(),
+            is_clone: true,
+            methods: vec![
+                MethodDef {
+                    name: "promoted_static".to_string(),
+                    params: vec![
+                        ParamDef {
+                            name: "optional".to_string(),
+                            ty: TypeRef::String,
+                            optional: true,
+                            ..ParamDef::default()
+                        },
+                        ParamDef {
+                            name: "required".to_string(),
+                            ..adapter_test_map_param()
+                        },
+                    ],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_static: true,
+                    ..MethodDef::default()
+                },
+                MethodDef {
+                    name: "async_fallible".to_string(),
+                    params: vec![adapter_test_map_param()],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: true,
+                    error_type: Some("test_lib::Error".to_string()),
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                },
+                MethodDef {
+                    name: "borrowed_secret".to_string(),
+                    params: vec![adapter_test_map_param()],
+                    return_type: TypeRef::String,
+                    return_newtype_wrapper: Some(adapter_test_wrapper(vec![])),
+                    returns_ref: true,
+                    receiver: Some(ReceiverKind::Ref),
+                    ..MethodDef::default()
+                },
+                MethodDef {
+                    name: "mutate".to_string(),
+                    params: vec![ParamDef {
+                        is_mut: true,
+                        ..adapter_test_map_param()
+                    }],
+                    return_type: TypeRef::Unit,
+                    receiver: Some(ReceiverKind::RefMut),
+                    ..MethodDef::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn generated_methods_cover_explicit_wrapper_adapter_shapes() {
+    let files = Pyo3Backend
+        .generate_bindings(&explicit_wrapper_adapter_api(), &python_config())
+        .unwrap();
+    let content = &files[0].content;
+    assert!(content.contains("test_lib::Record::promoted_static"), "{content}");
+    assert!(
+        content.contains("required.expect(\"'required' is required\")"),
+        "{content}"
+    );
+    assert!(content.contains("future_into_py(py, async move"), "{content}");
+    assert!(content.contains("PyRuntimeError"), "{content}");
+    assert!(content.contains(").clone()).into_inner()"), "{content}");
+    assert!(content.contains("let mut __alef_wrapper_arg_0"), "{content}");
+    assert!(content.contains("core_self.into()"), "{content}");
+    assert!(!content.contains("compile_error!"), "{content}");
+}

@@ -422,11 +422,9 @@ fn gen_pyo3_enum_variant_constructors_content(
             .enumerate()
             .map(|(idx, p)| {
                 let promoted = is_promoted_optional(&ctor.params, idx);
-                let expr = if let Some((dto, shape)) = coercible_payload(&p.ty, coercible_dto_names) {
-                    coercible_field_init(&p.name, dto, shape, p.optional, promoted)
-                } else {
-                    pyo3_variant_field_init(p, promoted, ctor.boxed[idx])
-                };
+                let coerced = coercible_payload(&p.ty, coercible_dto_names)
+                    .map(|(dto, shape)| coercible_field_init(&p.name, dto, shape, p.optional, promoted));
+                let expr = pyo3_variant_field_init_with_coercion(p, promoted, ctor.boxed[idx], coerced);
                 if ctor.is_tuple {
                     expr
                 } else {
@@ -479,19 +477,39 @@ fn gen_pyo3_enum_variant_constructors_content(
     out.trim_end().to_string()
 }
 
+#[cfg(test)]
 fn pyo3_variant_field_init(param: &crate::core::ir::ParamDef, promoted: bool, is_boxed: bool) -> String {
+    pyo3_variant_field_init_with_coercion(param, promoted, is_boxed, None)
+}
+
+fn pyo3_variant_field_init_with_coercion(
+    param: &crate::core::ir::ParamDef,
+    promoted: bool,
+    is_boxed: bool,
+    coerced: Option<String>,
+) -> String {
     if let Some(wrapper) = &param.newtype_wrapper {
-        let access = if promoted {
-            format!("{}.unwrap_or_default()", param.name)
-        } else {
-            param.name.clone()
-        };
+        let access = coerced.unwrap_or_else(|| {
+            if promoted {
+                format!("{}.unwrap_or_default()", param.name)
+            } else {
+                param.name.clone()
+            }
+        });
         let optional = param.optional && !promoted;
         let converted =
             crate::codegen::conversions::helpers::apply_field_newtype_to_core(&access, &param.ty, optional, wrapper);
         if !is_boxed {
             converted
         } else if optional {
+            format!("{converted}.map(Box::new)")
+        } else {
+            format!("Box::new({converted})")
+        }
+    } else if let Some(converted) = coerced {
+        if !is_boxed {
+            converted
+        } else if param.optional && !promoted {
             format!("{converted}.map(Box::new)")
         } else {
             format!("Box::new({converted})")
@@ -901,5 +919,7 @@ pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
 mod cfg_gate_tests;
 #[cfg(test)]
 mod declaration_cfg_tests;
+#[cfg(test)]
+mod pyo3_tests;
 #[cfg(test)]
 mod tests;
