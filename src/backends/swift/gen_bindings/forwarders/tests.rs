@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::ir::TypeRef;
+use crate::core::ir::{NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
 
 #[test]
 fn test_swift_type_name_bool_returns_bool() {
@@ -231,7 +231,10 @@ fn async_forwarder_decodes_unit_enum_return_via_raw_value_not_positional_init() 
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        "MyLibError",
+        AsyncForwarderContext {
+            handle_returned_types: &HashSet::new(),
+            error_type_name: "MyLibError",
+        },
         &mut out,
     );
 
@@ -466,7 +469,10 @@ fn async_forwarder_json_encodes_enum_param_and_wraps_in_rust_string() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        "MyLibError",
+        AsyncForwarderContext {
+            handle_returned_types: &HashSet::new(),
+            error_type_name: "MyLibError",
+        },
         &mut out,
     );
 
@@ -508,7 +514,10 @@ fn async_forwarder_void_return_emits_no_result_binding_or_return() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        "MyLibError",
+        AsyncForwarderContext {
+            handle_returned_types: &HashSet::new(),
+            error_type_name: "MyLibError",
+        },
         &mut out,
     );
 
@@ -550,7 +559,10 @@ fn async_forwarder_string_return_converts_via_to_string() {
         &known_dto_names,
         &enum_names,
         &unit_enum_names,
-        "MyLibError",
+        AsyncForwarderContext {
+            handle_returned_types: &HashSet::new(),
+            error_type_name: "MyLibError",
+        },
         &mut out,
     );
 
@@ -562,4 +574,233 @@ fn async_forwarder_string_return_converts_via_to_string() {
         out.contains("return result.toString()"),
         "String async return must convert the RustString result to a native Swift String via .toString(). Got:\n{out}"
     );
+}
+
+#[test]
+fn infallible_async_forwarders_always_try_the_result_bridge() {
+    let transparent = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "sample::SecretString",
+        "from",
+        "into_inner",
+        vec![],
+    )]);
+    let cases = [
+        ("ordinaryString", TypeRef::String, None),
+        ("transparentString", TypeRef::String, Some(transparent)),
+        ("unitValue", TypeRef::Unit, None),
+        ("enumValue", TypeRef::Named("Status".to_string()), None),
+        ("dtoValue", TypeRef::Named("Record".to_string()), None),
+    ];
+
+    for (swift_name, return_type, wrapper) in cases {
+        let mut func = make_function(swift_name, vec![], return_type);
+        func.is_async = true;
+        func.return_newtype_wrapper = wrapper;
+        let known_dto_names = HashSet::from(["Status".to_string(), "Record".to_string()]);
+        let unit_enum_names = HashSet::from(["Status".to_string()]);
+        let mut out = String::new();
+
+        emit_async_free_function_forwarder(
+            &func,
+            swift_name,
+            &known_dto_names,
+            &HashSet::new(),
+            &unit_enum_names,
+            AsyncForwarderContext {
+                handle_returned_types: &HashSet::new(),
+                error_type_name: "MyLibError",
+            },
+            &mut out,
+        );
+
+        assert!(
+            out.contains(&format!("public func {swift_name}() async throws")),
+            "every async facade must expose the bridge Result as throws, got:\n{out}"
+        );
+        assert!(
+            out.contains("return try await Task.detached(priority: .userInitiated)"),
+            "the detached task's throwing value must be awaited with try, got:\n{out}"
+        );
+        assert!(
+            out.contains(&format!("try RustBridge.{swift_name}()")),
+            "the Result-returning bridge call must use try, got:\n{out}"
+        );
+    }
+}
+
+#[test]
+fn async_capsule_forwarders_are_throwing_for_infallible_and_fallible_core_functions() {
+    let cfg = crate::core::config::HostCapsuleTypeConfig {
+        host_type: "MyLib.Language".to_string(),
+        construct_expr: "MyLib.Language({ptr})".to_string(),
+        ..Default::default()
+    };
+
+    for is_fallible in [false, true] {
+        let mut func = make_capsule_fn();
+        func.is_async = true;
+        func.error_type = is_fallible.then(|| "SampleError".to_string());
+        let mut out = String::new();
+
+        capsule::emit_async_capsule_free_function_forwarder(&func, "getLanguage", &cfg, &mut out);
+
+        assert!(
+            out.contains("public func getLanguage(name: String) async throws -> MyLib.Language"),
+            "async capsule facades must always throw and return a nonoptional host value, got:\n{out}"
+        );
+        assert!(
+            out.contains("return try await Task.detached(priority: .userInitiated)"),
+            "the detached capsule task's throwing value must be awaited with try, got:\n{out}"
+        );
+        assert!(
+            out.contains("let addr = try RustBridge.getLanguage(name)"),
+            "the Result-returning capsule bridge call must use try, got:\n{out}"
+        );
+        assert!(
+            out.contains("else { throw NSError("),
+            "a zero capsule pointer must remain an error rather than become nil, got:\n{out}"
+        );
+    }
+}
+
+#[test]
+fn infallible_async_json_result_payloads_agree_across_all_generated_surfaces() {
+    let cases = [
+        ("optionalValue", TypeRef::Optional(Box::new(TypeRef::String)), "String?"),
+        (
+            "mapValue",
+            TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            "[String: String]",
+        ),
+        (
+            "nestedValues",
+            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::String)))),
+            "[[String]]",
+        ),
+        ("unsignedValue", TypeRef::Primitive(PrimitiveType::U64), "UInt64"),
+        ("signedValue", TypeRef::Primitive(PrimitiveType::I64), "Int64"),
+    ];
+
+    for (swift_name, return_type, swift_type) in cases {
+        let mut func = make_function(swift_name, vec![], return_type);
+        func.is_async = true;
+        let handle_returned_types: HashSet<String> = HashSet::new();
+        let enum_names: HashSet<String> = HashSet::new();
+        let unit_enum_names: HashSet<&str> = HashSet::new();
+        let extern_block = crate::backends::swift::gen_rust_crate::extern_block::emit_extern_block_for_functions(
+            std::slice::from_ref(&func),
+            &handle_returned_types,
+            &enum_names,
+            &unit_enum_names,
+            &std::collections::BTreeSet::new(),
+            &std::collections::HashMap::new(),
+            &ahash::AHashSet::default(),
+        )
+        .expect("emit async extern");
+        let type_paths = std::collections::HashMap::new();
+        let shim_enum_names: HashSet<&str> = HashSet::new();
+        let capsule_types = std::collections::HashMap::new();
+        let opaque_types = ahash::AHashSet::default();
+        let shim_context = crate::backends::swift::gen_rust_crate::shims::FunctionShimContext {
+            source_crate: "sample",
+            type_paths: &type_paths,
+            unit_enum_names: &shim_enum_names,
+            tagged_enum_names: &shim_enum_names,
+            no_serde_names: &shim_enum_names,
+            handle_returned_types: &handle_returned_types,
+            capsule_types: &capsule_types,
+            opaque_types: &opaque_types,
+        };
+        let shim = crate::backends::swift::gen_rust_crate::shims::emit_function_shim(&func, &shim_context)
+            .expect("emit async shim");
+        let mut swift = String::new();
+        emit_async_free_function_forwarder(
+            &func,
+            swift_name,
+            &enum_names,
+            &enum_names,
+            &enum_names,
+            AsyncForwarderContext {
+                handle_returned_types: &handle_returned_types,
+                error_type_name: "MyLibError",
+            },
+            &mut swift,
+        );
+
+        assert!(extern_block.contains("-> Result<String, String>"), "{extern_block}");
+        assert!(
+            shim.contains("serde_json::to_string"),
+            "the Result Ok payload must be serialized to match the extern String, got:\n{shim}"
+        );
+        assert!(
+            swift.contains(&format!("try RustBridge.{swift_name}().toString()")),
+            "the Swift facade must read the Result Ok String payload, got:\n{swift}"
+        );
+        assert!(
+            swift.contains(&format!("JSONDecoder().decode({swift_type}.self")),
+            "the Swift facade must decode the original return type, got:\n{swift}"
+        );
+    }
+}
+
+#[test]
+fn async_optional_handle_result_remains_native_in_all_generated_surfaces() {
+    let mut func = make_function(
+        "optionalHandle",
+        vec![],
+        TypeRef::Optional(Box::new(TypeRef::Named("OpaqueThing".to_string()))),
+    );
+    func.is_async = true;
+    let handle_returned_types = HashSet::from(["OpaqueThing".to_string()]);
+    let enum_names: HashSet<String> = HashSet::new();
+    let unit_enum_names: HashSet<&str> = HashSet::new();
+    let extern_block = crate::backends::swift::gen_rust_crate::extern_block::emit_extern_block_for_functions(
+        std::slice::from_ref(&func),
+        &handle_returned_types,
+        &enum_names,
+        &unit_enum_names,
+        &std::collections::BTreeSet::new(),
+        &std::collections::HashMap::new(),
+        &ahash::AHashSet::default(),
+    )
+    .expect("emit async handle extern");
+    let type_paths = std::collections::HashMap::new();
+    let shim_enum_names: HashSet<&str> = HashSet::new();
+    let capsule_types = std::collections::HashMap::new();
+    let opaque_types = ahash::AHashSet::default();
+    let shim_context = crate::backends::swift::gen_rust_crate::shims::FunctionShimContext {
+        source_crate: "sample",
+        type_paths: &type_paths,
+        unit_enum_names: &shim_enum_names,
+        tagged_enum_names: &shim_enum_names,
+        no_serde_names: &shim_enum_names,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    };
+    let shim = crate::backends::swift::gen_rust_crate::shims::emit_function_shim(&func, &shim_context)
+        .expect("emit async handle shim");
+    let mut swift = String::new();
+
+    emit_async_free_function_forwarder(
+        &func,
+        "optionalHandle",
+        &enum_names,
+        &enum_names,
+        &enum_names,
+        AsyncForwarderContext {
+            handle_returned_types: &handle_returned_types,
+            error_type_name: "MyLibError",
+        },
+        &mut swift,
+    );
+
+    assert!(
+        extern_block.contains("-> Result<Option<OpaqueThing>, String>"),
+        "{extern_block}"
+    );
+    assert!(!shim.contains("serde_json::to_string"), "{shim}");
+    assert!(swift.contains("try RustBridge.optionalHandle()"), "{swift}");
+    assert!(!swift.contains("JSONDecoder"), "{swift}");
+    assert!(!swift.contains(".toString()"), "{swift}");
 }

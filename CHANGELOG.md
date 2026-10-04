@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recursively re-entering the enclosing union serializer.
 - Generated NAPI, Python, and WASM bindings preserve transparent string wrappers across fields,
   parameters, returns, promoted methods, boxed enum payloads, and container shapes.
+- Generated Swift bindings preserve transparent string wrappers across fields, free functions,
+  methods, trait bridges, optional values, and containers while propagating async join and capsule
+  errors through the bridge.
 - Generated C FFI borrows decoded optional transparent wrappers correctly in free functions,
   methods, presence companions, and opaque constructors.
 - Transparent wrapper metadata is validated across borrowed, mutable, map, and promoted surfaces

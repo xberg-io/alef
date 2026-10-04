@@ -10,6 +10,7 @@
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_type_enum_aware_ref, field_needs_json_bridge, is_enum_named, is_vec_of_enum, needs_json_bridge,
 };
+use crate::codegen::conversions::helpers::{apply_explicit_field_newtype_from_core, is_explicit_newtype};
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use crate::core::keywords::swift_ident;
 use heck::ToSnakeCase;
@@ -134,7 +135,23 @@ pub(super) fn emit_getters(
             getter_name,
             bridge_ty_owned,
         };
-        if field_needs_json_bridge(&field.ty, field.optional) {
+        if field.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+            let core_expr = format!("self.0.{}.clone()", ctx.name);
+            let converted = apply_explicit_field_newtype_from_core(&core_expr, field)
+                .expect("explicit newtype metadata checked above");
+            let return_expr = if field_needs_json_bridge(&field.ty, field.optional) {
+                format!(
+                    "serde_json::to_string(&({converted})).expect(\"serializable {}\")",
+                    ctx.name
+                )
+            } else {
+                converted
+            };
+            out.push_str(&format!(
+                "    pub fn {}(&self) -> {} {{\n        {}\n    }}\n",
+                ctx.getter_name, ctx.bridge_ty_owned, return_expr
+            ));
+        } else if field_needs_json_bridge(&field.ty, field.optional) {
             out.push_str(&crate::backends::swift::template_env::render(
                 "getter_json_bridge.jinja",
                 minijinja::context! {

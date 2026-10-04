@@ -213,7 +213,82 @@ pub(crate) fn emit_type_constructor_shim(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{FieldDef, TypeRef};
+    use crate::core::ir::{FieldDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, TypeRef};
+
+    fn transparent_string_wrapper(containers: Vec<NewtypeContainer>) -> String {
+        NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "sample::SecretString",
+            "from",
+            "into_inner",
+            containers,
+        )])
+    }
+
+    #[test]
+    fn transparent_string_field_converts_at_constructor_and_getter_boundaries() {
+        let ty = TypeDef {
+            name: "Credentials".to_string(),
+            rust_path: "sample::Credentials".to_string(),
+            has_default: true,
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "secret".to_string(),
+                ty: TypeRef::String,
+                newtype_wrapper: Some(transparent_string_wrapper(vec![])),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let output = emit_type_wrapper(
+            &ty,
+            "sample",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(
+            output.contains("__target.secret = sample::SecretString::from(secret);"),
+            "{output}"
+        );
+        assert!(output.contains("self.0.secret.clone()).into_inner()"), "{output}");
+    }
+
+    #[test]
+    fn transparent_string_map_field_converts_at_getter_boundary() {
+        let ty = TypeDef {
+            name: "Credentials".to_string(),
+            rust_path: "sample::Credentials".to_string(),
+            has_default: true,
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "lookup".to_string(),
+                ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                newtype_wrapper: Some(transparent_string_wrapper(vec![NewtypeContainer::MapValue])),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let output = emit_type_wrapper(
+            &ty,
+            "sample",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(output.contains("self.0.lookup.clone()).into_iter()"), "{output}");
+    }
 
     #[test]
     fn wrapper_constructor_filters_cfg_gated_fields() {

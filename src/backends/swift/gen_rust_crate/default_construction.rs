@@ -7,6 +7,9 @@
 
 use crate::backends::swift::gen_rust_crate::feature_gate;
 use crate::backends::swift::gen_rust_crate::type_bridge::{needs_json_bridge, swift_bridge_rust_type};
+use crate::codegen::conversions::helpers::{
+    apply_explicit_field_newtype_to_core, apply_field_newtype_to_core, is_explicit_newtype,
+};
 use crate::core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
@@ -52,6 +55,26 @@ pub(crate) fn emit_default_construction_body(
                     name => &name,
                 },
             ));
+            continue;
+        }
+        if let Some(wrapper) = f
+            .newtype_wrapper
+            .as_deref()
+            .filter(|wrapper| is_explicit_newtype(wrapper))
+        {
+            let binding_expr = if needs_json_bridge(&f.ty) {
+                let native_ty = swift_bridge_rust_type(&f.ty);
+                let binding_ty = if f.optional {
+                    format!("Option<{native_ty}>")
+                } else {
+                    native_ty
+                };
+                format!("::serde_json::from_str::<{binding_ty}>(&{param}).expect(\"valid JSON for {name}\")")
+            } else {
+                param.clone()
+            };
+            let converted = apply_field_newtype_to_core(&binding_expr, &f.ty, f.optional, wrapper);
+            out.push_str(&format!("        __target.{name} = {converted};\n"));
             continue;
         }
         let excluded_inner: Option<&str> = if needs_json_bridge(&f.ty) {
@@ -325,6 +348,23 @@ pub(crate) fn emit_direct_field_inits(
             };
             if is_excluded_inner {
                 format!("            {name}: ::std::default::Default::default()")
+            } else if let Some(converted) = apply_explicit_field_newtype_to_core(
+                &if needs_json_bridge(&f.ty) {
+                    let native_ty = swift_bridge_rust_type(&f.ty);
+                    let binding_ty = if f.optional {
+                        format!("Option<{native_ty}>")
+                    } else {
+                        native_ty
+                    };
+                    format!(
+                        "::serde_json::from_str::<{binding_ty}>(&{name}).expect(\"valid JSON for {name}\")"
+                    )
+                } else {
+                    name.clone()
+                },
+                f,
+            ) {
+                format!("            {name}: {converted}")
             } else if needs_json_bridge(&f.ty) {
                 let native_ty = swift_bridge_rust_type(&f.ty);
                 let opt_ty = if f.optional { format!("Option<{native_ty}>") } else { native_ty };

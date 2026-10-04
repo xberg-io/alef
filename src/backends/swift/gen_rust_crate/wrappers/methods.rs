@@ -11,6 +11,8 @@ use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, enum_from_string_fn_name,
     forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
 };
+use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::core::ir::{PrimitiveType, ReceiverKind, TypeDef, TypeRef};
 use crate::core::keywords::swift_ident;
 use heck::ToSnakeCase;
@@ -124,6 +126,45 @@ pub(crate) fn emit_type_method_shims(
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
+                if p
+                    .newtype_wrapper
+                    .as_deref()
+                    .is_some_and(is_explicit_newtype)
+                {
+                    let binding_expr = if needs_json_bridge(&p.ty) {
+                        let binding_ty = swift_bridge_rust_type(&p.ty);
+                        let binding_ty = if p.optional {
+                            format!("Option<{binding_ty}>")
+                        } else {
+                            binding_ty
+                        };
+                        format!(
+                            "::serde_json::from_str::<{binding_ty}>(&{name}).expect(\"valid JSON for {name}\")"
+                        )
+                    } else {
+                        name.clone()
+                    };
+                    let converted = apply_param_newtype_to_core(&binding_expr, p)
+                        .expect("explicit newtype metadata checked above");
+                    if p.is_ref {
+                        let bound = format!("__{name}_newtype");
+                        let mutability = if p.is_mut { "mut " } else { "" };
+                        pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};"));
+                        if p.optional {
+                            return if p.is_mut {
+                                format!("{bound}.as_mut()")
+                            } else {
+                                format!("{bound}.as_ref()")
+                            };
+                        }
+                        return if p.is_mut {
+                            format!("&mut {bound}")
+                        } else {
+                            format!("&{bound}")
+                        };
+                    }
+                    return converted;
+                }
                 if matches!(&p.ty, TypeRef::Json) {
                     return format!(
                         "serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or(serde_json::Value::Null)"
@@ -271,6 +312,14 @@ pub(crate) fn emit_type_method_shims(
                     TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Primitive(PrimitiveType::I64)
                 ));
         let wrap_return = |source: String| -> String {
+            if method.return_newtype_wrapper.is_some() {
+                let converted = apply_return_newtype_unwrap(&source, &method.return_newtype_wrapper);
+                return if json_wrap_ok {
+                    format!("serde_json::to_string(&({converted})).expect(\"serializable return\")")
+                } else {
+                    converted
+                };
+            }
             if json_wrap_ok {
                 return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");
             }
@@ -309,7 +358,14 @@ pub(crate) fn emit_type_method_shims(
 
         let body = if method.is_async {
             let chain = if method.error_type.is_some() {
-                let ok_wrap = if json_wrap_ok {
+                let ok_wrap = if method.return_newtype_wrapper.is_some() {
+                    let converted = apply_return_newtype_unwrap("v", &method.return_newtype_wrapper);
+                    if json_wrap_ok {
+                        format!(".map(|v| serde_json::to_string(&({converted})).expect(\"serializable return\"))")
+                    } else {
+                        format!(".map(|v| {converted})")
+                    }
+                } else if json_wrap_ok {
                     ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
                 } else {
                     match &method.return_type {
@@ -334,7 +390,14 @@ pub(crate) fn emit_type_method_shims(
             };
             format!("    crate::__alef_tokio_runtime().block_on(async {{ {chain} }})")
         } else if method.error_type.is_some() {
-            let ok_wrap = if json_wrap_ok {
+            let ok_wrap = if method.return_newtype_wrapper.is_some() {
+                let converted = apply_return_newtype_unwrap("v", &method.return_newtype_wrapper);
+                if json_wrap_ok {
+                    format!(".map(|v| serde_json::to_string(&({converted})).expect(\"serializable return\"))")
+                } else {
+                    format!(".map(|v| {converted})")
+                }
+            } else if json_wrap_ok {
                 ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
             } else {
                 match &method.return_type {
@@ -443,6 +506,17 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
         out.push_str(&params.join(", "));
         out.push_str(") -> Result<String, String> {\n");
 
+        let async_uses_transparent_wrapper = method.return_newtype_wrapper.is_some()
+            || method.params.iter().any(|param| param.newtype_wrapper.is_some());
+        if method.is_async && async_uses_transparent_wrapper {
+            out.push_str(&format!(
+                "    compile_error!(\"alef cannot safely bridge async first-class DTO method `{}` through Swift; exclude the method from Swift generation\");\n",
+                method.name
+            ));
+            out.push_str("}\n\n");
+            continue;
+        }
+
         let self_binding = if matches!(method.receiver, Some(ReceiverKind::RefMut)) {
             "let mut __self"
         } else {
@@ -455,11 +529,45 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             "        .map_err(|e| format!(\"Failed to deserialize {type_name}: {{}}\", e))?;\n"
         ));
 
+        let mut pre_call_bindings = Vec::new();
         let method_call_args: Vec<String> = method
             .params
             .iter()
             .map(|p| {
                 let name = p.name.to_snake_case();
+                if p.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+                    let binding_expr = if needs_json_bridge(&p.ty) {
+                        let binding_ty = swift_bridge_rust_type(&p.ty);
+                        let binding_ty = if p.optional {
+                            format!("Option<{binding_ty}>")
+                        } else {
+                            binding_ty
+                        };
+                        format!("::serde_json::from_str::<{binding_ty}>(&{name}).expect(\"valid JSON for {name}\")")
+                    } else {
+                        name.clone()
+                    };
+                    let converted =
+                        apply_param_newtype_to_core(&binding_expr, p).expect("explicit newtype metadata checked above");
+                    if p.is_ref {
+                        let bound = format!("__{name}_newtype");
+                        let mutability = if p.is_mut { "mut " } else { "" };
+                        pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};\n"));
+                        if p.optional {
+                            return if p.is_mut {
+                                format!("{bound}.as_mut()")
+                            } else {
+                                format!("{bound}.as_ref()")
+                            };
+                        }
+                        return if p.is_mut {
+                            format!("&mut {bound}")
+                        } else {
+                            format!("&{bound}")
+                        };
+                    }
+                    return converted;
+                }
                 match &p.ty {
                     TypeRef::Path if p.optional && p.is_ref => {
                         format!("{name}.as_ref().map(::std::path::Path::new)")
@@ -475,7 +583,15 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                 }
             })
             .collect();
+        for binding in pre_call_bindings {
+            out.push_str(&binding);
+        }
         let __call = format!("__self.{}({})", method.name, method_call_args.join(", "));
+        let __call = if method.is_async {
+            format!("crate::__alef_tokio_runtime().block_on(async {{ {__call}.await }})")
+        } else {
+            __call
+        };
 
         if method.error_type.is_some() {
             out.push_str(&format!("    let __result = {__call};\n"));
@@ -485,7 +601,8 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
                 out.push_str("    Ok(\"{}\".to_string())\n");
             } else {
                 out.push_str("    let __value = __result.map_err(|e| e.to_string())?;\n");
-                out.push_str("    serde_json::to_string(&__value)\n");
+                let value = apply_return_newtype_unwrap("__value", &method.return_newtype_wrapper);
+                out.push_str(&format!("    serde_json::to_string(&({value}))\n"));
                 out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
             }
         } else if matches!(method.return_type, TypeRef::Unit) {
@@ -494,7 +611,8 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
             out.push_str("    Ok(\"{}\".to_string())\n");
         } else {
             out.push_str(&format!("    let __result = {__call};\n"));
-            out.push_str("    serde_json::to_string(&__result)\n");
+            let result = apply_return_newtype_unwrap("__result", &method.return_newtype_wrapper);
+            out.push_str(&format!("    serde_json::to_string(&({result}))\n"));
             out.push_str("        .map_err(|e| format!(\"Failed to serialize result: {}\", e))\n");
         }
 
@@ -507,7 +625,16 @@ pub(crate) fn emit_first_class_dto_method_wrappers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::ParamDef;
+    use crate::core::ir::{NewtypeWrapper, NewtypeWrapperMetadata, ParamDef};
+
+    fn transparent_string_wrapper() -> String {
+        NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "sample_crate::SecretString",
+            "from",
+            "into_inner",
+            vec![],
+        )])
+    }
 
     fn param(name: &str, ty: TypeRef) -> ParamDef {
         ParamDef {
@@ -525,6 +652,101 @@ mod tests {
             methods,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn transparent_string_method_param_and_return_use_explicit_operations() {
+        let mut value = param("value", TypeRef::String);
+        value.newtype_wrapper = Some(transparent_string_wrapper());
+        let method = crate::core::ir::MethodDef {
+            name: "replace_secret".to_string(),
+            params: vec![value],
+            return_type: TypeRef::String,
+            return_newtype_wrapper: Some(transparent_string_wrapper()),
+            receiver: Some(ReceiverKind::RefMut),
+            ..Default::default()
+        };
+        let ty = opaque_type("Client", vec![method]);
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(
+            out.contains("replace_secret(sample_crate::SecretString::from(value))"),
+            "{out}"
+        );
+        assert!(out.contains(".into_inner()"), "{out}");
+        assert!(!out.contains(".to_string()"), "{out}");
+    }
+
+    #[test]
+    fn first_class_async_transparent_methods_are_explicitly_rejected() {
+        let infallible = crate::core::ir::MethodDef {
+            name: "async_secret".to_string(),
+            return_type: TypeRef::String,
+            return_newtype_wrapper: Some(transparent_string_wrapper()),
+            receiver: Some(ReceiverKind::Ref),
+            is_async: true,
+            ..Default::default()
+        };
+        let fallible = crate::core::ir::MethodDef {
+            name: "async_fallible_secret".to_string(),
+            return_type: TypeRef::String,
+            return_newtype_wrapper: Some(transparent_string_wrapper()),
+            receiver: Some(ReceiverKind::Ref),
+            is_async: true,
+            error_type: Some("SecretError".to_string()),
+            ..Default::default()
+        };
+        let ty = TypeDef {
+            name: "Secrets".to_string(),
+            rust_path: "sample_crate::Secrets".to_string(),
+            methods: vec![infallible, fallible],
+            ..Default::default()
+        };
+
+        let output = emit_first_class_dto_method_wrappers(&ty, "sample_crate", &HashMap::new(), &HashSet::new());
+
+        assert!(
+            output.contains("cannot safely bridge async first-class DTO method `async_secret`"),
+            "{output}"
+        );
+        assert!(
+            output.contains("cannot safely bridge async first-class DTO method `async_fallible_secret`"),
+            "{output}"
+        );
+        assert!(!output.contains("block_on(") && !output.contains(".await"), "{output}");
+    }
+
+    #[test]
+    fn first_class_async_without_transparent_wrappers_keeps_existing_path() {
+        let method = crate::core::ir::MethodDef {
+            name: "plain_async".to_string(),
+            return_type: TypeRef::String,
+            receiver: Some(ReceiverKind::Ref),
+            is_async: true,
+            ..Default::default()
+        };
+        let ty = TypeDef {
+            name: "Plain".to_string(),
+            rust_path: "sample_crate::Plain".to_string(),
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let output = emit_first_class_dto_method_wrappers(&ty, "sample_crate", &HashMap::new(), &HashSet::new());
+
+        assert!(
+            output.contains("block_on(async { __self.plain_async().await })"),
+            "{output}"
+        );
+        assert!(!output.contains("compile_error!"), "{output}");
     }
 
     /// Same defect shape and fix as `shims::tests::infallible_function_with_direct_enum_param_*`,

@@ -11,7 +11,9 @@
 //! wrappers that delegate to the host crate's `unregister_*` / `clear_*` registry entry
 //! points.
 
-use crate::backends::swift::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use crate::backends::swift::gen_rust_crate::type_bridge::bridge_type;
+use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -147,6 +149,11 @@ pub fn emit_extern_block_for_trait_bridge(trait_def: &TypeDef, visible_type_name
         let mut params = vec!["this: &".to_string() + &format!("{}Box", trait_def.name)];
         for p in &method.params {
             let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
+            let bridge_ty = if p.optional {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
             let name = p.name.to_snake_case();
             params.push(format!("{name}: {bridge_ty}"));
         }
@@ -232,6 +239,11 @@ pub fn emit_trait_bridge_wrapper(
         let mut sig_params = vec![format!("this: &{trait_name}Box")];
         for p in &method.params {
             let bridge_ty = bridge_type_for_trait_method(&p.ty, visible_type_names);
+            let bridge_ty = if p.optional {
+                format!("Option<{bridge_ty}>")
+            } else {
+                bridge_ty
+            };
             let name = p.name.to_snake_case();
             let needs_mut = p.is_mut;
             if needs_mut {
@@ -248,15 +260,25 @@ pub fn emit_trait_bridge_wrapper(
             bridge_type_for_trait_method(&method.return_type, visible_type_names)
         };
 
+        let mut pre_call_bindings = Vec::new();
         let call_args: Vec<String> = method
             .params
             .iter()
-            .map(|p| trait_call_arg(p, visible_type_names, type_paths))
+            .map(|p| trait_call_arg(p, visible_type_names, type_paths, &mut pre_call_bindings))
             .collect();
         let call_args_str = call_args.join(", ");
         let source_call = format!("this.0.{method_name}({call_args_str})");
 
-        let body = emit_trait_method_body(method, &source_call, &return_ty, enum_names, visible_type_names);
+        let bindings = if pre_call_bindings.is_empty() {
+            String::new()
+        } else {
+            pre_call_bindings.join("\n") + "\n"
+        };
+        let body = format!(
+            "{}{}",
+            bindings,
+            emit_trait_method_body(method, &source_call, &return_ty, enum_names, visible_type_names)
+        );
 
         out.push_str(&crate::backends::swift::template_env::render(
             "trait_method_impl.jinja",
@@ -272,20 +294,115 @@ pub fn emit_trait_bridge_wrapper(
     out
 }
 
-/// Bridge type for trait method parameters/return types.
-/// All Named types, Optional types, Vec<non-leaf>, and Map types are JSON-bridged (String).
-/// This matches `bridge_type` but applied to trait method contexts.
+/// Bridge type for trait method parameters and returns.
+/// Optional and vector containers remain native recursively. Maps, excluded named leaves, and
+/// the shared `Optional<Vec<excluded Named>>` exception cross as one JSON string while preserving
+/// the outer optional as `Option<String>`.
 ///
 /// `visible_type_names` contains the set of Named types that have generated
 /// swift-bridge newtype wrappers in lib.rs. Named types outside this set
 /// (e.g. excluded internal types like `InternalDocument`) are JSON-bridged as
 /// `String` rather than referencing a nonexistent wrapper newtype.
 fn bridge_type_for_trait_method(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    if matches!(ty, TypeRef::Optional(_)) && trait_type_is_json_blob(ty, visible_type_names) {
+        return "Option<String>".to_string();
+    }
+    if trait_type_is_json_blob(ty, visible_type_names) {
+        return "String".to_string();
+    }
     match ty {
-        TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => "String".to_string(),
         TypeRef::Optional(inner) => format!("Option<{}>", bridge_type_for_trait_method(inner, visible_type_names)),
         TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type_for_trait_method(inner, visible_type_names)),
         _ => bridge_type(ty),
+    }
+}
+
+fn trait_type_is_json_blob(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> bool {
+    trait_type_is_single_json_blob(ty, |name| !visible_type_names.contains(name))
+}
+
+pub(crate) fn trait_type_is_single_json_blob(ty: &TypeRef, named_is_json: impl Fn(&str) -> bool) -> bool {
+    match ty {
+        TypeRef::Map(_, _) => true,
+        TypeRef::Named(name) => named_is_json(name),
+        TypeRef::Optional(inner) => {
+            matches!(inner.as_ref(), TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(name) if named_is_json(name)))
+        }
+        _ => false,
+    }
+}
+
+fn trait_json_to_core_expr(
+    expr: &str,
+    ty: &TypeRef,
+    visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    if let TypeRef::Optional(inner) = ty
+        && trait_type_is_json_blob(ty, visible_type_names)
+    {
+        let native_ty = trait_native_type(inner, type_paths);
+        return Some(format!(
+            "({expr}).map(|json| serde_json::from_str::<{native_ty}>(&json).expect(\"valid JSON bridge value\"))"
+        ));
+    }
+    if trait_type_is_json_blob(ty, visible_type_names) {
+        let native_ty = match ty {
+            TypeRef::Named(name) => type_paths
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| name.clone())
+                .replace('-', "_"),
+            _ => crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type(ty),
+        };
+        return Some(format!(
+            "serde_json::from_str::<{native_ty}>(&{expr}).expect(\"valid JSON bridge value\")"
+        ));
+    }
+    match ty {
+        TypeRef::Optional(inner) => trait_json_to_core_expr("value", inner, visible_type_names, type_paths)
+            .map(|converted| format!("({expr}).map(|value| {converted})")),
+        TypeRef::Vec(inner) => trait_json_to_core_expr("value", inner, visible_type_names, type_paths)
+            .map(|converted| format!("({expr}).into_iter().map(|value| {converted}).collect::<Vec<_>>()")),
+        _ => None,
+    }
+}
+
+fn trait_native_type(ty: &TypeRef, type_paths: &std::collections::HashMap<String, String>) -> String {
+    match ty {
+        TypeRef::Named(name) => type_paths
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| name.clone())
+            .replace('-', "_"),
+        TypeRef::Optional(inner) => format!("Option<{}>", trait_native_type(inner, type_paths)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", trait_native_type(inner, type_paths)),
+        TypeRef::Map(key, value) => format!(
+            "std::collections::HashMap<{}, {}>",
+            trait_native_type(key, type_paths),
+            trait_native_type(value, type_paths)
+        ),
+        _ => crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type(ty),
+    }
+}
+
+fn trait_core_to_json_expr(expr: &str, ty: &TypeRef, visible_type_names: &HashSet<&str>) -> Option<String> {
+    if matches!(ty, TypeRef::Optional(_)) && trait_type_is_json_blob(ty, visible_type_names) {
+        return Some(format!(
+            "({expr}).map(|value| serde_json::to_string(&value).expect(\"serializable return\"))"
+        ));
+    }
+    if trait_type_is_json_blob(ty, visible_type_names) {
+        return Some(format!(
+            "serde_json::to_string(&({expr})).expect(\"serializable return\")"
+        ));
+    }
+    match ty {
+        TypeRef::Optional(inner) => trait_core_to_json_expr("value", inner, visible_type_names)
+            .map(|converted| format!("({expr}).map(|value| {converted})")),
+        TypeRef::Vec(inner) => trait_core_to_json_expr("value", inner, visible_type_names)
+            .map(|converted| format!("({expr}).into_iter().map(|value| {converted}).collect::<Vec<_>>()")),
+        _ => None,
     }
 }
 
@@ -298,17 +415,61 @@ pub(crate) fn trait_call_arg(
     p: &crate::core::ir::ParamDef,
     visible_type_names: &HashSet<&str>,
     type_paths: &std::collections::HashMap<String, String>,
+    pre_call_bindings: &mut Vec<String>,
 ) -> String {
     let name = p.name.to_snake_case();
 
-    if needs_json_bridge(&p.ty) {
-        let native_ty = crate::backends::swift::gen_rust_crate::type_bridge::swift_bridge_rust_type(&p.ty);
-        let deser = format!("serde_json::from_str::<{native_ty}>(&{name}).expect(\"valid JSON for {name}\")");
-        if p.is_mut {
-            return format!("&mut {deser}");
-        }
+    if p.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+        let binding_expr = if p.optional {
+            trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
+                .map(|converted| format!("({name}).map(|value| {converted})"))
+                .unwrap_or_else(|| name.clone())
+        } else {
+            trait_json_to_core_expr(&name, &p.ty, visible_type_names, type_paths).unwrap_or_else(|| name.clone())
+        };
+        let converted = apply_param_newtype_to_core(&binding_expr, p).expect("explicit newtype metadata checked above");
         if p.is_ref {
-            return format!("&{deser}");
+            let bound = format!("__{name}_newtype");
+            let mutability = if p.is_mut { "mut " } else { "" };
+            pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};"));
+            if p.optional {
+                return if p.is_mut {
+                    format!("{bound}.as_mut()")
+                } else {
+                    format!("{bound}.as_ref()")
+                };
+            }
+            return if p.is_mut {
+                format!("&mut {bound}")
+            } else {
+                format!("&{bound}")
+            };
+        }
+        return converted;
+    }
+
+    let json_conversion = if p.optional {
+        trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
+            .map(|converted| format!("({name}).map(|value| {converted})"))
+    } else {
+        trait_json_to_core_expr(&name, &p.ty, visible_type_names, type_paths)
+    };
+    if let Some(deser) = json_conversion {
+        if p.is_ref {
+            let bound = format!("__{name}_json");
+            let mutability = if p.is_mut { "mut " } else { "" };
+            pre_call_bindings.push(format!("    let {mutability}{bound} = {deser};"));
+            return if p.optional {
+                if p.is_mut {
+                    format!("{bound}.as_mut()")
+                } else {
+                    format!("{bound}.as_ref()")
+                }
+            } else if p.is_mut {
+                format!("&mut {bound}")
+            } else {
+                format!("&{bound}")
+            };
         }
         return deser;
     }
@@ -333,9 +494,17 @@ pub(crate) fn trait_call_arg(
             .get(named.as_str())
             .map(|p| p.replace('-', "_"))
             .unwrap_or_else(|| named.clone());
-        let deser = format!("serde_json::from_str::<{qualified}>(&{name}).expect(\"valid JSON for {name}\")");
+        let deser = if p.optional {
+            format!("{name}.map(|json| serde_json::from_str::<{qualified}>(&json).expect(\"valid JSON for {name}\"))")
+        } else {
+            format!("serde_json::from_str::<{qualified}>(&{name}).expect(\"valid JSON for {name}\")")
+        };
         if p.is_ref {
-            return format!("&{deser}");
+            return if p.optional {
+                format!("({deser}).as_ref()")
+            } else {
+                format!("&{deser}")
+            };
         }
         return deser;
     }
@@ -358,6 +527,8 @@ pub(crate) fn trait_call_arg(
 
     if p.is_ref {
         match &p.ty {
+            TypeRef::Bytes | TypeRef::String if p.optional => return format!("{name}.as_deref()"),
+            TypeRef::Char if p.optional => return format!("{name}.as_ref()"),
             TypeRef::Bytes | TypeRef::String | TypeRef::Char => return format!("&{name}"),
             TypeRef::Vec(_) if p.optional => return format!("{name}.as_deref()"),
             TypeRef::Vec(_) => return format!("{name}.as_slice()"),
@@ -380,9 +551,22 @@ pub(crate) fn emit_trait_method_body(
     enum_names: &HashSet<&str>,
     visible_type_names: &HashSet<&str>,
 ) -> String {
+    let async_uses_transparent_wrapper =
+        method.return_newtype_wrapper.is_some() || method.params.iter().any(|param| param.newtype_wrapper.is_some());
+    if method.is_async && async_uses_transparent_wrapper {
+        return format!(
+            "    compile_error!(\"alef cannot safely bridge async trait method `{}` through Swift; exclude the trait from Swift generation\");\n",
+            method.name
+        );
+    }
+
     let wrap_return = |expr: String| -> String {
-        if needs_json_bridge(&method.return_type) {
-            format!("serde_json::to_string(&({expr})).expect(\"serializable return\")")
+        if method.return_newtype_wrapper.is_some() {
+            let converted = apply_return_newtype_unwrap(&expr, &method.return_newtype_wrapper);
+            return trait_core_to_json_expr(&converted, &method.return_type, visible_type_names).unwrap_or(converted);
+        }
+        if let Some(converted) = trait_core_to_json_expr(&expr, &method.return_type, visible_type_names) {
+            converted
         } else {
             match &method.return_type {
                 TypeRef::String => format!("{expr}.to_string()"),
@@ -405,7 +589,8 @@ pub(crate) fn emit_trait_method_body(
         let ok_fragment = if matches!(method.return_type, TypeRef::Unit) {
             "\"null\"".to_string()
         } else {
-            "serde_json::to_string(&v).expect(\"serializable return\")".to_string()
+            let converted = apply_return_newtype_unwrap("v", &method.return_newtype_wrapper);
+            format!("serde_json::to_string(&({converted})).expect(\"serializable return\")")
         };
 
         format!(
@@ -435,5 +620,201 @@ pub(crate) fn emit_trait_method_body(
     } else {
         let wrapped = wrap_return(source_call.to_string());
         format!("    {wrapped}\n")
+    }
+}
+
+#[cfg(test)]
+mod transparent_string_tests {
+    use super::*;
+    use crate::core::ir::{NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef, ReceiverKind};
+
+    fn wrapper(containers: Vec<NewtypeContainer>) -> String {
+        NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+            "sample::SecretString",
+            "from",
+            "into_inner",
+            containers,
+        )])
+    }
+
+    fn returning_method(name: &str, is_async: bool, error_type: Option<&str>) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            return_type: TypeRef::String,
+            return_newtype_wrapper: Some(wrapper(vec![])),
+            is_async,
+            error_type: error_type.map(str::to_string),
+            receiver: Some(ReceiverKind::Ref),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn trait_trampolines_convert_transparent_params_and_all_return_envelopes() {
+        let mut borrowed = ParamDef {
+            name: "borrowed".to_string(),
+            ty: TypeRef::String,
+            is_ref: true,
+            ..Default::default()
+        };
+        borrowed.newtype_wrapper = Some(wrapper(vec![]));
+        let mut lookup = ParamDef {
+            name: "lookup".to_string(),
+            ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+            optional: true,
+            ..Default::default()
+        };
+        lookup.newtype_wrapper = Some(wrapper(vec![NewtypeContainer::Optional, NewtypeContainer::MapValue]));
+        let mut nested_map = ParamDef {
+            name: "nested_map".to_string(),
+            ty: TypeRef::Optional(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::String),
+            ))),
+            ..Default::default()
+        };
+        nested_map.newtype_wrapper = Some(wrapper(vec![NewtypeContainer::Optional, NewtypeContainer::MapValue]));
+        let mut map_list = ParamDef {
+            name: "map_list".to_string(),
+            ty: TypeRef::Vec(Box::new(TypeRef::Map(
+                Box::new(TypeRef::String),
+                Box::new(TypeRef::String),
+            ))),
+            ..Default::default()
+        };
+        map_list.newtype_wrapper = Some(wrapper(vec![NewtypeContainer::Vec, NewtypeContainer::MapValue]));
+        let mut sync = returning_method("sync_secret", false, None);
+        sync.params = vec![borrowed, lookup, nested_map, map_list];
+        let trait_def = TypeDef {
+            name: "SecretSource".to_string(),
+            rust_path: "sample::SecretSource".to_string(),
+            methods: vec![
+                sync,
+                returning_method("async_secret", true, None),
+                returning_method("fallible_secret", false, Some("SecretError")),
+                returning_method("async_fallible_secret", true, Some("SecretError")),
+            ],
+            ..Default::default()
+        };
+
+        let output = emit_trait_bridge_wrapper(
+            &trait_def,
+            "sample",
+            &HashSet::new(),
+            &HashSet::new(),
+            &std::collections::HashMap::new(),
+        );
+
+        assert!(
+            output.contains("let __borrowed_newtype = sample::SecretString::from(borrowed);"),
+            "{output}"
+        );
+        assert!(output.contains("sync_secret(&__borrowed_newtype,"), "{output}");
+        assert!(output.contains("lookup: Option<String>"), "{output}");
+        assert!(
+            output.contains("from_str::<std::collections::HashMap<String, String>>(&value)"),
+            "{output}"
+        );
+        assert!(
+            output.contains("map(|(key, value)| (key, sample::SecretString::from(value)))"),
+            "{output}"
+        );
+        assert!(output.contains("nested_map: Option<String>"), "{output}");
+        assert!(output.contains("map_list: Vec<String>"), "{output}");
+        assert!(
+            output.contains("(this.0.sync_secret(&__borrowed_newtype") && output.contains(")).into_inner()"),
+            "{output}"
+        );
+        assert!(
+            output.contains("cannot safely bridge async trait method `async_secret`"),
+            "{output}"
+        );
+        assert!(
+            output.contains("cannot safely bridge async trait method `async_fallible_secret`"),
+            "{output}"
+        );
+        assert!(!output.contains("block_on("), "{output}");
+    }
+
+    #[test]
+    fn transparent_return_conversion_is_inside_each_trait_result_branch() {
+        let visible = HashSet::new();
+        let enums = HashSet::new();
+
+        let sync = returning_method("fallible_secret", false, Some("SecretError"));
+        let sync_body = emit_trait_method_body(&sync, "source.fallible_secret()", "String", &enums, &visible);
+        assert!(sync_body.contains("match source.fallible_secret()"), "{sync_body}");
+        assert!(
+            sync_body.contains("Ok(v) =>") && sync_body.contains("serde_json::to_string(&((v).into_inner()))"),
+            "{sync_body}"
+        );
+
+        let async_method = returning_method("async_fallible_secret", true, Some("SecretError"));
+        let async_body = emit_trait_method_body(
+            &async_method,
+            "source.async_fallible_secret()",
+            "String",
+            &enums,
+            &visible,
+        );
+        assert!(
+            async_body.contains("cannot safely bridge async trait method `async_fallible_secret`"),
+            "{async_body}"
+        );
+        assert!(
+            !async_body.contains("block_on(") && !async_body.contains(".await"),
+            "{async_body}"
+        );
+    }
+
+    #[test]
+    fn fallible_json_returns_are_serialized_once_after_newtype_conversion() {
+        let mut map_method = returning_method("map", false, Some("SecretError"));
+        map_method.return_type = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
+        map_method.return_newtype_wrapper = Some(wrapper(vec![NewtypeContainer::MapValue]));
+        let map_body = emit_trait_method_body(&map_method, "source.map()", "String", &HashSet::new(), &HashSet::new());
+        assert!(map_body.contains("(v).into_iter()"), "{map_body}");
+        assert!(!map_body.contains("to_string(&(serde_json::to_string"), "{map_body}");
+
+        let excluded_method = MethodDef {
+            name: "excluded".to_string(),
+            return_type: TypeRef::Named("Hidden".to_string()),
+            error_type: Some("SecretError".to_string()),
+            ..Default::default()
+        };
+        let excluded_body = emit_trait_method_body(
+            &excluded_method,
+            "source.excluded()",
+            "String",
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert!(excluded_body.contains("serde_json::to_string(&(v))"), "{excluded_body}");
+        assert!(
+            !excluded_body.contains("to_string(&(serde_json::to_string"),
+            "{excluded_body}"
+        );
+    }
+
+    #[test]
+    fn non_wrapper_async_trait_method_keeps_existing_bridge_path() {
+        let method = MethodDef {
+            name: "plain_async".to_string(),
+            return_type: TypeRef::String,
+            is_async: true,
+            ..Default::default()
+        };
+        let body = emit_trait_method_body(
+            &method,
+            "source.plain_async()",
+            "String",
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert!(
+            body.contains("block_on(async { source.plain_async().await.to_string() })"),
+            "{body}"
+        );
+        assert!(!body.contains("compile_error!"), "{body}");
     }
 }

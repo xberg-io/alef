@@ -1,5 +1,15 @@
 use super::*;
 use crate::core::config::BridgeBinding;
+use crate::core::ir::{MethodDef, NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef};
+
+fn transparent_string_wrapper(containers: Vec<NewtypeContainer>) -> String {
+    NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "testcrate::SecretString",
+        "from",
+        "into_inner",
+        containers,
+    )])
+}
 
 fn make_trait_def(name: &str) -> TypeDef {
     TypeDef {
@@ -51,6 +61,78 @@ fn make_bridge_cfg(trait_name: &str) -> TraitBridgeConfig {
         result_type: None,
         ffi_skip_methods: Vec::new(),
     }
+}
+
+#[test]
+fn optional_trait_signatures_agree_across_swift_extern_and_rust_wrapper() {
+    let mut outer_optional = ParamDef {
+        name: "outer_optional".to_string(),
+        ty: TypeRef::String,
+        optional: true,
+        ..Default::default()
+    };
+    outer_optional.newtype_wrapper = Some(transparent_string_wrapper(vec![NewtypeContainer::Optional]));
+    let nested_optional = ParamDef {
+        name: "nested_optional".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::String)),
+        ..Default::default()
+    };
+    let mut optional_map = ParamDef {
+        name: "optional_map".to_string(),
+        ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        optional: true,
+        ..Default::default()
+    };
+    optional_map.newtype_wrapper = Some(transparent_string_wrapper(vec![
+        NewtypeContainer::Optional,
+        NewtypeContainer::MapValue,
+    ]));
+    let optional_hidden_list = ParamDef {
+        name: "optional_hidden_list".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::Named("Hidden".to_string()))))),
+        ..Default::default()
+    };
+    let method = MethodDef {
+        name: "exchange".to_string(),
+        params: vec![outer_optional, nested_optional, optional_map, optional_hidden_list],
+        return_type: TypeRef::String,
+        return_newtype_wrapper: Some(transparent_string_wrapper(vec![])),
+        ..Default::default()
+    };
+    let mut trait_def = make_trait_def("SecretExchange");
+    trait_def.methods = vec![method];
+    let bridge_cfg = make_bridge_cfg("SecretExchange");
+    let bridges = vec![("SecretExchange".to_string(), &bridge_cfg, &trait_def)];
+    let swift = gen_trait_bridge_files(&bridges, &HashSet::new(), &HashSet::new())
+        .into_iter()
+        .find(|(name, _)| name == "SwiftSecretExchangeBridge.swift")
+        .expect("Swift trait bridge")
+        .1;
+    let rust_extern = crate::backends::swift::gen_rust_crate::trait_bridge::emit_extern_block_for_trait_bridge(
+        &trait_def,
+        &HashSet::new(),
+    );
+    let rust_wrapper = crate::backends::swift::gen_rust_crate::trait_bridge::emit_trait_bridge_wrapper(
+        &trait_def,
+        "testcrate",
+        &HashSet::new(),
+        &HashSet::new(),
+        &std::collections::HashMap::new(),
+    );
+
+    assert!(swift.contains("outerOptional: String?"), "{swift}");
+    assert!(swift.contains("nestedOptional: String?"), "{swift}");
+    assert!(swift.contains("optionalMap: String?"), "{swift}");
+    assert!(swift.contains("optionalHiddenList: String?"), "{swift}");
+    for rust in [&rust_extern, &rust_wrapper] {
+        assert!(rust.contains("outer_optional: Option<String>"), "{rust}");
+        assert!(rust.contains("nested_optional: Option<String>"), "{rust}");
+        assert!(rust.contains("optional_map: Option<String>"), "{rust}");
+        assert!(rust.contains("optional_hidden_list: Option<String>"), "{rust}");
+    }
+    assert!(rust_wrapper.contains("testcrate::SecretString::from"), "{rust_wrapper}");
+    assert!(rust_wrapper.contains(".into_inner()"), "{rust_wrapper}");
+    assert!(swift.contains("-> String"), "{swift}");
 }
 
 #[test]

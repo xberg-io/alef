@@ -9,10 +9,13 @@
 
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, bridge_type_with_handles, enum_from_string_fn_name,
-    forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
+    forces_fallible_enum_bridge, needs_json_bridge, needs_json_bridge_with_handles,
+    result_ok_needs_json_bridge_with_handles, swift_bridge_rust_type,
 };
 use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
-use crate::core::ir::{FunctionDef, PrimitiveType, TypeRef};
+use crate::codegen::conversions::helpers::{apply_param_newtype_to_core, is_explicit_newtype};
+use crate::codegen::generators::binding_helpers::apply_return_newtype_unwrap;
+use crate::core::ir::{FunctionDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
@@ -137,6 +140,40 @@ pub(crate) fn swift_call_arg(
             .unwrap_or_else(|| type_name.to_string())
             .replace('-', "_")
     };
+
+    if p.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+        let binding_expr = if needs_json_bridge(&p.ty) {
+            let binding_ty = swift_bridge_rust_type(&p.ty);
+            if p.optional {
+                format!(
+                    "{name}.map(|json| ::serde_json::from_str::<{binding_ty}>(&json).expect(\"valid JSON for {name}\"))"
+                )
+            } else {
+                format!("::serde_json::from_str::<{binding_ty}>(&{name}).expect(\"valid JSON for {name}\")")
+            }
+        } else {
+            name.clone()
+        };
+        let converted = apply_param_newtype_to_core(&binding_expr, p).expect("explicit newtype metadata checked above");
+        if p.is_ref {
+            let bound = format!("__{name}_newtype");
+            let mutability = if p.is_mut { "mut " } else { "" };
+            pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};"));
+            if p.optional {
+                return if p.is_mut {
+                    format!("{bound}.as_mut()")
+                } else {
+                    format!("{bound}.as_ref()")
+                };
+            }
+            return if p.is_mut {
+                format!("&mut {bound}")
+            } else {
+                format!("&{bound}")
+            };
+        }
+        return converted;
+    }
 
     if let TypeRef::Named(n) = &p.ty
         && unit_enum_names.contains(n.as_str())
@@ -480,12 +517,11 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     // above): a bare, non-`Result` `u64`/`i64` return never reaches swift-bridge-ir's panicking
     // path and must keep its native type, not be forced through JSON. ~keep
     let is_result_return = f.error_type.is_some() || forced_fallible;
-    let json_wrap_ok = needs_json_bridge_with_handles(&f.return_type, handle_returned_types)
-        || (is_result_return
-            && matches!(
-                &effective_return_type,
-                TypeRef::Primitive(PrimitiveType::U64) | TypeRef::Primitive(PrimitiveType::I64)
-            ));
+    let json_wrap_ok = if is_result_return {
+        result_ok_needs_json_bridge_with_handles(&effective_return_type, handle_returned_types)
+    } else {
+        needs_json_bridge_with_handles(&effective_return_type, handle_returned_types)
+    };
 
     // `all_enum_names`, not `unit_enum_names`: the discriminator here is enum-vs-struct, not
     // unit-vs-tagged. `enums::emit_enum_wrapper` emits `impl From<core> for {t}` for EVERY enum
@@ -525,7 +561,15 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
         },
         _ => None,
     };
-    let value_map_string: String = if json_wrap_ok {
+    let unwrap_return = |source: &str| apply_return_newtype_unwrap(source, &f.return_newtype_wrapper);
+    let value_map_string: String = if f.return_newtype_wrapper.is_some() {
+        let converted = unwrap_return("v");
+        if json_wrap_ok {
+            format!(".map(|v| serde_json::to_string(&({converted})).expect(\"serializable return\"))")
+        } else {
+            format!(".map(|v| {converted})")
+        }
+    } else if json_wrap_ok {
         ".map(|v| serde_json::to_string(&v).expect(\"serializable return\"))".to_string()
     } else {
         match &wrap_shape {
@@ -559,6 +603,14 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     };
     let value_map = value_map_string.as_str();
     let direct_wrap = |source: String| -> String {
+        if f.return_newtype_wrapper.is_some() {
+            let converted = unwrap_return(&source);
+            return if json_wrap_ok {
+                format!("serde_json::to_string(&({converted})).expect(\"serializable return\")")
+            } else {
+                converted
+            };
+        }
         if json_wrap_ok {
             return format!("serde_json::to_string(&({source})).expect(\"serializable return\")");
         }
@@ -611,8 +663,11 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
         .to_string()
     } else if is_capsule_return {
         if f.is_async {
-            let expr = format!("{source_call}.await.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)");
-            if forced_fallible { format!("Ok({expr})") } else { expr }
+            if f.error_type.is_some() {
+                format!("{source_call}.await.map_err(|e| e.to_string()).map(|__cap| __cap.into_raw() as usize)")
+            } else {
+                format!("Ok({source_call}.await.into_raw() as usize)")
+            }
         } else if f.error_type.is_some() {
             format!("{source_call}.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)")
         } else if forced_fallible {

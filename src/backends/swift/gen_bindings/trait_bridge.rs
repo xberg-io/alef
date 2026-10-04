@@ -277,6 +277,7 @@ fn swift_method_params_native(params: &[crate::core::ir::ParamDef], exclude_type
         .map(|p| {
             let name = p.name.to_snake_case();
             let ty = swift_type_name_native(&p.ty, exclude_types);
+            let ty = if p.optional { format!("{ty}?") } else { ty };
             format!("{}: {}", name, ty)
         })
         .collect::<Vec<_>>()
@@ -297,6 +298,7 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
         .map(|p| {
             let name = p.name.to_lower_camel_case();
             let ty = swift_type_name(&p.ty, exclude_types);
+            let ty = if p.optional { format!("{ty}?") } else { ty };
             format!("{}: {}", name, ty)
         })
         .collect::<Vec<_>>()
@@ -400,7 +402,11 @@ fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
         }
         TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner, exclude_types)),
         TypeRef::Map(_, _) => "String".to_string(),
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(name) if exclude_types.contains(name))) => {
+        TypeRef::Optional(_)
+            if crate::backends::swift::gen_rust_crate::trait_bridge::trait_type_is_single_json_blob(ty, |name| {
+                exclude_types.contains(name)
+            }) =>
+        {
             "String?".to_string()
         }
         TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner, exclude_types)),

@@ -472,9 +472,10 @@ pub(crate) fn emit_extern_block_for_functions(
 
         // This declaration must describe the same forced-fallible signature `emit_function_shim`
         // builds for the matching `pub fn`, or swift-bridge reports `error[E0308]`. Both call
-        // `forces_fallible_enum_bridge` rather than deciding separately -- see its doc comment
-        // for why. ~keep
-        let forced_fallible = forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
+        // Async shims are also forced fallible so a spawned task's JoinError crosses the bridge
+        // as `Err(String)`. Keep this predicate identical to `emit_function_shim`. ~keep
+        let forced_fallible =
+            f.is_async || forces_fallible_enum_bridge(&f.params, f.error_type.as_ref(), unit_enum_names);
 
         let return_ty = if is_capsule_return {
             if forced_fallible {

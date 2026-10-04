@@ -1,5 +1,14 @@
 use super::*;
-use crate::core::ir::{ParamDef, TypeRef};
+use crate::core::ir::{NewtypeContainer, NewtypeWrapper, NewtypeWrapperMetadata, ParamDef, TypeRef};
+
+fn transparent_string_wrapper(containers: Vec<NewtypeContainer>) -> String {
+    NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "sample_crawler::SecretString",
+        "from",
+        "into_inner",
+        containers,
+    )])
+}
 
 fn param(name: &str, ty: TypeRef) -> ParamDef {
     ParamDef {
@@ -40,6 +49,126 @@ fn function(params: Vec<ParamDef>) -> FunctionDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         version: Default::default(),
+    }
+}
+
+#[test]
+fn transparent_string_params_and_returns_use_explicit_operations() {
+    let mut direct = param("value", TypeRef::String);
+    direct.newtype_wrapper = Some(transparent_string_wrapper(vec![]));
+    let mut optional = param("optional", TypeRef::String);
+    optional.optional = true;
+    optional.newtype_wrapper = Some(transparent_string_wrapper(vec![NewtypeContainer::Optional]));
+    let mut map = param(
+        "lookup",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+    );
+    map.optional = true;
+    map.newtype_wrapper = Some(transparent_string_wrapper(vec![
+        NewtypeContainer::Optional,
+        NewtypeContainer::MapValue,
+    ]));
+    let mut f = function(vec![direct, optional, map]);
+    f.is_async = false;
+    f.error_type = None;
+    f.return_type = TypeRef::Optional(Box::new(TypeRef::String));
+    f.return_newtype_wrapper = Some(transparent_string_wrapper(vec![NewtypeContainer::Optional]));
+
+    let context = FunctionShimContext {
+        source_crate: "sample_crawler",
+        type_paths: &HashMap::new(),
+        unit_enum_names: &HashSet::new(),
+        tagged_enum_names: &HashSet::new(),
+        no_serde_names: &HashSet::new(),
+        handle_returned_types: &HashSet::new(),
+        capsule_types: &HashMap::new(),
+        opaque_types: &ahash::AHashSet::default(),
+    };
+    let shim = emit_function_shim(&f, &context).expect("emit transparent-string shim");
+
+    assert!(
+        shim.contains("map(|(key, value)| (key, sample_crawler::SecretString::from(value)))"),
+        "{shim}"
+    );
+    assert!(
+        shim.contains("(optional).map(|value| sample_crawler::SecretString::from(value))"),
+        "{shim}"
+    );
+    assert!(
+        shim.contains("from_str::<std::collections::HashMap<String, String>>(&json)"),
+        "{shim}"
+    );
+    assert!(
+        shim.contains("sample_crawler::interact(sample_crawler::SecretString::from(value),"),
+        "{shim}"
+    );
+    assert!(shim.contains("into_inner()"), "{shim}");
+    assert!(
+        !shim.contains("SecretString") || !shim.contains(".to_string()"),
+        "{shim}"
+    );
+}
+
+#[test]
+fn borrowed_transparent_string_param_uses_stable_converted_binding() {
+    let mut value = param("value", TypeRef::String);
+    value.is_ref = true;
+    value.newtype_wrapper = Some(transparent_string_wrapper(vec![]));
+    let mut f = function(vec![value]);
+    f.is_async = false;
+    f.error_type = None;
+    f.return_type = TypeRef::Unit;
+
+    let context = FunctionShimContext {
+        source_crate: "sample_crawler",
+        type_paths: &HashMap::new(),
+        unit_enum_names: &HashSet::new(),
+        tagged_enum_names: &HashSet::new(),
+        no_serde_names: &HashSet::new(),
+        handle_returned_types: &HashSet::new(),
+        capsule_types: &HashMap::new(),
+        opaque_types: &ahash::AHashSet::default(),
+    };
+    let shim = emit_function_shim(&f, &context).expect("emit borrowed transparent-string shim");
+
+    assert!(
+        shim.contains("let __value_newtype = sample_crawler::SecretString::from(value);"),
+        "{shim}"
+    );
+    assert!(shim.contains("sample_crawler::interact(&__value_newtype)"), "{shim}");
+}
+
+#[test]
+fn infallible_async_extern_and_shim_signatures_agree_for_string_returns() {
+    for return_wrapper in [None, Some(transparent_string_wrapper(vec![]))] {
+        let mut f = function(vec![]);
+        f.error_type = None;
+        f.return_type = TypeRef::String;
+        f.return_newtype_wrapper = return_wrapper;
+        let extern_block = crate::backends::swift::gen_rust_crate::extern_block::emit_extern_block_for_functions(
+            std::slice::from_ref(&f),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &std::collections::BTreeSet::new(),
+            &HashMap::new(),
+            &ahash::AHashSet::default(),
+        )
+        .expect("emit async extern");
+        let context = FunctionShimContext {
+            source_crate: "sample_crawler",
+            type_paths: &HashMap::new(),
+            unit_enum_names: &HashSet::new(),
+            tagged_enum_names: &HashSet::new(),
+            no_serde_names: &HashSet::new(),
+            handle_returned_types: &HashSet::new(),
+            capsule_types: &HashMap::new(),
+            opaque_types: &ahash::AHashSet::default(),
+        };
+        let shim = emit_function_shim(&f, &context).expect("emit async shim");
+
+        assert!(extern_block.contains("-> Result<String, String>"), "{extern_block}");
+        assert!(shim.contains("-> Result<String, String>"), "{shim}");
     }
 }
 
@@ -751,4 +880,46 @@ fn infallible_async_function_still_gets_forced_result_return_for_the_join_error(
         !shim.contains("panic!") && !shim.contains("resume_unwind"),
         "must not panic across the FFI boundary, got:\n{shim}"
     );
+}
+
+#[test]
+fn async_capsule_shim_preserves_core_errors_and_wraps_infallible_success() {
+    let type_paths = HashMap::new();
+    let empty_str = HashSet::new();
+    let handle_returned_types = HashSet::new();
+    let capsule_types = HashMap::from([(
+        "Language".to_string(),
+        crate::core::config::HostCapsuleTypeConfig::default(),
+    )]);
+    let opaque_types = ahash::AHashSet::default();
+    let context = shim_context(ShimContextInputs {
+        type_paths: &type_paths,
+        unit_enum_names: &empty_str,
+        tagged_enum_names: &empty_str,
+        no_serde_names: &empty_str,
+        handle_returned_types: &handle_returned_types,
+        capsule_types: &capsule_types,
+        opaque_types: &opaque_types,
+    });
+
+    let mut infallible = function(vec![]);
+    infallible.return_type = TypeRef::Named("Language".to_string());
+    infallible.error_type = None;
+    let infallible_shim = emit_function_shim(&infallible, &context).expect("emit infallible capsule shim");
+    assert!(
+        infallible_shim.contains("Ok(sample_crawler::interact().await.into_raw() as usize)"),
+        "an infallible async capsule success must be wrapped in Ok, got:\n{infallible_shim}"
+    );
+    assert!(!infallible_shim.contains("unwrap_or(0)"), "{infallible_shim}");
+
+    let mut fallible = function(vec![]);
+    fallible.return_type = TypeRef::Named("Language".to_string());
+    let fallible_shim = emit_function_shim(&fallible, &context).expect("emit fallible capsule shim");
+    assert!(
+        fallible_shim.contains(
+            "sample_crawler::interact().await.map_err(|e| e.to_string()).map(|__cap| __cap.into_raw() as usize)"
+        ),
+        "a fallible async capsule must preserve the core error in the bridge Result, got:\n{fallible_shim}"
+    );
+    assert!(!fallible_shim.contains("unwrap_or(0)"), "{fallible_shim}");
 }
