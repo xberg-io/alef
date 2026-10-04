@@ -346,6 +346,57 @@ fn real_poly_formats_a_gitignored_staged_e2e_render() {
     assert_eq!(stats.compared, 1);
 }
 
+/// The writer compares before formatting. When the fresh render already matches the stamped
+/// file, it performs no write; poly then preserves that hash-stamped file unless explicitly
+/// given `--fix-generated`. The verifier must not format an unstamped copy and invent output
+/// the writer can never produce. ~keep
+#[test]
+fn unchanged_stamped_render_bypasses_the_formatter_prediction() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = crate::core::backend::GeneratedFile {
+        path: std::path::PathBuf::from("pyproject.toml"),
+        content: "[build-system]\nrequires=[\"setuptools>=68\",\"wheel\"]\n".to_owned(),
+        generated_header: true,
+    };
+    let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path())
+        .pop()
+        .expect("one managed output")
+        .content;
+
+    let probe_dir = dir.path().join("probe");
+    std::fs::create_dir_all(&probe_dir).unwrap();
+    let probe = probe_dir.join("pyproject.toml");
+    std::fs::write(&probe, &rendered).unwrap();
+    crate::cli::pipeline::poly_format_strict(std::slice::from_ref(&probe), &probe_dir)
+        .expect("poly must format the negative-control render");
+    assert_ne!(
+        std::fs::read_to_string(&probe).unwrap(),
+        rendered,
+        "negative control must prove that formatting the unstamped render changes it"
+    );
+
+    let hash = crate::core::hash::hash_content(&rendered);
+    std::fs::write(
+        dir.path().join(&file.path),
+        crate::core::hash::inject_hash_line(&rendered, &hash),
+    )
+    .unwrap();
+    let (drifted, stats) =
+        drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
+            tool == "poly"
+        });
+
+    assert!(
+        drifted.is_empty(),
+        "an unchanged writer input cannot be formatter drift"
+    );
+    assert_eq!(stats.matched_render_exactly, 1);
+    assert_eq!(stats.compared, 0, "the impossible formatter pass must not run");
+}
+
 #[test]
 fn drift_check_ignores_create_once_seeds_even_if_an_older_copy_has_a_marker() {
     let dir = tempfile::tempdir().expect("tempdir");

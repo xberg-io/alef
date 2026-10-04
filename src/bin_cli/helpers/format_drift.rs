@@ -370,6 +370,44 @@ pub(super) fn drifted_marked_paths(
     drifted_marked_paths_with(files, base_dir, config, &crate::cli::pipeline::is_tool_available)
 }
 
+fn record_direct_comparison(
+    full_path: &Path,
+    existing: &str,
+    rendered: &str,
+    drifted: &mut Vec<String>,
+    matched: &mut usize,
+) {
+    if crate::cli::pipeline::matches_alef_output(full_path, existing, rendered) {
+        *matched += 1;
+    } else {
+        drifted.push(full_path.display().to_string());
+    }
+}
+
+/// An unchanged render never reaches the writer's formatter: the write guard leaves the already
+/// hash-stamped file in place, and poly preserves it without `--fix-generated`. Formatting an
+/// unstamped staging copy would model a write that the real pipeline does not perform. ~keep
+fn writer_skips_unchanged_stamped_file(full_path: &Path, existing: &str, rendered: &str) -> bool {
+    crate::cli::pipeline::matches_alef_output(full_path, existing, rendered)
+}
+
+fn prepared_drift_input(
+    file: &crate::core::backend::GeneratedFile,
+    base_dir: &Path,
+    declared: &crate::core::config::UserOwnedPaths,
+) -> Option<(PathBuf, String, String)> {
+    let full_path = base_dir.join(&file.path);
+    if declared.matches(base_dir, &full_path) || crate::cli::pipeline::is_base64_binary_output(&file.path) {
+        return None;
+    }
+    let existing = std::fs::read_to_string(&full_path).ok()?;
+    if !crate::core::hash::content_has_alef_marker(&existing) || is_create_once_for_drift(file) {
+        return None;
+    }
+    let rendered = managed_output_for_drift(file, &existing, base_dir).into_iter().next()?;
+    Some((full_path, existing, rendered.content))
+}
+
 /// Testable seam for [`drifted_marked_paths`]: resolves poly's availability through
 /// `is_available` rather than PATH, so both the counted-skip branch and the `.md` fast path's
 /// poly-absent case are provable on a host that does have poly installed. ~keep
@@ -388,44 +426,25 @@ fn drifted_marked_paths_with(
     let mut unpredictable = 0usize;
     let mut matched_render = 0usize;
     for file in files {
-        let full_path = base_dir.join(&file.path);
-        if declared.matches(base_dir, &full_path) {
-            continue;
-        }
-        let Ok(existing) = std::fs::read_to_string(&full_path) else {
+        let Some((full_path, existing, rendered)) = prepared_drift_input(file, base_dir, &declared) else {
             continue;
         };
-        if !crate::core::hash::content_has_alef_marker(&existing) {
-            // Unmarked: `frozen_managed_paths`'s territory, not this check's.
+        if writer_skips_unchanged_stamped_file(&full_path, &existing, &rendered) {
+            matched_render += 1;
             continue;
         }
-        if crate::cli::pipeline::is_base64_binary_output(&file.path) {
-            continue;
-        }
-        if is_create_once_for_drift(file) {
-            continue;
-        }
-        let rendered = managed_output_for_drift(file, &existing, base_dir);
-        let Some(output) = rendered.into_iter().next() else {
-            continue;
-        };
-        let compare_directly = |drifted: &mut Vec<String>, matched: &mut usize| {
-            if crate::cli::pipeline::matches_alef_output(&full_path, &existing, &output.content) {
-                *matched += 1;
-            } else {
-                drifted.push(full_path.display().to_string());
-            }
-        };
         if render_predicts_final_bytes(&full_path, poly_available) {
-            compare_directly(&mut drifted, &mut matched_render);
+            record_direct_comparison(&full_path, &existing, &rendered, &mut drifted, &mut matched_render);
             continue;
         }
         match formatting_owner(&full_path, config, base_dir, &coverage) {
-            FormattingOwner::None => compare_directly(&mut drifted, &mut matched_render),
+            FormattingOwner::None => {
+                record_direct_comparison(&full_path, &existing, &rendered, &mut drifted, &mut matched_render);
+            }
             FormattingOwner::Poly => real_format_candidates.push(RealFormatCandidate {
                 full_path,
                 disk_content: existing,
-                rendered_content: output.content,
+                rendered_content: rendered,
                 format_context: coverage
                     .format_context(&base_dir.join(&file.path))
                     .unwrap_or(base_dir)
