@@ -677,6 +677,38 @@ fn split_leading_ident(expr: &str) -> (&str, &str) {
     (&expr[..end], &expr[end..])
 }
 
+fn preserve_optional_constructor_defaults(assignments: &str, fields: &[FieldDef]) -> (String, bool) {
+    let mut rendered = assignments.to_string();
+    let mut use_defaults = false;
+    for field in fields
+        .iter()
+        .filter(|field| field.cfg.is_none() && matches!(field.ty, TypeRef::Optional(_)))
+    {
+        let direct = format!("{}: {}", field.name, field.name);
+        let preserved = format!("{}: {}.or(defaults.{})", field.name, field.name, field.name);
+        if rendered.contains(&direct) {
+            rendered = rendered.replace(&direct, &preserved);
+            use_defaults = true;
+        } else {
+            let mut replaced = false;
+            rendered = rendered
+                .split(", ")
+                .map(|assignment| {
+                    if assignment == field.name {
+                        replaced = true;
+                        preserved.as_str()
+                    } else {
+                        assignment
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            use_defaults |= replaced;
+        }
+    }
+    (rendered, use_defaults)
+}
+
 /// Generate a constructor method with camelCase parameter names for JS consumers.
 fn gen_new_method(
     typ: &TypeDef,
@@ -720,6 +752,11 @@ fn gen_new_method(
         constructor_parts(&filtered_fields, &map_fn)
     };
 
+    let (assignments, use_defaults) = if typ.has_default {
+        preserve_optional_constructor_defaults(&assignments, &filtered_fields)
+    } else {
+        (assignments, false)
+    };
     let borrowed = borrowable_constructor_fields(typ, &filtered_fields, mapper, class_type_names);
     let (param_list_camel, assignments_camel) =
         convert_constructor_params_to_camel_case(&param_list, &assignments, &field_names, &borrowed);
@@ -739,6 +776,7 @@ fn gen_new_method(
             param_list => param_list_camel,
             assignments => assignments_camel,
             struct_name => format!("{prefix}{}", typ.name),
+            use_defaults => use_defaults,
         },
     )
     .trim_end()

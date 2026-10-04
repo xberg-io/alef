@@ -6,5 +6,8 @@
 {% endfor %}
 #[wasm_bindgen(constructor)]
 pub fn new({{ param_list }}) -> {{ struct_name }} {
+{% if use_defaults %}
+    let defaults = {{ struct_name }}::default();
+{% endif %}
     {{ struct_name }} { {{ assignments }} }
 }

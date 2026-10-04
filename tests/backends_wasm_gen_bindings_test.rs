@@ -4117,6 +4117,69 @@ fn test_has_default_struct_delegates_wasm_default_to_core_default() {
     );
 }
 
+#[test]
+fn test_has_default_constructor_preserves_optional_core_default() {
+    let backend = WasmBackend;
+    let api = ApiSurface {
+        unresolved_modules: Vec::new(),
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field(
+                "max_input_size",
+                TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+                true,
+            )],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            serde_container_default: false,
+            serde_container_conversion: Default::default(),
+            super_traits: vec![],
+            doc: "Conversion options".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            has_private_fields: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::BTreeMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config())
+        .expect("generate_bindings failed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("let defaults = WasmConversionOptions::default();"),
+        "constructor must seed omitted optional fields from the delegating default: {content}"
+    );
+    assert!(
+        content.contains("max_input_size: maxInputSize.or(defaults.max_input_size)"),
+        "omission must preserve the core default while Some(value) remains an explicit override: {content}"
+    );
+}
+
 /// Regression test: constructor params and struct-literal field inits must stay in sync.
 ///
 /// Three cases: 1. Single-word optional field (`content: Option<String>`) — camelCase == snake_case, must work.
