@@ -284,6 +284,14 @@ impl Backend for Pyo3Backend {
                 error_type_names.insert(exc_name);
             }
         }
+        transparent_strings::reject_unsupported_flattened_wrapper_fields(api, |typ| {
+            !typ.is_trait
+                && !typ.is_opaque
+                && !typ.binding_excluded
+                && !py_exclude_types.contains(&typ.name)
+                && !capsule_types.contains_key(typ.name.as_str())
+                && !error_type_names.contains(typ.name.as_str())
+        })?;
 
         let error_converters: Vec<String> = api
             .errors
@@ -574,6 +582,9 @@ impl Backend for Pyo3Backend {
                 // magic `type="..."` string. The `#[new]` dict/kwargs/string constructor stays as-is
                 let data_enum_code =
                     generators::gen_pyo3_data_enum_with_coercion(e, &core_import, Some(&mapper), &coercible_dto_names);
+                let is_host_enum = crate::codegen::cfg::is_host_owned_rust_path(&core_import, &e.rust_path);
+                let data_enum_code =
+                    transparent_strings::rewrite_data_enum_root_optional_fields(data_enum_code, e, is_host_enum);
                 // in `default_required_types`) but the core `impl Default` is `#[alef(skip)]`'d
                 let needs_default = default_required_types.contains(e.name.as_str())
                     && !data_enum_code.contains(&format!("impl Default for {}", e.name));
@@ -641,6 +652,11 @@ impl Backend for Pyo3Backend {
                     && mutex::returns_tokio_mutex_type(f, &tokio_mutex_types)
                 {
                     fn_code = fn_code.replace("Arc::new(std::sync::Mutex::new(", "Arc::new(tokio::sync::Mutex::new(");
+                }
+                if !adapter_bodies.contains_key(&f.name)
+                    && generators::can_auto_delegate_function_with_named_let_bindings(f, &opaque_types)
+                {
+                    fn_code = transparent_strings::rewrite_function_root_optional_params(fn_code, f);
                 }
                 builder.add_item(&fn_code);
             }
