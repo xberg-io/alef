@@ -3,7 +3,8 @@ use crate::core::ir::{FieldDef, TypeRef};
 
 use super::field_fragments::sanitized_vec_field_to_core_expr;
 use super::{
-    apply_field_newtype_from_core, apply_field_newtype_to_core, field_references_excluded_type, is_tuple_variant,
+    apply_field_newtype_from_core, apply_field_newtype_to_core, explicit_newtype_replaces_base_conversion,
+    field_references_excluded_type, is_tuple_variant,
 };
 
 /// Emit a named-field initializer, collapsing `field_name: field_name` to the shorthand
@@ -21,11 +22,15 @@ fn explicit_newtype_to_core_expr(field: &FieldDef, binding: &str, config: &Conve
     use crate::codegen::conversions::field_conversion_to_core_cfg;
 
     let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
-    let base = field_conversion_to_core_cfg(binding, &field.ty, field.optional, config);
-    let source = if let Some(expr) = base.strip_prefix(&format!("{binding}: ")) {
-        expr.replace(&format!("val.{binding}"), binding)
+    let source = if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
+        binding.to_string()
     } else {
-        base
+        let base = field_conversion_to_core_cfg(binding, &field.ty, field.optional, config);
+        if let Some(expr) = base.strip_prefix(&format!("{binding}: ")) {
+            expr.replace(&format!("val.{binding}"), binding)
+        } else {
+            base
+        }
     };
     apply_field_newtype_to_core(&source, &field.ty, field.optional, wrapper)
 }
@@ -36,7 +41,7 @@ fn explicit_newtype_from_core_expr(field: &FieldDef, binding: &str, config: &Con
 
     let wrapper = field.newtype_wrapper.as_ref().expect("caller checked wrapper");
     let converted = apply_field_newtype_from_core(binding, &field.ty, field.optional, wrapper);
-    if matches!(field.ty, TypeRef::String) {
+    if explicit_newtype_replaces_base_conversion(&field.ty, field.optional, wrapper, config) {
         return converted;
     }
     let base = field_conversion_from_core_cfg(

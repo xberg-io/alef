@@ -52,6 +52,9 @@ impl OrderedSecret {
 pub enum Authentication {
     Bearer(SecretString),
     Header { value: SecretString },
+    Pairs {
+        values: std::collections::HashMap<SecretString, SecretString>,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize)]

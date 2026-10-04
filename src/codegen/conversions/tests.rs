@@ -1349,6 +1349,16 @@ fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
                 )],
                 ..EnumVariant::default()
             },
+            EnumVariant {
+                name: "Pairs".to_string(),
+                fields: vec![transparent_secret_field_paths(
+                    "pairs",
+                    TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    false,
+                    &[vec![NewtypeContainer::MapKey], vec![NewtypeContainer::MapValue]],
+                )],
+                ..EnumVariant::default()
+            },
         ],
         ..EnumDef::default()
     };
@@ -1360,9 +1370,19 @@ fn transparent_string_enum_payloads_use_the_same_explicit_conversions() {
 
     let to_core = gen_enum_from_binding_to_core_cfg(&enum_def, "my_crate", &config);
     assert!(to_core.contains("my_crate::SecretString::from(_0)"), "{to_core}");
+    assert!(
+        to_core.contains("(my_crate::SecretString::from(key), my_crate::SecretString::from(value))"),
+        "{to_core}"
+    );
+    assert_eq!(to_core.matches("(pairs).into_iter()").count(), 1, "{to_core}");
     let from_core = gen_enum_from_core_to_binding_cfg(&enum_def, "my_crate", &config);
     assert!(from_core.contains("(_0).into_inner()"), "{from_core}");
     assert!(from_core.contains("map(|value| (value).into_inner())"), "{from_core}");
+    assert!(
+        from_core.contains("((key).into_inner(), (value).into_inner())"),
+        "{from_core}"
+    );
+    assert_eq!(from_core.matches("(pairs).into_iter()").count(), 1, "{from_core}");
     assert!(!from_core.contains("_0.to_string()"), "{from_core}");
 
     let flattened_config = ConversionConfig {
