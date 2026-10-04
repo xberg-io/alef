@@ -1,5 +1,5 @@
 use crate::backends::ffi::type_map::is_void_return;
-use crate::core::ir::{ParamDef, TypeRef};
+use crate::core::ir::{NewtypeContainer, NewtypeConversion, ParamDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 use minijinja::context;
 
@@ -50,6 +50,20 @@ pub(in crate::backends::ffi::gen_bindings) struct ParamConversionContext<'a> {
     pub(in crate::backends::ffi::gen_bindings) enum_names: &'a AHashSet<String>,
 }
 
+fn root_optional_transparent_constructor(wrapper: &str) -> Option<String> {
+    let decoded = crate::core::ir::NewtypeWrapper::decode(wrapper).ok()?;
+    let [metadata] = decoded.explicit_paths() else {
+        return None;
+    };
+    if metadata.containers.as_slice() != [NewtypeContainer::Optional] {
+        return None;
+    }
+    let NewtypeConversion::TransparentString { from, .. } = &metadata.conversion else {
+        return None;
+    };
+    Some(format!("{}::{from}", metadata.rust_path))
+}
+
 fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str) -> String {
     let Some(wrapper) = param
         .newtype_wrapper
@@ -58,8 +72,17 @@ fn transparent_newtype_shadow(param: &ParamDef, rs_name: &str, core_import: &str
     else {
         return String::new();
     };
-    let converted =
-        crate::codegen::conversions::helpers::apply_field_newtype_to_core(rs_name, &param.ty, param.optional, wrapper);
+    let converted = root_optional_transparent_constructor(wrapper).map_or_else(
+        || {
+            crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+                rs_name,
+                &param.ty,
+                param.optional,
+                wrapper,
+            )
+        },
+        |constructor| format!("({rs_name}).map({constructor})"),
+    );
     let target_type = transparent_newtype_core_type(param, wrapper, core_import);
     format!("    let {rs_name}: {target_type} = {converted};\n")
 }

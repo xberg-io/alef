@@ -10,17 +10,14 @@ use super::result_presence::gen_method_result_presence_wrapper;
 use super::return_handling::return_type_needs_non_serde_named;
 
 fn transparent_wrapper(paths: &[Vec<NewtypeContainer>]) -> String {
+    transparent_wrapper_with_constructor("sample_crate::SecretString", "from", paths)
+}
+
+fn transparent_wrapper_with_constructor(rust_path: &str, constructor: &str, paths: &[Vec<NewtypeContainer>]) -> String {
     NewtypeWrapper::encode_explicit(
         &paths
             .iter()
-            .map(|path| {
-                NewtypeWrapperMetadata::transparent_string(
-                    "sample_crate::SecretString",
-                    "from",
-                    "into_inner",
-                    path.clone(),
-                )
-            })
+            .map(|path| NewtypeWrapperMetadata::transparent_string(rust_path, constructor, "into_inner", path.clone()))
             .collect::<Vec<_>>(),
     )
 }
@@ -42,25 +39,33 @@ fn conversion_context<'a>(
 }
 
 #[test]
-fn transparent_string_optional_param_wraps_after_ffi_decoding() {
-    let param = ParamDef {
-        name: "credential".to_string(),
-        ty: TypeRef::String,
-        optional: true,
-        newtype_wrapper: Some(transparent_wrapper(&[vec![NewtypeContainer::Optional]])),
-        ..ParamDef::default()
-    };
-    let return_type = TypeRef::Unit;
-    let path_map = AHashMap::new();
-    let enum_names = AHashSet::new();
-    let context = conversion_context(&return_type, &path_map, &enum_names);
-    let output = gen_param_conversion_with_enums(&param, &context);
+fn transparent_string_optional_param_maps_with_configured_constructor_function() {
+    for constructor in ["from", "from_string"] {
+        let param = ParamDef {
+            name: "credential".to_string(),
+            ty: TypeRef::String,
+            optional: true,
+            newtype_wrapper: Some(transparent_wrapper_with_constructor(
+                "toolkit::SecretString",
+                constructor,
+                &[vec![NewtypeContainer::Optional]],
+            )),
+            ..ParamDef::default()
+        };
+        let return_type = TypeRef::Unit;
+        let path_map = AHashMap::new();
+        let enum_names = AHashSet::new();
+        let context = conversion_context(&return_type, &path_map, &enum_names);
+        let output = gen_param_conversion_with_enums(&param, &context);
+        let expected = format!("(credential_rs).map(toolkit::SecretString::{constructor})");
+        let redundant = format!("map(|value| toolkit::SecretString::{constructor}(value))");
 
-    assert!(
-        output.contains("let credential_rs: Option<sample_crate::SecretString> =")
-            && output.contains("map(|value| sample_crate::SecretString::from(value))"),
-        "got:\n{output}"
-    );
+        assert!(
+            output.contains("let credential_rs: Option<toolkit::SecretString> =") && output.contains(&expected),
+            "got:\n{output}"
+        );
+        assert!(!output.contains(&redundant));
+    }
 }
 
 #[test]
