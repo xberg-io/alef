@@ -93,6 +93,29 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
                 }],
                 ..Default::default()
             },
+            EnumVariant {
+                name: "Mixed".to_string(),
+                fields: vec![FieldDef {
+                    name: "segments".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Map(
+                        Box::new(TypeRef::String),
+                        Box::new(TypeRef::Named("Segment".to_string())),
+                    ))),
+                    newtype_wrapper: Some(NewtypeWrapper::encode_explicit(&[
+                        NewtypeWrapperMetadata::transparent_string(
+                            "mylib::SecretString",
+                            "from",
+                            "into_inner",
+                            vec![
+                                crate::core::ir::NewtypeContainer::Vec,
+                                crate::core::ir::NewtypeContainer::MapKey,
+                            ],
+                        ),
+                    ])),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
         ],
         ..Default::default()
     };
@@ -104,12 +127,26 @@ fn transparent_string_enum_payload_uses_explicit_operations() {
         to_core.contains("map(|value| mylib::SecretString::from(value))"),
         "got:\n{to_core}"
     );
+    assert!(
+        to_core.contains("(mylib::SecretString::from(key), (value).into())"),
+        "got:\n{to_core}"
+    );
+    assert_eq!(to_core.matches("segments).into_iter()").count(), 1, "got:\n{to_core}");
 
     let mut from_core = String::new();
     emit_from_impl_for_enum(&mut from_core, &en, "mylib", None);
     assert!(from_core.contains("(f0).into_inner()"), "got:\n{from_core}");
     assert!(
         from_core.contains("map(|value| (value).into_inner())"),
+        "got:\n{from_core}"
+    );
+    assert!(
+        from_core.contains("((key).into_inner(), Segment::from(value))"),
+        "got:\n{from_core}"
+    );
+    assert_eq!(
+        from_core.matches("segments).into_iter()").count(),
+        1,
         "got:\n{from_core}"
     );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");

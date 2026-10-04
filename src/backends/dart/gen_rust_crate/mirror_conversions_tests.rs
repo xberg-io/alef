@@ -216,6 +216,15 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
                 newtype_wrapper: wrapper(vec![vec![NewtypeContainer::MapKey], vec![NewtypeContainer::MapValue]]),
                 ..Default::default()
             },
+            FieldDef {
+                name: "mixed".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Map(
+                    Box::new(TypeRef::String),
+                    Box::new(TypeRef::Named("Segment".to_string())),
+                ))),
+                newtype_wrapper: wrapper(vec![vec![NewtypeContainer::Vec, NewtypeContainer::MapKey]]),
+                ..Default::default()
+            },
         ],
     );
 
@@ -238,6 +247,15 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         from_core.matches("v.pairs).into_iter()").count(),
         1,
         "map key and value conversions must share one traversal:\n{from_core}"
+    );
+    assert!(
+        from_core.contains("((key).into_inner(), Segment::from(value))"),
+        "mixed wrapper and named conversions must share one traversal:\n{from_core}"
+    );
+    assert_eq!(
+        from_core.matches("v.mixed).into_iter()").count(),
+        1,
+        "got:\n{from_core}"
     );
     assert!(!from_core.contains("to_string()"), "got:\n{from_core}");
 
@@ -265,4 +283,9 @@ fn transparent_string_wrappers_use_explicit_operations_in_both_directions() {
         1,
         "map key and value conversions must share one traversal:\n{to_core}"
     );
+    assert!(
+        to_core.contains("(source::SecretString::from(key), (value).into())"),
+        "mixed wrapper and named conversions must share one traversal:\n{to_core}"
+    );
+    assert_eq!(to_core.matches("v.mixed).into_iter()").count(), 1, "got:\n{to_core}");
 }

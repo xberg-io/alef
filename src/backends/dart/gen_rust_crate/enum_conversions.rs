@@ -183,8 +183,7 @@ fn enum_variant_field_conv_to_core(binding: &str, field: &FieldDef) -> String {
     if field.sanitized {
         return "Default::default()".to_string();
     }
-    if let Some(converted) = crate::codegen::conversions::helpers::apply_explicit_field_newtype_to_core(binding, field)
-    {
+    if let Some(converted) = super::newtype_conversions::to_core(binding, field) {
         return converted;
     }
     match &field.ty {
@@ -506,9 +505,7 @@ fn emit_fallible_from_core_enum(
 /// uses concrete types (String not Option<String>, i64 not usize).
 fn enum_variant_field_conv(binding: &str, field: &FieldDef, source_crate_name: &str) -> String {
     let _ = source_crate_name;
-    if let Some(converted) =
-        crate::codegen::conversions::helpers::apply_explicit_field_newtype_from_core(binding, field)
-    {
+    if let Some(converted) = super::newtype_conversions::from_core(binding, field) {
         return converted;
     }
     if field.sanitized {

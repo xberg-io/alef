@@ -29,6 +29,7 @@ mod mirror_conversions;
 mod mirror_conversions_tests;
 #[cfg(test)]
 mod mirror_enum_cfg_parity_tests;
+mod newtype_conversions;
 mod opaque;
 mod trait_bridge;
 mod trait_types;
