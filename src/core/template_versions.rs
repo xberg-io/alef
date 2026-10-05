@@ -195,7 +195,7 @@ pub mod cargo {
     pub const ALLOC_STDLIB: &str = "0.3.0";
 
     // renovate: datasource=crate depName=brotli-decompressor
-    pub const BROTLI_DECOMPRESSOR: &str = "6.0.0";
+    pub const BROTLI_DECOMPRESSOR: &str = "6.0.1";
 
     // renovate: datasource=crate depName=tokio-stream
     pub const TOKIO_STREAM: &str = "0.1";

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated Elixir NIF manifests pin `brotli-decompressor` 6.0.1, keeping their direct Brotli 9
+  dependency graph buildable.
+
 ## [0.103.17] - 2026-10-05
 
 ### Fixed

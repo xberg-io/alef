@@ -49,8 +49,8 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
         "NIF Cargo.toml must pin alloc-stdlib = 0.3.0 as a direct dep, got:\n{content}"
     );
     assert!(
-        content.contains("brotli-decompressor = \"=6.0.0\""),
-        "NIF Cargo.toml must pin brotli-decompressor = 6.0.0 as a direct dep, got:\n{content}"
+        content.contains("brotli-decompressor = \"=6.0.1\""),
+        "NIF Cargo.toml must pin brotli-decompressor = 6.0.1 as a direct dep, got:\n{content}"
     );
 
     assert!(
@@ -68,7 +68,7 @@ fn scaffold_elixir_nif_cargo_pins_brotli_allocator_crates_as_direct_deps() {
     for pin in [
         "alloc-no-stdlib = \"=3.0.0\"",
         "alloc-stdlib = \"=0.3.0\"",
-        "brotli-decompressor = \"=6.0.0\"",
+        "brotli-decompressor = \"=6.0.1\"",
     ] {
         assert!(
             deps_section.contains(pin),
