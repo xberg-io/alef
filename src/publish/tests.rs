@@ -997,3 +997,27 @@ fn assert_no_member_path_deps_detects_skipped_prepare() {
     vendor::rewrite_path_deps_to_registry(&manifest, &members, "3.1.4").unwrap();
     assert_no_member_path_deps(&manifest, &members, Language::Python).unwrap();
 }
+
+#[test]
+fn ffi_static_libs_command_asks_rustc_for_the_native_libs_of_the_ffi_crate() {
+    let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["ffi", "go"]
+
+[[crates]]
+name = "sample-lib"
+sources = ["src/lib.rs"]
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let target = platform::RustTarget::parse("aarch64-apple-darwin").unwrap();
+    assert_eq!(
+        ffi_static_libs_command(&config, Some(&target), false),
+        "cargo rustc --release --lib -p 'sample-lib-ffi' --target aarch64-apple-darwin -- --print native-static-libs"
+    );
+    assert!(
+        ffi_static_libs_command(&config, None, true).starts_with("cross rustc --release --lib -p 'sample-lib-ffi' -- ")
+    );
+}

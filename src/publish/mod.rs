@@ -7,6 +7,7 @@
 
 pub mod dart_native;
 pub mod ffi_stage;
+pub(crate) mod native_libs;
 pub mod package;
 pub mod platform;
 pub mod vendor;
@@ -166,10 +167,15 @@ pub fn build(
 
     let needs_ffi = languages.iter().any(|l| is_ffi_dependent(*l));
     let ffi_in_list = languages.contains(&Language::Ffi);
+    let go_listed = languages.contains(&Language::Go);
     if needs_ffi && !ffi_in_list {
-        let cmd = build_command_for_lang(Language::Ffi, config, target, use_cross);
+        let cmd = if go_listed {
+            ffi_static_libs_command(config, target, use_cross)
+        } else {
+            build_command_for_lang(Language::Ffi, config, target, use_cross)
+        };
         info!("Building FFI crate (dependency)...");
-        run_shell_command(&cmd)?;
+        run_ffi_build(&cmd, config, target, go_listed)?;
     }
 
     for &lang in languages {
@@ -188,20 +194,52 @@ pub fn build(
         // `[build_commands.<lang>]` entirely, so there is no second, lower-priority override tier
         // to check here any more -- an unset `build_command` falls straight through to alef's
         // own built-in publish build command. ~keep
+        let captures_native_libs = go_listed && matches!(lang, Language::Ffi | Language::Go);
         let cmd = if let Some(custom) = &lang_config.build_command {
             substitute_target(&custom.commands().join(" && "), target)
+        } else if captures_native_libs {
+            ffi_static_libs_command(config, target, use_cross)
         } else {
             build_command_for_lang(lang, config, target, use_cross)
         };
 
         let target_str = target.map(|t| t.triple.as_str()).unwrap_or("host");
         info!("Building {lang} for target {target_str}...");
-        run_shell_command(&cmd)?;
+        if lang == Language::Ffi || is_ffi_dependent(lang) {
+            run_ffi_build(&cmd, config, target, captures_native_libs)?;
+        } else {
+            run_shell_command(&cmd)?;
+        }
         info!("  build complete for {lang}");
 
         run_publish_after_hooks(lang, &lang_config)?;
     }
     Ok(())
+}
+
+/// The FFI build with rustc asked to report the native libraries the static library needs, so
+/// the Go package can carry them. `--lib` keeps `cargo rustc` to the one target that takes
+/// extra arguments even when the FFI crate also has binaries. ~keep
+fn ffi_static_libs_command(config: &ResolvedCrateConfig, target: Option<&RustTarget>, use_cross: bool) -> String {
+    let cargo = if use_cross { "cross" } else { "cargo" };
+    let target_flag = target.map(|t| format!(" --target {}", t.triple)).unwrap_or_default();
+    let pkg = crate_name_from_output(config, Language::Ffi).unwrap_or_else(|| format!("{}-ffi", config.name));
+    let pkg = crate::core::config::shell::quote_word(&pkg);
+    format!("{cargo} rustc --release --lib -p {pkg}{target_flag} -- --print native-static-libs")
+}
+
+/// Run a build of the FFI crate: pin the macOS deployment target unless the caller has, and when
+/// `record_native_libs` is set, record rustc's `native-static-libs` note beside the artifacts.
+fn run_ffi_build(
+    cmd: &str,
+    config: &ResolvedCrateConfig,
+    target: Option<&RustTarget>,
+    record_native_libs: bool,
+) -> Result<()> {
+    let env: Vec<_> = native_libs::deployment_target_env(target).into_iter().collect();
+    let record =
+        record_native_libs.then(|| native_libs::record_path(Path::new(&resolve_workspace_root(config)), target));
+    native_libs::run_build(cmd, &env, record.as_deref())
 }
 
 /// Substitute `{target}` placeholder in a command string with the actual triple.

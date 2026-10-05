@@ -11,7 +11,8 @@ use std::path::Path;
 /// Package Go FFI artifacts into a distributable tarball.
 ///
 /// Produces: `{name}-go-v{version}-{platform}.tar.gz` containing:
-/// - `lib/` — shared library (and optionally static library)
+/// - `lib/` — shared library (and optionally static library, with `native-static-libs.txt`
+///   listing the native libraries it needs when `alef publish build` recorded them)
 /// - `include/` — C header
 ///
 /// Uses a `-go-` infix (not `-ffi-`) so that Go and C FFI tarballs do not
@@ -54,6 +55,19 @@ pub fn package_go_ffi(
     let static_result = super::find_built_artifact(workspace_root, target, &static_lib, super::BuildProfile::Release);
     if let Ok(static_src) = static_result {
         fs::copy(&static_src, lib_dir.join(&static_lib))?;
+        match crate::publish::native_libs::find_recorded(workspace_root, target) {
+            Some(recorded) => {
+                fs::copy(
+                    &recorded,
+                    lib_dir.join(crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE),
+                )?;
+            }
+            None => tracing::warn!(
+                "no {} recorded by `alef publish build`; the Go package ships the static library without the \
+                 list of native libraries it links against",
+                crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE
+            ),
+        }
     }
 
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
@@ -162,5 +176,58 @@ sources = ["src/lib.rs"]
             format!("{expected_checksum}  {}\n", artifact.name),
             "sidecar contents must be '<digest>  <archive name>\\n'"
         );
+    }
+    #[cfg(not(target_os = "windows"))]
+    fn archive_entry(archive: &Path, entry: &str) -> Option<String> {
+        let out = std::process::Command::new("tar")
+            .arg("xzOf")
+            .arg(archive)
+            .arg(entry)
+            .output()
+            .unwrap();
+        out.status.success().then(|| String::from_utf8(out.stdout).unwrap())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn package_with_static_lib(record: Option<&str>) -> (TempDir, PackageArtifact) {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let output_dir = tmp.path().join("dist");
+        fs::create_dir_all(&output_dir).unwrap();
+        let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
+        let release_dir = workspace.join("target/x86_64-unknown-linux-gnu/release");
+        fs::create_dir_all(&release_dir).unwrap();
+        fs::write(release_dir.join("libdemo_go_ffi.so"), b"so").unwrap();
+        fs::write(release_dir.join("libdemo_go_ffi.a"), b"a").unwrap();
+        if let Some(record) = record {
+            fs::write(
+                release_dir.join(crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE),
+                record,
+            )
+            .unwrap();
+        }
+        let artifact = package_go_ffi(&make_config("demo_go"), &target, &workspace, &output_dir, "1.2.3").unwrap();
+        (tmp, artifact)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn package_go_ffi_ships_the_recorded_native_static_libs_beside_the_static_library() {
+        let (_tmp, artifact) = package_with_static_lib(Some("-lm -lc\n"));
+        let base = "demo_go-go-v1.2.3-linux-x86_64";
+        assert_eq!(
+            archive_entry(&artifact.path, &format!("{base}/lib/native-static-libs.txt")).as_deref(),
+            Some("-lm -lc\n")
+        );
+        assert!(archive_entry(&artifact.path, &format!("{base}/lib/libdemo_go_ffi.a")).is_some());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn package_go_ffi_without_a_record_ships_no_native_static_libs_file() {
+        let (_tmp, artifact) = package_with_static_lib(None);
+        let base = "demo_go-go-v1.2.3-linux-x86_64";
+        assert!(archive_entry(&artifact.path, &format!("{base}/lib/libdemo_go_ffi.a")).is_some());
+        assert!(archive_entry(&artifact.path, &format!("{base}/lib/native-static-libs.txt")).is_none());
     }
 }

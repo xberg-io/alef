@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `alef publish build` records the native libraries rustc reports for the static FFI library
+  (`--print native-static-libs`) and the Go FFI package ships them as `lib/native-static-libs.txt`.
+- `alef publish build` pins `MACOSX_DEPLOYMENT_TARGET` to rustc's default for macOS FFI builds
+  unless the caller already set it, so C dependencies match rustc's minimum macOS version.
 - The generated Go cgo preamble links Windows ARM64 from `.lib/windows-aarch64`, the directory the
   Go FFI packager already ships.
 
