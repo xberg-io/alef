@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `errors.Is(err, context.DeadlineExceeded)` and `errors.Is(err, context.Canceled)` hold. The plain
   `<Name>(...)` keeps its signature and forwards with `context.Background()`; other native errors
   stay the typed `*Error`.
+  Ending the context passed to a generated streaming method also aborts the stream-open request and a
+  native read blocked on the network, so the channel closes promptly and `Err()` returns `ctx.Err()`.
 
 ### Fixed
 

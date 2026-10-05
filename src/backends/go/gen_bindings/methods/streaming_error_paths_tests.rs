@@ -143,8 +143,8 @@ fn null_chunk_path_assigns_stream_err_from_last_error_while_still_locked() {
     let out = render_crawl_stream();
     let branch = extract_if_block(&out, "if chunkPtr == 0 {");
 
-    let assign_pos = branch.find("stream.err = lastError()").unwrap_or_else(|| {
-        panic!("the null-chunk path must assign stream.err from lastError(), got branch:\n{branch}")
+    let assign_pos = branch.find("stream.err = lastErrorContext(ctx)").unwrap_or_else(|| {
+        panic!("the null-chunk path must assign stream.err from lastErrorContext(ctx), got branch:\n{branch}")
     });
     let unlock_pos = branch[assign_pos..]
         .find("runtime.UnlockOSThread()")
@@ -159,7 +159,7 @@ fn null_chunk_path_assigns_stream_err_from_last_error_while_still_locked() {
 
     assert!(
         assign_pos < unlock_pos && unlock_pos < return_pos,
-        "expected lastError() to be read before the per-item unlock, which must precede the \
+        "expected the last error to be read before the per-item unlock, which must precede the \
          return, got branch:\n{branch}"
     );
 }
@@ -210,7 +210,7 @@ fn chunk_send_races_against_ctx_done_instead_of_blocking_forever() {
         !out.contains("\tch <- chunk\n"),
         "the bare unbuffered send must be gone, got:\n{out}"
     );
-    let branch = extract_if_block(&out, "select {");
+    let branch = extract_if_block(&out, "select {\n\t\t\tcase ch <- chunk:");
     assert!(
         branch.contains("case ch <- chunk:"),
         "the select must still deliver the chunk on the happy path, got:\n{branch}"
@@ -218,6 +218,59 @@ fn chunk_send_races_against_ctx_done_instead_of_blocking_forever() {
     assert!(
         branch.contains("case <-ctx.Done():") && branch.contains("stream.err = ctx.Err()") && branch.contains("return"),
         "the select must let a cancelled ctx unblock the goroutine and report ctx.Err(), got:\n{branch}"
+    );
+}
+
+/// Cancelling `ctx` must reach the native blocking read, which Go cannot interrupt itself. The
+/// token therefore outlives the start call: the forwarding goroutine, not the start function,
+/// stops the watcher and frees it, and only after the native stream handle is released.
+#[test]
+fn start_hands_the_native_call_a_cancel_token_that_the_forwarding_goroutine_frees() {
+    let out = render_crawl_stream();
+
+    assert!(
+        out.contains("C.krz_engine_crawl_stream_start_cancellable(h.ptr, cancelToken)"),
+        "the stream must be opened through the cancellable start, got:\n{out}"
+    );
+    assert!(
+        !out.contains("C.krz_engine_crawl_stream_start("),
+        "the uncancellable start must not be used, got:\n{out}"
+    );
+    assert_eq!(
+        out.matches("defer func() {\n\t\tclose(cancelDone)").count(),
+        0,
+        "the start function must not free the token on return -- the stream still needs it, got:\n{out}"
+    );
+    let stop_closure = out
+        .find("stopCancel := func() {")
+        .expect("the cleanup is a closure the goroutine runs when the stream ends");
+    let goroutine = out
+        .find("go func() {\n\t\tdefer close(ch)")
+        .expect("forwarding goroutine");
+    assert!(stop_closure < goroutine, "{out}");
+
+    let goroutine_body = &out[goroutine..];
+    let stop = goroutine_body
+        .find("defer stopCancel()")
+        .expect("the goroutine must stop the watcher");
+    let free_handle = goroutine_body
+        .find("defer C.krz_engine_crawl_stream_free(handle)")
+        .expect("the goroutine must free the native handle");
+    assert!(
+        free_handle < stop,
+        "deferred calls run in reverse: the watcher must be stopped (and the token freed) before the handle is released, got:\n{goroutine_body}"
+    );
+
+    let failed_start = extract_if_block(&out, "if handle == 0 {");
+    let read_error = failed_start
+        .find("lastErrorContext(ctx)")
+        .expect("start failures read the error through ctx");
+    let stop_on_failure = failed_start
+        .find("\n\t\tstopCancel()\n")
+        .expect("a failed start must release the token itself");
+    assert!(
+        read_error < stop_on_failure,
+        "the error must be read before stopCancel(), whose native calls overwrite the thread's last error, got:\n{failed_start}"
     );
 }
 

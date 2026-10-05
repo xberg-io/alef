@@ -1,8 +1,12 @@
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+{{ cancel_prelude }}
 	handle := {{ start_call }}
 	if handle == 0 {
-		if err := lastError(); err != nil {
+		// Read the error before stopCancel(): its native calls overwrite the thread's last error.
+		err := lastErrorContext(ctx)
+		stopCancel()
+		if err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("failed to start {{ method_name }} stream")
@@ -12,14 +16,16 @@
 	go func() {
 		defer close(ch)
 		defer C.{{ fn_free }}(handle)
+		defer stopCancel()
 		for {
 			runtime.LockOSThread()
 			chunkPtr := C.{{ fn_next }}(handle)
 			if chunkPtr == 0 {
 				// Null means either a clean end-of-stream (errno 0) or a stream error
 				// (errno != 0); read lastError() while still locked to this OS thread,
-				// since the native last-error slot is per-OS-thread.
-				stream.err = lastError()
+				// since the native last-error slot is per-OS-thread. Cancelling ctx aborts a
+				// blocked read, which arrives here as a cancellation error and ends the stream.
+				stream.err = lastErrorContext(ctx)
 				runtime.UnlockOSThread()
 				return
 			}

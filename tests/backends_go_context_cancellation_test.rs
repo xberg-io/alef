@@ -11,11 +11,13 @@
 
 use alef::backends::go::GoBackend;
 use alef::core::backend::Backend;
-use alef::core::config::ResolvedCrateConfig;
 use alef::core::config::new_config::NewAlefConfig;
-use alef::core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef};
+use alef::core::config::{AdapterConfig, AdapterPattern, ResolvedCrateConfig};
+use alef::core::ir::{
+    ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+};
 
-/// The native stub. `fetch_cancellable` polls its token every few
+/// The native stub. `fetch_cancellable` and the stream's second `_next` poll their token every few
 /// milliseconds and give up with the reserved `Cancelled` code (5) once it is tripped; the plain
 /// `fetch` never observes a token. Counters let the Go test prove every token was freed.
 const NATIVE_HEADER: &str = r#"
@@ -82,6 +84,25 @@ static inline char *test_engine_fetch_cancellable(TESTEngine self, uint32_t mill
     }
     return test_dup("done");
 }
+
+/* Stream handles are 1000 + the token id they were started with; the first `_next` yields a chunk
+ * at once, every later one blocks until the token trips. */
+static atomic_int test_stream_reads = 0;
+static inline TESTAlefHandle test_engine_crawl_stream_start_cancellable(TESTEngine self, TESTAlefHandle token) {
+    test_code = 0;
+    atomic_store(&test_stream_reads, 0);
+    return 1000 + token;
+}
+static inline TESTAlefHandle test_engine_crawl_stream_next(TESTAlefHandle handle) {
+    test_code = 0;
+    if (atomic_fetch_add(&test_stream_reads, 1) == 0) return 1;
+    if (test_wait(30000, handle - 1000)) test_code = 5;
+    return 0;
+}
+static inline void test_engine_crawl_stream_free(TESTAlefHandle handle) {}
+
+static inline char *test_crawl_event_to_json(TESTAlefHandle chunk) { return test_dup("{\"message\":\"x\"}"); }
+static inline void test_crawl_event_free(TESTAlefHandle chunk) {}
 
 static inline char *test_token_stats(void) {
     char text[96];
@@ -177,6 +198,51 @@ func TestPlainMethodKeepsItsSignatureAndStillWorks(t *testing.T) {
 		t.Fatalf("FetchWithContext within its deadline = %q, %v", got, err)
 	}
 }
+
+func TestStreamCancelAbortsTheBlockedNativeRead(t *testing.T) {
+	engine := &Engine{ptr: 1}
+	createdBefore, freedBefore, _ := stats(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stream, err := engine.CrawlStreamWithContext(ctx)
+	if err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	chunk, ok := <-stream.Chan()
+	if !ok || chunk.Message != "x" {
+		t.Fatalf("expected the first chunk, got %+v ok=%v", chunk, ok)
+	}
+
+	// The goroutine is now parked inside a native read that blocks for 30s unless cancelled.
+	cancel()
+	closed := make(chan struct{})
+	go func() {
+		for range stream.Chan() {
+		}
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelling ctx did not release the goroutine blocked in the native stream read")
+	}
+	if !errors.Is(stream.Err(), context.Canceled) {
+		t.Fatalf("expected stream.Err() to be context.Canceled, got %v", stream.Err())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		created, freed, _ := stats(t)
+		if created-createdBefore == 1 && freed-freedBefore == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the stream's token was not freed: created=%d freed=%d", created-createdBefore, freed-freedBefore)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
 "#;
 
 fn native_library_dir() -> Option<&'static str> {
@@ -233,32 +299,71 @@ module = "example.invalid/test-lib"
 package_name = "ctxtest"
 "#;
     let parsed: NewAlefConfig = toml::from_str(source).expect("test config parses");
-    parsed.resolve().expect("test config resolves").remove(0)
+    let mut resolved = parsed.resolve().expect("test config resolves").remove(0);
+    resolved.adapters = vec![AdapterConfig {
+        name: "crawl_stream".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "test_lib::Engine::crawl_stream".to_string(),
+        params: Vec::new(),
+        returns: None,
+        error_type: None,
+        owner_type: Some("Engine".to_string()),
+        item_type: Some("CrawlEvent".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: Some("test_lib::CrawlRequest".to_string()),
+        skip_languages: Vec::new(),
+    }];
+    resolved
 }
 
 fn api() -> ApiSurface {
     ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "1.0.0".to_string(),
-        types: vec![TypeDef {
-            name: "Engine".to_string(),
-            rust_path: "test_lib::Engine".to_string(),
-            is_opaque: true,
-            methods: vec![MethodDef {
-                name: "fetch".to_string(),
-                params: vec![ParamDef {
-                    name: "millis".to_string(),
-                    ty: TypeRef::Primitive(PrimitiveType::U32),
-                    ..ParamDef::default()
+        types: vec![
+            TypeDef {
+                name: "Engine".to_string(),
+                rust_path: "test_lib::Engine".to_string(),
+                is_opaque: true,
+                methods: vec![
+                    MethodDef {
+                        name: "fetch".to_string(),
+                        params: vec![ParamDef {
+                            name: "millis".to_string(),
+                            ty: TypeRef::Primitive(PrimitiveType::U32),
+                            ..ParamDef::default()
+                        }],
+                        return_type: TypeRef::String,
+                        is_async: true,
+                        error_type: Some("TestError".to_string()),
+                        receiver: Some(ReceiverKind::Ref),
+                        ..MethodDef::default()
+                    },
+                    MethodDef {
+                        name: "crawl_stream".to_string(),
+                        return_type: TypeRef::Unit,
+                        is_async: true,
+                        receiver: Some(ReceiverKind::Ref),
+                        ..MethodDef::default()
+                    },
+                ],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "CrawlEvent".to_string(),
+                rust_path: "test_lib::CrawlEvent".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "message".to_string(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
                 }],
-                return_type: TypeRef::String,
-                is_async: true,
-                error_type: Some("TestError".to_string()),
-                receiver: Some(ReceiverKind::Ref),
-                ..MethodDef::default()
-            }],
-            ..TypeDef::default()
-        }],
+                ..TypeDef::default()
+            },
+        ],
         functions: vec![FunctionDef {
             name: "token_stats".to_string(),
             rust_path: "test_lib::token_stats".to_string(),
@@ -311,8 +416,8 @@ fn toolchain_available(test: &str) -> bool {
 }
 
 #[test]
-fn context_cancellation_aborts_blocked_native_calls() {
-    if !toolchain_available("context_cancellation_aborts_blocked_native_calls") {
+fn context_cancellation_aborts_blocked_native_calls_and_streams() {
+    if !toolchain_available("context_cancellation_aborts_blocked_native_calls_and_streams") {
         return;
     }
     let output = run_go_tests(&generated_binding(), CONTEXT_TEST_GO);
@@ -327,6 +432,7 @@ fn context_cancellation_aborts_blocked_native_calls() {
         "TestCancelFromAnotherGoroutineReportsContextCanceled",
         "TestAlreadyDoneContextNeverStartsTheNativeCall",
         "TestPlainMethodKeepsItsSignatureAndStillWorks",
+        "TestStreamCancelAbortsTheBlockedNativeRead",
     ] {
         assert!(
             stdout.contains(&format!("--- PASS: {test}")),

@@ -21,11 +21,13 @@ use crate::core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 /// failure, then frees the handle.
 ///
 /// The cancellable `WithContext` method's FIRST parameter is always `ctx context.Context` (Go
-/// convention), never forwarded to the native `_start`/`_next`/`_free` symbols -- it exists
-/// purely to let a Go caller unblock the forwarding goroutine's channel send. See issue #448: on
-/// an unbuffered channel, a consumer that `break`s out of `for chunk := range stream.Chan()` early
-/// parks that goroutine on `ch <- chunk` forever, leaking both the goroutine and the native stream
-/// handle (the deferred `close(ch)`/`C.<fn_free>(handle)` never run).
+/// convention). It is never passed to the native symbols itself: a cancel token tied to it is
+/// handed to `_start_cancellable`, so ending `ctx` aborts the stream-open request and a `_next`
+/// blocked on the network. It also unblocks the forwarding goroutine's channel send. See issue
+/// #448: on an unbuffered channel, a consumer that `break`s out of
+/// `for chunk := range stream.Chan()` early parks that goroutine on `ch <- chunk` forever,
+/// leaking both the goroutine and the native stream handle (the deferred
+/// `close(ch)`/`C.<fn_free>(handle)` never run).
 /// `streaming_method_body.jinja` races the send against `<-ctx.Done()` to fix that. The original
 /// channel-returning method remains as a compatibility wrapper around `context.Background()`.
 /// ~keep
@@ -142,22 +144,23 @@ pub(super) fn gen_streaming_method_wrapper(
         })
         .collect();
 
-    let fn_start = c_symbols::stream_adapter_symbol(ffi_prefix, &typ.name, &method.name, "start");
+    let fn_start = c_symbols::stream_adapter_symbol(ffi_prefix, &typ.name, &method.name, "start_cancellable");
     let fn_next = c_symbols::stream_adapter_symbol(ffi_prefix, &typ.name, &method.name, "next");
     let fn_free = c_symbols::stream_adapter_symbol(ffi_prefix, &typ.name, &method.name, "free");
     let item_to_json_fn = c_symbols::method_symbol(ffi_prefix, item_type, "to_json");
     let item_free_fn = c_symbols::method_symbol(ffi_prefix, item_type, "free");
 
     let c_receiver = format!("{}.ptr", receiver_name);
-    let start_call = if c_params.is_empty() {
+    let start_call = cancellation::with_token_arg(&if c_params.is_empty() {
         format!("C.{}({})", fn_start, c_receiver)
     } else {
         format!("C.{}({}, {})", fn_start, c_receiver, c_params.join(", "))
-    };
+    });
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_body.jinja",
         minijinja::context! {
+            cancel_prelude => cancellation::prelude_with_stop_closure(ffi_prefix, "nil, "),
             start_call => &start_call,
             ffi_prefix => ffi_prefix,
             free_string_fn => c_symbols::free_string_symbol(ffi_prefix),

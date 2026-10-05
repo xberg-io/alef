@@ -307,6 +307,16 @@ sources = ["src/lib.rs"]
         assert_eq!(cancel_token_free_symbol("cfg"), "cfg_cancel_token_free");
     }
 
+    /// The FFI backend spells the stream's cancellable start as `cancellable_symbol` of its plain
+    /// start, while the Go backend asks for the `start_cancellable` operation. They must agree.
+    #[test]
+    fn stream_cancellable_start_is_the_plain_start_made_cancellable() {
+        assert_eq!(
+            stream_adapter_symbol("p", "DefaultClient", "chat_stream", "start_cancellable"),
+            cancellable_symbol(&stream_adapter_symbol("p", "DefaultClient", "chat_stream", "start"))
+        );
+    }
+
     #[test]
     fn stream_adapter_symbol_suffixes_the_operation() {
         assert_eq!(

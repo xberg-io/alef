@@ -40,7 +40,13 @@ static inline const char *test_last_error_context(void) { return NULL; }
 
 static inline void test_engine_free(TESTEngine h) {}
 
-static inline TESTAlefHandle test_engine_crawl_stream_start(TESTEngine self) { return 1; }
+static inline TESTAlefHandle test_cancel_token_new(void) { return 7; }
+static inline int32_t test_cancel_token_cancel(TESTAlefHandle token) { return 0; }
+static inline void test_cancel_token_free(TESTAlefHandle token) {}
+
+/* Only the cancellable start exists: the generated `WithContext` method must not call a plain
+ * `_start`, or this fixture would fail to compile. */
+static inline TESTAlefHandle test_engine_crawl_stream_start_cancellable(TESTEngine self, TESTAlefHandle token) { return 1; }
 /* Never returns 0 (end-of-stream): the fixture's stream has no natural end, so only ctx
  * cancellation can stop the Go-side forwarding goroutine. */
 static inline TESTAlefHandle test_engine_crawl_stream_next(TESTAlefHandle handle) { return 1; }

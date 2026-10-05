@@ -73,6 +73,12 @@ pub(super) fn prelude(ffi_prefix: &str, err_return_prefix: &str) -> String {
     render_prelude(ffi_prefix, err_return_prefix, true)
 }
 
+/// The same setup for a call whose native work outlives the Go function, such as a stream: the
+/// cleanup is a `stopCancel()` closure the caller runs when the work ends, instead of a `defer`.
+pub(super) fn prelude_with_stop_closure(ffi_prefix: &str, err_return_prefix: &str) -> String {
+    render_prelude(ffi_prefix, err_return_prefix, false)
+}
+
 fn render_prelude(ffi_prefix: &str, err_return_prefix: &str, defer_cleanup: bool) -> String {
     crate::backends::go::template_env::render(
         "ctx_cancel_prelude.jinja",

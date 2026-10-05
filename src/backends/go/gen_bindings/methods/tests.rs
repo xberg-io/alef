@@ -651,8 +651,8 @@ fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime
         .find("runtime.LockOSThread()")
         .expect("must lock before starting the stream");
     let start_call_pos = out
-        .find("C.krz_engine_crawl_stream_start(")
-        .expect("must call the stream-start FFI symbol");
+        .find("C.krz_engine_crawl_stream_start_cancellable(")
+        .expect("must call the cancellable stream-start FFI symbol");
     assert!(
         signature_pos < outer_lock_pos && outer_lock_pos < start_call_pos,
         "the outer lock must be established before the stream-start call, got:\n{out}"
