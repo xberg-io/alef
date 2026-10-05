@@ -481,21 +481,21 @@ pub(crate) fn has_alef_sensitive(attrs: &[syn::Attribute]) -> bool {
 }
 
 fn meta_is_alef_flag(meta: &syn::Meta, flag: &str) -> bool {
-    let path = meta.path();
-    if path.segments.len() == 2
-        && path.segments.first().is_some_and(|segment| segment.ident == "alef")
-        && path.segments.last().is_some_and(|segment| segment.ident == flag)
-    {
-        return true;
+    match meta {
+        syn::Meta::Path(path) => {
+            path.segments.len() == 2
+                && path.segments.first().is_some_and(|segment| segment.ident == "alef")
+                && path.segments.last().is_some_and(|segment| segment.ident == flag)
+        }
+        syn::Meta::List(list) if list.path.is_ident("alef") => list
+            .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            .is_ok_and(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| matches!(entry, syn::Meta::Path(path) if path.is_ident(flag)))
+            }),
+        _ => false,
     }
-    if !path.is_ident("alef") {
-        return false;
-    }
-    let syn::Meta::List(list) = meta else {
-        return false;
-    };
-    list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-        .is_ok_and(|entries| entries.iter().any(|entry| entry.path().is_ident(flag)))
 }
 
 fn meta_is_alef_skip(meta: &syn::Meta) -> bool {

@@ -90,6 +90,7 @@ fn gen_tagged_enum_unit_variant_uses_kind_discriminant() {
             EnumVariant {
                 serde_untagged: false,
                 name: "FontSize".to_string(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".to_string(),
@@ -164,6 +165,7 @@ fn gen_tagged_enum_tuple_variant_uses_camel_case_value() {
         variants: vec![EnumVariant {
             serde_untagged: false,
             name: "FontSize".to_string(),
+            sensitive: false,
             fields: vec![FieldDef {
                 version: Default::default(),
                 name: "_0".to_string(),

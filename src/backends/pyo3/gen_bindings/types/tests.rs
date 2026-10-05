@@ -344,6 +344,34 @@ fn sensitive_dataclass_fields_are_excluded_from_repr_without_changing_values() {
         generated.contains("token: str = field(default=\"planted-secret\", repr=False)"),
         "{generated}"
     );
+
+    let directory = tempfile::tempdir().expect("temporary Python module");
+    std::fs::write(directory.path().join("options.py"), generated).expect("generated options module must be written");
+    let python = which::which("python3")
+        .or_else(|_| which::which("python"))
+        .expect("Python is required for the generated representation acceptance probe");
+    let probe = r#"
+from dataclasses import asdict
+from options import Credentials
+
+secret = "planted-secret"
+credentials = Credentials(label="public", token=secret)
+assert secret not in repr(credentials)
+assert secret not in str(credentials)
+assert asdict(credentials)["token"] == secret
+"#;
+    let output = std::process::Command::new(python)
+        .arg("-c")
+        .arg(probe)
+        .current_dir(directory.path())
+        .output()
+        .expect("Python representation probe must start");
+
+    assert!(
+        output.status.success(),
+        "generated Python representation probe failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// The bug this fix targets: alef could not read the real default out of `impl Default`

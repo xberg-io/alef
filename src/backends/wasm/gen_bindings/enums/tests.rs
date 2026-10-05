@@ -356,6 +356,7 @@ fn make_tagged_tuple_enum() -> EnumDef {
     let make_tuple_variant = |variant_name: &str, tag: &str| EnumVariant {
         serde_untagged: false,
         name: variant_name.to_string(),
+        sensitive: false,
         fields: vec![FieldDef {
             version: Default::default(),
             name: "_0".to_string(),
@@ -567,6 +568,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
         variants: vec![EnumVariant {
             serde_untagged: false,
             name: "Basic".to_string(),
+            sensitive: false,
             fields: vec![FieldDef {
                 version: Default::default(),
                 name: "username".to_string(),
@@ -844,6 +846,7 @@ fn make_tagged_struct_enum_with_mixed_field() -> EnumDef {
     let make_variant = |variant_name: &str, tag: &str, model_ty: &str| EnumVariant {
         serde_untagged: false,
         name: variant_name.to_string(),
+        sensitive: false,
         fields: vec![
             FieldDef {
                 name: "model".to_string(),

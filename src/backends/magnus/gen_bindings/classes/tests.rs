@@ -655,6 +655,10 @@ fn gen_struct_redacts_sensitive_fields_in_debug() {
     assert!(code.contains("impl std::fmt::Debug for Credentials"), "{code}");
     assert!(code.contains(".field(\"token\", &\"<redacted>\")"), "{code}");
     assert!(code.contains(".field(\"label\", &self.label)"), "{code}");
+    crate::codegen::generators::sensitive_runtime_test_support::assert_struct_debug_and_serde_round_trip(
+        &code,
+        "Credentials",
+    );
 }
 
 #[test]
@@ -677,6 +681,7 @@ fn gen_enum_redacts_sensitive_payload_debug() {
     assert!(!derive_line.contains("Debug"), "{code}");
     assert!(code.contains("impl std::fmt::Debug for Auth"), "{code}");
     assert!(code.contains("Auth(<redacted>)"), "{code}");
+    crate::codegen::generators::sensitive_runtime_test_support::assert_enum_debug_and_serde_round_trip(&code, "Auth");
 }
 
 fn container_conversion() -> crate::core::ir::SerdeContainerConversion {

@@ -67,6 +67,175 @@ pub fn gen_redacted_enum_debug_impl(enum_def: &crate::core::ir::EnumDef) -> Stri
     out
 }
 
+#[cfg(test)]
+pub(crate) mod sensitive_runtime_test_support {
+    use quote::quote;
+    use std::path::{Path, PathBuf};
+
+    pub fn assert_struct_debug_and_serde_round_trip(generated: &str, type_name: &str) {
+        let source = runtime_probe_source(generated, type_name);
+        compile_and_run(&source);
+    }
+
+    pub fn assert_enum_debug_and_serde_round_trip(generated: &str, type_name: &str) {
+        let file = syn::parse_file(generated).expect("generated Rust must parse");
+        let mut enumeration = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Enum(item) if item.ident == type_name => Some(item.clone()),
+                _ => None,
+            })
+            .expect("generated mirror enum must exist");
+        enumeration.attrs.clear();
+        for variant in &mut enumeration.variants {
+            variant.attrs.clear();
+            for field in &mut variant.fields {
+                field.attrs.clear();
+            }
+        }
+        let debug_impl = debug_impl(&file, type_name);
+        let source = format!(
+            r#"
+#[derive(serde::Serialize, serde::Deserialize)]
+{enumeration}
+{debug_impl}
+
+fn main() {{
+    let secret = "planted-secret".to_string();
+    let authentication = {type_name}::Bearer {{ token: secret.clone() }};
+    let rendered = format!("{{authentication:?}}");
+    assert!(!rendered.contains(&secret));
+    let json = serde_json::to_string(&authentication).unwrap();
+    assert!(json.contains(&secret));
+    let decoded: {type_name} = serde_json::from_str(&json).unwrap();
+    let {type_name}::Bearer {{ token }} = decoded;
+    assert_eq!(token, secret);
+}}
+"#,
+            enumeration = quote!(#enumeration),
+            debug_impl = quote!(#debug_impl),
+        );
+        compile_and_run(&source);
+    }
+
+    fn runtime_probe_source(generated: &str, type_name: &str) -> String {
+        let file = syn::parse_file(generated).expect("generated Rust must parse");
+        let mut structure = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Struct(item) if item.ident == type_name => Some(item.clone()),
+                _ => None,
+            })
+            .expect("generated mirror struct must exist");
+        structure.attrs.clear();
+        for field in &mut structure.fields {
+            field.attrs.clear();
+        }
+        let debug_impl = debug_impl(&file, type_name);
+        format!(
+            r#"
+#[derive(serde::Serialize, serde::Deserialize)]
+{structure}
+{debug_impl}
+
+fn main() {{
+    let secret = "planted-secret".to_string();
+    let credentials = {type_name} {{ label: "public".to_string(), token: secret.clone() }};
+    let rendered = format!("{{credentials:?}}");
+    assert!(rendered.contains("public"));
+    assert!(!rendered.contains(&secret));
+    let json = serde_json::to_string(&credentials).unwrap();
+    assert!(json.contains(&secret));
+    let decoded: {type_name} = serde_json::from_str(&json).unwrap();
+    assert_eq!(decoded.token, secret);
+}}
+"#,
+            structure = quote!(#structure),
+            debug_impl = quote!(#debug_impl),
+        )
+    }
+
+    fn debug_impl<'a>(file: &'a syn::File, type_name: &str) -> &'a syn::ItemImpl {
+        file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Impl(item)
+                    if item
+                        .trait_
+                        .as_ref()
+                        .and_then(|(_, path, _)| path.segments.last())
+                        .is_some_and(|segment| segment.ident == "Debug")
+                        && matches!(item.self_ty.as_ref(), syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == type_name)) =>
+                {
+                    Some(item)
+                }
+                _ => None,
+            })
+            .expect("generated redacted Debug implementation must exist")
+    }
+
+    fn compile_and_run(source: &str) {
+        let directory = tempfile::tempdir().expect("temporary Rust representation probe");
+        let source_path = directory.path().join("probe.rs");
+        let executable = directory.path().join(format!("probe{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(&source_path, source).expect("representation probe source must be written");
+        let dependencies = std::env::current_exe()
+            .expect("test executable path")
+            .parent()
+            .expect("test dependency directory")
+            .to_path_buf();
+        let serde = dependency_rlib(&dependencies, "serde");
+        let serde_json = dependency_rlib(&dependencies, "serde_json");
+        let compile = std::process::Command::new("rustc")
+            .args(["--edition=2024", "-L"])
+            .arg(format!("dependency={}", dependencies.display()))
+            .arg("--extern")
+            .arg(format!("serde={}", serde.display()))
+            .arg("--extern")
+            .arg(format!("serde_json={}", serde_json.display()))
+            .arg(&source_path)
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .expect("representation probe must compile");
+        assert!(
+            compile.status.success(),
+            "representation probe failed to compile:\n{}",
+            String::from_utf8_lossy(&compile.stderr)
+        );
+        let output = std::process::Command::new(executable)
+            .output()
+            .expect("representation probe must run");
+        assert!(
+            output.status.success(),
+            "representation probe failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn dependency_rlib(directory: &Path, crate_name: &str) -> PathBuf {
+        let prefix = format!("lib{crate_name}-");
+        let mut matches: Vec<PathBuf> = std::fs::read_dir(directory)
+            .expect("test dependency directory must be readable")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".rlib"))
+            })
+            .collect();
+        matches.sort();
+        matches
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| panic!("{crate_name} rlib must exist in {}", directory.display()))
+    }
+}
+
 /// Async support pattern for the backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AsyncPattern {

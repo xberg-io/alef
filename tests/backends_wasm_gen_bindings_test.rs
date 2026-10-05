@@ -3311,6 +3311,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
     let make_data_variant = |name: &str, tag: &str| EnumVariant {
         serde_untagged: false,
         name: name.to_string(),
+        sensitive: false,
         fields: vec![FieldDef {
             version: Default::default(),
             name: "_0".to_string(),
@@ -3481,6 +3482,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Text".to_string(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".to_string(),
@@ -3740,6 +3742,7 @@ fn test_required_tagged_data_enum_field_decode_does_not_require_default() {
         variants: vec![EnumVariant {
             serde_untagged: false,
             name: "Bearer".to_string(),
+            sensitive: false,
             fields: vec![make_field("token", TypeRef::String, false)],
             is_tuple: false,
             doc: String::new(),

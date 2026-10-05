@@ -418,6 +418,7 @@ fn untagged_tuple_enum() -> EnumDef {
             EnumVariant {
                 serde_untagged: false,
                 name: "Text".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -456,6 +457,7 @@ fn untagged_tuple_enum() -> EnumDef {
             EnumVariant {
                 serde_untagged: false,
                 name: "Parts".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),

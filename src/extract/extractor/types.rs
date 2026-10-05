@@ -13,8 +13,8 @@ use super::helpers::{
     extract_doc_comments, extract_enum_variant, extract_error_message_template, extract_field,
     extract_field_binding_exclusion_reason, extract_field_type_rust_path, extract_serde_container_conversion,
     extract_serde_rename_all, extract_serde_rename_all_fields, extract_serde_skip, extract_serde_skip_serializing_if,
-    extract_version_annotation, has_cfg_attribute, has_container_serde_default, has_derive, has_field_attr,
-    has_serde_untagged, is_pub, parse_alef_transparent_string, syn_type_is_boxed,
+    extract_version_annotation, has_alef_sensitive, has_cfg_attribute, has_container_serde_default, has_derive,
+    has_field_attr, has_serde_untagged, is_pub, parse_alef_transparent_string, syn_type_is_boxed,
 };
 
 pub(crate) fn validate_transparent_string_struct(item: &syn::ItemStruct) -> Result<Option<(String, String)>, String> {
@@ -348,7 +348,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 serde_with: None,
                                 serde_skip_serializing_if: extract_serde_skip_serializing_if(&f.attrs),
                                 serde_skip: extract_serde_skip(&f.attrs),
-                                sensitive: false,
+                                sensitive: has_alef_sensitive(&f.attrs),
                                 binding_excluded,
                                 binding_exclusion_reason,
                                 original_type: None,
@@ -386,4 +386,34 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
         binding_exclusion_reason,
         version: extract_version_annotation(&item.attrs),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_error_enum;
+
+    #[test]
+    fn error_enum_fields_preserve_sensitive_metadata() {
+        let item: syn::ItemEnum = syn::parse_quote! {
+            enum RequestError {
+                Named {
+                    #[cfg_attr(alef, alef(sensitive))]
+                    token: String,
+                    message: String,
+                },
+                Tuple(
+                    #[cfg_attr(alef, alef(sensitive))]
+                    String,
+                    String,
+                ),
+            }
+        };
+
+        let error = extract_error_enum(&item, "sample", "errors").expect("error enum must extract");
+
+        assert!(error.variants[0].fields[0].sensitive);
+        assert!(!error.variants[0].fields[1].sensitive);
+        assert!(error.variants[1].fields[0].sensitive);
+        assert!(!error.variants[1].fields[1].sensitive);
+    }
 }

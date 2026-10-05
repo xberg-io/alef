@@ -54,6 +54,7 @@ fn should_key_a_flat_data_enum_variants_typespec_by_its_snake_cased_variant_name
             EnumVariant {
                 serde_untagged: false,
                 name: "Pdf".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -92,6 +93,7 @@ fn should_key_a_flat_data_enum_variants_typespec_by_its_snake_cased_variant_name
             EnumVariant {
                 serde_untagged: false,
                 name: "Docx".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -312,6 +314,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Pdf".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -350,6 +353,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Other".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),

@@ -301,6 +301,10 @@ fn sensitive_struct_uses_redacted_debug_impl() {
     assert!(rendered.contains("impl std::fmt::Debug for Credentials"), "{rendered}");
     assert!(rendered.contains(".field(\"token\", &\"<redacted>\")"), "{rendered}");
     assert!(rendered.contains(".field(\"label\", &self.label)"), "{rendered}");
+    crate::codegen::generators::sensitive_runtime_test_support::assert_struct_debug_and_serde_round_trip(
+        &rendered,
+        "Credentials",
+    );
 }
 
 #[test]
@@ -326,6 +330,9 @@ fn sensitive_enum_uses_redacted_debug_impl() {
     assert!(!derive_line(&rendered).contains("Debug"), "{rendered}");
     assert!(rendered.contains("impl std::fmt::Debug for Auth"), "{rendered}");
     assert!(rendered.contains("Auth(<redacted>)"), "{rendered}");
+    crate::codegen::generators::sensitive_runtime_test_support::assert_enum_debug_and_serde_round_trip(
+        &rendered, "Auth",
+    );
 }
 
 /// A struct with enough `String` fields that its estimated size clears
@@ -493,6 +500,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Excel".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -531,6 +539,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Pdf".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),
@@ -671,6 +680,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
             EnumVariant {
                 serde_untagged: false,
                 name: "Anchored".into(),
+                sensitive: false,
                 fields: vec![FieldDef {
                     version: Default::default(),
                     name: "_0".into(),

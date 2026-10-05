@@ -250,6 +250,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
                     name: "Text".into(),
                     fields: vec![field_with_doc("0", TypeRef::String, "")],
                     is_tuple: true,
+                    sensitive: false,
                     doc: "Textual payload carrying a UTF-8 message.".into(),
                     is_default: false,
                     serde_rename: None,

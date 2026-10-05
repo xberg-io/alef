@@ -433,19 +433,33 @@ fn test_extract_alef_since_absent_returns_none() {
 #[test]
 fn alef_sensitive_accepts_direct_and_cfg_attr_forms() {
     let direct = parse_attrs("#[alef(sensitive)]");
+    let qualified = parse_attrs("#[alef::sensitive]");
     let gated = parse_attrs("#[cfg_attr(alef, alef(sensitive))]");
     let nested = parse_attrs("#[cfg_attr(feature = \"bindings\", cfg_attr(alef, alef(sensitive))) ]");
 
     assert!(has_alef_sensitive(&direct));
+    assert!(has_alef_sensitive(&qualified));
     assert!(has_alef_sensitive(&gated));
     assert!(has_alef_sensitive(&nested));
 }
 
 #[test]
 fn alef_sensitive_ignores_lookalike_metadata() {
-    let attrs = parse_attrs("#[alef(sensitive_value = true)]");
+    let lookalike = parse_attrs("#[alef(sensitive_value = true)]");
+    let name_value = parse_attrs("#[alef(sensitive = false)]");
+    let list = parse_attrs("#[alef(sensitive(reason = \"secret\"))]");
+    let qualified_name_value = parse_attrs("#[alef::sensitive = false]");
+    let qualified_list = parse_attrs("#[alef::sensitive(reason = \"secret\")]");
+    let nested_name_value = parse_attrs("#[cfg_attr(alef, alef(sensitive = false))]");
+    let nested_list = parse_attrs("#[cfg_attr(alef, alef(sensitive(reason = \"secret\")))]");
 
-    assert!(!has_alef_sensitive(&attrs));
+    assert!(!has_alef_sensitive(&lookalike));
+    assert!(!has_alef_sensitive(&name_value));
+    assert!(!has_alef_sensitive(&list));
+    assert!(!has_alef_sensitive(&qualified_name_value));
+    assert!(!has_alef_sensitive(&qualified_list));
+    assert!(!has_alef_sensitive(&nested_name_value));
+    assert!(!has_alef_sensitive(&nested_list));
 }
 
 #[test]
