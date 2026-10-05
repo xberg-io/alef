@@ -1699,6 +1699,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn raw_message_enum_string_value_is_json_encoded() {
+        let rendered = render_request_snippet(
+            serde_json::json!({"prompt": "Hello"}),
+            vec![dto_field("prompt", TypeRef::Named("SampleInput".into()), false)],
+            &[raw_message_enum()],
+        )
+        .expect("snippet renders");
+
+        assert!(
+            rendered.contains("Prompt: pkg.SampleInput(`\"Hello\"`)"),
+            "a json.RawMessage enum must receive JSON text, not the bare string:\n{rendered}"
+        );
+    }
+
     /// The second control: a value that names no variant of a `type X string` enum still has a
     /// legal conversion, and validation fixtures assert on exactly such rejected values. Only
     /// the absence of a legal expression justifies a refusal -- not the absence of a match. ~keep

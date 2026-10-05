@@ -181,6 +181,16 @@ fn go_named_scalar_expression(
         return Ok(format!("{}.{constant}", context.import_alias));
     }
     let representation = crate::backends::go::go_enum_representation(enum_def);
+    // `type X json.RawMessage` stores the bytes verbatim and MarshalJSON returns them as-is,
+    // so the operand must be the value's JSON text: a bare string would marshal as invalid
+    // JSON (`Hello` instead of `"Hello"`) and fail at runtime despite compiling. ~keep
+    if matches!(representation, crate::backends::go::GoEnumRepresentation::RawMessage) && !value.is_null() {
+        return Ok(format!(
+            "{}.{go_type}({})",
+            context.import_alias,
+            go_string_literal(&value.to_string())
+        ));
+    }
     // A value that names no variant is still emitted as the conversion when the binding
     // declares a convertible underlying type — `type X string` accepts any string, which is
     // what validation fixtures asserting on a rejected value depend on. ~keep

@@ -84,5 +84,8 @@ fn a_present_optional_enum_field_is_still_lowered() {
         false,
     );
 
-    assert!(rendered.contains("Input: ptr(pkg.SampleInput(`hello`))"), "{rendered}");
+    assert!(
+        rendered.contains("Input: ptr(pkg.SampleInput(`\"hello\"`))"),
+        "{rendered}"
+    );
 }

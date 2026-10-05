@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Go snippets pass a `json.RawMessage`-backed enum (an untagged union such as a message content
+  field) its value's JSON text, so a string renders as `` `"Hello"` `` instead of the bare
+  `` `Hello` `` that compiled but failed to marshal at runtime.
+
 ## [0.104.1] - 2026-10-05
 
 ### Fixed
