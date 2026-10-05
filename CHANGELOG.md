@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.104.0] - 2026-10-05
+
 ### Added
 
 - The FFI layer exports `<prefix>_cancel_token_new`, `<prefix>_cancel_token_cancel` and
