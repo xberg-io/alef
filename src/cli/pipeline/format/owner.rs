@@ -201,16 +201,18 @@ impl PolyCoverage {
 
     /// `Some(true)`/`Some(false)` once the probe has run; `None` when it could not.
     pub(crate) fn covers(&self, path: &Path) -> Option<bool> {
-        self.scope_for(path)?
+        let normalized = normalize_path(path, Path::new(""));
+        self.scope_for(&normalized)?
             .covered
             .as_ref()
-            .map(|covered| covered.contains(path))
+            .map(|covered| covered.contains(&normalized))
     }
 
     /// The working directory the writer uses when it asks poly to format `path`. This remains
     /// known even when that scope's coverage probe failed. ~keep
     pub(crate) fn format_context(&self, path: &Path) -> Option<&Path> {
-        self.scope_for(path).map(|scope| scope.root.as_path())
+        let normalized = normalize_path(path, Path::new(""));
+        self.scope_for(&normalized).map(|scope| scope.root.as_path())
     }
 
     fn scope_for(&self, path: &Path) -> Option<&PolyScope> {

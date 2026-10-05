@@ -97,6 +97,22 @@ fn the_e2e_language_scope_replaces_repo_root_coverage_for_its_paths() {
     );
 }
 
+/// A generated path can retain `/` separators when it originates from a cross-platform template,
+/// while poly reports the same Windows path with native `\` separators. Coverage lookup must
+/// compare normalized paths or it degrades to "probe unavailable" and skips content drift. ~keep
+#[cfg(windows)]
+#[test]
+fn coverage_matches_windows_paths_with_mixed_separator_spellings() {
+    let base = std::path::Path::new(r"C:\repo");
+    let language_root = base.join(r"e2e\java");
+    let native_path = language_root.join("mvnw");
+    let mixed_path = base.join("e2e/java/mvnw");
+    let coverage = PolyCoverage::covering_scopes([(language_root.clone(), vec![native_path])]);
+
+    assert_eq!(coverage.covers(&mixed_path), Some(true));
+    assert_eq!(coverage.format_context(&mixed_path), Some(language_root.as_path()));
+}
+
 #[test]
 fn a_more_specific_e2e_scope_can_decline_a_path_the_repo_scope_reached() {
     let base = std::path::Path::new("/repo");
