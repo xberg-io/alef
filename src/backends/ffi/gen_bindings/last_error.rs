@@ -157,6 +157,7 @@ pub(super) fn gen_last_error(api: &ApiSurface, prefix: &str, core_import: &str) 
             unknown_error_code => ApiSurface::FFI_ERROR_CODE_UNKNOWN,
             panic_error_code => ApiSurface::FFI_ERROR_CODE_PANIC,
             invalid_handle_error_code => ApiSurface::FFI_ERROR_CODE_INVALID_HANDLE,
+            cancelled_error_code => ApiSurface::FFI_ERROR_CODE_CANCELLED,
         },
     )
 }

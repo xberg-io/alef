@@ -230,6 +230,7 @@ fn result_presence_companion_distinguishes_none_from_zero_valued_some_at_runtime
             unknown_error_code => 2,
             panic_error_code => 3,
             invalid_handle_error_code => 4,
+            cancelled_error_code => 5,
         },
     );
     // Same excision fields.rs's compile-and-run test uses: `insert_serialized_handle` pulls in

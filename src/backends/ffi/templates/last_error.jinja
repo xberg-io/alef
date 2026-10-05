@@ -16,6 +16,7 @@ pub enum AlefFfiErrorCode {
     {{ builtin_prefix }}Unknown = {{ unknown_error_code }},
     {{ builtin_prefix }}Panic = {{ panic_error_code }},
     {{ builtin_prefix }}InvalidHandle = {{ invalid_handle_error_code }},
+    {{ builtin_prefix }}Cancelled = {{ cancelled_error_code }},
 {% for entry in taxonomy %}
     {{ entry.enum_variant }} = {{ entry.code }},
 {% endfor %}

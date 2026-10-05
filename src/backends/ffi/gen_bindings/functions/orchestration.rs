@@ -79,12 +79,70 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     enum_names: &AHashSet<String>,
     serde_names: &AHashSet<String>,
 ) -> String {
+    gen_method_wrapper_impl(
+        typ,
+        method,
+        prefix,
+        core_import,
+        path_map,
+        enum_names,
+        serde_names,
+        false,
+    )
+}
+
+/// The `{symbol}_cancellable` sibling of an async method's export: identical, plus a trailing
+/// cancel-token handle that aborts the blocking call. `None` for a method that does not block on
+/// a future, which has nothing to cancel.
+pub(in crate::backends::ffi::gen_bindings) fn gen_cancellable_method_wrapper(
+    typ: &TypeDef,
+    method: &MethodDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
+) -> Option<String> {
+    method.is_async.then(|| {
+        gen_method_wrapper_impl(
+            typ,
+            method,
+            prefix,
+            core_import,
+            path_map,
+            enum_names,
+            serde_names,
+            true,
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_method_wrapper_impl(
+    typ: &TypeDef,
+    method: &MethodDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
+    cancellable: bool,
+) -> String {
     let returns_ref = method.returns_ref && !is_owned_default_constructor(method, typ);
     let type_name = &typ.name;
     let method_name = &method.name;
-    let fn_name = c_consumer::method_symbol(prefix, &typ.name, &method.name);
+    let base_fn_name = c_consumer::method_symbol(prefix, &typ.name, &method.name);
+    let fn_name = if cancellable {
+        c_consumer::cancellable_symbol(&base_fn_name)
+    } else {
+        base_fn_name.clone()
+    };
 
-    let doc_comment = ffi_doxygen_block(&method.doc);
+    let doc_comment = ffi_doxygen_block(&if cancellable {
+        cancellable_doc(&method.doc, &base_fn_name, prefix)
+    } else {
+        method.doc.clone()
+    });
 
     let has_error = method.error_type.is_some();
 
@@ -94,7 +152,8 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     let ffi_param_count = (if method.is_static { 0 } else { 1 })
         + method.params.len()
         + method.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
-        + if is_bytes_result { 3 } else { 0 };
+        + if is_bytes_result { 3 } else { 0 }
+        + usize::from(cancellable);
     let allow_clippy = if ffi_param_count > 7 {
         Some("clippy::too_many_arguments".to_string())
     } else {
@@ -151,6 +210,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     // switches on `inline_callee` and the call-emission block below is skipped entirely when
     // this holds, since the header already embeds the call. ~keep
     let can_inline_trivially = method.is_static
+        && !cancellable
         && method.params.is_empty()
         && !will_be_unimplemented
         && !is_bytes_result
@@ -200,6 +260,10 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
         params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
         params.push(format!("    {pfx}out_len: *mut usize"));
         params.push(format!("    {pfx}out_cap: *mut usize"));
+    }
+    if cancellable {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}alef_cancel_token: AlefHandle"));
     }
 
     let return_type = if is_void_return(&method.return_type) && !has_error {
@@ -260,6 +324,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     } else {
         format!("return {};", null_return_value(&method.return_type))
     };
+    let cancelled_ret = fail_ret.clone();
 
     // Each entry is an `Option<HandleRequest>` array element, not a `.push()` statement: a
     // `Vec::with_capacity(n)` immediately followed by unconditional `.push()` calls trips
@@ -521,10 +586,15 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     // emitting `static_method_call.jinja`'s call expression here too would duplicate it.
     if !can_inline_trivially {
         if method.is_async {
-            let call = if method.is_static {
-                format!("get_ffi_runtime().block_on(async {{ {qualified}::{method_name}({call_args}).await }})")
+            let future = if method.is_static {
+                format!("{qualified}::{method_name}({call_args}).await")
             } else {
-                format!("get_ffi_runtime().block_on(async {{ obj.{method_name}({call_args}).await }})")
+                format!("obj.{method_name}({call_args}).await")
+            };
+            let call = if cancellable {
+                cancellable_block_on(&future, &cancelled_ret)
+            } else {
+                format!("get_ffi_runtime().block_on(async {{ {future} }})")
             };
             if can_inline {
                 out.push_str(&crate::backends::ffi::template_env::render(
@@ -658,6 +728,30 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
     out
 }
 
+/// `block_on` raced against the wrapper's cancel token. The `None` arm leaves the failure return
+/// to the caller: `alef_block_on_cancellable` has already recorded why (`Cancelled`, or an invalid
+/// token handle).
+fn cancellable_block_on(future: &str, fail_ret: &str) -> String {
+    format!(
+        "match alef_block_on_cancellable(alef_cancel_token, async {{ {future} }}) {{ Some(value) => value, None => {{ {fail_ret} }} }}"
+    )
+}
+
+fn cancellable_doc(doc: &str, base_symbol: &str, prefix: &str) -> String {
+    let new_symbol = c_consumer::cancel_token_new_symbol(prefix);
+    let cancel_symbol = c_consumer::cancel_token_cancel_symbol(prefix);
+    let note = format!(
+        "Cancellable variant of `{base_symbol}`.\n\nTakes a trailing `alef_cancel_token` created by \
+         `{new_symbol}`. Tripping it with `{cancel_symbol}` from any thread aborts the blocking call, \
+         which then fails with the `Cancelled` error code. Pass `0` for a call that is never cancelled."
+    );
+    if doc.is_empty() {
+        note
+    } else {
+        format!("{note}\n\n{doc}")
+    }
+}
+
 pub(super) fn gen_function_wrapper_footer(
     return_type: &Option<String>,
     rust_return_type: &TypeRef,
@@ -696,7 +790,65 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
     returns_serialized_handle: bool,
 ) -> String {
-    let ffi_name = c_consumer::free_function_symbol(prefix, &func.name);
+    gen_free_function_impl(
+        func,
+        prefix,
+        core_import,
+        path_map,
+        enum_names,
+        serde_names,
+        capsule_cfg,
+        returns_serialized_handle,
+        false,
+    )
+}
+
+/// The `{symbol}_cancellable` sibling of an async free function's export; see
+/// [`gen_cancellable_method_wrapper`]. `None` for a function that does not block on a future.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::backends::ffi::gen_bindings) fn gen_cancellable_free_function(
+    func: &FunctionDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
+    capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
+    returns_serialized_handle: bool,
+) -> Option<String> {
+    func.is_async.then(|| {
+        gen_free_function_impl(
+            func,
+            prefix,
+            core_import,
+            path_map,
+            enum_names,
+            serde_names,
+            capsule_cfg,
+            returns_serialized_handle,
+            true,
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_free_function_impl(
+    func: &FunctionDef,
+    prefix: &str,
+    core_import: &str,
+    path_map: &AHashMap<String, String>,
+    enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
+    capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
+    returns_serialized_handle: bool,
+    cancellable: bool,
+) -> String {
+    let base_ffi_name = c_consumer::free_function_symbol(prefix, &func.name);
+    let ffi_name = if cancellable {
+        c_consumer::cancellable_symbol(&base_ffi_name)
+    } else {
+        base_ffi_name.clone()
+    };
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
         if path.starts_with(core_import) {
@@ -707,7 +859,11 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     };
     let func_name = &func.name;
 
-    let doc_comment = ffi_doxygen_block(&func.doc);
+    let doc_comment = ffi_doxygen_block(&if cancellable {
+        cancellable_doc(&func.doc, &base_ffi_name, prefix)
+    } else {
+        func.doc.clone()
+    });
 
     let has_error = func.error_type.is_some();
 
@@ -716,7 +872,8 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
 
     let ffi_param_count = func.params.len()
         + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count()
-        + if is_bytes_result { 3 } else { 0 };
+        + if is_bytes_result { 3 } else { 0 }
+        + usize::from(cancellable);
     let allow_clippy = if ffi_param_count > 7 {
         Some("clippy::too_many_arguments".to_string())
     } else {
@@ -742,6 +899,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     // because `free_function_header.jinja` injects a `set_last_return_len(...)` statement into
     // the closure body for that case, so the body would no longer be just the call. ~keep
     let can_inline_trivially = func.params.is_empty()
+        && !cancellable
         && !will_be_unimplemented
         && !is_bytes_result
         && !has_error
@@ -784,6 +942,10 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         params.push(format!("    {pfx}out_ptr: *mut *mut u8"));
         params.push(format!("    {pfx}out_len: *mut usize"));
         params.push(format!("    {pfx}out_cap: *mut usize"));
+    }
+    if cancellable {
+        let pfx = if will_be_unimplemented { "_" } else { "" };
+        params.push(format!("    {pfx}alef_cancel_token: AlefHandle"));
     }
 
     let return_type = if is_void_return(&func.return_type) && !has_error {
@@ -841,6 +1003,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     } else {
         format!("return {};", null_return_value(&func.return_type))
     };
+    let cancelled_ret = fail_ret.clone();
     // See the mirrored method-wrapper block above: entries are `Option<HandleRequest>` array
     // elements consumed via `.into_iter().flatten().collect()`, not `.push()` statements, so
     // this never trips `clippy::vec_init_then_push`. ~keep
@@ -1048,7 +1211,12 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     // `AssertUnwindSafe(inline_callee)` (see the comment on `can_inline_trivially` above).
     if !can_inline_trivially {
         if func.is_async {
-            let call = format!("get_ffi_runtime().block_on(async {{ {core_fn_path}({call_args}).await }})");
+            let future = format!("{core_fn_path}({call_args}).await");
+            let call = if cancellable {
+                cancellable_block_on(&future, &cancelled_ret)
+            } else {
+                format!("get_ffi_runtime().block_on(async {{ {future} }})")
+            };
             if can_inline_fn {
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "call_inline.jinja",

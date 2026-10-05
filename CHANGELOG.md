@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The FFI layer exports `<prefix>_cancel_token_new`, `<prefix>_cancel_token_cancel` and
+  `<prefix>_cancel_token_free`, and a `<symbol>_cancellable` sibling for every async free function and
+  method taking one extra trailing cancel-token handle (`0` = never cancelled). Tripping the token
+  from any thread drops the in-flight future, which aborts the underlying request, and the call fails
+  with the new reserved error code `Cancelled = 5`. Streaming adapters export
+  `<stream>_start_cancellable`, whose handle keeps the token so a blocked `<stream>_next` can be
+  cancelled too. The existing symbols keep their signatures.
 - `[crates.go] link_flags` maps a cgo constraint (`darwin`, `windows,amd64`, ...) to extra linker
   arguments, rendered as `#cgo <constraint> LDFLAGS:` lines after the FFI library's `-l` flag so a
   statically linked FFI library can pull in its platform system libraries.

@@ -650,6 +650,21 @@ pub(super) fn gen_ffi_tokio_runtime() -> String {
     crate::backends::ffi::template_env::render("ffi_tokio_runtime.jinja", minijinja::context! {})
 }
 
+/// Generate the cancel-token API and the cancellable `block_on` helpers every `*_cancellable`
+/// export (and the streaming adapters' cancellable start) is built on.
+pub(super) fn gen_ffi_cancel_token(prefix: &str) -> String {
+    crate::backends::ffi::template_env::render(
+        "ffi_cancel_token.jinja",
+        minijinja::context! {
+            prefix => prefix,
+            builtin_prefix => crate::codegen::naming::ffi_builtin_error_code_prefix(prefix),
+            new_symbol => c_consumer::cancel_token_new_symbol(prefix),
+            cancel_symbol => c_consumer::cancel_token_cancel_symbol(prefix),
+            free_symbol => c_consumer::cancel_token_free_symbol(prefix),
+        },
+    )
+}
+
 /// Generate the three iterator-handle functions for a streaming adapter:
 ///
 /// - `{prefix}_{type_snake}_{name}_start` — create handle from client + request
@@ -697,6 +712,7 @@ pub(super) fn gen_stream_handle_functions(
 pub struct {handle_name} {{
     rt: tokio::runtime::Runtime,
     stream: std::sync::Mutex<Option<{stream_ty}>>,
+    cancel: Option<std::sync::Arc<AlefCancelState>>,
 }}
 
 /// Start a streaming chat completion and return an opaque iterator handle.
@@ -715,6 +731,43 @@ pub unsafe extern "C" fn {fn_start}(
 ) -> AlefHandle {{
     catch_ffi_panic(0, || {{
     clear_last_error();
+    // SAFETY: the caller upholds this function's contract, which `{fn_start}_open` shares.
+    unsafe {{ {fn_start}_open(client, req, None) }}
+    }})
+}}
+
+/// Start a streaming chat completion that a cancel token can abort, and return an opaque iterator handle.
+///
+/// Behaves exactly like `{fn_start}`, and additionally tripping `alef_cancel_token` (created by
+/// `{prefix}_cancel_token_new`, `0` for none) aborts both the stream-open request and any later
+/// blocking `{fn_next}` call on the returned handle: each returns null with last-error code
+/// `Cancelled`. The handle keeps its own reference to the token, so the token may be freed
+/// before the handle is.
+///
+/// # Safety
+/// Same contract as `{fn_start}`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {fn_start}_cancellable(
+    client: AlefHandle,
+    req: AlefHandle,
+    alef_cancel_token: AlefHandle,
+) -> AlefHandle {{
+    catch_ffi_panic(0, || {{
+    clear_last_error();
+    let cancel = match alef_cancel_state(alef_cancel_token) {{
+        Ok(state) => state,
+        Err(error) => {{ set_handle_error(&error); return 0; }}
+    }};
+    // SAFETY: the caller upholds this function's contract, which `{fn_start}_open` shares.
+    unsafe {{ {fn_start}_open(client, req, cancel) }}
+    }})
+}}
+
+unsafe fn {fn_start}_open(
+    client: AlefHandle,
+    req: AlefHandle,
+    cancel: Option<std::sync::Arc<AlefCancelState>>,
+) -> AlefHandle {{
 
     let requests = [
         HandleRequest {{ handle: client, expected_type: std::any::TypeId::of::<{owner_ty}>() }},
@@ -760,7 +813,10 @@ pub unsafe extern "C" fn {fn_start}(
         }}
     }};
 
-    let stream_result = rt.block_on(async {{ client_ref.{core_path}(req_owned).await }});
+    let stream_result = match alef_block_on_in(&rt, cancel.as_ref(), async {{ client_ref.{core_path}(req_owned).await }}) {{
+        Some(result) => result,
+        None => return 0,
+    }};
 
     let raw_stream = match stream_result {{
         Ok(s) => s,
@@ -779,12 +835,12 @@ pub unsafe extern "C" fn {fn_start}(
     let handle = {handle_name} {{
         rt,
         stream: std::sync::Mutex::new(Some(mapped)),
+        cancel,
     }};
     match insert_handle(handle) {{
         Ok(handle) => handle,
         Err(error) => {{ set_handle_error(&error); 0 }}
     }}
-    }})
 }}
 
 /// Advance the stream and return a heap-allocated chunk, or null.
@@ -843,7 +899,11 @@ pub unsafe extern "C" fn {fn_next}(
     }};
 
     use futures_util::StreamExt;
-    match h.rt.block_on(stream.next()) {{
+    let next = match alef_block_on_in(&h.rt, h.cancel.as_ref(), stream.next()) {{
+        Some(next) => next,
+        None => return 0,
+    }};
+    match next {{
         Some(Ok(chunk)) => {{
             // SAFETY: We box the chunk and transfer ownership to the caller via raw pointer.
             // The caller must free it via the appropriate type-free function.

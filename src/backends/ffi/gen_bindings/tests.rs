@@ -1,4 +1,5 @@
 mod basics;
+mod cancellation;
 mod capsule;
 mod cfg_gated_variants;
 mod clippy_allowlist;

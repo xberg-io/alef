@@ -161,6 +161,7 @@ impl ApiSurface {
     pub(crate) const FFI_ERROR_CODE_UNKNOWN: u32 = 2;
     pub(crate) const FFI_ERROR_CODE_PANIC: u32 = 3;
     pub(crate) const FFI_ERROR_CODE_INVALID_HANDLE: u32 = 4;
+    pub(crate) const FFI_ERROR_CODE_CANCELLED: u32 = 5;
     pub(crate) const FFI_ERROR_CODE_DOMAIN_MIN: u32 = 100;
     pub(crate) const FFI_ERROR_CODE_DOMAIN_MAX: u32 = i32::MAX as u32;
 

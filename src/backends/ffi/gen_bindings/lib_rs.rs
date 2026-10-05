@@ -1,8 +1,9 @@
 use crate::adapters::AdapterBodies;
 use crate::backends::ffi::gen_bindings::functions::{
-    gen_free_function, gen_free_function_len_companion, gen_free_function_result_presence_wrapper,
-    gen_method_result_presence_wrapper, gen_method_wrapper, gen_streaming_method_wrapper, is_owned_default_constructor,
-    returns_bytes_out_params, returns_c_char, should_skip_method_wrapper,
+    gen_cancellable_free_function, gen_cancellable_method_wrapper, gen_free_function, gen_free_function_len_companion,
+    gen_free_function_result_presence_wrapper, gen_method_result_presence_wrapper, gen_method_wrapper,
+    gen_streaming_method_wrapper, is_owned_default_constructor, returns_bytes_out_params, returns_c_char,
+    should_skip_method_wrapper,
 };
 use crate::backends::ffi::gen_bindings::helpers;
 use crate::backends::ffi::gen_bindings::helpers::{
@@ -399,6 +400,17 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 ffi_param_enums,
                 serde_names,
             ));
+            if let Some(cancellable) = gen_cancellable_method_wrapper(
+                typ,
+                method,
+                prefix,
+                &core_import,
+                path_map,
+                ffi_param_enums,
+                serde_names,
+            ) {
+                builder.add_item(&cancellable);
+            }
             if let Some(presence) =
                 gen_method_result_presence_wrapper(typ, method, prefix, &core_import, path_map, ffi_param_enums)
             {
@@ -551,6 +563,9 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     if has_async_functions {
         builder.add_item(&gen_ffi_tokio_runtime());
     }
+    if has_async_functions || has_streaming_adapters {
+        builder.add_item(&helpers::gen_ffi_cancel_token(prefix));
+    }
 
     let visitor_callbacks_enabled = config.ffi.as_ref().is_some_and(|f| f.visitor_callbacks);
 
@@ -626,6 +641,18 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             capsule_cfg,
             returns_owned_borrowed_handle,
         ));
+        if let Some(cancellable) = gen_cancellable_free_function(
+            func,
+            prefix,
+            &core_import,
+            path_map,
+            ffi_param_enums,
+            serde_names,
+            capsule_cfg,
+            returns_owned_borrowed_handle,
+        ) {
+            builder.add_item(&cancellable);
+        }
         if returns_c_char(&func.return_type) {
             builder.add_item(&gen_free_function_len_companion(
                 func,

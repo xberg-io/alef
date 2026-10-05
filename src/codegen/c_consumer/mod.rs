@@ -142,6 +142,30 @@ pub fn stream_adapter_symbol(prefix: &str, owner_type: &str, adapter_name: &str,
     format!("{}_{operation}", method_symbol(prefix, owner_type, adapter_name))
 }
 
+/// Return the C symbol name of the cancellable variant of a generated async export.
+///
+/// Format: `{fn_symbol}_cancellable`. Additive by construction: it names a NEW exported symbol that
+/// takes one extra trailing `AlefHandle` cancel token (`0` = never cancelled) and otherwise has the
+/// primary export's exact signature, so the primary symbol's ABI never changes.
+pub fn cancellable_symbol(fn_symbol: &str) -> String {
+    format!("{fn_symbol}_cancellable")
+}
+
+/// Return the C symbol name that allocates a cancel token: `{prefix}_cancel_token_new`.
+pub fn cancel_token_new_symbol(prefix: &str) -> String {
+    format!("{prefix}_cancel_token_new")
+}
+
+/// Return the C symbol name that trips a cancel token: `{prefix}_cancel_token_cancel`.
+pub fn cancel_token_cancel_symbol(prefix: &str) -> String {
+    format!("{prefix}_cancel_token_cancel")
+}
+
+/// Return the C symbol name that releases a cancel token: `{prefix}_cancel_token_free`.
+pub fn cancel_token_free_symbol(prefix: &str) -> String {
+    format!("{prefix}_cancel_token_free")
+}
+
 /// Return the C symbol name for freeing FFI-allocated strings.
 ///
 /// Format: `{prefix}_free_string`
@@ -266,6 +290,21 @@ sources = ["src/lib.rs"]
             result_presence_symbol(&method_symbol("cfg", "Settings", "timeout")),
             "cfg_settings_timeout_has_result"
         );
+    }
+
+    #[test]
+    fn cancellation_symbols_extend_the_primary_symbol_without_replacing_it() {
+        assert_eq!(
+            cancellable_symbol(&method_symbol("literllm", "DefaultClient", "chat")),
+            "literllm_default_client_chat_cancellable"
+        );
+        assert_eq!(
+            cancellable_symbol(&free_function_symbol("cfg", "fetch")),
+            "cfg_fetch_cancellable"
+        );
+        assert_eq!(cancel_token_new_symbol("cfg"), "cfg_cancel_token_new");
+        assert_eq!(cancel_token_cancel_symbol("cfg"), "cfg_cancel_token_cancel");
+        assert_eq!(cancel_token_free_symbol("cfg"), "cfg_cancel_token_free");
     }
 
     #[test]

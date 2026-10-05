@@ -12,7 +12,10 @@ pub(super) use params::{
 };
 
 pub(super) use cfg_dedup::dedup_same_name_functions;
-pub(super) use orchestration::{gen_free_function, gen_method_wrapper, gen_streaming_method_wrapper};
+pub(super) use orchestration::{
+    gen_cancellable_free_function, gen_cancellable_method_wrapper, gen_free_function, gen_method_wrapper,
+    gen_streaming_method_wrapper,
+};
 pub(super) use result_presence::{gen_free_function_result_presence_wrapper, gen_method_result_presence_wrapper};
 pub(super) use return_handling::{returns_bytes_out_params, returns_c_char};
 pub(super) use signatures::{

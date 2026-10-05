@@ -1,0 +1,199 @@
+const ALEF_FFI_CANCELLED_ERROR: i32 = AlefFfiErrorCode::{{ builtin_prefix }}Cancelled as i32;
+
+// ~keep Hand-rolled on std instead of tokio's `Notify`/`select!`: the generated crate's tokio
+// feature set is whatever the consumer configured, and this keeps the cancel path independent of
+// `sync`/`macros`. `cancel` publishes the flag BEFORE draining the waiter list under the same lock
+// `poll` registers under, so a poll either observes the flag or has its waker drained: no lost wakeup.
+struct AlefCancelState {
+    cancelled: std::sync::atomic::AtomicBool,
+    waiters: std::sync::Mutex<Vec<(u64, std::task::Waker)>>,
+    next_waiter: std::sync::atomic::AtomicU64,
+}
+
+impl AlefCancelState {
+    fn new() -> Self {
+        Self {
+            cancelled: std::sync::atomic::AtomicBool::new(false),
+            waiters: std::sync::Mutex::new(Vec::new()),
+            next_waiter: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+        let drained = std::mem::take(&mut *self.waiters.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
+        for (_, waker) in drained {
+            waker.wake();
+        }
+    }
+}
+
+struct AlefCancelWait<'a> {
+    state: &'a AlefCancelState,
+    waiter: Option<u64>,
+}
+
+impl std::future::Future for AlefCancelWait<'_> {
+    type Output = ();
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        if self.state.is_cancelled() {
+            return std::task::Poll::Ready(());
+        }
+        let state = self.state;
+        let mut waiters = state.waiters.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.is_cancelled() {
+            return std::task::Poll::Ready(());
+        }
+        let id = *self
+            .waiter
+            .get_or_insert_with(|| state.next_waiter.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+        match waiters.iter_mut().find(|(waiter, _)| *waiter == id) {
+            Some((_, waker)) => waker.clone_from(cx.waker()),
+            None => waiters.push((id, cx.waker().clone())),
+        }
+        std::task::Poll::Pending
+    }
+}
+
+impl Drop for AlefCancelWait<'_> {
+    fn drop(&mut self) {
+        if let Some(id) = self.waiter {
+            self.state
+                .waiters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .retain(|(waiter, _)| *waiter != id);
+        }
+    }
+}
+
+async fn alef_race_cancel<F: std::future::Future>(state: &AlefCancelState, future: F) -> Option<F::Output> {
+    let mut future = std::pin::pin!(future);
+    let mut cancelled = AlefCancelWait { state, waiter: None };
+    std::future::poll_fn(|cx| {
+        if let std::task::Poll::Ready(output) = std::future::Future::poll(future.as_mut(), cx) {
+            return std::task::Poll::Ready(Some(output));
+        }
+        match std::future::Future::poll(std::pin::Pin::new(&mut cancelled), cx) {
+            std::task::Poll::Ready(()) => std::task::Poll::Ready(None),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    })
+    .await
+}
+
+// ~keep Returns `None` only on cancellation, and has already recorded `Cancelled` by then, so a
+// caller just takes its failure return. Dropping the losing future here is what aborts the
+// in-flight work: a dropped HTTP client future closes its connection.
+fn alef_block_on_in<F: std::future::Future>(
+    runtime: &tokio::runtime::Runtime,
+    state: Option<&std::sync::Arc<AlefCancelState>>,
+    future: F,
+) -> Option<F::Output> {
+    let Some(state) = state else {
+        return Some(runtime.block_on(future));
+    };
+    if state.is_cancelled() {
+        set_last_error(ALEF_FFI_CANCELLED_ERROR, "operation cancelled");
+        return None;
+    }
+    let outcome = runtime.block_on(alef_race_cancel(state, future));
+    if outcome.is_none() {
+        set_last_error(ALEF_FFI_CANCELLED_ERROR, "operation cancelled");
+    }
+    outcome
+}
+
+// ~keep The token is resolved to its shared state here and the registry entry is released at
+// once. Method wrappers hold their receiver's handle lock for the whole blocking call; the
+// token must never be among those locks, or `cancel` (which locks the token entry) could not
+// run while the call it is meant to interrupt is in flight.
+fn alef_cancel_state(token: AlefHandle) -> Result<Option<std::sync::Arc<AlefCancelState>>, HandleError> {
+    if token == 0 {
+        return Ok(None);
+    }
+    with_handle::<AlefCancelToken, _>(token, |token| token.0.clone()).map(Some)
+}
+
+#[allow(dead_code)]
+fn alef_block_on_cancellable<F: std::future::Future>(token: AlefHandle, future: F) -> Option<F::Output> {
+    match alef_cancel_state(token) {
+        Ok(state) => alef_block_on_in(get_ffi_runtime(), state.as_ref(), future),
+        Err(error) => {
+            set_handle_error(&error);
+            None
+        }
+    }
+}
+
+struct AlefCancelToken(std::sync::Arc<AlefCancelState>);
+
+/// Allocate a cancel token.
+///
+/// Pass the token to a `*_cancellable` export to make that blocking call abortable, then call
+/// `{{ cancel_symbol }}` from any thread to abort it. The call returns with last-error code
+/// `Cancelled` and the underlying request is dropped. One token may be shared by several calls.
+/// A cancelled token stays cancelled.
+///
+/// Returns `0` on failure (see `{{ prefix }}_last_error_code`). The caller owns the handle and
+/// MUST release it with `{{ free_symbol }}` once no call using it is still running.
+///
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// The returned handle is owned by the caller and must be freed with `{{ free_symbol }}`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ new_symbol }}() -> AlefHandle {
+    catch_ffi_panic(0, || match insert_handle(AlefCancelToken(std::sync::Arc::new(AlefCancelState::new()))) {
+        Ok(handle) => handle,
+        Err(error) => {
+            set_handle_error(&error);
+            0
+        }
+    })
+}
+
+/// Trip a cancel token. Safe to call from any thread, repeatedly, and while a call using the
+/// token is blocked.
+///
+/// Returns `0` on success and `-1` for an invalid, stale or wrong-typed handle (see
+/// `{{ prefix }}_last_error_code`).
+///
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// This function does not allocate and returns no owned pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ cancel_symbol }}(token: AlefHandle) -> i32 {
+    catch_ffi_panic(-1, || {
+        match with_handle::<AlefCancelToken, _>(token, |token| token.0.cancel()) {
+            Ok(()) => 0,
+            Err(error) => {
+                set_handle_error(&error);
+                -1
+            }
+        }
+    })
+}
+
+/// Free a cancel token created by `{{ new_symbol }}`.
+///
+/// Passing `0` is a no-op. The token must not be used afterwards, and no call using it may still
+/// be running.
+///
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// `token` must be `0` or a handle returned by `{{ new_symbol }}` that has not been freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ free_symbol }}(token: AlefHandle) {
+    catch_ffi_panic((), || {
+        if token != 0
+            && let Err(error) = remove_handle::<AlefCancelToken>(token)
+        {
+            set_handle_error(&error);
+        }
+    })
+}

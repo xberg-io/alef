@@ -108,6 +108,7 @@ prefix = "sample"
     assert!(lib.content.contains("SampleAlefUnknown = 2"));
     assert!(lib.content.contains("SampleAlefPanic = 3"));
     assert!(lib.content.contains("SampleAlefInvalidHandle = 4"));
+    assert!(lib.content.contains("SampleAlefCancelled = 5"));
     assert!(lib.content.contains("SampleLibRequestErrorUnavailable = 101"));
     assert!(lib.content.contains("SampleLibStorageErrorUnavailable = 102"));
     assert!(lib.content.contains("sample_lib::RequestError::InvalidInput =>"));
@@ -194,8 +195,8 @@ prefix = "sample"
         .collect();
     assert_eq!(
         members.len(),
-        6,
-        "expected five built-ins plus one taxonomy member: {members:?}"
+        7,
+        "expected six built-ins plus one taxonomy member: {members:?}"
     );
     for member in &members {
         assert!(
@@ -407,6 +408,7 @@ fn catch_ffi_panic_preserves_a_more_specific_error_set_before_an_unrelated_panic
             unknown_error_code => 2,
             panic_error_code => 3,
             invalid_handle_error_code => 4,
+            cancelled_error_code => 5,
         },
     );
 
