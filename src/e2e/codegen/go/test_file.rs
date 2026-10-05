@@ -285,6 +285,9 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], context: G
     if needs_json || needs_reflect {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
+    if body.contains("errors.As(") {
+        let _ = writeln!(out, "\t\"errors\"");
+    }
     if needs_fmt {
         let _ = writeln!(out, "\t\"fmt\"");
     }

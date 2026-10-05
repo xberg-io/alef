@@ -3,7 +3,7 @@
 //!
 //! Split out of `test_function.rs`, which is over the 1000-line cap and may not grow.
 
-use super::emit_declared_error_value_assertion;
+use super::declared_error_assertion::emit_declared_error_value_assertion;
 use crate::core::ir::{ErrorDef, ErrorVariant};
 use crate::e2e::fixture::{Assertion, Fixture};
 

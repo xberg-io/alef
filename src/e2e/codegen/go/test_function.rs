@@ -10,47 +10,6 @@ use super::assertions::render_assertion;
 use super::client;
 use super::setup::{GoArgsContext, build_args_and_setup};
 use super::visitors::visitor_struct_name;
-use crate::e2e::codegen::declared_error_variant::{DeclaredErrorAssertion, classify, skip_line};
-
-/// Emit the message-or-type-name check for a fixture's declared `error` assertion value — or,
-/// when the declared value names a real error variant Go cannot substantiate, the registered
-/// skip instead of an assertion that can never pass.
-///
-/// No-op when nothing is declared, leaving the `expects_error` branch's output unchanged from
-/// before this check existed.
-///
-/// ~keep Mirrors the Rust/Python backends' disjunction (see
-/// `crate::e2e::codegen::declared_error_value`): fixture authors name either a message
-/// substring (config-validation fixtures) or a type-name prefix (API-error fixtures) in
-/// the assertion's value, never both conventions at once. Checking `err.Error()` OR
-/// `fmt.Sprintf("%T", err)` lets this single code path serve both. Whether Go can satisfy the
-/// second convention for a given variant is decided once by `declared_error_variant::classify`
-/// — Go dispatches to a variant-named error only when `#[alef(error_code = N)]` is declared.
-fn emit_declared_error_value_assertion(out: &mut String, fixture: &Fixture, errors: &[crate::core::ir::ErrorDef]) {
-    match classify("go", fixture, errors) {
-        DeclaredErrorAssertion::Undeclared => {}
-        DeclaredErrorAssertion::Assert(declared) => {
-            let expected = go_string_literal(declared);
-            let _ = writeln!(out, "\tif err != nil {{");
-            let _ = writeln!(
-                out,
-                "\t\tif !strings.Contains(err.Error(), {expected}) && !strings.Contains(fmt.Sprintf(\"%T\", err), \
-                 {expected}) {{"
-            );
-            let _ = writeln!(
-                out,
-                "\t\t\tt.Errorf(\"expected error to match %s, got message=%q type=%T\", {expected}, err.Error(), \
-                 err)"
-            );
-            let _ = writeln!(out, "\t\t}}");
-            let _ = writeln!(out, "\t}}");
-        }
-        DeclaredErrorAssertion::Unsubstantiable(variant) => {
-            let _ = writeln!(out, "{}", skip_line("\t", "//", variant, &fixture.id, "go"));
-        }
-    }
-}
-
 /// Map a trait name to its Clear* function name.
 /// E.g., "DocumentExtractor" -> "ClearDocumentExtractors"
 fn clear_function_for_trait(trait_name: &str) -> Option<String> {
@@ -378,7 +337,7 @@ pub(super) fn render_test_function_with_facts(
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
         let _ = writeln!(out, "\t}}");
-        emit_declared_error_value_assertion(out, fixture, errors);
+        declared_error_assertion::emit(out, fixture, errors, import_alias, &config.go_package_name());
         crate::e2e::codegen::error_path_assertions::emit(out, fixture, "\t// ", "go");
         emit_trait_bridge_cleanup(out, fixture, base_function_name, import_alias);
         let _ = writeln!(out, "}}");
@@ -1002,6 +961,9 @@ pub(super) use call_resolver::fixture_has_go_callable;
 
 #[path = "test_function/streaming_collect.rs"]
 mod streaming_collect;
+
+#[path = "test_function/declared_error_assertion.rs"]
+mod declared_error_assertion;
 
 #[cfg(test)]
 #[path = "test_function/declared_error_value_tests.rs"]
