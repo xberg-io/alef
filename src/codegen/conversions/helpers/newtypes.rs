@@ -234,6 +234,10 @@ fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction:
             let collect = collection_suffix(direction, "Vec<_>");
             let typed_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
                 format!("{prefix}.collect::<Vec<_>>()")
+            } else if let Some(inner) = expr.strip_prefix('(').and_then(|expr| expr.strip_suffix(')'))
+                && let Some(prefix) = inner.strip_suffix(".collect()")
+            {
+                format!("({prefix}.collect::<Vec<_>>())")
             } else {
                 expr.to_string()
             };

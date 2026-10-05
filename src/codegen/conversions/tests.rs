@@ -1411,7 +1411,7 @@ fn explicit_vec_newtype_types_an_intermediate_collect_before_iterating_again() {
     )]);
 
     let converted = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
-        "val.children.into_iter().collect()",
+        "(val.children.into_iter().collect())",
         &TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
         false,
         &wrapper,

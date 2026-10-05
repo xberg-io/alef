@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.20] - 2026-10-05
+
+### Fixed
+
+- Explicit sequence-newtype conversions type parenthesized intermediate collections before
+  iterating them again, keeping generated PHP bridges compilable.
+
 ## [0.103.19] - 2026-10-05
 
 ### Fixed
