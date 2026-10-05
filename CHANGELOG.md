@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Go e2e snippets indent the streaming loop with tabs, its body one level deeper than the `for`, so
+  streaming snippets are gofmt-stable.
 - Generated Go `lastError()` returns the typed `*Error` (variant in `Code`, the native message
   unchanged, `StatusCode`/`IsTransient`/`ErrorType` from the FFI getters) whose `Unwrap` yields the
   variant's sentinel, so `errors.As(err, &typed)` and `errors.Is(err, ErrRateLimited)` match. The

@@ -2050,4 +2050,45 @@ mod stream_presentation_regression {
         );
         assert!(body.contains("\"context\""), "{body}");
     }
+
+    /// The streaming loop must come out the way `gofmt` writes it: tab-indented, with the loop
+    /// body one level deeper than the `for` that owns it. Four-space indentation, and a body at
+    /// the loop's own depth, are both rewritten by the consumer's formatter, so the published
+    /// snippet drifts from what alef generated the first time anyone formats it. ~keep
+    #[test]
+    fn the_streaming_loop_is_gofmt_stable() {
+        let fixture: Fixture = serde_json::from_value(serde_json::json!({
+            "id":"stream_usage", "description":"Read stream usage", "input":{},
+            "docs":{"topic":"streaming"},
+            "assertions":[{"type":"not_empty", "field":"usage.total_tokens"}]
+        }))
+        .expect("fixture");
+        let config: E2eConfig = serde_json::from_value(serde_json::json!({
+            "call":{"function":"stream_usage", "module":"example", "streaming":true},
+            "fields_optional":["usage"]
+        }))
+        .expect("config");
+        let body =
+            render_snippet_body(&fixture, &config, &ResolvedCrateConfig::default(), &[], &[], &[]).expect("snippet");
+
+        let loop_start = body
+            .find("\tfor resultChunk := range result.Chan() {")
+            .expect("stream loop");
+        assert_eq!(
+            &body[loop_start..],
+            "\tfor resultChunk := range result.Chan() {\n\
+             \t\tif resultChunk.Usage != nil {\n\
+             \t\t\tfmt.Printf(\"%+v\\n\", resultChunk.Usage.TotalTokens)\n\
+             \t\t}\n\
+             \t}\n\
+             \tif err := result.Err(); err != nil {\n\
+             \t\tpanic(err)\n\
+             \t}\n\
+             }"
+        );
+        assert!(
+            body.lines().all(|line| !line.starts_with(' ')),
+            "no line may be space-indented:\n{body}"
+        );
+    }
 }
