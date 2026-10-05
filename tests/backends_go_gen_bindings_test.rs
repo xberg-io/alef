@@ -962,20 +962,20 @@ fn coded_error_keeps_the_native_message_and_still_matches_its_sentinel() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("sentinel = ErrTimeout"),
+        content.contains("e.sentinel = ErrTimeout"),
         "the coded variant must still resolve to its sentinel: {content}"
     );
     assert!(
-        !content.contains("case 1014:\n\t\treturn ErrTimeout"),
-        "returning the bare sentinel discards the native message"
+        content.contains("e := &GoError{Code: fmt.Sprintf(\"%d\", code)}"),
+        "lastError must build the typed *Error rather than a flattened fmt.Errorf: {content}"
     );
     assert!(
-        content.contains("return &nativeError{sentinel: sentinel, message: message}"),
-        "a coded error carrying a context message must surface that message"
-    );
-    assert!(
-        content.contains("func (e *nativeError) Unwrap() error { return e.sentinel }"),
+        content.contains("func (e *GoError) Unwrap() error { return e.sentinel }"),
         "errors.Is must keep matching the sentinel through Unwrap"
+    );
+    assert!(
+        !content.contains("nativeError"),
+        "the typed *Error subsumes the private nativeError wrapper"
     );
 
     let context_read = content.find("C.test_last_error_context()").expect("reads context");

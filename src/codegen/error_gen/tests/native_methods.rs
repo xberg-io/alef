@@ -62,7 +62,7 @@ fn test_gen_go_error_types() {
     assert!(output.contains("ErrOther = errors.New("));
     assert!(output.contains("type ConversionError struct {"));
     assert!(output.contains("Code    string"));
-    assert!(output.contains("func (e ConversionError) Error() string"));
+    assert!(output.contains("func (e *ConversionError) Error() string"));
     assert!(output.contains("// ErrParseError is returned when"));
     assert!(output.contains("// ErrIoError is returned when"));
     assert!(output.contains("// ErrOther is returned when"));
@@ -77,7 +77,7 @@ fn test_gen_go_error_types_stutter_strip() {
         "expected stutter strip, got:\n{output}"
     );
     assert!(
-        output.contains("func (e Error) Error() string"),
+        output.contains("func (e *Error) Error() string"),
         "expected stutter strip, got:\n{output}"
     );
     assert!(output.contains("ErrParseError = errors.New("));

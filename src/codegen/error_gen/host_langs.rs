@@ -4,7 +4,7 @@ use super::shared::{error_base_prefix, variant_display_message};
 
 pub fn gen_go_error_types(error: &ErrorDef, pkg_name: &str) -> String {
     let sentinels = gen_go_sentinel_errors(std::slice::from_ref(error));
-    let structured = gen_go_error_struct(error, pkg_name);
+    let structured = gen_go_error_struct(error, pkg_name, false);
     format!("{}\n\n{}", sentinels, structured)
 }
 
@@ -74,28 +74,20 @@ pub fn go_error_sentinel_name(errors: &[ErrorDef], error_name: &str, variant_nam
 /// [`gen_go_sentinel_errors`].
 ///
 /// When `error.methods` is non-empty, each whitelisted introspection method
-/// produces an exported struct field of the matching Go type plus a receiver
-/// method that returns that field.
-pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
+/// produces an exported struct field of the matching Go type.
+///
+/// `carries_sentinel` adds an unexported sentinel and an `Unwrap` method so
+/// `errors.Is(err, ErrX)` matches. Only the error type `lastError()` constructs sets
+/// it, so the field is never dead.
+pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str, carries_sentinel: bool) -> String {
     let go_type_name = crate::codegen::naming::go_error_type_name(&error.name, pkg_name);
 
-    let methods: Vec<serde_json::Value> = error
-        .methods
-        .iter()
-        .map(|m| {
-            let go_type = typeref_to_go_type(&m.return_type);
-            let method_name = to_pascal_case(&m.name);
-            let doc_summary = if m.doc.is_empty() {
-                String::new()
-            } else {
-                let first = crate::codegen::doc_emission::doc_first_paragraph_joined(&m.doc);
-                first.trim_end_matches('.').trim_end().to_string()
-            };
+    let methods: Vec<serde_json::Value> = go_error_method_fields(error)
+        .into_iter()
+        .map(|field| {
             serde_json::json!({
-                "field_name": method_name,
-                "go_type": go_type,
-                "method_name": method_name,
-                "doc": doc_summary,
+                "field_name": field.field_name,
+                "go_type": field.go_type,
             })
         })
         .collect();
@@ -107,8 +99,32 @@ pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
             go_type_name => go_type_name.as_str(),
             methods => methods,
             has_methods => has_methods,
+            carries_sentinel => carries_sentinel,
         },
     )
+}
+
+/// One exported Go struct field backed by a whitelisted error introspection method.
+pub struct GoErrorMethodField {
+    pub field_name: String,
+    pub go_type: &'static str,
+    pub method: String,
+}
+
+/// The struct fields `gen_go_error_struct` emits for `error.methods`, in declaration order.
+///
+/// Shared with the Go `lastError()` helper so the fields it populates are exactly the fields
+/// the struct declares.
+pub fn go_error_method_fields(error: &ErrorDef) -> Vec<GoErrorMethodField> {
+    error
+        .methods
+        .iter()
+        .map(|m| GoErrorMethodField {
+            field_name: to_pascal_case(&m.name),
+            go_type: typeref_to_go_type(&m.return_type),
+            method: m.name.clone(),
+        })
+        .collect()
 }
 
 /// Map an IR `TypeRef` to a Go type string for error introspection method returns.
@@ -129,6 +145,8 @@ fn typeref_to_go_type(ty: &crate::core::ir::TypeRef) -> &'static str {
         TypeRef::Primitive(PrimitiveType::F32) => "float32",
         TypeRef::Primitive(PrimitiveType::F64) => "float64",
         TypeRef::String => "string",
+        TypeRef::Duration => "DurationMillis",
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Duration) => "*DurationMillis",
         _ => "string",
     }
 }

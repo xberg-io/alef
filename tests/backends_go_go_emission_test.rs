@@ -56,9 +56,10 @@ module = "github.com/test/test-lib"
     )
 }
 
-/// Bug A: Error.Error() should use value receiver, not pointer receiver
+/// `lastError()` returns a `*TestError`, so `errors.As(err, &typed)` with `var typed *pkg.TestError`
+/// only matches when the pointer type implements `error`.
 #[test]
-fn test_error_method_uses_value_receiver() {
+fn test_error_method_uses_pointer_receiver() {
     let backend = GoBackend;
     let config = make_config();
 
@@ -115,12 +116,12 @@ fn test_error_method_uses_value_receiver() {
     let content = &binding.content;
 
     assert!(
-        content.contains("func (e TestError) Error() string"),
-        "Error() method should use value receiver 'func (e TestError) Error()', not pointer receiver"
+        content.contains("func (e *TestError) Error() string"),
+        "Error() must use the pointer receiver lastError() constructs"
     );
     assert!(
-        !content.contains("func (e *TestError) Error() string"),
-        "Error() method must not use pointer receiver 'func (e *TestError) Error()'"
+        !content.contains("func (e TestError) Error() string"),
+        "a value receiver would let a non-pointer TestError satisfy error but never match lastError()'s *TestError"
     );
 }
 

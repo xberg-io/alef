@@ -7,6 +7,16 @@ type {{ go_type_name }} struct {
 	{{ m.field_name }} {{ m.go_type }}
 {% endfor %}
 {% endif %}
+{% if carries_sentinel %}
+	sentinel error
+{% endif %}
 }
 
-func (e {{ go_type_name }}) Error() string { return e.Message }
+// Error returns the message reported by the native layer.
+func (e *{{ go_type_name }}) Error() string { return e.Message }
+{% if carries_sentinel %}
+
+// Unwrap returns the sentinel error for the failing variant, so errors.Is(err, ErrX) matches
+// while the native message and structured fields stay available through errors.As.
+func (e *{{ go_type_name }}) Unwrap() error { return e.sentinel }
+{% endif %}

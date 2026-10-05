@@ -1,19 +1,60 @@
-{% if error_codes %}
-// nativeError pairs a native error message with its sentinel so callers can
-// match with errors.Is while still reading the detail the native layer
-// produced, such as observed durations, limits and counts.
-type nativeError struct {
-	sentinel error
-	message  string
-}
-
-// Error returns the message reported by the native layer.
-func (e *nativeError) Error() string { return e.message }
-
-// Unwrap returns the sentinel error, so errors.Is and errors.As keep working.
-func (e *nativeError) Unwrap() error { return e.sentinel }
-
+{% if error_struct %}
+// lastError retrieves the last error from the FFI layer.
+//
+// Typed core errors come back as *{{ error_struct }}: errors.As recovers the structured fields and
+// errors.Is matches the variant's sentinel error.
+func lastError() error {
+	code := int32(C.{{ last_error_code_fn }}())
+	if code == 0 {
+		return nil
+	}
+	e := &{{ error_struct }}{Code: fmt.Sprintf("%d", code)}
+	if ctx := C.{{ last_error_context_fn }}(); ctx != nil {
+		e.Message = C.GoString(ctx)
+	}
+	if variant := C.{{ last_error_variant_fn }}(); variant != nil {
+		e.Code = C.GoString(variant)
+{% if variant_sentinels %}
+		switch e.Code {
+{% for variant_sentinel in variant_sentinels %}
+		case "{{ variant_sentinel.0 }}":
+			e.sentinel = {{ variant_sentinel.1 }}
+{% endfor %}
+		}
 {% endif %}
+	}
+{% if error_codes %}
+	switch code {
+{% for error_code in error_codes %}
+	case {{ error_code.0 }}:
+		e.sentinel = {{ error_code.1 }}
+{% endfor %}
+	}
+{% endif %}
+{% for field in fields %}
+{% if field.kind == "text" %}
+	if value := C.{{ field.symbol }}(); value != nil {
+		e.{{ field.go_field }} = C.GoString(value)
+	}
+{% elif field.kind == "duration" %}
+	if millis := int64(C.{{ field.symbol }}()); millis >= 0 {
+		duration := DurationMillis(millis)
+		e.{{ field.go_field }} = &duration
+	}
+{% else %}
+	e.{{ field.go_field }} = {{ field.go_type }}(C.{{ field.symbol }}())
+{% endif %}
+{% endfor %}
+	if e.Message == "" {
+		if e.sentinel != nil {
+			e.Message = e.sentinel.Error()
+		} else {
+			e.Message = "native error"
+		}
+	}
+	return e
+}
+{% else %}
 // lastError retrieves the last error from the FFI layer.
 func lastError() error {
 	code := int32(C.{{ last_error_code_fn }}())
@@ -24,23 +65,9 @@ func lastError() error {
 	if ctx := C.{{ last_error_context_fn }}(); ctx != nil {
 		message = C.GoString(ctx)
 	}
-{% if error_codes %}
-	var sentinel error
-	switch code {
-{% for error_code in error_codes %}
-	case {{ error_code.0 }}:
-		sentinel = {{ error_code.1 }}
-{% endfor %}
-	}
-	if sentinel != nil {
-		if message == "" {
-			return sentinel
-		}
-		return &nativeError{sentinel: sentinel, message: message}
-	}
-{% endif %}
 	if message == "" {
 		return fmt.Errorf("[%d] native error", code)
 	}
 	return fmt.Errorf("[%d] %s", code, message)
 }
+{% endif %}

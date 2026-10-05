@@ -6,6 +6,7 @@ use super::methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use super::types::{
     gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper, gen_opaque_type,
     gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper, go_struct_field_names,
+    primary_go_error,
 };
 use crate::codegen::naming::{field_uses_duration_map_wire, go_type_name, to_go_name};
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig, TraitBridgeConfig};
@@ -118,10 +119,17 @@ fn uses_ffi_enum_type(
 /// keeps the bare `uint64`, so counting it here would emit a `DurationMillis` no field
 /// references — and with it an `encoding/json` import Go rejects as unused. ~keep
 fn api_has_duration_field(api: &ApiSurface) -> bool {
-    api.types
+    let in_struct = api
+        .types
         .iter()
         .filter(|typ| !typ.is_opaque)
-        .any(|typ| crate::codegen::shared::binding_fields(&typ.fields).any(field_uses_duration_map_wire))
+        .any(|typ| crate::codegen::shared::binding_fields(&typ.fields).any(field_uses_duration_map_wire));
+    in_struct
+        || api.errors.iter().any(|error| {
+            crate::codegen::error_gen::go_error_method_fields(error)
+                .iter()
+                .any(|field| field.go_type.ends_with("DurationMillis"))
+        })
 }
 
 /// Returns true if a type reference mentions any excluded type.
@@ -249,7 +257,8 @@ pub(super) fn gen_go_file(
 
     let mut body = String::with_capacity(8192);
 
-    body.push_str(&gen_last_error_helper(api, ffi_prefix));
+    let primary_error = primary_go_error(api, &config.error_type_name());
+    body.push_str(&gen_last_error_helper(api, ffi_prefix, pkg_name, primary_error));
     body.push_str("\n\n");
 
     body.push_str(&gen_unmarshal_bytes_helper());
@@ -268,7 +277,12 @@ pub(super) fn gen_go_file(
         body.push_str(&crate::codegen::error_gen::gen_go_sentinel_errors(&api.errors));
         body.push_str("\n\n");
         for error in &api.errors {
-            body.push_str(&crate::codegen::error_gen::gen_go_error_struct(error, pkg_name));
+            let carries_sentinel = primary_error.is_some_and(|primary| std::ptr::eq(primary, error));
+            body.push_str(&crate::codegen::error_gen::gen_go_error_struct(
+                error,
+                pkg_name,
+                carries_sentinel,
+            ));
             body.push_str("\n\n");
         }
     }

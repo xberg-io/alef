@@ -6,8 +6,8 @@ mod pyo3;
 mod shared;
 
 pub use host_langs::{
-    gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors, gen_java_error_types,
-    go_error_sentinel_name,
+    GoErrorMethodField, gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors,
+    gen_java_error_types, go_error_method_fields, go_error_sentinel_name,
 };
 pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
 pub use napi_wasm::{

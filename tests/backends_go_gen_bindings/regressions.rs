@@ -425,13 +425,14 @@ fn test_opaque_error_type_uses_value_semantics() {
         content.contains("type GraphQLError struct"),
         "value-type error struct must be emitted"
     );
+    let squashed = content.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        content.contains("Code    string") && content.contains("Message string"),
+        squashed.contains("Code string Message string"),
         "value-type error struct must have Code/Message fields, got:\n{}",
         content
     );
     assert!(
-        content.contains("func (e GraphQLError) Error() string"),
+        content.contains("func (e *GraphQLError) Error() string"),
         "value-type error must implement the error interface"
     );
 

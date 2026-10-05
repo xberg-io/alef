@@ -21,6 +21,7 @@ pub(super) use helpers::is_tuple_field;
 pub(crate) use helpers::needs_omitempty_pointer;
 pub(super) use helpers::{
     emit_type_doc, gen_duration_millis_helper, gen_last_error_helper, gen_ptr_helper, gen_unmarshal_bytes_helper,
+    primary_go_error,
 };
 pub(super) use mapping::{cgo_type_for_primitive, go_return_expr, primitive_max_sentinel};
 pub(crate) use structs::go_struct_field_type;

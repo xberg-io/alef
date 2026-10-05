@@ -85,6 +85,16 @@ pub(crate) fn last_error_context_symbol(ffi_prefix: &str) -> String {
     c_consumer::last_error_context_symbol(ffi_prefix)
 }
 
+/// Cgo call target for reading the variant name of the thread-local last error.
+pub(crate) fn last_error_variant_symbol(ffi_prefix: &str) -> String {
+    c_consumer::last_error_variant_symbol(ffi_prefix)
+}
+
+/// Cgo call target for reading one captured error-method value of the last error.
+pub(crate) fn last_error_field_symbol(ffi_prefix: &str, method_name: &str) -> String {
+    c_consumer::last_error_field_symbol(ffi_prefix, method_name)
+}
+
 /// The name of the `static inline` cgo helper Go declares in its own preamble to heap-allocate a
 /// vtable struct: `{prefix}_{trait_snake}_vtable_new`.
 ///

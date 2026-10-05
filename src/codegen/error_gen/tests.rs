@@ -541,7 +541,7 @@ fn test_gen_rustler_error_converter() {
 #[test]
 fn test_gen_go_error_struct_with_methods() {
     let error = error_with_methods();
-    let output = gen_go_error_struct(&error, "sampleapp");
+    let output = gen_go_error_struct(&error, "sampleapp", false);
     assert!(output.contains("type Error struct {"), "struct def: {output}");
     assert!(output.contains("StatusCode uint16"), "StatusCode field: {output}");
     assert!(output.contains("IsTransient bool"), "IsTransient field: {output}");
@@ -587,7 +587,7 @@ fn test_gen_go_error_struct_no_field_method_collision() {
         binding_exclusion_reason: None,
         version: Default::default(),
     };
-    let output = gen_go_error_struct(&error, "mypkg");
+    let output = gen_go_error_struct(&error, "mypkg", false);
     assert!(output.contains("RetryCount uint32"), "RetryCount field: {output}");
     assert!(output.contains("Permanent bool"), "Permanent field: {output}");
     assert!(
@@ -603,10 +603,49 @@ fn test_gen_go_error_struct_no_field_method_collision() {
 #[test]
 fn test_gen_go_error_struct_no_methods() {
     let error = sample_error();
-    let output = gen_go_error_struct(&error, "mylib");
+    let output = gen_go_error_struct(&error, "mylib", false);
     assert!(output.contains("type ConversionError struct {"), "{output}");
     assert!(!output.contains("StatusCode"), "{output}");
     assert!(!output.contains("IsTransient"), "{output}");
+}
+
+#[test]
+fn test_gen_go_error_struct_uses_pointer_receiver() {
+    let output = gen_go_error_struct(&error_with_methods(), "sampleapp", false);
+    assert!(
+        output.contains("func (e *Error) Error() string { return e.Message }"),
+        "{output}"
+    );
+    assert!(!output.contains("func (e Error)"), "no value receivers: {output}");
+    assert!(
+        !output.contains("Unwrap"),
+        "a non-constructed error has no Unwrap: {output}"
+    );
+    assert!(
+        !output.contains("sentinel"),
+        "a non-constructed error has no sentinel: {output}"
+    );
+}
+
+#[test]
+fn test_gen_go_error_struct_carrying_sentinel_unwraps_it() {
+    let output = gen_go_error_struct(&error_with_methods(), "sampleapp", true);
+    assert!(output.contains("\tsentinel error\n"), "{output}");
+    assert!(
+        output.contains("func (e *Error) Unwrap() error { return e.sentinel }"),
+        "{output}"
+    );
+}
+
+#[test]
+fn test_gen_go_error_struct_maps_optional_duration_to_duration_millis_pointer() {
+    let mut error = error_with_methods();
+    error.methods.push(sample_method(
+        "retry_after",
+        TypeRef::Optional(Box::new(TypeRef::Duration)),
+    ));
+    let output = gen_go_error_struct(&error, "sampleapp", false);
+    assert!(output.contains("RetryAfter *DurationMillis"), "{output}");
 }
 
 #[test]

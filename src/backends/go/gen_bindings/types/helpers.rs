@@ -176,32 +176,98 @@ pub(in crate::backends::go::gen_bindings) fn gen_ptr_helper() -> String {
     crate::backends::go::template_env::render("ptr_helper.jinja", minijinja::Value::default())
 }
 
+/// The error type `lastError()` constructs: the configured crate error type, else the first
+/// error that exposes introspection methods, else the first error.
+pub(in crate::backends::go::gen_bindings) fn primary_go_error<'a>(
+    api: &'a crate::core::ir::ApiSurface,
+    error_type_name: &str,
+) -> Option<&'a crate::core::ir::ErrorDef> {
+    api.errors
+        .iter()
+        .find(|error| error.name == error_type_name)
+        .or_else(|| api.errors.iter().find(|error| !error.methods.is_empty()))
+        .or_else(|| api.errors.first())
+}
+
 /// Generate the lastError() helper function.
+///
+/// With a `primary` error type the helper builds `*Error` values carrying the variant, the
+/// captured introspection fields and the matching sentinel; without one (no declared errors)
+/// it falls back to a plain `fmt.Errorf`.
 pub(in crate::backends::go::gen_bindings) fn gen_last_error_helper(
     api: &crate::core::ir::ApiSurface,
     ffi_prefix: &str,
+    pkg_name: &str,
+    primary: Option<&crate::core::ir::ErrorDef>,
 ) -> String {
     let taxonomy = api.error_taxonomy();
     let error_codes: Vec<_> = taxonomy
         .iter()
-        .map(|entry| {
-            let error = api
-                .errors
-                .iter()
-                .find(|error| error.rust_path == entry.error_type)
-                .unwrap();
-            (
+        .filter_map(|entry| {
+            let error = api.errors.iter().find(|error| error.rust_path == entry.error_type)?;
+            Some((
                 entry.code,
                 crate::codegen::error_gen::go_error_sentinel_name(&api.errors, &error.name, &entry.variant),
+            ))
+        })
+        .collect();
+
+    let mut variant_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for variant in api.errors.iter().flat_map(|error| &error.variants) {
+        *variant_counts.entry(variant.name.as_str()).or_insert(0) += 1;
+    }
+    // A variant name shared by two error types cannot identify its sentinel; those are matched by
+    // numeric code only. ~keep
+    let variant_sentinels: Vec<_> = api
+        .errors
+        .iter()
+        .flat_map(|error| error.variants.iter().map(move |variant| (error, variant)))
+        .filter(|(_, variant)| variant_counts.get(variant.name.as_str()).copied() == Some(1))
+        .map(|(error, variant)| {
+            (
+                variant.name.clone(),
+                crate::codegen::error_gen::go_error_sentinel_name(&api.errors, &error.name, &variant.name),
             )
         })
         .collect();
+
+    let captured = crate::codegen::error_gen::last_error_fields(&api.errors);
+    let fields: Vec<_> = primary
+        .map(|error| {
+            crate::codegen::error_gen::go_error_method_fields(error)
+                .into_iter()
+                .filter_map(|field| {
+                    let method = error.methods.iter().find(|method| method.name == field.method)?;
+                    let kind = crate::codegen::error_gen::last_error_field_kind(method)?;
+                    let declared = captured.iter().find(|declared| declared.name == field.method)?;
+                    (declared.kind == kind).then(|| {
+                        let kind_name = match kind {
+                            crate::codegen::error_gen::LastErrorFieldKind::Scalar(_) => "scalar",
+                            crate::codegen::error_gen::LastErrorFieldKind::Text => "text",
+                            crate::codegen::error_gen::LastErrorFieldKind::DurationMillis => "duration",
+                        };
+                        context! {
+                            go_field => field.field_name,
+                            go_type => field.go_type,
+                            kind => kind_name,
+                            symbol => c_symbols::last_error_field_symbol(ffi_prefix, &field.method),
+                        }
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     crate::backends::go::template_env::render(
         "last_error_helper.jinja",
         context! {
             last_error_code_fn => c_symbols::last_error_code_symbol(ffi_prefix),
             last_error_context_fn => c_symbols::last_error_context_symbol(ffi_prefix),
+            last_error_variant_fn => c_symbols::last_error_variant_symbol(ffi_prefix),
+            error_struct => primary.map(|error| crate::codegen::naming::go_error_type_name(&error.name, pkg_name)),
             error_codes => error_codes,
+            variant_sentinels => variant_sentinels,
+            fields => fields,
         },
     )
 }
@@ -429,35 +495,169 @@ mod last_error_tests {
     use super::*;
     use crate::core::ir::{ErrorDef, ErrorVariant};
 
-    #[test]
-    fn typed_errors_dispatch_by_numeric_taxonomy_code() {
-        let error = ErrorDef {
-            name: "RequestError".to_string(),
-            rust_path: "sample::RequestError".to_string(),
-            variants: vec![ErrorVariant {
-                error_code: Some(100),
-                name: "InvalidInput".to_string(),
-                is_unit: true,
-                ..Default::default()
-            }],
+    fn method(name: &str, return_type: crate::core::ir::TypeRef) -> crate::core::ir::MethodDef {
+        crate::core::ir::MethodDef {
+            name: name.to_string(),
+            return_type,
+            ..Default::default()
+        }
+    }
+
+    fn error(name: &str, variants: &[(&str, Option<u32>)], methods: Vec<crate::core::ir::MethodDef>) -> ErrorDef {
+        ErrorDef {
+            name: name.to_string(),
+            rust_path: format!("sample::{name}"),
+            variants: variants
+                .iter()
+                .map(|(variant, code)| ErrorVariant {
+                    error_code: *code,
+                    name: (*variant).to_string(),
+                    is_unit: true,
+                    ..Default::default()
+                })
+                .collect(),
             original_rust_path: String::new(),
             doc: String::new(),
-            methods: Vec::new(),
+            methods,
             binding_excluded: false,
             binding_exclusion_reason: None,
             version: Default::default(),
-        };
-        let api = crate::core::ir::ApiSurface {
-            errors: vec![error],
+        }
+    }
+
+    fn api_with(errors: Vec<ErrorDef>) -> crate::core::ir::ApiSurface {
+        crate::core::ir::ApiSurface {
+            errors,
             ..Default::default()
-        };
+        }
+    }
+
+    #[test]
+    fn typed_errors_dispatch_by_numeric_taxonomy_code() {
+        let api = api_with(vec![error("RequestError", &[("InvalidInput", Some(100))], Vec::new())]);
         let code = api.error_taxonomy()[0].code;
 
-        let helper = gen_last_error_helper(&api, "sample");
+        let helper = gen_last_error_helper(&api, "sample", "sample", api.errors.first());
 
         assert!(helper.contains(&format!("case {code}:")));
-        assert!(helper.contains("sentinel = ErrInvalidInput"));
-        assert!(helper.contains("return &nativeError{sentinel: sentinel, message: message}"));
+        assert!(helper.contains("e.sentinel = ErrInvalidInput"));
+        assert!(!helper.contains("nativeError"));
+    }
+
+    #[test]
+    fn last_error_builds_a_typed_error_with_captured_fields_and_a_sentinel() {
+        use crate::core::ir::{PrimitiveType, TypeRef};
+        let api = api_with(vec![error(
+            "SampleError",
+            &[("RateLimited", None), ("Timeout", None)],
+            vec![
+                method("status_code", TypeRef::Primitive(PrimitiveType::U16)),
+                method("is_transient", TypeRef::Primitive(PrimitiveType::Bool)),
+                method("error_type", TypeRef::String),
+                method("retry_after", TypeRef::Optional(Box::new(TypeRef::Duration))),
+            ],
+        )]);
+
+        let helper = gen_last_error_helper(&api, "sample", "mylib", api.errors.first());
+
+        assert!(
+            helper.contains("e := &SampleError{Code: fmt.Sprintf(\"%d\", code)}"),
+            "{helper}"
+        );
+        assert!(helper.contains("C.sample_last_error_variant()"), "{helper}");
+        assert!(helper.contains("e.Code = C.GoString(variant)"), "{helper}");
+        assert!(
+            helper.contains("case \"RateLimited\":\n\t\t\te.sentinel = ErrRateLimited"),
+            "{helper}"
+        );
+        assert!(
+            helper.contains("e.StatusCode = uint16(C.sample_last_error_status_code())"),
+            "{helper}"
+        );
+        assert!(
+            helper.contains("e.IsTransient = bool(C.sample_last_error_is_transient())"),
+            "{helper}"
+        );
+        assert!(
+            helper.contains("if value := C.sample_last_error_error_type(); value != nil {"),
+            "{helper}"
+        );
+        assert!(helper.contains("e.ErrorType = C.GoString(value)"), "{helper}");
+        assert!(
+            helper.contains("millis := int64(C.sample_last_error_retry_after()); millis >= 0"),
+            "{helper}"
+        );
+        assert!(helper.contains("e.RetryAfter = &duration"), "{helper}");
+        assert!(helper.contains("return e\n}"), "{helper}");
+        assert!(
+            !helper.contains("fmt.Errorf"),
+            "a typed lastError never flattens the message: {helper}"
+        );
+    }
+
+    #[test]
+    fn variant_names_shared_by_two_errors_are_not_matched_by_name() {
+        let api = api_with(vec![
+            error("FirstError", &[("Invalid", None), ("OnlyFirst", None)], Vec::new()),
+            error("SecondError", &[("Invalid", None)], Vec::new()),
+        ]);
+
+        let helper = gen_last_error_helper(&api, "sample", "sample", api.errors.first());
+
+        assert!(helper.contains("case \"OnlyFirst\":"), "{helper}");
+        assert!(
+            !helper.contains("case \"Invalid\":"),
+            "ambiguous variant must not pick a sentinel: {helper}"
+        );
+    }
+
+    #[test]
+    fn methods_without_a_capturable_signature_are_not_read_back() {
+        use crate::core::ir::{PrimitiveType, TypeRef};
+        let api = api_with(vec![error(
+            "SampleError",
+            &[("Timeout", None)],
+            vec![
+                method("payload_len", TypeRef::Primitive(PrimitiveType::Usize)),
+                method("details", TypeRef::Vec(Box::new(TypeRef::String))),
+            ],
+        )]);
+
+        let helper = gen_last_error_helper(&api, "sample", "sample", api.errors.first());
+
+        assert!(!helper.contains("last_error_payload_len"), "{helper}");
+        assert!(!helper.contains("last_error_details"), "{helper}");
+    }
+
+    #[test]
+    fn without_a_declared_error_the_helper_falls_back_to_a_plain_error() {
+        let api = api_with(Vec::new());
+
+        let helper = gen_last_error_helper(&api, "sample", "sample", None);
+
         assert!(helper.contains("fmt.Errorf(\"[%d] %s\", code, message)"));
+        assert!(!helper.contains("sentinel"));
+    }
+
+    #[test]
+    fn primary_error_prefers_the_configured_type_then_one_with_methods() {
+        use crate::core::ir::{PrimitiveType, TypeRef};
+        let plain = error("PlainError", &[("A", None)], Vec::new());
+        let rich = error(
+            "RichError",
+            &[("B", None)],
+            vec![method("status_code", TypeRef::Primitive(PrimitiveType::U16))],
+        );
+        let api = api_with(vec![plain, rich]);
+
+        assert_eq!(
+            primary_go_error(&api, "PlainError").map(|e| e.name.as_str()),
+            Some("PlainError")
+        );
+        assert_eq!(
+            primary_go_error(&api, "Missing").map(|e| e.name.as_str()),
+            Some("RichError")
+        );
+        assert!(primary_go_error(&api_with(Vec::new()), "Missing").is_none());
     }
 }
