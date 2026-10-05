@@ -855,3 +855,5 @@ fn go_a_lone_error_assertion_renders_no_marker() {
     );
     assert!(!out.contains("has no accessor for error field"), "{out}");
 }
+
+mod array_field_snippet_tests;
