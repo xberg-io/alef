@@ -238,7 +238,7 @@ pub(super) fn render_snippet_body(
             None => "nil".to_string(),
         };
         let call_line = format!(
-            "\tclient, clientErr := {import_alias}.{}(\"your-api-key\", {base_url_arg}, nil, nil, nil)",
+            "client, clientErr := {import_alias}.{}(\"your-api-key\", {base_url_arg}, nil, nil, nil)",
             to_go_name(factory),
         );
         // The Go binding backend gives every opaque handle a `Free()` (not `Close()`) and

@@ -295,3 +295,36 @@ fn a_scalar_followed_by_a_multi_line_array_is_gofmt_stable() {
     assert!(rendered.contains("Model: `m`,"), "{rendered}");
     assert_gofmt_stable(&rendered);
 }
+
+/// The liter-llm fixture shape end to end: `{model, messages}` through a client factory. The
+/// snippet must keep the array and place `client, clientErr :=` at the same single tab as every
+/// other statement in `main` -- the template already contributes that tab, so the factory line
+/// carried a second one.
+#[test]
+fn a_client_factory_snippet_keeps_the_array_and_indents_the_client_line() {
+    let rendered = render(
+        serde_json::json!({"model": "m", "messages": [{"kind": "explicit", "name": "search"}]}),
+        vec![
+            field("model", TypeRef::String, false),
+            field(
+                "messages",
+                TypeRef::Vec(Box::new(TypeRef::Named("SampleTagged".into()))),
+                false,
+            ),
+        ],
+        vec![target_type()],
+        &[tagged_enum()],
+        true,
+    );
+
+    assert!(rendered.contains("Messages: []pkg.SampleTagged{"), "{rendered}");
+    assert!(
+        rendered.contains("\n\tclient, clientErr := pkg.CreateClient("),
+        "the client construction must sit at one tab:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("\t\tclient, clientErr"),
+        "the client construction must not be double-indented:\n{rendered}"
+    );
+    assert_gofmt_stable(&rendered);
+}
