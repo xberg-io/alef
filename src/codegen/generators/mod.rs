@@ -166,7 +166,7 @@ fn main() {{
                     if item
                         .trait_
                         .as_ref()
-                        .and_then(|(_, path, _)| path.segments.last())
+                        .and_then(|(path, _)| path.segments.last())
                         .is_some_and(|segment| segment.ident == "Debug")
                         && matches!(item.self_ty.as_ref(), syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == type_name)) =>
                 {
