@@ -208,6 +208,11 @@ fn managed_surface_reports_a_mutated_owned_java_wrapper() {
     std::fs::create_dir_all(dir.path().join("fixtures")).expect("create fixtures directory");
     std::fs::write(dir.path().join("src/lib.rs"), "pub fn noop() {}\n").expect("write source");
     std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"sample_crate\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write Cargo.toml");
+    std::fs::write(
         dir.path().join("fixtures/smoke.json"),
         r#"{
   "id": "wrapper_smoke",
