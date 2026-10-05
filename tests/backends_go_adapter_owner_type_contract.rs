@@ -21,7 +21,10 @@ typedef uint64_t TESTAlefHandle;
 static inline int32_t test_last_error_code(void) { return 0; }
 static inline const char *test_last_error_context(void) { return NULL; }
 static inline void test_api_engine_free(TESTApiEngine h) {}
-static inline TESTAlefHandle test_api_engine_crawl_stream_start(TESTApiEngine self) { return 1; }
+static inline TESTAlefHandle test_cancel_token_new(void) { return 1; }
+static inline int32_t test_cancel_token_cancel(TESTAlefHandle token) { return 0; }
+static inline void test_cancel_token_free(TESTAlefHandle token) {}
+static inline TESTAlefHandle test_api_engine_crawl_stream_start_cancellable(TESTApiEngine self, TESTAlefHandle token) { return 1; }
 static inline TESTAlefHandle test_api_engine_crawl_stream_next(TESTAlefHandle handle) { return 0; }
 static inline void test_api_engine_crawl_stream_free(TESTAlefHandle handle) {}
 static inline char *test_crawl_event_to_json(TESTAlefHandle chunk) { return NULL; }
