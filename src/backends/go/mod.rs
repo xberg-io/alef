@@ -2,6 +2,7 @@
 
 pub(crate) mod c_symbols;
 pub(crate) mod cgo_features;
+pub(crate) mod cgo_link_flags;
 pub(crate) mod emission_facts;
 mod gen_bindings;
 pub mod gen_visitor;

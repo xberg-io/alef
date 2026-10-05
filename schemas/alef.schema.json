@@ -3183,6 +3183,17 @@
           },
           "type": "array"
         },
+        "link_flags": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "description": "Extra cgo `LDFLAGS` appended after the FFI library's own `-l` flag, keyed by a cgo build\nconstraint: a GOOS (`darwin`, `linux`, `windows`, ...) or `GOOS,GOARCH`\n(`windows,arm64`). Each value is the list of linker arguments for that constraint and\nrenders as one `#cgo <constraint> LDFLAGS: ...` line in the generated cgo preamble.\n\nNeeded when the Go package links the static FFI library, which leaves the native\nlibraries the Rust standard library and its dependencies need (`-framework Security`,\n`-lresolv`, `-lws2_32`, ...) for the final link to supply.",
+          "type": "object"
+        },
         "module": {
           "type": [
             "string",

@@ -10,6 +10,10 @@
 #cgo linux,amd64 LDFLAGS: -L${SRCDIR}/.lib/linux-x86_64 -Wl,-rpath,${SRCDIR}/.lib/linux-x86_64 -l{{ ffi_lib_name }}
 #cgo linux,arm64 LDFLAGS: -L${SRCDIR}/.lib/linux-aarch64 -Wl,-rpath,${SRCDIR}/.lib/linux-aarch64 -l{{ ffi_lib_name }}
 #cgo windows,amd64 LDFLAGS: -L${SRCDIR}/.lib/windows-x86_64 -l{{ ffi_lib_name }}
+#cgo windows,arm64 LDFLAGS: -L${SRCDIR}/.lib/windows-aarch64 -l{{ ffi_lib_name }}
+{% for line in link_flag_lines %}
+#cgo {{ line.constraint }} LDFLAGS: {{ line.flags }}
+{% endfor %}
 #include "{{ ffi_header }}"
 */
 import "C"

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `[crates.go] link_flags` maps a cgo constraint (`darwin`, `windows,amd64`, ...) to extra linker
+  arguments, rendered as `#cgo <constraint> LDFLAGS:` lines after the FFI library's `-l` flag so a
+  statically linked FFI library can pull in its platform system libraries.
+
+### Fixed
+
+- The generated Go cgo preamble links Windows ARM64 from `.lib/windows-aarch64`, the directory the
+  Go FFI packager already ships.
+
 ## [0.103.20] - 2026-10-05
 
 ### Fixed

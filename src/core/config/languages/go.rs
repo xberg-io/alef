@@ -1,6 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -41,6 +41,16 @@ pub struct GoConfig {
     /// `CSharpConfig::exclude_functions` / `KotlinAndroidConfig::exclude_functions`.
     #[serde(default)]
     pub exclude_functions: Vec<String>,
+    /// Extra cgo `LDFLAGS` appended after the FFI library's own `-l` flag, keyed by a cgo build
+    /// constraint: a GOOS (`darwin`, `linux`, `windows`, ...) or `GOOS,GOARCH`
+    /// (`windows,arm64`). Each value is the list of linker arguments for that constraint and
+    /// renders as one `#cgo <constraint> LDFLAGS: ...` line in the generated cgo preamble.
+    ///
+    /// Needed when the Go package links the static FFI library, which leaves the native
+    /// libraries the Rust standard library and its dependencies need (`-framework Security`,
+    /// `-lresolv`, `-lws2_32`, ...) for the final link to supply.
+    #[serde(default)]
+    pub link_flags: BTreeMap<String, Vec<String>>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]

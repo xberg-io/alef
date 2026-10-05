@@ -233,6 +233,7 @@ pub(super) fn gen_go_file(
             crate_name => &config.name,
         },
     ));
+    let link_flag_lines = crate::backends::go::cgo_link_flags::cgo_link_flag_lines(config)?;
     header.push_str(&crate::backends::go::template_env::render(
         "cgo_preamble_binding.jinja",
         minijinja::context! {
@@ -241,6 +242,7 @@ pub(super) fn gen_go_file(
             ffi_lib_name => ffi_lib_name,
             ffi_header => ffi_header,
             feature_cflags => feature_cflags,
+            link_flag_lines => link_flag_lines,
         },
     ));
     header.push('\n');
