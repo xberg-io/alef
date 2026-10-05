@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.104.2] - 2026-10-05
+
 ### Fixed
 
 - Go snippets pass a `json.RawMessage`-backed enum (an untagged union such as a message content
