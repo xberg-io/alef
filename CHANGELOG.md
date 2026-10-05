@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Restored source compatibility for generated Go streaming APIs: the original method and
-  module-function names again return `(<-chan Item, error)`, while cancellable stream wrappers
-  are available through `WithContext`-suffixed variants.
-
 ## [0.103.16] - 2026-10-05
 
 ### Added
@@ -22,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Restored source compatibility for generated Go streaming APIs: the original method and
+  module-function names again return `(<-chan Item, error)`, while cancellable stream wrappers
+  are available through `WithContext`-suffixed variants.
 - `alef verify` compares markerless generated files recorded in `.alef-ownership.toml`, including
   Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render.
 - Generated Swift memberwise initializers default collection fields whose Rust metadata proves
