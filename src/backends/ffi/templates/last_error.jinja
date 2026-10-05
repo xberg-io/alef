@@ -1,6 +1,10 @@
 thread_local! {
     static LAST_ERROR_CODE: RefCell<i32> = const { RefCell::new(0) };
     static LAST_ERROR_CONTEXT: RefCell<Option<CString>> = const { RefCell::new(None) };
+    static LAST_ERROR_VARIANT: RefCell<Option<CString>> = const { RefCell::new(None) };
+{% for field in error_fields %}
+    static LAST_ERROR_{{ field.upper }}: RefCell<{{ field.storage_type }}> = const { RefCell::new({{ field.reset_expression }}) };
+{% endfor %}
     static LAST_RETURN_LENGTHS: RefCell<std::collections::BTreeMap<&'static str, usize>> =
         const { RefCell::new(std::collections::BTreeMap::new()) };
 }
@@ -37,14 +41,53 @@ fn alef_ffi_error_code({% if has_error_code_impls %}error{% else %}_error{% endi
     ALEF_FFI_UNKNOWN_ERROR
 }
 
+{% if has_duration_fields %}
+fn alef_ffi_duration_millis(duration: std::time::Duration) -> i64 {
+    i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+}
+
+{% endif %}
+fn clear_last_error_fields() {
+    LAST_ERROR_VARIANT.with_borrow_mut(|c| *c = None);
+{% for field in error_fields %}
+    LAST_ERROR_{{ field.upper }}.with_borrow_mut(|c| *c = {{ field.reset_expression }});
+{% endfor %}
+}
+
+fn alef_ffi_capture_error_fields({% if has_error_code_impls %}error{% else %}_error{% endif %}: &dyn std::any::Any) {
+{% for error_code_impl in error_code_impls %}
+    if let Some(error) = error.downcast_ref::<{{ error_code_impl.error_path }}>() {
+        #[allow(unreachable_patterns)]
+        let variant = match error {
+{% for variant in error_code_impl.variants %}
+            {{ variant.pattern }} => "{{ variant.name }}",
+{% endfor %}
+            _ => "",
+        };
+        LAST_ERROR_VARIANT.with_borrow_mut(|c| *c = CString::new(variant).ok());
+{% for field in error_code_impl.fields %}
+        LAST_ERROR_{{ field.upper }}.with_borrow_mut(|c| *c = {{ field.expression }});
+{% endfor %}
+        return;
+    }
+{% endfor %}
+}
+
 fn set_last_error(code: i32, message: &str) {
     LAST_ERROR_CODE.with_borrow_mut(|c| *c = code);
     LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = CString::new(message).ok());
+    clear_last_error_fields();
+}
+
+fn set_last_error_from(error: &dyn std::any::Any, message: &str) {
+    set_last_error(alef_ffi_error_code(error), message);
+    alef_ffi_capture_error_fields(error);
 }
 
 fn clear_last_error() {
     LAST_ERROR_CODE.with_borrow_mut(|c| *c = 0);
     LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = None);
+    clear_last_error_fields();
 }
 
 fn set_panic_error() {
@@ -102,3 +145,47 @@ pub unsafe extern "C" fn {{ prefix }}_last_error_context() -> *const c_char {
         ctx.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
     }))
 }
+
+/// Return the variant name of the last typed error, such as `RateLimited`.
+/// The pointer is NULL when the last error did not come from a typed error value, and is borrowed
+/// and valid until the next FFI call on this thread.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// The returned pointer is borrowed from thread-local storage and must NOT be freed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_last_error_variant() -> *const c_char {
+    catch_ffi_panic_preserving_error(std::ptr::null(), || LAST_ERROR_VARIANT.with_borrow(|ctx| {
+        ctx.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
+    }))
+}
+{% for field in error_fields %}
+
+{% if field.kind == "text" %}
+/// Return the last error's `{{ field.name }}` value, or NULL when the last error did not carry one.
+/// The pointer is borrowed and valid until the next FFI call on this thread.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// The returned pointer is borrowed from thread-local storage and must NOT be freed.
+{% elif field.kind == "duration" %}
+/// Return the last error's `{{ field.name }}` value in whole milliseconds, or `-1` when the last
+/// error did not carry one.
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// This function does not allocate and returns no owned pointer.
+{% else %}
+/// Return the last error's `{{ field.name }}` value (the zero value when there is no typed error).
+/// # Safety
+/// Caller must ensure all pointer arguments are valid or null.
+/// This function does not allocate and returns no owned pointer.
+{% endif %}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ field.accessor }}() -> {{ field.c_type }} {
+{% if field.kind == "text" %}
+    catch_ffi_panic_preserving_error({{ field.fallback_expression }}, || LAST_ERROR_{{ field.upper }}.with_borrow(|value| {
+        value.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
+    }))
+{% else %}
+    catch_ffi_panic_preserving_error({{ field.fallback_expression }}, || LAST_ERROR_{{ field.upper }}.with_borrow(|value| *value))
+{% endif %}
+}
+{% endfor %}

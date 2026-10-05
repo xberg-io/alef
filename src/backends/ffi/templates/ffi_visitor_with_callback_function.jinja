@@ -41,7 +41,7 @@ pub unsafe extern "C" fn {{ with_visitor_fn_name }}(
             Err(error) => { set_handle_error(&error); 0 }
         },
         Err(e) => {
-            set_last_error(2, &e.to_string());
+            set_last_error_from(&e, &e.to_string());
             0
         }
     }

@@ -22,7 +22,6 @@ src/backends/csharp/gen_bindings/methods/wrappers.rs 1184
 src/backends/dart/gen_rust_crate/cargo.rs 1032
 src/backends/extendr/gen_bindings/tests/wrappers.rs 1331
 src/backends/ffi/gen_bindings/functions/orchestration.rs 1158
-src/backends/ffi/gen_bindings/helpers.rs 1039
 src/backends/ffi/gen_bindings/service_api/tests.rs 1067
 src/backends/ffi/gen_bindings/tests/fields.rs 1043
 src/backends/ffi/gen_bindings/tests/regressions.rs 1911

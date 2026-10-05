@@ -6,8 +6,9 @@ use crate::backends::ffi::gen_bindings::functions::{
 };
 use crate::backends::ffi::gen_bindings::helpers;
 use crate::backends::ffi::gen_bindings::helpers::{
-    gen_ffi_tokio_runtime, gen_free_bytes, gen_free_string, gen_last_error, gen_version,
+    gen_ffi_tokio_runtime, gen_free_bytes, gen_free_string, gen_version,
 };
+use crate::backends::ffi::gen_bindings::last_error::gen_last_error;
 use crate::backends::ffi::gen_bindings::lib_setup::{
     build_lib_setup_context, crosses_borrowed_handle_boundary, function_param_bridge_for_visitor_callbacks,
     has_trait_bridge_param, options_field_bridge_for_function,

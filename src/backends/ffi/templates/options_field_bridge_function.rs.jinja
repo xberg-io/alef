@@ -41,7 +41,7 @@ pub unsafe extern "C" fn {{ ffi_function_name }}(
                 }
             },
             Err(error) => {
-                set_last_error(2, &error.to_string());
+                set_last_error_from(&error, &error.to_string());
                 0
             }
         }

@@ -1,7 +1,7 @@
 use crate::backends::ffi::type_map::is_void_return;
 use crate::codegen::c_consumer;
 use crate::codegen::doc_emission::emit_c_doxygen;
-use crate::core::ir::{ApiSurface, TypeRef};
+use crate::core::ir::TypeRef;
 use ahash::AHashSet;
 
 /// Render a `/** ... */` Doxygen block above a `typedef` line. `doc` is the
@@ -622,79 +622,6 @@ pub(super) fn gen_build_rs(
     ))
 }
 
-#[derive(serde::Serialize)]
-struct FfiErrorVariantCode {
-    pattern: String,
-    code_expression: String,
-}
-
-#[derive(serde::Serialize)]
-struct FfiErrorCodeImpl {
-    error_path: String,
-    variants: Vec<FfiErrorVariantCode>,
-}
-
-pub(super) fn gen_last_error(api: &ApiSurface, prefix: &str, core_import: &str) -> String {
-    let taxonomy = api.error_taxonomy();
-    let error_code_impls: Vec<_> = api
-        .errors
-        .iter()
-        .map(|error| {
-            let error_path = if error.rust_path.contains("::") {
-                error.rust_path.replace('-', "_")
-            } else {
-                format!("{core_import}::{}", error.name)
-            };
-            let variants = error
-                .variants
-                .iter()
-                .map(|variant| {
-                    let suffix = if variant.is_unit {
-                        String::new()
-                    } else if variant.is_tuple {
-                        "(..)".to_string()
-                    } else {
-                        " { .. }".to_string()
-                    };
-                    FfiErrorVariantCode {
-                        pattern: format!("{error_path}::{}{suffix}", variant.name),
-                        code_expression: variant.error_code.map_or_else(
-                            || "ALEF_FFI_UNKNOWN_ERROR".to_string(),
-                            |_| {
-                                let variant_name = crate::codegen::naming::ffi_error_code_variant_name(
-                                    &error.rust_path,
-                                    &variant.name,
-                                );
-                                format!("AlefFfiErrorCode::{variant_name} as i32")
-                            },
-                        ),
-                    }
-                })
-                .collect();
-            FfiErrorCodeImpl { error_path, variants }
-        })
-        .collect();
-    let has_error_code_impls = !error_code_impls.is_empty();
-    crate::backends::ffi::template_env::render(
-        "last_error.jinja",
-        minijinja::context! {
-            prefix => prefix,
-            builtin_prefix => crate::codegen::naming::ffi_builtin_error_code_prefix(prefix),
-            error_code_impls => error_code_impls,
-            has_error_code_impls => has_error_code_impls,
-            taxonomy => taxonomy.iter().map(|entry| minijinja::context! {
-                code => entry.code,
-                enum_variant => crate::codegen::naming::ffi_error_code_variant_name(&entry.error_type, &entry.variant),
-            }).collect::<Vec<_>>(),
-            no_error_code => ApiSurface::FFI_ERROR_CODE_NONE,
-            conversion_error_code => ApiSurface::FFI_ERROR_CODE_CONVERSION,
-            unknown_error_code => ApiSurface::FFI_ERROR_CODE_UNKNOWN,
-            panic_error_code => ApiSurface::FFI_ERROR_CODE_PANIC,
-            invalid_handle_error_code => ApiSurface::FFI_ERROR_CODE_INVALID_HANDLE,
-        },
-    )
-}
-
 pub(super) fn gen_free_string(prefix: &str) -> String {
     crate::backends::ffi::template_env::render(
         "free_string.jinja",
@@ -838,7 +765,7 @@ pub unsafe extern "C" fn {fn_start}(
     let raw_stream = match stream_result {{
         Ok(s) => s,
         Err(e) => {{
-            set_last_error(99, &format!("{fn_start}: failed to open stream: {{e}}"));
+            set_last_error_from(&e, &format!("{fn_start}: failed to open stream: {{e}}"));
             return 0;
         }}
     }};

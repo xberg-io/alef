@@ -11,6 +11,7 @@ mod enum_item_cfg;
 mod feature_defines;
 mod fields;
 mod handle_registry;
+mod last_error_fields;
 mod last_error_unused_variable;
 mod method_param_enums;
 mod methods;

@@ -26,7 +26,7 @@
             0
         }
         Err(e) => {
-            set_last_error(alef_ffi_error_code(&e), &e.to_string());
+            set_last_error_from(&e, &e.to_string());
             // SAFETY: out_ptr/out_len/out_cap were null-checked above.
             unsafe { *out_ptr = std::ptr::null_mut(); *out_len = 0; *out_cap = 0; }
             -1
@@ -80,7 +80,7 @@
             0
         }
         Err(e) => {
-            set_last_error(alef_ffi_error_code(&e), &e.to_string());
+            set_last_error_from(&e, &e.to_string());
             // SAFETY: out_ptr/out_len/out_cap were null-checked above.
             unsafe { *out_ptr = std::ptr::null_mut(); *out_len = 0; *out_cap = 0; }
             -1

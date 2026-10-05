@@ -2,7 +2,7 @@ match result {
         Ok(val) => {
 {{ ok_body }}        }
         Err(e) => {
-            set_last_error(alef_ffi_error_code(&e), &e.to_string());
+            set_last_error_from(&e, &e.to_string());
             {{ null_ret }}
         }
     }

@@ -6,7 +6,7 @@
 //! warning in every such consumer's build.
 
 use super::common::resolved_one;
-use crate::backends::ffi::gen_bindings::helpers::gen_last_error;
+use crate::backends::ffi::gen_bindings::last_error::gen_last_error;
 use crate::core::ir::{ApiSurface, ErrorDef, ErrorVariant};
 
 fn config() -> crate::core::config::ResolvedCrateConfig {

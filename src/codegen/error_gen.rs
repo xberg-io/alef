@@ -1,4 +1,5 @@
 mod host_langs;
+mod last_error_fields;
 mod napi_wasm;
 mod native;
 mod pyo3;
@@ -8,6 +9,7 @@ pub use host_langs::{
     gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors, gen_java_error_types,
     go_error_sentinel_name,
 };
+pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
 pub use napi_wasm::{
     gen_napi_error_class, gen_napi_error_converter, gen_napi_error_types, gen_wasm_error_converter,
     gen_wasm_error_methods, napi_converter_fn_name, wasm_converter_fn_name,

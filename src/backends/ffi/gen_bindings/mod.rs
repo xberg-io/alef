@@ -2,6 +2,7 @@ mod capsule;
 mod field_ownership;
 mod functions;
 mod helpers;
+mod last_error;
 mod lib_rs;
 mod lib_setup;
 mod rust_literal;

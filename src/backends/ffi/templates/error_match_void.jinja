@@ -1,7 +1,7 @@
 match result {
         Ok(()) => 0,
         Err(e) => {
-            set_last_error(alef_ffi_error_code(&e), &e.to_string());
+            set_last_error_from(&e, &e.to_string());
             -1
         }
     }

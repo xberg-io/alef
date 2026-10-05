@@ -181,6 +181,20 @@ pub fn last_error_context_symbol(prefix: &str) -> String {
     format!("{prefix}_last_error_context")
 }
 
+/// Return the C symbol name for reading the variant name of the thread-local last error.
+///
+/// Format: `{prefix}_last_error_variant`
+pub fn last_error_variant_symbol(prefix: &str) -> String {
+    format!("{prefix}_last_error_variant")
+}
+
+/// Return the C symbol name for reading one captured error-method value of the last error.
+///
+/// Format: `{prefix}_last_error_{method_name}`; `method_name` is the snake_case Rust method name.
+pub fn last_error_field_symbol(prefix: &str, method_name: &str) -> String {
+    format!("{prefix}_last_error_{method_name}")
+}
+
 /// Resolve the per-backend output directory for generated files.
 ///
 /// This helper wraps `resolve_output_dir` with a sensible default for C-FFI consumers,
@@ -344,6 +358,15 @@ sources = ["src/lib.rs"]
     #[test]
     fn last_error_code_symbol_produces_expected_format() {
         assert_eq!(last_error_code_symbol("krz"), "krz_last_error_code");
+    }
+
+    #[test]
+    fn last_error_variant_and_field_symbols_extend_the_last_error_family() {
+        assert_eq!(last_error_variant_symbol("krz"), "krz_last_error_variant");
+        assert_eq!(
+            last_error_field_symbol("krz", "status_code"),
+            "krz_last_error_status_code"
+        );
     }
 
     #[test]

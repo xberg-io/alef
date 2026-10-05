@@ -117,7 +117,13 @@ prefix = "sample"
             .contains("sample_lib::RequestError::Legacy => ALEF_FFI_UNKNOWN_ERROR")
     );
     assert!(lib.content.contains("_ => ALEF_FFI_UNKNOWN_ERROR"));
-    assert!(lib.content.contains("set_last_error(alef_ffi_error_code(&e)"));
+    assert!(lib.content.contains("set_last_error_from(&e, &e.to_string())"));
+    assert!(
+        lib.content.contains(
+            "set_last_error(alef_ffi_error_code(error), message);\n    alef_ffi_capture_error_fields(error);"
+        ),
+        "the typed-error setter must derive the code and capture the introspection fields together"
+    );
     for taxonomy in codes {
         assert!(lib.content.contains(&format!("= {}", taxonomy.code)));
     }
@@ -1697,8 +1703,7 @@ prefix = "sample"
         lib.content
     );
     assert!(
-        lib.content
-            .contains("set_last_error(alef_ffi_error_code(&e), &e.to_string());"),
+        lib.content.contains("set_last_error_from(&e, &e.to_string());"),
         "the error must still be reported through the existing last-error channel, got:\n{}",
         lib.content
     );
