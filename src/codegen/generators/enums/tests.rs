@@ -72,6 +72,23 @@ fn enum_def(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
     }
 }
 
+fn generated_method_body(generated: &str, method_name: &str) -> String {
+    let file = syn::parse_file(generated).expect("generated enum must parse");
+    file.items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Impl(item) => Some(item),
+            _ => None,
+        })
+        .flat_map(|item| item.items.iter())
+        .find_map(|item| match item {
+            syn::ImplItem::Fn(method) if method.sig.ident == method_name => Some(&method.block),
+            _ => None,
+        })
+        .map(|body| quote::quote!(#body).to_string())
+        .unwrap_or_else(|| panic!("generated method `{method_name}` must exist"))
+}
+
 #[test]
 fn gen_pyo3_data_enum_emits_string_methods() {
     let generated = gen_pyo3_data_enum(
@@ -100,9 +117,18 @@ fn sensitive_data_enum_repr_never_serializes_the_payload() {
         generated.contains("Ok(\"Auth(<redacted>)\".to_string())"),
         "{generated}"
     );
+    let representation_methods = format!(
+        "{}{}",
+        generated_method_body(&generated, "__str__"),
+        generated_method_body(&generated, "__repr__")
+    );
     assert!(
-        !generated.contains("serde_json::to_value(&self.inner)"),
-        "a planted secret must never reach the representation serializer: {generated}"
+        !representation_methods.contains("serde_json :: to_value"),
+        "a planted secret must never reach the representation serializer: {representation_methods}"
+    );
+    assert!(
+        generated.contains("serde_json::to_value(&self.inner)"),
+        "non-representation getters must retain lossless serde conversion: {generated}"
     );
 }
 

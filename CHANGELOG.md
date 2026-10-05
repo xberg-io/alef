@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `#[cfg_attr(alef, alef(sensitive))]` metadata keeps serialization lossless while redacting
-  generated Python, Ruby, and Elixir diagnostic representations.
+  generated Python representations and Rust-side Ruby/Elixir binding diagnostics.
 
 ## [0.103.15] - 2026-10-04
 
