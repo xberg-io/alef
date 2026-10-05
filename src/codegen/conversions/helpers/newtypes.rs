@@ -232,7 +232,12 @@ fn apply_at_container_paths(expr: &str, paths: &[ConversionPath<'_>], direction:
             let nested = advance_uniform_paths(paths, NewtypeContainer::Vec);
             let converted = apply_at_container_paths("value", &nested, direction);
             let collect = collection_suffix(direction, "Vec<_>");
-            format!("({expr}).into_iter().map(|value| {converted}).collect{collect}")
+            let typed_expr = if let Some(prefix) = expr.strip_suffix(".collect()") {
+                format!("{prefix}.collect::<Vec<_>>()")
+            } else {
+                expr.to_string()
+            };
+            format!("({typed_expr}).into_iter().map(|value| {converted}).collect{collect}")
         }
         NewtypeContainer::MapKey | NewtypeContainer::MapValue => {
             let key_paths = advance_matching_paths(paths, NewtypeContainer::MapKey);

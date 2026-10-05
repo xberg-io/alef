@@ -1402,6 +1402,28 @@ fn transparent_btree_param_uses_an_explicit_btree_collection() {
 }
 
 #[test]
+fn explicit_vec_newtype_types_an_intermediate_collect_before_iterating_again() {
+    let wrapper = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
+        "my_crate::NodeIndex",
+        "from",
+        "into_inner",
+        vec![NewtypeContainer::Vec],
+    )]);
+
+    let converted = crate::codegen::conversions::helpers::apply_field_newtype_to_core(
+        "val.children.into_iter().collect()",
+        &TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+        false,
+        &wrapper,
+    );
+
+    assert!(
+        converted.contains("val.children.into_iter().collect::<Vec<_>>()"),
+        "the intermediate collection must be typed before a second into_iter(): {converted}"
+    );
+}
+
+#[test]
 fn wasm_complex_wrapper_serializes_only_the_resolved_container() {
     let core_type_paths = AHashMap::from_iter([("Segment".to_string(), "override_core::models::Segment".to_string())]);
     let typ = TypeDef {
