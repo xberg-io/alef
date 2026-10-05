@@ -301,3 +301,22 @@ fn memberwise_initializer_uses_bare_serde_default_for_an_empty_map() {
         "bare serde(default) metadata guarantees the collection zero:\n{content}"
     );
 }
+
+#[test]
+fn memberwise_initializer_does_not_replace_an_unresolved_collection_default_with_empty() {
+    let mut values = make_field("values", TypeRef::Vec(Box::new(TypeRef::String)), false);
+    values.default = Some("/* serde(default) */".to_string());
+    values.typed_default = Some(DefaultValue::Unresolved("Config::default_values".to_string()));
+    let mut config = make_type("Config", vec![values]);
+    config.has_serde = true;
+
+    let files = SwiftBackend
+        .generate_bindings(&api_with_type(config), &make_config())
+        .expect("generate must succeed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public init(values: [String])"),
+        "an unresolved Rust default must remain required instead of becoming empty:\n{content}"
+    );
+}

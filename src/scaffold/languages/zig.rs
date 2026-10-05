@@ -96,22 +96,22 @@ pub fn build(b: *std.Build) void {{
     // Override with -Dffi_path=... and -Dffi_include_path=... if your layout differs.
 {ffi_path_option}
     const ffi_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path_option))
-    .{{ .cwd_relative = ffi_path_option }}
+        .{{ .cwd_relative = ffi_path_option }}
     else
-    b.path(ffi_path_option);
+        b.path(ffi_path_option);
 
 {ffi_include_option}
     const ffi_include: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_include_option))
-    .{{ .cwd_relative = ffi_include_option }}
+        .{{ .cwd_relative = ffi_include_option }}
     else
-    b.path(ffi_include_option);
+        b.path(ffi_include_option);
 
     const ffi_header = b.pathJoin(&.{{ ffi_include_option, "{ffi_header}" }});
     const translate_c = b.addTranslateC(.{{
         .root_source_file = if (std.fs.path.isAbsolute(ffi_header))
-        .{{ .cwd_relative = ffi_header }}
+            .{{ .cwd_relative = ffi_header }}
         else
-        b.path(ffi_header),
+            b.path(ffi_header),
         .target = target,
         .optimize = optimize,
     }});
@@ -1082,6 +1082,18 @@ ffi = "crates/html-to-markdown-ffi/src/"
         assert!(
             build_zig.contains("const ffi_include_option = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing the FFI C header\") orelse \"../../crates/my-lib-ffi/include\";"),
             "got:\n{build_zig}"
+        );
+        assert!(
+            build_zig.contains(
+                "if (std.fs.path.isAbsolute(ffi_path_option))\n        .{ .cwd_relative = ffi_path_option }\n    else\n        b.path(ffi_path_option);"
+            ),
+            "the scaffold must already match zig fmt continuation indentation:\n{build_zig}"
+        );
+        assert!(
+            build_zig.contains(
+                ".root_source_file = if (std.fs.path.isAbsolute(ffi_header))\n            .{ .cwd_relative = ffi_header }\n        else\n            b.path(ffi_header),"
+            ),
+            "the nested conditional must already match zig fmt indentation:\n{build_zig}"
         );
     }
 

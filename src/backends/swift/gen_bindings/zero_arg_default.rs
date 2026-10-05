@@ -22,8 +22,8 @@ pub(crate) fn swift_memberwise_default_literal(field: &FieldDef) -> Option<Strin
         .as_ref()
         .and_then(swift_typed_default_literal)
         .or_else(|| {
-            let uses_type_zero =
-                matches!(field.typed_default, Some(DefaultValue::Empty)) || field.has_bare_serde_default();
+            let uses_type_zero = matches!(field.typed_default, Some(DefaultValue::Empty))
+                || (field.typed_default.is_none() && field.has_bare_serde_default());
             if !uses_type_zero {
                 return None;
             }
