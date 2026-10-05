@@ -5,8 +5,10 @@ require "{{ require_path }}"
 {% if expects_error %}  {% endif %}{{ line }}
 {% endfor %}
 {% if client_factory %}
+{% if reads_api_key %}
 {% if expects_error %}  {% endif %}api_key = ENV.fetch("{{ api_key_var }}")
-{% if expects_error %}  {% endif %}client = {{ receiver }}.{{ client_factory }}(api_key)
+{% endif %}
+{% if expects_error %}  {% endif %}client = {{ receiver }}.{{ client_factory }}({{ client_args }})
 {% endif %}
 {% if returns_void %}
 {% if expects_error %}  {% endif %}{{ call_receiver }}.{{ function }}({{ args }})

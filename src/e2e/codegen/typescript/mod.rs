@@ -315,6 +315,10 @@ impl E2eCodegen for TypeScriptCodegen {
         ))
     }
 
+    fn renders_client_config(&self) -> bool {
+        true
+    }
+
     fn language_name(&self) -> &'static str {
         "node"
     }

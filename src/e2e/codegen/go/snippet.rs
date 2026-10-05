@@ -228,19 +228,7 @@ pub(super) fn render_snippet_body(
         // documented base URL. A Go string literal has no address, so a documented URL
         // needs the `ptr[T any]` helper `build_args_and_setup` already emits for
         // pointer-typed literals elsewhere in this snippet. ~keep
-        let base_url_arg = match crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client()) {
-            Some(url) => {
-                if !package_decls.iter().any(|decl| decl.starts_with("func ptr[")) {
-                    package_decls.push("func ptr[T any](value T) *T { return &value }".to_string());
-                }
-                format!("ptr(\"{}\")", crate::e2e::escape::escape_go(url))
-            }
-            None => "nil".to_string(),
-        };
-        let call_line = format!(
-            "client, clientErr := {import_alias}.{}(\"your-api-key\", {base_url_arg}, nil, nil, nil)",
-            to_go_name(factory),
-        );
+        let call_line = client_construction_line(fixture, e2e_config, call, import_alias, factory, &mut package_decls);
         // The Go binding backend gives every opaque handle a `Free()` (not `Close()`) and
         // registers no `runtime.SetFinalizer`/`AddCleanup` (`backends/go/templates/opaque_type.jinja`),
         // so a snippet that constructs a client and returns leaks the FFI handle. `defer` is the
@@ -318,6 +306,40 @@ pub(super) fn render_snippet_body(
     )
     .trim_end()
     .to_string())
+}
+
+/// The statement that constructs the snippet's client: through the JSON factory when the fixture
+/// declares `docs.client.config`, otherwise through the plain factory with the documented base URL.
+fn client_construction_line(
+    fixture: &Fixture,
+    e2e_config: &E2eConfig,
+    call: &crate::e2e::config::CallConfig,
+    import_alias: &str,
+    factory: &str,
+    package_decls: &mut Vec<String>,
+) -> String {
+    if let Some((from_json_factory, json)) =
+        crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "go")
+    {
+        return format!(
+            "client, clientErr := {import_alias}.{}({})",
+            to_go_name(from_json_factory),
+            crate::e2e::escape::go_string_literal(&json),
+        );
+    }
+    let base_url_arg = match crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client()) {
+        Some(url) => {
+            if !package_decls.iter().any(|decl| decl.starts_with("func ptr[")) {
+                package_decls.push("func ptr[T any](value T) *T { return &value }".to_string());
+            }
+            format!("ptr(\"{}\")", crate::e2e::escape::escape_go(url))
+        }
+        None => "nil".to_string(),
+    };
+    format!(
+        "client, clientErr := {import_alias}.{}(\"your-api-key\", {base_url_arg}, nil, nil, nil)",
+        to_go_name(factory),
+    )
 }
 
 /// The local variable the call's options argument is already bound to, when the argument builder

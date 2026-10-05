@@ -730,6 +730,14 @@
             "null"
           ]
         },
+        "client_factory_from_json": {
+          "default": null,
+          "description": "Name of a client factory that takes the client configuration as one JSON string.\n\nA fixture that declares `docs.client.config` documents a client whose behaviour comes\nfrom that configuration (a budget, a cache, a rate limit), which the positional\n`client_factory` cannot express. When both are set, a documentation snippet for\nthat fixture constructs the client as `client_factory_from_json(\"<json>\")`, with\nthe fixture's `docs.client.config` serialized verbatim as a string literal.\n\nA fixture with `docs.client.config` is excluded from the snippet corpus, with a\nrecorded reason, for every language that leaves this unset.\n\n```toml\n[e2e.call.overrides.go]\nclient_factory = \"CreateClient\"\nclient_factory_from_json = \"CreateClientFromJSON\"\n```",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client_factory_trailing_args": {
           "default": [],
           "description": "Verbatim trailing arguments appended after the fixed `(\"test-key\", ...)` pair\nwhen calling the `client_factory` function.\n\nUse this when the factory function takes additional positional parameters\nbeyond the API key and optional base URL that the generator would otherwise\nemit.  Each element is emitted verbatim, separated by `, `.\n\nExample — Gleam `create_client` takes five positional arguments:\n`(api_key, base_url, timeout_secs, max_retries, model_hint)`.  Set:\n```toml\n[e2e.call.overrides.gleam]\nclient_factory = \"create_client\"\nclient_factory_trailing_args = [\"option.None\", \"option.None\", \"option.None\"]\n```\nto produce `create_client(\"test-key\", option.Some(url), option.None, option.None, option.None)`.",

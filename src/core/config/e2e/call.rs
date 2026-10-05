@@ -692,6 +692,24 @@ pub struct CallOverride {
     /// to produce `create_client("test-key", option.Some(url), option.None, option.None, option.None)`.
     #[serde(default)]
     pub client_factory_trailing_args: Vec<String>,
+    /// Name of a client factory that takes the client configuration as one JSON string.
+    ///
+    /// A fixture that declares `docs.client.config` documents a client whose behaviour comes
+    /// from that configuration (a budget, a cache, a rate limit), which the positional
+    /// `client_factory` cannot express. When both are set, a documentation snippet for
+    /// that fixture constructs the client as `client_factory_from_json("<json>")`, with
+    /// the fixture's `docs.client.config` serialized verbatim as a string literal.
+    ///
+    /// A fixture with `docs.client.config` is excluded from the snippet corpus, with a
+    /// recorded reason, for every language that leaves this unset.
+    ///
+    /// ```toml
+    /// [e2e.call.overrides.go]
+    /// client_factory = "CreateClient"
+    /// client_factory_from_json = "CreateClientFromJSON"
+    /// ```
+    #[serde(default)]
+    pub client_factory_from_json: Option<String>,
     /// Fields on the options object that require `BigInt()` wrapping (WASM only).
     ///
     /// `wasm_bindgen` maps Rust `u64`/`i64` to JavaScript `BigInt`. Numeric

@@ -28,6 +28,8 @@ pub mod brew;
 pub mod c;
 pub(crate) mod call_ir;
 pub mod client;
+#[cfg(test)]
+mod client_config_snippet_tests;
 pub mod client_factory;
 pub mod csharp;
 pub mod dart;
@@ -153,6 +155,9 @@ pub fn fixture_inclusion(fixture: &Fixture, language: &str, e2e_config: &E2eConf
         && skip.should_skip(language)
     {
         return InclusionDecision::Exclude("fixture skip directive");
+    }
+    if client_factory::client_config_json(fixture).is_some() {
+        return InclusionDecision::Exclude("client config is not rendered by the executable suite");
     }
     if let Some(reason) = call_skip_reason(fixture, language, e2e_config) {
         return InclusionDecision::Exclude(reason);
@@ -784,6 +789,16 @@ pub trait E2eCodegen: Send + Sync {
         functions: &[crate::core::ir::FunctionDef],
         errors: &[crate::core::ir::ErrorDef],
     ) -> Result<String>;
+
+    /// Whether this backend's snippets construct the client through the project's
+    /// `client_factory_from_json` when a fixture declares `client_config`.
+    ///
+    /// ~keep Defaults to `false` so a new backend refuses such fixtures (see
+    /// [`client_factory::client_config_exclusion`]) instead of silently rendering a plain client
+    /// that documents none of the configuration.
+    fn renders_client_config(&self) -> bool {
+        false
+    }
 
     /// Language name for display and directory naming.
     fn language_name(&self) -> &'static str;

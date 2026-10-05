@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the new reserved error code `Cancelled = 5`. Streaming adapters export
   `<stream>_start_cancellable`, whose handle keeps the token so a blocked `<stream>_next` can be
   cancelled too. The existing symbols keep their signatures.
+- A fixture's `docs.client.config` (a JSON object) makes its documentation snippets construct the client
+  through the language's new `[crates.e2e.call.overrides.<lang>] client_factory_from_json`, passing the
+  configuration verbatim as a string literal, so fixtures about a budget, cache or rate limit show a
+  client that has one. Python, Go, Node, WASM, Java, C#, Ruby, PHP, Elixir and Rust render it; any other
+  language, and any language without a JSON factory or whose call resolves no client, is a recorded
+  coverage gap (documentable through `docs.coverage_exceptions`) instead of a plain-client snippet. The
+  executable e2e suite skips such fixtures.
 - `[crates.go] link_flags` maps a cgo constraint (`darwin`, `windows,amd64`, ...) to extra linker
   arguments, rendered as `#cgo <constraint> LDFLAGS:` lines after the FFI library's `-l` flag so a
   statically linked FFI library can pull in its platform system libraries.

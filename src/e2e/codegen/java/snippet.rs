@@ -143,6 +143,17 @@ pub(super) fn render_snippet_body_with_ir(
         })
         .map(ToLowerCamelCase::to_lower_camel_case);
     let client_args = render_client_factory_args(fixture, e2e_config, call);
+    let config_call = client_factory
+        .as_ref()
+        .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "java"));
+    let (client_factory, client_args, reads_api_key) = match config_call {
+        Some((from_json_factory, json)) => (
+            Some(from_json_factory.to_lower_camel_case()),
+            format!("\"{}\"", crate::e2e::escape::escape_java(&json)),
+            false,
+        ),
+        None => (client_factory, client_args, true),
+    };
     let package_name = overrides
         .and_then(|value| value.module.clone())
         .unwrap_or_else(|| config.java_package());
@@ -194,6 +205,7 @@ pub(super) fn render_snippet_body_with_ir(
             setup_lines => setup_lines,
             client_factory => client_factory,
             client_args => client_args,
+            reads_api_key => reads_api_key,
             function_name => function_name,
             args => args,
             result_var => call.effective_result_var(),

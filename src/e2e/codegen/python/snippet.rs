@@ -99,6 +99,30 @@ pub(super) fn render_snippet_body(
         }
         None => body,
     };
+    // A fixture that declares `client_config` documents a client built from that configuration,
+    // so the plain factory call (and its import) is swapped for the JSON factory. The call line
+    // is `client = <factory>(...)` in every shape `test_function` can emit. ~keep
+    let client_config_call = helpers::resolve_client_factory(e2e_config).and_then(|factory| {
+        crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "python")
+            .map(|(from_json_factory, json)| (factory, from_json_factory, json))
+    });
+    let (body, renamed_factory) = match client_config_call {
+        Some((factory, from_json_factory, json)) => {
+            let call_prefix = format!("client = {factory}(");
+            let body = body
+                .into_iter()
+                .map(|line| match line.starts_with(&call_prefix) {
+                    true => format!(
+                        "client = {from_json_factory}(\"{}\")",
+                        crate::e2e::escape::escape_python(&json)
+                    ),
+                    false => line,
+                })
+                .collect::<Vec<_>>();
+            (body, Some((factory, from_json_factory.to_string())))
+        }
+        None => (body, None),
+    };
     // `config.error_type_name()` names the *Rust-side* error type (`ResolvedCrateConfig::
     // error_type`, used elsewhere for `error_constructor_expr`'s `Crate::Error::from(msg)`
     // pattern) — a config surface nobody sets to name a Python class, and unrelated to what
@@ -124,6 +148,17 @@ pub(super) fn render_snippet_body(
         .map(|error| error.name.clone())
         .unwrap_or_else(|| config.error_type_name());
     let mut imports = imports.into_iter().map(str::to_string).collect::<Vec<_>>();
+    if let Some((factory, from_json_factory)) = &renamed_factory {
+        imports = imports
+            .into_iter()
+            .map(|line| rename_imported_name(line, factory, from_json_factory))
+            .collect();
+        // The credential read was the only use of `os`; an unused import fails the consumer's
+        // linter. ~keep
+        if !body.iter().any(|line| line.contains("os.")) {
+            imports.retain(|line| line != "import os");
+        }
+    }
     if body.iter().any(|line| line.contains("os.environ")) && !imports.iter().any(|line| line == "import os") {
         imports.push("import os".to_string());
     }
@@ -158,6 +193,20 @@ pub(super) fn render_snippet_body(
             stream_item_binding => stream_item_binding,
         },
     ))
+}
+
+/// Rewrite `name` to `renamed` inside a `from <module> import a, b` line, leaving every other
+/// import untouched.
+fn rename_imported_name(line: String, name: &str, renamed: &str) -> String {
+    let Some((prefix, names)) = line.split_once(" import ").filter(|_| line.starts_with("from ")) else {
+        return line;
+    };
+    let names = names
+        .split(", ")
+        .map(|imported| if imported == name { renamed } else { imported })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{prefix} import {names}")
 }
 
 fn extract_python_snippet(rendered: &str) -> Result<(Vec<&str>, Vec<&str>, bool)> {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::e2e::codegen::client_factory::js_client_construction;
 
 pub(crate) struct SnippetContext<'a> {
     pub lang: &'a str,
@@ -183,9 +184,8 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
     } else {
         format!("{function_name}({args})")
     };
-    let client_setup = effective_factory
-        .map(|factory| format!("const client = {factory}(\"your-api-key\");"))
-        .unwrap_or_default();
+    let client = effective_factory.map(|factory| js_client_construction(fixture, e2e_config, call, lang, factory));
+    let client_setup = client.as_ref().map(|(_, setup)| setup.clone()).unwrap_or_default();
     let client_release = wasm_client_release(lang, effective_factory);
     let expects_error = fixture
         .assertions
@@ -196,7 +196,7 @@ pub(crate) fn render_snippet_body(context: SnippetContext<'_>) -> String {
     // of an `instanceof` check (see that template flag below), so it is never read. ~keep
     let error_type_name = "Error".to_string();
     let mut imports = std::collections::BTreeSet::new();
-    imports.insert(effective_factory.unwrap_or(&function_name).to_string());
+    imports.insert(client.map_or_else(|| function_name.clone(), |(imported, _)| imported));
     // No `else` branch imports an error type here: node throws a plain global
     // `Error` (nothing to import) and wasm-bindgen throws a bare JS string
     // (also nothing to import, and no named error export exists to import in

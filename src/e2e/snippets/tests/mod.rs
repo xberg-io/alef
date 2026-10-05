@@ -10,6 +10,7 @@ use super::*;
 
 mod adapter_handled;
 mod binding_excluded;
+mod client_config;
 mod coverage;
 mod curated;
 mod mock_only;

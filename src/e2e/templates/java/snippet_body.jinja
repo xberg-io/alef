@@ -10,9 +10,9 @@ public final class Example {
 {% endif %}
 {% for line in setup_lines %}        {{ line }}
 {% endfor %}
-{% if client_factory %}        var apiKey = System.getenv("{{ api_key_var }}");
+{% if client_factory %}{% if reads_api_key %}        var apiKey = System.getenv("{{ api_key_var }}");
         if (apiKey == null || apiKey.isEmpty()) throw new IllegalStateException("{{ api_key_var }} must be set");
-        try (var client = {{ class_name }}.{{ client_factory }}({{ client_args }})) {
+{% endif %}        try (var client = {{ class_name }}.{{ client_factory }}({{ client_args }})) {
 {% if returns_void %}        client.{{ function_name }}({{ args }});
 {% else %}        var {{ result_var }} = client.{{ function_name }}({{ args }});
 {% endif %}

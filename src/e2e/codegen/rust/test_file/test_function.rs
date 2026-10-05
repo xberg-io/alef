@@ -391,26 +391,37 @@ pub fn render_test_function(
     // When client_factory is configured, emit a `create_client` call and dispatch
     // methods on the returned client object instead of calling free functions.
     let call_expr = if let Some(factory) = client_factory {
-        // `docs_client` is `None` on the e2e path, so the mock server keeps the
-        // base-URL slot there no matter what a fixture's docs metadata says. ~keep
-        let base_url_arg = match crate::e2e::codegen::client_factory::docs_base_url(docs_client) {
-            Some(url) => format!("Some(\"{}\".to_string())", crate::e2e::escape::escape_rust(url)),
-            None if has_mock => "Some(mock_server.url.clone())".to_string(),
-            None => "None".to_string(),
-        };
-        let trailing = crate::e2e::codegen::client_factory::trailing_args(
-            docs_client,
-            e2e_config,
-            call_config,
-            "rust",
-            &RUST_CLIENT_FACTORY_FALLBACK_ARGS,
-        );
-        let trailing: String = trailing.iter().map(|arg| format!(", {arg}")).collect();
-        let _ = writeln!(
-            out,
-            "    let client = {module}::{factory}(\"test-key\".to_string(), {base_url_arg}{trailing}).unwrap();"
-        );
-        format!("client.{function_name}({args_str})")
+        if let Some((from_json_factory, json)) =
+            crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, "rust")
+        {
+            let _ = writeln!(
+                out,
+                "    let client = {module}::{from_json_factory}({}).unwrap();",
+                crate::e2e::escape::rust_raw_string(&json)
+            );
+            format!("client.{function_name}({args_str})")
+        } else {
+            // `docs_client` is `None` on the e2e path, so the mock server keeps the
+            // base-URL slot there no matter what a fixture's docs metadata says. ~keep
+            let base_url_arg = match crate::e2e::codegen::client_factory::docs_base_url(docs_client) {
+                Some(url) => format!("Some(\"{}\".to_string())", crate::e2e::escape::escape_rust(url)),
+                None if has_mock => "Some(mock_server.url.clone())".to_string(),
+                None => "None".to_string(),
+            };
+            let trailing = crate::e2e::codegen::client_factory::trailing_args(
+                docs_client,
+                e2e_config,
+                call_config,
+                "rust",
+                &RUST_CLIENT_FACTORY_FALLBACK_ARGS,
+            );
+            let trailing: String = trailing.iter().map(|arg| format!(", {arg}")).collect();
+            let _ = writeln!(
+                out,
+                "    let client = {module}::{factory}(\"test-key\".to_string(), {base_url_arg}{trailing}).unwrap();"
+            );
+            format!("client.{function_name}({args_str})")
+        }
     } else {
         format!("{function_name}({args_str})")
     };

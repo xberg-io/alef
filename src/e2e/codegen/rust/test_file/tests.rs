@@ -726,6 +726,7 @@ mod client_factory_construction {
             )]
             .into_iter()
             .collect(),
+            ..FixtureDocsClient::default()
         };
         let rendered = render(&fixture(false), &e2e_config(&["None", "None", "None"]), Some(&client));
         assert!(

@@ -164,6 +164,19 @@ fn apply_client_factory(setup_lines: &mut Vec<String>, args: String, context: Cl
     else {
         return args;
     };
+    if let Some((from_json_factory, json)) =
+        crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "elixir")
+    {
+        setup_lines.push(format!(
+            "{{:ok, client}} = {module}.{from_json_factory}(\"{}\")",
+            crate::e2e::escape::escape_elixir(&json)
+        ));
+        return if args.is_empty() {
+            "client".to_string()
+        } else {
+            format!("client, {args}")
+        };
+    }
     let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
     // `fetch_env!/1` is the Elixir spelling of "this credential is required": it raises
     // `System.EnvError` naming the variable, so the snippet needs no hand-written guard

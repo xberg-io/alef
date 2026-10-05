@@ -352,6 +352,10 @@ impl E2eCodegen for JavaCodegen {
         ))
     }
 
+    fn renders_client_config(&self) -> bool {
+        true
+    }
+
     fn language_name(&self) -> &'static str {
         "java"
     }

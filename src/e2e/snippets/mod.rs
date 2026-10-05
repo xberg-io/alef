@@ -406,7 +406,15 @@ fn generate_snippet_report_with_extensions(
                     Some(format!("missing requirements: {}", missing_requirements.join(", ")))
                 }
                 SnippetInclusion::Include => None,
-            };
+            }
+            .or_else(|| {
+                crate::e2e::codegen::client_factory::client_config_exclusion(
+                    fixture,
+                    context.e2e,
+                    language,
+                    generator.renders_client_config(),
+                )
+            });
             if let Some(reason) = exclusion_reason {
                 if let Some(exception) = coverage_exception(docs, language) {
                     coverage.documented_exceptions.push(DocumentedSnippetException {
@@ -433,7 +441,16 @@ fn generate_snippet_report_with_extensions(
                 language,
                 context,
                 &sample_url,
-            ) {
+            )
+            .and_then(|rendered| {
+                crate::e2e::codegen::client_factory::ensure_client_config_applied(
+                    fixture,
+                    context.e2e,
+                    language,
+                    &rendered.body,
+                )?;
+                Ok(rendered)
+            }) {
                 Ok(rendered) => rendered,
                 Err(error) => {
                     // A guard rejection is a generator defect, not a documented limitation, so ~keep

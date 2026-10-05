@@ -129,6 +129,17 @@ pub struct FixtureDocsClient {
     /// retry policies, builder expressions).
     #[serde(default)]
     pub args: BTreeMap<String, Vec<String>>,
+    /// Client configuration, as a JSON object, for a fixture whose subject is how the client
+    /// is configured (a budget, a cache) rather than which call it makes.
+    ///
+    /// ~keep The snippet constructs the client through the language's
+    /// `client_factory_from_json` (see `CallOverride`) with this value serialized verbatim as a
+    /// string literal. It is the complete configuration: nothing is merged into it, so include
+    /// the credential and any base URL the factory needs, and `base_url`/`args` above do not
+    /// apply. Unlike those, it is part of what the fixture tests, so a fixture that declares it
+    /// is excluded from the executable e2e suite instead of running against a plain client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
 }
 
 impl FixtureDocsClient {
@@ -342,6 +353,25 @@ mod tests {
             client.args_for("gleam"),
             None,
             "an unlisted language must not be invented"
+        );
+    }
+
+    #[test]
+    fn docs_client_config_round_trips_as_the_object_the_fixture_wrote() {
+        let docs: FixtureDocs = serde_json::from_value(serde_json::json!({
+            "topic": "budget",
+            "client": {"config": {"api_key": "k", "budget": {"global_limit": 0.0}}}
+        }))
+        .expect("fixture docs client config deserializes");
+        let client = docs.client.expect("client");
+        assert_eq!(
+            client.config,
+            Some(serde_json::json!({"api_key": "k", "budget": {"global_limit": 0.0}}))
+        );
+        assert_eq!(
+            serde_json::to_value(super::FixtureDocsClient::default()).expect("serializes"),
+            serde_json::json!({"base_url": null, "args": {}}),
+            "a client without a config must serialize exactly as it did before the key existed"
         );
     }
 

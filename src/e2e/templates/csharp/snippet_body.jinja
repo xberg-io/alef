@@ -13,9 +13,9 @@ using {{ namespace }};
 {% endif %}
 {% for line in setup_lines %}{{ line }}
 {% endfor %}
-{% if client_factory %}var apiKey = Environment.GetEnvironmentVariable("{{ api_key_var }}") ??
+{% if client_factory %}{% if reads_api_key %}var apiKey = Environment.GetEnvironmentVariable("{{ api_key_var }}") ??
   throw new InvalidOperationException("{{ api_key_var }} must be set");
-  using var client = {{ class_name }}.{{ client_factory }}({{ client_args }});
+  {% endif %}using var client = {{ class_name }}.{{ client_factory }}({{ client_args }});
   {% if is_streaming %}await foreach (var chunk in client.{{ function_name }}({{ args }}))
   {
       Console.WriteLine(chunk);

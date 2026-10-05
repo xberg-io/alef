@@ -146,6 +146,8 @@ pub(super) fn render_snippet_body_with_ir(
     let is_streaming =
         crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
     let client_factory = override_config.and_then(|value| value.client_factory.as_deref());
+    let config_call = client_factory
+        .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
     let expects_error = fixture
         .assertions
         .iter()
@@ -188,7 +190,13 @@ pub(super) fn render_snippet_body_with_ir(
         "php/snippet_body.jinja",
         minijinja::context! {
             namespace => namespace, class_name => class_name, setup_lines => setup_lines,
-            client_factory => client_factory, call_expr => call_expr, result_var => call.effective_result_var(),
+            client_factory => config_call.as_ref().map(|(from_json_factory, _)| *from_json_factory).or(client_factory),
+            client_args => config_call.as_ref().map_or_else(
+                || "$apiKey".to_string(),
+                |(_, json)| format!("'{}'", crate::e2e::escape::escape_php_single(json)),
+            ),
+            reads_api_key => config_call.is_none(),
+            call_expr => call_expr, result_var => call.effective_result_var(),
             returns_void => call.returns_void, is_streaming => is_streaming, imported_types => imported_types,
             expects_error => expects_error, presentation => presentation, api_key_var => api_key_var,
         },

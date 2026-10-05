@@ -157,6 +157,10 @@
             "type": "array",
             "items": { "type": "string", "minLength": 1 }
           }
+        },
+        "config": {
+          "type": "object",
+          "description": "Client configuration serialized verbatim as a JSON string into the language's client_factory_from_json call, for fixtures whose subject is how the client is configured (a budget, a cache). It is the complete configuration, so include the credential. A fixture that declares it is excluded from the executable e2e suite and from every snippet language without a client_factory_from_json."
         }
       }
     },

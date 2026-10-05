@@ -85,6 +85,8 @@ pub(super) fn render_snippet_body_with_ir(
             .join(", ");
     }
     let client_factory = override_config.and_then(|value| value.client_factory.as_deref());
+    let config_call = client_factory
+        .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
     let call_receiver = if client_factory.is_some() { "client" } else { &receiver };
     let package = e2e_config
         .resolve_package(lang)
@@ -103,7 +105,12 @@ pub(super) fn render_snippet_body_with_ir(
     let body = crate::e2e::template_env::render(
         "ruby/snippet_body.jinja",
         minijinja::context! {
-            require_path => require_path, receiver => receiver, setup_lines => setup_lines, client_factory => client_factory,
+            require_path => require_path, receiver => receiver, setup_lines => setup_lines,
+            client_factory => config_call.as_ref().map(|(from_json_factory, _)| *from_json_factory).or(client_factory),
+            client_args => config_call
+                .as_ref()
+                .map_or_else(|| "api_key".to_string(), |(_, json)| crate::e2e::escape::ruby_string_literal(json)),
+            reads_api_key => config_call.is_none(),
             call_receiver => call_receiver, function => function, args => args,
             result_var => call.effective_result_var(),
             returns_void => call.returns_void, is_streaming => is_streaming,

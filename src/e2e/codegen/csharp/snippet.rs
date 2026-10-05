@@ -146,6 +146,17 @@ pub(super) fn render_snippet_body_with_ir(
         })
         .map(ToUpperCamelCase::to_upper_camel_case);
     let client_args = render_client_factory_args(fixture, e2e_config, call);
+    let config_call = client_factory
+        .as_ref()
+        .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "csharp"));
+    let (client_factory, client_args, reads_api_key) = match config_call {
+        Some((from_json_factory, json)) => (
+            Some(from_json_factory.to_upper_camel_case()),
+            format!("\"{}\"", crate::e2e::escape::escape_csharp(&json)),
+            false,
+        ),
+        None => (client_factory, client_args, true),
+    };
     let namespace = overrides
         .and_then(|value| value.module.clone())
         .or_else(|| config.csharp.as_ref().and_then(|value| value.namespace.clone()))
@@ -216,6 +227,7 @@ pub(super) fn render_snippet_body_with_ir(
             client_factory => client_factory,
             class_name => class_name,
             client_args => client_args,
+            reads_api_key => reads_api_key,
             function_name => function_name,
             args => args,
             result_var => result_var,
