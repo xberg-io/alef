@@ -224,6 +224,11 @@ fn managed_surface_reports_a_mutated_owned_java_wrapper() {
 [workspace]
 languages = ["java"]
 
+[workspace.package_metadata]
+repository = "https://github.com/example/sample-crate"
+authors = ["Example Author <author@example.invalid>"]
+license = "MIT"
+
 [[crates]]
 name = "sample_crate"
 sources = ["src/lib.rs"]
