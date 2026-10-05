@@ -80,6 +80,9 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         String::new()
     };
 
+    let (ffi_path_option, ffi_include_option) =
+        super::zig_build_options::render_ffi_option_declarations(&ffi_lib_name, &ffi_crate_path);
+
     let build_zig = format!(
         r#"const std = @import("std");
 
@@ -91,32 +94,24 @@ pub fn build(b: *std.Build) void {{
     // layout. `alef publish package --lang zig` rewrites this file for the
     // distributed tarball so consumers link the bundled lib/ and include/ dirs.
     // Override with -Dffi_path=... and -Dffi_include_path=... if your layout differs.
-    const ffi_path_option = b.option(
-        []const u8,
-        "ffi_path",
-        "Path to directory containing lib{ffi_lib}.{{dylib,so,dll,a}}"
-    ) orelse "../../target/release";
+{ffi_path_option}
     const ffi_path: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_path_option))
-        .{{ .cwd_relative = ffi_path_option }}
+    .{{ .cwd_relative = ffi_path_option }}
     else
-        b.path(ffi_path_option);
+    b.path(ffi_path_option);
 
-    const ffi_include_option = b.option(
-        []const u8,
-        "ffi_include_path",
-        "Path to directory containing the FFI C header"
-    ) orelse "{ffi_crate_path}/include";
+{ffi_include_option}
     const ffi_include: std.Build.LazyPath = if (std.fs.path.isAbsolute(ffi_include_option))
-        .{{ .cwd_relative = ffi_include_option }}
+    .{{ .cwd_relative = ffi_include_option }}
     else
-        b.path(ffi_include_option);
+    b.path(ffi_include_option);
 
     const ffi_header = b.pathJoin(&.{{ ffi_include_option, "{ffi_header}" }});
     const translate_c = b.addTranslateC(.{{
         .root_source_file = if (std.fs.path.isAbsolute(ffi_header))
-            .{{ .cwd_relative = ffi_header }}
+        .{{ .cwd_relative = ffi_header }}
         else
-            b.path(ffi_header),
+        b.path(ffi_header),
         .target = target,
         .optimize = optimize,
     }});
@@ -156,7 +151,8 @@ pub fn build(b: *std.Build) void {{
         module_name = module_name,
         ffi_lib = ffi_lib_name,
         ffi_header = ffi_header_name,
-        ffi_crate_path = ffi_crate_path,
+        ffi_path_option = ffi_path_option,
+        ffi_include_option = ffi_include_option,
         module_capsule_imports = module_capsule_imports,
         test_target_block = test_target_block,
     );
@@ -1080,11 +1076,11 @@ ffi = "crates/html-to-markdown-ffi/src/"
         let build_zig = build_zig_of(&minimal_config());
 
         assert!(
-            build_zig.contains("\"ffi_path\",\n        \"Path to directory containing libmy_lib_ffi.{dylib,so,dll,a}\"\n    ) orelse \"../../target/release\";"),
+            build_zig.contains("const ffi_path_option = b.option([]const u8, \"ffi_path\", \"Path to directory containing libmy_lib_ffi.{dylib,so,dll,a}\") orelse \"../../target/release\";"),
             "got:\n{build_zig}"
         );
         assert!(
-            build_zig.contains("\"ffi_include_path\",\n        \"Path to directory containing the FFI C header\"\n    ) orelse \"../../crates/my-lib-ffi/include\";"),
+            build_zig.contains("const ffi_include_option = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing the FFI C header\") orelse \"../../crates/my-lib-ffi/include\";"),
             "got:\n{build_zig}"
         );
     }

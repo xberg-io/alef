@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render.
 - Generated Swift memberwise initializers default collection fields whose Rust metadata proves
   the type-zero value, so adding a `#[serde(default)]` list or map remains source-compatible.
+- Generated Zig build scripts are emitted in the same form as `zig fmt`, avoiding regeneration
+  drift in FFI search-path declarations.
 
 ## [0.103.15] - 2026-10-04
 

@@ -19,6 +19,7 @@ mod ruby;
 mod swift;
 mod wasm;
 mod zig;
+mod zig_build_options;
 mod zig_migrations;
 
 pub(crate) use csharp::scaffold_csharp;
