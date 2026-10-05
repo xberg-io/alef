@@ -140,6 +140,23 @@ pub(crate) fn core_feature_closure(
     (active, defaults)
 }
 
+/// The tokens of the core crate's own `default` feature, in declared order.
+///
+/// `None` when the core manifest cannot be located, read, or parsed -- callers must tell that
+/// apart from `Some(empty)`, a readable manifest with no `default` feature, because only the
+/// latter proves the core crate adds nothing by default.
+pub(crate) fn core_default_feature_tokens(config: &ResolvedCrateConfig) -> Option<Vec<String>> {
+    let contents = std::fs::read_to_string(core_crate_manifest_path(config)?).ok()?;
+    let doc = toml::from_str::<toml::Value>(&contents).ok()?;
+    let tokens = doc
+        .get("features")
+        .and_then(|features| features.get("default"))
+        .and_then(|default| default.as_array())
+        .map(|array| array.iter().filter_map(|v| v.as_str()).map(String::from).collect())
+        .unwrap_or_default();
+    Some(tokens)
+}
+
 /// Compute the binding-crate `android-target` aggregate feature line, if applicable.
 ///
 /// The consuming repo's core crate may define an `android-target` aggregate (a

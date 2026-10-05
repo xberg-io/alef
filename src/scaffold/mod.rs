@@ -51,8 +51,8 @@ pub(crate) use cargo_deps::{
 pub(crate) use cargo_lints::{cargo_lints_clippy_block_with_rationale, cargo_lints_section};
 
 pub(crate) use core_features::{
-    android_target_feature_line, android_target_feature_line_for_dep, core_crate_manifest_path, core_dep_features,
-    core_dep_features_excluding, core_feature_closure,
+    android_target_feature_line, android_target_feature_line_for_dep, core_crate_manifest_path,
+    core_default_feature_tokens, core_dep_features, core_dep_features_excluding, core_feature_closure,
 };
 
 pub use cargo_config::render_cargo_config;

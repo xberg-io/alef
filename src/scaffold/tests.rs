@@ -123,6 +123,7 @@ mod cargo_table_order;
 mod core_deps;
 mod dependency_key_order;
 mod extra_deps;
+mod ffi_core_dep_features;
 mod ffi_go_java_ruby;
 mod general;
 mod java_checkstyle;

@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The generated FFI crate declares its core dependency with `default-features = false` and no forced
+  `features`, forwarding the core crate's own default features from the FFI `default` list, so
+  `cargo build -p <ffi> --no-default-features` builds the core crate without them. Manifests with
+  `target_dep_overrides`, an unreadable core manifest, or a core `default` that cannot be forwarded
+  keep the previous dependency line.
 - `alef publish build` records the native libraries rustc reports for the static FFI library
   (`--print native-static-libs`) and the Go FFI package ships them as `lib/native-static-libs.txt`.
 - `alef publish build` pins `MACOSX_DEPLOYMENT_TARGET` to rustc's default for macOS FFI builds

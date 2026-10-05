@@ -69,6 +69,53 @@ fn render_core_dep(
     (String::new(), crate::scaffold::join_sorted_target_dep_blocks(entries))
 }
 
+/// How the FFI crate declares its core dependency once feature selection moves to the FFI
+/// crate's own `[features]` table.
+struct SlimCoreDep {
+    /// Attributes appended to the core dependency: `default-features = false`, plus `serde` when
+    /// configured (the FFI crate has no `serde` feature of its own to forward it through).
+    attrs: String,
+    /// Core `default` features the FFI `default` list must forward explicitly, because turning the
+    /// core dependency's default features off would otherwise drop them.
+    forwarded_defaults: Vec<String>,
+}
+
+/// Declares the core dependency with `default-features = false` and no forced `features`, so
+/// `cargo build -p <ffi> --no-default-features` really builds the core crate without them: a
+/// feature listed on the dependency line is on for every build of the FFI crate and nothing the
+/// FFI crate's own feature flags do can remove it.
+///
+/// Returns `None` -- keep the historical dependency line -- when the result could differ from it:
+/// the core manifest cannot be read, or its `default` feature holds a token that cannot be
+/// forwarded as `<core>/<feature>` (`dep:x`, `x/y`). `extra_features` and
+/// `excluded_default_features` stay declare-only and are never forwarded, as before. ~keep
+fn slim_core_dep(config: &ResolvedCrateConfig, default_feature_names: &[String]) -> Option<SlimCoreDep> {
+    let core_defaults = crate::scaffold::core_default_feature_tokens(config)?;
+    if core_defaults.iter().any(|t| t.starts_with("dep:") || t.contains('/')) {
+        return None;
+    }
+    let ffi = config.ffi.as_ref();
+    let never_default = |name: &str| {
+        ffi.is_some_and(|c| {
+            c.extra_features.iter().any(|f| f == name) || c.excluded_default_features.iter().any(|f| f == name)
+        })
+    };
+    let forwarded_defaults = core_defaults
+        .into_iter()
+        .filter(|name| !default_feature_names.contains(name) && !never_default(name))
+        .collect();
+    let serde_on_dep = config.features_for_language(Language::Ffi).iter().any(|f| f == "serde")
+        && !ffi.is_some_and(|c| c.excluded_default_features.iter().any(|f| f == "serde"));
+    let mut attrs = ", default-features = false".to_string();
+    if serde_on_dep {
+        attrs.push_str(", features = [\"serde\"]");
+    }
+    Some(SlimCoreDep {
+        attrs,
+        forwarded_defaults,
+    })
+}
+
 pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let version = &api.version;
@@ -144,13 +191,20 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         .map(|c| c.excluded_default_features.as_slice())
         .unwrap_or(&[]);
     let core_dep_path = config.core_crate_dep_path(std::path::Path::new(&crate_dir));
-    let (core_dep_line, target_blocks) = render_core_dep(
-        &config.name,
-        &core_dep_path,
-        version,
-        &crate::scaffold::core_dep_features_excluding(config, Language::Ffi, &excluded_default_features),
-        target_overrides,
-    );
+    let default_feature_names_owned = crate::codegen::cfg::effective_ffi_default_features(api, config);
+    // Target overrides pick the core dependency's features per cfg, with `default-features = false`
+    // on the branches that turn core defaults off; forwarding those defaults from the FFI
+    // `default` list would switch them back on everywhere, so overrides keep the explicit line.
+    let slim_core_dep = target_overrides
+        .is_empty()
+        .then(|| slim_core_dep(config, &default_feature_names_owned))
+        .flatten();
+    let core_dep_attrs = match &slim_core_dep {
+        Some(slim) => slim.attrs.clone(),
+        None => crate::scaffold::core_dep_features_excluding(config, Language::Ffi, &excluded_default_features),
+    };
+    let (core_dep_line, target_blocks) =
+        render_core_dep(&config.name, &core_dep_path, version, &core_dep_attrs, target_overrides);
 
     // Cargo features are per-crate: `full = ["<core>/full"]` enabling `X` on the dependency
     // does NOT create feature `X` here, so a `#[cfg(feature = "X")]` the codegen emits into
@@ -164,10 +218,14 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // against this exact same derivation instead of re-deriving it from the raw configured features
     // alone, so the two can no longer disagree about what "the FFI crate's feature set" means
     // (see github.com/xberg-io/alef/issues/257). ~keep
-    let default_feature_names_owned = crate::codegen::cfg::effective_ffi_default_features(api, config);
     let default_feature_names: Vec<&str> = default_feature_names_owned.iter().map(String::as_str).collect();
+    let forwarded_core_defaults = slim_core_dep
+        .as_ref()
+        .map(|slim| slim.forwarded_defaults.iter().map(|f| format!("{}/{f}", config.name)));
     let core_features_default_list = default_feature_names
         .iter()
+        .map(|f| f.to_string())
+        .chain(forwarded_core_defaults.into_iter().flatten())
         .map(|f| format!("\"{f}\""))
         .collect::<Vec<_>>()
         .join(", ");
