@@ -73,6 +73,9 @@ fn seed_owned_output(base: &std::path::Path, relative: &str, content: &[u8]) {
 /// compared in the same call so a vacuous implementation cannot satisfy the silence control. ~keep
 #[test]
 fn drifted_managed_paths_compares_current_and_stale_owned_maven_wrappers() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let current = "e2e/java/mvnw";
     let stale = "e2e/java/mvnw.cmd";
@@ -96,6 +99,9 @@ fn drifted_managed_paths_compares_current_and_stale_owned_maven_wrappers() {
 /// The properties path is deliberately stale while the script is current. ~keep
 #[test]
 fn drifted_managed_paths_compares_current_and_stale_owned_gradle_wrappers() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     let current = "test_apps/kotlin_android/gradlew";
     let stale = "test_apps/kotlin_android/gradle/wrapper/gradle-wrapper.properties";
@@ -203,6 +209,9 @@ fn drifted_managed_paths_preserves_create_once_exclusion_for_owned_seed() {
 /// `find_missing_and_frozen_generated_files` call used by `alef verify` to report drift. ~keep
 #[test]
 fn managed_surface_reports_a_mutated_owned_java_wrapper() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("src")).expect("create source directory");
     std::fs::create_dir_all(dir.path().join("fixtures")).expect("create fixtures directory");
