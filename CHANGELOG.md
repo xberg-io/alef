@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The FFI last-error field capture no longer ends its final error-type branch with a bare
+  `return;`, which failed `clippy::needless_return` under `-D warnings` in single-error crates.
+
 ## [0.104.0] - 2026-10-05
 
 ### Added

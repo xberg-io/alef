@@ -103,6 +103,32 @@ fn no_error_methods_means_only_the_variant_accessor_is_added() {
     assert!(!module.contains("alef_ffi_duration_millis"), "{module}");
 }
 
+fn capture_body(module: &str) -> &str {
+    let start = module.find("fn alef_ffi_capture_error_fields(").expect("capture fn");
+    let end = module[start..].find("\nfn set_last_error(").expect("next fn") + start;
+    &module[start..end]
+}
+
+#[test]
+fn single_error_type_capture_has_no_trailing_return() {
+    let module = gen_last_error(&sample_api(), &config().ffi_prefix(), "sample");
+
+    assert!(!capture_body(&module).contains("return;"), "{module}");
+}
+
+#[test]
+fn only_non_final_error_types_return_early_from_capture() {
+    let mut api = sample_api();
+    let mut second = api.errors[0].clone();
+    second.name = "OtherError".to_string();
+    second.rust_path = "sample::OtherError".to_string();
+    api.errors.push(second);
+
+    let module = gen_last_error(&api, &config().ffi_prefix(), "sample");
+
+    assert_eq!(capture_body(&module).matches("return;").count(), 1, "{module}");
+}
+
 #[test]
 fn generated_module_captures_resets_and_exposes_the_typed_error_fields() {
     let module = gen_last_error(&sample_api(), &config().ffi_prefix(), "sample");

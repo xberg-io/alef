@@ -69,7 +69,9 @@ fn alef_ffi_capture_error_fields({% if has_error_code_impls %}error{% else %}_er
 {% for field in error_code_impl.fields %}
         LAST_ERROR_{{ field.upper }}.with_borrow_mut(|c| *c = {{ field.expression }});
 {% endfor %}
+{% if not loop.last %}
         return;
+{% endif %}
     }
 {% endfor %}
 }
