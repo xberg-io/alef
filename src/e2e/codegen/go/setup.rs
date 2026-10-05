@@ -5,6 +5,7 @@ use crate::e2e::escape::go_string_literal;
 use super::json_values::{json_to_go, json_to_go_yields_string_literal};
 
 mod args;
+mod literals;
 
 pub(super) const GO_PTR_HELPER: &str = "func ptr[T any](value T) *T { return &value }";
 
@@ -314,6 +315,9 @@ pub(super) fn go_struct_field_expression(
                 literal
             }
         }
+        crate::core::ir::TypeRef::Vec(element) => {
+            return literals::go_slice_expression(element, value, context, site);
+        }
         _ => return Ok(None),
     };
     Ok(Some(expression))
@@ -434,15 +438,12 @@ fn native_go_dto_literal_at(
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-    let max_name_len = field_values
-        .iter()
-        .map(|(name, _)| name.len())
-        .max()
-        .unwrap_or_default();
+    let paddings = literals::field_paddings(&field_values);
     let fields = field_values
         .into_iter()
-        .map(|(name, expression)| {
-            let padding = " ".repeat(max_name_len.saturating_sub(name.len()));
+        .zip(paddings)
+        .map(|((name, expression), width)| {
+            let padding = " ".repeat(width);
             minijinja::context! { name => name, padding => padding, expression => expression }
         })
         .collect::<Vec<_>>();

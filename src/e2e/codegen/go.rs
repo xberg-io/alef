@@ -970,6 +970,9 @@ mod tests;
 #[path = "go/tests/ancestor_guard_presence_tests.rs"]
 mod ancestor_guard_presence_tests;
 #[cfg(test)]
+#[path = "go/tests/array_field_snippet_tests.rs"]
+mod array_field_snippet_tests;
+#[cfg(test)]
 #[path = "go/tests/error_type_prefix_tests.rs"]
 mod error_type_prefix_tests;
 #[cfg(test)]
