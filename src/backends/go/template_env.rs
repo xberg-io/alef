@@ -97,6 +97,14 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("lock_os_thread.jinja", include_str!("templates/lock_os_thread.jinja")),
     (
+        "ctx_cancel_prelude.jinja",
+        include_str!("templates/ctx_cancel_prelude.jinja"),
+    ),
+    (
+        "last_error_context_helper.jinja",
+        include_str!("templates/last_error_context_helper.jinja"),
+    ),
+    (
         "c_string_arg_setup.jinja",
         include_str!("templates/c_string_arg_setup.jinja"),
     ),

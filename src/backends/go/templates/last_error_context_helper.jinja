@@ -1,0 +1,19 @@
+// lastErrorContext is lastError for a call made on behalf of ctx. A native cancellation (the call
+// was aborted because ctx ended) is reported as ctx's own error, so errors.Is(err,
+// context.Canceled) and errors.Is(err, context.DeadlineExceeded) hold. Any other native error is
+// returned as is, joined with ctx's error when ctx ended during the call.
+func lastErrorContext(ctx context.Context) error {
+	if int32(C.{{ last_error_code_fn }}()) == {{ cancelled_code }} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return context.Canceled
+	}
+	err := lastError()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("%w: %w", ctxErr, err)
+		}
+	}
+	return err
+}

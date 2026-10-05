@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capturable error introspection method (`status_code`, `is_transient`, `error_type`, and any
   zero-argument scalar, string or `Duration` method the IR carries), filled when a typed error sets
   the last error and cleared with the rest of the last-error state.
+- Generated Go gains a `<Name>WithContext(ctx context.Context, ...)` variant for every async function
+  and method backed by a cancellable FFI export that returns an `error`. Ending `ctx` trips a cancel
+  token that aborts the in-flight native request, and the returned error wraps `ctx.Err()`, so
+  `errors.Is(err, context.DeadlineExceeded)` and `errors.Is(err, context.Canceled)` hold. The plain
+  `<Name>(...)` keeps its signature and forwards with `context.Background()`; other native errors
+  stay the typed `*Error`.
 
 ### Fixed
 

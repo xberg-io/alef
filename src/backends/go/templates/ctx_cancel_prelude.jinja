@@ -1,0 +1,33 @@
+	if err := ctx.Err(); err != nil {
+		return {{ err_return_prefix }}err
+	}
+	cancelToken := C.{{ new_fn }}()
+	if cancelToken == 0 {
+		if err := lastError(); err != nil {
+			return {{ err_return_prefix }}err
+		}
+		return {{ err_return_prefix }}fmt.Errorf("failed to create cancel token")
+	}
+	cancelDone := make(chan struct{})
+	cancelStopped := make(chan struct{})
+	go func() {
+		defer close(cancelStopped)
+		select {
+		case <-ctx.Done():
+			C.{{ cancel_fn }}(cancelToken)
+		case <-cancelDone:
+		}
+	}()
+{% if defer_cleanup %}
+	defer func() {
+		close(cancelDone)
+		<-cancelStopped
+		C.{{ free_fn }}(cancelToken)
+	}()
+{% else %}
+	stopCancel := func() {
+		close(cancelDone)
+		<-cancelStopped
+		C.{{ free_fn }}(cancelToken)
+	}
+{% endif %}

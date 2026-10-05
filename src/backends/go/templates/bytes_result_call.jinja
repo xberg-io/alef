@@ -2,10 +2,10 @@
 	var outLen, outCap C.uintptr_t
 	rc := {{ c_call }}
 	if rc != 0 {
-		return nil, lastError()
+		return nil, {{ last_error_call | default('lastError()') }}
 	}
 	if outPtr == nil {
-		return nil, lastError()
+		return nil, {{ last_error_call | default('lastError()') }}
 	}
 	defer C.{{ ffi_prefix }}_free_bytes(outPtr, outLen, outCap)
 	result := C.GoBytes(unsafe.Pointer(outPtr), C.int(outLen))

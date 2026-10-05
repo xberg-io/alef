@@ -1,3 +1,4 @@
+use super::cancellation;
 use super::functions::{is_bytes_result_method, params_require_marshal};
 use super::result_presence::result_presence_gate;
 use super::types::{
@@ -174,7 +175,127 @@ pub(super) fn gen_streaming_method_wrapper(
     out
 }
 
+/// The parts of a method's Go signature shared by its plain wrapper and its `WithContext` sibling.
+struct MethodSignature {
+    go_name: String,
+    receiver_name: &'static str,
+    receiver_type: String,
+    params: Vec<String>,
+    param_names: Vec<String>,
+    return_type: String,
+    can_return_error: bool,
+}
+
+impl MethodSignature {
+    fn new(typ: &TypeDef, method: &MethodDef, opaque_names: &std::collections::HashSet<&str>) -> Self {
+        let receiver_requires_marshal = !method.is_static && !typ.is_opaque;
+        let method_marshals = receiver_requires_marshal || params_require_marshal(&method.params, opaque_names);
+        let can_return_error = method.error_type.is_some() || method_marshals;
+
+        let return_type = if is_bytes_result_method(method) {
+            "([]byte, error)".to_string()
+        } else if can_return_error {
+            if matches!(method.return_type, TypeRef::Unit) {
+                "error".to_string()
+            } else {
+                let ret_go_type = if matches!(
+                    method.return_type,
+                    TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+                ) {
+                    go_type(&method.return_type).into_owned()
+                } else {
+                    go_return_type(&method.return_type).into_owned()
+                };
+                format!("({}, error)", ret_go_type)
+            }
+        } else if matches!(method.return_type, TypeRef::Unit) {
+            "".to_string()
+        } else if matches!(
+            method.return_type,
+            TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+        ) {
+            go_type(&method.return_type).into_owned()
+        } else {
+            go_return_type(&method.return_type).into_owned()
+        };
+
+        let params = method
+            .params
+            .iter()
+            .map(|p| {
+                let param_type: String = if p.optional {
+                    go_optional_type(&p.ty).into_owned()
+                } else if let TypeRef::Named(name) = &p.ty {
+                    if opaque_names.contains(name.as_str()) {
+                        format!("*{}", go_type(&p.ty))
+                    } else {
+                        go_type(&p.ty).into_owned()
+                    }
+                } else {
+                    go_type(&p.ty).into_owned()
+                };
+                format!("{} {}", go_param_name(&p.name), param_type)
+            })
+            .collect();
+
+        Self {
+            go_name: to_go_name(&method.name),
+            receiver_name: if typ.is_opaque { "h" } else { "r" },
+            receiver_type: go_type_name(&typ.name),
+            params,
+            param_names: method.params.iter().map(|p| go_param_name(&p.name)).collect(),
+            return_type,
+            can_return_error,
+        }
+    }
+
+    fn is_cancellable(&self, method: &MethodDef) -> bool {
+        cancellation::is_cancellable(
+            method.is_async,
+            self.can_return_error,
+            &method.return_type,
+            method.receiver.as_ref(),
+            &method.params,
+        )
+    }
+
+    /// The opening `func ... {` line; `go_name` and `params` are passed in because the
+    /// `WithContext` sibling renames the function and prepends a parameter.
+    fn render_head(&self, method: &MethodDef, go_name: &str, params: &str) -> String {
+        let ret_type_str = if self.return_type.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", self.return_type)
+        };
+        if method.is_static {
+            crate::backends::go::template_env::render(
+                "method_signature_static.jinja",
+                minijinja::context! {
+                    receiver_type => &self.receiver_type,
+                    method_name => go_name,
+                    params => params,
+                    return_type => &ret_type_str,
+                },
+            )
+        } else {
+            crate::backends::go::template_env::render(
+                "method_signature_instance.jinja",
+                minijinja::context! {
+                    receiver_name => self.receiver_name,
+                    receiver_type => &self.receiver_type,
+                    method_name => go_name,
+                    params => params,
+                    return_type => &ret_type_str,
+                },
+            )
+        }
+    }
+}
+
 /// Generate a wrapper method for a struct method.
+///
+/// A method backed by a cancellable FFI export is emitted twice: `<Name>WithContext(ctx, ...)`
+/// does the work, and `<Name>(...)` keeps its signature and forwards with `context.Background()`.
 pub(super) fn gen_method_wrapper(
     typ: &TypeDef,
     method: &MethodDef,
@@ -184,96 +305,88 @@ pub(super) fn gen_method_wrapper(
     enum_names: &std::collections::HashSet<String>,
     ffi_param_enum_names: &std::collections::HashSet<String>,
 ) -> String {
+    let signature = MethodSignature::new(typ, method, opaque_names);
+    if !signature.is_cancellable(method) {
+        return gen_method_wrapper_impl(
+            typ,
+            method,
+            ffi_prefix,
+            opaque_names,
+            value_only_types,
+            enum_names,
+            ffi_param_enum_names,
+            false,
+        );
+    }
+
+    let mut out = String::with_capacity(4096);
+    emit_type_doc(&mut out, &signature.go_name, &method.doc, "is a method.");
+    out.push_str(&signature.render_head(method, &signature.go_name, &signature.params.join(", ")));
+    let with_context_name = format!("{}WithContext", signature.go_name);
+    let target = if method.is_static {
+        format!("{}{with_context_name}", signature.receiver_type)
+    } else {
+        format!("{}.{with_context_name}", signature.receiver_name)
+    };
+    out.push_str(&format!(
+        "\treturn {target}({})\n}}\n\n",
+        cancellation::forwarded_args(&signature.param_names)
+    ));
+    out.push_str(&gen_method_wrapper_impl(
+        typ,
+        method,
+        ffi_prefix,
+        opaque_names,
+        value_only_types,
+        enum_names,
+        ffi_param_enum_names,
+        true,
+    ));
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_method_wrapper_impl(
+    typ: &TypeDef,
+    method: &MethodDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+    value_only_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
+    with_context: bool,
+) -> String {
     let mut out = String::with_capacity(2048);
 
-    let method_go_name = to_go_name(&method.name);
+    let signature = MethodSignature::new(typ, method, opaque_names);
+    let method_go_name = if with_context {
+        format!("{}WithContext", signature.go_name)
+    } else {
+        signature.go_name.clone()
+    };
+    let last_error_call = cancellation::last_error_call(with_context);
 
-    emit_type_doc(&mut out, &method_go_name, &method.doc, "is a method.");
+    if with_context {
+        let plain_name = &signature.go_name;
+        out.push_str(&format!(
+            "// {method_go_name} is {plain_name} with a context: when ctx ends, the in-flight native\n\
+             // request is aborted and the returned error wraps ctx.Err().\n"
+        ));
+    } else {
+        emit_type_doc(&mut out, &method_go_name, &method.doc, "is a method.");
+    }
 
-    let receiver_requires_marshal = !method.is_static && !typ.is_opaque;
-    let method_marshals = receiver_requires_marshal || params_require_marshal(&method.params, opaque_names);
-    let method_can_return_error = method.error_type.is_some() || method_marshals;
+    let method_can_return_error = signature.can_return_error;
 
     let is_bytes_result = is_bytes_result_method(method);
 
-    let return_type = if is_bytes_result {
-        "([]byte, error)".to_string()
-    } else if method_can_return_error {
-        if matches!(method.return_type, TypeRef::Unit) {
-            "error".to_string()
-        } else {
-            let ret_go_type = if matches!(
-                method.return_type,
-                TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
-            ) {
-                go_type(&method.return_type).into_owned()
-            } else {
-                go_return_type(&method.return_type).into_owned()
-            };
-            format!("({}, error)", ret_go_type)
-        }
-    } else if matches!(method.return_type, TypeRef::Unit) {
-        "".to_string()
-    } else if matches!(
-        method.return_type,
-        TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
-    ) {
-        go_type(&method.return_type).into_owned()
+    let receiver_name = signature.receiver_name;
+    let params_str = if with_context {
+        cancellation::with_ctx_param(&signature.params.join(", "))
     } else {
-        go_return_type(&method.return_type).into_owned()
+        signature.params.join(", ")
     };
-
-    let receiver_name = if typ.is_opaque { "h" } else { "r" };
-    let go_receiver_type = go_type_name(&typ.name);
-
-    let params: Vec<String> = method
-        .params
-        .iter()
-        .map(|p| {
-            let param_type: String = if p.optional {
-                go_optional_type(&p.ty).into_owned()
-            } else if let TypeRef::Named(name) = &p.ty {
-                if opaque_names.contains(name.as_str()) {
-                    format!("*{}", go_type(&p.ty))
-                } else {
-                    go_type(&p.ty).into_owned()
-                }
-            } else {
-                go_type(&p.ty).into_owned()
-            };
-            format!("{} {}", go_param_name(&p.name), param_type)
-        })
-        .collect();
-    let params_str = params.join(", ");
-
-    let ret_type_str = if return_type.is_empty() {
-        String::new()
-    } else {
-        format!(" {return_type}")
-    };
-
-    if method.is_static {
-        out.push_str(&crate::backends::go::template_env::render(
-            "method_signature_static.jinja",
-            minijinja::context! {
-                receiver_type => &go_receiver_type,
-                method_name => &method_go_name,
-                params => &params_str,
-                return_type => &ret_type_str,
-            },
-        ));
-    } else {
-        out.push_str(&crate::backends::go::template_env::render(
-            "method_signature_instance.jinja",
-            minijinja::context! {
-                receiver_name => receiver_name,
-                receiver_type => &go_receiver_type,
-                method_name => &method_go_name,
-                params => &params_str,
-                return_type => &ret_type_str,
-            },
-        ));
-    }
+    out.push_str(&signature.render_head(method, &method_go_name, &params_str));
     out.push_str(&crate::backends::go::template_env::render(
         "lock_os_thread.jinja",
         minijinja::Value::default(),
@@ -286,6 +399,9 @@ pub(super) fn gen_method_wrapper(
         } else {
             String::new()
         };
+        if with_context {
+            out.push_str(&cancellation::prelude(ffi_prefix, &param_err_return_prefix));
+        }
         for param in &method.params {
             out.push_str(&gen_param_to_c(
                 param,
@@ -312,7 +428,12 @@ pub(super) fn gen_method_wrapper(
             .collect();
 
         let type_snake = c_symbols::type_component(&typ.name);
-        let c_fn = c_symbols::method_symbol(ffi_prefix, &typ.name, &method.name);
+        let primary_c_fn = c_symbols::method_symbol(ffi_prefix, &typ.name, &method.name);
+        let c_fn = if with_context {
+            cancellation::cancellable_symbol(&primary_c_fn)
+        } else {
+            primary_c_fn
+        };
         let base_c_call = if method.is_static {
             if c_params.is_empty() {
                 format!("C.{}()", c_fn)
@@ -378,11 +499,16 @@ pub(super) fn gen_method_wrapper(
         } else {
             base_c_call
         };
+        let c_call = if with_context {
+            cancellation::with_token_arg(&c_call)
+        } else {
+            c_call
+        };
 
         if is_bytes_result {
             out.push_str(&crate::backends::go::template_env::render(
                 "bytes_result_call.jinja",
-                minijinja::context! { c_call => &c_call, ffi_prefix => ffi_prefix },
+                minijinja::context! { c_call => &c_call, ffi_prefix => ffi_prefix, last_error_call => last_error_call },
             ));
             out.push_str("}\n");
             return out;
@@ -422,7 +548,7 @@ pub(super) fn gen_method_wrapper(
                     ));
                 }
                 if method.error_type.is_some() {
-                    out.push_str("\treturn lastError()\n");
+                    out.push_str(&format!("\treturn {last_error_call}\n"));
                 } else {
                     out.push_str("\treturn nil\n");
                 }
@@ -434,7 +560,7 @@ pub(super) fn gen_method_wrapper(
                     },
                 ));
                 if method.error_type.is_some() {
-                    out.push_str("\tif err := lastError(); err != nil {\n");
+                    out.push_str(&format!("\tif err := {last_error_call}; err != nil {{\n"));
                     if matches!(
                         method.return_type,
                         TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json

@@ -1,3 +1,4 @@
+use super::cancellation;
 use super::methods::gen_param_to_c;
 use super::result_presence::result_presence_gate;
 use super::types::{emit_type_doc, go_return_expr, go_return_values_with_error};
@@ -77,7 +78,136 @@ fn returns_bytes_out_params(ty: &TypeRef) -> bool {
     }
 }
 
+/// The parts of a free function's Go signature shared by its plain wrapper and its `WithContext`
+/// sibling.
+struct FunctionSignature {
+    go_name: String,
+    params: Vec<String>,
+    param_names: Vec<String>,
+    return_type: String,
+    can_return_error: bool,
+    has_bridge_param: bool,
+    has_writeback: bool,
+}
+
+impl FunctionSignature {
+    fn new(
+        func: &FunctionDef,
+        opaque_names: &std::collections::HashSet<&str>,
+        bridge_param_names: &HashSet<String>,
+        bridge_type_aliases: &HashSet<String>,
+        reserved_type_names: &HashSet<String>,
+    ) -> Self {
+        let is_bytes_result = is_bytes_result_func(func);
+        let non_bridge_params: Vec<_> = func
+            .params
+            .iter()
+            .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
+            .cloned()
+            .collect();
+        let marshals_params = params_require_marshal(&non_bridge_params, opaque_names);
+
+        // A `&mut T` DTO parameter on a unit-returning function cannot be bound as an owned
+        // by-value parameter: the C call mutates a temporary handle built from JSON and the
+        // handle is then freed unread, so the caller's value is silently untouched. When this
+        // narrow shape applies, the binding returns the updated `T` instead of `error` alone.
+        // `reject_unsupported_writeback` (called by the caller loop before this function runs)
+        // has already ruled out every `&mut` DTO shape this can't express. ~keep
+        let opaque_names_ahash: ahash::AHashSet<String> = opaque_names.iter().map(|s| s.to_string()).collect();
+        let writeback = mut_writeback::writeback_param(&func.params, &func.return_type, &opaque_names_ahash);
+        let can_return_error = func.error_type.is_some() || marshals_params || writeback.is_some();
+
+        let return_type = if let Some(wb) = writeback {
+            format!("({}, error)", go_optional_type(&wb.ty))
+        } else if is_bytes_result {
+            "([]byte, error)".to_string()
+        } else if can_return_error {
+            if matches!(func.return_type, TypeRef::Unit) {
+                "error".to_string()
+            } else if matches!(
+                func.return_type,
+                TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+            ) {
+                format!("({}, error)", go_type(&func.return_type))
+            } else {
+                format!("({}, error)", go_return_type(&func.return_type))
+            }
+        } else if matches!(func.return_type, TypeRef::Unit) {
+            "".to_string()
+        } else if matches!(
+            func.return_type,
+            TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
+        ) {
+            go_type(&func.return_type).into_owned()
+        } else {
+            go_return_type(&func.return_type).into_owned()
+        };
+
+        let mut params: Vec<String> = Vec::new();
+        let mut param_names: Vec<String> = Vec::new();
+        for p in func.params.iter() {
+            if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
+                continue;
+            }
+            let param_type: String = if p.optional {
+                go_optional_type(&p.ty).into_owned()
+            } else if let TypeRef::Named(name) = &p.ty {
+                if opaque_names.contains(name.as_str()) {
+                    format!("*{}", go_type(&p.ty))
+                } else {
+                    go_type(&p.ty).into_owned()
+                }
+            } else {
+                go_type(&p.ty).into_owned()
+            };
+            params.push(format!("{} {}", go_param_name(&p.name), param_type));
+            param_names.push(go_param_name(&p.name));
+        }
+
+        Self {
+            go_name: go_free_function_name(&func.name, reserved_type_names),
+            params,
+            param_names,
+            return_type,
+            can_return_error,
+            has_bridge_param: non_bridge_params.len() != func.params.len(),
+            has_writeback: writeback.is_some(),
+        }
+    }
+
+    fn is_cancellable(&self, func: &FunctionDef) -> bool {
+        !self.has_bridge_param
+            && !self.has_writeback
+            && cancellation::is_cancellable(
+                func.is_async,
+                self.can_return_error,
+                &func.return_type,
+                None,
+                &func.params,
+            )
+    }
+
+    fn render_head(&self, go_name: &str, params: &str) -> String {
+        let ret_type_str = if self.return_type.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", self.return_type)
+        };
+        crate::backends::go::template_env::render(
+            "function_signature.jinja",
+            minijinja::context! {
+                func_name => go_name,
+                params => params,
+                return_type => &ret_type_str,
+            },
+        )
+    }
+}
+
 /// Generate a wrapper function for a free function.
+///
+/// A function backed by a cancellable FFI export is emitted twice: `<Name>WithContext(ctx, ...)`
+/// does the work, and `<Name>(...)` keeps its signature and forwards with `context.Background()`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_function_wrapper(
     func: &FunctionDef,
@@ -90,94 +220,101 @@ pub(super) fn gen_function_wrapper(
     ffi_param_enum_names: &std::collections::HashSet<String>,
     reserved_type_names: &HashSet<String>,
 ) -> String {
+    let signature = FunctionSignature::new(
+        func,
+        opaque_names,
+        bridge_param_names,
+        bridge_type_aliases,
+        reserved_type_names,
+    );
+    let generate = |with_context: bool| {
+        gen_function_wrapper_impl(
+            func,
+            ffi_prefix,
+            opaque_names,
+            bridge_param_names,
+            bridge_type_aliases,
+            value_only_types,
+            enum_names,
+            ffi_param_enum_names,
+            reserved_type_names,
+            with_context,
+        )
+    };
+    if !signature.is_cancellable(func) {
+        return generate(false);
+    }
+
+    let mut out = String::with_capacity(4096);
+    emit_type_doc(&mut out, &signature.go_name, &func.doc, "calls the FFI function.");
+    out.push_str(&signature.render_head(&signature.go_name, &signature.params.join(", ")));
+    out.push_str(&format!(
+        "\treturn {}WithContext({})\n}}\n\n",
+        signature.go_name,
+        cancellation::forwarded_args(&signature.param_names)
+    ));
+    out.push_str(&generate(true));
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn gen_function_wrapper_impl(
+    func: &FunctionDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+    bridge_param_names: &HashSet<String>,
+    bridge_type_aliases: &HashSet<String>,
+    value_only_types: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
+    reserved_type_names: &HashSet<String>,
+    with_context: bool,
+) -> String {
     let mut out = String::with_capacity(2048);
 
-    let func_go_name = go_free_function_name(&func.name, reserved_type_names);
+    let signature = FunctionSignature::new(
+        func,
+        opaque_names,
+        bridge_param_names,
+        bridge_type_aliases,
+        reserved_type_names,
+    );
+    let func_go_name = if with_context {
+        format!("{}WithContext", signature.go_name)
+    } else {
+        signature.go_name.clone()
+    };
+    let last_error_call = cancellation::last_error_call(with_context);
 
-    emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
+    if with_context {
+        let plain_name = &signature.go_name;
+        out.push_str(&format!(
+            "// {func_go_name} is {plain_name} with a context: when ctx ends, the in-flight native\n\
+             // request is aborted and the returned error wraps ctx.Err().\n"
+        ));
+    } else {
+        emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
+    }
 
     let is_bytes_result = is_bytes_result_func(func);
-
-    let non_bridge_params: Vec<_> = func
-        .params
-        .iter()
-        .filter(|p| !is_bridge_param(p, bridge_param_names, bridge_type_aliases))
-        .cloned()
-        .collect();
-    let marshals_params = params_require_marshal(&non_bridge_params, opaque_names);
-
-    // A `&mut T` DTO parameter on a unit-returning function cannot be bound as an owned
-    // by-value parameter: the C call mutates a temporary handle built from JSON and the
-    // handle is then freed unread, so the caller's value is silently untouched. When this
-    // narrow shape applies, the binding returns the updated `T` instead of `error` alone.
-    // `reject_unsupported_writeback` (called by the caller loop before this function runs)
-    // has already ruled out every `&mut` DTO shape this can't express. ~keep
+    let can_return_error = signature.can_return_error;
     let opaque_names_ahash: ahash::AHashSet<String> = opaque_names.iter().map(|s| s.to_string()).collect();
     let writeback = mut_writeback::writeback_param(&func.params, &func.return_type, &opaque_names_ahash);
-    let can_return_error = func.error_type.is_some() || marshals_params || writeback.is_some();
 
-    let return_type = if let Some(wb) = writeback {
-        format!("({}, error)", go_optional_type(&wb.ty))
-    } else if is_bytes_result {
-        "([]byte, error)".to_string()
-    } else if can_return_error {
-        if matches!(func.return_type, TypeRef::Unit) {
-            "error".to_string()
-        } else if matches!(
-            func.return_type,
-            TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
-        ) {
-            format!("({}, error)", go_type(&func.return_type))
-        } else {
-            format!("({}, error)", go_return_type(&func.return_type))
-        }
-    } else if matches!(func.return_type, TypeRef::Unit) {
-        "".to_string()
-    } else if matches!(
-        func.return_type,
-        TypeRef::Primitive(_) | TypeRef::Duration | TypeRef::String | TypeRef::Char | TypeRef::Path
-    ) {
-        go_type(&func.return_type).into_owned()
+    let primary_ffi_symbol = c_symbols::free_function_symbol(ffi_prefix, &func.name);
+    let ffi_symbol = if with_context {
+        cancellation::cancellable_symbol(&primary_ffi_symbol)
     } else {
-        go_return_type(&func.return_type).into_owned()
+        primary_ffi_symbol
     };
-
-    let ffi_symbol = c_symbols::free_function_symbol(ffi_prefix, &func.name);
     let ffi_name = format!("C.{ffi_symbol}");
 
-    let mut param_strs: Vec<String> = Vec::new();
-    for p in func.params.iter() {
-        if is_bridge_param(p, bridge_param_names, bridge_type_aliases) {
-            continue;
-        }
-        let param_type: String = if p.optional {
-            go_optional_type(&p.ty).into_owned()
-        } else if let TypeRef::Named(name) = &p.ty {
-            if opaque_names.contains(name.as_str()) {
-                format!("*{}", go_type(&p.ty))
-            } else {
-                go_type(&p.ty).into_owned()
-            }
-        } else {
-            go_type(&p.ty).into_owned()
-        };
-        param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
-    }
-    let params_str = param_strs.join(", ");
-    let ret_type_str = if return_type.is_empty() {
-        "".to_string()
+    let params_str = if with_context {
+        cancellation::with_ctx_param(&signature.params.join(", "))
     } else {
-        format!(" {}", return_type)
+        signature.params.join(", ")
     };
-
-    out.push_str(&crate::backends::go::template_env::render(
-        "function_signature.jinja",
-        minijinja::context! {
-            func_name => func_go_name,
-            params => &params_str,
-            return_type => &ret_type_str,
-        },
-    ));
+    out.push_str(&signature.render_head(&func_go_name, &params_str));
     out.push_str(&crate::backends::go::template_env::render(
         "lock_os_thread.jinja",
         minijinja::Value::default(),
@@ -190,6 +327,9 @@ pub(super) fn gen_function_wrapper(
     } else {
         String::new()
     };
+    if with_context {
+        out.push_str(&cancellation::prelude(ffi_prefix, &param_err_return_prefix));
+    }
     for param in func.params.iter() {
         if is_bridge_param(param, bridge_param_names, bridge_type_aliases) {
             continue;
@@ -231,6 +371,11 @@ pub(super) fn gen_function_wrapper(
     } else {
         format!("{}({})", ffi_name, c_params.join(", "))
     };
+    let c_call = if with_context {
+        cancellation::with_token_arg(&c_call)
+    } else {
+        c_call
+    };
 
     if let Some(wb) = writeback {
         let wb_type_name = mut_writeback::writeback_type_name(wb).unwrap_or_default();
@@ -265,6 +410,7 @@ pub(super) fn gen_function_wrapper(
             minijinja::context! {
                 c_call => &c_call,
                 ffi_prefix => ffi_prefix,
+                last_error_call => last_error_call,
             },
         ));
         out.push_str(&crate::backends::go::template_env::render(
@@ -287,7 +433,7 @@ pub(super) fn gen_function_wrapper(
                 },
             ));
             if func.error_type.is_some() {
-                out.push_str("\treturn lastError()\n");
+                out.push_str(&format!("\treturn {last_error_call}\n"));
             } else {
                 out.push_str("\treturn nil\n");
             }
@@ -299,7 +445,7 @@ pub(super) fn gen_function_wrapper(
                 },
             ));
             if func.error_type.is_some() {
-                out.push_str("\tif err := lastError(); err != nil {\n");
+                out.push_str(&format!("\tif err := {last_error_call}; err != nil {{\n"));
                 if matches!(
                     func.return_type,
                     TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json

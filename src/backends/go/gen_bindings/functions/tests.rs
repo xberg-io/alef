@@ -627,8 +627,18 @@ fn async_free_function_returning_vec_of_named_over_config_struct_emits_wrapper()
         "expected the exact async Vec<Named>-over-config-struct signature, got:\n{out}"
     );
     assert!(
-        out.contains("C.sample_embed_sparse_async("),
-        "must call the FFI symbol for the underlying blocking C call, got:\n{out}"
+        out.contains("return EmbedSparseAsyncWithContext(context.Background(), texts, config)"),
+        "the plain wrapper must forward to its WithContext sibling, got:\n{out}"
+    );
+    assert!(
+        out.contains(
+            "func EmbedSparseAsyncWithContext(ctx context.Context, texts []string, config SparseEmbeddingConfig) ([]SparseEmbedding, error) {"
+        ),
+        "the context variant must take ctx first and keep the rest of the signature, got:\n{out}"
+    );
+    assert!(
+        out.contains("C.sample_embed_sparse_async_cancellable(") && !out.contains("C.sample_embed_sparse_async("),
+        "the work must call the cancellable FFI sibling, never the uncancellable symbol, got:\n{out}"
     );
     assert!(
         out.contains("json.Unmarshal") && out.contains("[]SparseEmbedding"),

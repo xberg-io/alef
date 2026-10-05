@@ -260,6 +260,7 @@ pub(super) fn gen_go_file(
     let primary_error = primary_go_error(api, &config.error_type_name());
     body.push_str(&gen_last_error_helper(api, ffi_prefix, pkg_name, primary_error));
     body.push_str("\n\n");
+    let context_helper_at = body.len();
 
     body.push_str(&gen_unmarshal_bytes_helper());
     body.push_str("\n\n");
@@ -533,6 +534,15 @@ pub(super) fn gen_go_file(
             ));
             body.push_str("\n\n");
         }
+    }
+
+    // Emitted only when a `WithContext` body (or a stream) calls it, so a package without one does
+    // not gain an unused helper or a `context` import.
+    if body.contains("lastErrorContext(ctx)") {
+        body.insert_str(
+            context_helper_at,
+            &format!("{}\n\n", super::cancellation::gen_last_error_context_helper(ffi_prefix)),
+        );
     }
 
     let has_opaque_types = !emission.opaque.is_empty();
