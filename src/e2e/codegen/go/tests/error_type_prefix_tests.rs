@@ -70,7 +70,7 @@ fn snippet_typed_error_strips_the_package_prefix_like_the_go_backend_does() {
     let body =
         render_snippet_body(&error_fixture(), &error_e2e_config(), &config, &[], &[], &[]).expect("snippet renders");
 
-    assert!(body.contains("var typedError pkg.Error"), "{body}");
+    assert!(body.contains("var typedError *pkg.Error"), "{body}");
     assert!(!body.contains("pkg.SampleCrateError"), "{body}");
 }
 
@@ -88,5 +88,5 @@ fn snippet_typed_error_keeps_an_unrelated_name_untouched() {
     let body =
         render_snippet_body(&error_fixture(), &error_e2e_config(), &config, &[], &[], &[]).expect("snippet renders");
 
-    assert!(body.contains("var typedError pkg.ConversionError"), "{body}");
+    assert!(body.contains("var typedError *pkg.ConversionError"), "{body}");
 }

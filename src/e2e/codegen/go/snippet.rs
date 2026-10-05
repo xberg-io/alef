@@ -568,7 +568,7 @@ mod tests {
             .expect("snippet renders");
 
         assert!(body.contains("_, err := pkg."), "{body}");
-        assert!(body.contains("var typedError pkg.Error"), "{body}");
+        assert!(body.contains("var typedError *pkg.Error"), "{body}");
         assert!(body.contains("errors.As(err, &typedError)"), "{body}");
         assert!(!body.contains("expected call to fail"), "{body}");
     }

@@ -41,13 +41,13 @@ fn make_fixture(id: &str) -> Fixture {
     }
 }
 
-// Regression for a bug where the snippet template hardcoded `var typedError *pkg.Error`
-// (a pointer). Alef's Go error emitter generates `Error() string` on a value receiver, so
-// the concrete error is never a `*Error` and `errors.As` against a pointer target silently
-// never matches. Asserting `!body.contains("*pkg.Error")` alone would pass on a body missing
-// `typedError` entirely, so this also pins the exact non-pointer declaration. ~keep
+// The Go error emitter now declares `Error() string` and `Unwrap() error` on a pointer
+// receiver, so only a `*pkg.Error` target ever matches in `errors.As`. A by-value
+// declaration would compile and silently never match. Asserting `!body.contains("pkg.Error")`
+// alone would pass on a body missing `typedError`, so this pins the exact pointer
+// declaration and rejects the by-value one. ~keep
 #[test]
-fn snippet_body_declares_typed_error_by_value_not_by_pointer() {
+fn snippet_body_declares_typed_error_by_pointer_not_by_value() {
     let mut fixture = make_fixture("invalid_input");
     fixture.assertions = vec![Assertion {
         assertion_type: "error".to_string(),
@@ -67,8 +67,8 @@ fn snippet_body_declares_typed_error_by_value_not_by_pointer() {
     let body =
         super::snippet::render_snippet_body(&fixture, &e2e_config, &config, &[], &[], &[]).expect("snippet renders");
 
-    assert!(body.contains("var typedError pkg.Error"), "{body}");
-    assert!(!body.contains("var typedError *pkg.Error"), "{body}");
+    assert!(body.contains("var typedError *pkg.Error"), "{body}");
+    assert!(!body.contains("var typedError pkg.Error"), "{body}");
 }
 
 /// snake_case function names in `[e2e.call]` must be routed through `to_go_name`

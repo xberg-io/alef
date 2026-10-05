@@ -22,7 +22,7 @@ func main() {
   {{- "\t" }}{{ result_var }} := {{ call_expr }}
 {% endif %}
 {% if expects_error %}
-  {{- "\tvar typedError " }}{{ import_alias }}.{{ error_type }}
+  {{- "\tvar typedError *" }}{{ import_alias }}.{{ error_type }}
   {{- "\n\tif errors.As(err, &typedError) {\n\t\tfmt.Fprintf(os.Stderr, \"%T: %v\\n\", typedError, typedError)\n\t}" }}
 {% elif returns_error or returns_void %}
   {{- "\tif err != nil {\n\t\tpanic(err)\n\t}" }}
