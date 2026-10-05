@@ -247,7 +247,7 @@ fn an_array_with_an_unrenderable_element_is_omitted_whole() {
 /// has to emit gofmt-stable text. A scalar field followed by a multi-line array is the shape that
 /// used to pad the scalar's key out to the array key's width, which `gofmt` undoes because a
 /// multi-line value is a section of its own.
-fn assert_gofmt_stable(rendered: &str) {
+pub(super) fn assert_gofmt_stable(rendered: &str) {
     let Ok(mut child) = std::process::Command::new("gofmt")
         .arg("-e")
         .stdin(std::process::Stdio::piped())

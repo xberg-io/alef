@@ -11,7 +11,8 @@ use super::{GoFieldSite, GoValueContext, go_named_field_expression, qualified_go
 ///
 /// Go emits `Vec<T>` as `[]T` and leaves it unpointered even for an optional field
 /// (`go_optional_type`), so unlike the scalar arms this never wraps the result in `ptr(..)`.
-/// `Ok(None)` omits the whole field -- a value that is not an array, or an element with no
+/// A multi-line result is relative to its own first column, like every other nested literal:
+/// the enclosing literal shifts its continuation lines one tab deeper. `Ok(None)` omits the whole field -- a value that is not an array, or an element with no
 /// expression of the declared element type -- because dropping one element would change the
 /// request the snippet documents. ~keep
 pub(super) fn go_slice_expression(
@@ -54,13 +55,10 @@ pub(super) fn go_slice_expression(
     }
     let elements = rendered
         .iter()
-        .map(|expression| {
-            let indented = expression.replace('\n', "\n\t\t");
-            format!("\t\t{indented},")
-        })
+        .map(|expression| format!("\t{},", expression.replace('\n', "\n\t")))
         .collect::<Vec<_>>()
         .join("\n");
-    Ok(Some(format!("[]{element_type}{{\n{elements}\n\t}}")))
+    Ok(Some(format!("[]{element_type}{{\n{elements}\n}}")))
 }
 
 /// The number of spaces to pad each field name with so `gofmt` leaves the literal alone.

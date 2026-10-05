@@ -450,6 +450,8 @@ fn native_go_dto_literal_at(
         .zip(paddings)
         .map(|((name, expression), width)| {
             let padding = " ".repeat(width);
+            // A nested literal is relative to its own first column; shift it under this field. ~keep
+            let expression = expression.replace('\n', "\n\t");
             minijinja::context! { name => name, padding => padding, expression => expression }
         })
         .collect::<Vec<_>>();
