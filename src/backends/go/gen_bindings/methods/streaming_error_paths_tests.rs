@@ -106,18 +106,24 @@ fn stream_type_is_declared_with_recv_method_stream_naming_and_chan_err_accessors
 }
 
 #[test]
-fn method_signature_and_start_failure_return_a_stream_pointer_not_a_bare_channel() {
+fn compatibility_and_cancellable_methods_keep_distinct_signatures() {
     let out = render_crawl_stream();
 
     assert!(
-        out.contains("func (h *Engine) CrawlStream(ctx context.Context) (*EngineCrawlStreamStream, error) {"),
-        "the outer signature must take a leading ctx context.Context (issue #448) and return \
+        out.contains(
+            "func (h *Engine) CrawlStreamWithContext(ctx context.Context) (*EngineCrawlStreamStream, error) {"
+        ),
+        "the cancellable signature must take a leading ctx context.Context (issue #448) and return \
          `*<Recv><Method>Stream, error`, got:\n{out}"
     );
     assert!(
-        !out.contains("<-chan CrawlEvent, error"),
-        "the old bare-channel return type must be gone entirely, got:\n{out}"
+        out.contains("func (h *Engine) CrawlStream() (<-chan CrawlEvent, error) {"),
+        "the old bare-channel signature must remain source compatible, got:\n{out}"
     );
+    assert_eq!(out.matches("func (h *Engine) CrawlStream(").count(), 1);
+    assert_eq!(out.matches("func (h *Engine) CrawlStreamWithContext(").count(), 1);
+    assert!(out.contains("h.CrawlStreamWithContext(context.Background())"));
+    assert!(out.contains("return stream.Chan(), nil"));
     assert!(
         out.contains("stream := &EngineCrawlStreamStream{ch: ch}"),
         "the goroutine must be handed a stream value to report its error through, got:\n{out}"

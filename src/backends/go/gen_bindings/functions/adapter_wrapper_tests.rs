@@ -58,19 +58,19 @@ fn field(name: &str, ty: TypeRef) -> FieldDef {
 /// The exact `func ...(...) (...)` signature line, located by content rather than position so
 /// the assertion does not depend on how many blank/whitespace-only lines the template's
 /// `{% if %}` block leaves around it.
-fn signature_line(rendered: &str) -> &str {
+fn signature_lines(rendered: &str) -> Vec<&str> {
     rendered
         .lines()
-        .find(|line| line.trim_start().starts_with("func "))
-        .expect("gen_adapter_wrapper always emits a `func` line")
+        .filter(|line| line.trim_start().starts_with("func "))
+        .collect()
 }
 
 /// The exact `return ...` call line, located the same way as [`signature_line`].
-fn call_line(rendered: &str) -> &str {
+fn call_lines(rendered: &str) -> Vec<&str> {
     rendered
         .lines()
-        .find(|line| line.trim_start().starts_with("return "))
-        .expect("gen_adapter_wrapper always emits a `return` line")
+        .filter(|line| line.trim_start().starts_with("return "))
+        .collect()
 }
 
 /// The exact `req := &Type{...}` construction line, when the wrapper flattened its parameter.
@@ -150,14 +150,18 @@ fn single_param_adapter_decomposes_into_a_scalar_go_parameter() {
     let rendered = gen_adapter_wrapper(&adapter, "pkg", &types);
 
     assert_eq!(
-        signature_line(&rendered),
-        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        signature_lines(&rendered),
+        vec![
+            "func CrawlStream(engine *CrawlEngineHandle, URL string) (<-chan CrawlEvent, error) {",
+            "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, URL string) (*CrawlEngineHandleCrawlStreamStream, error) {",
+        ]
     );
     assert_eq!(
         request_construction_line(&rendered),
         Some("\treq := &CrawlRequest{URL: URL}")
     );
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, *req)");
+    assert!(call_lines(&rendered).contains(&"\treturn engine.CrawlStreamWithContext(ctx, *req)"));
+    assert!(rendered.contains("CrawlStreamWithContext(context.Background(), engine, URL)"));
 }
 
 /// Else branch, arity sub-case: two configured adapter params never satisfy the `params.len()
@@ -174,11 +178,14 @@ fn two_param_adapter_exposes_each_configured_param_directly() {
     let rendered = gen_adapter_wrapper(&adapter, "pkg", &types);
 
     assert_eq!(
-        signature_line(&rendered),
-        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        signature_lines(&rendered),
+        vec![
+            "func CrawlStream(engine *CrawlEngineHandle, url string, depth u32) (<-chan CrawlEvent, error) {",
+            "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, url string, depth u32) (*CrawlEngineHandleCrawlStreamStream, error) {",
+        ]
     );
     assert_eq!(request_construction_line(&rendered), None);
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, url, depth)");
+    assert!(call_lines(&rendered).contains(&"\treturn engine.CrawlStreamWithContext(ctx, url, depth)"));
 }
 
 /// Else branch, fieldless sub-case: a single configured param whose declared type resolves in
@@ -195,11 +202,14 @@ fn fieldless_request_type_falls_back_to_the_configured_param() {
     let rendered = gen_adapter_wrapper(&adapter, "pkg", &types);
 
     assert_eq!(
-        signature_line(&rendered),
-        "func CrawlStream(ctx context.Context, engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {"
+        signature_lines(&rendered),
+        vec![
+            "func CrawlStream(engine *CrawlEngineHandle, request CrawlRequest) (<-chan CrawlEvent, error) {",
+            "func CrawlStreamWithContext(ctx context.Context, engine *CrawlEngineHandle, request CrawlRequest) (*CrawlEngineHandleCrawlStreamStream, error) {",
+        ]
     );
     assert_eq!(request_construction_line(&rendered), None);
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx, request)");
+    assert!(call_lines(&rendered).contains(&"\treturn engine.CrawlStreamWithContext(ctx, request)"));
 }
 
 // -- issue #447: `owner_type` must go through the same normalization as the receiver type --
@@ -217,8 +227,32 @@ fn owner_type_with_an_initialism_is_normalized_like_the_receiver_type() {
     let rendered = gen_adapter_wrapper(&adapter, "pkg", &[]);
 
     assert_eq!(
-        signature_line(&rendered),
-        "func CrawlStream(ctx context.Context, engine *APIEngine) (*APIEngineCrawlStreamStream, error) {"
+        signature_lines(&rendered),
+        vec![
+            "func CrawlStream(engine *APIEngine) (<-chan CrawlEvent, error) {",
+            "func CrawlStreamWithContext(ctx context.Context, engine *APIEngine) (*APIEngineCrawlStreamStream, error) {",
+        ]
     );
-    assert_eq!(call_line(&rendered), "\treturn engine.CrawlStream(ctx)");
+    assert!(call_lines(&rendered).contains(&"\treturn engine.CrawlStreamWithContext(ctx)"));
+}
+
+#[test]
+fn batch_adapter_uses_distinct_compatibility_and_cancellable_names() {
+    let mut adapter = streaming_adapter(
+        vec![adapter_param("request", "BatchRequest")],
+        Some("sample::BatchRequest"),
+    );
+    adapter.name = "batch_crawl_stream".to_string();
+    adapter.item_type = Some("sample::BatchEvent".to_string());
+    let types = vec![dto(
+        "BatchRequest",
+        vec![field("urls", TypeRef::Vec(Box::new(TypeRef::String)))],
+    )];
+
+    let rendered = gen_adapter_wrapper(&adapter, "pkg", &types);
+
+    assert_eq!(rendered.matches("func BatchCrawlStream(").count(), 1);
+    assert_eq!(rendered.matches("func BatchCrawlStreamWithContext(").count(), 1);
+    assert!(rendered.contains("(<-chan BatchEvent, error)"));
+    assert!(rendered.contains("(*CrawlEngineHandleBatchCrawlStreamStream, error)"));
 }

@@ -2044,7 +2044,10 @@ mod stream_presentation_regression {
             "a mid-stream failure must not be dropped silently:\n{body}"
         );
         // #448: the streaming start method now requires a leading `ctx context.Context`.
-        assert!(body.contains("pkg.StreamUsage(context.Background())"), "{body}");
+        assert!(
+            body.contains("pkg.StreamUsageWithContext(context.Background())"),
+            "{body}"
+        );
         assert!(body.contains("\"context\""), "{body}");
     }
 }

@@ -645,7 +645,7 @@ fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime
     );
 
     let signature_pos = out
-        .find("func (h *Engine) CrawlStream(")
+        .find("func (h *Engine) CrawlStreamWithContext(")
         .expect("signature must be emitted");
     let outer_lock_pos = out
         .find("runtime.LockOSThread()")
@@ -700,5 +700,40 @@ fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime
         "the per-item lock must be released before the clean-end-of-stream return, got:\n{out}"
     );
 
+    assert_go_syntax_is_valid(&out);
+}
+
+#[test]
+fn streaming_method_preserves_parameters_in_both_compatibility_surfaces() {
+    let typ = opaque_type("Engine");
+    let mut method = simple_method("batch_crawl_stream", TypeRef::Unit, false);
+    method.params = vec![simple_param(
+        "request",
+        TypeRef::Named("BatchCrawlStreamRequest".to_string()),
+    )];
+    let empty_str: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_string: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let out = gen_streaming_method_wrapper(
+        &typ,
+        &method,
+        "krz",
+        "BatchCrawlEvent",
+        &empty_str,
+        &empty_str,
+        &empty_string,
+        &empty_string,
+        &empty_string,
+    );
+
+    assert!(out.contains(
+        "func (h *Engine) BatchCrawlStream(request BatchCrawlStreamRequest) (<-chan BatchCrawlEvent, error) {"
+    ));
+    assert!(out.contains(
+        "func (h *Engine) BatchCrawlStreamWithContext(ctx context.Context, request BatchCrawlStreamRequest) (*EngineBatchCrawlStreamStream, error) {"
+    ));
+    assert!(out.contains("h.BatchCrawlStreamWithContext(context.Background(), request)"));
+    assert_eq!(out.matches("func (h *Engine) BatchCrawlStream(").count(), 1);
+    assert_eq!(out.matches("func (h *Engine) BatchCrawlStreamWithContext(").count(), 1);
     assert_go_syntax_is_valid(&out);
 }

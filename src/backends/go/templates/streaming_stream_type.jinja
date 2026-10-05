@@ -1,4 +1,4 @@
-// {{ stream_type_name }} is the iterator returned by {{ receiver_type }}.{{ method_name }}.
+// {{ stream_type_name }} is the iterator returned by {{ receiver_type }}.{{ method_name }}WithContext.
 type {{ stream_type_name }} struct {
 	ch  <-chan {{ item_type }}
 	err error
@@ -6,18 +6,17 @@ type {{ stream_type_name }} struct {
 
 // Chan returns the item channel. Range over it to completion, then check Err.
 //
-// Cancelling the context passed to {{ receiver_type }}.{{ method_name }} does not close this
+// Cancelling the context passed to {{ receiver_type }}.{{ method_name }}WithContext does not close this
 // channel by itself -- it only unblocks the forwarding goroutine's next send so it can exit and
 // close the channel on its own. After cancelling, keep ranging over Chan (it will close
 // promptly) instead of abandoning it, then read Err.
 func (s *{{ stream_type_name }}) Chan() <-chan {{ item_type }} { return s.ch }
 
 // Err returns the error that ended the stream: nil on a clean end-of-stream, or the caller's
-// ctx.Err() when the context passed to {{ receiver_type }}.{{ method_name }} was cancelled.
+// ctx.Err() when the context passed to {{ receiver_type }}.{{ method_name }}WithContext was cancelled.
 //
 // Err is only safe to read after ranging over Chan to completion: the channel close is what
 // makes the producing goroutine's write to err visible to the caller. This still holds after
 // cancelling the context -- cancellation unblocks the goroutine, it does not publish err by
 // itself. Calling Err concurrently with ranging over Chan is a data race.
 func (s *{{ stream_type_name }}) Err() error { return s.err }
-

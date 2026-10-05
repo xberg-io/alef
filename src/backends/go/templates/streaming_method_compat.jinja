@@ -1,0 +1,9 @@
+// {{ method_name }} starts the stream using a background context.
+// Use {{ method_name }}WithContext to cancel a stream before it ends.
+func ({{ receiver_name }} *{{ receiver_type }}) {{ method_name }}({{ params }}) (<-chan {{ item_type }}, error) {
+	stream, err := {{ receiver_name }}.{{ method_with_context_name }}(context.Background(){% if param_args %}, {{ param_args }}{% endif %})
+	if err != nil {
+		return nil, err
+	}
+	return stream.Chan(), nil
+}

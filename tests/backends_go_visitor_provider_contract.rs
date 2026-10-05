@@ -566,17 +566,17 @@ fn streaming_iterator_compiles_and_exposes_chan_and_err() {
         binding.content
     );
     assert!(
-        binding
-            .content
-            .contains("func (h *Engine) CrawlStream(ctx context.Context) (*EngineCrawlStreamStream, error) {"),
+        binding.content.contains(
+            "func (h *Engine) CrawlStreamWithContext(ctx context.Context) (*EngineCrawlStreamStream, error) {"
+        ),
         "the method must take a leading ctx context.Context (issue #448) and return the \
          iterator, got:\n{}",
         binding.content
     );
     assert!(
-        binding
-            .content
-            .contains("func CrawlStream(ctx context.Context, engine *Engine) (*EngineCrawlStreamStream, error) {"),
+        binding.content.contains(
+            "func CrawlStreamWithContext(ctx context.Context, engine *Engine) (*EngineCrawlStreamStream, error) {"
+        ),
         "the module-level adapter wrapper must return the exact same iterator type, got:\n{}",
         binding.content
     );

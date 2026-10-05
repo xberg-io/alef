@@ -17,14 +17,15 @@ use crate::core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
 /// distinguished by a `lastError()` read on the null-chunk path -- or a per-item conversion
 /// failure, then frees the handle.
 ///
-/// The generated method's FIRST parameter is always `ctx context.Context` (Go convention), never
-/// forwarded to the native `_start`/`_next`/`_free` symbols -- it exists purely to let a Go
-/// caller unblock the forwarding goroutine's channel send. See issue #448: on an unbuffered
-/// channel, a consumer that `break`s out of `for chunk := range stream.Chan()` early parks that
-/// goroutine on `ch <- chunk` forever, leaking both the goroutine and the native stream handle
-/// (the deferred `close(ch)`/`C.<fn_free>(handle)` never run). `streaming_method_body.jinja`
-/// races the send against `<-ctx.Done()` to fix that. This is a breaking change to every
-/// generated streaming method's signature. ~keep
+/// The cancellable `WithContext` method's FIRST parameter is always `ctx context.Context` (Go
+/// convention), never forwarded to the native `_start`/`_next`/`_free` symbols -- it exists
+/// purely to let a Go caller unblock the forwarding goroutine's channel send. See issue #448: on
+/// an unbuffered channel, a consumer that `break`s out of `for chunk := range stream.Chan()` early
+/// parks that goroutine on `ch <- chunk` forever, leaking both the goroutine and the native stream
+/// handle (the deferred `close(ch)`/`C.<fn_free>(handle)` never run).
+/// `streaming_method_body.jinja` races the send against `<-ctx.Done()` to fix that. The original
+/// channel-returning method remains as a compatibility wrapper around `context.Background()`.
+/// ~keep
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_streaming_method_wrapper(
     typ: &TypeDef,
@@ -40,6 +41,7 @@ pub(super) fn gen_streaming_method_wrapper(
     let mut out = String::with_capacity(2048);
 
     let method_go_name = to_go_name(&method.name);
+    let method_with_context_name = format!("{method_go_name}WithContext");
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
     let item_go_type = go_type_name(item_type);
@@ -59,29 +61,54 @@ pub(super) fn gen_streaming_method_wrapper(
 
     let item_is_sum_type = data_enum_names.contains(item_type);
 
-    let mut params: Vec<String> = vec!["ctx context.Context".to_string()];
-    params.extend(method.params.iter().map(|p| {
-        let param_type: String = if p.optional {
-            go_optional_type(&p.ty).into_owned()
-        } else if let TypeRef::Named(name) = &p.ty {
-            if opaque_names.contains(name.as_str()) {
-                format!("*{}", go_type(&p.ty))
+    let method_params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let param_type: String = if p.optional {
+                go_optional_type(&p.ty).into_owned()
+            } else if let TypeRef::Named(name) = &p.ty {
+                if opaque_names.contains(name.as_str()) {
+                    format!("*{}", go_type(&p.ty))
+                } else {
+                    go_type(&p.ty).into_owned()
+                }
             } else {
                 go_type(&p.ty).into_owned()
-            }
-        } else {
-            go_type(&p.ty).into_owned()
-        };
-        format!("{} {}", go_param_name(&p.name), param_type)
-    }));
+            };
+            format!("{} {}", go_param_name(&p.name), param_type)
+        })
+        .collect();
+    let param_args = method
+        .params
+        .iter()
+        .map(|p| go_param_name(&p.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    out.push_str(&crate::backends::go::template_env::render(
+        "streaming_method_compat.jinja",
+        minijinja::context! {
+            receiver_name => receiver_name,
+            receiver_type => &go_receiver_type,
+            method_name => &method_go_name,
+            method_with_context_name => &method_with_context_name,
+            params => method_params.join(", "),
+            param_args => &param_args,
+            item_type => &item_go_type,
+        },
+    ));
+
+    let mut context_params = vec!["ctx context.Context".to_string()];
+    context_params.extend(method_params);
 
     out.push_str(&crate::backends::go::template_env::render(
         "streaming_method_signature.jinja",
         minijinja::context! {
             receiver_name => receiver_name,
             receiver_type => &go_receiver_type,
-            method_name => &method_go_name,
-            params => params.join(", "),
+            method_name => &method_with_context_name,
+            params => context_params.join(", "),
             item_type => &item_go_type,
             stream_type_name => &stream_type_name,
         },

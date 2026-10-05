@@ -81,6 +81,10 @@ fn test_streaming_fixture_emits_collect_snippet() {
         out.contains("context.Background()"),
         "expected the call to pass context.Background() as its first argument, got:\n{out}"
     );
+    assert!(
+        out.contains(".ChatStreamWithContext("),
+        "expected the cancellable API, got:\n{out}"
+    );
 }
 #[test]
 fn test_streaming_with_client_factory_and_json_arg() {
@@ -171,5 +175,9 @@ fn test_streaming_with_client_factory_and_json_arg() {
     assert!(
         out.contains("context.Background()"),
         "expected the call to pass context.Background() as its first argument, got:\n{out}"
+    );
+    assert!(
+        out.contains(".ChatStreamWithContext("),
+        "expected the cancellable API, got:\n{out}"
     );
 }

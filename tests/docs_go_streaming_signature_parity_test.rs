@@ -300,8 +300,8 @@ fn go_streaming_signature_matches_backend_emitted_shape() {
     // sides in lockstep to some other WRONG shape still fails.
     assert_eq!(backend_shape.stream_type, "EngineCrawlStreamStream");
     assert_eq!(backend_shape.chan_item_type, "CrawlEvent");
-    assert_eq!(backend_shape.method_name, "CrawlStream");
-    // #448: the starting method now takes a leading `ctx context.Context` (Go convention), so a
+    assert_eq!(backend_shape.method_name, "CrawlStreamWithContext");
+    // #448: the cancellable starting method takes a leading `ctx context.Context` (Go convention), so a
     // caller can unblock the forwarding goroutine's channel send after cancelling.
     assert_eq!(backend_shape.params, "ctx context.Context, req CrawlRequest");
     assert_eq!(backend_shape.return_type, "(*EngineCrawlStreamStream, error)");

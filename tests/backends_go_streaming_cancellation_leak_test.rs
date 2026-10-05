@@ -84,7 +84,7 @@ func TestStreamingCancelDoesNotLeakGoroutine(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	stream, err := engine.CrawlStream(ctx)
+	stream, err := engine.CrawlStreamWithContext(ctx)
 	if err != nil {
 		t.Fatalf("start failed: %v", err)
 	}

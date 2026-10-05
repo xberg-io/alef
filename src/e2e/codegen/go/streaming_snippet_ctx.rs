@@ -30,5 +30,5 @@ pub(super) fn streaming_call_expr_and_flag(
     } else {
         format!("context.Background(), {args}")
     };
-    (format!("{call_prefix}.{function_name}({ctx_args})"), true)
+    (format!("{call_prefix}.{function_name}WithContext({ctx_args})"), true)
 }

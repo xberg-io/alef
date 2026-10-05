@@ -1,6 +1,16 @@
-// {{ go_func_name }} wraps the {{ owner_type }}.{{ method_call_name }} streaming adapter,
-// exposing it as a module-level function for test and consumer convenience.
-func {{ go_func_name }}({{ params }}) ({{ return_type }}) {
+// {{ go_func_name }} starts the stream using a background context.
+// Use {{ go_func_with_context_name }} to cancel a stream before it ends.
+func {{ go_func_name }}({{ params }}) ({{ compatibility_return_type }}) {
+	stream, err := {{ go_func_with_context_name }}({{ compatibility_args }})
+	if err != nil {
+		return nil, err
+	}
+	return stream.Chan(), nil
+}
+
+// {{ go_func_with_context_name }} wraps the {{ owner_type }}.{{ method_call_name }} streaming adapter,
+// exposing its cancellable stream as a module-level function.
+func {{ go_func_with_context_name }}({{ context_params }}) ({{ context_return_type }}) {
 {% if request_construction %}
 	{{ request_construction }}
 {% endif %}

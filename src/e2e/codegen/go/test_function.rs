@@ -268,6 +268,11 @@ pub(super) fn render_test_function_with_facts(
     // parameter -- `final_args` must know whether to pass one before it is assembled.
     let is_streaming =
         crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
+    let invocation_function_name = if is_streaming {
+        format!("{function_name}WithContext")
+    } else {
+        function_name.clone()
+    };
 
     let go_extra_args = recipe.extra_args.to_vec();
     let final_args = {
@@ -363,9 +368,12 @@ pub(super) fn render_test_function_with_facts(
 
     if expects_error {
         if effective_returns_result_pre && !returns_void {
-            let _ = writeln!(out, "\t_, err := {call_prefix}.{function_name}({final_args})");
+            let _ = writeln!(
+                out,
+                "\t_, err := {call_prefix}.{invocation_function_name}({final_args})"
+            );
         } else {
-            let _ = writeln!(out, "\terr := {call_prefix}.{function_name}({final_args})");
+            let _ = writeln!(out, "\terr := {call_prefix}.{invocation_function_name}({final_args})");
         }
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
@@ -431,7 +439,7 @@ pub(super) fn render_test_function_with_facts(
         let assign_op = if result_binding == "_" { "=" } else { ":=" };
         let _ = writeln!(
             out,
-            "\t{result_binding} {assign_op} {call_prefix}.{function_name}({final_args})"
+            "\t{result_binding} {assign_op} {call_prefix}.{invocation_function_name}({final_args})"
         );
         if has_usable_assertion && result_binding != "_" {
             if result_is_array {
@@ -470,7 +478,7 @@ pub(super) fn render_test_function_with_facts(
             }
         }
     } else if !effective_returns_result || returns_void {
-        let _ = writeln!(out, "\terr := {call_prefix}.{function_name}({final_args})");
+        let _ = writeln!(out, "\terr := {call_prefix}.{invocation_function_name}({final_args})");
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
@@ -487,7 +495,7 @@ pub(super) fn render_test_function_with_facts(
         };
         let _ = writeln!(
             out,
-            "\t{result_binding}, err := {call_prefix}.{function_name}({final_args})"
+            "\t{result_binding}, err := {call_prefix}.{invocation_function_name}({final_args})"
         );
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
