@@ -196,7 +196,7 @@ fn main() {{
     let source_path = directory.path().join("field_defaults.rs");
     let binary_path = directory.path().join("field-defaults");
     std::fs::write(&source_path, &source).expect("write compile harness");
-    let compile = std::process::Command::new("rustc")
+    let compile = crate::test_support::spawn_from_stable_dir("rustc")
         .args(["--edition=2024", "-o"])
         .arg(&binary_path)
         .arg(&source_path)
@@ -208,7 +208,7 @@ fn main() {{
         String::from_utf8_lossy(&compile.stderr)
     );
     assert!(
-        std::process::Command::new(binary_path)
+        crate::test_support::spawn_from_stable_dir(binary_path)
             .status()
             .expect("run compile harness")
             .success()
