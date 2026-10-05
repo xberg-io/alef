@@ -12,9 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `[crates.go] link_flags` maps a cgo constraint (`darwin`, `windows,amd64`, ...) to extra linker
   arguments, rendered as `#cgo <constraint> LDFLAGS:` lines after the FFI library's `-l` flag so a
   statically linked FFI library can pull in its platform system libraries.
+- The FFI layer exports `<prefix>_last_error_variant` and one `<prefix>_last_error_<method>` getter per
+  capturable error introspection method (`status_code`, `is_transient`, `error_type`, and any
+  zero-argument scalar, string or `Duration` method the IR carries), filled when a typed error sets
+  the last error and cleared with the rest of the last-error state.
 
 ### Fixed
 
+- Generated Go `lastError()` returns the typed `*Error` (variant in `Code`, the native message
+  unchanged, `StatusCode`/`IsTransient`/`ErrorType` from the FFI getters) whose `Unwrap` yields the
+  variant's sentinel, so `errors.As(err, &typed)` and `errors.Is(err, ErrRateLimited)` match. The
+  generated error structs use pointer receivers and the private `nativeError` wrapper is gone.
+- Generated Go responses decoded from JSON (non-opaque structs, slices, maps) return an error on a
+  null pointer or malformed payload instead of `(nil, nil)`.
+- Go e2e snippets and tests declare `var typedError *pkg.Error`, compare `ErrorType` for declared
+  error variants when the error exposes it, keep array-typed input fields in generated request
+  literals, omit null optional fields, and indent the client line and nested literals gofmt-stably.
 - The generated FFI crate declares its core dependency with `default-features = false` and no forced
   `features`, forwarding the core crate's own default features from the FFI `default` list, so
   `cargo build -p <ffi> --no-default-features` builds the core crate without them. Manifests with
