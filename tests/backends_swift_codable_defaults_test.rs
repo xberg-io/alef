@@ -10,7 +10,9 @@
 use alef::backends::swift::SwiftBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef::core::ir::{ApiSurface, CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use alef::core::ir::{
+    ApiSurface, CoreWrapper, DefaultValue, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef,
+};
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -97,6 +99,19 @@ fn api_with_type(ty: TypeDef) -> ApiSurface {
         services: vec![],
         handler_contracts: vec![],
         unsupported_public_items: Vec::new(),
+    }
+}
+
+fn host_matcher_enum() -> EnumDef {
+    EnumDef {
+        name: "HostMatcher".to_string(),
+        rust_path: "demo::HostMatcher".to_string(),
+        variants: vec![EnumVariant {
+            name: "Exact".to_string(),
+            ..Default::default()
+        }],
+        has_serde: true,
+        ..Default::default()
     }
 }
 
@@ -236,5 +251,53 @@ fn struct_with_string_literal_default_uses_quoted_swift_literal() {
     assert!(
         content.contains("try container.decodeIfPresent(String.self, forKey: .language) ?? \"python\""),
         "expected quoted Swift string literal fallback:\n{content}"
+    );
+}
+
+#[test]
+fn memberwise_initializer_defaults_an_empty_named_collection() {
+    let mut denylist = make_field(
+        "denylist",
+        TypeRef::Vec(Box::new(TypeRef::Named("HostMatcher".to_string()))),
+        false,
+    );
+    denylist.default = Some("/* serde(default) */".to_string());
+    denylist.typed_default = Some(DefaultValue::Empty);
+    let mut policy = make_type("SsrfPolicy", vec![denylist]);
+    policy.has_serde = true;
+    policy.has_default = true;
+    let mut api = api_with_type(policy);
+    api.enums.push(host_matcher_enum());
+
+    let files = SwiftBackend
+        .generate_bindings(&api, &make_config())
+        .expect("generate must succeed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public init(denylist: [HostMatcher] = [])"),
+        "a newly added empty collection must not become a required Swift argument:\n{content}"
+    );
+}
+
+#[test]
+fn memberwise_initializer_uses_bare_serde_default_for_an_empty_map() {
+    let mut headers = make_field(
+        "headers",
+        TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+        false,
+    );
+    headers.default = Some("/* serde(default) */".to_string());
+    let mut config = make_type("Config", vec![headers]);
+    config.has_serde = true;
+
+    let files = SwiftBackend
+        .generate_bindings(&api_with_type(config), &make_config())
+        .expect("generate must succeed");
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("public init(headers: [String: String] = [:])"),
+        "bare serde(default) metadata guarantees the collection zero:\n{content}"
     );
 }

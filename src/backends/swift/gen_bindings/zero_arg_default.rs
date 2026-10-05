@@ -8,8 +8,32 @@
 
 use crate::backends::swift::gen_bindings::dto::swift_typed_default_literal;
 use crate::codegen::shared::binding_fields;
-use crate::core::ir::{ApiSurface, DefaultValue, TypeRef};
+use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, TypeRef};
 use std::collections::HashSet;
+
+/// Returns the default expression carried by a generated memberwise initializer parameter.
+///
+/// A literal is exact by construction. `Empty` and a bare `#[serde(default)]` also prove that a
+/// collection's value is its type zero, so newly added collection fields remain source-compatible
+/// for Swift callers instead of becoming new required arguments. ~keep
+pub(crate) fn swift_memberwise_default_literal(field: &FieldDef) -> Option<String> {
+    field
+        .typed_default
+        .as_ref()
+        .and_then(swift_typed_default_literal)
+        .or_else(|| {
+            let uses_type_zero =
+                matches!(field.typed_default, Some(DefaultValue::Empty)) || field.has_bare_serde_default();
+            if !uses_type_zero {
+                return None;
+            }
+            match &field.ty {
+                TypeRef::Vec(_) => Some("[]".to_string()),
+                TypeRef::Map(_, _) => Some("[:]".to_string()),
+                _ => None,
+            }
+        })
+}
 
 /// Computes the subset of `known_dto_names` whose generated memberwise `public init` accepts
 /// zero arguments — i.e. every visible field either renders a Swift literal default
@@ -42,13 +66,7 @@ pub(crate) fn compute_zero_arg_constructible_names(
         .filter(|t| {
             binding_fields(&t.fields).all(|field| {
                 let already_optional = matches!(&field.ty, TypeRef::Optional(_));
-                field.optional
-                    || already_optional
-                    || field
-                        .typed_default
-                        .as_ref()
-                        .and_then(swift_typed_default_literal)
-                        .is_some()
+                field.optional || already_optional || swift_memberwise_default_literal(field).is_some()
             })
         })
         .map(|t| t.name.clone())

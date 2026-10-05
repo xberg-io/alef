@@ -253,10 +253,9 @@ pub(super) fn emit_first_class_struct(
             // below. `Option<T>` carrying `Some(x)` reaches the IR as the bare literal (the
             // extractor unwraps `Some`), so without this an `Option<u32>` defaulting to
             // `Some(30)` initialised to `nil` — a value the source crate never produces.
-            // `swift_typed_default_literal` is value-only: `Empty`, `EnumVariant` and the
-            // function-call defaults return `None` and keep the previous rendering rather than
-            // being answered with a zero. ~keep
-            let literal = field.typed_default.as_ref().and_then(swift_typed_default_literal);
+            // Collection type-zeros are also exact for `Empty` and bare `serde(default)`, keeping
+            // newly added collection fields backward-compatible for Swift callers. ~keep
+            let literal = super::zero_arg_default::swift_memberwise_default_literal(field);
             let optional_suffix = if field.optional && !already_optional { "?" } else { "" };
             match literal {
                 Some(value) => format!("{camel}: {swift_ty}{optional_suffix} = {value}"),

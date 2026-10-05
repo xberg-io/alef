@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `alef verify` compares markerless generated files recorded in `.alef-ownership.toml`, including
   Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render.
+- Generated Swift memberwise initializers default collection fields whose Rust metadata proves
+  the type-zero value, so adding a `#[serde(default)]` list or map remains source-compatible.
 
 ## [0.103.15] - 2026-10-04
 
