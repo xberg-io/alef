@@ -259,6 +259,12 @@ pub(super) fn go_struct_field_expression(
     site: GoFieldSite<'_>,
     uses_pointer: bool,
 ) -> anyhow::Result<Option<String>> {
+    let optional_type = matches!(&field.ty, crate::core::ir::TypeRef::Optional(_));
+    // A `null` on an optional field means "absent", which Go spells by leaving the field out;
+    // lowering it as a value instead yields `pkg.Enum(nil)` and a refusal. ~keep
+    if value.is_null() && (field.optional || optional_type) {
+        return Ok(None);
+    }
     let inner = match &field.ty {
         crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
         other => other,

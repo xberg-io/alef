@@ -11,7 +11,7 @@ use crate::e2e::codegen::go::snippet::render_snippet_body;
 use crate::e2e::config::{ArgMapping, CallOverride, E2eConfig};
 use crate::e2e::fixture::Fixture;
 
-fn field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+pub(super) fn field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
         name: name.into(),
         ty,
@@ -29,7 +29,7 @@ fn request_type(fields: Vec<FieldDef>) -> TypeDef {
     }
 }
 
-fn target_type() -> TypeDef {
+pub(super) fn target_type() -> TypeDef {
     TypeDef {
         name: "SampleTarget".into(),
         rust_path: "samplelib::SampleTarget".into(),
@@ -88,7 +88,7 @@ fn e2e(client_factory: bool) -> E2eConfig {
     e2e
 }
 
-fn render(
+pub(super) fn render(
     input: serde_json::Value,
     fields: Vec<FieldDef>,
     extra_types: Vec<TypeDef>,

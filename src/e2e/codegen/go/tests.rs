@@ -857,4 +857,5 @@ fn go_a_lone_error_assertion_renders_no_marker() {
 }
 
 mod array_field_snippet_tests;
+mod null_optional_field_snippet_tests;
 mod typed_error_file_tests;
