@@ -84,6 +84,7 @@ fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVarian
     EnumVariant {
         serde_untagged: false,
         name: name.to_string(),
+        sensitive: false,
         fields,
         doc: String::new(),
         is_default: false,

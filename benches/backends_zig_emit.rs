@@ -17,6 +17,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         default: None,
         doc: String::new(),
         sanitized: false,
+        sensitive: false,
         is_boxed: false,
         type_rust_path: None,
         cfg: None,
@@ -91,6 +92,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         .map(|i| EnumVariant {
             serde_untagged: false,
             name: format!("Variant{}", i),
+            sensitive: false,
             fields: vec![],
             doc: String::new(),
             is_default: i == 0,

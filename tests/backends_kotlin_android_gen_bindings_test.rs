@@ -1276,6 +1276,7 @@ fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> Enu
     EnumVariant {
         serde_untagged: false,
         name: name.to_string(),
+        sensitive: false,
         fields,
         doc: String::new(),
         is_default: false,

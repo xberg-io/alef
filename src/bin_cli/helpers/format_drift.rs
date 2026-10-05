@@ -1,6 +1,7 @@
-//! The alef#436 marked-file drift comparison ("does this already-marked, already-present file
-//! still match what this run would produce") -- alef#436's second half, and the home for
-//! [`drifted_marked_paths`], the two-tier comparison `bin_cli::helpers::find_missing_and_frozen_
+//! The fresh-render drift comparison ("does this already-owned, already-present file still
+//! match what this run would produce") -- alef#436's second half, extended by alef#508 to the
+//! markerless paths whose ownership is proven by `.alef-ownership.toml`, and the home for
+//! [`drifted_managed_paths`], the two-tier comparison `bin_cli::helpers::find_missing_and_frozen_
 //! generated_files` calls into.
 //!
 //! # What this has to get right
@@ -101,7 +102,7 @@
 
 use crate::cli::pipeline::{FormattingOwner, PolyCoverage, formatting_owner};
 use crate::core::config::ResolvedCrateConfig;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// One file whose fast (`.rs`) prediction does not apply and whose bytes poly does shape,
@@ -115,7 +116,7 @@ pub(super) struct RealFormatCandidate {
     pub(super) format_context: PathBuf,
 }
 
-/// What [`drifted_marked_paths`] was able to say about each candidate, and what it could not.
+/// What [`drifted_managed_paths`] was able to say about each candidate, and what it could not.
 ///
 /// Surfaced all the way to `alef verify`'s own report (`bin_cli::core_commands::verify`) so a
 /// gap is a loud, counted skip rather than a silent pass -- this repo's dominant defect shape is
@@ -123,7 +124,7 @@ pub(super) struct RealFormatCandidate {
 /// No skip is ever folded into `compared`: they answer different questions -- "did the check
 /// run" and "what did it find" -- and a report that only stated the sum could not tell a clean,
 /// fully-examined tree from one this call gave up on. ~keep
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FormatDriftStats {
     pub(crate) compared: usize,
     pub(crate) skipped_missing_formatter: usize,
@@ -132,6 +133,9 @@ pub(crate) struct FormatDriftStats {
     /// remedy is different and a report that blamed a missing `poly` for a read-only tree would
     /// send the reader after the wrong thing. ~keep
     pub(crate) skipped_staging_error: usize,
+    /// Candidates whose formatter invocation failed after staging. Their raw staged bytes are
+    /// not a substitute for the writer's formatted output, so they are never counted as compared. ~keep
+    pub(crate) skipped_formatter_error: usize,
     /// Candidates alef reformats with a tool whose output it does not model, so no honest
     /// byte-level prediction exists: a `[crates.e2e.format]` override (opaque user shell), or a
     /// residual `cargo sort -n -w` / `mix format` pass.
@@ -151,6 +155,27 @@ pub(crate) struct FormatDriftStats {
     /// means no formatter was needed. Folding them would hide which of the two a clean report
     /// rested on. ~keep
     pub(crate) matched_render_exactly: usize,
+    /// Absolute paths whose on-disk bytes were actually compared with this run's rendered
+    /// bytes, regardless of whether that comparison matched or produced a drift finding.
+    /// Coverage consumes the set itself rather than deriving a count from the counters, so
+    /// duplicate multi-crate emits cannot overstate how much of the managed surface was checked. ~keep
+    pub(crate) content_verified_paths: HashSet<PathBuf>,
+}
+
+#[derive(Default)]
+struct DriftAccumulator {
+    drifted: Vec<String>,
+    real_format_candidates: Vec<RealFormatCandidate>,
+    unpredictable: usize,
+    matched_render: usize,
+    content_verified_paths: HashSet<PathBuf>,
+}
+
+struct TextDriftContext<'a> {
+    base_dir: &'a Path,
+    config: &'a ResolvedCrateConfig,
+    coverage: &'a PolyCoverage,
+    poly_available: bool,
 }
 
 impl FormatDriftStats {
@@ -165,14 +190,18 @@ impl FormatDriftStats {
             compared,
             skipped_missing_formatter,
             skipped_staging_error,
+            skipped_formatter_error,
             skipped_no_faithful_prediction,
             matched_render_exactly,
+            content_verified_paths,
         } = other;
         self.compared += compared;
         self.skipped_missing_formatter += skipped_missing_formatter;
         self.skipped_staging_error += skipped_staging_error;
+        self.skipped_formatter_error += skipped_formatter_error;
         self.skipped_no_faithful_prediction += skipped_no_faithful_prediction;
         self.matched_render_exactly += matched_render_exactly;
+        self.content_verified_paths.extend(content_verified_paths);
     }
 }
 
@@ -244,26 +273,55 @@ fn real_formatter_drift_with_runner(
                 .push(temp_file.path().to_path_buf());
         }
     }
+    let failed_contexts = run_format_candidates(paths_by_context, run_formatter);
+    compare_formatted_candidates(&candidates, &temp_files, &failed_contexts)
+}
+
+/// Run each writer-context formatter batch and return the contexts whose bytes cannot be trusted
+/// because the formatter failed. ~keep
+fn run_format_candidates(
+    paths_by_context: BTreeMap<&Path, Vec<PathBuf>>,
+    run_formatter: &dyn Fn(&[PathBuf], &Path) -> anyhow::Result<()>,
+) -> HashSet<PathBuf> {
+    let mut failed = HashSet::new();
     for (context, paths) in paths_by_context {
         if let Err(error) = run_formatter(&paths, context) {
             tracing::warn!(
                 context = %context.display(),
                 "poly fmt over the drift-check temp copies failed (non-fatal): {error:#}"
             );
+            failed.insert(context.to_path_buf());
         }
     }
+    failed
+}
 
+/// Compare only staged files whose formatter completed and whose formatted bytes remain readable. ~keep
+fn compare_formatted_candidates(
+    candidates: &[RealFormatCandidate],
+    temp_files: &[Option<StagedFormatFile>],
+    failed_contexts: &HashSet<PathBuf>,
+) -> (Vec<String>, FormatDriftStats) {
     let mut drifted = Vec::new();
     let mut compared = 0usize;
     let mut staging_errors = 0usize;
+    let mut formatter_errors = 0usize;
+    let mut content_verified_paths = HashSet::new();
     for (candidate, temp_file) in candidates.iter().zip(temp_files.iter()) {
         let Some(temp_file) = temp_file else {
             staging_errors += 1;
             continue;
         };
-        let formatted =
-            std::fs::read_to_string(temp_file.path()).unwrap_or_else(|_| candidate.rendered_content.clone());
+        if failed_contexts.contains(&candidate.format_context) {
+            formatter_errors += 1;
+            continue;
+        }
+        let Ok(formatted) = std::fs::read_to_string(temp_file.path()) else {
+            staging_errors += 1;
+            continue;
+        };
         compared += 1;
+        content_verified_paths.insert(candidate.full_path.clone());
         if !crate::cli::pipeline::matches_alef_output(&candidate.full_path, &candidate.disk_content, &formatted) {
             drifted.push(candidate.full_path.display().to_string());
         }
@@ -274,6 +332,8 @@ fn real_formatter_drift_with_runner(
         FormatDriftStats {
             compared,
             skipped_staging_error: staging_errors,
+            skipped_formatter_error: formatter_errors,
+            content_verified_paths,
             ..FormatDriftStats::default()
         },
     )
@@ -314,9 +374,9 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<S
     })
 }
 
-/// Absolute paths of every file in `files` that already exists on disk, already carries alef's
-/// own provenance marker, and yet no longer matches the bytes this run's fresh render would
-/// produce once alef's own formatting pass has had its say.
+/// Absolute paths of every file in `files` that already exists on disk, is owned through either
+/// alef's provenance marker or the committed ownership record, and yet no longer matches the
+/// bytes this run's fresh render would produce once alef's own formatting pass has had its say.
 ///
 /// THE GAP this closes (alef#436): a public type gaining a field left `alef docs`' rendered API
 /// reference pages stale while `alef verify` stayed green, because every other check was
@@ -349,12 +409,13 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<S
 /// `.rs` short-circuits ahead of all three, and `.md` does too when poly is absent -- see
 /// [`render_predicts_final_bytes`] and the module doc for why those two are not the same case.
 ///
-/// Deliberately excludes every create-once seed: after its first creation the writer preserves
-/// its consumer-owned bytes, so a current render is not an authoritative freshness prediction.
+/// Deliberately excludes every create-once seed outside the E2E roots alef rewrites on each run:
+/// after first creation the ordinary writer preserves its consumer-owned bytes, so a current
+/// render is not an authoritative freshness prediction.
 /// Also excludes every file `frozen_managed_paths` would already report: an unmarked
 /// file is that check's condition, not this one's, and reporting the same withheld write under
-/// two headings would describe it as two findings with two remedies. Also excludes
-/// [`crate::cli::pipeline::is_base64_binary_output`] paths.
+/// two headings would describe it as two findings with two remedies. Base64 binary outputs are
+/// decoded and compared as raw bytes instead of routed through the text formatter path.
 ///
 /// Reuses [`crate::cli::commands::adopt::managed_outputs`] and
 /// [`crate::cli::pipeline::matches_alef_output`] — the exact pairing `frozen_managed_paths`
@@ -362,25 +423,20 @@ fn write_sibling_temp_file(real_path: &Path, content: &str) -> std::io::Result<S
 /// solves: a self-marking backend (pyo3's `lib.rs`, `docs::render`'s HTML-commented pages) or a
 /// `generated_header: true` file both legitimately differ from a naive render by exactly the
 /// provenance header/hash line, and `matches_alef_output` is the one place that discounts it. ~keep
-pub(super) fn drifted_marked_paths(
+pub(super) fn drifted_managed_paths(
     files: &[crate::core::backend::GeneratedFile],
     base_dir: &Path,
     config: &ResolvedCrateConfig,
 ) -> (Vec<String>, FormatDriftStats) {
-    drifted_marked_paths_with(files, base_dir, config, &crate::cli::pipeline::is_tool_available)
+    drifted_managed_paths_with(files, base_dir, config, &crate::cli::pipeline::is_tool_available)
 }
 
-fn record_direct_comparison(
-    full_path: &Path,
-    existing: &str,
-    rendered: &str,
-    drifted: &mut Vec<String>,
-    matched: &mut usize,
-) {
+fn record_direct_comparison(full_path: &Path, existing: &str, rendered: &str, result: &mut DriftAccumulator) {
+    result.content_verified_paths.insert(full_path.to_path_buf());
     if crate::cli::pipeline::matches_alef_output(full_path, existing, rendered) {
-        *matched += 1;
+        result.matched_render += 1;
     } else {
-        drifted.push(full_path.display().to_string());
+        result.drifted.push(full_path.display().to_string());
     }
 }
 
@@ -388,30 +444,148 @@ fn record_direct_comparison(
 /// hash-stamped file in place, and poly preserves it without `--fix-generated`. Formatting an
 /// unstamped staging copy would model a write that the real pipeline does not perform. ~keep
 fn writer_skips_unchanged_stamped_file(full_path: &Path, existing: &str, rendered: &str) -> bool {
-    crate::cli::pipeline::matches_alef_output(full_path, existing, rendered)
+    crate::core::hash::content_has_alef_marker(existing)
+        && crate::cli::pipeline::matches_alef_output(full_path, existing, rendered)
 }
 
-fn prepared_drift_input(
+fn is_under_rewritten_output_root(path: &Path, config: &ResolvedCrateConfig, base_dir: &Path) -> bool {
+    config.e2e.as_ref().is_some_and(|e2e| {
+        [base_dir.join(&e2e.output), base_dir.join(&e2e.registry.output)]
+            .iter()
+            .any(|root| path.starts_with(root))
+    })
+}
+
+fn is_authoritative_drift_candidate(
     file: &crate::core::backend::GeneratedFile,
     base_dir: &Path,
+    config: &ResolvedCrateConfig,
     declared: &crate::core::config::UserOwnedPaths,
-) -> Option<(PathBuf, String, String)> {
+) -> Option<PathBuf> {
     let full_path = base_dir.join(&file.path);
-    if declared.matches(base_dir, &full_path) || crate::cli::pipeline::is_base64_binary_output(&file.path) {
+    if declared.matches(base_dir, &full_path) || !full_path.exists() {
         return None;
     }
-    let existing = std::fs::read_to_string(&full_path).ok()?;
-    if !crate::core::hash::content_has_alef_marker(&existing) || is_create_once_for_drift(file) {
+    let has_marker = std::fs::read_to_string(&full_path)
+        .ok()
+        .is_some_and(|content| crate::core::hash::content_has_alef_marker(&content));
+    let recorded = !has_marker
+        && crate::cli::pipeline::marker_comment_style(&full_path).is_none()
+        && crate::cli::cache::is_committed_scaffold_owned_path(base_dir, &full_path);
+    if !has_marker && !recorded {
         return None;
     }
-    let rendered = managed_output_for_drift(file, &existing, base_dir).into_iter().next()?;
-    Some((full_path, existing, rendered.content))
+    if is_create_once_for_drift(file) && !is_under_rewritten_output_root(&full_path, config, base_dir) {
+        return None;
+    }
+    Some(full_path)
 }
 
-/// Testable seam for [`drifted_marked_paths`]: resolves poly's availability through
+fn prepared_text_drift_input(
+    file: &crate::core::backend::GeneratedFile,
+    full_path: PathBuf,
+    base_dir: &Path,
+) -> anyhow::Result<(PathBuf, String, String)> {
+    let existing = std::fs::read_to_string(&full_path)
+        .map_err(|error| anyhow::anyhow!("failed to read owned text output {}: {error}", full_path.display()))?;
+    let rendered = managed_output_for_drift(file, &existing, base_dir)
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("fresh render omitted owned text output {}", full_path.display()))?;
+    Ok((full_path, existing, rendered.content))
+}
+
+/// Compare a base64-carried generated artifact with its raw on-disk bytes. Decode failures are
+/// findings but not successful comparisons, so coverage never promotes them. ~keep
+fn compare_binary_drift(file: &crate::core::backend::GeneratedFile, full_path: &Path, result: &mut DriftAccumulator) {
+    let generated = crate::cli::pipeline::decode_base64_binary(&file.path, &file.content);
+    let existing = std::fs::read(full_path);
+    match (generated, existing) {
+        (Ok(generated), Ok(existing)) => {
+            result.content_verified_paths.insert(full_path.to_path_buf());
+            if generated == existing {
+                result.matched_render += 1;
+            } else {
+                result.drifted.push(full_path.display().to_string());
+            }
+        }
+        (Err(error), _) => {
+            tracing::warn!(
+                path = %full_path.display(),
+                "generated binary output could not be decoded during drift verification: {error:#}"
+            );
+            result.drifted.push(full_path.display().to_string());
+        }
+        (_, Err(error)) => {
+            tracing::warn!(
+                path = %full_path.display(),
+                "owned binary output could not be read during drift verification: {error}"
+            );
+            result.drifted.push(full_path.display().to_string());
+        }
+    }
+}
+
+/// Route one authoritative text output through the same normalization and formatter ownership
+/// policy as the writer, recording either a direct comparison or a real-formatter candidate. ~keep
+fn compare_text_drift(
+    file: &crate::core::backend::GeneratedFile,
+    full_path: PathBuf,
+    context: &TextDriftContext<'_>,
+    result: &mut DriftAccumulator,
+) {
+    let (full_path, existing, rendered) = match prepared_text_drift_input(file, full_path, context.base_dir) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            tracing::warn!("owned text output could not be compared during drift verification: {error:#}");
+            result
+                .drifted
+                .push(context.base_dir.join(&file.path).display().to_string());
+            return;
+        }
+    };
+    if writer_skips_unchanged_stamped_file(&full_path, &existing, &rendered) {
+        result.matched_render += 1;
+        result.content_verified_paths.insert(full_path);
+        return;
+    }
+    if render_predicts_final_bytes(&full_path, context.poly_available) {
+        record_direct_comparison(&full_path, &existing, &rendered, result);
+        return;
+    }
+    match formatting_owner(&full_path, context.config, context.base_dir, context.coverage) {
+        FormattingOwner::None => record_direct_comparison(&full_path, &existing, &rendered, result),
+        FormattingOwner::Poly => result.real_format_candidates.push(RealFormatCandidate {
+            full_path,
+            disk_content: existing,
+            rendered_content: rendered,
+            format_context: context
+                .coverage
+                .format_context(&context.base_dir.join(&file.path))
+                .unwrap_or(context.base_dir)
+                .to_path_buf(),
+        }),
+        FormattingOwner::Residual(command) => {
+            tracing::debug!(
+                path = %full_path.display(),
+                "no faithful prediction: alef reformats this path with `{command}`, whose output it does not model"
+            );
+            result.unpredictable += 1;
+        }
+        FormattingOwner::E2eOverride(command) => {
+            tracing::debug!(
+                path = %full_path.display(),
+                "no faithful prediction: a [crates.e2e.format] override (`{command}`) replaces the poly pass here"
+            );
+            result.unpredictable += 1;
+        }
+    }
+}
+
+/// Testable seam for [`drifted_managed_paths`]: resolves poly's availability through
 /// `is_available` rather than PATH, so both the counted-skip branch and the `.md` fast path's
 /// poly-absent case are provable on a host that does have poly installed. ~keep
-fn drifted_marked_paths_with(
+fn drifted_managed_paths_with(
     files: &[crate::core::backend::GeneratedFile],
     base_dir: &Path,
     config: &ResolvedCrateConfig,
@@ -421,56 +595,29 @@ fn drifted_marked_paths_with(
     let coverage = PolyCoverage::probe(&poly_probe_roots(config, base_dir), base_dir);
     let declared = crate::cli::pipeline::declared_user_owned(base_dir)
         .unwrap_or_else(|_| crate::core::config::UserOwnedPaths::none());
-    let mut drifted = Vec::new();
-    let mut real_format_candidates = Vec::new();
-    let mut unpredictable = 0usize;
-    let mut matched_render = 0usize;
+    let text_context = TextDriftContext {
+        base_dir,
+        config,
+        coverage: &coverage,
+        poly_available,
+    };
+    let mut result = DriftAccumulator::default();
     for file in files {
-        let Some((full_path, existing, rendered)) = prepared_drift_input(file, base_dir, &declared) else {
+        let Some(full_path) = is_authoritative_drift_candidate(file, base_dir, config, &declared) else {
             continue;
         };
-        if writer_skips_unchanged_stamped_file(&full_path, &existing, &rendered) {
-            matched_render += 1;
+        if crate::cli::pipeline::is_base64_binary_output(&file.path) {
+            compare_binary_drift(file, &full_path, &mut result);
             continue;
         }
-        if render_predicts_final_bytes(&full_path, poly_available) {
-            record_direct_comparison(&full_path, &existing, &rendered, &mut drifted, &mut matched_render);
-            continue;
-        }
-        match formatting_owner(&full_path, config, base_dir, &coverage) {
-            FormattingOwner::None => {
-                record_direct_comparison(&full_path, &existing, &rendered, &mut drifted, &mut matched_render);
-            }
-            FormattingOwner::Poly => real_format_candidates.push(RealFormatCandidate {
-                full_path,
-                disk_content: existing,
-                rendered_content: rendered,
-                format_context: coverage
-                    .format_context(&base_dir.join(&file.path))
-                    .unwrap_or(base_dir)
-                    .to_path_buf(),
-            }),
-            FormattingOwner::Residual(command) => {
-                tracing::debug!(
-                    path = %full_path.display(),
-                    "no faithful prediction: alef reformats this path with `{command}`, whose output it does not model"
-                );
-                unpredictable += 1;
-            }
-            FormattingOwner::E2eOverride(command) => {
-                tracing::debug!(
-                    path = %full_path.display(),
-                    "no faithful prediction: a [crates.e2e.format] override (`{command}`) replaces the poly pass here"
-                );
-                unpredictable += 1;
-            }
-        }
+        compare_text_drift(file, full_path, &text_context, &mut result);
     }
-    let (real_drifted, mut stats) = real_formatter_drift_with(real_format_candidates, base_dir, is_available);
-    drifted.extend(real_drifted);
-    stats.skipped_no_faithful_prediction = unpredictable;
-    stats.matched_render_exactly = matched_render;
-    (drifted, stats)
+    let (real_drifted, mut stats) = real_formatter_drift_with(result.real_format_candidates, base_dir, is_available);
+    result.drifted.extend(real_drifted);
+    stats.content_verified_paths.extend(result.content_verified_paths);
+    stats.skipped_no_faithful_prediction = result.unpredictable;
+    stats.matched_render_exactly = result.matched_render;
+    (result.drifted, stats)
 }
 
 /// Whether the normal writer preserves an existing scaffold rather than treating this render as
@@ -606,6 +753,12 @@ pub(crate) fn report_format_drift_coverage(stats: FormatDriftStats) {
         notes.push(format!(
             "{} SKIPPED because a temp copy could not be written beside them",
             stats.skipped_staging_error
+        ));
+    }
+    if stats.skipped_formatter_error > 0 {
+        notes.push(format!(
+            "{} SKIPPED because the formatter invocation failed",
+            stats.skipped_formatter_error
         ));
     }
     if stats.skipped_no_faithful_prediction > 0 {

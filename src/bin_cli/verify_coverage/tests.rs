@@ -29,7 +29,13 @@ fn managed_paths_split_into_verified_present_and_absent() {
     let managed = paths(directory.path(), &["stamped.toml", "unmarked.json", "never_written.rs"]);
     let marked = paths(directory.path(), &["stamped.toml"]);
 
-    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), ZERO_COVERAGE_COUNTS);
+    let coverage = VerifyCoverage::measure(
+        &managed,
+        &marked,
+        &HashSet::new(),
+        ScanCoverage::default(),
+        ZERO_COVERAGE_COUNTS,
+    );
     assert_eq!(coverage.managed_total, 3);
     assert_eq!(coverage.managed_content_verified, 1);
     assert_eq!(coverage.managed_present_only, 1);
@@ -50,9 +56,38 @@ fn marked_files_outside_the_surface_are_counted_separately() {
     let managed = paths(directory.path(), &["a.rs"]);
     let marked = paths(directory.path(), &["a.rs", "legacy_visitor.py"]);
 
-    let coverage = VerifyCoverage::measure(&managed, &marked, ScanCoverage::default(), ZERO_COVERAGE_COUNTS);
+    let coverage = VerifyCoverage::measure(
+        &managed,
+        &marked,
+        &HashSet::new(),
+        ScanCoverage::default(),
+        ZERO_COVERAGE_COUNTS,
+    );
     assert_eq!(coverage.marked_outside_surface, 1);
     assert_eq!(coverage.managed_total, 1);
+}
+
+/// Markerless ownership-record paths count as content-verified only when the fresh-render
+/// comparison actually examined their bytes. Merely being present and owned is insufficient. ~keep
+#[test]
+fn fresh_render_comparison_promotes_only_examined_markerless_paths() {
+    let directory = tempfile::tempdir().expect("temporary project");
+    for name in ["checked.jar", "owned-but-skipped.properties"] {
+        std::fs::write(directory.path().join(name), "bytes").expect("seed managed path");
+    }
+    let managed = paths(directory.path(), &["checked.jar", "owned-but-skipped.properties"]);
+    let compared = paths(directory.path(), &["checked.jar"]);
+
+    let coverage = VerifyCoverage::measure(
+        &managed,
+        &HashSet::new(),
+        &compared,
+        ScanCoverage::default(),
+        ZERO_COVERAGE_COUNTS,
+    );
+
+    assert_eq!(coverage.managed_content_verified, 1);
+    assert_eq!(coverage.managed_present_only, 1);
 }
 
 /// The report must NAME the narrowness, not just print numbers. A reader who sees only counts

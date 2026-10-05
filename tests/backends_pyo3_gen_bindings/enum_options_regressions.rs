@@ -599,6 +599,7 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
         EnumVariant {
             serde_untagged: false,
             name: name.to_string(),
+            sensitive: false,
             originally_had_data_fields: !fields.is_empty(),
             fields,
             doc: String::new(),
@@ -690,6 +691,7 @@ fn test_internally_tagged_unit_variant_wraps_bare_string() {
         EnumVariant {
             serde_untagged: false,
             name: name.to_string(),
+            sensitive: false,
             originally_had_data_fields: !fields.is_empty(),
             fields,
             doc: String::new(),

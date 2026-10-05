@@ -1,6 +1,6 @@
 //! Which formatter, if any, alef's own post-write pass applies at a given path -- the single
 //! declaration both the writer (`converge_full_regen`, `e2e::format::format_language`) and the
-//! reader (`bin_cli::helpers::format_drift::drifted_marked_paths`) consult.
+//! reader (`bin_cli::helpers::format_drift::drifted_managed_paths`) consult.
 //!
 //! # The defect this exists to prevent (alef#478)
 //!

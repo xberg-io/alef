@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `#[cfg_attr(alef, alef(sensitive))]` metadata keeps serialization lossless while redacting
   generated Python representations and Rust-side Ruby/Elixir binding diagnostics.
 
+### Fixed
+
+- `alef verify` compares markerless generated files recorded in `.alef-ownership.toml`, including
+  Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render.
+
 ## [0.103.15] - 2026-10-04
 
 ### Added

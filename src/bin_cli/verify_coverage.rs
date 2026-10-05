@@ -23,13 +23,12 @@
 pub(crate) struct VerifyCoverage {
     /// Paths this run's configuration would produce, across every selected crate.
     pub(crate) managed_total: usize,
-    /// Managed paths that exist on disk carrying an alef marker: the only ones whose CONTENTS
-    /// were checked, by comparing the embedded `alef:hash:` against the current generation
-    /// inputs.
+    /// Managed paths whose contents were checked either through an on-disk alef marker or by a
+    /// successful byte comparison with the current fresh render.
     pub(crate) managed_content_verified: usize,
     /// Managed paths that exist but carry no marker the walk could read -- create-once seeds,
-    /// formats with no comment syntax (`.json`, `.jar`, lockfiles) whose ownership lives in
-    /// `.alef-ownership.toml`, and anything the walk did not open. Their presence was checked;
+    /// formats with no comment syntax whose ownership is not recorded, create-once files, and
+    /// anything whose fresh-render comparison could not run. Their presence was checked;
     /// nothing else about them was. ~keep
     pub(crate) managed_present_only: usize,
     /// Managed paths absent from disk. Already reported under the missing-file headings; kept
@@ -110,6 +109,7 @@ impl VerifyCoverage {
     pub(crate) fn measure(
         managed_paths: &std::collections::HashSet<std::path::PathBuf>,
         marked_paths: &std::collections::HashSet<std::path::PathBuf>,
+        fresh_render_verified_paths: &std::collections::HashSet<std::path::PathBuf>,
         scan: super::verify_scan::ScanCoverage,
         counts: VerifyCoverageCounts,
     ) -> Self {
@@ -125,7 +125,7 @@ impl VerifyCoverage {
             ..Self::default()
         };
         for path in managed_paths {
-            if marked_paths.contains(path) {
+            if marked_paths.contains(path) || fresh_render_verified_paths.contains(path) {
                 coverage.managed_content_verified += 1;
             } else if path.exists() {
                 coverage.managed_present_only += 1;
@@ -150,13 +150,13 @@ impl VerifyCoverage {
                 self.managed_total
             ),
             format!(
-                "    {} content-verified (alef marker on disk, hashed against current generation inputs)",
+                "    {} content-verified (alef marker on disk or bytes compared with this run's fresh render)",
                 self.managed_content_verified
             ),
             format!(
-                "    {} present but NOT content-verified (no readable marker: create-once seeds, formats \
-                 that cannot carry one, paths proven by .alef-ownership.toml -- a present-but-wrong file \
-                 passes)",
+                "    {} present but NOT content-verified (no readable marker and no successful fresh-render \
+                 byte comparison: create-once seeds, user-owned files, or skipped formatter paths -- a \
+                 present-but-wrong file passes)",
                 self.managed_present_only
             ),
         ];

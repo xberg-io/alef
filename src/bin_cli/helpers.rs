@@ -436,10 +436,10 @@ pub(crate) struct MissingAndFrozenFiles {
     /// entry. See that function's doc. ~keep
     pub(crate) missing_gitignored: Vec<String>,
     pub(crate) frozen: Vec<FrozenFile>,
-    /// Absolute paths of alef-marked files that already exist on disk but whose bytes no longer
-    /// match what this run's fresh render (`surface`) would produce — see [`drifted_marked_paths`]. ~keep
+    /// Absolute paths of alef-owned files that already exist on disk but whose bytes no longer
+    /// match what this run's fresh render (`surface`) would produce — see [`drifted_managed_paths`]. ~keep
     pub(crate) drifted: Vec<String>,
-    /// Everything [`drifted_marked_paths`] was able to say about this crate's candidates, and
+    /// Everything [`drifted_managed_paths`] was able to say about this crate's candidates, and
     /// everything it could not -- see [`format_drift::FormatDriftStats`], whose fields carry the
     /// per-counter rationale. Held as the one struct rather than unpacked into parallel `usize`
     /// fields so a new counter cannot be added to the comparison and silently dropped on the way
@@ -514,7 +514,7 @@ pub(crate) fn find_missing_and_frozen_generated_files(
     ));
     let (missing, missing_gitignored) =
         super::verify_gitignore::split_missing_by_gitignore(base_dir, &missing_managed_paths(&surface, base_dir));
-    let (drifted, format_drift_stats) = drifted_marked_paths(&surface, base_dir, config);
+    let (drifted, format_drift_stats) = drifted_managed_paths(&surface, base_dir, config);
     let mut result = MissingAndFrozenFiles {
         missing,
         missing_gitignored,
@@ -540,12 +540,12 @@ pub(crate) fn find_missing_and_frozen_generated_files(
     Ok(result)
 }
 
-// `drifted_marked_paths` (the alef#436 two-tier drift comparison) and its `render_predicts_
+// `drifted_managed_paths` (the alef#436 two-tier drift comparison) and its `render_predicts_
 // final_bytes` fast-path gate live in `format_drift` -- see that module's doc. Kept out of this
 // file to stay under the file-modularization cap: their combined doc + body was the single
 // largest addition this check made to `helpers.rs`, and the concern is self-contained (it shares
 // nothing with the rest of this file beyond the `MissingAndFrozenFiles` fields it populates). ~keep
-use format_drift::drifted_marked_paths;
+use format_drift::drifted_managed_paths;
 
 /// The absolute output roots this configuration writes with `overwrite = true`.
 ///

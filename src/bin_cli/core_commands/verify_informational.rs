@@ -169,6 +169,7 @@ pub(super) fn report_drifted_seeds(frozen_generated_files: &[FrozenFile]) -> (Ve
 pub(super) struct CoverageParams<'a> {
     pub(super) all_managed_paths: &'a std::collections::HashSet<std::path::PathBuf>,
     pub(super) marked_paths: &'a std::collections::HashSet<std::path::PathBuf>,
+    pub(super) fresh_render_verified_paths: &'a std::collections::HashSet<std::path::PathBuf>,
     pub(super) scan_coverage: super::super::verify_scan::ScanCoverage,
     pub(super) unmarked_seeds: &'a [&'a str],
     pub(super) drifted_seed_count: usize,
@@ -181,6 +182,7 @@ pub(super) fn report_coverage(params: CoverageParams<'_>) {
     let CoverageParams {
         all_managed_paths,
         marked_paths,
+        fresh_render_verified_paths,
         scan_coverage,
         unmarked_seeds,
         drifted_seed_count,
@@ -196,6 +198,7 @@ pub(super) fn report_coverage(params: CoverageParams<'_>) {
     for line in super::super::verify_coverage::VerifyCoverage::measure(
         all_managed_paths,
         marked_paths,
+        fresh_render_verified_paths,
         scan_coverage,
         super::super::verify_coverage::VerifyCoverageCounts {
             create_once_unmarked: unmarked_seeds.len(),

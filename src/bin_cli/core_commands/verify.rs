@@ -118,7 +118,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // Marked, present, and no longer what a fresh render would produce -- the alef#436 gap:
     // neither the per-file `alef:hash:` check (a file self-consistently hashes its own stale
     // bytes) nor the crate-scoped inputs-hash check (re-stamped by `alef generate`, never by
-    // `alef docs`) can see this. See `helpers::drifted_marked_paths`'s doc for the full mechanism. ~keep
+    // `alef docs`) can see this. See `helpers::drifted_managed_paths`'s doc for the full mechanism. ~keep
     let mut drifted_generated_files: Vec<String> = Vec::new();
     // Unioned across every crate before the orphan diff runs below: a file legitimately
     // owned by crate B must never look orphaned merely because crate A's own managed
@@ -142,7 +142,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     // down and `VerifyConfig`'s module doc for why a run that narrowed its own scope must say
     // so rather than silently passing. ~keep
     let mut ephemeral_excluded_count = 0usize;
-    // How many marked files the alef#436 drift check actually ran a real `poly fmt --fix` pass
+    // How many owned files the fresh-render drift check actually ran a real `poly fmt --fix` pass
     // over, versus how many it had to skip because `poly` is not installed -- see
     // `helpers::format_drift`'s module doc. Every non-`.rs`/`.md` candidate, and only those:
     // alef#458 used to fold `.rs`/`.md` in here whenever poly was unavailable, but #469 removed
@@ -352,6 +352,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             "Version consistency: {total_version_checks} manifest(s) checked, all consistent."
         ));
     }
+    let fresh_render_verified_paths = format_drift_stats.content_verified_paths.clone();
     crate::bin_cli::helpers::report_format_drift_coverage(format_drift_stats);
     // The consumer's vendored copy of alef's own `alef.toml` JSON Schema, if they keep one. It
     // is not a generated binding and nothing here writes it -- see `verify_schema`'s module doc
@@ -414,6 +415,7 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
     super::verify_informational::report_coverage(super::verify_informational::CoverageParams {
         all_managed_paths: &all_managed_paths,
         marked_paths: &marked_paths,
+        fresh_render_verified_paths: &fresh_render_verified_paths,
         scan_coverage,
         unmarked_seeds: &unmarked_seeds,
         drifted_seed_count: drifted_seeds.len(),
@@ -513,16 +515,16 @@ pub(super) fn run(context: &DispatchContext, report_only: bool) -> Result<Option
             }
         }
         // Distinct from `stale` above (a hand-edit to the file's own bytes) and from
-        // `frozen`/`missing` (ownership/presence): this is a marked, present file whose bytes
-        // are internally self-consistent -- its embedded `alef:hash:` matches its own content --
-        // but no longer match what this run's fresh render would produce. `alef generate`/`alef
+        // `frozen`/`missing` (ownership/presence): this is an owned, present file whose bytes no
+        // longer match what this run's fresh render would produce. Markerless files reach this
+        // check only through the committed ownership record. `alef generate`/`alef
         // all`/`alef docs` (whichever stage owns the path) is the remedy. See
-        // `helpers::drifted_marked_paths`'s doc for why neither the per-file hash check nor the
+        // `helpers::drifted_managed_paths`'s doc for why neither the per-file hash check nor the
         // crate-scoped inputs-hash check can see this on their own. ~keep
         if has_drifted_files {
             crate::bin_cli::output::line(
-                "Generated files drifted from a fresh render detected (the file's embedded hash \
-                 matches its own bytes, but this run's backends would now emit different content \
+                "Generated files drifted from a fresh render detected (this run's backends would emit \
+                 different content than the owned bytes on disk \
                  -- rerun the owning stage, e.g. `alef generate`/`alef all`/`alef docs`, to refresh it):",
             );
             for path in &drifted_generated_files {
@@ -786,7 +788,7 @@ mod frb_generated_drift_tests {
 /// alef#436, reproduced end to end through the real `alef docs` write path rather than a
 /// hand-built `GeneratedFile`: a public-surface change after the last `alef docs` run left the
 /// rendered API reference pages stale while `alef verify` reported nothing wrong, because every
-/// check it ran was structurally blind to the gap -- see `helpers::drifted_marked_paths`'s doc for
+/// check it ran was structurally blind to the gap -- see `helpers::drifted_managed_paths`'s doc for
 /// the full mechanism (the per-file `alef:hash:` walk hashes a file's own stale bytes against
 /// itself, and the crate-scoped inputs-hash baseline is re-stamped by `alef generate`, which never
 /// touches docs, so neither check has ever actually re-rendered a docs page and compared it to
@@ -838,7 +840,7 @@ mod docs_drift_tests {
 
     /// The exact `find_missing_and_frozen_generated_files` call `alef verify` itself makes, so
     /// this test proves the wiring all the way through `MissingAndFrozenFiles::drifted`, not just
-    /// the standalone `drifted_marked_paths` helper (covered directly in `helpers::tests`).
+    /// the standalone `drifted_managed_paths` helper (covered directly in `helpers::tests`).
     fn drifted_paths(root: &std::path::Path, config_path: &std::path::Path) -> Vec<String> {
         let _cwd = crate::test_support::CwdGuard::enter(root);
         let (_workspace, resolved) = super::load_config(config_path).expect("config loads");

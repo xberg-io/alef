@@ -14,6 +14,18 @@ use super::{
 #[cfg(test)]
 mod tests;
 
+/// True only when the committed `.alef-ownership.toml` records `path` for `base_dir`.
+///
+/// Fresh-render verification uses this narrower query because content verification must be
+/// reproducible in a fresh clone. The legacy gitignored record remains accepted by the write
+/// guard through [`is_scaffold_owned_path`], but it is local machine state rather than durable
+/// evidence that may support a release gate. ~keep
+pub(crate) fn is_committed_scaffold_owned_path(base_dir: &Path, path: &Path) -> bool {
+    note_untracked_required_records(base_dir);
+    let key = scaffold_owned_path_key(base_dir, path);
+    read_committed_owned_paths(base_dir).contains(&key)
+}
+
 /// True when `path` was previously recorded by [`super::record_scaffold_owned_path`]
 /// for this `base_dir`.
 ///

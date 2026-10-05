@@ -3,7 +3,7 @@
 //! into its own module for the same reason `helpers/drift_tests.rs` splits out of
 //! `helpers/tests.rs`: this repository's 1,000-line file cap, and this concern (comparing a
 //! non-`.rs`/`.md` render against disk through a real formatter) is self-contained. Also covers
-//! [`super::render_predicts_final_bytes`] and [`super::drifted_marked_paths_with`]'s alef#458
+//! [`super::render_predicts_final_bytes`] and [`super::drifted_managed_paths_with`]'s alef#458
 //! poly-availability gate on the `.rs`/`.md` fast path -- the closely related concern of deciding
 //! whether that fast path may run at all before falling back to the real-formatter tier this
 //! module otherwise covers. ~keep
@@ -69,7 +69,7 @@ fn poly_probe_roots_match_the_e2e_writers_per_language_working_directories() {
 /// Test-only convenience wrapper around [`real_formatter_drift_with`], bound to the real
 /// [`crate::cli::pipeline::is_tool_available`] -- production has no call site for this exact
 /// binding since alef#458 threads a single `is_available` closure through both
-/// [`drifted_marked_paths_with`]'s tiers instead of resolving it twice, so this exists purely to
+/// [`drifted_managed_paths_with`]'s tiers instead of resolving it twice, so this exists purely to
 /// keep the tests below (which only ever care about the real binary, not the injectable seam)
 /// from repeating that argument at every call site. ~keep
 fn real_formatter_drift(
@@ -113,8 +113,10 @@ fn skips_and_counts_every_candidate_when_poly_is_unavailable() {
             compared: 0,
             skipped_missing_formatter: 2,
             skipped_staging_error: 0,
+            skipped_formatter_error: 0,
             skipped_no_faithful_prediction: 0,
             matched_render_exactly: 0,
+            content_verified_paths: HashSet::new(),
         },
         "every candidate must be counted as skipped, never silently dropped, when poly is absent"
     );
@@ -162,8 +164,10 @@ fn catches_a_toml_file_whose_rendered_value_genuinely_differs_from_disk() {
             compared: 1,
             skipped_missing_formatter: 0,
             skipped_staging_error: 0,
+            skipped_formatter_error: 0,
             skipped_no_faithful_prediction: 0,
             matched_render_exactly: 0,
+            content_verified_paths: HashSet::from([real_path.clone()]),
         }
     );
 }
@@ -286,6 +290,28 @@ fn formatter_candidates_run_in_the_same_language_context_as_the_e2e_writer() {
     assert_eq!(stats.compared, 1);
 }
 
+/// A staged file is not content-verified when its formatter fails: comparing the untouched raw
+/// render would certify bytes the writer never promises to leave on disk. ~keep
+#[test]
+fn failed_formatter_candidates_are_not_reported_as_content_verified() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let real_path = dir.path().join("pyproject.toml");
+    std::fs::write(&real_path, "[project]\nname = \"old\"\n").expect("seed candidate");
+    let candidate = candidate(&real_path, "[project]\nname = \"old\"\n", "[project]\nname=\"new\"\n");
+
+    let (drifted, stats) = real_formatter_drift_with_runner(
+        vec![candidate],
+        dir.path(),
+        &|tool| tool == "poly",
+        &|_paths, _context| anyhow::bail!("formatter failed"),
+    );
+
+    assert!(drifted.is_empty());
+    assert_eq!(stats.compared, 0);
+    assert_eq!(stats.skipped_formatter_error, 1);
+    assert!(stats.content_verified_paths.is_empty());
+}
+
 #[test]
 fn real_poly_formats_a_gitignored_staged_e2e_render() {
     let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
@@ -385,7 +411,7 @@ fn unchanged_stamped_render_bypasses_the_formatter_prediction() {
     )
     .unwrap();
     let (drifted, stats) =
-        drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
+        drifted_managed_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
             tool == "poly"
         });
 
@@ -415,7 +441,7 @@ fn drift_check_ignores_create_once_seeds_even_if_an_older_copy_has_a_marker() {
         "fixture must reproduce the self-marker that defeats the generic seed classifier"
     );
 
-    let (drifted, stats) = drifted_marked_paths_with(
+    let (drifted, stats) = drifted_managed_paths_with(
         std::slice::from_ref(&seed),
         dir.path(),
         &drift_test_config(),
@@ -588,7 +614,7 @@ fn managed_poly_toml_drift_is_predicted_through_the_formatter_not_the_raw_merge(
     );
 
     let (drifted, stats) =
-        drifted_marked_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
+        drifted_managed_paths_with(std::slice::from_ref(&file), dir.path(), &drift_test_config(), &|tool| {
             tool == "poly"
         });
 
@@ -661,7 +687,7 @@ fn drift_preview_preserves_an_existing_marker_for_an_unheadered_render() {
     }
 }
 
-/// alef#465 END TO END, against [`drifted_marked_paths_with`]'s own injectable seam: with poly
+/// alef#465 END TO END, against [`drifted_managed_paths_with`]'s own injectable seam: with poly
 /// unavailable, an `.rs` candidate must still be COMPARED on the fast path, in both directions
 /// -- silent when it matches a fresh render, reported when it does not -- never routed into the
 /// counted-skip bucket. This is the repin of the alef#458 contract that asserted the exact
@@ -674,7 +700,7 @@ fn drift_preview_preserves_an_existing_marker_for_an_unheadered_render() {
 /// real-formatter tier, and a fast-path file never reaches that tier. Drives `&|_| false`
 /// directly, so this is provable on a host that does, in fact, have `poly` installed. ~keep
 #[test]
-fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_unavailable() {
+fn drifted_managed_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_unavailable() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = crate::core::backend::GeneratedFile {
         path: std::path::PathBuf::from("lib.rs"),
@@ -684,7 +710,7 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
     let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(&file), dir.path());
     std::fs::write(dir.path().join("lib.rs"), &rendered[0].content).unwrap();
 
-    let (drifted, stats) = drifted_marked_paths_with(
+    let (drifted, stats) = drifted_managed_paths_with(
         std::slice::from_ref(&file),
         dir.path(),
         &drift_test_config(),
@@ -699,6 +725,7 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
         stats,
         FormatDriftStats {
             matched_render_exactly: 1,
+            content_verified_paths: HashSet::from([dir.path().join("lib.rs")]),
             ..FormatDriftStats::default()
         },
         "a fast-path file must be counted as settled against the render, never as a real-formatter \
@@ -711,7 +738,7 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
         generated_header: true,
     }];
 
-    let (drifted, stats) = drifted_marked_paths_with(&changed, dir.path(), &drift_test_config(), &|_tool| false);
+    let (drifted, stats) = drifted_managed_paths_with(&changed, dir.path(), &drift_test_config(), &|_tool| false);
 
     assert_eq!(
         drifted,
@@ -719,7 +746,13 @@ fn drifted_marked_paths_compares_an_rs_candidate_on_the_fast_path_when_poly_is_u
         "a genuinely stale .rs file must be REPORTED with poly absent -- this is the finding the \
          alef#458 gate suppressed on the no-poly CI leg"
     );
-    assert_eq!(stats, FormatDriftStats::default());
+    assert_eq!(
+        stats,
+        FormatDriftStats {
+            content_verified_paths: HashSet::from([dir.path().join("lib.rs")]),
+            ..FormatDriftStats::default()
+        }
+    );
 }
 
 /// THE MEASUREMENT that licensed dropping the `poly_available` gate from

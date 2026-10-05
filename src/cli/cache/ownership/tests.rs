@@ -91,3 +91,23 @@ fn legacy_gitignored_record_is_still_honoured_for_reads() {
     assert!(!base.join(OWNERSHIP_MANIFEST).exists(), "no committed record yet");
     assert!(is_scaffold_owned_path(base, &base.join(relative)));
 }
+
+/// Content verification may rely only on the committed ownership record: a legacy cache entry
+/// is accepted for guarded writes but is not reproducible evidence in a fresh clone. ~keep
+#[test]
+fn committed_ownership_query_excludes_legacy_only_entries() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let base = dir.path();
+    let relative = Path::new("test_apps/kotlin/gradlew");
+    std::fs::create_dir_all(base.join(CACHE_DIR)).expect("create legacy cache dir");
+    std::fs::write(
+        base.join(CACHE_DIR).join(LEGACY_SCAFFOLD_OWNED_PATHS_MANIFEST),
+        "test_apps/kotlin/gradlew\n",
+    )
+    .expect("seed legacy record");
+
+    assert!(!is_committed_scaffold_owned_path(base, &base.join(relative)));
+
+    crate::cli::cache::record_scaffold_owned_path(base, &base.join(relative)).expect("record committed ownership");
+    assert!(is_committed_scaffold_owned_path(base, &base.join(relative)));
+}

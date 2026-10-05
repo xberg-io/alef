@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 /// file on its own, rather than folded into the surrounding ownership-manifest code, purely to
 /// keep this already-oversized file from growing further -- see `file-modularization`. ~keep
 mod ownership;
+pub(crate) use ownership::is_committed_scaffold_owned_path;
 pub use ownership::is_scaffold_owned_path;
 
 /// The central generation-inputs record -- see [`generation_record`]'s module doc for what it

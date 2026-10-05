@@ -542,6 +542,7 @@ fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVaria
     EnumVariant {
         serde_untagged: false,
         name: name.to_string(),
+        sensitive: false,
         fields: payload_field
             .map(|field_name| vec![field(field_name, TypeRef::String, false)])
             .unwrap_or_default(),
