@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.104.1] - 2026-10-05
+
 ### Fixed
 
 - The FFI last-error field capture no longer ends its final error-type branch with a bare
