@@ -1,5 +1,5 @@
 //! A response decoded from JSON must surface a decode failure as an error, never as `nil, nil`
-//! (liter-llm#246). ~keep
+//! (downstream issue #246). ~keep
 
 use super::functions::gen_function_wrapper;
 use super::methods::gen_method_wrapper;
