@@ -297,6 +297,7 @@ fn should_skip_a_field_marked_serde_skip() {
                 name: "internal_only".to_string(),
                 ty: TypeRef::String,
                 serde_skip: true,
+                sensitive: false,
                 ..FieldDef::default()
             },
         ],

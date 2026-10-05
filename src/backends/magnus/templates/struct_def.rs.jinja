@@ -1,5 +1,5 @@
 {% if cfg %}#[cfg({{ cfg }})]
-{% endif %}#[derive(Clone, Debug, serde::Serialize{% if not delegate_deserialize %}, serde::Deserialize{% endif %}{% if not generates_default %}, Default{% endif %})]
+{% endif %}#[derive(Clone{% if not has_sensitive %}, Debug{% endif %}, serde::Serialize{% if not delegate_deserialize %}, serde::Deserialize{% endif %}{% if not generates_default %}, Default{% endif %})]
 {% if has_default %}#[serde(default)]
 {% endif %}#[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {

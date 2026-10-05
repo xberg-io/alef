@@ -465,6 +465,39 @@ fn has_alef_skip(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Whether an item carries `#[alef(sensitive)]` or the equivalent `cfg_attr` form. ~keep
+pub(crate) fn has_alef_sensitive(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if meta_is_alef_flag(&attr.meta, "sensitive") {
+            return true;
+        }
+        if !attr.path().is_ident("cfg_attr") {
+            return false;
+        }
+        let mut found = false;
+        cfg_attr_walk_inner_metas(attr, &mut |meta| found |= meta_is_alef_flag(meta, "sensitive"));
+        found
+    })
+}
+
+fn meta_is_alef_flag(meta: &syn::Meta, flag: &str) -> bool {
+    let path = meta.path();
+    if path.segments.len() == 2
+        && path.segments.first().is_some_and(|segment| segment.ident == "alef")
+        && path.segments.last().is_some_and(|segment| segment.ident == flag)
+    {
+        return true;
+    }
+    if !path.is_ident("alef") {
+        return false;
+    }
+    let syn::Meta::List(list) = meta else {
+        return false;
+    };
+    list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+        .is_ok_and(|entries| entries.iter().any(|entry| entry.path().is_ident(flag)))
+}
+
 fn meta_is_alef_skip(meta: &syn::Meta) -> bool {
     let path = meta.path();
     if path.segments.len() == 2

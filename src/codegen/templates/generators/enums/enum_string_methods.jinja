@@ -1,11 +1,15 @@
 
     fn __str__(&self) -> PyResult<String> {
+{%- if redact %}
+        Ok("{{ name }}(<redacted>)".to_string())
+{%- else %}
         serde_json::to_value({{ value_expr }})
             .map(|value| match value {
                 serde_json::Value::String(value) => value,
                 other => other.to_string(),
             })
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to serialize {{ name }}: {e}")))
+{%- endif %}
     }
 
     fn __repr__(&self) -> PyResult<String> {

@@ -345,6 +345,7 @@ mod tests {
             is_default: false,
             serde_rename: None,
             is_tuple: false,
+            sensitive: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             originally_had_data_fields: false,

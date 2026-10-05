@@ -72,6 +72,7 @@ fn generated_csharp_uses_formatter_stable_layout() {
                         ..Default::default()
                     }],
                     is_tuple: true,
+                    sensitive: false,
                     originally_had_data_fields: true,
                     ..Default::default()
                 },

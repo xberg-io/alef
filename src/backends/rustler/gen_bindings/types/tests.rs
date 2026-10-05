@@ -17,6 +17,7 @@ fn unit_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -31,6 +32,7 @@ fn unit_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -84,6 +86,7 @@ fn data_enum() -> EnumDef {
                         serde_with: None,
                         serde_skip_serializing_if: false,
                         serde_skip: false,
+                        sensitive: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
                         original_type: None,
@@ -108,6 +111,7 @@ fn data_enum() -> EnumDef {
                         serde_with: None,
                         serde_skip_serializing_if: false,
                         serde_skip: false,
+                        sensitive: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
                         original_type: None,
@@ -119,6 +123,7 @@ fn data_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -147,6 +152,7 @@ fn data_enum() -> EnumDef {
                         serde_with: None,
                         serde_skip_serializing_if: false,
                         serde_skip: false,
+                        sensitive: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
                         original_type: None,
@@ -171,6 +177,7 @@ fn data_enum() -> EnumDef {
                         serde_with: None,
                         serde_skip_serializing_if: false,
                         serde_skip: false,
+                        sensitive: false,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
                         original_type: None,
@@ -182,6 +189,7 @@ fn data_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -267,6 +275,57 @@ fn string_field(name: &str) -> FieldDef {
         ty: TypeRef::String,
         ..FieldDef::default()
     }
+}
+
+#[test]
+fn sensitive_struct_uses_redacted_debug_impl() {
+    let mut token = string_field("token");
+    token.sensitive = true;
+    let typ = TypeDef {
+        name: "Credentials".to_string(),
+        fields: vec![string_field("label"), token],
+        ..Default::default()
+    };
+
+    let rendered = gen_struct(
+        &typ,
+        &crate::backends::rustler::type_map::RustlerMapper,
+        "MyApp.Native",
+        &AHashSet::new(),
+        "my_crate",
+        &[],
+        &AHashSet::new(),
+    );
+
+    assert!(!derive_line(&rendered).contains("Debug"), "{rendered}");
+    assert!(rendered.contains("impl std::fmt::Debug for Credentials"), "{rendered}");
+    assert!(rendered.contains(".field(\"token\", &\"<redacted>\")"), "{rendered}");
+    assert!(rendered.contains(".field(\"label\", &self.label)"), "{rendered}");
+}
+
+#[test]
+fn sensitive_enum_uses_redacted_debug_impl() {
+    let mut token = string_field("token");
+    token.sensitive = true;
+    let def = EnumDef {
+        name: "Auth".to_string(),
+        variants: vec![EnumVariant {
+            name: "Bearer".to_string(),
+            fields: vec![token],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let api = ApiSurface {
+        enums: vec![def.clone()],
+        ..Default::default()
+    };
+
+    let rendered = gen_enum(&def, "MyApp.Native", &api, "my_crate", None);
+
+    assert!(!derive_line(&rendered).contains("Debug"), "{rendered}");
+    assert!(rendered.contains("impl std::fmt::Debug for Auth"), "{rendered}");
+    assert!(rendered.contains("Auth(<redacted>)"), "{rendered}");
 }
 
 /// A struct with enough `String` fields that its estimated size clears
@@ -454,6 +513,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
                     serde_with: None,
                     serde_skip_serializing_if: false,
                     serde_skip: false,
+                    sensitive: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     original_type: None,
@@ -491,6 +551,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
                     serde_with: None,
                     serde_skip_serializing_if: false,
                     serde_skip: false,
+                    sensitive: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     original_type: None,
@@ -602,6 +663,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -629,6 +691,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
                     serde_with: None,
                     serde_skip_serializing_if: false,
                     serde_skip: false,
+                    sensitive: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     original_type: None,
@@ -705,6 +768,7 @@ fn test_field_type_for_rustler_primitives() {
         serde_with: None,
         serde_skip_serializing_if: false,
         serde_skip: false,
+        sensitive: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         original_type: None,

@@ -497,9 +497,15 @@ pub(super) fn gen_struct(
             has_default => typ.has_default,
             generates_default => generates_default,
             delegate_deserialize => delegate_deserialize,
+            has_sensitive => filtered_fields.iter().any(|field| field.sensitive),
             cfg => typ_cfg,
         },
     );
+    rendered.push_str(&generators::gen_redacted_struct_debug_impl(
+        &typ.name,
+        typ_cfg,
+        filtered_fields.iter(),
+    ));
     if delegate_deserialize {
         let deserialize_impl = generators::gen_delegating_deserialize_impl(typ, core_import, "", &[]);
         rendered.push_str(&super::prepend_cfg(typ_cfg, deserialize_impl));

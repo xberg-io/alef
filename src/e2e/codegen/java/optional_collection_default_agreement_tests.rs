@@ -57,6 +57,7 @@ fn required_collection_with_skip_if_field() -> FieldDef {
         typed_default: Some(DefaultValue::Empty),
         serde_skip_serializing_if: true,
         serde_skip: false,
+        sensitive: false,
         ..FieldDef::default()
     }
 }

@@ -84,6 +84,7 @@ pub fn gen_pyo3_data_enum_with_coercion(
         minijinja::context! {
             name => name,
             value_expr => "&self.inner",
+            redact => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
         },
     );
 
@@ -618,6 +619,7 @@ pub fn gen_enum(enum_def: &EnumDef, cfg: &RustBindingConfig, configured_features
             minijinja::context! {
                 name => enum_def.name,
                 value_expr => "self",
+                redact => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
             },
         )
     } else {

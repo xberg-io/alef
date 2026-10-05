@@ -348,6 +348,7 @@ pub(crate) fn extract_error_enum(item: &syn::ItemEnum, crate_name: &str, module_
                                 serde_with: None,
                                 serde_skip_serializing_if: extract_serde_skip_serializing_if(&f.attrs),
                                 serde_skip: extract_serde_skip(&f.attrs),
+                                sensitive: false,
                                 binding_excluded,
                                 binding_exclusion_reason,
                                 original_type: None,

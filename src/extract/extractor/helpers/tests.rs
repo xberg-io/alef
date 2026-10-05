@@ -1,8 +1,10 @@
 use super::attributes::{
     extract_alef_error_code, extract_alef_since, extract_deprecation, extract_serde_rename_all,
-    extract_serde_rename_all_fields, extract_serde_skip_serializing_if, extract_serde_with,
+    extract_serde_rename_all_fields, extract_serde_skip_serializing_if, extract_serde_with, has_alef_sensitive,
     has_container_serde_default, has_derive, has_derive_path,
 };
+use super::enum_variants::extract_enum_variant;
+use super::fields::extract_field;
 use super::normalize_rustdoc;
 
 // --- normalize_rustdoc ---
@@ -426,6 +428,40 @@ fn test_extract_deprecation_since_strips_leading_v_prefix() {
 fn test_extract_alef_since_absent_returns_none() {
     let attrs = parse_attrs("#[alef(skip)]");
     assert!(extract_alef_since(&attrs).is_none());
+}
+
+#[test]
+fn alef_sensitive_accepts_direct_and_cfg_attr_forms() {
+    let direct = parse_attrs("#[alef(sensitive)]");
+    let gated = parse_attrs("#[cfg_attr(alef, alef(sensitive))]");
+    let nested = parse_attrs("#[cfg_attr(feature = \"bindings\", cfg_attr(alef, alef(sensitive))) ]");
+
+    assert!(has_alef_sensitive(&direct));
+    assert!(has_alef_sensitive(&gated));
+    assert!(has_alef_sensitive(&nested));
+}
+
+#[test]
+fn alef_sensitive_ignores_lookalike_metadata() {
+    let attrs = parse_attrs("#[alef(sensitive_value = true)]");
+
+    assert!(!has_alef_sensitive(&attrs));
+}
+
+#[test]
+fn sensitive_metadata_survives_field_and_variant_extraction() {
+    let field: syn::Field = syn::parse_quote! {
+        #[cfg_attr(alef, alef(sensitive))]
+        pub token: String
+    };
+    let variant: syn::Variant = syn::parse_quote! {
+        #[cfg_attr(alef, alef(sensitive))]
+        Bearer { token: String }
+    };
+
+    assert!(extract_field(&field, None).0.sensitive);
+    assert!(extract_enum_variant(&variant).sensitive);
+    assert!(!extract_enum_variant(&variant).fields[0].sensitive);
 }
 
 // --- extract_serde_with ---

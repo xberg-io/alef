@@ -197,6 +197,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_tuple: false,
+            sensitive: false,
             originally_had_data_fields: false,
             cfg: None,
             version: Default::default(),

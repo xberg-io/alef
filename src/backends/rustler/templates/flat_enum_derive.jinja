@@ -1,1 +1,1 @@
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifStruct)]
+#[derive({% if not has_sensitive %}Debug, {% endif %}Clone, serde::Serialize, serde::Deserialize, rustler::NifStruct)]

@@ -309,6 +309,7 @@ mod tests {
             serde_with: None,
             serde_skip_serializing_if: false,
             serde_skip: false,
+            sensitive: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
             original_type: Some(original_type.to_string()),

@@ -13,6 +13,60 @@ pub mod type_paths;
 /// Key: "TypeName.method_name" for methods, "function_name" for free functions.
 pub type AdapterBodies = AHashMap<String, String>;
 
+/// Whether any enum payload is classified as sensitive for diagnostic representations. ~keep
+pub fn enum_has_sensitive_representation(enum_def: &crate::core::ir::EnumDef) -> bool {
+    enum_def
+        .variants
+        .iter()
+        .any(|variant| variant.sensitive || variant.fields.iter().any(|field| field.sensitive))
+}
+
+/// Emit a `Debug` implementation that keeps ordinary fields useful and redacts sensitive ones. ~keep
+pub fn gen_redacted_struct_debug_impl<'a>(
+    type_name: &str,
+    cfg: Option<&str>,
+    fields: impl IntoIterator<Item = &'a crate::core::ir::FieldDef>,
+) -> String {
+    let fields: Vec<&crate::core::ir::FieldDef> = fields.into_iter().collect();
+    if !fields.iter().any(|field| field.sensitive) {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    if let Some(cfg) = cfg {
+        out.push_str(&format!("#[cfg({cfg})]\n"));
+    }
+    out.push_str(&format!(
+        "impl std::fmt::Debug for {type_name} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        let mut debug = f.debug_struct(\"{type_name}\");\n"
+    ));
+    for field in fields {
+        if let Some(cfg) = &field.cfg {
+            out.push_str(&format!("        #[cfg({cfg})]\n"));
+        }
+        let name = crate::codegen::naming::internal_rust_identifier(&field.name);
+        if field.sensitive {
+            out.push_str(&format!("        debug.field(\"{}\", &\"<redacted>\");\n", field.name));
+        } else {
+            out.push_str(&format!("        debug.field(\"{}\", &self.{name});\n", field.name));
+        }
+    }
+    out.push_str("        debug.finish()\n    }\n}\n");
+    out
+}
+
+/// Emit a representation-safe `Debug` implementation for a sensitive enum. ~keep
+pub fn gen_redacted_enum_debug_impl(enum_def: &crate::core::ir::EnumDef) -> String {
+    if !enum_has_sensitive_representation(enum_def) {
+        return String::new();
+    }
+    let mut out = String::new();
+    out.push_str(&format!(
+        "impl std::fmt::Debug for {} {{\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{\n        f.write_str(\"{}(<redacted>)\")\n    }}\n}}\n",
+        enum_def.name, enum_def.name
+    ));
+    out
+}
+
 /// Async support pattern for the backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AsyncPattern {

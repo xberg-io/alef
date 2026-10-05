@@ -423,6 +423,7 @@ mod tests {
             serde_with: serde_with.map(str::to_string),
             serde_skip_serializing_if: false,
             serde_skip: false,
+            sensitive: false,
             ..Default::default()
         }
     }
@@ -470,6 +471,7 @@ mod tests {
             serde_with: Some("custom".to_string()),
             serde_skip_serializing_if: false,
             serde_skip: false,
+            sensitive: false,
             ..Default::default()
         };
         assert_eq!(

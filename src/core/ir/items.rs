@@ -197,6 +197,12 @@ pub struct FieldDef {
     /// while being structurally unreachable, i.e. always the type's default value.
     #[serde(default)]
     pub serde_skip: bool,
+    /// True when representations must not expose this field's value.
+    ///
+    /// Serialization and binding conversion remain unchanged; this flag affects only generated
+    /// `Debug`, `repr`, and equivalent diagnostic representations. ~keep
+    #[serde(default)]
+    pub sensitive: bool,
     /// True when source metadata explicitly excludes this field from generated
     /// polyglot binding surfaces.
     #[serde(default)]
@@ -608,6 +614,11 @@ pub struct EnumVariant {
     /// False for struct variants with named fields or unit variants.
     #[serde(default)]
     pub is_tuple: bool,
+    /// True when diagnostic representations must redact this variant's payload.
+    ///
+    /// The wire representation remains lossless. ~keep
+    #[serde(default)]
+    pub sensitive: bool,
     /// True when source metadata explicitly excludes this variant from generated
     /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
     #[serde(default)]
@@ -865,6 +876,7 @@ mod tests {
             serde_with: _,                // suppresses derive-shape wire assumptions (e.g. Duration)
             serde_skip_serializing_if: _, // wire-optional JSON key despite a required Rust field
             serde_skip: _,                // gates getter emission for JSON-only-constructed types
+            sensitive: _,                 // redacts representations without changing serialization
             binding_excluded: _,          // drops the field from the generated surface
             binding_exclusion_reason: _,  // diagnostics only; deliberately not codegen input
             original_type: _,             // reconstructs pre-sanitize (de)serialization
@@ -979,6 +991,7 @@ mod tests {
             is_default: _,                 // selects the `#[derive(Default)]` variant
             serde_rename: _,               // wire-name parity with core serde
             is_tuple: _,                   // selects struct- vs. tuple- vs. unit-pattern shape
+            sensitive: _,                  // redacts the variant payload in representations
             binding_excluded: _,           // excludes the variant from generated surfaces
             binding_exclusion_reason: _,   // diagnostics only; deliberately not codegen input
             originally_had_data_fields: _, // selects wildcard vs. bare-unit pattern emission

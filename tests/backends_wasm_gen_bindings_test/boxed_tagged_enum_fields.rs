@@ -18,6 +18,7 @@ fn tagged_enum_with_single_field(field: FieldDef) -> EnumDef {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_tuple: false,
+            sensitive: false,
             originally_had_data_fields: false,
             cfg: None,
             version: Default::default(),

@@ -13,6 +13,7 @@ fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_tuple: false,
+        sensitive: false,
         originally_had_data_fields: false,
         cfg: None,
         version: Default::default(),
@@ -40,6 +41,7 @@ fn field(name: &str) -> FieldDef {
         serde_with: None,
         serde_skip_serializing_if: false,
         serde_skip: false,
+        sensitive: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         original_type: None,
@@ -84,6 +86,34 @@ fn gen_pyo3_data_enum_emits_string_methods() {
     assert!(generated.contains("serde_json::to_value(&self.inner)"), "{generated}");
     assert!(
         generated.contains("fn __repr__(&self) -> PyResult<String>"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn sensitive_data_enum_repr_never_serializes_the_payload() {
+    let mut secret = field("token");
+    secret.sensitive = true;
+    let generated = gen_pyo3_data_enum(&enum_def("Auth", vec![variant("Bearer", vec![secret])]), "core");
+
+    assert!(
+        generated.contains("Ok(\"Auth(<redacted>)\".to_string())"),
+        "{generated}"
+    );
+    assert!(
+        !generated.contains("serde_json::to_value(&self.inner)"),
+        "a planted secret must never reach the representation serializer: {generated}"
+    );
+}
+
+#[test]
+fn sensitive_variant_redacts_the_entire_data_enum_repr() {
+    let mut bearer = variant("Bearer", vec![field("token")]);
+    bearer.sensitive = true;
+    let generated = gen_pyo3_data_enum(&enum_def("Auth", vec![bearer]), "core");
+
+    assert!(
+        generated.contains("Ok(\"Auth(<redacted>)\".to_string())"),
         "{generated}"
     );
 }

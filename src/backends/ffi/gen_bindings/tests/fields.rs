@@ -38,6 +38,7 @@ fn test_option_option_primitive_getter_returns_primitive_type() {
                 serde_with: None,
                 serde_skip_serializing_if: false,
                 serde_skip: false,
+                sensitive: false,
                 original_type: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
@@ -127,6 +128,7 @@ fn api_with_named_field(field_type: &str, is_clone: bool) -> ApiSurface {
             serde_with: None,
             serde_skip_serializing_if: false,
             serde_skip: false,
+            sensitive: false,
             original_type: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
@@ -335,6 +337,7 @@ options_field = "visitor"
                     ty: TypeRef::Named("VisitorHandle".to_string()),
                     optional: true,
                     serde_skip: true,
+                    sensitive: false,
                     ..FieldDef::default()
                 }],
                 ..TypeDef::default()
@@ -348,6 +351,7 @@ options_field = "visitor"
                     ty: TypeRef::Named("VisitorHandle".to_string()),
                     optional: true,
                     serde_skip: true,
+                    sensitive: false,
                     ..FieldDef::default()
                 }],
                 ..TypeDef::default()

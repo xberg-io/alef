@@ -156,6 +156,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_with: None,
         serde_skip_serializing_if: false,
         serde_skip: false,
+        sensitive: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
         original_type: None,
@@ -325,6 +326,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -339,6 +341,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),
@@ -433,6 +436,7 @@ fn make_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_tuple: false,
+        sensitive: false,
         originally_had_data_fields: false,
         cfg: None,
         version: Default::default(),
@@ -635,6 +639,44 @@ fn gen_struct_emits_magnus_wrap_attribute() {
     let code = gen_struct(&typ, &mapper, "TestLib", "test_lib", false, &[], false);
     assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");
     assert!(code.contains("struct Config"), "must emit struct Config");
+}
+
+#[test]
+fn gen_struct_redacts_sensitive_fields_in_debug() {
+    let mut secret = make_field("token", TypeRef::String, false);
+    secret.sensitive = true;
+    let typ = make_typedef("Credentials", vec![make_field("label", TypeRef::String, false), secret]);
+    let mapper = crate::backends::magnus::type_map::MagnusMapper;
+
+    let code = gen_struct(&typ, &mapper, "TestLib", "test_lib", false, &[], false);
+
+    let derive_line = code.lines().find(|line| line.starts_with("#[derive(")).unwrap();
+    assert!(!derive_line.contains("Debug"), "{code}");
+    assert!(code.contains("impl std::fmt::Debug for Credentials"), "{code}");
+    assert!(code.contains(".field(\"token\", &\"<redacted>\")"), "{code}");
+    assert!(code.contains(".field(\"label\", &self.label)"), "{code}");
+}
+
+#[test]
+fn gen_enum_redacts_sensitive_payload_debug() {
+    let mut token = make_field("token", TypeRef::String, false);
+    token.sensitive = true;
+    let def = EnumDef {
+        name: "Auth".into(),
+        variants: vec![EnumVariant {
+            name: "Bearer".into(),
+            fields: vec![token],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let code = gen_enum(&def, "test_lib", None, &[]);
+
+    let derive_line = code.lines().find(|line| line.starts_with("#[derive(")).unwrap();
+    assert!(!derive_line.contains("Debug"), "{code}");
+    assert!(code.contains("impl std::fmt::Debug for Auth"), "{code}");
+    assert!(code.contains("Auth(<redacted>)"), "{code}");
 }
 
 fn container_conversion() -> crate::core::ir::SerdeContainerConversion {

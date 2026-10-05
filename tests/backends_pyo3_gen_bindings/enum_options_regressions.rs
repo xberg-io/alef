@@ -21,6 +21,7 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),

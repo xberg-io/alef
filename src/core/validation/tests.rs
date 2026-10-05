@@ -50,6 +50,7 @@ fn field_def(name: &str, ty: TypeRef) -> FieldDef {
         serde_with: None,
         serde_skip_serializing_if: false,
         serde_skip: false,
+        sensitive: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
     }
@@ -105,6 +106,7 @@ fn api_surface_validation_reports_lossy_sanitized_fields() {
                 serde_with: None,
                 serde_skip_serializing_if: false,
                 serde_skip: false,
+                sensitive: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
             }],

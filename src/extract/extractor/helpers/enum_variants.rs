@@ -1,7 +1,8 @@
 use crate::core::ir::EnumVariant;
 
 use super::attributes::{
-    extract_binding_exclusion_reason, extract_cfg_condition, extract_version_annotation, has_serde_untagged,
+    extract_binding_exclusion_reason, extract_cfg_condition, extract_version_annotation, has_alef_sensitive,
+    has_serde_untagged,
 };
 use super::fields::extract_field;
 use super::rustdoc::extract_doc_comments;
@@ -54,6 +55,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         is_default: v.attrs.iter().any(|a| a.path().is_ident("default")),
         serde_rename,
         is_tuple,
+        sensitive: has_alef_sensitive(&v.attrs),
         binding_excluded,
         binding_exclusion_reason,
         originally_had_data_fields: false,

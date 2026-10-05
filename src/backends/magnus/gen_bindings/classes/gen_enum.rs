@@ -184,7 +184,8 @@ pub fn gen_enum_with_module(
         })
         .collect();
 
-    crate::backends::magnus::template_env::render(
+    let has_sensitive = crate::codegen::generators::enum_has_sensitive_representation(enum_def);
+    let mut rendered = crate::backends::magnus::template_env::render(
         "enum_magnus.rs.jinja",
         minijinja::context! {
             enum_name => &enum_def.name,
@@ -200,8 +201,11 @@ pub fn gen_enum_with_module(
             first_variant => first_variant,
             default_variant => default_variant,
             first_variant_default => &first_variant_default,
+            has_sensitive => has_sensitive,
         },
-    )
+    );
+    rendered.push_str(&crate::codegen::generators::gen_redacted_enum_debug_impl(enum_def));
+    rendered
 }
 
 /// Distinct string spellings a unit enum's `TryConvert` accepts for one variant, in priority

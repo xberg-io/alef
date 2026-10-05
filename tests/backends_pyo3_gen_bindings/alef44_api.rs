@@ -637,6 +637,7 @@ fn test_options_py_imports_data_enums_as_native_classes() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),

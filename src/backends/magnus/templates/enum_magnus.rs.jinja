@@ -1,6 +1,6 @@
 {# Data enum definition with IntoValue/TryConvert via JSON #}
 {% if has_data %}
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone{% if not has_sensitive %}, Debug{% endif %}, serde::Serialize, serde::Deserialize)]
 {% if native_payload %}#[magnus::wrap(class = "{{ module_name }}::{{ enum_name }}")]
 {% endif %}
 {% if serde_tag %}#[serde(tag = "{{ serde_tag }}"{% if serde_content %}, content = "{{ serde_content }}"{% endif %})]
@@ -125,7 +125,7 @@ impl {{ enum_name }} {
 
 {# Unit enum definition with Symbol-based conversion #}
 {% else %}
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash{% if not has_sensitive %}, Debug{% endif %}, serde::Serialize, serde::Deserialize)]
 {% if serde_rename_all %}#[serde(rename_all = "{{ serde_rename_all }}")]
 {% endif %}pub enum {{ enum_name }} {
 {% for variant in variants %}

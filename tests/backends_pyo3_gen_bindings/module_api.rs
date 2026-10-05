@@ -106,6 +106,7 @@ fn test_module_registration() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_tuple: false,
+                sensitive: false,
                 originally_had_data_fields: false,
                 cfg: None,
                 version: Default::default(),

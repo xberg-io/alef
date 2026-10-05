@@ -20,6 +20,7 @@ fn a_required_vec_with_skip_serializing_if_is_wire_optional() {
             optional: false,
             serde_skip_serializing_if: true,
             serde_skip: false,
+            sensitive: false,
             ..FieldDef::default()
         }],
         ..TypeDef::default()
@@ -41,6 +42,7 @@ fn a_required_vec_with_skip_serializing_if_is_not_ir_optional() {
             optional: false,
             serde_skip_serializing_if: true,
             serde_skip: false,
+            sensitive: false,
             ..FieldDef::default()
         }],
         ..TypeDef::default()
@@ -64,6 +66,7 @@ fn a_plain_required_field_is_neither_optional_nor_wire_optional() {
             optional: false,
             serde_skip_serializing_if: false,
             serde_skip: false,
+            sensitive: false,
             ..FieldDef::default()
         }],
         ..TypeDef::default()
@@ -87,6 +90,7 @@ fn is_wire_optional_key_matches_the_bare_key_regardless_of_nesting() {
             name: "children".to_string(),
             serde_skip_serializing_if: true,
             serde_skip: false,
+            sensitive: false,
             ..FieldDef::default()
         }],
         ..TypeDef::default()

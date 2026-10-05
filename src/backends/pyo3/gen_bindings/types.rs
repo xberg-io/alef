@@ -531,12 +531,23 @@ pub(super) fn gen_options_py(
 
             let safe_name = crate::core::keywords::python_ident(&field.name);
             let field_declaration = if omit_default {
-                crate::backends::pyo3::template_env::render(
-                    "trait_bridge/dataclass_field_no_default.jinja",
-                    minijinja::context! { name => &safe_name, type_hint => &type_hint },
-                )
+                if field.sensitive {
+                    crate::backends::pyo3::template_env::render(
+                        "trait_bridge/dataclass_field_with_default.jinja",
+                        minijinja::context! {
+                            name => &safe_name,
+                            type_hint => &type_hint,
+                            default => "field(repr=False)",
+                        },
+                    )
+                } else {
+                    crate::backends::pyo3::template_env::render(
+                        "trait_bridge/dataclass_field_no_default.jinja",
+                        minijinja::context! { name => &safe_name, type_hint => &type_hint },
+                    )
+                }
             } else {
-                let default = field_defaults.literal(field);
+                let mut default = field_defaults.literal(field);
                 let type_hint_with_none = if field.typed_default.is_none() && field.optional {
                     if !type_hint.contains("None") && matches!(&field.ty, TypeRef::Named(_)) {
                         format!("{} | None", type_hint)
@@ -548,6 +559,9 @@ pub(super) fn gen_options_py(
                 } else {
                     type_hint.clone()
                 };
+                if field.sensitive {
+                    default = python_repr_hidden_default(&default);
+                }
                 crate::backends::pyo3::template_env::render(
                     "trait_bridge/dataclass_field_with_default.jinja",
                     minijinja::context! { name => &safe_name, type_hint => &type_hint_with_none, default => &default },
@@ -580,6 +594,19 @@ pub(super) fn gen_options_py(
     out.push_str(&gen_from_native_converters(api, dto, reexported_types));
 
     out
+}
+
+/// Add `repr=False` to a dataclass default without changing its construction semantics. ~keep
+fn python_repr_hidden_default(default: &str) -> String {
+    if let Some(arguments) = default.strip_prefix("field(").and_then(|value| value.strip_suffix(')')) {
+        if arguments.is_empty() {
+            "field(repr=False)".to_string()
+        } else {
+            format!("field({arguments}, repr=False)")
+        }
+    } else {
+        format!("field(default={default}, repr=False)")
+    }
 }
 
 /// Delegating methods appended to one `options.py` dataclass body so a consumer's public name

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `#[alef(sensitive)]` metadata keeps serialization lossless while redacting generated Python,
+  Ruby, and Elixir diagnostic representations.
+
 ## [0.103.15] - 2026-10-04
 
 ### Added

@@ -188,7 +188,7 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
     ),
     (
         "rust_struct_derive_line.jinja",
-        "#[derive(Debug, Clone, Default, serde::Serialize{% if not delegate_deserialize %}, serde::Deserialize{% endif %}, {{ nif_derive }})]\n",
+        "#[derive({% if not has_sensitive %}Debug, {% endif %}Clone, Default, serde::Serialize{% if not delegate_deserialize %}, serde::Deserialize{% endif %}, {{ nif_derive }})]\n",
     ),
     ("rust_struct_header.jinja", "pub struct {{ struct_name }} {\n"),
     ("rust_struct_field.jinja", "    pub {{ name }}: {{ type }},\n"),

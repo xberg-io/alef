@@ -1,4 +1,7 @@
-use super::{EmitContext, OptionsFieldDefaults, python_field_type, type_has_from_json, typed_default_to_python};
+use super::{
+    EmitContext, OptionsFieldDefaults, gen_options_py, python_field_type, type_has_from_json, typed_default_to_python,
+};
+use crate::core::config::DtoConfig;
 use crate::core::ir::{ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
 
@@ -306,6 +309,41 @@ fn type_has_from_json_false_for_an_opaque_type() {
     };
 
     assert!(!type_has_from_json(&typ, &api, true));
+}
+
+#[test]
+fn sensitive_dataclass_fields_are_excluded_from_repr_without_changing_values() {
+    let api = ApiSurface {
+        types: vec![TypeDef {
+            name: "Credentials".to_string(),
+            has_default: true,
+            fields: vec![
+                FieldDef {
+                    name: "label".to_string(),
+                    ty: TypeRef::String,
+                    typed_default: Some(DefaultValue::StringLiteral("public".to_string())),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "token".to_string(),
+                    ty: TypeRef::String,
+                    sensitive: true,
+                    typed_default: Some(DefaultValue::StringLiteral("planted-secret".to_string())),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let generated = gen_options_py(&api, "_native", &DtoConfig::default(), &[], false);
+
+    assert!(generated.contains("label: str = \"public\""), "{generated}");
+    assert!(
+        generated.contains("token: str = field(default=\"planted-secret\", repr=False)"),
+        "{generated}"
+    );
 }
 
 /// The bug this fix targets: alef could not read the real default out of `impl Default`

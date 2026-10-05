@@ -78,11 +78,15 @@ pub(super) fn gen_struct(
     } else {
         "rustler::NifStruct"
     };
+    let visible_fields: Vec<&FieldDef> = binding_fields(&typ.fields)
+        .filter(|field| !exclude_fields.contains(&field.name))
+        .collect();
     out.push_str(&template_env::render(
         "rust_struct_derive_line.jinja",
         minijinja::context! {
             delegate_deserialize => delegate_deserialize,
             nif_derive => nif_derive,
+            has_sensitive => visible_fields.iter().any(|field| field.sensitive),
         },
     ));
     if !typ.has_default {
@@ -101,10 +105,7 @@ pub(super) fn gen_struct(
         },
     ));
 
-    for field in binding_fields(&typ.fields) {
-        if exclude_fields.contains(&field.name) {
-            continue;
-        }
+    for field in &visible_fields {
         let field_type = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
             mapper.optional(&mapper.map_type(&field.ty))
         } else {
@@ -120,6 +121,11 @@ pub(super) fn gen_struct(
     }
 
     out.push_str("}\n");
+    out.push_str(&crate::codegen::generators::gen_redacted_struct_debug_impl(
+        &typ.name,
+        None,
+        visible_fields.iter().copied(),
+    ));
     if delegate_deserialize {
         out.push_str(&crate::codegen::generators::gen_delegating_deserialize_impl(
             typ,
@@ -234,7 +240,12 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
     let name = &enum_def.name;
     let mut out = String::with_capacity(1024);
 
-    out.push_str(&template_env::render("flat_enum_derive.jinja", minijinja::context! {}));
+    out.push_str(&template_env::render(
+        "flat_enum_derive.jinja",
+        minijinja::context! {
+            has_sensitive => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
+        },
+    ));
     out.push_str(&template_env::render(
         "flat_enum_struct_header.jinja",
         minijinja::context! {
@@ -298,6 +309,7 @@ fn gen_rustler_flat_data_enum(enum_def: &EnumDef, module_prefix: &str, declared_
         "flat_enum_default_impl_footer.jinja",
         minijinja::context! {},
     ));
+    out.push_str(&crate::codegen::generators::gen_redacted_enum_debug_impl(enum_def));
 
     out
 }
@@ -583,7 +595,11 @@ pub(super) fn gen_enum(
                 },
             ));
         }
-        out.push_str("#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifTaggedEnum)]\n");
+        if crate::codegen::generators::enum_has_sensitive_representation(enum_def) {
+            out.push_str("#[derive(Clone, serde::Serialize, serde::Deserialize, rustler::NifTaggedEnum)]\n");
+        } else {
+            out.push_str("#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rustler::NifTaggedEnum)]\n");
+        }
         if let Some(tag) = &enum_def.serde_tag {
             out.push_str(&template_env::render(
                 "nif_tagged_enum_serde_tag.jinja",
@@ -656,6 +672,7 @@ pub(super) fn gen_enum(
             "nif_unit_enum_header.jinja",
             minijinja::context! {
                 name => name,
+                has_sensitive => crate::codegen::generators::enum_has_sensitive_representation(enum_def),
             },
         ));
         for variant in &declared_variants {
@@ -668,6 +685,7 @@ pub(super) fn gen_enum(
         }
         out.push_str("}\n");
     }
+    out.push_str(&crate::codegen::generators::gen_redacted_enum_debug_impl(enum_def));
 
     let default_variant = declared_variants
         .iter()
