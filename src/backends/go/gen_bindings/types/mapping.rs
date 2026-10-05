@@ -94,6 +94,101 @@ pub(in crate::backends::go::gen_bindings) fn go_return_expr(
     go_return_expr_inner(ty, var_name, ffi_prefix, opaque_names, value_only_types)
 }
 
+/// Go `return` operands for a response of type `ty` from an error-returning function.
+///
+/// Shapes decoded from JSON yield a closure returning `(value, error)` so a decode failure
+/// reaches the caller instead of being flattened into `nil, nil`; every other shape is the plain
+/// value expression followed by `, nil`.
+///
+/// ~keep A NULL pointer from a non-optional response is an error (the FFI call reported
+/// success yet produced nothing). For `Option<T>` NULL is the legitimate `None`, so it stays
+/// `nil, nil` there and only a malformed payload errors.
+pub(in crate::backends::go::gen_bindings) fn go_return_values_with_error(
+    ty: &TypeRef,
+    var_name: &str,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+    value_only_types: &std::collections::HashSet<String>,
+) -> String {
+    match fallible_json_return(ty, var_name, ffi_prefix, opaque_names) {
+        Some(expr) => expr,
+        None => format!(
+            "{}, nil",
+            go_return_expr(ty, var_name, ffi_prefix, opaque_names, value_only_types)
+        ),
+    }
+}
+
+fn fallible_json_return(
+    ty: &TypeRef,
+    var_name: &str,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+) -> Option<String> {
+    let (inner, null_is_error) = match ty {
+        TypeRef::Optional(inner) => (inner.as_ref(), false),
+        other => (other, true),
+    };
+    let free_string_fn = c_symbols::free_string_symbol(ffi_prefix);
+    let (result_ty, label, prelude, json_src, ret_operand) = match inner {
+        TypeRef::Named(name) if !opaque_names.contains(name.as_str()) => {
+            let type_snake = c_symbols::type_component(name);
+            let go_ty = go_type_name(name);
+            (
+                format!("*{go_ty}"),
+                go_ty,
+                format!("\tjsonPtr := C.{ffi_prefix}_{type_snake}_to_json({var_name})\n"),
+                "jsonPtr".to_string(),
+                "&result",
+            )
+        }
+        TypeRef::Vec(elem) => {
+            let result_ty = format!("[]{}", go_type(elem));
+            (
+                result_ty.clone(),
+                result_ty,
+                String::new(),
+                var_name.to_string(),
+                "result",
+            )
+        }
+        TypeRef::Map(k, v) => {
+            let result_ty = format!("map[{}]{}", go_type(k), go_type(v));
+            (
+                result_ty.clone(),
+                result_ty,
+                String::new(),
+                var_name.to_string(),
+                "result",
+            )
+        }
+        _ => return None,
+    };
+    let var_decl = result_ty.strip_prefix('*').unwrap_or(&result_ty);
+    let null_branch = if null_is_error {
+        format!(
+            "\t\tif err := lastError(); err != nil {{ return nil, err }}\n\
+             \t\treturn nil, fmt.Errorf(\"failed to serialise {label} response: native returned null JSON\")\n"
+        )
+    } else {
+        "\t\treturn nil, nil\n".to_string()
+    };
+    Some(format!(
+        "func() ({result_ty}, error) {{\n\
+         {prelude}\
+         \tif {json_src} == nil {{\n\
+         {null_branch}\
+         \t}}\n\
+         \tdefer C.{free_string_fn}({json_src})\n\
+         \tvar result {var_decl}\n\
+         \tif err := json.Unmarshal([]byte(C.GoString({json_src})), &result); err != nil {{\n\
+         \t\treturn nil, fmt.Errorf(\"failed to serialise {label} response: %w\", err)\n\
+         \t}}\n\
+         \treturn {ret_operand}, nil\n\
+         }}()"
+    ))
+}
+
 fn go_return_expr_inner(
     ty: &TypeRef,
     var_name: &str,

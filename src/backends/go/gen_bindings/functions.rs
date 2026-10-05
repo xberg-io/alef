@@ -1,6 +1,6 @@
 use super::methods::gen_param_to_c;
 use super::result_presence::result_presence_gate;
-use super::types::{emit_type_doc, go_return_expr};
+use super::types::{emit_type_doc, go_return_expr, go_return_values_with_error};
 use crate::backends::go::c_symbols;
 use crate::backends::go::type_map::{alef_handle_c_type, go_optional_type, go_return_type, go_type};
 use crate::codegen::mut_writeback;
@@ -394,12 +394,17 @@ pub(super) fn gen_function_wrapper(
                         out.push_str("\t}\n");
                         out.push_str("\treturn &result, nil\n");
                     } else {
-                        let return_expr =
-                            go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
+                        let return_values = go_return_values_with_error(
+                            &func.return_type,
+                            "ptr",
+                            ffi_prefix,
+                            opaque_names,
+                            value_only_types,
+                        );
                         out.push_str(&crate::backends::go::template_env::render(
                             "method_return_simple.jinja",
                             minijinja::context! {
-                                value => format!("{}, nil", return_expr),
+                                value => return_values,
                             },
                         ));
                     }
@@ -433,12 +438,17 @@ pub(super) fn gen_function_wrapper(
                         ));
                     }
                 } else {
-                    let return_expr =
-                        go_return_expr(&func.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
+                    let return_values = go_return_values_with_error(
+                        &func.return_type,
+                        "ptr",
+                        ffi_prefix,
+                        opaque_names,
+                        value_only_types,
+                    );
                     out.push_str(&crate::backends::go::template_env::render(
                         "method_return_simple.jinja",
                         minijinja::context! {
-                            value => format!("{}, nil", return_expr),
+                            value => return_values,
                         },
                     ));
                 }

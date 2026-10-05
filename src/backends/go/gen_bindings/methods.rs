@@ -1,6 +1,8 @@
 use super::functions::{is_bytes_result_method, params_require_marshal};
 use super::result_presence::result_presence_gate;
-use super::types::{cgo_type_for_primitive, emit_type_doc, go_return_expr, primitive_max_sentinel};
+use super::types::{
+    cgo_type_for_primitive, emit_type_doc, go_return_expr, go_return_values_with_error, primitive_max_sentinel,
+};
 use crate::backends::go::c_symbols;
 use crate::backends::go::type_map::{go_optional_type, go_return_type, go_type, go_zero_value};
 use crate::codegen::c_consumer;
@@ -494,12 +496,17 @@ pub(super) fn gen_method_wrapper(
                         },
                     ));
                 } else {
-                    let return_expr =
-                        go_return_expr(&method.return_type, "ptr", ffi_prefix, opaque_names, value_only_types);
+                    let return_values = go_return_values_with_error(
+                        &method.return_type,
+                        "ptr",
+                        ffi_prefix,
+                        opaque_names,
+                        value_only_types,
+                    );
                     out.push_str(&crate::backends::go::template_env::render(
                         "method_return_simple.jinja",
                         minijinja::context! {
-                            value => format!("{}, nil", return_expr),
+                            value => return_values,
                         },
                     ));
                 }

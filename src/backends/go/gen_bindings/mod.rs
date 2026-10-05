@@ -414,6 +414,9 @@ impl Backend for GoBackend {
 mod ffi_parity_tests;
 
 #[cfg(test)]
+mod response_decode_tests;
+
+#[cfg(test)]
 mod service_symbol_parity_tests;
 
 #[cfg(test)]
