@@ -17,6 +17,14 @@ use std::collections::HashSet;
 /// collection's value is its type zero, so newly added collection fields remain source-compatible
 /// for Swift callers instead of becoming new required arguments. ~keep
 pub(crate) fn swift_memberwise_default_literal(field: &FieldDef) -> Option<String> {
+    let collection_type = match &field.ty {
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Vec(_) | TypeRef::Map(_, _)),
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => true,
+        _ => false,
+    };
+    if collection_type && (field.optional || matches!(field.ty, TypeRef::Optional(_))) {
+        return None;
+    }
     field
         .typed_default
         .as_ref()

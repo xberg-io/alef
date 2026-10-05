@@ -314,6 +314,12 @@ pub(crate) fn formatting_owner(
 /// silently start lying the first time a template emitted an out-of-order key. Claiming it here
 /// costs a handful of counted, disclosed skips and cannot rot. ~keep
 fn residual_for(path: &Path, config: &ResolvedCrateConfig, base_dir: &Path) -> Option<&'static str> {
+    let owned_by_dart = super::dart_format_roots(config, base_dir).into_iter().any(|root| {
+        path.starts_with(root) && path.extension().and_then(|extension| extension.to_str()) == Some("dart")
+    });
+    if owned_by_dart {
+        return Some("dart format");
+    }
     let owned_by_zig = super::zig_format_roots(config, base_dir).into_iter().any(|root| {
         (path.starts_with(root.join("src")) && path.extension().and_then(|extension| extension.to_str()) == Some("zig"))
             || path == root.join("build.zig")

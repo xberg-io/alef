@@ -83,6 +83,57 @@ fn required_formatters_add_zig_only_when_zig_is_generated() {
 }
 
 #[test]
+fn required_formatters_add_dart_only_when_dart_is_generated() {
+    let tools: Vec<&str> = required_formatters(&[Language::Dart])
+        .iter()
+        .map(|formatter| formatter.tool)
+        .collect();
+    assert!(tools.contains(&"dart"), "Dart generation must require `dart` on PATH");
+
+    let python_tools: Vec<&str> = required_formatters(&[Language::Python])
+        .iter()
+        .map(|formatter| formatter.tool)
+        .collect();
+    assert!(
+        !python_tools.contains(&"dart"),
+        "non-Dart generation must not require the Dart toolchain"
+    );
+}
+
+#[test]
+fn dart_residual_formats_package_local_e2e_and_registry_test_app() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["dart"]
+[[crates]]
+name = "sample-model"
+sources = ["src/lib.rs"]
+[crates.e2e]
+output = "generated-e2e"
+[crates.e2e.call]
+function = "run"
+[crates.e2e.registry]
+output = "generated-test-apps"
+"#,
+    )
+    .expect("valid config");
+    let config = cfg.resolve().unwrap().remove(0);
+    let repo = tempfile::tempdir().expect("tempdir");
+    for relative in ["packages/dart", "generated-e2e/dart", "generated-test-apps/dart"] {
+        std::fs::create_dir_all(repo.path().join(relative)).expect("create Dart output");
+    }
+    let steps = language_residuals(&config, Language::Dart, repo.path());
+
+    assert_eq!(steps.len(), 3);
+    assert_eq!(steps[0].command, "dart");
+    assert_eq!(steps[0].args, vec!["format", "."]);
+    assert_eq!(steps[0].work_dir, repo.path().join("packages/dart"));
+    assert_eq!(steps[1].work_dir, repo.path().join("generated-e2e/dart"));
+    assert_eq!(steps[2].work_dir, repo.path().join("generated-test-apps/dart"));
+}
+
+#[test]
 fn formatter_error_includes_stdout_and_stderr() {
     let err = run_formatter(
         "sh",

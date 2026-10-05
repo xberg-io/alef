@@ -16,6 +16,7 @@
 
 use crate::backends::swift::gen_bindings::dto::emit_decoder_init;
 use crate::backends::swift::gen_bindings::zero_arg_default::compute_zero_arg_constructible_names;
+use crate::backends::swift::gen_bindings::zero_arg_default::swift_memberwise_default_literal;
 use crate::backends::swift::type_map::SwiftMapper;
 use crate::core::ir::{ApiSurface, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use std::collections::HashSet;
@@ -101,6 +102,40 @@ fn an_empty_default_still_decodes_to_the_swift_collection_zero() {
         scalar_out.contains("?? 0"),
         "`Empty` keeps the scalar zero fallback:\n{scalar_out}"
     );
+}
+
+#[test]
+fn optional_collections_keep_nil_memberwise_defaults() {
+    let optional_flag = FieldDef {
+        name: "denylist".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        optional: true,
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+    assert_eq!(swift_memberwise_default_literal(&optional_flag), None);
+
+    let optional_type = FieldDef {
+        name: "allowlist".to_string(),
+        ty: TypeRef::Optional(Box::new(TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::String),
+        ))),
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+    assert_eq!(swift_memberwise_default_literal(&optional_type), None);
+}
+
+#[test]
+fn non_optional_collections_keep_empty_memberwise_defaults() {
+    let field = FieldDef {
+        name: "denylist".to_string(),
+        ty: TypeRef::Vec(Box::new(TypeRef::String)),
+        typed_default: Some(DefaultValue::Empty),
+        ..Default::default()
+    };
+    assert_eq!(swift_memberwise_default_literal(&field).as_deref(), Some("[]"));
 }
 
 /// Reproduces a config struct whose `ngram_range: NgramRange` field carries `#[serde(default)]`

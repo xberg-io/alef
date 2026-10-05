@@ -1,5 +1,5 @@
-use crate::cli::pipeline::format::{converge_full_regen_formatting, poly_lint};
-use crate::core::config::ResolvedCrateConfig;
+use crate::cli::pipeline::format::{converge_full_regen_formatting, format_language_residual, poly_lint};
+use crate::core::config::{Language, ResolvedCrateConfig};
 use std::path::Path;
 
 /// Run the same converging whole-tree formatting pass `alef all` uses (see
@@ -20,8 +20,11 @@ use std::path::Path;
 /// must agree on the canonical form of the same file, and the converging pass is the
 /// one CI and the ownership guard's hash-stamping already treat as authoritative
 /// (alef #126). ~keep
-pub fn fmt(_config: &ResolvedCrateConfig, base_dir: &Path) -> anyhow::Result<()> {
+pub fn fmt(config: &ResolvedCrateConfig, base_dir: &Path) -> anyhow::Result<()> {
     converge_full_regen_formatting(base_dir);
+    if config.targets(Language::Dart) {
+        format_language_residual(config, Language::Dart, base_dir);
+    }
     Ok(())
 }
 
@@ -33,14 +36,18 @@ pub fn lint(_config: &ResolvedCrateConfig, base_dir: &Path) -> anyhow::Result<()
 /// Run the same converging whole-tree formatting pass as [`fmt`], as a post-generation
 /// best-effort pass. Never propagates failure (`converge_full_regen_formatting` is
 /// itself best-effort throughout).
-pub fn fmt_post_generate(_config: &ResolvedCrateConfig, base_dir: &Path) {
+pub fn fmt_post_generate(config: &ResolvedCrateConfig, base_dir: &Path) {
     converge_full_regen_formatting(base_dir);
+    if config.targets(Language::Dart) {
+        format_language_residual(config, Language::Dart, base_dir);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cli::pipeline::format::is_tool_available;
+    use crate::core::config::NewAlefConfig;
     use crate::test_support::tool_available_with_stable_path;
 
     fn write_minimal_mix_project(elixir_dir: &Path, content: &str) {
@@ -57,6 +64,41 @@ mod tests {
         )
         .unwrap();
         std::fs::write(elixir_dir.join("lib/sample.ex"), content).unwrap();
+    }
+
+    #[test]
+    fn fmt_runs_dart_format_on_already_stamped_owned_files() {
+        let Some(_path) = tool_available_with_stable_path("dart") else {
+            return;
+        };
+        let dir = tempfile::tempdir().expect("tempdir");
+        let dart_dir = dir.path().join("packages/dart/lib");
+        std::fs::create_dir_all(&dart_dir).expect("create Dart package");
+        let dart_file = dart_dir.join("sample.dart");
+        std::fs::write(
+            &dart_file,
+            "// alef:hash:0000000000000000000000000000000000000000000000000000000000000000\nvoid main(){print('ok');}\n",
+        )
+        .expect("write Dart source");
+        let parsed: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["dart"]
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .expect("valid config");
+        let config = parsed.resolve().expect("resolved config").remove(0);
+
+        fmt(&config, dir.path()).expect("fmt succeeds");
+
+        let formatted = std::fs::read_to_string(dart_file).expect("read formatted Dart source");
+        assert!(
+            formatted.contains("void main() {\n  print('ok');\n}"),
+            "the native Dart formatter must not skip stamped owned files:\n{formatted}"
+        );
     }
 
     /// Regression for alef #126: `alef fmt` used to run a bespoke `poly_fmt` +

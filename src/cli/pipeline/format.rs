@@ -138,6 +138,12 @@ fn required_formatters(languages: &[Language]) -> Vec<RequiredFormatter> {
             install_hint: "install Zig (https://ziglang.org/download/) and put it on PATH",
         });
     }
+    if languages.contains(&Language::Dart) {
+        required.push(RequiredFormatter {
+            tool: "dart",
+            install_hint: "install Dart (https://dart.dev/get-dart) and put it on PATH",
+        });
+    }
     required
 }
 
@@ -284,9 +290,12 @@ fn run_format_pass(
     match only_languages {
         None => {
             converge_full_regen(base_dir, &mut pass);
-            if config.targets(Language::Zig) {
-                for step in language_residuals(config, Language::Zig, base_dir) {
-                    run_residual(&step, "zig", &mut pass);
+            for language in [Language::Zig, Language::Dart] {
+                if config.targets(language) {
+                    let label = language.to_string().to_lowercase();
+                    for step in language_residuals(config, language, base_dir) {
+                        run_residual(&step, &label, &mut pass);
+                    }
                 }
             }
         }
@@ -373,6 +382,15 @@ const MAX_POLY_FMT_PASSES: u32 = 3;
 pub(crate) fn converge_full_regen_formatting(base_dir: &Path) {
     let mut pass = FormatPass::new(&is_tool_available);
     converge_full_regen(base_dir, &mut pass);
+    crate::e2e::format::warn_deferred(&pass.skipped);
+}
+
+pub(crate) fn format_language_residual(config: &ResolvedCrateConfig, language: Language, base_dir: &Path) {
+    let mut pass = FormatPass::new(&is_tool_available);
+    let label = language.to_string().to_lowercase();
+    for step in language_residuals(config, language, base_dir) {
+        run_residual(&step, &label, &mut pass);
+    }
     crate::e2e::format::warn_deferred(&pass.skipped);
 }
 
@@ -745,6 +763,15 @@ pub(crate) fn install_poly_hooks(base_dir: &Path) {
 /// `deps/` before `mix format` can resolve it.
 fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &Path) -> Vec<ResidualStep> {
     match lang {
+        Language::Dart => dart_format_roots(config, base_dir)
+            .into_iter()
+            .filter(|root| root.is_dir())
+            .map(|work_dir| ResidualStep {
+                command: "dart".to_owned(),
+                args: vec!["format".to_owned(), ".".to_owned()],
+                work_dir,
+            })
+            .collect(),
         Language::Zig => zig_format_steps(config, base_dir),
         Language::Wasm => {
             let crate_dir = config
@@ -780,6 +807,15 @@ fn language_residuals(config: &ResolvedCrateConfig, lang: Language, base_dir: &P
         )],
         _ => vec![],
     }
+}
+
+fn dart_format_roots(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![base_dir.join(config.package_dir(Language::Dart))];
+    if let Some(e2e) = &config.e2e {
+        roots.push(base_dir.join(&e2e.output).join("dart"));
+        roots.push(base_dir.join(&e2e.registry.output).join("dart"));
+    }
+    roots
 }
 
 fn zig_format_steps(config: &ResolvedCrateConfig, base_dir: &Path) -> Vec<ResidualStep> {

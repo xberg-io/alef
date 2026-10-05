@@ -28,6 +28,29 @@ fn plain_config() -> ResolvedCrateConfig {
     config_with("")
 }
 
+#[test]
+fn dart_package_and_both_e2e_outputs_are_owned_by_the_native_formatter() {
+    let config = config_with(
+        E2E_WITH_OVERRIDES
+            .replace("[crates.e2e.format]\ndart = \"cd {dir} && dart format .\"\n", "")
+            .as_str(),
+    );
+    let base = Path::new("/repo");
+    let coverage = PolyCoverage::covering([]);
+
+    for path in [
+        "packages/dart/lib/sample.dart",
+        "e2e/dart/test/sample_test.dart",
+        "test_apps/dart/test/sample_test.dart",
+    ] {
+        assert_eq!(
+            formatting_owner(&base.join(path), &config, base, &coverage),
+            FormattingOwner::Residual("dart format"),
+            "{path} must be classified under the formatter that writes its final bytes"
+        );
+    }
+}
+
 const E2E_WITH_OVERRIDES: &str = r#"
 [crates.e2e]
 fixtures = "fixtures"

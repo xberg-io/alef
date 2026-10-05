@@ -220,6 +220,10 @@ fn format_language(
         crate::cli::pipeline::poly_format_strict(std::slice::from_ref(&dir_path), &dir_path)?;
     }
 
+    if lang == "dart" {
+        run_dart_format(&dir_path, lang, strict, deferred)?;
+    }
+
     // Residual: `go mod tidy` populates `go.sum` from `go.mod` (poly cannot —
     // it is dependency resolution, not formatting) so the Go suite builds.
     if lang == "go" {
@@ -522,6 +526,13 @@ fn run_mix_format(dir: &Path, lang: &str, strict: bool, deferred: &mut Vec<Defer
     match run_in_dir("mix", &["format"], dir, "elixir") {
         Ok(()) => Ok(()),
         Err(failure) => resolve_shell_failure(failure, lang, "mix format", strict, deferred),
+    }
+}
+
+fn run_dart_format(dir: &Path, lang: &str, strict: bool, deferred: &mut Vec<DeferredFormatting>) -> anyhow::Result<()> {
+    match run_in_dir("dart", &["format", "."], dir, "dart") {
+        Ok(()) => Ok(()),
+        Err(failure) => resolve_shell_failure(failure, lang, "dart format .", strict, deferred),
     }
 }
 

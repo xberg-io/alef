@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.103.17] - 2026-10-05
+
+### Fixed
+
+- Dart's native formatter runs over generated packages, local e2e suites, and registry test apps
+  before Alef stamps their output, including when formatting an already-stamped tree.
+- Optional Swift collection fields retain `nil` memberwise defaults, while non-optional collections
+  whose Rust metadata proves the type-zero value continue to default to empty collections.
+
 ## [0.103.16] - 2026-10-05
 
 ### Added
