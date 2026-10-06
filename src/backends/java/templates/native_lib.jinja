@@ -325,6 +325,11 @@ final class {{ class_name }} {
         FunctionDescriptor.of(ValueLayout.ADDRESS)
     );
 
+{% for handle in last_error_field_handles %}
+{{ handle }}
+{% endfor %}
+{{ last_error_exception }}
+
 {% for accessor_handle in accessor_handles %}
 {{ accessor_handle }}
 {% endfor %}

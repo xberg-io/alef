@@ -526,6 +526,29 @@ pub(super) fn gen_native_methods(
     ));
     out.push_str("    internal static extern IntPtr LastErrorContext();\n\n");
 
+    for field in crate::codegen::error_gen::last_error_fields(&api.errors) {
+        out.push_str(&render(
+            "dll_import_attr.jinja",
+            minijinja::context! { entry_point => crate::codegen::c_consumer::last_error_field_symbol(prefix, &field.name) },
+        ));
+        let (return_attribute, return_type) = match &field.kind {
+            crate::codegen::error_gen::LastErrorFieldKind::Scalar(crate::core::ir::PrimitiveType::Bool) => {
+                ("    [return: MarshalAs(UnmanagedType.U1)]\n", "bool".to_string())
+            }
+            crate::codegen::error_gen::LastErrorFieldKind::Scalar(primitive) => (
+                "",
+                crate::codegen::error_gen::typeref_to_csharp_type(&TypeRef::Primitive(primitive.clone())).to_string(),
+            ),
+            crate::codegen::error_gen::LastErrorFieldKind::Text => ("", "IntPtr".to_string()),
+            crate::codegen::error_gen::LastErrorFieldKind::DurationMillis => ("", "long".to_string()),
+        };
+        out.push_str(return_attribute);
+        out.push_str(&format!(
+            "    internal static extern {return_type} {}();\n\n",
+            crate::codegen::error_gen::csharp_last_error_getter_name(&field.name)
+        ));
+    }
+
     let free_string_entry = format!("{prefix}_free_string");
     out.push_str(&render(
         "dll_import_attr.jinja",

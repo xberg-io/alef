@@ -6,7 +6,7 @@
             if (code == 0) { return; }
             MemorySegment ctxPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_LAST_ERROR_CONTEXT.invoke();
             String msg = ctxPtr.equals(MemorySegment.NULL) ? "unknown" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
-            throw new {{ exception_class }}(code, msg);
+            throw NativeLib.lastErrorException(code, msg);
         } catch ({{ exception_class }} e) {
             throw e;
         } catch (Throwable e) {

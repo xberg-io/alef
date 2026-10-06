@@ -469,22 +469,11 @@ pub(crate) const INFRASTRUCTURE_ERROR_CLASSES: [(&str, u32, &str); 4] = [
     ),
 ];
 
-fn emit_error_helper(out: &mut String, prefix: &str, class_name: &str, api: &crate::core::ir::ApiSurface) {
-    let mut error_codes: Vec<(u32, String)> = INFRASTRUCTURE_ERROR_CLASSES
-        .iter()
-        .map(|(name, code, _doc)| (*code, (*name).to_string()))
-        .collect();
-    error_codes.extend(
-        api.error_taxonomy()
-            .iter()
-            .map(|entry| (entry.code, format!("{}Exception", entry.variant))),
-    );
+fn emit_error_helper(out: &mut String, prefix: &str) {
     out.push_str(&crate::backends::java::template_env::render(
         "helper_check_last_error.jinja",
         minijinja::context! {
             prefix_upper => prefix.to_uppercase(),
-            class_name => class_name,
-            error_codes => error_codes,
         },
     ));
 }
@@ -515,7 +504,7 @@ mod object_mapper_tests {
     fn path_values_are_serialized_as_native_file_system_paths() {
         let mut output = "MAPPER.writeValueAsString(value)".to_string();
 
-        gen_helper_methods(&mut output, "sample", "Sample", &crate::core::ir::ApiSurface::default());
+        gen_helper_methods(&mut output, "sample", "Sample");
 
         assert!(
             output.contains("return JsonMapperFactory.withNativePathSerialization(mapper);"),
@@ -524,7 +513,7 @@ mod object_mapper_tests {
     }
 }
 
-pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &str, api: &crate::core::ir::ApiSurface) {
+pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &str) {
     let needs = HelperNeeds::from_output(out);
     if needs.is_empty() {
         return;
@@ -541,7 +530,7 @@ pub(crate) fn gen_helper_methods(out: &mut String, prefix: &str, class_name: &st
     }
 
     if needs.check_last_error {
-        emit_error_helper(out, prefix, class_name, api);
+        emit_error_helper(out, prefix);
     }
 
     if needs.object_mapper {
@@ -590,12 +579,15 @@ mod typed_error_tests {
         let code = api.error_taxonomy()[0].code;
         let mut output = "checkLastError()".to_string();
 
-        gen_helper_methods(&mut output, "sample", "Sample", &api);
+        gen_helper_methods(&mut output, "sample", "Sample");
+        let dispatch =
+            crate::backends::java::gen_bindings::last_error::gen_last_error_exception(&api, "sample", "Sample");
 
-        assert!(output.contains(&format!("case {code} -> throw new InvalidInputException(msg);")));
-        assert!(output.contains("case 1 -> throw new ConversionErrorException(msg);"));
-        assert!(output.contains("case 2 -> throw new CoreErrorException(msg);"));
-        assert!(output.contains("case 3 -> throw new PanicException(msg);"));
+        assert!(dispatch.contains(&format!("case {code} -> new InvalidInputException(msg);")));
+        assert!(dispatch.contains("case 1 -> new ConversionErrorException(msg);"));
+        assert!(dispatch.contains("case 2 -> new CoreErrorException(msg);"));
+        assert!(dispatch.contains("case 3 -> new PanicException(msg);"));
+        assert!(output.contains("throw NativeLib.lastErrorException(errCode, msg);"));
         let null_guard = output
             .find("ctxPtr.equals(MemorySegment.NULL)")
             .expect("null context guard");
@@ -666,8 +658,8 @@ mod typed_error_tests {
             errors: vec![error],
             ..Default::default()
         };
-        let mut output = "checkLastError()".to_string();
-        gen_helper_methods(&mut output, "sample", "Sample", &api);
+        let output =
+            crate::backends::java::gen_bindings::last_error::gen_last_error_exception(&api, "sample", "Sample");
 
         let expected: Vec<(u32, String)> = INFRASTRUCTURE_ERROR_CLASSES
             .iter()
@@ -681,7 +673,7 @@ mod typed_error_tests {
         assert_eq!(expected.len(), 6, "expected 4 infrastructure + 2 taxonomy exceptions");
 
         for (code, class_name) in &expected {
-            let arm = format!("case {code} -> throw new {class_name}(msg);");
+            let arm = format!("case {code} -> new {class_name}(msg);");
             assert!(
                 output.contains(&arm),
                 "missing reachable dispatch arm for {class_name} (code {code}): {arm}"
@@ -705,10 +697,13 @@ mod cancellation_code_tests {
     /// reports every unknown code as the generic base exception. ~keep
     #[test]
     fn the_cancelled_ffi_code_has_its_own_dispatch_arm_and_class() {
-        let mut output = "checkLastError()".to_string();
-        gen_helper_methods(&mut output, "sample", "Sample", &crate::core::ir::ApiSurface::default());
+        let output = crate::backends::java::gen_bindings::last_error::gen_last_error_exception(
+            &crate::core::ir::ApiSurface::default(),
+            "sample",
+            "Sample",
+        );
         assert!(
-            output.contains("case 5 -> throw new OperationCancelledException(msg);"),
+            output.contains("case 5 -> new OperationCancelledException(msg);"),
             "missing cancellation arm:\n{output}"
         );
         assert!(

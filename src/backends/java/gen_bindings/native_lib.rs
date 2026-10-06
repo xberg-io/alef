@@ -779,6 +779,7 @@ pub(crate) fn gen_native_lib(
     required_symbols.retain(|symbol| !optional_symbols.contains(symbol));
     required_symbols.insert(format!("{prefix}_last_error_code"));
     required_symbols.insert(format!("{prefix}_last_error_context"));
+    required_symbols.extend(super::last_error::field_symbols(api, prefix));
     let required_symbols: Vec<String> = required_symbols.into_iter().collect();
     let library_environment_prefix: String = lib_name
         .chars()
@@ -805,6 +806,12 @@ pub(crate) fn gen_native_lib(
             builder_handles => builder_handles,
             trait_handles => trait_handles,
             visitor_handles => visitor_handles,
+            last_error_field_handles => super::last_error::field_handles(api, prefix),
+            last_error_exception => super::last_error::gen_last_error_exception(
+                api,
+                prefix,
+                &crate::backends::java::naming::main_class_name(&api.crate_name),
+            ),
         },
     );
 

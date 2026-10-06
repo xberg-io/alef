@@ -152,7 +152,7 @@ fn typeref_to_go_type(ty: &crate::core::ir::TypeRef) -> &'static str {
 }
 
 /// Convert a snake_case or camelCase name to PascalCase.
-fn to_pascal_case(s: &str) -> String {
+pub(crate) fn to_pascal_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
             let mut chars = word.chars();
@@ -216,7 +216,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
             main_class => main_class,
             doc => !error.doc.is_empty(),
             doc_lines => doc_lines,
-            methods => method_infos,
+            methods => method_infos.clone(),
             has_methods => has_methods,
             legacy_ctor_methods => legacy_ctor_methods,
             has_duration_methods => has_duration_methods,
@@ -237,6 +237,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
                 doc => !variant.doc.is_empty(),
                 doc_lines => doc_lines,
                 has_methods => has_methods,
+                methods => method_infos.clone(),
             },
         );
         files.push((class_name, content));
@@ -246,7 +247,7 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
 }
 
 /// Map an IR `TypeRef` to a Java type string for error introspection getters.
-fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static str {
+pub(crate) fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
     if duration_shape(ty).is_some() {
         return "java.time.Duration";
@@ -286,7 +287,7 @@ fn java_getter_name(snake: &str) -> String {
 /// Convert a snake_case method name to a Java field name (camelCase).
 /// E.g. `status_code` → `statusCode`, `is_transient` → `isTransientFlag`.
 /// Fields that conflict with Serializable interface methods get a suffix.
-fn java_field_name(snake: &str) -> String {
+pub(crate) fn java_field_name(snake: &str) -> String {
     let parts: Vec<&str> = snake.split('_').collect();
     if parts.is_empty() {
         return snake.to_string();
@@ -311,7 +312,7 @@ fn java_field_name(snake: &str) -> String {
 }
 
 /// Return the Java zero-value literal for a type (used in the no-args default constructor).
-fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
+pub(crate) fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match duration_shape(ty) {
         Some(DurationShape::Optional) => return "null",
@@ -342,6 +343,7 @@ pub fn gen_csharp_error_types(
     error: &ErrorDef,
     namespace: &str,
     fallback_class: Option<&str>,
+    last_error_getters: &[super::LastErrorField],
 ) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
@@ -372,17 +374,21 @@ pub fn gen_csharp_error_types(
                 .filter(|l| !l.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
+            let apply_lines = csharp_last_error_apply_lines(m, &prop_name, last_error_getters);
             serde_json::json!({
                 "prop_name": prop_name,
                 "cs_type": cs_type,
                 "param_name": param_name,
                 "default_value": default_value,
                 "is_duration": duration_shape(&m.return_type).is_some(),
+                "wired": !apply_lines.is_empty(),
+                "apply_lines": apply_lines,
                 "doc": inline_doc,
             })
         })
         .collect();
     let has_methods = !method_infos.is_empty();
+    let has_last_error_fields = method_infos.iter().any(|m| m["wired"] == serde_json::Value::Bool(true));
     let (legacy_ctor_methods, has_duration_methods) = split_duration_methods(&method_infos);
 
     {
@@ -396,6 +402,7 @@ pub fn gen_csharp_error_types(
                 doc_lines => error_doc_lines,
                 methods => method_infos,
                 has_methods => has_methods,
+                has_last_error_fields => has_last_error_fields,
                 legacy_ctor_methods => legacy_ctor_methods,
                 has_duration_methods => has_duration_methods,
             },
@@ -430,7 +437,7 @@ pub fn gen_csharp_error_types(
 }
 
 /// Map an IR `TypeRef` to a C# type string for error introspection properties.
-fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
+pub(crate) fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match duration_shape(ty) {
         Some(DurationShape::Optional) => return "TimeSpan?",
@@ -455,7 +462,7 @@ fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
 }
 
 /// Return the C# zero-value literal for a type (used in the default constructor).
-fn csharp_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
+pub(crate) fn csharp_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match duration_shape(ty) {
         Some(DurationShape::Optional) => return "null",
@@ -471,12 +478,12 @@ fn csharp_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
 
 /// Whether an error introspection method returns a `Duration`, and if so whether it is optional.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DurationShape {
+pub(crate) enum DurationShape {
     Bare,
     Optional,
 }
 
-fn duration_shape(ty: &crate::core::ir::TypeRef) -> Option<DurationShape> {
+pub(crate) fn duration_shape(ty: &crate::core::ir::TypeRef) -> Option<DurationShape> {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Duration => Some(DurationShape::Bare),
@@ -501,4 +508,75 @@ fn split_duration_methods(methods: &[serde_json::Value]) -> (Vec<serde_json::Val
         .collect();
     let has_duration = legacy.len() != methods.len();
     (legacy, has_duration)
+}
+
+/// Name of the `NativeMethods` P/Invoke wrapping `<prefix>_last_error_<method>`.
+pub(crate) fn csharp_last_error_getter_name(method_name: &str) -> String {
+    format!("LastError{}", to_pascal_case(method_name))
+}
+
+/// Whether `error`'s `method` is populated from a `<prefix>_last_error_<method>` getter: the FFI
+/// layer exports one only for a method of a capturable kind, and when two errors declare the same
+/// name with different kinds it keeps the first, so a later error's differing method stays at its
+/// default instead of reading a getter of the wrong type.
+fn csharp_last_error_getter<'a>(
+    method: &crate::core::ir::MethodDef,
+    getters: &'a [super::LastErrorField],
+) -> Option<&'a super::LastErrorField> {
+    let kind = super::last_error_field_kind(method)?;
+    getters
+        .iter()
+        .find(|field| field.name == method.name && field.kind == kind)
+}
+
+/// The `ApplyLastError` statements assigning one introspection property from its native getter,
+/// empty when the method has none.
+fn csharp_last_error_apply_lines(
+    method: &crate::core::ir::MethodDef,
+    prop_name: &str,
+    getters: &[super::LastErrorField],
+) -> Vec<String> {
+    use super::LastErrorFieldKind;
+    let Some(field) = csharp_last_error_getter(method, getters) else {
+        return Vec::new();
+    };
+    let call = format!("NativeMethods.{}()", csharp_last_error_getter_name(&method.name));
+    let local = java_field_name(&method.name);
+    match &field.kind {
+        LastErrorFieldKind::Scalar(_) => vec![format!("{prop_name} = {call};")],
+        LastErrorFieldKind::Text => vec![
+            format!("var {local}Ptr = {call};"),
+            format!(
+                "{prop_name} = {local}Ptr == IntPtr.Zero ? string.Empty : global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8({local}Ptr) ?? string.Empty;"
+            ),
+        ],
+        LastErrorFieldKind::DurationMillis => {
+            let value = if matches!(method.return_type, crate::core::ir::TypeRef::Optional(_)) {
+                format!("{local}Millis < 0 ? null : TimeSpan.FromMilliseconds({local}Millis)")
+            } else {
+                format!("TimeSpan.FromMilliseconds(Math.Max({local}Millis, 0L))")
+            };
+            vec![
+                format!("var {local}Millis = {call};"),
+                format!("{prop_name} = {value};"),
+            ]
+        }
+    }
+}
+
+/// The base exception classes that carry an `ApplyLastError` method.
+pub(crate) fn csharp_error_bases_with_last_error_fields(
+    errors: &[ErrorDef],
+    getters: &[super::LastErrorField],
+) -> Vec<String> {
+    errors
+        .iter()
+        .filter(|error| {
+            error
+                .methods
+                .iter()
+                .any(|m| csharp_last_error_getter(m, getters).is_some())
+        })
+        .map(|error| format!("{}Exception", error.name))
+        .collect()
 }

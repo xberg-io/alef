@@ -43,6 +43,15 @@ public class {{ class_name }} : Exception
         var code = NativeMethods.LastErrorCode();
         var ctxPtr = NativeMethods.LastErrorContext();
         var message = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? fallbackMessage;
+        var exception = CreateFromLastError(code, message);
+{% for base in last_error_bases %}
+        if (exception is {{ base }} nativeError{{ loop.index }}) nativeError{{ loop.index }}.ApplyLastError();
+{% endfor %}
+        return exception;
+    }
+
+    private static Exception CreateFromLastError(int code, string message)
+    {
         if (code == {{ cancelled_code }}) return new OperationCanceledException(message);
 {% if has_base_error %}
 {% for line in variant_dispatch_lines %}

@@ -18,7 +18,7 @@ public class {{ base_name }} : {{ base_parent }}
 {% for m in methods %}
 {% if m.doc %}    /// <summary>{{ m.doc }}</summary>
 {% endif %}
-    public {{ m.cs_type }} {{ m.prop_name }} { get; }
+    public {{ m.cs_type }} {{ m.prop_name }} { get;{% if m.wired %} private set;{% endif %} }
 {% endfor %}
 
     public {{ base_name }}(string message) : base(message)
@@ -71,6 +71,18 @@ public class {{ base_name }} : {{ base_parent }}
     {
 {% for m in methods %}
         {{ m.prop_name }} = {{ m.param_name }};
+{% endfor %}
+    }
+{% endif %}
+{% if has_last_error_fields %}
+
+    /// <summary>Fills the introspection properties from the native layer's last-error getters; call before any other native call.</summary>
+    internal void ApplyLastError()
+    {
+{% for m in methods %}
+{% for line in m.apply_lines %}
+        {{ line }}
+{% endfor %}
 {% endfor %}
     }
 {% endif %}

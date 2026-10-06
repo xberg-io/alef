@@ -22,4 +22,11 @@ public class {{ class_name }} extends {{ base_name }} {
   public {{ class_name }}(final String message, final Throwable cause) {
     super(message, cause);
   }
+{% if has_methods %}
+
+  /** Creates a new {{ class_name }} with the given message and the native error's introspection values. */
+  public {{ class_name }}(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+    super(message{% for m in methods %}, {{ m.field_name }}{% endfor %});
+  }
+{% endif %}
 }

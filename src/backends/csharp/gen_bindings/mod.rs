@@ -329,9 +329,14 @@ impl Backend for CsharpBackend {
 
         if !api.errors.is_empty() {
             let mut seen_exception_files: HashSet<String> = HashSet::new();
+            let last_error_getters = crate::codegen::error_gen::last_error_fields(&api.errors);
             for error in &api.errors {
-                let error_files =
-                    crate::codegen::error_gen::gen_csharp_error_types(error, &namespace, Some(&exception_class_name));
+                let error_files = crate::codegen::error_gen::gen_csharp_error_types(
+                    error,
+                    &namespace,
+                    Some(&exception_class_name),
+                    &last_error_getters,
+                );
                 for (class_name, content) in error_files {
                     if !seen_exception_files.insert(class_name.clone()) {
                         continue;

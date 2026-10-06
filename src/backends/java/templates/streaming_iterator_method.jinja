@@ -81,7 +81,7 @@
                             String msg = ctxPtr.equals(MemorySegment.NULL)
                                 ? "unknown"
                                 : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
-                            primary = new RuntimeException(new {{ exception_class }}(code, msg));
+                            primary = new RuntimeException(NativeLib.lastErrorException(code, msg));
                         }
                     } catch (Throwable error) {
                         primary = failure("failed to read stream status", error);

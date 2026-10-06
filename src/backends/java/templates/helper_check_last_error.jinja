@@ -5,11 +5,6 @@
             String msg = ctxPtr.equals(MemorySegment.NULL)
                 ? "Native call failed with error code " + errCode
                 : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);
-            switch (errCode) {
-{% for error_code in error_codes %}
-                case {{ error_code.0 }} -> throw new {{ error_code.1 }}(msg);
-{% endfor %}
-                default -> throw new {{ class_name }}Exception(errCode, msg);
-            }
+            throw NativeLib.lastErrorException(errCode, msg);
         }
     }

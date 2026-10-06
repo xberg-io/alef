@@ -77,7 +77,7 @@ fn check_last_error_throws_message_carrying_subclasses_inside_the_guarded_try() 
     let generated = generate_main_class();
 
     assert!(
-        generated.contains("case 2 -> throw new CoreErrorException(msg);"),
+        generated.contains("throw NativeLib.lastErrorException(errCode, msg);"),
         "checkLastError() must map an error code onto a typed subclass carrying the native message:\n{generated}"
     );
     assert!(
@@ -98,12 +98,12 @@ fn check_last_error_throws_message_carrying_subclasses_inside_the_guarded_try() 
 #[test]
 fn error_enum_base_exception_extends_the_method_exception() {
     let (api, _config, _capsule_types) = typed_error_surface();
-    let generated = generate_main_class();
+    let dispatch = crate::backends::java::gen_bindings::last_error::gen_last_error_exception(&api, "sample", "Sample");
 
     assert!(
-        generated.contains("case 100 -> throw new ParsingException(msg);"),
-        "fixture must route the SampleError::Parsing variant through checkLastError()'s \
-         taxonomy switch:\n{generated}"
+        dispatch.contains("case 100 -> new ParsingException(msg);"),
+        "fixture must route the SampleError::Parsing variant through the taxonomy switch \
+         checkLastError() delegates to:\n{dispatch}"
     );
 
     let error = api

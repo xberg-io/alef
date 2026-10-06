@@ -1,0 +1,22 @@
+    static {{ exception_class }} lastErrorException(final int errCode, final String msg) {
+{% for f in fields %}
+        {{ f.java_type }} {{ f.local }} = {{ f.default_value }};
+{% endfor %}
+{% if fields %}
+        try {
+{% for f in fields %}
+{% for line in f.read %}
+            {{ line }}
+{% endfor %}
+{% endfor %}
+        } catch (Throwable ignored) {
+            // The introspection values are best-effort; the error itself is already known.
+        }
+{% endif %}
+        return switch (errCode) {
+{% for c in cases %}
+            case {{ c.code }} -> new {{ c.class_name }}(msg{{ c.args }});
+{% endfor %}
+            default -> new {{ exception_class }}(errCode, msg);
+        };
+    }

@@ -110,7 +110,7 @@ fn test_gen_java_error_types() {
 #[test]
 fn test_gen_csharp_error_types() {
     let error = sample_error();
-    let files = gen_csharp_error_types(&error, "SampleCrate.Test", None);
+    let files = gen_csharp_error_types(&error, "SampleCrate.Test", None, &[]);
     assert_eq!(files.len(), 4);
     assert_eq!(files[0].0, "ConversionErrorException");
     assert!(files[0].1.contains("public class ConversionErrorException : Exception"));
@@ -128,7 +128,7 @@ fn test_gen_csharp_error_types() {
 #[test]
 fn test_gen_csharp_error_types_with_fallback() {
     let error = sample_error();
-    let files = gen_csharp_error_types(&error, "SampleCrate.Test", Some("TestLibException"));
+    let files = gen_csharp_error_types(&error, "SampleCrate.Test", Some("TestLibException"), &[]);
     assert_eq!(files.len(), 4);
     assert!(
         files[0]

@@ -12,6 +12,7 @@ mod exclusion;
 mod facade;
 mod ffi_class;
 pub mod helpers;
+mod last_error;
 mod line_wrap;
 mod marshal;
 mod native_lib;

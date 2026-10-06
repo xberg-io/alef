@@ -713,7 +713,7 @@ fn test_gen_java_error_types_no_methods() {
 #[test]
 fn test_gen_csharp_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None);
+    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None, &[]);
     assert_eq!(files.len(), 1);
     let base = &files[0].1;
     assert!(
@@ -741,7 +741,7 @@ fn test_gen_csharp_error_types_with_methods() {
 #[test]
 fn test_gen_csharp_error_types_no_methods() {
     let error = sample_error();
-    let files = gen_csharp_error_types(&error, "SampleCrate.Test", None);
+    let files = gen_csharp_error_types(&error, "SampleCrate.Test", None, &[]);
     let base = &files[0].1;
     assert!(!base.contains("{ get; }"), "no properties when no methods: {base}");
     assert!(
@@ -770,7 +770,7 @@ fn test_gen_csharp_error_types_strips_rust_idioms_in_doc() {
             assert_eq!(error.status_code(), 401);\n\
             ```\n"
         .to_string();
-    let files = gen_csharp_error_types(&error, "SampleRouter", None);
+    let files = gen_csharp_error_types(&error, "SampleRouter", None, &[]);
     let base = &files[0].1;
     assert!(
         !base.contains("```"),

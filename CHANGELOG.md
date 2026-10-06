@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
   `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error
   set), and Kotlin/Native throws `kotlin.coroutines.cancellation.CancellationException`.
+- Java and C# errors thrown from native calls carry their introspection values (`statusCode`,
+  `retryAfter`, `isTransient`, `errorType`) read from the FFI `<prefix>_last_error_*` getters,
+  where they used to keep their defaults. Java's client and streaming calls throw the typed
+  variant exceptions instead of the generic base exception.
 - The Zig streaming iterator maps FFI error code 5 (`Cancelled`) to `error.Cancelled` instead of
   `error.UnknownFfiError`.
 - Java and C# error exceptions map a `Duration`-valued introspection method to a duration type

@@ -33,6 +33,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/helper_check_last_error.jinja"),
     ),
     (
+        "helper_last_error_exception.jinja",
+        include_str!("templates/helper_last_error_exception.jinja"),
+    ),
+    (
         "helper_object_mapper.jinja",
         include_str!("templates/helper_object_mapper.jinja"),
     ),

@@ -79,6 +79,10 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str, errors: &[E
     use minijinja::Value;
 
     let (has_base_error, base_exception_class, variant_dispatch_lines) = compute_variant_dispatch(errors);
+    let last_error_bases = crate::codegen::error_gen::csharp_error_bases_with_last_error_fields(
+        errors,
+        &crate::codegen::error_gen::last_error_fields(errors),
+    );
 
     render(
         "exception_class.jinja",
@@ -89,6 +93,7 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str, errors: &[E
             "base_exception_class": base_exception_class,
             "variant_dispatch_lines": variant_dispatch_lines,
             "cancelled_code": crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED,
+            "last_error_bases": last_error_bases,
         })),
     )
 }
@@ -472,6 +477,12 @@ mod tests {
             "        var code = NativeMethods.LastErrorCode();",
             "        var ctxPtr = NativeMethods.LastErrorContext();",
             "        var message = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? fallbackMessage;",
+            "        var exception = CreateFromLastError(code, message);",
+            "        return exception;",
+            "    }",
+            "",
+            "    private static Exception CreateFromLastError(int code, string message)",
+            "    {",
             "        if (code == 5) return new OperationCanceledException(message);",
             "        if (message.StartsWith(\"Authentication failed:\")) return WithNativeCode(new AuthenticationException(message), code);",
             "        if (message.StartsWith(\"Bad request:\")) return WithNativeCode(new BadRequestException(message), code);",
@@ -511,5 +522,33 @@ mod tests {
             without_errors.contains("if (code == 5) return new OperationCanceledException(message);"),
             "{without_errors}"
         );
+    }
+
+    /// The throw sites all funnel through `FromLastError`, so that is where the native
+    /// introspection values must be applied -- after dispatch, before any other native call. ~keep
+    #[test]
+    fn gen_exception_class_applies_native_fields_to_error_bases_that_carry_them() {
+        let mut api_error = error(
+            "ApiError",
+            vec![variant("Authentication", Some("Authentication failed: {reason}"))],
+        );
+        api_error.methods = vec![crate::core::ir::MethodDef {
+            name: "status_code".to_string(),
+            return_type: crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::U16),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        }];
+        let rendered = gen_exception_class("Sample.Client", "SampleClientException", &[api_error]);
+        assert!(
+            rendered.contains("if (exception is ApiErrorException nativeError1) nativeError1.ApplyLastError();"),
+            "{rendered}"
+        );
+
+        let plain = gen_exception_class(
+            "Sample.Client",
+            "SampleClientException",
+            &[error("ApiError", vec![variant("Authentication", None)])],
+        );
+        assert!(!plain.contains("ApplyLastError"), "{plain}");
     }
 }
