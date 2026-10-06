@@ -44,7 +44,7 @@ pub(crate) use poly_migrations::{
 pub(crate) use python::{scaffold_python, scaffold_python_cargo};
 pub(crate) use r::{scaffold_r, scaffold_r_cargo};
 pub(crate) use ruby::{ruby_native_manifest_path, scaffold_ruby, scaffold_ruby_cargo};
-pub(crate) use swift::{migrate_swift_placeholder_test, scaffold_swift};
+pub(crate) use swift::{migrate_swift_placeholder_test, migrate_swift_rust_bridge_language_mode, scaffold_swift};
 #[cfg(test)]
 pub(crate) use wasm::STALE_WASM_CARGO_CONFIG;
 pub(crate) use wasm::{

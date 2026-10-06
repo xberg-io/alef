@@ -19,6 +19,7 @@ pub(super) fn apply_pending_migrations(files: &[GeneratedFile], base_dir: &Path)
     migrate_zig_build_config(files, base_dir)?;
     migrate_dart_placeholder_test_file(files, base_dir)?;
     migrate_swift_placeholder_test_file(files, base_dir)?;
+    migrate_swift_package_manifests(files, base_dir)?;
     migrate_dart_pubignore_file(files, base_dir)?;
     migrate_wasm_package_json_file(files, base_dir)?;
     migrate_node_package_json_service_file(files, base_dir)?;
@@ -116,6 +117,23 @@ fn migrate_swift_placeholder_test_file(files: &[GeneratedFile], base_dir: &Path)
     }) {
         crate::scaffold::migrate_swift_placeholder_test(base_dir, &swift_test_file.path, &swift_test_file.content)
             .context("failed to migrate pre-existing packages/swift/Tests/*Tests.swift placeholder")?;
+    }
+    Ok(())
+}
+
+// `packages/swift/Package.swift` and the root `Package.swift` are `generated_header: false`
+// seeds, so the write guard never refreshes them once they exist; a repo scaffolded before the
+// `RustBridge` target was pinned to Swift 5 language mode would stop compiling as soon as its
+// bridge gains `async fn` functions, because swift-bridge's async glue fails Swift 6 region
+// isolation. Each manifest is patched only when this run emits it for the crate -- the root one
+// needs a configured repository -- and only when its `RustBridge` target is still unpinned; see
+// `migrate_swift_rust_bridge_language_mode`'s doc. ~keep
+fn migrate_swift_package_manifests(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<()> {
+    for manifest in files.iter().filter(|file| {
+        file.path == Path::new("packages/swift/Package.swift") || file.path == Path::new("Package.swift")
+    }) {
+        crate::scaffold::migrate_swift_rust_bridge_language_mode(base_dir, &manifest.path)
+            .with_context(|| format!("failed to migrate pre-existing {}", manifest.path.display()))?;
     }
     Ok(())
 }

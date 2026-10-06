@@ -11,6 +11,18 @@ use heck::ToLowerCamelCase;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+/// The `swiftSettings` line (with its rationale) that pins the `RustBridge` target to Swift 5
+/// language mode, shared by the scaffold and [`migrate_swift_rust_bridge_language_mode`] so a
+/// freshly scaffolded manifest and a migrated one are byte-identical.
+const RUST_BRIDGE_SWIFT_SETTINGS: &str =
+    "      // swift-bridge's generated async glue (`withCheckedThrowingContinuation` fed by a
+      // non-`@Sendable` callback) does not pass Swift 6 region-isolation checking: every
+      // `async fn` bridge function fails with \"sending 'rustFnRetVal' risks causing data
+      // races\". The generated code is not ours to edit, so this target stays in Swift 5
+      // language mode; the facade module keeps the manifest's default. ~keep
+      swiftSettings: [.swiftLanguageMode(.v5)],
+";
+
 pub(crate) fn scaffold_swift(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let (module, package_name) = (config.swift_module(), config.swift_package_name());
@@ -164,13 +176,7 @@ let package = Package(
       name: "RustBridge",
       dependencies: ["RustBridgeC"],
       path: "Sources/RustBridge",
-      // swift-bridge's generated async glue (`withCheckedThrowingContinuation` fed by a
-      // non-`@Sendable` callback) does not pass Swift 6 region-isolation checking: every
-      // `async fn` bridge function fails with "sending 'rustFnRetVal' risks causing data
-      // races". The generated code is not ours to edit, so this target stays in Swift 5
-      // language mode; the facade module keeps the manifest's default. ~keep
-      swiftSettings: [.swiftLanguageMode(.v5)],
-      linkerSettings: [
+{rust_bridge_swift_settings}      linkerSettings: [
         .unsafeFlags([
           resolvedStaticLib("{binding_underscore}"),
           resolvedStaticLib("{ffi_lib_name}"),
@@ -211,6 +217,7 @@ let package = Package(
 )
 "#,
         module = module,
+        rust_bridge_swift_settings = RUST_BRIDGE_SWIFT_SETTINGS,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
         binding_crate = binding_crate_name,
@@ -352,13 +359,7 @@ let package = Package(
       name: "RustBridge",
       dependencies: ["RustBridgeC", "RustBridgeBinary"],
       path: "packages/swift/Sources/RustBridge",
-      // swift-bridge's generated async glue (`withCheckedThrowingContinuation` fed by a
-      // non-`@Sendable` callback) does not pass Swift 6 region-isolation checking: every
-      // `async fn` bridge function fails with "sending 'rustFnRetVal' risks causing data
-      // races". The generated code is not ours to edit, so this target stays in Swift 5
-      // language mode; the facade module keeps the manifest's default. ~keep
-      swiftSettings: [.swiftLanguageMode(.v5)],
-      // The pre-built static library inside RustBridgeBinary references Apple
+{rust_bridge_swift_settings}      // The pre-built static library inside RustBridgeBinary references Apple
       // system frameworks (e.g. reqwest's proxy detection pulls in the Rust
       // `system_configuration` crate → `SC*` symbols) and native system
       // libraries (e.g. the archive/`xz2` path pulls in `lzma-sys` →
@@ -394,6 +395,7 @@ let package = Package(
 )
 "#,
             module = module,
+            rust_bridge_swift_settings = RUST_BRIDGE_SWIFT_SETTINGS,
             min_macos = min_macos_major,
             min_ios = min_ios_major,
             repository = repository.trim_end_matches('/'),
@@ -609,6 +611,75 @@ pub(crate) fn migrate_swift_placeholder_test(
          placeholder with a real assertion against the generated API"
     );
     Ok(true)
+}
+
+/// Pin the `RustBridge` target of a pre-existing `Package.swift` to Swift 5 language mode.
+///
+/// `Package.swift` is `generated_header: false` (create-only), so the write guard never
+/// overwrites it once it exists, and a generator fix to its content cannot reach an existing
+/// repo any other way. This one matters: swift-bridge's `async fn` glue fails Swift 6
+/// region-isolation checking, so a repo regenerated with async bridge functions but a manifest
+/// that predates [`RUST_BRIDGE_SWIFT_SETTINGS`] stops compiling ("sending 'rustFnRetVal' risks
+/// causing data races").
+///
+/// The patch inserts the settings right after the `RustBridge` target's `path:` line and fires
+/// only when that target is found and carries no `swiftSettings` of its own, so a manifest
+/// already pinned, or hand-tuned with settings alef cannot merge into, is left alone (the latter
+/// is reported). Idempotent: the inserted line makes the second pass a no-op. Handles both the
+/// in-tree manifest (`path: "Sources/RustBridge"`) and the root binary-target manifest
+/// (`path: "packages/swift/Sources/RustBridge"`). ~keep
+pub(crate) fn migrate_swift_rust_bridge_language_mode(base_dir: &Path, relative_path: &Path) -> anyhow::Result<bool> {
+    let path = crate::cli::pipeline::generate::write::contained_output_path(base_dir, relative_path)?;
+    let Ok(existing) = std::fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    let Some(patched) = pin_rust_bridge_language_mode(&existing) else {
+        return Ok(false);
+    };
+
+    let parent = path.parent().context("swift manifest path has no parent directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary file in {}", parent.display()))?;
+    std::io::Write::write_all(&mut temporary, patched.as_bytes())
+        .with_context(|| format!("failed to write temporary file for {}", path.display()))?;
+    temporary
+        .persist(&path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace {}", path.display()))?;
+    tracing::info!(
+        path = %path.display(),
+        "repaired pre-existing Package.swift: pinned the RustBridge target to Swift 5 language mode \
+         so swift-bridge's async bridge functions compile"
+    );
+    Ok(true)
+}
+
+/// Text transform behind [`migrate_swift_rust_bridge_language_mode`]; `None` leaves the file as is.
+fn pin_rust_bridge_language_mode(manifest: &str) -> Option<String> {
+    let target_start = manifest.find("name: \"RustBridge\",")?;
+    let target_end = target_start + manifest[target_start..].find("\n    ),")?;
+    let target = &manifest[target_start..target_end];
+    if target.contains("swiftSettings") {
+        if !target.contains(".swiftLanguageMode(") {
+            tracing::warn!(
+                "the RustBridge target in Package.swift has its own swiftSettings without a language mode; \
+                 add `.swiftLanguageMode(.v5)` to it by hand, or swift-bridge's async bridge functions will \
+                 not compile under Swift 6"
+            );
+        }
+        return None;
+    }
+    let path_line_start = target_start + target.find("      path: \"")?;
+    let insert_at = path_line_start + manifest[path_line_start..].find('\n')? + 1;
+    let path_line = &manifest[path_line_start..insert_at];
+    if !path_line.contains("Sources/RustBridge\",") {
+        return None;
+    }
+    let mut patched = String::with_capacity(manifest.len() + RUST_BRIDGE_SWIFT_SETTINGS.len());
+    patched.push_str(&manifest[..insert_at]);
+    patched.push_str(RUST_BRIDGE_SWIFT_SETTINGS);
+    patched.push_str(&manifest[insert_at..]);
+    Some(patched)
 }
 
 /// The vacuity signature behind [`migrate_swift_placeholder_test`]: true when `content`'s only
@@ -1456,6 +1527,88 @@ repository = "https://github.com/example/my-lib"
             assert!(
                 rust_bridge_start < mode_at && mode_at < facade_start,
                 "the Swift 5 pin must sit inside the RustBridge target, not the facade, got:\n{content}"
+            );
+        }
+    }
+
+    fn scaffold_config_with_repository() -> ResolvedCrateConfig {
+        resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.package_metadata]
+repository = "https://github.com/example/my-lib"
+"#,
+        )
+    }
+
+    /// `Package.swift` is create-only, so a manifest scaffolded before the Swift 5 pin existed is
+    /// repaired in place. The repair must land byte-for-byte what a fresh scaffold emits, for
+    /// both the in-tree and the root manifest, and must be a no-op the second time.
+    #[test]
+    fn migration_pins_an_unpinned_manifest_to_exactly_the_scaffolded_content() {
+        let files = scaffold_swift(&ApiSurface::default(), &scaffold_config_with_repository()).expect("scaffold");
+
+        for relative in ["packages/swift/Package.swift", "Package.swift"] {
+            let fresh = find_file(&files, relative).content.clone();
+            let unpinned = fresh.replace(RUST_BRIDGE_SWIFT_SETTINGS, "");
+            assert_ne!(
+                unpinned, fresh,
+                "{relative}: the scaffold must carry the pin for this test to mean anything"
+            );
+
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join(relative);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, &unpinned).expect("write unpinned manifest");
+
+            assert!(
+                migrate_swift_rust_bridge_language_mode(dir.path(), Path::new(relative)).expect("migrate"),
+                "{relative}: an unpinned manifest must be repaired"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).expect("read"),
+                fresh,
+                "{relative}: the repaired manifest must equal a fresh scaffold"
+            );
+            assert!(
+                !migrate_swift_rust_bridge_language_mode(dir.path(), Path::new(relative)).expect("migrate again"),
+                "{relative}: a pinned manifest must be left alone"
+            );
+        }
+    }
+
+    /// A manifest with its own `swiftSettings` on the `RustBridge` target, or none for it at all,
+    /// is not alef's to rewrite.
+    #[test]
+    fn migration_leaves_hand_tuned_and_unrelated_manifests_alone() {
+        let files = scaffold_swift(&ApiSurface::default(), &scaffold_config_with_repository()).expect("scaffold");
+        let fresh = find_file(&files, "packages/swift/Package.swift").content.clone();
+        let own_settings = fresh.replace(
+            RUST_BRIDGE_SWIFT_SETTINGS,
+            "      swiftSettings: [.enableExperimentalFeature(\"StrictConcurrency\")],\n",
+        );
+        let no_bridge_target = fresh.replace("name: \"RustBridge\",", "name: \"Other\",");
+
+        for (label, manifest) in [
+            ("own swiftSettings", own_settings),
+            ("no RustBridge target", no_bridge_target),
+        ] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let path = dir.path().join("Package.swift");
+            std::fs::write(&path, &manifest).expect("write manifest");
+
+            assert!(
+                !migrate_swift_rust_bridge_language_mode(dir.path(), Path::new("Package.swift")).expect("migrate"),
+                "{label}: must not be rewritten"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&path).expect("read"),
+                manifest,
+                "{label}: bytes changed"
             );
         }
     }

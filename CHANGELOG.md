@@ -33,8 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hang; an async method that has no error type is now `async throws` for the same reason. The
   generated crate enables swift-bridge's `async` feature when the API has async surface, and
   `Package.swift` builds the `RustBridge` target in Swift 5 language mode because swift-bridge's
-  async glue does not pass Swift 6 region-isolation checking. A cancelled Swift `Task` still waits
-  for the call to finish. Public Swift signatures are unchanged.
+  async glue does not pass Swift 6 region-isolation checking; the scaffold migrations apply the same
+  pin to an existing, never-overwritten manifest (in-tree and root) whose `RustBridge` target has no
+  `swiftSettings` of its own. A cancelled Swift `Task` still waits for the call to finish. Public
+  Swift signatures are unchanged.
 - Swift streaming no longer parks a thread per open stream. The stream-start bridge function and the
   handle's `next()` are `async fn` in the swift-bridge module, so `chatStream`-style facades await
   them directly instead of looping a blocking `next()` inside `Task.detached`. The handle keeps its

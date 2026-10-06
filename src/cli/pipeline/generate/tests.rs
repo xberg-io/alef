@@ -1879,6 +1879,38 @@ mod scaffold_ownership_guard_tests {
         );
     }
 
+    /// `packages/swift/Package.swift` is create-only, so a manifest scaffolded before the `RustBridge`
+    /// target was pinned to Swift 5 language mode is repaired by the scaffold migrations instead of
+    /// the (refused) overwrite. Without the pin, swift-bridge's async bridge functions do not compile.
+    #[test]
+    fn scaffold_write_pins_an_existing_swift_manifest_rust_bridge_target() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+        let relative = PathBuf::from("packages/swift/Package.swift");
+        let target = base.join(&relative);
+        std::fs::create_dir_all(target.parent().expect("parent")).expect("mkdir");
+        let unpinned = "// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n  name: \"Lib\",\n  targets: [\n    .target(\n      name: \"RustBridge\",\n      dependencies: [\"RustBridgeC\"],\n      path: \"Sources/RustBridge\",\n      linkerSettings: []\n    ),\n  ]\n)\n";
+        std::fs::write(&target, unpinned).expect("seed unpinned manifest");
+
+        let seed = GeneratedFile {
+            path: relative.clone(),
+            content: unpinned.to_owned(),
+            generated_header: false,
+        };
+        write_scaffold_files_report(&[seed], base, false).expect("write ok");
+
+        let after = std::fs::read_to_string(&target).expect("read after");
+        assert!(
+            after.contains("swiftSettings: [.swiftLanguageMode(.v5)],"),
+            "the existing manifest's RustBridge target must be pinned to Swift 5 mode, got:\n{after}"
+        );
+        assert_eq!(
+            after.matches(".swiftLanguageMode(").count(),
+            1,
+            "pinned exactly once, got:\n{after}"
+        );
+    }
+
     /// Counterpart: when the target does not exist yet, the swift seed must still be
     /// created normally.
     #[test]
