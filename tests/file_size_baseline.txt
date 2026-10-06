@@ -19,7 +19,6 @@
 # <path> <ceiling>
 src/backends/csharp/gen_bindings/functions.rs 1409
 src/backends/csharp/gen_bindings/methods/wrappers.rs 1184
-src/backends/dart/gen_rust_crate/cargo.rs 1032
 src/backends/extendr/gen_bindings/tests/wrappers.rs 1331
 src/backends/ffi/gen_bindings/functions/orchestration.rs 1158
 src/backends/ffi/gen_bindings/service_api/tests.rs 1067
@@ -32,20 +31,9 @@ src/backends/java/gen_bindings/trait_bridge.rs 1019
 src/backends/java/gen_bindings/trait_bridge/tests.rs 1052
 src/backends/jni/gen_shims/tests.rs 1025
 src/backends/kotlin/gen_bindings/object_wrapper/tests.rs 1350
-src/backends/magnus/gen_bindings/classes/tests.rs 1066
-src/backends/napi/gen_bindings/enums/tests.rs 1251
-src/backends/napi/gen_bindings/errors/tests.rs 1220
-src/backends/napi/trait_bridge/bridge_generator.rs 1311
 src/backends/php/gen_bindings/type_stubs/type_stubs_tests.rs 1087
-src/backends/php/gen_bindings/types/enums.rs 1181
-src/backends/php/gen_bindings/types/enums/tests.rs 1115
-src/backends/pyo3/gen_bindings/types.rs 1037
 src/backends/swift/gen_bindings/dto.rs 1654
-src/backends/swift/gen_bindings/enums.rs 1226
 src/backends/swift/gen_bindings/mod.rs 1044
-src/backends/swift/gen_rust_crate/cargo.rs 1005
-src/backends/wasm/gen_bindings/enums/tests.rs 1091
-src/backends/wasm/gen_bindings/ts_union/tests.rs 1335
 src/backends/wasm/trait_bridge.rs 1323
 src/backends/zig/gen_bindings/functions.rs 1494
 src/cli/cache.rs 1187
@@ -55,13 +43,9 @@ src/cli/pipeline/generate/scaffold.rs 1232
 src/cli/pipeline/generate/tests.rs 2451
 src/cli/pipeline/version.rs 1388
 src/cli/pipeline/version_tests/sync_versions.rs 1276
-src/codegen/cfg.rs 1082
 src/codegen/config_gen/tests/defaults.rs 1242
-src/codegen/conversions/core_to_binding/fields.rs 1052
 src/codegen/conversions/tests.rs 1214
 src/core/config/new_config.rs 1179
-src/core/config/new_config/tests.rs 1063
-src/core/hash/tests.rs 1006
 src/core/ir/items.rs 1068
 src/docs/formatting.rs 2193
 src/e2e/codegen/c.rs 2356
@@ -76,10 +60,8 @@ src/e2e/codegen/elixir/assertions.rs 1487
 src/e2e/codegen/elixir/test_case.rs 1005
 src/e2e/codegen/go/snippet.rs 2052
 src/e2e/codegen/java/assertions.rs 1332
-src/e2e/codegen/kotlin/args.rs 1023
 src/e2e/codegen/kotlin/test_method.rs 1174
 src/e2e/codegen/kotlin/tests.rs 1405
-src/e2e/codegen/php/project.rs 1384
 src/e2e/codegen/python/mod.rs 1277
 src/e2e/codegen/r/assertions.rs 1057
 src/e2e/codegen/ruby/examples.rs 1082
@@ -87,13 +69,10 @@ src/e2e/codegen/rust/assertions.rs 1619
 src/e2e/codegen/rust/http.rs 1111
 src/e2e/codegen/swift/tests.rs 1211
 src/e2e/codegen/typescript/assertions.rs 1283
-src/e2e/codegen/typescript/test_file/args.rs 1016
 src/e2e/codegen/typescript/test_file/builders/mod.rs 1254
 src/e2e/codegen/typescript/test_file/builders/tests.rs 1242
 src/e2e/codegen/typescript/test_file/tests.rs 1664
 src/e2e/codegen/zig/assertions.rs 1319
-src/e2e/codegen/zig/test_file.rs 1001
-src/e2e/field_access/optional_renderers.rs 1067
 src/e2e/field_access/tests.rs 1434
 src/e2e/fixture.rs 1544
 src/e2e/validate.rs 1428
@@ -110,7 +89,6 @@ tests/backends_dart_gen_rust_crate_test.rs 2774
 tests/backends_extendr_gen_bindings_test.rs 2155
 tests/backends_ffi_gen_bindings_test.rs 1373
 tests/backends_gleam_gen_bindings_test.rs 1089
-tests/backends_go_gen_bindings_test.rs 1058
 tests/backends_java_gen_bindings_test.rs 5406
 tests/backends_jni_gen_shims_test.rs 2101
 tests/backends_kotlin_android_gen_bindings_test.rs 3256
