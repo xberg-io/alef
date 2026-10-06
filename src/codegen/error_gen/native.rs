@@ -79,6 +79,9 @@ pub fn gen_magnus_error_methods_struct(error: &ErrorDef, core_import: &str) -> S
 }
 
 /// Returns the `define_class` + `define_method` registration lines for the error info struct.
+///
+/// Only methods `gen_magnus_error_methods_struct` actually emits are registered; `magnus::method!`
+/// naming a method that struct lacks is a compile error in the generated crate. ~keep
 pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
     if error.methods.is_empty() {
         return Vec::new();
@@ -90,7 +93,11 @@ pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
     lines.push(format!(
         "    let {class_var} = module.define_class(\"{struct_name}\", ruby.class_object())?;"
     ));
-    for method in &error.methods {
+    for method in error
+        .methods
+        .iter()
+        .filter(|m| matches!(m.name.as_str(), "status_code" | "is_transient" | "error_type"))
+    {
         let (ruby_name, rust_fn) = if method.name == "is_transient" {
             ("transient?".to_string(), "transient".to_string())
         } else {

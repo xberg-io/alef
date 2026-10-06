@@ -182,7 +182,7 @@ pub(crate) fn extract_impl_block(
             }
         }
     } else if let Some(error_def) = surface.errors.iter_mut().find(|e| e.name == type_name) {
-        const ERROR_METHOD_WHITELIST: &[&str] = &["status_code", "is_transient", "error_type"];
+        const ERROR_METHOD_WHITELIST: &[&str] = &["status_code", "is_transient", "error_type", "retry_after"];
         for method in methods {
             let is_whitelisted = ERROR_METHOD_WHITELIST.contains(&method.name.as_str());
             let already_present = error_def.methods.iter().any(|m| m.name == method.name);

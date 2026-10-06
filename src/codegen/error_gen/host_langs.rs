@@ -199,11 +199,14 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
                 "java_type": java_type,
                 "getter_name": getter_name,
                 "default_value": default_value,
+                "nullable": duration_shape(&m.return_type) == Some(DurationShape::Optional),
+                "is_duration": duration_shape(&m.return_type).is_some(),
                 "doc": m.doc,
             })
         })
         .collect();
     let has_methods = !method_infos.is_empty();
+    let (legacy_ctor_methods, has_duration_methods) = split_duration_methods(&method_infos);
 
     let base = crate::codegen::template_env::render(
         "error_gen/java_error_base.jinja",
@@ -215,6 +218,8 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
             doc_lines => doc_lines,
             methods => method_infos,
             has_methods => has_methods,
+            legacy_ctor_methods => legacy_ctor_methods,
+            has_duration_methods => has_duration_methods,
         },
     );
     files.push((base_name.clone(), base));
@@ -243,6 +248,9 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str, main_class: &str) -
 /// Map an IR `TypeRef` to a Java type string for error introspection getters.
 fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
+    if duration_shape(ty).is_some() {
+        return "java.time.Duration";
+    }
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "boolean",
         TypeRef::Primitive(
@@ -253,7 +261,9 @@ fn typeref_to_java_type(ty: &crate::core::ir::TypeRef) -> &'static str {
             | PrimitiveType::I32
             | PrimitiveType::U32,
         ) => "int",
-        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64) => "long",
+        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize) => {
+            "long"
+        }
         TypeRef::Primitive(PrimitiveType::F32) => "float",
         TypeRef::Primitive(PrimitiveType::F64) => "double",
         TypeRef::String => "String",
@@ -303,10 +313,15 @@ fn java_field_name(snake: &str) -> String {
 /// Return the Java zero-value literal for a type (used in the no-args default constructor).
 fn java_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
+    match duration_shape(ty) {
+        Some(DurationShape::Optional) => return "null",
+        Some(DurationShape::Bare) => return "java.time.Duration.ZERO",
+        None => {}
+    }
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "false",
-        TypeRef::String => "\"\"",
-        _ => "0",
+        TypeRef::Primitive(_) => "0",
+        _ => "\"\"",
     }
 }
 
@@ -362,11 +377,13 @@ pub fn gen_csharp_error_types(
                 "cs_type": cs_type,
                 "param_name": param_name,
                 "default_value": default_value,
+                "is_duration": duration_shape(&m.return_type).is_some(),
                 "doc": inline_doc,
             })
         })
         .collect();
     let has_methods = !method_infos.is_empty();
+    let (legacy_ctor_methods, has_duration_methods) = split_duration_methods(&method_infos);
 
     {
         let out = crate::codegen::template_env::render(
@@ -379,6 +396,8 @@ pub fn gen_csharp_error_types(
                 doc_lines => error_doc_lines,
                 methods => method_infos,
                 has_methods => has_methods,
+                legacy_ctor_methods => legacy_ctor_methods,
+                has_duration_methods => has_duration_methods,
             },
         );
         files.push((base_name.clone(), out));
@@ -413,6 +432,11 @@ pub fn gen_csharp_error_types(
 /// Map an IR `TypeRef` to a C# type string for error introspection properties.
 fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
+    match duration_shape(ty) {
+        Some(DurationShape::Optional) => return "TimeSpan?",
+        Some(DurationShape::Bare) => return "TimeSpan",
+        None => {}
+    }
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "bool",
         TypeRef::Primitive(PrimitiveType::U8) => "byte",
@@ -421,8 +445,8 @@ fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
         TypeRef::Primitive(PrimitiveType::U16) => "ushort",
         TypeRef::Primitive(PrimitiveType::I32) => "int",
         TypeRef::Primitive(PrimitiveType::U32) => "uint",
-        TypeRef::Primitive(PrimitiveType::I64) => "long",
-        TypeRef::Primitive(PrimitiveType::U64) => "ulong",
+        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::Isize) => "long",
+        TypeRef::Primitive(PrimitiveType::U64 | PrimitiveType::Usize) => "ulong",
         TypeRef::Primitive(PrimitiveType::F32) => "float",
         TypeRef::Primitive(PrimitiveType::F64) => "double",
         TypeRef::String => "string",
@@ -433,9 +457,48 @@ fn typeref_to_csharp_type(ty: &crate::core::ir::TypeRef) -> &'static str {
 /// Return the C# zero-value literal for a type (used in the default constructor).
 fn csharp_default_value(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
+    match duration_shape(ty) {
+        Some(DurationShape::Optional) => return "null",
+        Some(DurationShape::Bare) => return "TimeSpan.Zero",
+        None => {}
+    }
     match ty {
         TypeRef::Primitive(PrimitiveType::Bool) => "false",
-        TypeRef::String => "string.Empty",
-        _ => "0",
+        TypeRef::Primitive(_) => "0",
+        _ => "string.Empty",
     }
+}
+
+/// Whether an error introspection method returns a `Duration`, and if so whether it is optional.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DurationShape {
+    Bare,
+    Optional,
+}
+
+fn duration_shape(ty: &crate::core::ir::TypeRef) -> Option<DurationShape> {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Duration => Some(DurationShape::Bare),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Duration) => Some(DurationShape::Optional),
+        _ => None,
+    }
+}
+
+/// The methods the pre-`Duration` constructor overload keeps, plus whether any `Duration` method
+/// exists at all.
+///
+/// Java and C# overload their base exception constructor with one parameter per introspection
+/// method. A `Duration`-valued method such as `retry_after` was added after that signature
+/// shipped, so the original overload keeps taking only the non-`Duration` methods and a second
+/// overload takes them all; changing the existing signature would break every caller that
+/// constructs the exception directly. ~keep
+fn split_duration_methods(methods: &[serde_json::Value]) -> (Vec<serde_json::Value>, bool) {
+    let legacy: Vec<serde_json::Value> = methods
+        .iter()
+        .filter(|m| m["is_duration"] != serde_json::Value::Bool(true))
+        .cloned()
+        .collect();
+    let has_duration = legacy.len() != methods.len();
+    (legacy, has_duration)
 }

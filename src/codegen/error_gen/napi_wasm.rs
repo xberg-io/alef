@@ -225,11 +225,10 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
                  self.inner.error_type().to_string()\n    }"
                 .to_string(),
             other => {
-                format!(
-                    "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`\n    \
-                     #[allow(dead_code)]\n    \
-                     pub fn {other}(&self) {{}}"
-                )
+                method_bodies.push(format!(
+                    "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`"
+                ));
+                continue;
             }
         };
         method_bodies.push(method_src);

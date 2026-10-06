@@ -14,7 +14,7 @@ public class {{ base_name }} extends {{ main_class }}Exception {
   private static final long serialVersionUID = 1L;
 {% if has_methods %}
 {% for m in methods %}
-  /** {{ m.field_name | default('Introspection field') }}. */
+  /** {{ m.field_name | default('Introspection field') }}.{% if m.nullable %} {@code null} when the error carries none.{% endif %} */
   private final {{ m.java_type }} {{ m.field_name }};
 {% endfor %}
 
@@ -34,13 +34,29 @@ public class {{ base_name }} extends {{ main_class }}Exception {
 {% endfor %}
   }
 
-  /** Creates a new {{ base_name }} with the given message and all introspection fields. */
+{% if legacy_ctor_methods %}
+  /** Creates a new {{ base_name }} with the given message and its introspection fields. */
+  public {{ base_name }}(final String message{% for m in legacy_ctor_methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+    super(message);
+{% for m in methods %}
+{% if m.is_duration %}
+    this.{{ m.field_name }} = {{ m.default_value }};
+{% else %}
+    this.{{ m.field_name }} = {{ m.field_name }};
+{% endif %}
+{% endfor %}
+  }
+{% endif %}
+{% if has_duration_methods %}
+
+  /** Creates a new {{ base_name }} with the given message and every introspection field, including durations. */
   public {{ base_name }}(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
     super(message);
 {% for m in methods %}
     this.{{ m.field_name }} = {{ m.field_name }};
 {% endfor %}
   }
+{% endif %}
 {% for m in methods %}
 
 {% if m.doc %}  /** {{ m.doc }} */

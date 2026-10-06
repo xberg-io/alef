@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An error type's `retry_after()` method is now extracted as an introspection method. Go, the FFI
+  layer, Java (`java.time.Duration`, `null` when absent), C# (`TimeSpan?`), Kotlin, Swift, Dart and
+  Elixir carry it; Python, Node, PHP, Ruby and WebAssembly leave it out.
+
+### Fixed
+
+- Java and C# error exceptions map a `Duration`-valued introspection method to a duration type
+  instead of `String` initialised with `0`, which did not compile. The existing constructors keep
+  their signatures; a second overload takes the duration methods too.
+- The Dart bridge converts a `Duration`-valued error method to milliseconds, the Ruby bridge no
+  longer registers an error method it does not implement, and the WebAssembly bridge no longer
+  exports an empty stub for one.
+
 ## [0.104.4] - 2026-10-06
 
 ### Fixed

@@ -35,6 +35,31 @@ public class {{ base_name }} : {{ base_parent }}
 {% endfor %}
     }
 
+{% if legacy_ctor_methods %}
+    public {{ base_name }}(string message{% for m in legacy_ctor_methods %}, {{ m.cs_type }} {{ m.param_name }}{% endfor %}) : base(message)
+    {
+{% for m in methods %}
+{% if m.is_duration %}
+        {{ m.prop_name }} = {{ m.default_value }};
+{% else %}
+        {{ m.prop_name }} = {{ m.param_name }};
+{% endif %}
+{% endfor %}
+    }
+
+    public {{ base_name }}(string message, Exception innerException{% for m in legacy_ctor_methods %}, {{ m.cs_type }} {{ m.param_name }}{% endfor %}) : base(message, innerException)
+    {
+{% for m in methods %}
+{% if m.is_duration %}
+        {{ m.prop_name }} = {{ m.default_value }};
+{% else %}
+        {{ m.prop_name }} = {{ m.param_name }};
+{% endif %}
+{% endfor %}
+    }
+{% endif %}
+{% if has_duration_methods %}
+
     public {{ base_name }}(string message{% for m in methods %}, {{ m.cs_type }} {{ m.param_name }}{% endfor %}) : base(message)
     {
 {% for m in methods %}
@@ -48,6 +73,7 @@ public class {{ base_name }} : {{ base_parent }}
         {{ m.prop_name }} = {{ m.param_name }};
 {% endfor %}
     }
+{% endif %}
 {% else %}
     public {{ base_name }}(string message) : base(message) { }
 

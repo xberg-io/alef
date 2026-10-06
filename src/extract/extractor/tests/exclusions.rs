@@ -515,6 +515,42 @@ fn test_error_enum_methods_whitelist() {
     );
 }
 
+#[test]
+fn test_error_enum_retry_after_duration_method_is_extracted() {
+    let source = r#"
+        #[derive(Debug, thiserror::Error)]
+        pub enum SampleLlmError {
+            #[error("rate limited")]
+            RateLimited { retry_after: Option<std::time::Duration> },
+            #[error("timeout")]
+            Timeout,
+        }
+
+        impl SampleLlmError {
+            pub fn retry_after(&self) -> Option<std::time::Duration> {
+                match self {
+                    Self::RateLimited { retry_after } => *retry_after,
+                    Self::Timeout => None,
+                }
+            }
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+
+    let err = &surface.errors[0];
+    let retry_after = err
+        .methods
+        .iter()
+        .find(|m| m.name == "retry_after")
+        .expect("retry_after must be extracted as an error introspection method");
+    assert_eq!(
+        retry_after.return_type,
+        crate::core::ir::TypeRef::Optional(Box::new(crate::core::ir::TypeRef::Duration)),
+        "retry_after must keep its Option<Duration> return type"
+    );
+}
+
 /// Generic public functions cannot be safely represented as a concrete binding
 /// surface unless explicit monomorphization metadata exists.
 

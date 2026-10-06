@@ -6,6 +6,8 @@ use crate::core::ir::{ErrorDef, ErrorVariant};
 
 use crate::core::ir::{CoreWrapper, FieldDef, PrimitiveType, TypeRef};
 
+#[path = "tests/duration_methods.rs"]
+mod duration_methods;
 #[path = "tests/native_methods.rs"]
 mod native_methods;
 

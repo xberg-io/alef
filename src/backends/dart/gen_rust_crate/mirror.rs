@@ -544,20 +544,26 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
                 ret_ty => ret_ty.as_str(),
             },
         ));
-        let call_suffix: String =
-            if method.returns_ref && matches!(method.return_type, crate::core::ir::TypeRef::String) {
-                ".to_string()".to_string()
-            } else if let crate::core::ir::TypeRef::Primitive(ref prim) = method.return_type {
-                let native = primitive_name(prim);
-                let frb_ty = frb_rust_type_inner(&method.return_type);
-                if native != frb_ty.as_str() {
-                    format!(" as {frb_ty}")
-                } else {
-                    String::new()
-                }
+        let call_suffix: String = if method.returns_ref
+            && matches!(method.return_type, crate::core::ir::TypeRef::String)
+        {
+            ".to_string()".to_string()
+        } else if matches!(method.return_type, crate::core::ir::TypeRef::Duration) {
+            ".as_millis() as i64".to_string()
+        } else if matches!(&method.return_type, crate::core::ir::TypeRef::Optional(inner) if matches!(inner.as_ref(), crate::core::ir::TypeRef::Duration))
+        {
+            ".map(|d| d.as_millis() as i64)".to_string()
+        } else if let crate::core::ir::TypeRef::Primitive(ref prim) = method.return_type {
+            let native = primitive_name(prim);
+            let frb_ty = frb_rust_type_inner(&method.return_type);
+            if native != frb_ty.as_str() {
+                format!(" as {frb_ty}")
             } else {
                 String::new()
-            };
+            }
+        } else {
+            String::new()
+        };
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_error_method_body.rs.jinja",
             minijinja::context! {
@@ -573,8 +579,64 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
 
 #[cfg(test)]
 mod tests {
-    use super::emit_mirror_struct;
-    use crate::core::ir::TypeDef;
+    use super::{emit_mirror_error, emit_mirror_struct};
+    use crate::core::ir::{ErrorDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+
+    fn duration_error(return_type: TypeRef) -> ErrorDef {
+        ErrorDef {
+            name: "ApiError".to_string(),
+            rust_path: "demo::ApiError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![MethodDef {
+                name: "retry_after".to_string(),
+                params: vec![],
+                return_type,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                cfg: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }
+    }
+
+    /// Regression: the mirror method was declared `-> Option<i64>` but returned the core
+    /// `Option<Duration>` unconverted, which does not type-check. Durations cross the bridge as
+    /// whole milliseconds, matching every mirror struct field. ~keep
+    #[test]
+    fn duration_error_methods_convert_to_milliseconds() {
+        let mut out = String::new();
+        emit_mirror_error(
+            &mut out,
+            &duration_error(TypeRef::Optional(Box::new(TypeRef::Duration))),
+            "demo",
+        );
+        assert!(out.contains("-> Option<i64>"), "{out}");
+        assert!(
+            out.contains("real.retry_after().map(|d| d.as_millis() as i64)"),
+            "{out}"
+        );
+
+        let mut bare = String::new();
+        emit_mirror_error(&mut bare, &duration_error(TypeRef::Duration), "demo");
+        assert!(bare.contains("-> i64"), "{bare}");
+        assert!(bare.contains("real.retry_after().as_millis() as i64"), "{bare}");
+    }
 
     /// The regression this task fixes: an opaque wrapper's `inner` field names the host path
     /// (`inner_path`) directly -- unlike a plain mirror struct, whose fields are widened
