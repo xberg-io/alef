@@ -35,6 +35,24 @@ pub(super) struct WildcardPath<'a> {
     pub(super) elem_part: &'a str,
 }
 
+impl<'a> WildcardPath<'a> {
+    pub(super) fn new(
+        result_expr: &'a str,
+        field_resolver: &'a FieldResolver,
+        field: &'a str,
+        array_part: &'a str,
+        elem_part: &'a str,
+    ) -> Self {
+        Self {
+            result_expr,
+            field_resolver,
+            field,
+            array_part,
+            elem_part,
+        }
+    }
+}
+
 /// The C# expressions every wildcard assertion arm is built from.
 struct WildcardExprs {
     array_accessor: String,

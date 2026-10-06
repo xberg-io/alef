@@ -362,13 +362,7 @@ pub(super) fn render_assertion(
         render_wildcard_assertion(
             out,
             assertion,
-            &WildcardPath {
-                result_expr: &effective_result_var,
-                field_resolver,
-                field: f,
-                array_part: &array_part,
-                elem_part: &elem_part,
-            },
+            &WildcardPath::new(&effective_result_var, field_resolver, f, &array_part, &elem_part),
         );
         return;
     }
