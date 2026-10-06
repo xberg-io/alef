@@ -187,24 +187,38 @@ fn main() {{
             .parent()
             .expect("test dependency directory")
             .to_path_buf();
-        let serde = dependency_rlib(&dependencies, "serde");
-        let serde_json = dependency_rlib(&dependencies, "serde_json");
-        let compile = std::process::Command::new("rustc")
-            .args(["--edition=2024", "-L"])
-            .arg(format!("dependency={}", dependencies.display()))
-            .arg("--extern")
-            .arg(format!("serde={}", serde.display()))
-            .arg("--extern")
-            .arg(format!("serde_json={}", serde_json.display()))
-            .arg(&source_path)
-            .arg("-o")
-            .arg(&executable)
-            .output()
-            .expect("representation probe must compile");
+        // ~keep: target/deps accumulates one rlib per feature set and per past toolchain, so no single
+        // candidate is guaranteed loadable; try pairs, newest first, until rustc accepts one.
+        let serde_candidates = dependency_rlibs(&dependencies, "serde");
+        let serde_json_candidates = dependency_rlibs(&dependencies, "serde_json");
+        let mut last_error = String::new();
+        let mut compiled = false;
+        'search: for serde in &serde_candidates {
+            for serde_json in &serde_json_candidates {
+                let compile = std::process::Command::new("rustc")
+                    .args(["--edition=2024", "-L"])
+                    .arg(format!("dependency={}", dependencies.display()))
+                    .arg("--extern")
+                    .arg(format!("serde={}", serde.display()))
+                    .arg("--extern")
+                    .arg(format!("serde_json={}", serde_json.display()))
+                    .arg(&source_path)
+                    .arg("-o")
+                    .arg(&executable)
+                    .output()
+                    .expect("representation probe must compile");
+                if compile.status.success() {
+                    compiled = true;
+                    break 'search;
+                }
+                last_error = String::from_utf8_lossy(&compile.stderr).into_owned();
+            }
+        }
         assert!(
-            compile.status.success(),
-            "representation probe failed to compile:\n{}",
-            String::from_utf8_lossy(&compile.stderr)
+            compiled,
+            "representation probe failed to compile with any of {} serde x {} serde_json rlibs; last error:\n{last_error}",
+            serde_candidates.len(),
+            serde_json_candidates.len()
         );
         let output = std::process::Command::new(executable)
             .output()
@@ -216,23 +230,26 @@ fn main() {{
         );
     }
 
-    fn dependency_rlib(directory: &Path, crate_name: &str) -> PathBuf {
+    fn dependency_rlibs(directory: &Path, crate_name: &str) -> Vec<PathBuf> {
         let prefix = format!("lib{crate_name}-");
-        let mut matches: Vec<PathBuf> = std::fs::read_dir(directory)
+        let mut matches: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(directory)
             .expect("test dependency directory must be readable")
             .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
                     .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".rlib"))
             })
+            .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
             .collect();
-        matches.sort();
-        matches
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| panic!("{crate_name} rlib must exist in {}", directory.display()))
+        assert!(
+            !matches.is_empty(),
+            "{crate_name} rlib must exist in {}",
+            directory.display()
+        );
+        matches.sort_by(|left, right| right.cmp(left));
+        matches.into_iter().map(|(_, path)| path).collect()
     }
 }
 
