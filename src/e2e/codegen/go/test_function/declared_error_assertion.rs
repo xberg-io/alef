@@ -8,7 +8,11 @@
 //! whitelisted introspection method (`gen_go_error_struct`). When the type has an `error_type`
 //! method the binding records the variant's name in `ErrorType`, so identity is read off the
 //! typed error instead of searching the message for the variant name. An error type without that
-//! field keeps the message-or-type-name check. ~keep
+//! field keeps the message-or-type-name check.
+//!
+//! The comparison does not depend on the variant's `error_code`: the ABI taxonomy code decides
+//! which variant gets its own sentinel error, but `ErrorType` is filled from the variant's name
+//! whenever the field exists, so an uncoded variant is as assertable as a coded one. ~keep
 
 use std::fmt::Write as FmtWrite;
 
@@ -38,9 +42,6 @@ fn carries_error_type_field(error: &ErrorDef) -> bool {
 /// `go_package` is the Go package name the binding is generated under, which
 /// [`go_error_type_name`] needs to strip the stutter prefix exactly as the generator did. ~keep
 fn emit_typed(out: &mut String, fixture: &Fixture, errors: &[ErrorDef], import_alias: &str, go_package: &str) -> bool {
-    let DeclaredErrorAssertion::Assert(_) = classify("go", fixture, errors) else {
-        return false;
-    };
     let Some((error, variant)) = declared_variant(fixture, errors) else {
         return false;
     };
@@ -217,12 +218,27 @@ mod tests {
         assert_eq!(render(&fixture_declaring("budget was exceeded"), &errors), None);
     }
 
-    /// An uncoded variant is a registered skip, not an assertion, and must stay that way.
+    /// The variant's name is on the typed error whether or not the variant declared an ABI
+    /// `error_code`, so an uncoded variant is asserted instead of skipped.
     #[test]
-    fn an_uncoded_variant_is_not_asserted() {
+    fn an_uncoded_variant_is_compared_through_the_error_type_field() {
         let errors = error_def("SamplelibError", None, vec![method("error_type", TypeRef::String)]);
 
+        let out = render(&fixture_declaring("BudgetExceeded"), &errors).expect("typed assertion");
+
+        assert!(out.contains("typedError.ErrorType != `BudgetExceeded`"), "{out}");
+    }
+
+    /// Without the field there is nothing to read the name from, so an uncoded variant is still
+    /// handed back to the caller, whose message-or-type-name check classifies it as a skip.
+    #[test]
+    fn an_uncoded_variant_without_the_field_is_still_not_asserted() {
+        let errors = error_def("SamplelibError", None, vec![method("status_code", TypeRef::String)]);
+
         assert_eq!(render(&fixture_declaring("BudgetExceeded"), &errors), None);
+        let mut skipped = String::new();
+        super::emit_declared_error_value_assertion(&mut skipped, &fixture_declaring("BudgetExceeded"), &errors);
+        assert!(skipped.contains("skipped:"), "{skipped}");
     }
 
     /// The stutter-stripped name must match the generator: `SamplelibError` in package

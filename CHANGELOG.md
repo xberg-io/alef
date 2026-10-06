@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native extension defines). PHP reads `php_client_factory`, the key PHP projects set, instead of
   `client_factory`, which its executable suite never reads. This is what lets a fixture's
   `docs.client.config` reach a Ruby or PHP client.
+- Go e2e tests assert a declared error variant through the typed error's `ErrorType` whenever the
+  generated error type has that field, including variants that declare no `error_code`, instead of
+  rendering a skip comment for them. Error types without the field are unchanged.
 
 ## [0.104.4] - 2026-10-06
 
