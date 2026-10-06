@@ -28,6 +28,7 @@ const REAL_DEPENDENCIES: &[&str] = &[
     "ConversionErrorException.java",
     "CoreErrorException.java",
     "PanicException.java",
+    "OperationCancelledException.java",
     "Callback.java",
     "FlowDecision.java",
 ];

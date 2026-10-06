@@ -20,6 +20,10 @@ class PanicException extends TestLibRsException {
     PanicException(String message) { super(3, message); }
 }
 
+class OperationCancelledException extends TestLibRsException {
+    OperationCancelledException(String message) { super(5, message); }
+}
+
 class RejectedException extends TestLibRsException {
     RejectedException(String message) { super(1000, message); }
 }

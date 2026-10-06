@@ -9,6 +9,10 @@ final class NativeLib {
 
     private NativeLib() {}
 
+    static TestLibRsException lastErrorException(int code, String message) {
+        return new TestLibRsException(code, message);
+    }
+
     static final class Invoker {
         private final boolean countsFree;
 

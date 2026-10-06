@@ -10,6 +10,8 @@ final class NativeLib {
 
     private NativeLib() {}
 
+LAST_ERROR_EXCEPTION
+
     static final class Invoker {
         private final boolean returnsCode;
 

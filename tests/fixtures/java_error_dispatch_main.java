@@ -11,6 +11,7 @@ public final class ErrorDispatchMain {
             expect(1, ConversionErrorException.class);
             expect(2, CoreErrorException.class);
             expect(3, PanicException.class);
+            expect(5, OperationCancelledException.class);
             expect(TYPED_CODE, RejectedException.class);
         }
     }
