@@ -1185,11 +1185,11 @@ fn merge_generated_header(
     })
 }
 
-mod component_validation;
 #[cfg(test)]
 mod c_abi_tests;
 #[cfg(test)]
 mod component_tests;
+mod component_validation;
 #[cfg(test)]
 mod path_safety_review_tests;
 #[cfg(test)]

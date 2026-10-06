@@ -5,8 +5,8 @@
 //! is the one decoder all of them call now.
 
 use base64::Engine as _;
-use ed25519_dalek::pkcs8::DecodePublicKey as _;
 use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::pkcs8::DecodePublicKey as _;
 
 use crate::ComponentError;
 
@@ -70,6 +70,9 @@ mod tests {
 
     #[test]
     fn rejects_garbage() {
-        assert!(matches!(decode_public_key("not-base64"), Err(ComponentError::InvalidPublicKey)));
+        assert!(matches!(
+            decode_public_key("not-base64"),
+            Err(ComponentError::InvalidPublicKey)
+        ));
     }
 }
