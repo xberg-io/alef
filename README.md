@@ -202,6 +202,37 @@ layer. The emitted-tree compile gate covers FFI, Python, Node, Wasm, and JNI. PH
 because its Rust crate needs PHP headers. Dart has direct conversion-generator tests; R, Zig, and
 Gleam do not yet have an annotation-specific downstream toolchain build.
 
+### Sensitive Fields
+
+Mark a struct field, an enum variant, or a field of an enum variant that holds a credential so
+generated representations never print it:
+
+```rust
+pub struct Credentials {
+    pub label: String,
+    #[cfg_attr(alef, alef(sensitive))]
+    pub token: String,
+}
+```
+
+The flag only changes human-readable representations. Serialization and deserialization stay
+lossless: `serde_json` and every conversion between the binding and the core type still carry the
+real value.
+
+| Backend | Effect |
+|---------|--------|
+| Python (PyO3) | Dataclass fields are generated with `field(repr=False)`, so `repr()` and `str()` omit them while `dataclasses.asdict()` keeps them. Data enums with a sensitive field or variant return `Name(<redacted>)` from `__str__` and `__repr__` instead of serializing the payload. |
+| Ruby (Magnus), Elixir (Rustler) | The Rust-side binding type drops `derive(Debug)` and gets a `Debug` impl that prints `<redacted>` for sensitive fields (the whole value for a sensitive enum variant). |
+| Kotlin | A sensitive positional field of an error variant is rendered as `<redacted>` in the generated exception message. |
+
+The remaining backends (NAPI, WASM, extendr, Swift, Go, Java, C#, and the others) do not yet honour
+the flag; their generated types and `toString`/`Debug`-style output still print every field. Error
+messages produced by the core crate's own `Display` implementation are never rewritten, so a
+`#[error("... {0}")]` template that prints a sensitive field is the core crate's responsibility.
+
+Elixir protection is incomplete: complete protection for ordinary tuple representations would
+need a later, breaking change to the Elixir representation.
+
 ## Extending Alef
 
 Alef is opinionated about codegen and neutral about domain. The `Extension` trait lets you ship domain-specific generation logic (HTTP service APIs, plugin registries, custom bindings) without bloat in alef.

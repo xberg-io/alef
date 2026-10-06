@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kotlin error exception messages no longer interpolate a positional field marked
   `#[cfg_attr(alef, alef(sensitive))]`; the placeholder renders as `<redacted>`.
 
+### Documentation
+
+- README documents `#[alef(sensitive)]`: its per-backend effect, lossless serialization, the
+  backends that do not yet honour it, and the incomplete Elixir tuple-representation protection.
+
 ## [0.105.0] - 2026-10-06
 
 ### Added
