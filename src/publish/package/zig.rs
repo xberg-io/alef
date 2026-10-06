@@ -306,7 +306,7 @@ sources = []
             package.join("build.zig.zon"),
             format!(
                 ".{{\n    .name = .sample_router,\n    .version = \"0.0.0\",\n    \
-                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.16.0\",\n    \
+                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.17.0\",\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\", \"include\", \"lib\" }},\n}}\n",
                 zig_package_fingerprint(b"sample_router")
             ),
@@ -348,7 +348,7 @@ sources = []
             consumer.join("build.zig.zon"),
             format!(
                 ".{{\n    .name = .consumer,\n    .version = \"0.0.0\",\n    \
-                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.16.0\",\n    \
+                 .fingerprint = 0x{:016x},\n    .minimum_zig_version = \"0.17.0\",\n    \
                  .dependencies = .{{ .sample_router = .{{ .path = \"../package\" }} }},\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\" }},\n}}\n",
                 zig_package_fingerprint(b"consumer")

@@ -639,7 +639,7 @@ fn render_zig_mock_server_spawn(alt_host: &str) -> String {
             .stdin = .pipe,
             .stdout = .pipe,
             .stderr = .inherit,
-            .env_map = &_alef_spawn_env,
+            .environ_map = &_alef_spawn_env,
         });
         if (_spawned) |_child| {
             // The child is intentionally not awaited: it lives for the duration

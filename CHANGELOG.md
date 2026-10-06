@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** Zig 0.17.0 is now the minimum and target Zig version. Newly scaffolded and
+  published Zig packages and e2e projects declare `.minimum_zig_version = "0.17.0"` and are
+  verified against Zig 0.17; consumers on Zig 0.16 must upgrade. Existing `build.zig.zon` files
+  keep their current `minimum_zig_version` until edited by hand.
+
 ### Fixed
 
+- Generated Zig e2e `build.zig` files that spawn the mock server no longer call the removed
+  `std.process.getEnvMap` or pass `.env_map` to `std.process.spawn`; the spawn environment is now
+  copied from the build runner's `b.graph.environ_map`. Previously such projects failed to
+  configure on both Zig 0.16 and 0.17.
 - The planted-secret representation probes compile and run in their own temporary directory, so a
   concurrent test that changes the process working directory no longer fails them.
 

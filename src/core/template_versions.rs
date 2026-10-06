@@ -611,7 +611,7 @@ pub mod pub_dev {
 /// Platform / toolchain pins. None of these auto-bump; track manually.
 pub mod toolchain {
     // renovate: datasource=github-tags depName=ziglang/zig
-    pub const MIN_ZIG_VERSION: &str = "0.16.0";
+    pub const MIN_ZIG_VERSION: &str = "0.17.0";
 
     pub const DART_SDK_CONSTRAINT: &str = ">=3.13.0 <4.0.0";
 

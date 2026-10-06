@@ -371,7 +371,7 @@ fn relative_path(base: &std::path::Path, target: &std::path::Path) -> Result<std
 /// session-scoped Zig snippet build writes to a temp dir. Zig 0.16 rejects a `build.zig.zon`
 /// with no top-level `.fingerprint` (`(crc32_ieee(name) << 32) | id`, `id` never `0`/`0xffff_ffff`)
 /// — without one, every session-scoped snippet failed during manifest parsing, before any
-/// snippet code was read. `alef.toml`'s `minimum_zig_version` floor is 0.16.0
+/// snippet code was read. `alef.toml`'s `minimum_zig_version` floor is 0.17.0
 /// (`toolchain::MIN_ZIG_VERSION`), so this is unconditional, matching
 /// `scaffold::languages::zig::zig_fingerprint`'s same choice for real scaffolded packages.
 ///

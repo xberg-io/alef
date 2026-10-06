@@ -239,7 +239,7 @@ fn snippet_build_zon_parses_under_real_zig() {
         format!(
             ".{{\n    .name = .binding_pkg,\n    .version = \"0.0.0\",\n    \
                  .fingerprint = 0x{package_fingerprint:016x},\n    \
-                 .minimum_zig_version = \"0.16.0\",\n    \
+                 .minimum_zig_version = \"0.17.0\",\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"root.zig\" }},\n}}\n"
         ),
     )
@@ -387,7 +387,7 @@ fn sample_package(rebase_onto_build_root: bool) -> (tempfile::TempDir, Validatio
         format!(
             ".{{\n    .name = .{PACKAGE},\n    .version = \"0.0.0\",\n    \
                  .fingerprint = 0x{fingerprint:016x},\n    \
-                 .minimum_zig_version = \"0.16.0\",\n    \
+                 .minimum_zig_version = \"0.17.0\",\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\", \"vendor\" }},\n}}\n",
             fingerprint = package_fingerprint(PACKAGE.as_bytes()),
         ),
@@ -441,7 +441,7 @@ fn sample_project(with_include: bool) -> (tempfile::TempDir, ValidationSession) 
         format!(
             ".{{\n    .name = .sample_binding,\n    .version = \"0.0.0\",\n    \
                  .fingerprint = 0x{fingerprint:016x},\n    \
-                 .minimum_zig_version = \"0.16.0\",\n    \
+                 .minimum_zig_version = \"0.17.0\",\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\", \"vendor\" }},\n}}\n"
         ),
     )
@@ -520,7 +520,7 @@ fn debug_only_ffi_project() -> (tempfile::TempDir, ValidationSession) {
         format!(
             ".{{\n    .name = .sample_binding,\n    .version = \"0.0.0\",\n    \
                  .fingerprint = 0x{fingerprint:016x},\n    \
-                 .minimum_zig_version = \"0.16.0\",\n    \
+                 .minimum_zig_version = \"0.17.0\",\n    \
                  .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\" }},\n}}\n",
             fingerprint = package_fingerprint(b"sample_binding"),
         ),

@@ -30,7 +30,7 @@ fn zon_version_regex_anchors_to_dot_version_only() {
     .name = .my_pkg,
     .version = "1.9.0-rc.1",
     .fingerprint = 0x6f52c41163f42c8c,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
 }
 "#;
     let captures: Vec<_> = re.captures_iter(zon).collect();

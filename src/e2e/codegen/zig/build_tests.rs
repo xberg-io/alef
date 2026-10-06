@@ -513,4 +513,13 @@ fn build_zig_bakes_configured_alt_host_into_the_mock_server_spawn() {
         content.contains("@hasField(std.Build, \"root\")") && !content.contains("pathFromRoot"),
         "mock-server paths must use the Zig 0.16/0.17 build-root compatibility branch, got:\n{content}"
     );
+    assert!(
+        content.contains("std.process.Environ.Map.init(_alloc)")
+            && content.contains("putAll(&b.graph.environ_map)")
+            && content.contains(".environ_map = &_alef_spawn_env,")
+            && !content.contains("getEnvMap")
+            && !content.contains(".env_map ="),
+        "mock-server spawn must build its env from `b.graph.environ_map` (no `getEnvMap`/`env_map`, both \
+         gone from Zig 0.16 and 0.17 std), got:\n{content}"
+    );
 }

@@ -55,7 +55,7 @@ fn build_system_project() -> (tempfile::TempDir, ValidationSession) {
         format!(
             ".{{\n    .name = .sample_binding,\n    .version = \"0.0.0\",\n    \
              .fingerprint = 0x{fingerprint:016x},\n    \
-             .minimum_zig_version = \"0.16.0\",\n    \
+             .minimum_zig_version = \"0.17.0\",\n    \
              .paths = .{{ \"build.zig\", \"build.zig.zon\", \"src\" }},\n}}\n"
         ),
     )
