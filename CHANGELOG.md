@@ -44,8 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A handle's type is now recorded when it is inserted, so acquiring a handle for a call and freeing a
   handle never block behind a running call on that handle. Previously one long call on a client made
   every other handle operation in the process (including `<prefix>_cancel_token_cancel`) wait for it,
-  and freeing a handle during a call could deadlock. Freeing a handle a call still holds now fails
-  with the handle-busy error instead of waiting.
+  and freeing a handle during a call could deadlock.
+- Freeing a handle while a call is still using it is now safe and leak-free. `_free` detaches the handle
+  at once, so any later use of it fails as an invalid handle, and the object is dropped when the running
+  call lets go of it. The drop runs outside the registry lock. Consuming (`self`-by-value) calls still
+  refuse a handle another call is using with the handle-busy error.
 - A `<symbol>_cancellable` export (and a streaming adapter's `_start_cancellable`) now observes its cancel
   token while it waits for its receiver's handle lock. A second call on a handle queues behind the
   running one, as before, but tripping its token ends the wait with the `Cancelled` code within a few

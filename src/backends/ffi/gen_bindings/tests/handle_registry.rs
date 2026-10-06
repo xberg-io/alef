@@ -97,7 +97,7 @@ fn main() {
 }
 
 #[test]
-fn a_busy_entry_never_stalls_the_registry_and_is_not_freed_under_a_running_call() {
+fn a_busy_entry_never_stalls_the_registry_and_can_be_freed_under_a_running_call() {
     let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
     let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
     let serialized_start = registry
@@ -136,13 +136,13 @@ fn main() {
     assert!(matches!(remove_handle::<u64>(busy), Err(HandleError::WrongType)));
 
     assert!(
-        matches!(remove_handle::<String>(busy), Err(HandleError::HandleBusy)),
-        "freeing a handle a call still holds must fail fast, not wait while holding the registry"
+        matches!(remove_handle::<String>(busy), Ok(())),
+        "freeing a handle a call still holds must not wait while holding the registry"
     );
     drop(running_call);
     drop(entry);
-    assert!(matches!(remove_handle::<String>(busy), Ok(())), "the handle stays valid after a refused free");
     assert!(matches!(with_handle::<String, _>(busy, |_| ()), Err(HandleError::StaleGeneration)));
+    assert!(matches!(remove_handle::<String>(busy), Err(HandleError::StaleGeneration)));
 }
 "#,
     );
@@ -167,6 +167,108 @@ fn main() {
         "{}{}",
         String::from_utf8_lossy(&run.stdout),
         String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+fn run_registry_main(name: &str, main_body: &str) {
+    let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
+    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let serialized_start = registry
+        .find("struct SerializedHandle")
+        .expect("serialized helper start");
+    let core_registry_resume = registry[serialized_start..]
+        .find("fn with_handle")
+        .map(|offset| serialized_start + offset)
+        .expect("core registry helpers resume");
+    registry.replace_range(serialized_start..core_registry_resume, "");
+    source.push_str(&registry);
+    source.push_str("\nfn main() {\n");
+    source.push_str(main_body);
+    source.push_str("\n}\n");
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source_path = directory.path().join(format!("{name}.rs"));
+    let binary_path = directory.path().join(name);
+    std::fs::write(&source_path, source).expect("write harness");
+    let compile = std::process::Command::new("rustc")
+        .current_dir(directory.path())
+        .args(["--edition=2024", "-o"])
+        .arg(&binary_path)
+        .arg(&source_path)
+        .output()
+        .expect("run rustc");
+    assert!(compile.status.success(), "{}", String::from_utf8_lossy(&compile.stderr));
+    let run = std::process::Command::new(&binary_path)
+        .current_dir(directory.path())
+        .output()
+        .expect("run registry harness");
+    assert!(
+        run.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+#[test]
+fn freeing_a_handle_during_a_call_defers_the_drop_until_the_call_returns() {
+    run_registry_main(
+        "deferred-free",
+        r#"
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    struct Counted(Arc<AtomicUsize>);
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let request = |handle| [HandleRequest { handle, expected_type: std::any::TypeId::of::<Counted>() }];
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let handle = insert_handle(Counted(drops.clone())).expect("insert");
+
+    let (started_tx, started_rx) = mpsc::channel();
+    let (finish_tx, finish_rx) = mpsc::channel::<()>();
+    let call_drops = drops.clone();
+    let call = std::thread::spawn(move || {
+        let values = acquire_handles(&request(handle)).expect("acquire");
+        let guard = values[0].1.lock().unwrap();
+        assert!(guard.downcast_ref::<Counted>().is_some());
+        started_tx.send(()).unwrap();
+        finish_rx.recv().unwrap();
+        assert_eq!(call_drops.load(Ordering::SeqCst), 0, "the object must stay alive for the whole call");
+        assert!(guard.downcast_ref::<Counted>().is_some(), "and stay usable");
+        drop(guard);
+        drop(values);
+    });
+    started_rx.recv_timeout(Duration::from_secs(5)).expect("the call started");
+
+    let (freed_tx, freed_rx) = mpsc::channel();
+    std::thread::spawn(move || freed_tx.send(remove_handle::<Counted>(handle).is_ok()).unwrap());
+    assert_eq!(
+        freed_rx.recv_timeout(Duration::from_secs(5)),
+        Ok(true),
+        "freeing during a call must return promptly and succeed"
+    );
+    assert_eq!(drops.load(Ordering::SeqCst), 0, "the running call still owns the object");
+
+    assert!(matches!(acquire_handles(&request(handle)), Err(HandleError::StaleGeneration)));
+    assert!(matches!(with_handle::<Counted, _>(handle, |_| ()), Err(HandleError::StaleGeneration)));
+    assert!(matches!(remove_handle::<Counted>(handle), Err(HandleError::StaleGeneration)), "double free");
+    let reused = insert_handle(7_u8).expect("the slot is reusable");
+    assert_ne!(reused, handle);
+    assert!(matches!(with_handle::<Counted, _>(handle, |_| ()), Err(HandleError::StaleGeneration)));
+
+    finish_tx.send(()).unwrap();
+    call.join().unwrap();
+    assert_eq!(drops.load(Ordering::SeqCst), 1, "the object is dropped once, when the call lets go");
+
+    let idle = insert_handle(Counted(drops.clone())).expect("insert");
+    remove_handle::<Counted>(idle).expect("free an idle handle");
+    assert_eq!(drops.load(Ordering::SeqCst), 2, "an idle handle is dropped by the free itself");
+    "#,
     );
 }
 

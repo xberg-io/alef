@@ -79,9 +79,21 @@ impl HandleRegistry {
         Ok(value.clone())
     }
 
-    fn remove<T: std::any::Any + Send>(&mut self, handle: AlefHandle) -> Result<(), HandleError> {
-        drop(self.take::<T>(handle)?);
-        Ok(())
+    fn detach<T: std::any::Any + Send>(&mut self, handle: AlefHandle) -> Result<ErasedHandleValue, HandleError> {
+        let (index, generation) = decode_handle(handle)?;
+        let slot = self.slots.get_mut(index).ok_or(HandleError::UnknownSlot)?;
+        if slot.generation != generation {
+            return Err(HandleError::StaleGeneration);
+        }
+        if slot.value.is_none() {
+            return Err(HandleError::StaleGeneration);
+        }
+        if slot.type_id != std::any::TypeId::of::<T>() {
+            return Err(HandleError::WrongType);
+        }
+        let value = slot.value.take().ok_or(HandleError::StaleGeneration)?;
+        slot.generation = next_generation(slot.generation);
+        Ok(value)
     }
 
     fn take<T: std::any::Any + Send>(&mut self, handle: AlefHandle) -> Result<T, HandleError> {
@@ -185,9 +197,17 @@ fn with_handle_mut<T: std::any::Any + Send, R>(
     Ok(operation(typed))
 }
 
+// ~keep Freeing is deferred destruction: the slot is detached at once, so every later use of the
+// handle fails as stale, but the object is dropped by whoever releases the last `Arc`. A call that
+// is still running holds one, so `T::drop` runs when that call returns (on its thread), never
+// under it. The drop happens outside the registry lock so a `Drop` impl cannot deadlock on it.
 fn remove_handle<T: std::any::Any + Send>(handle: AlefHandle) -> Result<(), HandleError> {
-    let mut registry = handle_registry().lock().map_err(|_| HandleError::RegistryPoisoned)?;
-    registry.remove::<T>(handle)
+    let detached = {
+        let mut registry = handle_registry().lock().map_err(|_| HandleError::RegistryPoisoned)?;
+        registry.detach::<T>(handle)?
+    };
+    drop(detached);
+    Ok(())
 }
 
 fn take_handle<T: std::any::Any + Send>(handle: AlefHandle) -> Result<T, HandleError> {
