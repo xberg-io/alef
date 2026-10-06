@@ -8,7 +8,7 @@ use crate::e2e::fixture::Assertion;
 use std::fmt::Write as FmtWrite;
 
 use super::{build_csharp_method_call, json_to_csharp};
-use wildcard::render_wildcard_assertion;
+use wildcard::{WildcardPath, render_wildcard_assertion};
 
 fn render_synthetic_bool_assertion(out: &mut String, field: &str, assertion_type: &str, pred: String) -> bool {
     let pred_type = match assertion_type {
@@ -362,11 +362,13 @@ pub(super) fn render_assertion(
         render_wildcard_assertion(
             out,
             assertion,
-            &effective_result_var,
-            field_resolver,
-            f,
-            &array_part,
-            &elem_part,
+            &WildcardPath {
+                result_expr: &effective_result_var,
+                field_resolver,
+                field: f,
+                array_part: &array_part,
+                elem_part: &elem_part,
+            },
         );
         return;
     }

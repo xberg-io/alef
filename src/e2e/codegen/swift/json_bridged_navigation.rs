@@ -263,25 +263,12 @@ fn build_contains_all(assertion: &Assertion, local: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::render_json_bridged_navigated_assertion;
+    use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
     use crate::e2e::field_access::{FieldResolver, SwiftFirstClassMap};
     use crate::e2e::fixture::Assertion;
     use std::collections::{HashMap, HashSet};
 
-    /// Regression for the `ContractTests.swift` compile break: `Metadata::format` is a
-    /// JSON-bridged leaf whose OWN swift-bridge getter returns `Optional<RustString>` (not an
-    /// optional ANCESTOR in the chain), so `leaf_expr` never contains `"?."` and the old
-    /// `contains("?.")`-only check emitted an unwrapped `.format().toString()` against an
-    /// `Optional<RustString>` -- "value of optional type 'Optional<RustString>' must be
-    /// unwrapped to refer to member 'toString'". Builds the map the same way
-    /// `values::tests::tagged_union_field_is_navigable_end_to_end_from_real_ir` does, from real
-    /// IR rather than a hand-set flag, so this pins the getter_optionality plumbing rather than a
-    /// stub.
-    #[test]
-    fn optional_leaf_getter_with_no_optional_ancestor_still_unwraps() {
-        use super::super::values::build_swift_first_class_map;
-        use crate::core::config::e2e::{CallConfig, E2eConfig};
-        use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
-
+    fn optional_leaf_ir() -> (Vec<TypeDef>, Vec<EnumDef>) {
         let format_metadata_enum = EnumDef {
             name: "FormatMetadata".to_string(),
             has_serde: true,
@@ -320,13 +307,68 @@ mod tests {
             has_serde: true,
             ..Default::default()
         };
+        (vec![extracted_document, metadata], vec![format_metadata_enum])
+    }
 
-        let mut map = build_swift_first_class_map(
-            &[extracted_document, metadata],
-            &[format_metadata_enum],
-            &E2eConfig::default(),
-            &CallConfig::default(),
-        );
+    fn real_vec_ancestor_ir() -> Vec<TypeDef> {
+        let extracted_document = TypeDef {
+            name: "ExtractedDocument".to_string(),
+            is_opaque: true,
+            fields: vec![FieldDef {
+                name: "results".to_string(),
+                ty: TypeRef::Vec(Box::new(TypeRef::Named("ChunkingResult".to_string()))),
+                optional: false,
+                ..Default::default()
+            }],
+            has_serde: true,
+            ..Default::default()
+        };
+        let chunking_result = TypeDef {
+            name: "ChunkingResult".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "chunks".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    // `Option<Vec<String>>` -- optional plus `Vec` -- is exactly the shape
+                    // `field_needs_json_bridge` collapses to a whole-value JSON `RustString` getter.
+                    optional: true,
+                    ..Default::default()
+                },
+                FieldDef {
+                    // `swift_first_class_field_supported` has no arm for `Map`, so this keeps
+                    // `ChunkingResult` (and transitively `ExtractedDocument`) classified opaque
+                    // -- a real `RustBridge` class reached through method calls, not a Codable
+                    // struct reached by property syntax -- matching the actual `ChunkingResult`
+                    // shape this regression is pinned against. ~keep
+                    name: "extra".to_string(),
+                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    optional: false,
+                    ..Default::default()
+                },
+            ],
+            has_serde: true,
+            ..Default::default()
+        };
+        vec![extracted_document, chunking_result]
+    }
+
+    /// Regression for the `ContractTests.swift` compile break: `Metadata::format` is a
+    /// JSON-bridged leaf whose OWN swift-bridge getter returns `Optional<RustString>` (not an
+    /// optional ANCESTOR in the chain), so `leaf_expr` never contains `"?."` and the old
+    /// `contains("?.")`-only check emitted an unwrapped `.format().toString()` against an
+    /// `Optional<RustString>` -- "value of optional type 'Optional<RustString>' must be
+    /// unwrapped to refer to member 'toString'". Builds the map the same way
+    /// `values::tests::tagged_union_field_is_navigable_end_to_end_from_real_ir` does, from real
+    /// IR rather than a hand-set flag, so this pins the getter_optionality plumbing rather than a
+    /// stub.
+    #[test]
+    fn optional_leaf_getter_with_no_optional_ancestor_still_unwraps() {
+        use super::super::values::build_swift_first_class_map;
+        use crate::core::config::e2e::{CallConfig, E2eConfig};
+
+        let (types, enums) = optional_leaf_ir();
+
+        let mut map = build_swift_first_class_map(&types, &enums, &E2eConfig::default(), &CallConfig::default());
         map.root_type = Some("ExtractedDocument".to_string());
         assert_eq!(
             map.getter_is_optional("Metadata", "format"),
@@ -382,53 +424,10 @@ mod tests {
     fn receiver_through_a_real_vec_element_is_hoisted_not_inlined() {
         use super::super::values::build_swift_first_class_map;
         use crate::core::config::e2e::{CallConfig, E2eConfig};
-        use crate::core::ir::{FieldDef, TypeDef, TypeRef};
 
-        let extracted_document = TypeDef {
-            name: "ExtractedDocument".to_string(),
-            is_opaque: true,
-            fields: vec![FieldDef {
-                name: "results".to_string(),
-                ty: TypeRef::Vec(Box::new(TypeRef::Named("ChunkingResult".to_string()))),
-                optional: false,
-                ..Default::default()
-            }],
-            has_serde: true,
-            ..Default::default()
-        };
-        let chunking_result = TypeDef {
-            name: "ChunkingResult".to_string(),
-            fields: vec![
-                FieldDef {
-                    name: "chunks".to_string(),
-                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
-                    // `Option<Vec<String>>` -- optional plus `Vec` -- is exactly the shape
-                    // `field_needs_json_bridge` collapses to a whole-value JSON `RustString` getter.
-                    optional: true,
-                    ..Default::default()
-                },
-                FieldDef {
-                    // `swift_first_class_field_supported` has no arm for `Map`, so this keeps
-                    // `ChunkingResult` (and transitively `ExtractedDocument`) classified opaque
-                    // -- a real `RustBridge` class reached through method calls, not a Codable
-                    // struct reached by property syntax -- matching the actual `ChunkingResult`
-                    // shape this regression is pinned against. ~keep
-                    name: "extra".to_string(),
-                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
-                    optional: false,
-                    ..Default::default()
-                },
-            ],
-            has_serde: true,
-            ..Default::default()
-        };
+        let types = real_vec_ancestor_ir();
 
-        let mut map = build_swift_first_class_map(
-            &[extracted_document, chunking_result],
-            &[],
-            &E2eConfig::default(),
-            &CallConfig::default(),
-        );
+        let mut map = build_swift_first_class_map(&types, &[], &E2eConfig::default(), &CallConfig::default());
         map.root_type = Some("ExtractedDocument".to_string());
         assert!(
             map.is_json_bridged_field_name("chunks"),

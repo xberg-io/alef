@@ -21,6 +21,72 @@ fn rebind_mapper_references(source: &str) -> String {
     source.replace(TEST_CLASS_MAPPER_REFERENCE, SNIPPET_MAPPER_REFERENCE)
 }
 
+/// Builds the declared streaming request object from the fixture input (minus the handle's own
+/// fields) into `setup_lines` and returns the variable name that carries it.
+fn bind_streaming_request(
+    setup_lines: &mut Vec<String>,
+    fixture: &Fixture,
+    recipe_args: &[crate::e2e::config::ArgMapping],
+    request: &crate::core::config::extras::AdapterParam,
+) -> String {
+    let request_name = request.name.to_lower_camel_case();
+    let request_type = request.ty.rsplit("::").next().unwrap_or(&request.ty);
+    let mut request_input = fixture.input.clone();
+    if let Some(object) = request_input.as_object_mut() {
+        for handle in recipe_args.iter().filter(|arg| arg.arg_type == "handle") {
+            let field = handle.field.strip_prefix("input.").unwrap_or(&handle.field);
+            object.remove(field);
+        }
+    }
+    let normalized = crate::e2e::codegen::transform_json_keys_for_language(&request_input, "snake_case");
+    let request_json = serde_json::to_string(&normalized).unwrap_or_default();
+    // A full literal expression -- quoted, or `+`-chunked when `request_json` is long
+    // enough to threaten the JVM's 65535-byte constant cap -- not just escaped content.
+    // See `values::kotlin_string_literal`.
+    let literal = super::values::kotlin_string_literal(&request_json);
+    if crate::e2e::codegen::value_contains_mock_url_placeholder(&normalized) {
+        let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+        setup_lines.push(format!(
+            "val {request_name}Json = {literal}.replace(\"{}\", System.getProperty(\"mockServer.{}\", System.getenv(\"{env_key}\") ?: \"\"))",
+            crate::e2e::escape::escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER),
+            fixture.id,
+        ));
+        setup_lines.push(format!(
+            "val {request_name} = mapper.readValue({request_name}Json, {request_type}::class.java)"
+        ));
+    } else {
+        setup_lines.push(format!(
+            "val {request_name} = mapper.readValue({literal}, {request_type}::class.java)"
+        ));
+    }
+    request_name
+}
+
+fn snippet_package_name(config: &ResolvedCrateConfig, kotlin_android_style: bool) -> String {
+    if kotlin_android_style {
+        config
+            .kotlin_android
+            .as_ref()
+            .and_then(|value| value.package.clone())
+            .unwrap_or_else(|| config.kotlin_package())
+    } else {
+        config.kotlin_package()
+    }
+}
+
+fn snippet_client_args(fixture: &Fixture, config_json: Option<&str>) -> String {
+    match config_json {
+        Some(json) => super::values::kotlin_string_literal(json),
+        None => match crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client()) {
+            Some(base_url) => format!(
+                "apiKey = apiKey, baseUrl = \"{}\"",
+                crate::e2e::escape::escape_kotlin(base_url)
+            ),
+            None => "apiKey = apiKey".to_string(),
+        },
+    }
+}
+
 pub(crate) fn render_snippet_body(
     fixture: &Fixture,
     e2e_config: &E2eConfig,
@@ -154,37 +220,7 @@ pub(crate) fn render_snippet_body_with_ir(
     if streaming_owner_handle.is_some()
         && let Some(request) = streaming_request
     {
-        let request_name = request.name.to_lower_camel_case();
-        let request_type = request.ty.rsplit("::").next().unwrap_or(&request.ty);
-        let mut request_input = fixture.input.clone();
-        if let Some(object) = request_input.as_object_mut() {
-            for handle in recipe.args.iter().filter(|arg| arg.arg_type == "handle") {
-                let field = handle.field.strip_prefix("input.").unwrap_or(&handle.field);
-                object.remove(field);
-            }
-        }
-        let normalized = crate::e2e::codegen::transform_json_keys_for_language(&request_input, "snake_case");
-        let request_json = serde_json::to_string(&normalized).unwrap_or_default();
-        // A full literal expression -- quoted, or `+`-chunked when `request_json` is long
-        // enough to threaten the JVM's 65535-byte constant cap -- not just escaped content.
-        // See `values::kotlin_string_literal`.
-        let literal = super::values::kotlin_string_literal(&request_json);
-        if crate::e2e::codegen::value_contains_mock_url_placeholder(&normalized) {
-            let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
-            setup_lines.push(format!(
-                "val {request_name}Json = {literal}.replace(\"{}\", System.getProperty(\"mockServer.{}\", System.getenv(\"{env_key}\") ?: \"\"))",
-                crate::e2e::escape::escape_kotlin(crate::e2e::codegen::MOCK_URL_PLACEHOLDER),
-                fixture.id,
-            ));
-            setup_lines.push(format!(
-                "val {request_name} = mapper.readValue({request_name}Json, {request_type}::class.java)"
-            ));
-        } else {
-            setup_lines.push(format!(
-                "val {request_name} = mapper.readValue({literal}, {request_type}::class.java)"
-            ));
-        }
-        args = request_name;
+        args = bind_streaming_request(&mut setup_lines, fixture, recipe.args, request);
     }
     if let Some(visitor) = &fixture.visitor
         && let Some(visitor_args) =
@@ -217,16 +253,7 @@ pub(crate) fn render_snippet_body_with_ir(
     // `client_config_exclusion` and `ensure_client_config_applied` resolve it by language name.
     let config_call = client_factory
         .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
-    let client_args = match &config_call {
-        Some((_, json)) => super::values::kotlin_string_literal(json),
-        None => match crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client()) {
-            Some(base_url) => format!(
-                "apiKey = apiKey, baseUrl = \"{}\"",
-                crate::e2e::escape::escape_kotlin(base_url)
-            ),
-            None => "apiKey = apiKey".to_string(),
-        },
-    };
+    let client_args = snippet_client_args(fixture, config_call.as_ref().map(|(_, json)| json.as_str()));
     let client_factory = config_call
         .as_ref()
         .map(|(from_json_factory, _)| *from_json_factory)
@@ -236,15 +263,7 @@ pub(crate) fn render_snippet_body_with_ir(
     let is_streaming = !call.returns_void
         && crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
     let is_async = client_factory.is_some() || call.r#async || is_streaming;
-    let package_name = if kotlin_android_style {
-        config
-            .kotlin_android
-            .as_ref()
-            .and_then(|value| value.package.clone())
-            .unwrap_or_else(|| config.kotlin_package())
-    } else {
-        config.kotlin_package()
-    };
+    let package_name = snippet_package_name(config, kotlin_android_style);
     let expects_error = fixture
         .assertions
         .iter()

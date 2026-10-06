@@ -1,5 +1,6 @@
 mod collection;
 mod enum_union;
+mod swift_bridged;
 mod swift_leaf;
 
 use super::super::internally_tagged_variants::push_owner_segment;
@@ -11,26 +12,6 @@ use super::super::parse::{
 use super::super::types::{FieldResolver, JsonNavStep, PathSegment, StringyField};
 use std::borrow::Cow;
 use std::collections::HashSet;
-
-/// Appends the [`JsonNavStep::Index`] a segment's trailing `[..]` names, if any, to `steps`.
-///
-/// `Ok`-shaped as `Option<()>` so [`FieldResolver::swift_json_bridged_navigation`] can use `?` to
-/// abort its whole walk the moment one segment's bracket contents are not a plain non-negative
-/// integer -- a wildcard `[]` or a string map key `[key]` is a distinct traversal this walk does
-/// not attempt to decode generically. A segment with no bracket at all is not an error: it simply
-/// contributes no index step. ~keep
-fn push_numeric_bracket_step(segment: &str, steps: &mut Vec<JsonNavStep>) -> Option<()> {
-    let Some(open) = segment.find('[') else {
-        return Some(());
-    };
-    let Some(close) = segment[open..].find(']') else {
-        return Some(());
-    };
-    let inside = &segment[open + 1..open + close];
-    let index: usize = inside.parse().ok()?;
-    steps.push(JsonNavStep::Index(index));
-    Some(())
-}
 
 impl FieldResolver {
     /// Returns `true` when `fixture_field` (or its resolved alias, or a
@@ -244,25 +225,7 @@ impl FieldResolver {
             if steps_past && bridged {
                 prefix.push(bare);
                 push_owner_segment(&mut owner_path, bare);
-                let mut steps = Vec::new();
-                push_numeric_bracket_step(segment, &mut steps)?;
-                for later in &segments[index + 1..] {
-                    let later_bare = later.split('[').next().unwrap_or(later);
-                    // ~keep A segment naming a variant of an internally-tagged serde enum is not
-                    // a JSON key: that wire form is flat, with the variant's own fields beside
-                    // the discriminator and no key for the variant name. A typed fixture path
-                    // spells the variant as a segment anyway (`format.excel.sheet_count`), so a
-                    // literal `JsonNavStep::Key("excel")` would look up a key that does not exist
-                    // and `JSONSerialization` would return nil for it. Zig's JSON-walking codegen
-                    // has the identical problem and asks the identical IR-derived question.
-                    if self.is_internally_tagged_variant_segment(&owner_path, later_bare) {
-                        push_owner_segment(&mut owner_path, later_bare);
-                        continue;
-                    }
-                    steps.push(JsonNavStep::Key(later_bare.to_string()));
-                    push_numeric_bracket_step(later, &mut steps)?;
-                    push_owner_segment(&mut owner_path, later_bare);
-                }
+                let steps = self.swift_bridged_tail_steps(segment, &segments[index + 1..], &mut owner_path)?;
                 return Some((prefix.join("."), steps));
             }
             cursor = map.advance(cursor.as_deref(), bare);

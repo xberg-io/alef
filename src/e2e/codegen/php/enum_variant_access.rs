@@ -263,7 +263,11 @@ mod tests {
     /// * `DocumentKind` — unit variants only, lowered to a PHP `string`.
     /// * `Payload` — `#[serde(untagged)]` with data, bridged as a JSON `string`.
     fn ir() -> (Vec<TypeDef>, Vec<EnumDef>) {
-        let type_defs = vec![
+        (ir_type_defs(), ir_enums())
+    }
+
+    fn ir_type_defs() -> Vec<TypeDef> {
+        vec![
             TypeDef {
                 name: "DocumentResult".to_string(),
                 fields: vec![
@@ -291,8 +295,11 @@ mod tests {
                 fields: vec![field("sheet_count", TypeRef::Primitive(PrimitiveType::U32))],
                 ..TypeDef::default()
             },
-        ];
-        let enums = vec![
+        ]
+    }
+
+    fn ir_enums() -> Vec<EnumDef> {
+        vec![
             EnumDef {
                 name: "EncodingDetails".to_string(),
                 serde_tag: Some("type".to_string()),
@@ -349,8 +356,7 @@ mod tests {
                 ],
                 ..EnumDef::default()
             },
-        ];
-        (type_defs, enums)
+        ]
     }
 
     fn render(field_path: &str) -> String {

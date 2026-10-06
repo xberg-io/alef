@@ -1,7 +1,10 @@
 use super::renderers::{kotlin_getter, quoted_key_literal};
-use super::types::{PathSegment, PhpGetterMap};
+use super::types::PathSegment;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
+
+mod php;
+pub(super) use php::{php_element_owner_type, render_php, render_php_element_with_getters, render_php_with_getters};
 
 /// Appends the bare field/array/map name for `segment` onto `path_so_far`,
 /// with no bracket suffix. The result is the config-lookup key to check for
@@ -193,6 +196,34 @@ pub(super) fn render_java_with_optionals(
     out
 }
 
+/// Appends the `[index]` access of an array segment. A root-array segment (`name` empty, e.g.
+/// `[0].id`) has no getter to call -- `result_var` IS the list. ~keep
+fn push_kotlin_array_access(out: &mut String, nav: &str, safe: &str, name: &str, index: usize) {
+    let accessor = if index == 0 {
+        format!("{safe}.first()")
+    } else {
+        format!("{safe}.get({index})")
+    };
+    if name.is_empty() {
+        out.push_str(&accessor);
+    } else {
+        out.push_str(nav);
+        out.push_str(&kotlin_getter(name));
+        out.push_str("()");
+        out.push_str(&accessor);
+    }
+}
+
+fn push_kotlin_map_get(out: &mut String, key: &str, nullable: bool) {
+    let safe = if nullable { "?" } else { "" };
+    let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
+    if is_numeric {
+        out.push_str(&format!("(){safe}.get({key})"));
+    } else {
+        out.push_str(&format!("(){safe}.get({})", quoted_key_literal(key)));
+    }
+}
+
 /// Kotlin variant of `render_java_with_optionals` using Kotlin idioms.
 ///
 /// When the previous field in the chain is optional (nullable), uses `?.`
@@ -241,23 +272,7 @@ pub(super) fn render_kotlin_with_optionals(
                 push_key_field_name(&mut path_so_far, seg);
                 let is_optional = optional_fields.contains(&path_so_far);
                 let safe = if prev_was_nullable || is_optional { "?" } else { "" };
-                // A root-array segment (`name` empty, e.g. `[0].id`) has no getter to call —
-                // `result_var` IS the list. ~keep
-                if name.is_empty() {
-                    if *index == 0 {
-                        out.push_str(&format!("{safe}.first()"));
-                    } else {
-                        out.push_str(&format!("{safe}.get({index})"));
-                    }
-                } else {
-                    out.push_str(nav);
-                    out.push_str(&kotlin_getter(name));
-                    if *index == 0 {
-                        out.push_str(&format!("(){safe}.first()"));
-                    } else {
-                        out.push_str(&format!("(){safe}.get({index})"));
-                    }
-                }
+                push_kotlin_array_access(&mut out, nav, safe, name, *index);
                 // Record the "[0]" suffix so subsequent optional-field checks against
                 // paths like "choices[0].message.tool_calls" continue to match when the
                 // optional_fields set uses indexed keys (mirrors the Rust renderer).
@@ -269,18 +284,7 @@ pub(super) fn render_kotlin_with_optionals(
                 let is_optional = optional_fields.contains(&path_so_far);
                 out.push_str(nav);
                 out.push_str(&kotlin_getter(field));
-                let is_numeric = !key.is_empty() && key.chars().all(|c| c.is_ascii_digit());
-                if is_numeric {
-                    if prev_was_nullable || is_optional {
-                        out.push_str(&format!("()?.get({key})"));
-                    } else {
-                        out.push_str(&format!("().get({key})"));
-                    }
-                } else if prev_was_nullable || is_optional {
-                    out.push_str(&format!("()?.get({})", quoted_key_literal(key)));
-                } else {
-                    out.push_str(&format!("().get({})", quoted_key_literal(key)));
-                }
+                push_kotlin_map_get(&mut out, key, prev_was_nullable || is_optional);
                 push_key_index_suffix(&mut path_so_far, seg);
                 prev_was_nullable = prev_was_nullable || is_optional;
             }
@@ -687,190 +691,6 @@ pub(super) fn render_csharp_with_optionals(
             }
             PathSegment::Length => {
                 out.push_str(".Count");
-            }
-        }
-    }
-    out
-}
-
-pub(super) fn render_php(segments: &[PathSegment], result_var: &str) -> String {
-    let mut out = result_var.to_string();
-    for seg in segments {
-        match seg {
-            PathSegment::Field(f) => {
-                out.push_str("->");
-                // PHP properties are camelCase (per #[php(prop, name = "...")]),
-                // so convert snake_case field names to camelCase.
-                out.push_str(&f.to_lower_camel_case());
-            }
-            PathSegment::ArrayField { name, index } => {
-                if !name.is_empty() {
-                    out.push_str("->");
-                    out.push_str(&name.to_lower_camel_case());
-                }
-                out.push_str(&format!("[{index}]"));
-            }
-            PathSegment::MapAccess { field, key } => {
-                out.push_str("->");
-                out.push_str(&field.to_lower_camel_case());
-                out.push_str(&format!("[{}]", quoted_key_literal(key)));
-            }
-            PathSegment::Length => {
-                let current = std::mem::take(&mut out);
-                out = format!("count({current})");
-            }
-        }
-    }
-    out
-}
-
-/// PHP accessor that distinguishes between scalar fields (property access: `->camelCase`)
-/// and non-scalar fields (getter-method access: `->getCamelCase()`).
-///
-/// ext-php-rs 0.15.x exposes scalar fields via `#[php(prop)]` as PHP properties, but
-/// non-scalar fields (Named structs, `Vec<Named>`, `Map`, etc.) require a `#[php(getter)]`
-/// method because `get_method_props` is unimplemented in ext-php-rs-derive 0.11.7.
-/// The generated getter method name is `get{CamelCase}` (stripping the `get_` prefix and
-/// converting the camelCase remainder to a PHP property name), so e2e assertions must call
-/// `->getCamelCase()` for those fields.
-///
-/// `getter_map` carries the per-`(owner_type, field_name)` classification along with the
-/// chain-resolution metadata required to walk multi-segment paths through the IR's nested
-/// type graph. Each path segment is classified using the *current* owner type, then the
-/// owner cursor advances to the field's referenced `Named` type (if any) for the next
-/// segment. When `root_type` is unset the renderer falls back to the legacy bare-name
-/// union, which is unsafe but preserves backwards compatibility for callers that have
-/// not wired type resolution.
-pub(super) fn render_php_with_getters(
-    segments: &[PathSegment],
-    result_var: &str,
-    getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
-) -> String {
-    render_php_with_getters_from_owner(
-        segments,
-        result_var,
-        getter_map,
-        optional_fields,
-        getter_map.root_type.clone(),
-    )
-}
-
-/// [`render_php_with_getters`], but for a path that is already relative to a bound collection
-/// element (the closure/loop variable a wildcard fixture path expands to) rather than to the
-/// call's result variable -- `owner_type` is the IR type of THAT element, resolved by
-/// [`php_element_owner_type`], not `getter_map.root_type`. Mirrors
-/// `render_python_element_with_optionals` for the getter-vs-property classification: a result
-/// envelope and its collection elements can classify independently (a scalar `#[php(prop)]` on
-/// one, a `#[php(getter)]`-only field of the same name on the other), so starting the element
-/// cursor at the result root answers the wrong owner's question.
-pub(super) fn render_php_element_with_getters(
-    segments: &[PathSegment],
-    element_var: &str,
-    getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
-    owner_type: Option<String>,
-) -> String {
-    render_php_with_getters_from_owner(segments, element_var, getter_map, optional_fields, owner_type)
-}
-
-/// The IR type that owns the ELEMENTS of `array_segments` -- e.g. `"StructureItem"` for a
-/// `structure: Vec<StructureItem>` field -- walking `getter_map.field_types` from
-/// `getter_map.root_type` through every segment of the array field's own path, exactly the way
-/// `render_php_with_getters`'s cursor advances. Mirrors `python_element_owner_type`; PHP has no
-/// map-value-edges structure to consult because `PhpGetterMap::advance` already looks up the next
-/// owner by field name alone regardless of segment kind, so a `map[key]` hop advances the same way
-/// a plain field does.
-pub(super) fn php_element_owner_type(array_segments: &[PathSegment], getter_map: &PhpGetterMap) -> Option<String> {
-    let mut current_type = getter_map.root_type.clone();
-    for segment in array_segments {
-        let field_name = match segment {
-            PathSegment::Field(name) | PathSegment::ArrayField { name, .. } => name.as_str(),
-            PathSegment::MapAccess { field, .. } => field.as_str(),
-            PathSegment::Length => continue,
-        };
-        current_type = getter_map.advance(current_type.as_deref(), field_name);
-    }
-    current_type
-}
-
-fn render_php_with_getters_from_owner(
-    segments: &[PathSegment],
-    result_var: &str,
-    getter_map: &PhpGetterMap,
-    optional_fields: &HashSet<String>,
-    owner_type: Option<String>,
-) -> String {
-    let mut out = result_var.to_string();
-    let mut current_type: Option<String> = owner_type;
-    let mut path_so_far = String::new();
-    // Sticky, same convention as `render_php`: once any segment in the chain is optional,
-    // every following access must null-safe-navigate off it.
-    let mut prev_was_nullable = false;
-    for seg in segments {
-        let arrow = if prev_was_nullable { "?->" } else { "->" };
-        match seg {
-            PathSegment::Field(f) => {
-                push_key_field_name(&mut path_so_far, seg);
-                let camel = f.to_lower_camel_case();
-                if getter_map.needs_getter(current_type.as_deref(), f.as_str()) {
-                    // Non-scalar field: ext-php-rs emits a `get{CamelCase}()` method.
-                    // The `get_` prefix is stripped by ext-php-rs when it derives the
-                    // PHP property name, but the Rust method ident is `get_{camelCase}`,
-                    // so the PHP call is `->get{CamelCase}()`.
-                    let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
-                    out.push_str(arrow);
-                    out.push_str(&getter);
-                    out.push_str("()");
-                } else {
-                    out.push_str(arrow);
-                    out.push_str(&camel);
-                }
-                current_type = getter_map.advance(current_type.as_deref(), f.as_str());
-                prev_was_nullable = prev_was_nullable || optional_fields.contains(&path_so_far);
-            }
-            PathSegment::ArrayField { name, index } => {
-                push_key_field_name(&mut path_so_far, seg);
-                // A root-array segment (`name` empty, e.g. `[0].id`) has no getter/property to
-                // resolve — `result_var` IS the array — and `current_type` does not advance
-                // past it. ~keep
-                if !name.is_empty() {
-                    let camel = name.to_lower_camel_case();
-                    if getter_map.needs_getter(current_type.as_deref(), name.as_str()) {
-                        let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
-                        out.push_str(arrow);
-                        out.push_str(&getter);
-                        out.push_str("()");
-                    } else {
-                        out.push_str(arrow);
-                        out.push_str(&camel);
-                    }
-                    current_type = getter_map.advance(current_type.as_deref(), name.as_str());
-                }
-                out.push_str(&format!("[{index}]"));
-                push_key_index_suffix(&mut path_so_far, seg);
-                prev_was_nullable = prev_was_nullable || optional_fields.contains(&path_so_far);
-            }
-            PathSegment::MapAccess { field, key } => {
-                push_key_field_name(&mut path_so_far, seg);
-                let camel = field.to_lower_camel_case();
-                if getter_map.needs_getter(current_type.as_deref(), field.as_str()) {
-                    let getter = format!("get{}", camel.as_str()[..1].to_uppercase() + &camel[1..]);
-                    out.push_str(arrow);
-                    out.push_str(&getter);
-                    out.push_str("()");
-                } else {
-                    out.push_str(arrow);
-                    out.push_str(&camel);
-                }
-                out.push_str(&format!("[{}]", quoted_key_literal(key)));
-                current_type = getter_map.advance(current_type.as_deref(), field.as_str());
-                push_key_index_suffix(&mut path_so_far, seg);
-                prev_was_nullable = prev_was_nullable || optional_fields.contains(&path_so_far);
-            }
-            PathSegment::Length => {
-                let current = std::mem::take(&mut out);
-                out = format!("count({current})");
             }
         }
     }

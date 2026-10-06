@@ -156,21 +156,32 @@ fn apply_fixture_visitor(
     }
 }
 
+struct DartReceiverCtx<'a> {
+    client_factory_camel: Option<&'a str>,
+    config_call: Option<(&'a str, &'a str)>,
+    is_snippet: bool,
+    fixture: &'a Fixture,
+    receiver_class: &'a str,
+    call_config: &'a crate::e2e::config::CallConfig,
+    fixture_id: &'a str,
+}
+
 /// Resolve the receiver expression a call is made on, and any setup statement that must
 /// precede it. When `client_factory` is set, tests create a client instance and call methods
 /// on it rather than using static bridge-class calls (mirroring the go/python/zig pattern for
 /// stateful clients). The mock URL derivation follows the same has_host_root_route /
 /// plain-fixture split used by the mock_url arg handler in `args.rs`. Extracted verbatim from
 /// `render_test_case`; no emitted string, whitespace, or branch condition changed. ~keep
-fn resolve_dart_receiver(
-    client_factory_camel: Option<&str>,
-    config_call: Option<(&str, &str)>,
-    is_snippet: bool,
-    fixture: &Fixture,
-    receiver_class: &str,
-    call_config: &crate::e2e::config::CallConfig,
-    fixture_id: &str,
-) -> (String, Option<String>) {
+fn resolve_dart_receiver(ctx: &DartReceiverCtx<'_>) -> (String, Option<String>) {
+    let DartReceiverCtx {
+        client_factory_camel,
+        config_call,
+        is_snippet,
+        fixture,
+        receiver_class,
+        call_config,
+        fixture_id,
+    } = *ctx;
     if let Some(factory) = client_factory_camel {
         if let Some((from_json_factory, json)) = config_call {
             let create_line = format!(
@@ -478,15 +489,15 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     let config_call = is_snippet
         .then(|| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, lang))
         .flatten();
-    let (receiver, extra_setup): (String, Option<String>) = resolve_dart_receiver(
-        client_factory_camel.as_deref(),
-        config_call.as_ref().map(|(factory, json)| (*factory, json.as_str())),
+    let (receiver, extra_setup): (String, Option<String>) = resolve_dart_receiver(&DartReceiverCtx {
+        client_factory_camel: client_factory_camel.as_deref(),
+        config_call: config_call.as_ref().map(|(factory, json)| (*factory, json.as_str())),
         is_snippet,
         fixture,
-        &receiver_class,
+        receiver_class: &receiver_class,
         call_config,
         fixture_id,
-    );
+    });
 
     // Extracted to `emit_call_and_assertions` below; no emitted string, whitespace, or branch
     // condition changed by the move.

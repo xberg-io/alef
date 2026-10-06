@@ -68,6 +68,56 @@ fn is_csharp_content_header(name: &str) -> bool {
     )
 }
 
+/// Emit the request-body content for a request with a body, picking the `HttpContent` shape the
+/// fixture's `Content-Type` requires.
+fn render_request_body(out: &mut String, body: &serde_json::Value, content_type: &str) {
+    // When body is a JSON string, use it directly as the request body content
+    // (no additional serialization). For objects/arrays, serialize to JSON.
+    let body_str = match body {
+        serde_json::Value::String(s) => s.clone(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    let escaped = escape_csharp(&body_str);
+
+    // For multipart/form-data with boundary, use ByteArrayContent with explicit header
+    // because StringContent constructor rejects boundary in MediaType.
+    if content_type.contains("multipart/form-data") && content_type.contains("boundary=") {
+        // Extract the base content type and boundary parameter
+        let boundary_pos = content_type.find("boundary=").unwrap_or(0);
+        let boundary_value = &content_type[boundary_pos + 9..];
+
+        out.push_str("        var multipartBytes = System.Text.Encoding.UTF8.GetBytes(\"");
+        out.push_str(&escaped);
+        out.push_str("\");\n");
+        out.push_str("        var multipartContent = new System.Net.Http.ByteArrayContent(multipartBytes);\n");
+        out.push_str(
+            "        var mediaType = new System.Net.Http.Headers.MediaTypeHeaderValue(\"multipart/form-data\");\n",
+        );
+        out.push_str(&format!("        mediaType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue(\"boundary\", \"{boundary_value}\"));\n"));
+        out.push_str("        multipartContent.Headers.ContentType = mediaType;\n");
+        out.push_str("        request.Content = multipartContent;\n");
+    } else if content_type.contains(';') {
+        // Any media type carrying parameters has to go through `MediaTypeHeaderValue`,
+        // not through `StringContent`'s three-argument constructor: that constructor runs
+        // `CheckMediaTypeFormat`, which rejects a media type with parameters outright and
+        // throws `FormatException` before a request is ever sent. The multipart branch
+        // above exists for the same reason; it is kept separate only because
+        // `ByteArrayContent` avoids `StringContent` appending its own `charset` for the
+        // one case where the fixture body is already-encoded bytes. Assigning
+        // `Headers.ContentType` after construction overwrites that appended charset, so
+        // the header the request carries is exactly what the fixture declared. ~keep
+        out.push_str(&format!(
+            "        var parameterizedContent = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8);\n"
+        ));
+        out.push_str(&format!(
+            "        parameterizedContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(\"{content_type}\");\n"
+        ));
+        out.push_str("        request.Content = parameterizedContent;\n");
+    } else {
+        out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
+    }
+}
+
 impl client::TestClientRenderer for CSharpTestClientRenderer {
     fn language_name(&self) -> &'static str {
         "csharp"
@@ -134,52 +184,8 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
         // for C# string interpolation
         out.push_str(&format!("        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{}\");\n", ctx.path));
 
-        // Set body + Content-Type when a request body is present.
         if let Some(body) = ctx.body {
-            let content_type = ctx.content_type.unwrap_or("application/json");
-            // When body is a JSON string, use it directly as the request body content
-            // (no additional serialization). For objects/arrays, serialize to JSON.
-            let body_str = match body {
-                serde_json::Value::String(s) => s.clone(),
-                other => serde_json::to_string(other).unwrap_or_default(),
-            };
-            let escaped = escape_csharp(&body_str);
-
-            // For multipart/form-data with boundary, use ByteArrayContent with explicit header
-            // because StringContent constructor rejects boundary in MediaType.
-            if content_type.contains("multipart/form-data") && content_type.contains("boundary=") {
-                // Extract the base content type and boundary parameter
-                let boundary_pos = content_type.find("boundary=").unwrap_or(0);
-                let boundary_value = &content_type[boundary_pos + 9..];
-
-                out.push_str("        var multipartBytes = System.Text.Encoding.UTF8.GetBytes(\"");
-                out.push_str(&escaped);
-                out.push_str("\");\n");
-                out.push_str("        var multipartContent = new System.Net.Http.ByteArrayContent(multipartBytes);\n");
-                out.push_str("        var mediaType = new System.Net.Http.Headers.MediaTypeHeaderValue(\"multipart/form-data\");\n");
-                out.push_str(&format!("        mediaType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue(\"boundary\", \"{boundary_value}\"));\n"));
-                out.push_str("        multipartContent.Headers.ContentType = mediaType;\n");
-                out.push_str("        request.Content = multipartContent;\n");
-            } else if content_type.contains(';') {
-                // Any media type carrying parameters has to go through `MediaTypeHeaderValue`,
-                // not through `StringContent`'s three-argument constructor: that constructor runs
-                // `CheckMediaTypeFormat`, which rejects a media type with parameters outright and
-                // throws `FormatException` before a request is ever sent. The multipart branch
-                // above exists for the same reason; it is kept separate only because
-                // `ByteArrayContent` avoids `StringContent` appending its own `charset` for the
-                // one case where the fixture body is already-encoded bytes. Assigning
-                // `Headers.ContentType` after construction overwrites that appended charset, so
-                // the header the request carries is exactly what the fixture declared. ~keep
-                out.push_str(&format!(
-                    "        var parameterizedContent = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8);\n"
-                ));
-                out.push_str(&format!(
-                    "        parameterizedContent.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(\"{content_type}\");\n"
-                ));
-                out.push_str("        request.Content = parameterizedContent;\n");
-            } else {
-                out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
-            }
+            render_request_body(out, body, ctx.content_type.unwrap_or("application/json"));
         }
 
         // Add request headers (skip restricted headers that belong to Content.Headers).
