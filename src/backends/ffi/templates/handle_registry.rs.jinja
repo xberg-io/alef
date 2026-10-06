@@ -31,6 +31,7 @@ type ErasedHandleValue = std::sync::Arc<std::sync::Mutex<Box<dyn std::any::Any +
 
 struct HandleSlot {
     generation: u32,
+    type_id: std::any::TypeId,
     value: Option<ErasedHandleValue>,
 }
 
@@ -42,12 +43,15 @@ struct HandleRegistry {
 impl HandleRegistry {
     fn insert<T: std::any::Any + Send>(&mut self, value: T) -> AlefHandle {
         let entry = std::sync::Arc::new(std::sync::Mutex::new(Box::new(value) as Box<dyn std::any::Any + Send>));
+        let type_id = std::any::TypeId::of::<T>();
         if let Some((index, slot)) = self.slots.iter_mut().enumerate().find(|(_, slot)| slot.value.is_none()) {
+            slot.type_id = type_id;
             slot.value = Some(entry);
             return encode_handle(index, slot.generation);
         }
         self.slots.push(HandleSlot {
             generation: 1,
+            type_id,
             value: Some(entry),
         });
         encode_handle(self.slots.len() - 1, 1)
@@ -62,6 +66,19 @@ impl HandleRegistry {
         slot.value.clone().ok_or(HandleError::StaleGeneration)
     }
 
+    fn get_typed(&self, handle: AlefHandle, expected_type: std::any::TypeId) -> Result<ErasedHandleValue, HandleError> {
+        let (index, generation) = decode_handle(handle)?;
+        let slot = self.slots.get(index).ok_or(HandleError::UnknownSlot)?;
+        if slot.generation != generation {
+            return Err(HandleError::StaleGeneration);
+        }
+        let value = slot.value.as_ref().ok_or(HandleError::StaleGeneration)?;
+        if slot.type_id != expected_type {
+            return Err(HandleError::WrongType);
+        }
+        Ok(value.clone())
+    }
+
     fn remove<T: std::any::Any + Send>(&mut self, handle: AlefHandle) -> Result<(), HandleError> {
         drop(self.take::<T>(handle)?);
         Ok(())
@@ -73,12 +90,12 @@ impl HandleRegistry {
         if slot.generation != generation {
             return Err(HandleError::StaleGeneration);
         }
-        let value = slot.value.as_ref().ok_or(HandleError::StaleGeneration)?;
-        let guard = value.lock().map_err(|_| HandleError::RegistryPoisoned)?;
-        if !guard.is::<T>() {
+        if slot.value.is_none() {
+            return Err(HandleError::StaleGeneration);
+        }
+        if slot.type_id != std::any::TypeId::of::<T>() {
             return Err(HandleError::WrongType);
         }
-        drop(guard);
         let value = slot.value.take().ok_or(HandleError::StaleGeneration)?;
         let mutex = std::sync::Arc::try_unwrap(value).map_err(|value| {
             slot.value = Some(value);
@@ -142,13 +159,7 @@ fn acquire_handles(requests: &[HandleRequest]) -> Result<Vec<(AlefHandle, Erased
     let registry = handle_registry().lock().map_err(|_| HandleError::RegistryPoisoned)?;
     let mut values = Vec::with_capacity(ordered.len());
     for request in ordered {
-        let value = registry.get(request.handle)?;
-        let guard = value.lock().map_err(|_| HandleError::RegistryPoisoned)?;
-        if guard.as_ref().type_id() != request.expected_type {
-            return Err(HandleError::WrongType);
-        }
-        drop(guard);
-        values.push((request.handle, value));
+        values.push((request.handle, registry.get_typed(request.handle, request.expected_type)?));
     }
     Ok(values)
 }

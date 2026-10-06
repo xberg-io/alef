@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Go e2e tests assert a declared error variant through the typed error's `ErrorType` whenever the
   generated error type has that field, including variants that declare no `error_code`, instead of
   rendering a skip comment for them. Error types without the field are unchanged.
+- The FFI handle registry no longer waits on a handle's entry lock while holding the registry-wide lock.
+  A handle's type is now recorded when it is inserted, so acquiring a handle for a call and freeing a
+  handle never block behind a running call on that handle. Previously one long call on a client made
+  every other handle operation in the process (including `<prefix>_cancel_token_cancel`) wait for it,
+  and freeing a handle during a call could deadlock. Freeing a handle a call still holds now fails
+  with the handle-busy error instead of waiting.
 
 ## [0.104.4] - 2026-10-06
 

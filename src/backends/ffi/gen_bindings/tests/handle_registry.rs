@@ -97,15 +97,91 @@ fn main() {
 }
 
 #[test]
-fn acquisition_rejects_aliases_before_locking_entries() {
+fn a_busy_entry_never_stalls_the_registry_and_is_not_freed_under_a_running_call() {
+    let mut source = String::from("const ALEF_INVALID_HANDLE_ERROR: i32 = 4;\nfn set_last_error(_: i32, _: &str) {}\n");
+    let mut registry = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
+    let serialized_start = registry
+        .find("struct SerializedHandle")
+        .expect("serialized helper start");
+    let core_registry_resume = registry[serialized_start..]
+        .find("fn with_handle")
+        .map(|offset| serialized_start + offset)
+        .expect("core registry helpers resume");
+    registry.replace_range(serialized_start..core_registry_resume, "");
+    source.push_str(&registry);
+    source.push_str(
+        r#"
+fn main() {
+    let busy = insert_handle(String::from("held")).expect("insert");
+    let entry = handle_registry().lock().unwrap().get(busy).expect("entry");
+    let running_call = entry.lock().unwrap();
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let acquired = acquire_handles(&[HandleRequest { handle: busy, expected_type: std::any::TypeId::of::<String>() }]);
+        sender.send(acquired.is_ok()).unwrap();
+    });
+    assert_eq!(
+        receiver.recv_timeout(std::time::Duration::from_secs(5)),
+        Ok(true),
+        "acquiring a handle whose entry lock is held must not wait for that lock"
+    );
+
+    let other = insert_handle(7_u64).expect("the registry stays usable while a call is running");
+    assert_eq!(with_handle::<u64, _>(other, |value| *value).expect("borrow"), 7);
+    assert!(matches!(
+        acquire_handles(&[HandleRequest { handle: busy, expected_type: std::any::TypeId::of::<u64>() }]),
+        Err(HandleError::WrongType)
+    ));
+    assert!(matches!(remove_handle::<u64>(busy), Err(HandleError::WrongType)));
+
+    assert!(
+        matches!(remove_handle::<String>(busy), Err(HandleError::HandleBusy)),
+        "freeing a handle a call still holds must fail fast, not wait while holding the registry"
+    );
+    drop(running_call);
+    drop(entry);
+    assert!(matches!(remove_handle::<String>(busy), Ok(())), "the handle stays valid after a refused free");
+    assert!(matches!(with_handle::<String, _>(busy, |_| ()), Err(HandleError::StaleGeneration)));
+}
+"#,
+    );
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let source_path = directory.path().join("busy.rs");
+    let binary_path = directory.path().join("busy-test");
+    std::fs::write(&source_path, source).expect("write harness");
+    let compile = std::process::Command::new("rustc")
+        .current_dir(directory.path())
+        .args(["--edition=2024", "-o"])
+        .arg(&binary_path)
+        .arg(&source_path)
+        .output()
+        .expect("run rustc");
+    assert!(compile.status.success(), "{}", String::from_utf8_lossy(&compile.stderr));
+    let run = std::process::Command::new(&binary_path)
+        .current_dir(directory.path())
+        .output()
+        .expect("run busy-entry harness");
+    assert!(
+        run.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+}
+
+#[test]
+fn acquisition_rejects_aliases_and_never_locks_an_entry_under_the_registry_lock() {
     let source = template_env::render("handle_registry.rs.jinja", minijinja::context! {});
 
     let acquire = source.split("fn acquire_handles").nth(1).expect("acquisition helper");
-    let duplicate_check = acquire.find("ordered.windows(2)").expect("duplicate-token check");
-    let entry_lock = acquire.find("let guard = value.lock()").expect("entry lock");
-    assert!(
-        duplicate_check < entry_lock,
-        "aliases must fail before entry locks are acquired"
+    let acquire = acquire.split("\nfn ").next().expect("acquisition helper body");
+    assert!(acquire.contains("ordered.windows(2)"), "duplicate-token check");
+    assert_eq!(
+        acquire.matches(".lock()").count(),
+        1,
+        "only the registry lock may be taken here: waiting on an entry lock while holding it \
+         stalls every other handle operation, including a cancel token's own cancel call:\n{acquire}"
     );
     assert!(source.contains("ordered.sort_by_key(|request| request.handle)"));
     assert!(source.contains("HandleError::AliasedHandle"));
