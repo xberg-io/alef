@@ -406,6 +406,144 @@ fn trait_core_to_json_expr(expr: &str, ty: &TypeRef, visible_type_names: &HashSe
     }
 }
 
+/// How a bound local is handed to the call: `&x`/`&mut x`, or `x.as_ref()`/`x.as_mut()` for an
+/// optional parameter.
+fn bound_ref_expr(bound: &str, p: &crate::core::ir::ParamDef) -> String {
+    if p.optional {
+        if p.is_mut {
+            format!("{bound}.as_mut()")
+        } else {
+            format!("{bound}.as_ref()")
+        }
+    } else if p.is_mut {
+        format!("&mut {bound}")
+    } else {
+        format!("&{bound}")
+    }
+}
+
+fn newtype_call_arg(
+    p: &crate::core::ir::ParamDef,
+    name: &str,
+    visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+    pre_call_bindings: &mut Vec<String>,
+) -> Option<String> {
+    if !p.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
+        return None;
+    }
+    let binding_expr = if p.optional {
+        trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
+            .map(|converted| format!("({name}).map(|value| {converted})"))
+            .unwrap_or_else(|| name.to_string())
+    } else {
+        trait_json_to_core_expr(name, &p.ty, visible_type_names, type_paths).unwrap_or_else(|| name.to_string())
+    };
+    let converted = apply_param_newtype_to_core(&binding_expr, p).expect("explicit newtype metadata checked above");
+    if !p.is_ref {
+        return Some(converted);
+    }
+    let bound = format!("__{name}_newtype");
+    let mutability = if p.is_mut { "mut " } else { "" };
+    pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};"));
+    Some(bound_ref_expr(&bound, p))
+}
+
+fn json_bridged_call_arg(
+    p: &crate::core::ir::ParamDef,
+    name: &str,
+    visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+    pre_call_bindings: &mut Vec<String>,
+) -> Option<String> {
+    let json_conversion = if p.optional {
+        trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
+            .map(|converted| format!("({name}).map(|value| {converted})"))
+    } else {
+        trait_json_to_core_expr(name, &p.ty, visible_type_names, type_paths)
+    };
+    let deser = json_conversion?;
+    if !p.is_ref {
+        return Some(deser);
+    }
+    let bound = format!("__{name}_json");
+    let mutability = if p.is_mut { "mut " } else { "" };
+    pre_call_bindings.push(format!("    let {mutability}{bound} = {deser};"));
+    Some(bound_ref_expr(&bound, p))
+}
+
+fn path_call_arg(p: &crate::core::ir::ParamDef, name: &str) -> String {
+    if p.optional {
+        if p.is_ref {
+            return format!("{name}.as_ref().map(std::path::Path::new)");
+        }
+        return format!("{name}.map(std::path::PathBuf::from)");
+    }
+    if p.is_ref {
+        return format!("std::path::Path::new(&{name})");
+    }
+    format!("std::path::PathBuf::from({name})")
+}
+
+/// A `Named` param whose type has no wrapper in the bridge crosses as a JSON `String`.
+fn hidden_named_call_arg(
+    p: &crate::core::ir::ParamDef,
+    name: &str,
+    visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let TypeRef::Named(named) = &p.ty else {
+        return None;
+    };
+    if visible_type_names.contains(named.as_str()) {
+        return None;
+    }
+    let qualified = type_paths
+        .get(named.as_str())
+        .map(|p| p.replace('-', "_"))
+        .unwrap_or_else(|| named.clone());
+    let deser = if p.optional {
+        format!("{name}.map(|json| serde_json::from_str::<{qualified}>(&json).expect(\"valid JSON for {name}\"))")
+    } else {
+        format!("serde_json::from_str::<{qualified}>(&{name}).expect(\"valid JSON for {name}\")")
+    };
+    if !p.is_ref {
+        return Some(deser);
+    }
+    Some(if p.optional {
+        format!("({deser}).as_ref()")
+    } else {
+        format!("&{deser}")
+    })
+}
+
+fn visible_named_call_arg(p: &crate::core::ir::ParamDef, name: &str) -> String {
+    if p.optional {
+        if p.is_ref {
+            return format!("{name}.as_ref().map(|w| &w.0)");
+        }
+        return format!("{name}.map(|w| w.0)");
+    }
+    if p.is_mut {
+        return format!("&mut {name}.0");
+    }
+    if p.is_ref {
+        return format!("&{name}.0");
+    }
+    format!("{name}.0")
+}
+
+fn borrowed_scalar_call_arg(p: &crate::core::ir::ParamDef, name: &str) -> String {
+    match &p.ty {
+        TypeRef::Bytes | TypeRef::String if p.optional => format!("{name}.as_deref()"),
+        TypeRef::Char if p.optional => format!("{name}.as_ref()"),
+        TypeRef::Bytes | TypeRef::String | TypeRef::Char => format!("&{name}"),
+        TypeRef::Vec(_) if p.optional => format!("{name}.as_deref()"),
+        TypeRef::Vec(_) => format!("{name}.as_slice()"),
+        _ => format!("&{name}"),
+    }
+}
+
 /// Build the call-site argument expression for a trait method parameter.
 /// JSON-bridged params are deserialized; Path params are converted to PathBuf/Path;
 /// Named types visible in the bridge are passed through wrapper newtypes (extract `.0`);
@@ -419,121 +557,23 @@ pub(crate) fn trait_call_arg(
 ) -> String {
     let name = p.name.to_snake_case();
 
-    if p.newtype_wrapper.as_deref().is_some_and(is_explicit_newtype) {
-        let binding_expr = if p.optional {
-            trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
-                .map(|converted| format!("({name}).map(|value| {converted})"))
-                .unwrap_or_else(|| name.clone())
-        } else {
-            trait_json_to_core_expr(&name, &p.ty, visible_type_names, type_paths).unwrap_or_else(|| name.clone())
-        };
-        let converted = apply_param_newtype_to_core(&binding_expr, p).expect("explicit newtype metadata checked above");
-        if p.is_ref {
-            let bound = format!("__{name}_newtype");
-            let mutability = if p.is_mut { "mut " } else { "" };
-            pre_call_bindings.push(format!("    let {mutability}{bound} = {converted};"));
-            if p.optional {
-                return if p.is_mut {
-                    format!("{bound}.as_mut()")
-                } else {
-                    format!("{bound}.as_ref()")
-                };
-            }
-            return if p.is_mut {
-                format!("&mut {bound}")
-            } else {
-                format!("&{bound}")
-            };
-        }
-        return converted;
+    if let Some(arg) = newtype_call_arg(p, &name, visible_type_names, type_paths, pre_call_bindings) {
+        return arg;
     }
-
-    let json_conversion = if p.optional {
-        trait_json_to_core_expr("value", &p.ty, visible_type_names, type_paths)
-            .map(|converted| format!("({name}).map(|value| {converted})"))
-    } else {
-        trait_json_to_core_expr(&name, &p.ty, visible_type_names, type_paths)
-    };
-    if let Some(deser) = json_conversion {
-        if p.is_ref {
-            let bound = format!("__{name}_json");
-            let mutability = if p.is_mut { "mut " } else { "" };
-            pre_call_bindings.push(format!("    let {mutability}{bound} = {deser};"));
-            return if p.optional {
-                if p.is_mut {
-                    format!("{bound}.as_mut()")
-                } else {
-                    format!("{bound}.as_ref()")
-                }
-            } else if p.is_mut {
-                format!("&mut {bound}")
-            } else {
-                format!("&{bound}")
-            };
-        }
-        return deser;
+    if let Some(arg) = json_bridged_call_arg(p, &name, visible_type_names, type_paths, pre_call_bindings) {
+        return arg;
     }
-
     if matches!(p.ty, TypeRef::Path) {
-        if p.optional {
-            if p.is_ref {
-                return format!("{name}.as_ref().map(std::path::Path::new)");
-            }
-            return format!("{name}.map(std::path::PathBuf::from)");
-        }
-        if p.is_ref {
-            return format!("std::path::Path::new(&{name})");
-        }
-        return format!("std::path::PathBuf::from({name})");
+        return path_call_arg(p, &name);
     }
-
-    if let TypeRef::Named(named) = &p.ty
-        && !visible_type_names.contains(named.as_str())
-    {
-        let qualified = type_paths
-            .get(named.as_str())
-            .map(|p| p.replace('-', "_"))
-            .unwrap_or_else(|| named.clone());
-        let deser = if p.optional {
-            format!("{name}.map(|json| serde_json::from_str::<{qualified}>(&json).expect(\"valid JSON for {name}\"))")
-        } else {
-            format!("serde_json::from_str::<{qualified}>(&{name}).expect(\"valid JSON for {name}\")")
-        };
-        if p.is_ref {
-            return if p.optional {
-                format!("({deser}).as_ref()")
-            } else {
-                format!("&{deser}")
-            };
-        }
-        return deser;
+    if let Some(arg) = hidden_named_call_arg(p, &name, visible_type_names, type_paths) {
+        return arg;
     }
-
     if matches!(p.ty, TypeRef::Named(_)) {
-        if p.optional {
-            if p.is_ref {
-                return format!("{name}.as_ref().map(|w| &w.0)");
-            }
-            return format!("{name}.map(|w| w.0)");
-        }
-        if p.is_mut {
-            return format!("&mut {name}.0");
-        }
-        if p.is_ref {
-            return format!("&{name}.0");
-        }
-        return format!("{name}.0");
+        return visible_named_call_arg(p, &name);
     }
-
     if p.is_ref {
-        match &p.ty {
-            TypeRef::Bytes | TypeRef::String if p.optional => return format!("{name}.as_deref()"),
-            TypeRef::Char if p.optional => return format!("{name}.as_ref()"),
-            TypeRef::Bytes | TypeRef::String | TypeRef::Char => return format!("&{name}"),
-            TypeRef::Vec(_) if p.optional => return format!("{name}.as_deref()"),
-            TypeRef::Vec(_) => return format!("{name}.as_slice()"),
-            _ => return format!("&{name}"),
-        }
+        return borrowed_scalar_call_arg(p, &name);
     }
     name
 }

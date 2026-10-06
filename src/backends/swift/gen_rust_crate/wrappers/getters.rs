@@ -182,75 +182,44 @@ pub(super) fn emit_getters(
             TypeRef::String | TypeRef::Path | TypeRef::Char | TypeRef::Json
         ) {
             emit_string_like_getter(ty, field, &ctx, out);
-        } else if matches!(field.ty, TypeRef::Bytes) {
-            if field.optional {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_optional_bytes.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        return_type => &ctx.bridge_ty_owned,
-                        name => &ctx.name,
-                    },
-                ));
-            } else {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_bytes.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        return_type => &ctx.bridge_ty_owned,
-                        name => &ctx.name,
-                    },
-                ));
-            }
-        } else if matches!(field.ty, TypeRef::Duration) {
-            if field.optional {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_optional_duration.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        name => &ctx.name,
-                    },
-                ));
-            } else {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_duration.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        name => &ctx.name,
-                    },
-                ));
-            }
-        } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
-            if field.optional {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_serde_optional.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        return_type => &ctx.bridge_ty_owned,
-                        name => &ctx.name,
-                    },
-                ));
-            } else {
-                out.push_str(&crate::backends::swift::template_env::render(
-                    "getter_serde.jinja",
-                    minijinja::context! {
-                        getter_name => &ctx.getter_name,
-                        return_type => &ctx.bridge_ty_owned,
-                        name => &ctx.name,
-                    },
-                ));
-            }
         } else {
-            out.push_str(&crate::backends::swift::template_env::render(
-                "getter_simple_clone.jinja",
-                minijinja::context! {
-                    getter_name => &ctx.getter_name,
-                    return_type => &ctx.bridge_ty_owned,
-                    name => &ctx.name,
-                },
-            ));
+            emit_remaining_getter(ty, field, &ctx, out);
         }
     }
+}
+
+/// Emit the getter for the field shapes with no dedicated emitter: bytes, durations, serde-backed
+/// vectors and primitives, and plain clones.
+fn emit_remaining_getter(ty: &TypeDef, field: &crate::core::ir::FieldDef, ctx: &GetterCtx, out: &mut String) {
+    let template = if matches!(field.ty, TypeRef::Bytes) {
+        if field.optional {
+            "getter_optional_bytes.jinja"
+        } else {
+            "getter_bytes.jinja"
+        }
+    } else if matches!(field.ty, TypeRef::Duration) {
+        if field.optional {
+            "getter_optional_duration.jinja"
+        } else {
+            "getter_duration.jinja"
+        }
+    } else if ty.has_serde && matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Primitive(_)) {
+        if field.optional {
+            "getter_serde_optional.jinja"
+        } else {
+            "getter_serde.jinja"
+        }
+    } else {
+        "getter_simple_clone.jinja"
+    };
+    out.push_str(&crate::backends::swift::template_env::render(
+        template,
+        minijinja::context! {
+            getter_name => &ctx.getter_name,
+            return_type => &ctx.bridge_ty_owned,
+            name => &ctx.name,
+        },
+    ));
 }
 
 /// Emit a `String`-returning getter for an enum-typed `Named` field.
