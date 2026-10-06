@@ -438,8 +438,15 @@ impl HelperNeeds {
 /// (`emit_error_helper` below). Driving both from one array makes it structurally impossible to
 /// add, rename, or drop an infrastructure exception in only one of the two places — the failure
 /// mode that once left `InvalidInputException.java` on disk with no reachable dispatch arm after
-/// the class was renamed to `ConversionErrorException` without updating both sites in lockstep. ~keep
-pub(crate) const INFRASTRUCTURE_ERROR_CLASSES: [(&str, u32, &str); 3] = [
+/// the class was renamed to `ConversionErrorException` without updating both sites in lockstep.
+///
+/// Cancellation is a generated `{main}Exception` subclass rather than the JDK's
+/// `java.util.concurrent.CancellationException`: the generated async wrappers and service classes
+/// close with `catch (Throwable ...)` clauses that re-wrap anything outside the crate's exception
+/// hierarchy as "FFI call failed", which would bury the cancellation under a nested cause. The
+/// name avoids `CancelledException` because an error enum may declare its own `Cancelled`
+/// variant, whose class this table would otherwise shadow. ~keep
+pub(crate) const INFRASTRUCTURE_ERROR_CLASSES: [(&str, u32, &str); 4] = [
     (
         "ConversionErrorException",
         crate::core::ir::ApiSurface::FFI_ERROR_CODE_CONVERSION,
@@ -454,6 +461,11 @@ pub(crate) const INFRASTRUCTURE_ERROR_CLASSES: [(&str, u32, &str); 3] = [
         "PanicException",
         crate::core::ir::ApiSurface::FFI_ERROR_CODE_PANIC,
         "Exception thrown when a Rust panic is contained at the FFI boundary.",
+    ),
+    (
+        "OperationCancelledException",
+        crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED,
+        "Exception thrown when a native call is cancelled through its cancellation token.",
     ),
 ];
 
@@ -666,7 +678,7 @@ mod typed_error_tests {
                     .map(|entry| (entry.code, format!("{}Exception", entry.variant))),
             )
             .collect();
-        assert_eq!(expected.len(), 5, "expected 3 infrastructure + 2 taxonomy exceptions");
+        assert_eq!(expected.len(), 6, "expected 4 infrastructure + 2 taxonomy exceptions");
 
         for (code, class_name) in &expected {
             let arm = format!("case {code} -> throw new {class_name}(msg);");
@@ -681,6 +693,28 @@ mod typed_error_tests {
             case_count,
             expected.len(),
             "generated switch must have exactly one case per declared exception, no extras and no drops"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cancellation_code_tests {
+    use super::*;
+
+    /// FFI code 5 (`Cancelled`) must reach a dedicated exception, not the `default` arm that
+    /// reports every unknown code as the generic base exception. ~keep
+    #[test]
+    fn the_cancelled_ffi_code_has_its_own_dispatch_arm_and_class() {
+        let mut output = "checkLastError()".to_string();
+        gen_helper_methods(&mut output, "sample", "Sample", &crate::core::ir::ApiSurface::default());
+        assert!(
+            output.contains("case 5 -> throw new OperationCancelledException(msg);"),
+            "missing cancellation arm:\n{output}"
+        );
+        assert!(
+            INFRASTRUCTURE_ERROR_CLASSES
+                .iter()
+                .any(|(name, code, _)| *name == "OperationCancelledException" && *code == 5)
         );
     }
 }

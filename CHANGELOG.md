@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- FFI error code 5 (`Cancelled`) is no longer reported as an unknown error by Java, C#, Zig or
+  Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
+  `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error
+  set), and Kotlin/Native throws `kotlin.coroutines.cancellation.CancellationException`.
 - Java and C# error exceptions map a `Duration`-valued introspection method to a duration type
   instead of `String` initialised with `0`, which did not compile. The existing constructors keep
   their signatures; a second overload takes the duration methods too.

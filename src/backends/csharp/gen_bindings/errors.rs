@@ -88,6 +88,7 @@ pub(super) fn gen_exception_class(namespace: &str, class_name: &str, errors: &[E
             "has_base_error": has_base_error,
             "base_exception_class": base_exception_class,
             "variant_dispatch_lines": variant_dispatch_lines,
+            "cancelled_code": crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED,
         })),
     )
 }
@@ -471,6 +472,7 @@ mod tests {
             "        var code = NativeMethods.LastErrorCode();",
             "        var ctxPtr = NativeMethods.LastErrorContext();",
             "        var message = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? fallbackMessage;",
+            "        if (code == 5) return new OperationCanceledException(message);",
             "        if (message.StartsWith(\"Authentication failed:\")) return WithNativeCode(new AuthenticationException(message), code);",
             "        if (message.StartsWith(\"Bad request:\")) return WithNativeCode(new BadRequestException(message), code);",
             "        if (code == 2) return WithNativeCode(new ApiErrorException(message), code);",
@@ -479,5 +481,35 @@ mod tests {
             "}",
         ];
         assert_eq!(lines, expected, "got:\n{rendered}");
+    }
+
+    /// Regression: FFI code 5 (`Cancelled`) used to fall through to the generic exception with
+    /// only a numeric `Code`, indistinguishable from an unknown failure. It must map to the .NET
+    /// cancellation exception, ahead of the message-prefix dispatch, with or without declared
+    /// error types. ~keep
+    #[test]
+    fn gen_exception_class_maps_the_cancelled_code_to_operation_canceled() {
+        let with_errors = gen_exception_class(
+            "Sample.Client",
+            "SampleClientException",
+            &[error(
+                "ApiError",
+                vec![variant("Authentication", Some("Authentication failed: {reason}"))],
+            )],
+        );
+        let cancelled = with_errors
+            .find("if (code == 5) return new OperationCanceledException(message);")
+            .expect("cancelled arm");
+        let dispatch = with_errors.find("message.StartsWith").expect("variant dispatch");
+        assert!(
+            cancelled < dispatch,
+            "cancellation must be checked before prefix dispatch:\n{with_errors}"
+        );
+
+        let without_errors = gen_exception_class("Sample.Client", "SampleClientException", &[]);
+        assert!(
+            without_errors.contains("if (code == 5) return new OperationCanceledException(message);"),
+            "{without_errors}"
+        );
     }
 }

@@ -239,6 +239,10 @@ fn emit_native_function(
                 ));
             }
         }
+        out.push_str(&format!(
+            "                if (_code == {}) throw kotlin.coroutines.cancellation.CancellationException(_msg)\n",
+            crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED
+        ));
         out.push_str("                throw RuntimeException(\"[${_code}] ${_msg}\")\n");
         out.push_str("            }\n");
         if matches!(f.return_type, TypeRef::Unit) {
@@ -483,5 +487,9 @@ mod typed_error_tests {
 
         assert!(!output.contains("throw RequestError.InvalidInput"));
         assert!(output.contains("throw RuntimeException(\"[${_code}] ${_msg}\")"));
+        assert!(
+            output.contains("if (_code == 5) throw kotlin.coroutines.cancellation.CancellationException(_msg)"),
+            "FFI cancellation must not surface as the generic RuntimeException:\n{output}"
+        );
     }
 }

@@ -105,8 +105,13 @@ pub(crate) fn emit_helpers(prefix: &str, declared_errors: &[ErrorDef], out: &mut
         out.push_str("/// Dispatches exclusively on the stable numeric FFI taxonomy code.\n");
         out.push_str("/// A code matching no declared variant maps to `error.UnknownFfiError`.\n");
     }
+    out.push_str("/// The FFI cancellation code maps to `error.Cancelled` ahead of any variant dispatch.\n");
     out.push_str("inline fn _error_with_message(comptime E: type) E {\n");
     out.push_str("    _capture_error_message();\n");
+    out.push_str(&format!(
+        "    if (c.{error_code_symbol}() == {}) return error.Cancelled;\n",
+        crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED
+    ));
     if !dispatching.is_empty() {
         out.push_str(&format!(
             "    const code = @as(i32, @intCast(c.{error_code_symbol}()));\n"
@@ -286,6 +291,30 @@ mod tests {
         assert!(
             !out.contains("const code ="),
             "no taxonomy code is read when nothing dispatches on it (unused local):\n{out}"
+        );
+    }
+
+    /// FFI code 5 (`Cancelled`) is infrastructure, not a declared variant, so it must map to a
+    /// dedicated error whether or not any variant carries a taxonomy code -- previously both
+    /// shapes reported it as `error.UnknownFfiError`. ~keep
+    #[test]
+    fn error_with_message_maps_the_cancelled_code_with_and_without_dispatch() {
+        let mut bare = String::new();
+        emit_helpers("example_pack", &[], &mut bare);
+        let mut coded = String::new();
+        emit_helpers("example_pack", &[request_error(Some(100))], &mut coded);
+
+        for out in [&bare, &coded] {
+            assert!(
+                out.contains("    if (c.example_pack_last_error_code() == 5) return error.Cancelled;\n"),
+                "missing cancellation arm:\n{out}"
+            );
+        }
+        let cancelled = coded.find("error.Cancelled").expect("cancel arm");
+        let switch = coded.find("switch (code)").expect("dispatch switch");
+        assert!(
+            cancelled < switch,
+            "cancellation is checked before taxonomy dispatch:\n{coded}"
         );
     }
 }

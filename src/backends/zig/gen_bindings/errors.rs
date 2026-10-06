@@ -69,6 +69,20 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
             },
         ));
     }
+    // `_error_with_message` returns `error.Cancelled` for the FFI cancellation code, so every
+    // declared set must admit it for the same reason it admits `UnknownFfiError`. ~keep
+    if !error
+        .variants
+        .iter()
+        .any(|v| zig_error_variant_component(&v.name) == "Cancelled")
+    {
+        out.push_str(&crate::backends::zig::template_env::render(
+            "error_set_variant.jinja",
+            minijinja::context! {
+                variant_name => "Cancelled",
+            },
+        ));
+    }
     out.push_str("};\n");
 }
 
@@ -79,7 +93,7 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
 /// untyped-but-fallible function already gets from `wrapper_return_type`, and
 /// `_error_with_message` on it falls through every `if (E == ...)` arm to the same
 /// `UnknownFfiError` a real mismatch deserves. ~keep
-const UNMATCHED_ERROR_SET: &str = "error{OutOfMemory,UnknownFfiError}";
+const UNMATCHED_ERROR_SET: &str = "error{OutOfMemory,UnknownFfiError,Cancelled}";
 
 /// Map a Rust error_type (e.g. `"anyhow::Error"`, `"SampleCrateError"`) to a
 /// Zig error-set expression. If the path's last segment matches a declared
@@ -183,6 +197,37 @@ mod tests {
             out.contains("UnknownFfiError,"),
             "expected implicit UnknownFfiError variant:\n{out}"
         );
+    }
+
+    /// `_error_with_message` returns `error.Cancelled` for the FFI cancellation code, so every
+    /// declared set must admit it, exactly once even if the Rust enum already has a `Cancelled`
+    /// variant of its own. ~keep
+    #[test]
+    fn emit_error_set_declares_cancelled_exactly_once() {
+        let make = |variants| ErrorDef {
+            name: "MyError".into(),
+            rust_path: "x::MyError".into(),
+            original_rust_path: String::new(),
+            variants,
+            doc: String::new(),
+            methods: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+
+        let mut implicit = String::new();
+        emit_error_set(&make(vec![variant("Boom", None)]), &mut implicit);
+        assert_eq!(implicit.matches("Cancelled,").count(), 1, "{implicit}");
+
+        let mut explicit = String::new();
+        emit_error_set(
+            &make(vec![variant("Cancelled", None), variant("Boom", None)]),
+            &mut explicit,
+        );
+        assert_eq!(explicit.matches("Cancelled,").count(), 1, "{explicit}");
+
+        assert!(UNMATCHED_ERROR_SET.contains("Cancelled"));
     }
 
     /// `helpers::emit_helpers` emits `return error.UnknownFfiError;` inside a function whose
