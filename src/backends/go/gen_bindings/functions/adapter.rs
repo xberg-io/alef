@@ -23,6 +23,68 @@ pub(crate) fn adapter_flattened_field<'a>(
     types.iter().find(|t| &t.name == param_ty_name)?.fields.first()
 }
 
+fn adapter_wrapper_params(
+    adapter: &crate::core::config::AdapterConfig,
+    types: &[crate::core::ir::TypeDef],
+    owner_type: &str,
+    request_type_simple: &str,
+) -> (Vec<String>, Option<String>) {
+    if let Some(first_field) = adapter_flattened_field(adapter, types) {
+        let field_name = &first_field.name;
+        let field_name_go = to_go_name(field_name);
+
+        let go_field_type = match &first_field.ty {
+            TypeRef::String => "string".to_string(),
+            TypeRef::Vec(inner) if matches!(**inner, TypeRef::String) => "[]string".to_string(),
+            TypeRef::Vec(_) => "[]interface{}".to_string(),
+            other => crate::backends::go::type_map::go_type(other).into_owned(),
+        };
+
+        let wrapper_params = vec![
+            format!("engine *{owner_type}"),
+            format!("{field_name_go} {go_field_type}"),
+        ];
+
+        let struct_field_name = to_go_name(field_name);
+        let construction = format!("req := &{request_type_simple}{{{struct_field_name}: {field_name_go}}}\n\t");
+
+        (wrapper_params, Some(construction))
+    } else {
+        let mut params = vec![format!("engine *{owner_type}")];
+        for p in &adapter.params {
+            let go_param_type = match p.ty.as_str() {
+                "String" => "string".to_string(),
+                ty => ty.rsplit("::").next().unwrap_or(ty).to_string(),
+            };
+            let param_name = go_param_name(&p.name);
+            params.push(format!("{param_name} {go_param_type}"));
+        }
+        (params, None)
+    }
+}
+
+fn adapter_method_call(
+    adapter: &crate::core::config::AdapterConfig,
+    method_call_name: &str,
+    has_request: bool,
+) -> String {
+    if has_request {
+        format!("engine.{}WithContext(ctx, *req)", method_call_name)
+    } else {
+        let param_args = adapter
+            .params
+            .iter()
+            .map(|p| go_param_name(&p.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if param_args.is_empty() {
+            format!("engine.{}WithContext(ctx)", method_call_name)
+        } else {
+            format!("engine.{}WithContext(ctx, {})", method_call_name, param_args)
+        }
+    }
+}
+
 /// Emit a module-level wrapper function for a streaming adapter.
 /// This allows tests/consumers to call pkg.CrawlStream(engine, url) instead of engine.CrawlStream(url).
 /// For adapters with a request_type, decompose the first field into primitive parameters for ergonomics.
@@ -62,59 +124,14 @@ pub(in crate::backends::go::gen_bindings) fn gen_adapter_wrapper(
     });
     let request_type_simple = request_type.rsplit("::").next().unwrap_or(request_type);
 
-    let (param_parts, request_construction) = if let Some(first_field) = adapter_flattened_field(adapter, types) {
-        let field_name = &first_field.name;
-        let field_name_go = to_go_name(field_name);
-
-        let go_field_type = match &first_field.ty {
-            TypeRef::String => "string".to_string(),
-            TypeRef::Vec(inner) if matches!(**inner, TypeRef::String) => "[]string".to_string(),
-            TypeRef::Vec(_) => "[]interface{}".to_string(),
-            other => crate::backends::go::type_map::go_type(other).into_owned(),
-        };
-
-        let wrapper_params = vec![
-            format!("engine *{owner_type}"),
-            format!("{field_name_go} {go_field_type}"),
-        ];
-
-        let struct_field_name = to_go_name(field_name);
-        let construction = format!("req := &{request_type_simple}{{{struct_field_name}: {field_name_go}}}\n\t");
-
-        (wrapper_params, Some(construction))
-    } else {
-        let mut params = vec![format!("engine *{owner_type}")];
-        for p in &adapter.params {
-            let go_param_type = match p.ty.as_str() {
-                "String" => "string".to_string(),
-                ty => ty.rsplit("::").next().unwrap_or(ty).to_string(),
-            };
-            let param_name = go_param_name(&p.name);
-            params.push(format!("{param_name} {go_param_type}"));
-        }
-        (params, None)
-    };
+    let (param_parts, request_construction) = adapter_wrapper_params(adapter, types, owner_type, request_type_simple);
 
     let method_call_name = to_go_name(adapter_name);
     let stream_type_name = format!("{owner_type}{method_call_name}Stream");
     let context_return_type = format!("*{stream_type_name}, error");
     let item_type = go_type_name(_item_type.rsplit("::").next().unwrap_or(_item_type));
     let compatibility_return_type = format!("<-chan {item_type}, error");
-    let method_call = if request_construction.is_some() {
-        format!("engine.{}WithContext(ctx, *req)", method_call_name)
-    } else {
-        let param_args = adapter
-            .params
-            .iter()
-            .map(|p| go_param_name(&p.name))
-            .collect::<Vec<_>>()
-            .join(", ");
-        if param_args.is_empty() {
-            format!("engine.{}WithContext(ctx)", method_call_name)
-        } else {
-            format!("engine.{}WithContext(ctx, {})", method_call_name, param_args)
-        }
-    };
+    let method_call = adapter_method_call(adapter, &method_call_name, request_construction.is_some());
 
     let context_params = std::iter::once("ctx context.Context".to_string())
         .chain(param_parts.iter().cloned())

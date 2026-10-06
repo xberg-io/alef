@@ -1,5 +1,5 @@
 use super::cancellation;
-use super::methods::gen_param_to_c;
+use super::methods::{GoParamCtx, gen_param_to_c};
 use super::result_presence::result_presence_gate;
 use super::types::{emit_type_doc, go_return_expr, go_return_values_with_error};
 use crate::backends::go::c_symbols;
@@ -263,7 +263,7 @@ fn gen_function_wrapper_impl(
     bridge_param_names: &HashSet<String>,
     bridge_type_aliases: &HashSet<String>,
     value_only_types: &std::collections::HashSet<String>,
-    enum_names: &std::collections::HashSet<String>,
+    _enum_names: &std::collections::HashSet<String>,
     ffi_param_enum_names: &std::collections::HashSet<String>,
     reserved_type_names: &HashSet<String>,
     with_context: bool,
@@ -334,12 +334,13 @@ fn gen_function_wrapper_impl(
         }
         out.push_str(&gen_param_to_c(
             param,
-            &param_err_return_prefix,
-            can_return_error,
-            ffi_prefix,
-            opaque_names,
-            enum_names,
-            ffi_param_enum_names,
+            &GoParamCtx {
+                err_return_prefix: &param_err_return_prefix,
+                can_return_error,
+                ffi_prefix,
+                opaque_names,
+                ffi_param_enum_names,
+            },
         ));
     }
 

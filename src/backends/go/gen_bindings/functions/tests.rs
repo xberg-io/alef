@@ -335,7 +335,7 @@ fn test_capsule_fallible_returns_error_tuple_and_checks_last_error() {
     let func = make_capsule_func("get_language", true);
     let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &capsule_cfg(), &empty_s);
     assert!(
         out.contains("(*my_pkg.Language, error)"),
         "fallible capsule must return (host, error):\n{out}"
@@ -355,7 +355,7 @@ fn test_capsule_infallible_returns_bare_host_type() {
     let func = make_capsule_func("builtin_language", false);
     let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &capsule_cfg(), &empty_s);
     assert!(
         !out.contains(", error)"),
         "infallible capsule must not return an error:\n{out}"
@@ -378,7 +378,7 @@ fn test_capsule_errors_when_construct_expr_empty() {
         construct_expr: String::new(),
         ..Default::default()
     };
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg, &empty_s);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &cfg, &empty_s);
     assert!(
         out.contains("ALEF ERROR"),
         "empty construct_expr must produce an ALEF ERROR comment. Got:\n{out}"
@@ -401,7 +401,7 @@ fn test_capsule_errors_when_host_type_empty() {
         construct_expr: "my_pkg.NewLanguage(unsafe.Pointer({ptr}))".to_string(),
         ..Default::default()
     };
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg, &empty_s);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &cfg, &empty_s);
     assert!(
         out.contains("ALEF ERROR"),
         "empty host_type must produce an ALEF ERROR comment. Got:\n{out}"

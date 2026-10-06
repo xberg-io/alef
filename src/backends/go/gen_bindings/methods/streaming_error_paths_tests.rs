@@ -8,7 +8,7 @@
 //! is still held (the native last-error slot is per-OS-thread, so reading it after
 //! `UnlockOSThread` can observe a different thread's error). ~keep
 
-use super::gen_streaming_method_wrapper;
+use super::{StreamingWrapperCtx, gen_streaming_method_wrapper};
 use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 
 fn opaque_type(name: &str) -> TypeDef {
@@ -69,13 +69,13 @@ fn render_crawl_stream() -> String {
     gen_streaming_method_wrapper(
         &typ,
         &method,
-        "krz",
-        "CrawlEvent",
-        &empty_str,
-        &empty_str,
-        &empty_string,
-        &empty_string,
-        &empty_string,
+        &StreamingWrapperCtx {
+            ffi_prefix: "krz",
+            item_type: "CrawlEvent",
+            data_enum_names: &empty_str,
+            opaque_names: &empty_str,
+            ffi_param_enum_names: &empty_string,
+        },
     )
 }
 

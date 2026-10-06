@@ -2,7 +2,7 @@ use super::constructors::gen_go_opaque_constructor;
 use super::functions::{
     gen_adapter_wrapper, gen_capsule_function_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper,
 };
-use super::methods::{gen_method_wrapper, gen_streaming_method_wrapper};
+use super::methods::{StreamingWrapperCtx, gen_method_wrapper, gen_streaming_method_wrapper};
 use super::types::{
     gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper, gen_last_error_wrap_helper,
     gen_opaque_type, gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper,
@@ -415,7 +415,6 @@ pub(super) fn gen_go_file(
                 func,
                 ffi_prefix,
                 opaque_names,
-                &ffi_enum_names,
                 &ffi_param_enum_names,
                 capsule_cfg,
                 &reserved_type_names,
@@ -497,13 +496,13 @@ pub(super) fn gen_go_file(
                 body.push_str(&gen_streaming_method_wrapper(
                     typ,
                     method,
-                    ffi_prefix,
-                    item_type,
-                    data_enum_names,
-                    opaque_names,
-                    value_only_types,
-                    &ffi_enum_names,
-                    &ffi_param_enum_names,
+                    &StreamingWrapperCtx {
+                        ffi_prefix,
+                        item_type,
+                        data_enum_names,
+                        opaque_names,
+                        ffi_param_enum_names: &ffi_param_enum_names,
+                    },
                 ));
                 body.push_str("\n\n");
                 continue;

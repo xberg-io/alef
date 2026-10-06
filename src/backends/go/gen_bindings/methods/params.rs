@@ -3,7 +3,8 @@ use crate::backends::go::c_symbols;
 use crate::backends::go::type_map::go_type;
 use crate::codegen::c_consumer;
 use crate::codegen::naming::go_param_name;
-use crate::core::ir::{ParamDef, TypeRef};
+use crate::core::ir::{ParamDef, PrimitiveType, TypeRef};
+use std::collections::HashSet;
 
 /// The JSON text `serde_json` writes for an EMPTY value of `param.ty`, for collection types whose
 /// Go counterpart has a nil form that marshals to `null` instead.
@@ -32,271 +33,191 @@ fn empty_collection_wire_literal(param: &ParamDef) -> Option<&'static str> {
     }
 }
 
-/// Generate parameter conversion code from Go to C.
+/// Everything `gen_param_to_c` needs to know about the enclosing function besides the parameter.
+///
 /// `err_return_prefix` is the leading `"<zero>, "` (or `""` for value-less returns) prepended to
 /// every `return ... fmt.Errorf(...)` early exit. Callers compute it from the enclosing function's
 /// return type — `"nil, "` for pointer/slice/channel returns, `"0, "` / `"false, "` / `"\"\", "`
 /// for plain primitive/string returns, and `""` when the function only returns `error`.
 /// `can_return_error` should be true when the enclosing function has `error` in its return type.
 /// When false, marshal failures are handled with `panic` since the function signature has no error return.
-pub(in crate::backends::go::gen_bindings) fn gen_param_to_c(
-    param: &ParamDef,
-    err_return_prefix: &str,
-    can_return_error: bool,
-    ffi_prefix: &str,
-    opaque_names: &std::collections::HashSet<&str>,
-    enum_names: &std::collections::HashSet<String>,
-    ffi_param_enum_names: &std::collections::HashSet<String>,
-) -> String {
+pub(in crate::backends::go::gen_bindings) struct GoParamCtx<'a> {
+    pub(in crate::backends::go::gen_bindings) err_return_prefix: &'a str,
+    pub(in crate::backends::go::gen_bindings) can_return_error: bool,
+    pub(in crate::backends::go::gen_bindings) ffi_prefix: &'a str,
+    pub(in crate::backends::go::gen_bindings) opaque_names: &'a HashSet<&'a str>,
+    pub(in crate::backends::go::gen_bindings) ffi_param_enum_names: &'a HashSet<String>,
+}
+
+fn emit(out: &mut String, template: &str, context: minijinja::Value) {
+    out.push_str(&crate::backends::go::template_env::render(template, context));
+    out.push('\n');
+}
+
+fn emit_string_param(out: &mut String, optional: bool, c_name: &str, go_param: &str) {
+    let template = if optional {
+        "param_string_optional.jinja"
+    } else {
+        "param_string_required.jinja"
+    };
+    emit(
+        out,
+        template,
+        minijinja::context! { c_name => c_name, go_param => go_param },
+    );
+}
+
+fn marshal_err_action(ctx: &GoParamCtx<'_>) -> String {
+    if ctx.can_return_error {
+        format!(
+            "return {}fmt.Errorf(\"failed to marshal: %w\", err)",
+            ctx.err_return_prefix
+        )
+    } else {
+        "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
+    }
+}
+
+fn emit_named_param(out: &mut String, name: &str, c_name: &str, go_param: &str, ctx: &GoParamCtx<'_>) {
+    if ctx.opaque_names.contains(name) {
+        // `param_opaque_cast.jinja` emits `{{ c_name }} := {{ go_param }}.ptr` with no
+        // cast — the wrapper struct's `.ptr` field is already declared as the exact C
+        // type cgo expects, so a `c_type` value here is dead weight, not a live cast. ~keep
+        emit(
+            out,
+            "param_opaque_cast.jinja",
+            minijinja::context! { c_name => c_name, go_param => go_param },
+        );
+    } else if ctx.ffi_param_enum_names.contains(name) {
+        let enum_snake = c_symbols::type_component(name);
+        emit(
+            out,
+            "param_enum_to_i32.jinja",
+            minijinja::context! {
+                c_name => c_name,
+                go_param => go_param,
+                ffi_prefix => ctx.ffi_prefix,
+                enum_snake => &enum_snake,
+            },
+        );
+    } else {
+        let type_snake = c_symbols::type_component(name);
+        let last_error_context_fn = c_symbols::last_error_context_symbol(ctx.ffi_prefix);
+        let from_json_err_action = if ctx.can_return_error {
+            format!(
+                "return {}wrapLastError(\"failed to create {type_snake}\")",
+                ctx.err_return_prefix
+            )
+        } else {
+            format!("panic(\"failed to create {type_snake}: \" + C.GoString(C.{last_error_context_fn}()))")
+        };
+        emit(
+            out,
+            "param_named_type.jinja",
+            minijinja::context! {
+                c_name => c_name,
+                go_param => go_param,
+                err_action => &marshal_err_action(ctx),
+                from_json_err_action => &from_json_err_action,
+                ffi_prefix => ctx.ffi_prefix,
+                type_snake => &type_snake,
+            },
+        );
+    }
+}
+
+fn emit_optional_param(out: &mut String, inner: &TypeRef, c_name: &str, go_param: &str, ctx: &GoParamCtx<'_>) {
+    match inner {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => emit_string_param(out, true, c_name, go_param),
+        TypeRef::Named(name) if ctx.opaque_names.contains(name.as_str()) => {
+            let c_type = format!("{}{}", c_consumer::export_type_prefix(ctx.ffi_prefix), name);
+            emit(
+                out,
+                "param_optional_opaque.jinja",
+                minijinja::context! { c_name => c_name, c_type => &c_type, go_param => go_param },
+            );
+        }
+        TypeRef::Named(_) => emit(
+            out,
+            "param_optional_named_inline.jinja",
+            minijinja::context! { c_name => c_name, go_param => go_param },
+        ),
+        _ => emit(
+            out,
+            "param_optional_decl.jinja",
+            minijinja::context! { c_name => c_name },
+        ),
+    }
+}
+
+fn emit_primitive_param(out: &mut String, prim: &PrimitiveType, optional: bool, c_name: &str, go_param: &str) {
+    let cgo_ty = cgo_type_for_primitive(prim);
+    let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
+    let is_bool = matches!(prim, PrimitiveType::Bool);
+    if optional {
+        if is_bool {
+            emit(
+                out,
+                "param_optional_primitive_bool.jinja",
+                minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
+            );
+        } else {
+            let sentinel = primitive_max_sentinel(prim);
+            emit(
+                out,
+                "param_optional_primitive_numeric.jinja",
+                minijinja::context! {
+                    c_name => c_name,
+                    cgo_ty => &cgo_ty,
+                    go_ty => &go_ty,
+                    sentinel => &sentinel,
+                    go_param => go_param,
+                },
+            );
+        }
+    } else if is_bool {
+        emit(
+            out,
+            "param_primitive_bool.jinja",
+            minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_param => go_param },
+        );
+    } else {
+        emit(
+            out,
+            "param_primitive_numeric.jinja",
+            minijinja::context! { c_name => c_name, cgo_ty => &cgo_ty, go_ty => &go_ty, go_param => go_param },
+        );
+    }
+}
+
+/// Generate parameter conversion code from Go to C.
+pub(in crate::backends::go::gen_bindings) fn gen_param_to_c(param: &ParamDef, ctx: &GoParamCtx<'_>) -> String {
     let mut out = String::with_capacity(512);
     let go_param = go_param_name(&param.name);
     let c_name = go_param_name(&format!("c_{}", param.name));
 
     match &param.ty {
-        TypeRef::String | TypeRef::Char => {
-            if param.optional {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_string_optional.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            } else {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_string_required.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
+        TypeRef::String | TypeRef::Char | TypeRef::Path => {
+            emit_string_param(&mut out, param.optional, &c_name, &go_param)
         }
-        TypeRef::Path => {
-            if param.optional {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_string_optional.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            } else {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_string_required.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-        }
-        TypeRef::Bytes => {
-            out.push_str(&crate::backends::go::template_env::render(
-                "bytes_to_c_pointer.jinja",
-                minijinja::context! {
-                    c_name => &c_name,
-                    go_param => &go_param,
-                },
-            ));
-            out.push('\n');
-        }
-        TypeRef::Named(name) => {
-            if opaque_names.contains(name.as_str()) {
-                // `param_opaque_cast.jinja` emits `{{ c_name }} := {{ go_param }}.ptr` with no
-                // cast — the wrapper struct's `.ptr` field is already declared as the exact C
-                // type cgo expects, so a `c_type` value here is dead weight, not a live cast. ~keep
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_opaque_cast.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            } else if ffi_param_enum_names.contains(name) {
-                let enum_snake = c_symbols::type_component(name);
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_enum_to_i32.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                        ffi_prefix => ffi_prefix,
-                        enum_snake => &enum_snake,
-                    },
-                ));
-                out.push('\n');
-            } else if enum_names.contains(name) {
-                let type_snake = c_symbols::type_component(name);
-                let last_error_context_fn = c_symbols::last_error_context_symbol(ffi_prefix);
-                let err_action = if can_return_error {
-                    format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
-                } else {
-                    "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
-                };
-                let from_json_err_action = if can_return_error {
-                    format!("return {err_return_prefix}wrapLastError(\"failed to create {type_snake}\")")
-                } else {
-                    format!("panic(\"failed to create {type_snake}: \" + C.GoString(C.{last_error_context_fn}()))")
-                };
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_named_type.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                        err_action => &err_action,
-                        from_json_err_action => &from_json_err_action,
-                        ffi_prefix => ffi_prefix,
-                        type_snake => &type_snake,
-                    },
-                ));
-                out.push('\n');
-            } else {
-                let type_snake = c_symbols::type_component(name);
-                let last_error_context_fn = c_symbols::last_error_context_symbol(ffi_prefix);
-                let err_action = if can_return_error {
-                    format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
-                } else {
-                    "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
-                };
-                let from_json_err_action = if can_return_error {
-                    format!("return {err_return_prefix}wrapLastError(\"failed to create {type_snake}\")")
-                } else {
-                    format!("panic(\"failed to create {type_snake}: \" + C.GoString(C.{last_error_context_fn}()))")
-                };
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_named_type.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                        err_action => &err_action,
-                        from_json_err_action => &from_json_err_action,
-                        ffi_prefix => ffi_prefix,
-                        type_snake => &type_snake,
-                    },
-                ));
-                out.push('\n');
-            }
-        }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json => {
-            let err_action = if can_return_error {
-                format!("return {err_return_prefix}fmt.Errorf(\"failed to marshal: %w\", err)")
-            } else {
-                "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
-            };
-            out.push_str(&crate::backends::go::template_env::render(
-                "param_vec_or_map.jinja",
-                minijinja::context! {
-                    c_name => &c_name,
-                    go_param => &go_param,
-                    err_action => &err_action,
-                    empty_literal => empty_collection_wire_literal(param),
-                },
-            ));
-            out.push('\n');
-        }
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::String | TypeRef::Char | TypeRef::Path => {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_string_optional.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-            TypeRef::Named(name) if opaque_names.contains(name.as_str()) => {
-                let c_type = format!("{}{}", c_consumer::export_type_prefix(ffi_prefix), name);
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_optional_opaque.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        c_type => &c_type,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-            TypeRef::Named(_) => {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_optional_named_inline.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-            _ => {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_optional_decl.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                    },
-                ));
-                out.push('\n');
-            }
-        },
-        TypeRef::Primitive(prim) if !param.optional => {
-            let cgo_ty = cgo_type_for_primitive(prim);
-            let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
-            if matches!(prim, crate::core::ir::PrimitiveType::Bool) {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_primitive_bool.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        cgo_ty => &cgo_ty,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            } else {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_primitive_numeric.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        cgo_ty => &cgo_ty,
-                        go_ty => &go_ty,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-        }
-        TypeRef::Primitive(prim) if param.optional => {
-            let cgo_ty = cgo_type_for_primitive(prim);
-            let go_ty = go_type(&TypeRef::Primitive(prim.clone()));
-            let sentinel = primitive_max_sentinel(prim);
-
-            if matches!(prim, crate::core::ir::PrimitiveType::Bool) {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_optional_primitive_bool.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        cgo_ty => &cgo_ty,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            } else {
-                out.push_str(&crate::backends::go::template_env::render(
-                    "param_optional_primitive_numeric.jinja",
-                    minijinja::context! {
-                        c_name => &c_name,
-                        cgo_ty => &cgo_ty,
-                        go_ty => &go_ty,
-                        sentinel => &sentinel,
-                        go_param => &go_param,
-                    },
-                ));
-                out.push('\n');
-            }
-        }
+        TypeRef::Bytes => emit(
+            &mut out,
+            "bytes_to_c_pointer.jinja",
+            minijinja::context! { c_name => &c_name, go_param => &go_param },
+        ),
+        TypeRef::Named(name) => emit_named_param(&mut out, name, &c_name, &go_param, ctx),
+        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json => emit(
+            &mut out,
+            "param_vec_or_map.jinja",
+            minijinja::context! {
+                c_name => &c_name,
+                go_param => &go_param,
+                err_action => &marshal_err_action(ctx),
+                empty_literal => empty_collection_wire_literal(param),
+            },
+        ),
+        TypeRef::Optional(inner) => emit_optional_param(&mut out, inner, &c_name, &go_param, ctx),
+        TypeRef::Primitive(prim) => emit_primitive_param(&mut out, prim, param.optional, &c_name, &go_param),
         _ => {}
     }
 

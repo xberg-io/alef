@@ -184,7 +184,7 @@ fn gen_method_wrapper_impl(
     ffi_prefix: &str,
     opaque_names: &std::collections::HashSet<&str>,
     value_only_types: &std::collections::HashSet<String>,
-    enum_names: &std::collections::HashSet<String>,
+    _enum_names: &std::collections::HashSet<String>,
     ffi_param_enum_names: &std::collections::HashSet<String>,
     with_context: bool,
 ) -> String {
@@ -237,12 +237,13 @@ fn gen_method_wrapper_impl(
         for param in &method.params {
             out.push_str(&gen_param_to_c(
                 param,
-                &param_err_return_prefix,
-                method_can_return_error,
-                ffi_prefix,
-                opaque_names,
-                enum_names,
-                ffi_param_enum_names,
+                &GoParamCtx {
+                    err_return_prefix: &param_err_return_prefix,
+                    can_return_error: method_can_return_error,
+                    ffi_prefix,
+                    opaque_names,
+                    ffi_param_enum_names,
+                },
             ));
         }
 
@@ -538,8 +539,8 @@ fn gen_method_wrapper_impl(
 mod params;
 mod streaming;
 
-pub(super) use params::gen_param_to_c;
-pub(super) use streaming::gen_streaming_method_wrapper;
+pub(super) use params::{GoParamCtx, gen_param_to_c};
+pub(super) use streaming::{StreamingWrapperCtx, gen_streaming_method_wrapper};
 
 #[cfg(test)]
 mod streaming_error_paths_tests;

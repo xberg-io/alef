@@ -177,9 +177,9 @@ fn test_gen_method_wrapper_opaque_free_method_emits_ptr_cast() {
     let typ = opaque_type("Client");
     let method = simple_method("close", TypeRef::Unit, false);
     let opaque: std::collections::HashSet<&str> = ["Client"].into();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_method_wrapper(
         &typ,
         &method,
@@ -200,9 +200,17 @@ fn test_gen_method_wrapper_opaque_free_method_emits_ptr_cast() {
 fn test_gen_param_to_c_string_param_emits_cstring() {
     let param = simple_param("name", TypeRef::String);
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
     assert!(out.contains("C.CString("));
     assert!(out.contains("defer C.free("));
 }
@@ -211,9 +219,17 @@ fn test_gen_param_to_c_string_param_emits_cstring() {
 fn test_gen_param_to_c_primitive_u64_emits_cgo_cast() {
     let param = simple_param("count", TypeRef::Primitive(PrimitiveType::U64));
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
     assert!(out.contains("C.uint64_t("));
 }
 
@@ -222,12 +238,13 @@ fn test_gen_param_to_c_named_handle_uses_zero_sentinel() {
     let param = simple_param("config", TypeRef::Named("Config".to_string()));
     let out = gen_param_to_c(
         &param,
-        "nil, ",
-        true,
-        "sample",
-        &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
-        &std::collections::HashSet::new(),
+        &GoParamCtx {
+            err_return_prefix: "nil, ",
+            can_return_error: true,
+            ffi_prefix: "sample",
+            opaque_names: &std::collections::HashSet::new(),
+            ffi_param_enum_names: &std::collections::HashSet::new(),
+        },
     );
 
     assert!(out.contains("if cConfig == 0"));
@@ -241,9 +258,9 @@ fn test_gen_method_wrapper_non_opaque_static_emisample_package_func() {
     typ.fields = vec![simple_field("value", TypeRef::String)];
     let method = simple_method("default_value", TypeRef::String, true);
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_method_wrapper(
         &typ,
         &method,
@@ -261,9 +278,9 @@ fn test_gen_method_wrapper_optional_string_getter_emits_nil_check_and_address() 
     let typ = opaque_type("GraphQLRouteConfig");
     let method = simple_method("get_description", TypeRef::Optional(Box::new(TypeRef::String)), false);
     let opaque: std::collections::HashSet<&str> = ["GraphQLRouteConfig"].into();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_method_wrapper(
         &typ,
         &method,
@@ -328,9 +345,9 @@ fn test_gen_method_wrapper_bytes_result_emits_out_params() {
         version: Default::default(),
     };
     let opaque: std::collections::HashSet<&str> = ["Renderer"].into();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_method_wrapper(
         &typ,
         &method,
@@ -456,10 +473,18 @@ fn optional_string_method_keeps_the_direct_pointer_shape() {
 fn a_vec_param_normalizes_a_nil_slice_to_the_empty_array_rust_emits() {
     let param = simple_param("tags", TypeRef::Vec(Box::new(TypeRef::String)));
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
 
     // Positive first: the marshal really was emitted, so the presence check below means something.
     assert!(
@@ -484,10 +509,18 @@ fn a_map_param_normalizes_a_nil_map_to_the_empty_object_rust_emits() {
         TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
     );
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
 
     assert!(
         out.contains("jsonBytescLabels, err := json.Marshal(labels)"),
@@ -504,11 +537,19 @@ fn an_optional_vec_param_preserves_a_nil_value_as_json_null() {
     let mut param = simple_param("tags", TypeRef::Vec(Box::new(TypeRef::String)));
     param.optional = true;
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     assert_eq!(go_optional_type(&param.ty).as_ref(), "[]string");
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
 
     assert!(
         out.contains("jsonBytescTags, err := json.Marshal(tags)"),
@@ -528,11 +569,19 @@ fn an_optional_map_param_preserves_a_nil_value_as_json_null() {
     );
     param.optional = true;
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     assert_eq!(go_optional_type(&param.ty).as_ref(), "map[string]string");
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
 
     assert!(
         out.contains("jsonBytescLabels, err := json.Marshal(labels)"),
@@ -551,10 +600,18 @@ fn an_optional_map_param_preserves_a_nil_value_as_json_null() {
 fn a_json_param_keeps_a_null_value_intact() {
     let param = simple_param("payload", TypeRef::Json);
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let out = gen_param_to_c(&param, "", false, "krz", &opaque, &enum_names, &ffi_param_enum_names);
+    let out = gen_param_to_c(
+        &param,
+        &GoParamCtx {
+            err_return_prefix: "",
+            can_return_error: false,
+            ffi_prefix: "krz",
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
+    );
 
     assert!(
         out.contains("jsonBytescPayload, err := json.Marshal(payload)"),
@@ -580,10 +637,10 @@ fn test_gen_method_wrapper_locks_os_thread_across_call_read_and_convert() {
     method.error_type = Some("SampleCrateError".to_string());
     method.receiver = Some(ReceiverKind::Ref);
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
+    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_method_wrapper(
         &typ,
         &method,
@@ -628,20 +685,18 @@ fn test_gen_streaming_method_wrapper_locks_per_item_not_for_the_streams_lifetime
     let method = simple_method("crawl_stream", TypeRef::Unit, false);
     let data_enum_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let opaque: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     let ffi_param_enum_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let out = gen_streaming_method_wrapper(
         &typ,
         &method,
-        "krz",
-        "CrawlEvent",
-        &data_enum_names,
-        &opaque,
-        &value_only_types,
-        &enum_names,
-        &ffi_param_enum_names,
+        &StreamingWrapperCtx {
+            ffi_prefix: "krz",
+            item_type: "CrawlEvent",
+            data_enum_names: &data_enum_names,
+            opaque_names: &opaque,
+            ffi_param_enum_names: &ffi_param_enum_names,
+        },
     );
 
     let signature_pos = out
@@ -717,13 +772,13 @@ fn streaming_method_preserves_parameters_in_both_compatibility_surfaces() {
     let out = gen_streaming_method_wrapper(
         &typ,
         &method,
-        "krz",
-        "BatchCrawlEvent",
-        &empty_str,
-        &empty_str,
-        &empty_string,
-        &empty_string,
-        &empty_string,
+        &StreamingWrapperCtx {
+            ffi_prefix: "krz",
+            item_type: "BatchCrawlEvent",
+            data_enum_names: &empty_str,
+            opaque_names: &empty_str,
+            ffi_param_enum_names: &empty_string,
+        },
     );
 
     assert!(out.contains(

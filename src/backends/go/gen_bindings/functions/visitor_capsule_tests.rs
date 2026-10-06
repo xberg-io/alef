@@ -528,7 +528,7 @@ fn test_capsule_wrapper_locks_os_thread_when_fallible() {
     let func = make_capsule_func("get_language", true);
     let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg(), &empty_s);
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &capsule_cfg(), &empty_s);
 
     let lock_pos = out.find("runtime.LockOSThread()").expect("must lock the OS thread");
     let call_pos = out
