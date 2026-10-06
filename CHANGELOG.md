@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The planted-secret representation probes compile and run in their own temporary directory, so a
+  concurrent test that changes the process working directory no longer fails them.
+
 ## [0.106.1] - 2026-10-06
 
 ### Fixed

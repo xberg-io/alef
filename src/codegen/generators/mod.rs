@@ -246,7 +246,10 @@ fn main() {{
         let mut compiled = false;
         'search: for serde in &serde_candidates {
             for serde_json in &serde_json_candidates {
+                // ~keep Pin the cwd: a concurrent test's CwdGuard can leave the process cwd at a
+                // deleted tempdir, and rustc aborts with "Could not locate working directory".
                 let compile = std::process::Command::new("rustc")
+                    .current_dir(directory.path())
                     .args(["--edition=2024", "-L"])
                     .arg(format!("dependency={}", dependencies.display()))
                     .arg("--extern")
@@ -272,6 +275,7 @@ fn main() {{
             serde_json_candidates.len()
         );
         let output = std::process::Command::new(executable)
+            .current_dir(directory.path())
             .output()
             .expect("representation probe must run");
         assert!(
