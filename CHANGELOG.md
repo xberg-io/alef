@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every other handle operation in the process (including `<prefix>_cancel_token_cancel`) wait for it,
   and freeing a handle during a call could deadlock. Freeing a handle a call still holds now fails
   with the handle-busy error instead of waiting.
+- A `<symbol>_cancellable` export (and a streaming adapter's `_start_cancellable`) now observes its cancel
+  token while it waits for its receiver's handle lock. A second call on a handle queues behind the
+  running one, as before, but tripping its token ends the wait with the `Cancelled` code within a few
+  milliseconds instead of blocking until the first call returns. The primary exports keep their plain
+  blocking lock.
 
 ## [0.104.4] - 2026-10-06
 

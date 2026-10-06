@@ -23,6 +23,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_cancel_token.jinja",
         include_str!("templates/ffi_cancel_token.jinja"),
     ),
+    (
+        "cancel_state_resolve.jinja",
+        include_str!("templates/cancel_state_resolve.jinja"),
+    ),
     ("type_from_json.jinja", include_str!("templates/type_from_json.jinja")),
     ("type_to_json.jinja", include_str!("templates/type_to_json.jinja")),
     ("type_free.jinja", include_str!("templates/type_free.jinja")),

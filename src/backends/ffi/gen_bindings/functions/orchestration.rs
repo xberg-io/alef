@@ -325,6 +325,12 @@ fn gen_method_wrapper_impl(
         format!("return {};", null_return_value(&method.return_type))
     };
     let cancelled_ret = fail_ret.clone();
+    if cancellable {
+        out.push_str(&crate::backends::ffi::template_env::render(
+            "cancel_state_resolve.jinja",
+            context! { fail_ret => &fail_ret },
+        ));
+    }
 
     // Each entry is an `Option<HandleRequest>` array element, not a `.push()` statement: a
     // `Vec::with_capacity(n)` immediately followed by unconditional `.push()` calls trips
@@ -368,6 +374,7 @@ fn gen_method_wrapper_impl(
                 requests => handle_requests.join(",\n"),
                 fail_ret => fail_ret.clone(),
                 owned_handle => is_owned_receiver.then_some("this"),
+                cancellable => cancellable,
             },
         ));
     }
@@ -728,12 +735,12 @@ fn gen_method_wrapper_impl(
     out
 }
 
-/// `block_on` raced against the wrapper's cancel token. The `None` arm leaves the failure return
-/// to the caller: `alef_block_on_cancellable` has already recorded why (`Cancelled`, or an invalid
-/// token handle).
+/// `block_on` raced against the wrapper's cancel token, resolved into `alef_cancel` at the top of
+/// the body so the handle-lock wait shares it. The `None` arm leaves the failure return to the
+/// caller: `alef_block_on_in` has already recorded why (`Cancelled`).
 fn cancellable_block_on(future: &str, fail_ret: &str) -> String {
     format!(
-        "match alef_block_on_cancellable(alef_cancel_token, async {{ {future} }}) {{ Some(value) => value, None => {{ {fail_ret} }} }}"
+        "match alef_block_on_in(get_ffi_runtime(), alef_cancel.as_ref(), async {{ {future} }}) {{ Some(value) => value, None => {{ {fail_ret} }} }}"
     )
 }
 
@@ -1004,6 +1011,12 @@ fn gen_free_function_impl(
         format!("return {};", null_return_value(&func.return_type))
     };
     let cancelled_ret = fail_ret.clone();
+    if cancellable {
+        out.push_str(&crate::backends::ffi::template_env::render(
+            "cancel_state_resolve.jinja",
+            context! { fail_ret => &fail_ret },
+        ));
+    }
     // See the mirrored method-wrapper block above: entries are `Option<HandleRequest>` array
     // elements consumed via `.into_iter().flatten().collect()`, not `.push()` statements, so
     // this never trips `clippy::vec_init_then_push`. ~keep
@@ -1037,6 +1050,7 @@ fn gen_free_function_impl(
                 requests => handle_requests.join(",\n"),
                 fail_ret => fail_ret,
                 owned_handle => Option::<&str>::None,
+                cancellable => cancellable,
             },
         ));
     }

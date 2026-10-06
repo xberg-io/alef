@@ -94,6 +94,14 @@ fn signature_of<'a>(source: &'a str, symbol: &str) -> &'a str {
     &rest[..rest.find(") ->").expect("signature must end with a return type")]
 }
 
+/// The export's text, from its signature to the doc comment that opens the next exported item.
+fn body_of<'a>(source: &'a str, symbol: &str) -> &'a str {
+    let rest = &source[source
+        .find(signature_of(source, symbol))
+        .expect("signature is in the source")..];
+    &rest[..rest.find("\n/// ").unwrap_or(rest.len())]
+}
+
 #[test]
 fn async_exports_gain_a_cancellable_sibling_with_a_trailing_token_and_the_primary_is_unchanged() {
     let source = generated_lib(&async_api(true), false);
@@ -122,11 +130,13 @@ fn async_exports_gain_a_cancellable_sibling_with_a_trailing_token_and_the_primar
     );
 
     assert!(
-        source.contains("alef_block_on_cancellable(alef_cancel_token, async { obj.fetch(count_rs).await })"),
+        source
+            .contains("alef_block_on_in(get_ffi_runtime(), alef_cancel.as_ref(), async { obj.fetch(count_rs).await })"),
         "the method sibling must race its future against the token:\n{source}"
     );
     assert!(
-        source.contains("alef_block_on_cancellable(alef_cancel_token, async { my_lib::download().await })"),
+        source
+            .contains("alef_block_on_in(get_ffi_runtime(), alef_cancel.as_ref(), async { my_lib::download().await })"),
         "the function sibling must race its future against the token:\n{source}"
     );
     assert!(
@@ -149,6 +159,30 @@ fn sync_exports_get_no_cancellable_sibling_and_a_crate_without_async_gets_no_tok
     assert!(!source.contains("_cancellable"), "{source}");
     assert!(!source.contains("cancel_token"), "{source}");
     assert!(!source.contains("AlefCancelState"), "{source}");
+}
+
+#[test]
+fn a_cancellable_export_waits_for_its_receiver_lock_through_the_token_and_the_primary_does_not() {
+    let source = generated_lib(&async_api(true), false);
+    let cancellable = body_of(&source, "ml_default_client_fetch_cancellable");
+    let primary = body_of(&source, "ml_default_client_fetch");
+
+    let resolve = cancellable
+        .find("alef_cancel_state(alef_cancel_token)")
+        .expect("the token is resolved up front");
+    let acquire = cancellable.find("acquire_handles(").expect("handles are acquired");
+    let lock = cancellable
+        .find("alef_lock_handle(value, alef_cancel.as_deref())")
+        .expect("the receiver lock wait observes the token");
+    assert!(resolve < acquire && acquire < lock, "{cancellable}");
+    assert!(
+        !cancellable.contains("value.lock()"),
+        "a blocking lock would make a queued call uncancellable:\n{cancellable}"
+    );
+
+    assert!(primary.contains("value.lock()"), "{primary}");
+    assert!(!primary.contains("alef_lock_handle"), "{primary}");
+    assert!(!primary.contains("alef_cancel"), "{primary}");
 }
 
 #[test]
@@ -265,6 +299,17 @@ impl Drop for Pending {{
 }}
 
 fn error_code() -> i32 {{ unsafe {{ smp_last_error_code() }} }}
+
+// What a generated export does around its future: resolve the token, then race the future.
+fn alef_block_on_cancellable<F: Future>(token: AlefHandle, future: F) -> Option<F::Output> {{
+    match alef_cancel_state(token) {{
+        Ok(state) => alef_block_on_in(get_ffi_runtime(), state.as_ref(), future),
+        Err(error) => {{
+            set_handle_error(&error);
+            None
+        }}
+    }}
+}}
 
 fn waiter_count(token: AlefHandle) -> usize {{
     with_handle::<AlefCancelToken, _>(token, |token| token.0.waiters.lock().unwrap().len()).unwrap()
@@ -419,6 +464,79 @@ fn a_freed_or_forged_token_is_an_invalid_handle_error_and_never_silently_uncance
 
     unsafe { smp_cancel_token_free(token) };
     assert_eq!(error_code(), 4, "freeing twice reports the stale handle");
+    "#,
+    );
+}
+
+#[test]
+fn a_call_queued_behind_a_running_one_is_cancelled_without_waiting_for_it() {
+    run_harness(
+        "cancel-queued-lock",
+        r#"
+    let handle = insert_handle(String::from("client")).expect("insert");
+    let token = unsafe { smp_cancel_token_new() };
+    let entry = handle_registry().lock().unwrap().get(handle).expect("entry");
+    let running_call = entry.lock().unwrap();
+
+    let worker = std::thread::spawn(move || {
+        let state = alef_cancel_state(token).expect("token").expect("a real token");
+        let values = acquire_handles(&[HandleRequest { handle, expected_type: std::any::TypeId::of::<String>() }])
+            .expect("acquire must not wait for the running call");
+        let locked = alef_lock_handle(&values[0].1, Some(&state));
+        (locked.is_none(), error_code(), std::time::Instant::now())
+    });
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!worker.is_finished(), "the queued call must still be waiting for the running one");
+
+    let tripped = std::time::Instant::now();
+    assert_eq!(unsafe { smp_cancel_token_cancel(token) }, 0, "cancel must not wait behind the queued call");
+    let (gave_up, code, finished) = worker.join().unwrap();
+    assert!(gave_up, "a cancelled wait yields no guard");
+    assert_eq!(code, 5, "the failure must be the reserved Cancelled code");
+    assert!(
+        finished.duration_since(tripped) < Duration::from_millis(500),
+        "cancellation must end the wait promptly, took {:?}",
+        finished.duration_since(tripped)
+    );
+    drop(running_call);
+    unsafe { smp_cancel_token_free(token) };
+    "#,
+    );
+}
+
+#[test]
+fn a_queued_call_still_gets_the_lock_when_the_running_one_finishes_first() {
+    run_harness(
+        "cancel-queued-lock-handoff",
+        r#"
+    let handle = insert_handle(String::from("client")).expect("insert");
+    let token = unsafe { smp_cancel_token_new() };
+    let entry = handle_registry().lock().unwrap().get(handle).expect("entry");
+    let running_call = entry.lock().unwrap();
+
+    let spawn_waiter = |with_token: bool| {
+        std::thread::spawn(move || {
+            let state = alef_cancel_state(if with_token { token } else { 0 }).expect("token");
+            let values = acquire_handles(&[HandleRequest { handle, expected_type: std::any::TypeId::of::<String>() }])
+                .expect("acquire");
+            let started = std::time::Instant::now();
+            let guard = alef_lock_handle(&values[0].1, state.as_deref());
+            (guard.map(|guard| guard.downcast_ref::<String>().cloned()), started.elapsed())
+        })
+    };
+    let with_token = spawn_waiter(true);
+    let without_token = spawn_waiter(false);
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(!with_token.is_finished() && !without_token.is_finished(), "both must queue, not fail");
+    drop(running_call);
+
+    for waiter in [with_token, without_token] {
+        let (guard, waited) = waiter.join().unwrap();
+        assert_eq!(guard, Some(Some(String::from("client"))), "an untripped token must not abort the wait");
+        assert!(waited < Duration::from_secs(5));
+    }
+    assert_eq!(error_code(), 0);
+    unsafe { smp_cancel_token_free(token) };
     "#,
     );
 }

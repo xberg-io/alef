@@ -1,0 +1,7 @@
+    let alef_cancel = match alef_cancel_state(alef_cancel_token) {
+        Ok(state) => state,
+        Err(error) => {
+            set_handle_error(&error);
+            {{ fail_ret }}
+        }
+    };

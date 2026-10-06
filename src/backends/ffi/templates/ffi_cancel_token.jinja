@@ -120,14 +120,46 @@ fn alef_cancel_state(token: AlefHandle) -> Result<Option<std::sync::Arc<AlefCanc
     with_handle::<AlefCancelToken, _>(token, |token| token.0.clone()).map(Some)
 }
 
-#[allow(dead_code)]
-fn alef_block_on_cancellable<F: std::future::Future>(token: AlefHandle, future: F) -> Option<F::Output> {
-    match alef_cancel_state(token) {
-        Ok(state) => alef_block_on_in(get_ffi_runtime(), state.as_ref(), future),
-        Err(error) => {
-            set_handle_error(&error);
-            None
+// ~keep Waits for a handle's entry lock the way `Mutex::lock` would, but gives up as soon as the
+// call's token trips. A handle's value is behind a plain `Mutex` so that every method sees the
+// receiver exclusively (the stored type is only required to be `Send`, so `&self` methods cannot be
+// assumed `Sync`-safe to run concurrently, and `&mut self` ones need exclusion anyway). A second
+// call on the same handle therefore queues behind the running one, and `std::sync::Mutex` has no
+// interruptible or timed lock, so the wait polls `try_lock` with a capped backoff: cancellation
+// latency is at most `ALEF_LOCK_POLL_MAX`, and an uncontended lock costs one `try_lock`.
+// Records the failure (`Cancelled` or a poisoned entry) and returns `None`.
+const ALEF_LOCK_POLL_MIN: std::time::Duration = std::time::Duration::from_micros(50);
+const ALEF_LOCK_POLL_MAX: std::time::Duration = std::time::Duration::from_millis(5);
+
+fn alef_lock_handle<'a>(
+    value: &'a ErasedHandleValue,
+    cancel: Option<&AlefCancelState>,
+) -> Option<std::sync::MutexGuard<'a, Box<dyn std::any::Any + Send>>> {
+    let Some(cancel) = cancel else {
+        return match value.lock() {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                set_handle_error(&HandleError::RegistryPoisoned);
+                None
+            }
+        };
+    };
+    let mut pause = ALEF_LOCK_POLL_MIN;
+    loop {
+        match value.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                set_handle_error(&HandleError::RegistryPoisoned);
+                return None;
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {}
         }
+        if cancel.is_cancelled() {
+            set_last_error(ALEF_FFI_CANCELLED_ERROR, "operation cancelled");
+            return None;
+        }
+        std::thread::sleep(pause);
+        pause = (pause * 2).min(ALEF_LOCK_POLL_MAX);
     }
 }
 

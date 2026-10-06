@@ -779,9 +779,9 @@ unsafe fn {fn_start}_open(
     }};
     let mut guards = Vec::with_capacity(values.len());
     for (token, value) in &values {{
-        match value.lock() {{
-            Ok(guard) => guards.push((*token, guard)),
-            Err(_) => {{ set_handle_error(&HandleError::RegistryPoisoned); return 0; }}
+        match alef_lock_handle(value, cancel.as_deref()) {{
+            Some(guard) => guards.push((*token, guard)),
+            None => return 0,
         }}
     }}
     let client_ptr = match locked_handle_ptr::<{owner_ty}>(&mut guards, client) {{

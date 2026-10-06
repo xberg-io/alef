@@ -23,6 +23,14 @@
     };
     let mut __alef_guards = Vec::with_capacity(__alef_values.len());
     for (handle, value) in &__alef_values {
+{% if cancellable -%}
+        match alef_lock_handle(value, alef_cancel.as_deref()) {
+            Some(guard) => __alef_guards.push((*handle, guard)),
+            None => {
+                {{ fail_ret }}
+            }
+        }
+{% else -%}
         match value.lock() {
             Ok(guard) => __alef_guards.push((*handle, guard)),
             Err(_) => {
@@ -30,4 +38,5 @@
                 {{ fail_ret }}
             }
         }
+{% endif -%}
     }
