@@ -34,6 +34,7 @@ typedef uint64_t TESTAlefHandle;
 
 static _Thread_local int32_t test_code = 0;
 static _Thread_local const char *test_context = "native error";
+static atomic_int test_engine_busy = 0;
 static atomic_int test_created = 0;
 static atomic_int test_freed = 0;
 static atomic_int test_tripped = 0;
@@ -78,9 +79,20 @@ static inline char *test_engine_fetch(TESTEngine self, uint32_t millis) {
     test_wait(millis, 0);
     return test_dup("done");
 }
+/* Queues behind a running call on the same engine the way the real export does: it polls the
+ * engine's lock and gives up with Cancelled as soon as its own token trips. */
 static inline char *test_engine_fetch_cancellable(TESTEngine self, uint32_t millis, TESTAlefHandle token) {
     test_code = 0;
-    if (test_wait(millis, token)) {
+    while (atomic_exchange(&test_engine_busy, 1)) {
+        if (token != 0 && atomic_load(&test_token_state[token])) {
+            test_code = 5;
+            return NULL;
+        }
+        usleep(1000);
+    }
+    int cancelled = test_wait(millis, token);
+    atomic_store(&test_engine_busy, 0);
+    if (cancelled) {
         test_code = 5;
         return NULL;
     }
@@ -216,6 +228,51 @@ func TestPlainMethodKeepsItsSignatureAndStillWorks(t *testing.T) {
 	got, err = engine.FetchWithContext(ctx, 10)
 	if err != nil || got != "done" {
 		t.Fatalf("FetchWithContext within its deadline = %q, %v", got, err)
+	}
+}
+
+func TestQueuedCallBehindARunningOneIsCancelledPromptly(t *testing.T) {
+	engine := &Engine{ptr: 1}
+	runningCtx, stopRunning := context.WithCancel(context.Background())
+	defer stopRunning()
+	runningDone := make(chan error, 1)
+	go func() {
+		_, err := engine.FetchWithContext(runningCtx, 5000)
+		runningDone <- err
+	}()
+	// The first call now holds the engine for 5s unless it is cancelled.
+	time.Sleep(150 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := engine.FetchWithContext(ctx, 10)
+	elapsed := time.Since(started)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded from the queued call, got %v", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("the queued call was not cancelled while waiting: returned after %v", elapsed)
+	}
+	select {
+	case err := <-runningDone:
+		t.Fatalf("cancelling the queued call must not disturb the running one, but it returned %v", err)
+	default:
+	}
+
+	stopRunning()
+	select {
+	case err := <-runningDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected the running call to report context.Canceled, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the running call did not return after its own cancellation")
+	}
+	got, err := engine.FetchWithContext(context.Background(), 10)
+	if err != nil || got != "done" {
+		t.Fatalf("the engine must be usable once both calls ended, got %q, %v", got, err)
 	}
 }
 
@@ -513,6 +570,7 @@ fn context_cancellation_aborts_blocked_native_calls_and_streams() {
         "TestCancelFromAnotherGoroutineReportsContextCanceled",
         "TestAlreadyDoneContextNeverStartsTheNativeCall",
         "TestPlainMethodKeepsItsSignatureAndStillWorks",
+        "TestQueuedCallBehindARunningOneIsCancelledPromptly",
         "TestRequestConversionFailureIsTheTypedNativeError",
         "TestStreamCancelAbortsTheBlockedNativeRead",
     ] {
