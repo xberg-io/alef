@@ -434,7 +434,7 @@ fn gen_convert_with_visitor_wrapper_uses_scalar_handle_not_opaque_pointer() {
     };
     let opaque_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let bridge_cfg = TraitBridgeConfig {
+    let bridge_cfg = crate::core::config::TraitBridgeConfig {
         trait_name: "HtmlVisitor".to_string(),
         type_alias: Some("VisitorHandle".to_string()),
         param_name: Some("visitor".to_string()),
@@ -971,7 +971,7 @@ fn test_convert_with_visitor_wrapper_locks_os_thread_once_around_every_ffi_call(
     };
     let opaque_names: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let value_only_types: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let bridge_cfg = TraitBridgeConfig {
+    let bridge_cfg = crate::core::config::TraitBridgeConfig {
         trait_name: "HtmlVisitor".to_string(),
         type_alias: Some("VisitorHandle".to_string()),
         param_name: Some("visitor".to_string()),
