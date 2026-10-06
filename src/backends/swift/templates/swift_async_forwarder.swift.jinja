@@ -1,4 +1,2 @@
-public func {{ function_name }}({{ params }}) async{{ throws_clause }}{{ return_clause }} {
-    return {{ effective_try }}await Task.detached(priority: .userInitiated) {
-{{ conversion_lines }}{{ body }}    }.value
-}
+public func {{ function_name }}({{ params }}) async throws{{ return_clause }} {
+{{ conversion_lines }}{{ body }}}

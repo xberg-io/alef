@@ -530,7 +530,7 @@ fn async_forwarder_void_return_emits_no_result_binding_or_return() {
         "void async return must not emit `return result` -- there is nothing to return. Got:\n{out}"
     );
     assert!(
-        out.contains("try RustBridge.deleteCatalog(_rb_catalogId)"),
+        out.contains("try await RustBridge.deleteCatalog(_rb_catalogId)"),
         "void async body must call the bridge directly with no binding. Got:\n{out}"
     );
 }
@@ -567,7 +567,7 @@ fn async_forwarder_string_return_converts_via_to_string() {
     );
 
     assert!(
-        out.contains("let result = try RustBridge.fetchStatus(_rb_catalogId)"),
+        out.contains("let result = try await RustBridge.fetchStatus(_rb_catalogId)"),
         "String async return must bind the bridge's RustString result. Got:\n{out}"
     );
     assert!(
@@ -618,12 +618,12 @@ fn infallible_async_forwarders_always_try_the_result_bridge() {
             "every async facade must expose the bridge Result as throws, got:\n{out}"
         );
         assert!(
-            out.contains("return try await Task.detached(priority: .userInitiated)"),
-            "the detached task's throwing value must be awaited with try, got:\n{out}"
+            !out.contains("Task.detached"),
+            "the facade must await the async bridge directly, not park a pool thread, got:\n{out}"
         );
         assert!(
-            out.contains(&format!("try RustBridge.{swift_name}()")),
-            "the Result-returning bridge call must use try, got:\n{out}"
+            out.contains(&format!("try await RustBridge.{swift_name}()")),
+            "the Result-returning bridge call must be awaited with try, got:\n{out}"
         );
     }
 }
@@ -649,12 +649,12 @@ fn async_capsule_forwarders_are_throwing_for_infallible_and_fallible_core_functi
             "async capsule facades must always throw and return a nonoptional host value, got:\n{out}"
         );
         assert!(
-            out.contains("return try await Task.detached(priority: .userInitiated)"),
-            "the detached capsule task's throwing value must be awaited with try, got:\n{out}"
+            !out.contains("Task.detached"),
+            "the capsule facade must await the async bridge directly, got:\n{out}"
         );
         assert!(
-            out.contains("let addr = try RustBridge.getLanguage(name)"),
-            "the Result-returning capsule bridge call must use try, got:\n{out}"
+            out.contains("let addr = try await RustBridge.getLanguage(name)"),
+            "the Result-returning capsule bridge call must be awaited with try, got:\n{out}"
         );
         assert!(
             out.contains("else { throw NSError("),
@@ -733,7 +733,7 @@ fn infallible_async_json_result_payloads_agree_across_all_generated_surfaces() {
             "the Result Ok payload must be serialized to match the extern String, got:\n{shim}"
         );
         assert!(
-            swift.contains(&format!("try RustBridge.{swift_name}().toString()")),
+            swift.contains(&format!("try await RustBridge.{swift_name}().toString()")),
             "the Swift facade must read the Result Ok String payload, got:\n{swift}"
         );
         assert!(
@@ -800,7 +800,7 @@ fn async_optional_handle_result_remains_native_in_all_generated_surfaces() {
         "{extern_block}"
     );
     assert!(!shim.contains("serde_json::to_string"), "{shim}");
-    assert!(swift.contains("try RustBridge.optionalHandle()"), "{swift}");
+    assert!(swift.contains("try await RustBridge.optionalHandle()"), "{swift}");
     assert!(!swift.contains("JSONDecoder"), "{swift}");
     assert!(!swift.contains(".toString()"), "{swift}");
 }

@@ -30,7 +30,7 @@ pub(super) fn emit_free_function_forwarder(
     }
 
     if func.is_async {
-        let bridge_call = format!("try RustBridge.{swift_name}({args})");
+        let bridge_call = format!("try await RustBridge.{swift_name}({args})");
         let return_stmt = format!("        return try {struct_name}(_rb_obj)");
         let body = crate::backends::swift::template_env::render(
             "swift_forwarder_dto_return_body.swift.jinja",
@@ -39,17 +39,12 @@ pub(super) fn emit_free_function_forwarder(
                 return_statement => &return_stmt,
             },
         );
-        out.push_str(&crate::backends::swift::template_env::render(
-            "swift_async_forwarder.swift.jinja",
-            minijinja::context! {
-                function_name => swift_name,
-                params => &sig,
-                throws_clause => " throws",
-                return_clause => format!(" -> {struct_name}"),
-                effective_try => "try ",
-                conversion_lines => conversion_body,
-                body => body,
-            },
+        out.push_str(&render_async_forwarder(
+            swift_name,
+            &sig,
+            &format!(" -> {struct_name}"),
+            &conversion_body,
+            &body,
         ));
         out.push('\n');
     } else {

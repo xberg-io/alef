@@ -5,7 +5,7 @@
 //!   - converts parameters to native Rust types
 //!   - calls the source function
 //!   - converts the return value back to a bridge type
-//!   - for async fns, blocks on a current-thread Tokio runtime
+//!   - for async fns, emits an `async fn` that spawns the work onto the process-wide Tokio runtime
 
 use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_result_ok_type_with_handles, bridge_type_enum_aware_ref, bridge_type_with_handles, enum_from_string_fn_name,
@@ -716,26 +716,27 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
     };
 
     if f.is_async {
-        // `Runtime::block_on(future)` drives `future` on the CALLING thread -- only tasks
-        // handed to `Runtime::spawn` run on one of the runtime's own worker threads (the ones
-        // sized by `RUNTIME_STACK_SIZE_BYTES` below). The Swift-side caller reaches this
-        // function from a `Task.detached` closure, i.e. a Swift concurrency cooperative-pool
-        // thread whose stack we do not control and cannot resize. So the deep async work is
-        // spawned onto a worker (large stack) and the calling thread only blocks on the
-        // resulting `JoinHandle`, which is a cheap, shallow wait -- not the deep poll chain.
+        // Declared `async fn` in the matching `extern "Rust"` block, so swift-bridge emits a Swift
+        // `async` function that suspends on a continuation and is resumed from the callback it
+        // passes in -- no Swift thread is parked while the work runs. swift-bridge polls the
+        // returned future on its own internal runtime (default 2 MiB worker stacks), which is
+        // too shallow for a deep extraction future, so the real work is handed to
+        // `Runtime::spawn` on the process-wide runtime (large worker stacks, see
+        // `RUNTIME_STACK_SIZE_BYTES`) and this future only awaits the resulting `JoinHandle`.
         //
         // A spawned task's `JoinHandle` resolves to `Err(JoinError)` if the task panicked or
-        // was cancelled; unwinding that across the FFI boundary is undefined behavior, so it
-        // is converted to an ordinary `Err(String)` instead of a `panic!`/`resume_unwind`. This
-        // is why `forced_fallible` above is `true` for every async shim: the body this closure
-        // wraps always evaluates to `Result<_, String>`, giving the join failure somewhere to
-        // land. A task panicking does not poison the shared runtime or affect other in-flight
-        // or future calls -- tokio's own task harness polls every spawned task inside
-        // `catch_unwind` and reports the panic through that one task's `JoinHandle` only.
+        // was cancelled; unwinding that across the FFI boundary is undefined behavior and a
+        // panic inside swift-bridge's task would leave the Swift continuation unresumed forever,
+        // so it is converted to an ordinary `Err(String)`. This is why `forced_fallible` above is
+        // `true` for every async shim: the body this closure wraps always evaluates to
+        // `Result<_, String>`, giving the join failure somewhere to land. A task panicking does
+        // not poison the shared runtime or affect other in-flight or future calls -- tokio's own
+        // task harness polls every spawned task inside `catch_unwind` and reports the panic
+        // through that one task's `JoinHandle` only. ~keep
         Ok(format!(
-            "{cfg_prefix}pub fn {fn_name}({params_str}){return_annotation} {{\n    \
+            "{cfg_prefix}pub async fn {fn_name}({params_str}){return_annotation} {{\n    \
             {bindings_str}let __alef_task = {ALEF_TOKIO_RUNTIME_ACCESSOR}.spawn(async move {{ {body} }});\n    \
-            {ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(__alef_task).unwrap_or_else(|__alef_join_error| {{\n        \
+            __alef_task.await.unwrap_or_else(|__alef_join_error| {{\n        \
             Err(format!(\"alef: spawned async task failed: {{__alef_join_error}}\"))\n    }})\n}}\n"
         ))
     } else {
@@ -747,8 +748,7 @@ pub(crate) fn emit_function_shim(f: &FunctionDef, context: &FunctionShimContext<
 
 /// Snippet that resolves the process-wide tokio runtime. Emitted alongside the shim
 /// functions so async wrappers can `.spawn(...)` the real work onto a large-stack worker
-/// thread and `.block_on(...)` only the resulting `JoinHandle`, without rebuilding the
-/// runtime per call.
+/// thread and await only the resulting `JoinHandle`, without rebuilding the runtime per call.
 pub(crate) const ALEF_TOKIO_RUNTIME_ACCESSOR: &str = "crate::__alef_tokio_runtime()";
 
 /// Top-of-crate snippet that defines `__alef_tokio_runtime()`, a lazily-

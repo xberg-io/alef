@@ -129,7 +129,6 @@ pub(super) fn emit_async_capsule_free_function_forwarder(
         c_args.push(swift_param_name);
     }
     let sig = sig_params.join(", ");
-    let throws_clause = " throws";
     let return_clause = format!(" -> {host_type}");
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
@@ -145,19 +144,14 @@ pub(super) fn emit_async_capsule_free_function_forwarder(
     );
 
     let body = format!(
-        "let addr = try {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
+        "        let addr = try await {c_call}\n        guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n        return {construct}\n"
     );
 
-    out.push_str(&crate::backends::swift::template_env::render(
-        "swift_async_forwarder.swift.jinja",
-        minijinja::context! {
-            function_name => swift_name,
-            params => &sig,
-            throws_clause => throws_clause,
-            return_clause => &return_clause,
-            effective_try => "try ",
-            conversion_lines => "",
-            body => body,
-        },
+    out.push_str(&super::render_async_forwarder(
+        swift_name,
+        &sig,
+        &return_clause,
+        "",
+        &body,
     ));
 }

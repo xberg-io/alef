@@ -1,1 +1,1 @@
-        fn {{ fn_name }}({{ params }}) -> {{ return_type }};
+        {% if is_async %}async {% endif %}fn {{ fn_name }}({{ params }}) -> {{ return_type }};

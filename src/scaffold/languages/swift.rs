@@ -164,6 +164,12 @@ let package = Package(
       name: "RustBridge",
       dependencies: ["RustBridgeC"],
       path: "Sources/RustBridge",
+      // swift-bridge's generated async glue (`withCheckedThrowingContinuation` fed by a
+      // non-`@Sendable` callback) does not pass Swift 6 region-isolation checking: every
+      // `async fn` bridge function fails with "sending 'rustFnRetVal' risks causing data
+      // races". The generated code is not ours to edit, so this target stays in Swift 5
+      // language mode; the facade module keeps the manifest's default. ~keep
+      swiftSettings: [.swiftLanguageMode(.v5)],
       linkerSettings: [
         .unsafeFlags([
           resolvedStaticLib("{binding_underscore}"),
@@ -346,6 +352,12 @@ let package = Package(
       name: "RustBridge",
       dependencies: ["RustBridgeC", "RustBridgeBinary"],
       path: "packages/swift/Sources/RustBridge",
+      // swift-bridge's generated async glue (`withCheckedThrowingContinuation` fed by a
+      // non-`@Sendable` callback) does not pass Swift 6 region-isolation checking: every
+      // `async fn` bridge function fails with "sending 'rustFnRetVal' risks causing data
+      // races". The generated code is not ours to edit, so this target stays in Swift 5
+      // language mode; the facade module keeps the manifest's default. ~keep
+      swiftSettings: [.swiftLanguageMode(.v5)],
       // The pre-built static library inside RustBridgeBinary references Apple
       // system frameworks (e.g. reqwest's proxy detection pulls in the Rust
       // `system_configuration` crate → `SC*` symbols) and native system
@@ -1403,6 +1415,49 @@ repository = "https://github.com/example/my-lib"
             "root Package.swift must link libstdc++ on Linux, got:\n{}",
             root.content
         );
+    }
+
+    /// swift-bridge's async glue does not compile under Swift 6 language mode, and the
+    /// generated `async fn` bridge functions are what make the facade's `async` API actually
+    /// suspend. Both manifests must therefore pin the `RustBridge` target (and only it) to
+    /// Swift 5 mode, or every async bridge function fails with "sending 'rustFnRetVal' risks
+    /// causing data races".
+    #[test]
+    fn package_swift_pins_only_the_rust_bridge_target_to_swift_5_mode() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.package_metadata]
+repository = "https://github.com/example/my-lib"
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_swift(&api, &config).expect("scaffold");
+
+        for (path, label) in [("packages/swift/Package.swift", "in-tree"), ("Package.swift", "root")] {
+            let manifest = find_file(&files, path);
+            let content = &manifest.content;
+            assert_eq!(
+                content.matches(".swiftLanguageMode(.v5)").count(),
+                1,
+                "{label} manifest must set Swift 5 mode on exactly one target, got:\n{content}"
+            );
+            let rust_bridge_start = content
+                .find("name: \"RustBridge\"")
+                .unwrap_or_else(|| panic!("{label} manifest must declare the RustBridge target:\n{content}"));
+            let facade_start = content
+                .find("Sources/MyLib\"")
+                .unwrap_or_else(|| panic!("{label} manifest must declare the facade target:\n{content}"));
+            let mode_at = content.find(".swiftLanguageMode(.v5)").expect("checked above");
+            assert!(
+                rust_bridge_start < mode_at && mode_at < facade_start,
+                "the Swift 5 pin must sit inside the RustBridge target, not the facade, got:\n{content}"
+            );
+        }
     }
 
     /// When capsule dependencies are present, `products:` must precede `dependencies:`

@@ -29,6 +29,24 @@ fn format_features_array(features: &[String]) -> String {
     }
 }
 
+/// Whether any bridged function or method is async, so the crate needs swift-bridge's `async`
+/// feature (the runtime behind `async fn` in `extern "Rust"` blocks).
+fn api_has_async(api: &ApiSurface) -> bool {
+    api.functions.iter().any(|f| f.is_async)
+        || api
+            .types
+            .iter()
+            .any(|t| t.methods.iter().any(|m| m.is_async && !m.sanitized && !m.is_static))
+}
+
+fn swift_bridge_dep(version: &str, needs_async: bool) -> String {
+    if needs_async {
+        format!("swift-bridge = {{ version = \"{version}\", features = [\"async\"] }}")
+    } else {
+        format!("swift-bridge = \"{version}\"")
+    }
+}
+
 /// Emit the `Cargo.toml` content for the generated swift crate.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_cargo_toml(
@@ -138,7 +156,7 @@ pub(crate) fn emit_cargo_toml(
             tv::cargo::SERDE
         ),
         format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
-        format!("swift-bridge = \"{swift_bridge_ver}\""),
+        swift_bridge_dep(swift_bridge_ver, api_has_async(api)),
         format!(
             "tokio = {{ version = \"{}\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }}",
             tv::cargo::TOKIO
@@ -1002,5 +1020,72 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
             crate::test_support::cargo_sort_order::assert_dependency_keys_sorted("swift Cargo.toml", &content) > 0,
             "the swift manifest must carry dependency keys for the key-order check to examine"
         );
+    }
+
+    fn manifest_for(api: &ApiSurface) -> String {
+        emit_cargo_toml(
+            "sample-lib",
+            "sample_lib",
+            "sample-lib",
+            "0.1.0",
+            "0.1.59",
+            "0.1.59",
+            "../..",
+            &[],
+            "",
+            "MIT",
+            false,
+            &[],
+            api,
+            &[],
+            "sample-lib-ffi",
+            "../../../crates/sample-lib-ffi",
+            &[],
+            &[],
+            &Default::default(),
+        )
+    }
+
+    /// An `async fn` in an `extern "Rust"` block only compiles when swift-bridge's `async`
+    /// feature (its runtime and `async_support` module) is on; a crate without async surface
+    /// keeps the plain dependency line.
+    #[test]
+    fn swift_bridge_async_feature_follows_the_async_surface() {
+        use crate::core::ir::{FunctionDef, MethodDef, TypeDef};
+
+        let sync_only = manifest_for(&ApiSurface::default());
+        assert!(
+            sync_only.contains("swift-bridge = \"0.1.59\"\n"),
+            "a sync-only API must keep the plain swift-bridge dependency, got:\n{sync_only}"
+        );
+
+        let async_function = ApiSurface {
+            functions: vec![FunctionDef {
+                name: "fetch".to_string(),
+                is_async: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let async_method = ApiSurface {
+            types: vec![TypeDef {
+                name: "Client".to_string(),
+                methods: vec![MethodDef {
+                    name: "fetch".to_string(),
+                    is_async: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for (label, api) in [("function", async_function), ("method", async_method)] {
+            let content = manifest_for(&api);
+            assert!(
+                content.contains("swift-bridge = { version = \"0.1.59\", features = [\"async\"] }"),
+                "an async {label} must enable swift-bridge's `async` feature, got:\n{content}"
+            );
+            toml::from_str::<toml::Value>(&content).expect("generated Cargo.toml must be valid TOML");
+        }
     }
 }

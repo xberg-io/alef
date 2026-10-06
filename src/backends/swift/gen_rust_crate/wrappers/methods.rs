@@ -22,7 +22,8 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Each method `fn method_name(&self, param: T) -> Result<R, E>` becomes
 /// `pub fn type_name_method_name(client: &TypeName, param: BridgeT) -> Result<BridgeR, String>`.
-/// Async methods are blocked on a Tokio current-thread runtime (same pattern as function shims).
+/// Async methods are emitted as `async fn`s that spawn the work onto the process-wide Tokio
+/// runtime (same pattern as function shims).
 ///
 /// The two enum sets are NOT interchangeable and both are required, because the paired
 /// `extern "Rust"` declaration (`extern_block::emit_extern_block_for_type_methods`) consults each
@@ -97,7 +98,8 @@ pub(crate) fn emit_type_method_shims(
         // helper, unwinding across the FFI boundary. That helper now returns `Result<_, String>`,
         // so this wrapper is forced fallible to give the `?` somewhere to go. The paired extern
         // declaration calls the same helper -- see `forces_fallible_enum_bridge`. ~keep
-        let forced_fallible = forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
+        let forced_fallible =
+            method.is_async || forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
 
         let return_ty = if method.error_type.is_some() || forced_fallible {
             let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
@@ -388,7 +390,22 @@ pub(crate) fn emit_type_method_shims(
             } else {
                 wrap_return(format!("{method_call}.await"))
             };
-            format!("    crate::__alef_tokio_runtime().block_on(async {{ {chain} }})")
+            // The receiver is borrowed from the Swift object for the duration of the bridged call,
+            // but `spawn` needs a `'static` future. Swift keeps its argument alive until the
+            // continuation resumes, and the continuation resumes only after this future -- which
+            // awaits the spawned task to completion -- returns, so the task never outlives the
+            // borrow. swift-bridge never drops the future early. ~keep
+            let extend_receiver = match method.receiver {
+                Some(ReceiverKind::RefMut) => format!(
+                    "    // SAFETY: Swift keeps the receiver alive until this future's task completes.\n    let client: &'static mut {type_name} = unsafe {{ &mut *(client as *mut {type_name}) }};\n"
+                ),
+                _ => format!(
+                    "    // SAFETY: Swift keeps the receiver alive until this future's task completes.\n    let client: &'static {type_name} = unsafe {{ &*(client as *const {type_name}) }};\n"
+                ),
+            };
+            format!(
+                "{extend_receiver}    let __alef_task = crate::__alef_tokio_runtime().spawn(async move {{ {chain} }});\n    __alef_task.await.unwrap_or_else(|__alef_join_error| {{\n        Err(format!(\"alef: spawned async task failed: {{__alef_join_error}}\"))\n    }})"
+            )
         } else if method.error_type.is_some() {
             let ok_wrap = if method.return_newtype_wrapper.is_some() {
                 let converted = apply_return_newtype_unwrap("v", &method.return_newtype_wrapper);
@@ -442,6 +459,7 @@ pub(crate) fn emit_type_method_shims(
                 params => params_str,
                 return_clause => return_clause,
                 body => body,
+                is_async => method.is_async,
             },
         ));
     }
@@ -652,6 +670,113 @@ mod tests {
             methods,
             ..Default::default()
         }
+    }
+
+    fn async_method(name: &str, receiver: ReceiverKind, error_type: Option<&str>) -> crate::core::ir::MethodDef {
+        crate::core::ir::MethodDef {
+            name: name.to_string(),
+            params: vec![param("req", TypeRef::Named("Request".to_string()))],
+            return_type: TypeRef::Named("Response".to_string()),
+            error_type: error_type.map(str::to_string),
+            is_async: true,
+            receiver: Some(receiver),
+            ..Default::default()
+        }
+    }
+
+    /// An async method must be a real `async fn` (the matching extern declaration is `async fn`,
+    /// which is what makes the Swift side suspend instead of parking a thread). Its work is spawned
+    /// onto the process-wide runtime with a `'static` receiver, only the `JoinHandle` is awaited,
+    /// and a failed join becomes `Err(String)` rather than unwinding.
+    #[test]
+    fn async_method_shim_is_an_async_fn_that_spawns_and_awaits_the_join_handle() {
+        let ty = opaque_type(
+            "Client",
+            vec![
+                async_method("chat", ReceiverKind::Ref, Some("ClientError")),
+                async_method("infallible", ReceiverKind::Ref, None),
+            ],
+        );
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        for name in ["client_chat", "client_infallible"] {
+            assert!(
+                out.contains(&format!(
+                    "pub async fn {name}(client: &Client, req: Request) -> Result<Response, String>"
+                )),
+                "`{name}` must be an `async fn` with a Result return (even when infallible, so a \
+                 JoinError has somewhere to land), got:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("block_on"),
+            "an async shim must never block a thread on the runtime, got:\n{out}"
+        );
+        assert!(
+            out.contains("crate::__alef_tokio_runtime().spawn(async move {"),
+            "the work must be spawned onto the large-stack runtime, got:\n{out}"
+        );
+        assert!(
+            out.contains("let client: &'static Client = unsafe { &*(client as *const Client) };"),
+            "spawn needs a 'static receiver, got:\n{out}"
+        );
+        assert!(
+            out.contains("__alef_task.await.unwrap_or_else(|__alef_join_error|"),
+            "a join failure must surface as Err(String), got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn async_method_shim_extends_a_mut_receiver_as_static_mut() {
+        let ty = opaque_type(
+            "Client",
+            vec![async_method("chat", ReceiverKind::RefMut, Some("ClientError"))],
+        );
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(
+            out.contains("pub async fn client_chat(client: &mut Client,"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("let client: &'static mut Client = unsafe { &mut *(client as *mut Client) };"),
+            "got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn sync_method_shim_stays_a_plain_fn() {
+        let mut method = async_method("chat", ReceiverKind::Ref, Some("ClientError"));
+        method.is_async = false;
+        let ty = opaque_type("Client", vec![method]);
+
+        let out = emit_type_method_shims(
+            &ty,
+            "sample_crate",
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(out.contains("pub fn client_chat("), "got:\n{out}");
+        assert!(!out.contains("async") && !out.contains("spawn"), "got:\n{out}");
     }
 
     #[test]

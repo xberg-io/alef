@@ -507,7 +507,6 @@ pub(super) fn emit_async_free_function_forwarder(
     context: AsyncForwarderContext<'_>,
     out: &mut String,
 ) {
-    let throws_clause = " throws";
     let return_ty = forwarder_return_type(&func.return_type);
     let return_clause = if matches!(&func.return_type, TypeRef::Unit) {
         String::new()
@@ -547,7 +546,6 @@ pub(super) fn emit_async_free_function_forwarder(
         emit_doc_comment(&func.doc, "", out);
     }
 
-    let effective_try = "try ";
     let result_ok_uses_json_bridge =
         result_ok_needs_json_bridge_with_handles(&func.return_type, context.handle_returned_types);
 
@@ -561,7 +559,7 @@ pub(super) fn emit_async_free_function_forwarder(
             // fields (see `dto::swift_ffi_read_expr`). ~keep
             let enum_name = swift_ident(name);
             (
-                format!("try RustBridge.{swift_name}({args})"),
+                format!("try await RustBridge.{swift_name}({args})"),
                 format!(
                     "        let _rbRawValue = _rb_obj.to_string().toString()\n        guard let _rbValue = {enum_name}(rawValue: _rbRawValue) else {{\n            throw {}.validation(message: \"Unknown {enum_name} variant\", source: _rbRawValue)\n        }}\n        return _rbValue",
                     context.error_type_name
@@ -571,25 +569,25 @@ pub(super) fn emit_async_free_function_forwarder(
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
             (
-                format!("try RustBridge.{swift_name}({args})"),
+                format!("try await RustBridge.{swift_name}({args})"),
                 format!("        return try {struct_name}(_rb_obj)"),
             )
         }
         _ if result_ok_uses_json_bridge => {
             let decode_ty = forwarder_return_type(&func.return_type);
             (
-                format!("try RustBridge.{swift_name}({args}).toString()"),
+                format!("try await RustBridge.{swift_name}({args}).toString()"),
                 format!(
                     "        let _rb_data = _rb_result.data(using: .utf8) ?? Data()\n        return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)"
                 ),
             )
         }
         TypeRef::String => (
-            format!("try RustBridge.{swift_name}({args})"),
+            format!("try await RustBridge.{swift_name}({args})"),
             "        return result.toString()".to_string(),
         ),
         _ => (
-            format!("try RustBridge.{swift_name}({args})"),
+            format!("try await RustBridge.{swift_name}({args})"),
             "        return result".to_string(),
         ),
     };
@@ -679,19 +677,45 @@ pub(super) fn emit_async_free_function_forwarder(
         ));
     }
 
-    out.push_str(&crate::backends::swift::template_env::render(
-        "swift_async_forwarder.swift.jinja",
-        minijinja::context! {
-            function_name => swift_name,
-            params => sig,
-            throws_clause => throws_clause,
-            return_clause => return_clause,
-            effective_try => effective_try,
-            conversion_lines => conversion_body,
-            body => body,
-        },
+    out.push_str(&render_async_forwarder(
+        swift_name,
+        &sig,
+        &return_clause,
+        &conversion_body,
+        &body,
     ));
     out.push('\n');
+}
+
+/// Render a free-function forwarder that awaits an `async` swift-bridge function.
+///
+/// The bridged Rust function is declared `async fn` in its `extern "Rust"` block, so
+/// swift-bridge's generated Swift suspends on a continuation instead of parking a thread; the
+/// forwarder just awaits it. Callers build `conversion_lines` and `body` at the 8-space depth
+/// the sync forwarder bodies use, so one level is stripped here. Every async bridge function
+/// returns a `Result`, hence the unconditional `throws`.
+pub(super) fn render_async_forwarder(
+    function_name: &str,
+    params: &str,
+    return_clause: &str,
+    conversion_lines: &str,
+    body: &str,
+) -> String {
+    fn dedent_one_level(text: &str) -> String {
+        text.split_inclusive('\n')
+            .map(|line| line.strip_prefix("    ").unwrap_or(line))
+            .collect()
+    }
+    crate::backends::swift::template_env::render(
+        "swift_async_forwarder.swift.jinja",
+        minijinja::context! {
+            function_name => function_name,
+            params => params,
+            return_clause => return_clause,
+            conversion_lines => dedent_one_level(conversion_lines),
+            body => dedent_one_level(body),
+        },
+    )
 }
 
 /// The Swift-visible name of a trait-bridge forwarder for a configured

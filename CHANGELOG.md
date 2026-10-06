@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Swift `async` facades no longer block the calling thread. The bridge function behind every async
+  free function and opaque-type method is now declared `async fn` in the swift-bridge module, so
+  swift-bridge's generated Swift suspends on a continuation instead of parking a thread (the old
+  `Task.detached` wrapper still pinned one Swift cooperative-pool thread per call, and a facade
+  calling the bridge directly blocked its caller outright, with swiftc warning "no 'async'
+  operations occur within 'await' expression"). The Rust shim spawns the work onto the
+  process-wide runtime and awaits its `JoinHandle`, so a panicked task is an `Err(String)`, not a
+  hang; an async method that has no error type is now `async throws` for the same reason. The
+  generated crate enables swift-bridge's `async` feature when the API has async surface, and
+  `Package.swift` builds the `RustBridge` target in Swift 5 language mode because swift-bridge's
+  async glue does not pass Swift 6 region-isolation checking. A cancelled Swift `Task` still waits
+  for the call to finish. Public Swift signatures are unchanged.
 - FFI error code 5 (`Cancelled`) is no longer reported as an unknown error by Java, C#, Zig or
   Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
   `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error

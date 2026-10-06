@@ -780,16 +780,13 @@ fn infallible_function_returning_u64_keeps_native_type() {
     );
 }
 
-/// A Swift `Task.detached` closure calls this shim from a concurrency cooperative-pool thread,
-/// whose stack is small and outside our control. `Runtime::block_on(future)` polls `future` on
-/// the CALLING thread -- only a `Runtime::spawn`ed task runs on one of the runtime's own worker
-/// threads (the ones actually sized via `thread_stack_size`). A deep extraction future polled
-/// directly by `block_on` therefore still runs on the cooperative-pool thread's small stack and
-/// can overflow it regardless of how large the runtime's worker stacks are configured. The async
-/// shim must hand the real work to `.spawn(...)` and block the caller only on the resulting
-/// `JoinHandle`, which is a shallow, constant-size wait.
+/// swift-bridge polls an `async fn` shim on its own internal runtime, whose worker stacks are
+/// small and outside our control. A deep extraction future polled directly by that runtime can
+/// overflow it regardless of how large the process-wide runtime's worker stacks are configured.
+/// The async shim must be a real `async fn` (so the Swift side suspends instead of parking a
+/// thread), hand the real work to `.spawn(...)`, and only await the resulting `JoinHandle`.
 #[test]
-fn async_shim_spawns_the_future_and_blocks_only_on_the_join_handle() {
+fn async_shim_is_an_async_fn_that_spawns_the_future_and_awaits_only_the_join_handle() {
     let f = function(vec![]);
     let type_paths = HashMap::new();
     let empty_str = HashSet::new();
@@ -814,13 +811,16 @@ fn async_shim_spawns_the_future_and_blocks_only_on_the_join_handle() {
          large-stack worker thread, not polled directly on the caller, got:\n{shim}"
     );
     assert!(
-        !shim.contains(&format!("{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{")),
-        "must not `.block_on` the raw future directly -- that runs the poll chain on the \
-         calling (Swift cooperative-pool) thread's stack, got:\n{shim}"
+        shim.contains("pub async fn "),
+        "the shim must be an `async fn` so swift-bridge emits a suspending Swift function, got:\n{shim}"
     );
     assert!(
-        shim.contains(&format!("{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(__alef_task)")),
-        "the calling thread must only block on the spawned task's `JoinHandle`, got:\n{shim}"
+        !shim.contains("block_on"),
+        "an async shim must never block a thread on the runtime, got:\n{shim}"
+    );
+    assert!(
+        shim.contains("__alef_task.await"),
+        "the shim must only await the spawned task's `JoinHandle`, got:\n{shim}"
     );
     // Unwinding across the FFI boundary is undefined behavior. A panicked or cancelled task's
     // `JoinError` must become an ordinary `Err(String)`, never re-raised as a panic.

@@ -268,8 +268,11 @@ pub(crate) fn emit_extern_block_for_type_methods(
         // This declaration must describe the same forced-fallible signature
         // `emit_type_method_shims` builds for the matching `pub fn`, or swift-bridge reports
         // `error[E0308]`. Both call `forces_fallible_enum_bridge` rather than deciding
-        // separately -- see its doc comment for why. ~keep
-        let forced_fallible = forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
+        // separately -- see its doc comment for why. An async method is forced fallible as well:
+        // its work runs as a spawned task whose `JoinError` must cross the bridge as `Err(String)`
+        // rather than leave the Swift continuation unresumed. ~keep
+        let forced_fallible =
+            method.is_async || forces_fallible_enum_bridge(&method.params, method.error_type.as_ref(), unit_enum_names);
 
         let return_ty = if method.error_type.is_some() || forced_fallible {
             let ok_ty = bridge_result_ok_type_with_handles(&method.return_type, handle_returned_types);
@@ -296,6 +299,7 @@ pub(crate) fn emit_extern_block_for_type_methods(
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => &return_ty,
+                is_async => method.is_async,
             },
         ));
     }
@@ -494,7 +498,6 @@ pub(crate) fn emit_extern_block_for_functions(
             bridge_type_with_handles(&effective_return_type, handle_returned_types)
         };
 
-        // swift-bridge 0.1.59 does not support the `#[swift_bridge(async)]`
         let swift_name = swift_ident(&f.name.to_lower_camel_case());
         if swift_name != fn_name {
             block.push_str(&crate::backends::swift::template_env::render(
@@ -510,6 +513,7 @@ pub(crate) fn emit_extern_block_for_functions(
                 fn_name => &fn_name,
                 params => &params_str,
                 return_type => &return_ty,
+                is_async => f.is_async,
             },
         ));
     }
@@ -719,6 +723,8 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
     Some(block)
 }
 
+#[cfg(test)]
+mod async_extern_tests;
 #[cfg(test)]
 mod cfg_filtered_fields_tests;
 #[cfg(test)]

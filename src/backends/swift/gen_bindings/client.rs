@@ -154,7 +154,10 @@ pub(super) fn emit_client_class(
 
         let return_ty = mapper.map_type(&method.return_type);
         let needs_return_init = matches!(&method.return_type, TypeRef::Named(n) if first_class_types.contains(n));
-        let needs_throws = method.error_type.is_some() || has_dto_param || needs_return_init;
+        // An async bridge function is always `async throws`: the Rust shim is forced fallible so a
+        // spawned task's `JoinError` surfaces as an error instead of leaving the continuation
+        // unresumed. ~keep
+        let needs_throws = method.error_type.is_some() || has_dto_param || needs_return_init || method.is_async;
         let throws_clause = if needs_throws { " throws" } else { "" };
         let async_clause = if method.is_async { " async" } else { "" };
         let return_clause = if matches!(method.return_type, TypeRef::Unit) {
@@ -170,6 +173,7 @@ pub(super) fn emit_client_class(
                 "swift_client_method_unit_body.swift.jinja",
                 minijinja::context! {
                     throws_kw => if needs_throws { "try " } else { "" },
+                    await_kw => if method.is_async { "await " } else { "" },
                     bridge_function => &bridge_fn_camel,
                     args => &args_str,
                 },
@@ -463,5 +467,86 @@ pub(super) fn emit_streaming_free_functions(
             },
         ));
         out.push('\n');
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backends::swift::type_map::SwiftMapper;
+    use crate::core::ir::ParamDef;
+    use std::collections::HashSet;
+
+    fn client_method(name: &str, is_async: bool, error_type: Option<&str>, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![ParamDef {
+                name: "id".to_string(),
+                ty: TypeRef::String,
+                ..Default::default()
+            }],
+            return_type,
+            error_type: error_type.map(str::to_string),
+            is_async,
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            ..Default::default()
+        }
+    }
+
+    fn render(methods: &[MethodDef]) -> String {
+        let mut out = String::new();
+        emit_client_class(
+            "Client",
+            methods,
+            &SwiftMapper,
+            &ResolvedCrateConfig::default(),
+            &HashSet::new(),
+            &mut out,
+        );
+        out
+    }
+
+    /// The bridge function behind an async method is a swift-bridge `async fn`, so the facade must
+    /// await it directly; wrapping the call in a detached task would park a pool thread again.
+    #[test]
+    fn async_methods_await_the_bridge_and_always_throw() {
+        let out = render(&[
+            client_method("fetch", true, Some("ClientError"), TypeRef::String),
+            client_method("infallible", true, None, TypeRef::String),
+            client_method("remove", true, Some("ClientError"), TypeRef::Unit),
+        ]);
+
+        assert!(
+            out.contains("public func fetch(_ id: String) async throws -> String {"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("return try await RustBridge.clientFetch(self.inner, id)"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("public func infallible(_ id: String) async throws -> String {"),
+            "an infallible async bridge function is forced fallible, so its facade must throw; got:\n{out}"
+        );
+        assert!(
+            out.contains("        try await RustBridge.clientRemove(self.inner, id)"),
+            "a unit-returning async method must await the bridge call too; got:\n{out}"
+        );
+        assert!(!out.contains("Task.detached"), "got:\n{out}");
+    }
+
+    #[test]
+    fn sync_methods_are_not_awaited() {
+        let out = render(&[client_method("fetch", false, Some("ClientError"), TypeRef::String)]);
+
+        assert!(
+            out.contains("public func fetch(_ id: String) throws -> String {"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("return try RustBridge.clientFetch(self.inner, id)"),
+            "got:\n{out}"
+        );
+        assert!(!out.contains("await"), "got:\n{out}");
     }
 }
