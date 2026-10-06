@@ -5,7 +5,7 @@ use super::types::{fits_single_line, kotlin_type_with_string_imports, kotlin_zer
 use crate::backends::kotlin::gen_bindings::helpers::emit_cleaned_kdoc;
 use crate::backends::kotlin::gen_bindings::shared::{kotlin_field_name, to_lower_camel};
 
-fn interpolate_error_message_template(template: &str) -> String {
+fn interpolate_error_message_template(template: &str, redacted: &[usize]) -> String {
     let mut out = String::with_capacity(template.len());
     let mut remaining = template;
     while let Some(open) = remaining.find('{') {
@@ -14,6 +14,11 @@ fn interpolate_error_message_template(template: &str) -> String {
             let token = &after_open[..close];
             if token.chars().all(|c| c.is_ascii_digit()) && !token.is_empty() {
                 out.push_str(&remaining[..open]);
+                if token.parse::<usize>().is_ok_and(|index| redacted.contains(&index)) {
+                    out.push_str("<redacted>");
+                    remaining = &after_open[close + 1..];
+                    continue;
+                }
                 let after_close = &after_open[close + 1..];
                 let next_is_ident_cont = after_close
                     .chars()
@@ -49,7 +54,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
     for variant in &error.variants {
         if variant.is_unit {
             let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
-            let message = interpolate_error_message_template(raw_msg);
+            let message = interpolate_error_message_template(raw_msg, &[]);
             out.push_str(&crate::backends::kotlin::template_env::render(
                 "error_object_variant.jinja",
                 minijinja::context! {
@@ -60,7 +65,13 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             ));
         } else {
             let raw_msg = variant.message_template.as_deref().unwrap_or(&variant.name);
-            let message = interpolate_error_message_template(raw_msg);
+            let redacted: Vec<usize> = variant
+                .fields
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, f)| f.sensitive.then_some(idx))
+                .collect();
+            let message = interpolate_error_message_template(raw_msg, &redacted);
 
             let mut err_field_strings: Vec<String> = Vec::with_capacity(variant.fields.len());
             for (idx, f) in variant.fields.iter().enumerate() {
@@ -122,3 +133,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
     }
     out.push_str("}\n");
 }
+
+#[cfg(test)]
+#[path = "errors_tests.rs"]
+mod errors_tests;
