@@ -325,101 +325,120 @@ pub(super) fn build_napi_args(
     unsupported: &RefCell<Vec<UnsupportedArg>>,
     json_safe_named_types: &std::collections::HashSet<String>,
 ) -> Vec<String> {
-    method
-        .params
-        .iter()
-        .map(|p| {
-            build_one_napi_arg(
-                p,
-                method,
-                bridge_cfg,
-                struct_param_types,
-                type_prefix,
-                trait_name,
-                unsupported,
-                json_safe_named_types,
-            )
-        })
-        .collect()
+    let ctx = NapiArgCtx {
+        method,
+        bridge_cfg,
+        struct_param_types,
+        type_prefix,
+        trait_name,
+        unsupported,
+        json_safe_named_types,
+    };
+    method.params.iter().map(|p| build_one_napi_arg(p, &ctx)).collect()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_one_napi_arg(
-    p: &ParamDef,
-    method: &MethodDef,
-    bridge_cfg: &TraitBridgeConfig,
-    struct_param_types: &std::collections::HashSet<String>,
-    type_prefix: &str,
-    trait_name: &str,
-    unsupported: &RefCell<Vec<UnsupportedArg>>,
-    json_safe_named_types: &std::collections::HashSet<String>,
-) -> String {
-    use crate::core::ir::PrimitiveType;
+/// The per-bridge context `build_one_napi_arg` consults when a parameter needs a real marshalling
+/// decision rather than a type-only lookup.
+struct NapiArgCtx<'a> {
+    method: &'a MethodDef,
+    bridge_cfg: &'a TraitBridgeConfig,
+    struct_param_types: &'a std::collections::HashSet<String>,
+    type_prefix: &'a str,
+    trait_name: &'a str,
+    unsupported: &'a RefCell<Vec<UnsupportedArg>>,
+    json_safe_named_types: &'a std::collections::HashSet<String>,
+}
 
-    if let TypeRef::Named(n) = &p.ty {
-        if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
-            return crate::backends::napi::template_env::render(
-                "visitor_context_arg_expr.jinja",
-                minijinja::context! { ref_prefix => if p.is_ref { "" } else { "&" }, name => p.name.as_str() },
-            )
-            .trim_end()
-            .to_string();
-        }
-        if struct_param_types.contains(n.as_str()) {
-            let owned = if p.is_ref {
-                format!("(*{}).clone()", p.name)
-            } else {
-                p.name.clone()
-            };
-            return format!(
-                "unsafe {{ \
-                 let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), {prefix}{ty}::from({owned})).unwrap_or(std::ptr::null_mut()); \
-                 napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}",
-                prefix = type_prefix,
-                ty = n,
-            );
-        }
-        if json_safe_named_types.contains(n.as_str()) {
-            // A real, serde-enabled enum: JSON-encode it faithfully instead of
-            // Debug-stringifying (`serde_json::to_value` -- the enum genuinely implements
-            // `Serialize`, unlike an opaque/unknown `Named` param, which may not).
-            return json_encode_expr(&p.name);
-        }
-        // Opaque/handle or otherwise-unknown `Named` param: no cheap native `ToNapiValue` and no
-        // proven `Serialize` impl either, so this keeps the prior Debug-string representation
-        // rather than risk a JSON encode that doesn't compile against the real core type.
-        return to_napi_value_expr(&format!("format!(\"{{:?}}\", {})", p.name));
+impl NapiArgCtx<'_> {
+    fn record_unsupported(&self, p: &ParamDef, type_desc: String) -> String {
+        self.unsupported.borrow_mut().push(UnsupportedArg {
+            trait_name: self.trait_name.to_string(),
+            method_name: self.method.name.clone(),
+            param_name: p.name.clone(),
+            type_desc,
+        });
+        napi_null_expr()
     }
-    if p.optional && matches!(&p.ty, TypeRef::String) && p.is_ref {
+}
+
+fn named_napi_arg(p: &ParamDef, n: &str, ctx: &NapiArgCtx<'_>) -> String {
+    if Some(n) == ctx.bridge_cfg.context_type.as_deref() {
+        return crate::backends::napi::template_env::render(
+            "visitor_context_arg_expr.jinja",
+            minijinja::context! { ref_prefix => if p.is_ref { "" } else { "&" }, name => p.name.as_str() },
+        )
+        .trim_end()
+        .to_string();
+    }
+    if ctx.struct_param_types.contains(n) {
+        let owned = if p.is_ref {
+            format!("(*{}).clone()", p.name)
+        } else {
+            p.name.clone()
+        };
         return format!(
-            "match {name} {{ Some(s) => {some}, None => {null} }}",
-            name = p.name,
-            some = to_napi_value_expr("s"),
-            null = napi_null_expr()
+            "unsafe {{ \
+             let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), {prefix}{ty}::from({owned})).unwrap_or(std::ptr::null_mut()); \
+             napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }}",
+            prefix = ctx.type_prefix,
+            ty = n,
         );
     }
-    if p.optional && !matches!(&p.ty, TypeRef::String) {
-        // `Optional<non-String>` — no per-primitive native arm. `p.ty` here is the IR's INNER
-        // type (the `Optional` wrapper is carried on `p.optional`, not as a nested
-        // `TypeRef::Optional`, for a top-level parameter), so `Some`/`None` on the owned Rust
-        // value round-trips through `Option<T>: Serialize` -- but only when `T` provably
-        // implements it (a bare `Named` inner must be a serde-enabled enum, same rule as the
-        // bare-`Named` arm above; anything else -- primitives, Bytes, Path, Vec, Map, Json,
-        // Duration -- is already known-`Serialize`).
-        if let TypeRef::Named(n) = &p.ty
-            && !json_safe_named_types.contains(n.as_str())
-        {
-            unsupported.borrow_mut().push(UnsupportedArg {
-                trait_name: trait_name.to_string(),
-                method_name: method.name.clone(),
-                param_name: p.name.clone(),
-                type_desc: format!("Optional({:?})", p.ty),
-            });
-            return napi_null_expr();
-        }
+    if ctx.json_safe_named_types.contains(n) {
+        // A real, serde-enabled enum: JSON-encode it faithfully instead of
+        // Debug-stringifying (`serde_json::to_value` -- the enum genuinely implements
+        // `Serialize`, unlike an opaque/unknown `Named` param, which may not).
         return json_encode_expr(&p.name);
     }
-    if matches!(&p.ty, TypeRef::String) && p.is_ref {
+    // Opaque/handle or otherwise-unknown `Named` param: no cheap native `ToNapiValue` and no
+    // proven `Serialize` impl either, so this keeps the prior Debug-string representation
+    // rather than risk a JSON encode that doesn't compile against the real core type.
+    to_napi_value_expr(&format!("format!(\"{{:?}}\", {})", p.name))
+}
+
+/// The two `Optional` shapes with a dedicated arm; `None` for a parameter that is not optional
+/// in a way those arms recognise.
+fn optional_napi_arg(p: &ParamDef, ctx: &NapiArgCtx<'_>) -> Option<String> {
+    if !p.optional {
+        return None;
+    }
+    if matches!(&p.ty, TypeRef::String) {
+        return p.is_ref.then(|| {
+            format!(
+                "match {name} {{ Some(s) => {some}, None => {null} }}",
+                name = p.name,
+                some = to_napi_value_expr("s"),
+                null = napi_null_expr()
+            )
+        });
+    }
+    // `Optional<non-String>` — no per-primitive native arm. `p.ty` here is the IR's INNER
+    // type (the `Optional` wrapper is carried on `p.optional`, not as a nested
+    // `TypeRef::Optional`, for a top-level parameter), so `Some`/`None` on the owned Rust
+    // value round-trips through `Option<T>: Serialize` -- but only when `T` provably
+    // implements it (a bare `Named` inner must be a serde-enabled enum, same rule as the
+    // bare-`Named` arm above; anything else -- primitives, Bytes, Path, Vec, Map, Json,
+    // Duration -- is already known-`Serialize`).
+    if let TypeRef::Named(n) = &p.ty
+        && !ctx.json_safe_named_types.contains(n.as_str())
+    {
+        return Some(ctx.record_unsupported(p, format!("Optional({:?})", p.ty)));
+    }
+    Some(json_encode_expr(&p.name))
+}
+
+/// Parameter shapes whose marshalling depends on the parameter alone (no bridge context).
+fn scalar_napi_arg(p: &ParamDef) -> Option<String> {
+    use crate::core::ir::PrimitiveType;
+
+    let owned_or_cloned = |ref_suffix: &str| {
+        if p.is_ref {
+            format!("{}{ref_suffix}", p.name)
+        } else {
+            format!("{}.clone()", p.name)
+        }
+    };
+    Some(match &p.ty {
         // `&str: ToNapiValue`. Routed through the same raw-pointer `ToNapiValue`/
         // `Unknown::from_raw_unchecked` pattern as every other arm below, rather than
         // `Env::create_string(..).to_unknown()`: the latter returns a `JsString<'_>` borrowed
@@ -429,97 +448,61 @@ fn build_one_napi_arg(
         // `Ok((..))` result (E0515). The raw-pointer form only ever moves a `napi_value`
         // (a plain pointer), never a borrow, so it is valid in every context this function's
         // output is spliced into (an inline method-body expression, or a closure return).
-        return to_napi_value_expr(&p.name);
-    }
-    if matches!(&p.ty, TypeRef::String) {
-        return to_napi_value_expr(&format!("{}.clone()", p.name));
-    }
-    if matches!(&p.ty, TypeRef::Char) {
-        return to_napi_value_expr(&format!("{}.to_string()", p.name));
-    }
-    if matches!(&p.ty, TypeRef::Path) {
+        TypeRef::String if p.is_ref => to_napi_value_expr(&p.name),
+        TypeRef::String => to_napi_value_expr(&format!("{}.clone()", p.name)),
+        TypeRef::Char => to_napi_value_expr(&format!("{}.to_string()", p.name)),
         // `&Path` and `PathBuf` both expose `.to_string_lossy()`; ownership doesn't change the
         // expression, only whether `{name}` is a reference or a value.
-        return to_napi_value_expr(&format!("{}.to_string_lossy().into_owned()", p.name));
-    }
-    if matches!(&p.ty, TypeRef::Bytes) {
-        let owned = if p.is_ref {
-            format!("{}.to_vec()", p.name)
-        } else {
-            format!("{}.clone()", p.name)
-        };
-        return to_napi_value_expr(&format!("napi::bindgen_prelude::Buffer::from({owned})"));
-    }
-    if matches!(&p.ty, TypeRef::Duration) {
-        return to_napi_value_expr(&format!("{}.as_secs_f64()", p.name));
-    }
-    if matches!(&p.ty, TypeRef::Json) {
-        let owned = if p.is_ref {
+        TypeRef::Path => to_napi_value_expr(&format!("{}.to_string_lossy().into_owned()", p.name)),
+        TypeRef::Bytes => to_napi_value_expr(&format!(
+            "napi::bindgen_prelude::Buffer::from({})",
+            owned_or_cloned(".to_vec()")
+        )),
+        TypeRef::Duration => to_napi_value_expr(&format!("{}.as_secs_f64()", p.name)),
+        TypeRef::Json => to_napi_value_expr(&if p.is_ref {
             format!("{}.clone()", p.name)
         } else {
             p.name.clone()
-        };
-        return to_napi_value_expr(&owned);
+        }),
+        TypeRef::Map(_, _) => json_encode_expr(&p.name),
+        TypeRef::Primitive(PrimitiveType::Usize) => to_napi_value_expr(&format!("{} as u32", p.name)),
+        TypeRef::Primitive(_) => to_napi_value_expr(&p.name),
+        _ => return None,
+    })
+}
+
+fn vec_napi_arg(p: &ParamDef, inner: &TypeRef, ctx: &NapiArgCtx<'_>) -> String {
+    if is_napi_encodable(inner) {
+        return to_napi_value_expr(&if p.is_ref {
+            format!("{}.to_vec()", p.name)
+        } else {
+            format!("{}.clone()", p.name)
+        });
     }
-    if matches!(&p.ty, TypeRef::Map(_, _)) {
-        return json_encode_expr(&p.name);
+    // Vec of a non-natively-encodable element (Bytes, Path, Map, Json, Duration, a
+    // serde-enabled enum, ...): JSON-encode the whole vector. A `Vec<Named>` element must be
+    // a proven-`Serialize` enum, same rule as the bare-`Named` arm above -- an opaque/unknown
+    // element type is a generation-time error rather than a guessed encoding.
+    if let TypeRef::Named(n) = inner
+        && !ctx.json_safe_named_types.contains(n.as_str())
+    {
+        return ctx.record_unsupported(p, format!("{:?}", p.ty));
     }
-    if matches!(&p.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
-        return to_napi_value_expr(&p.name);
+    json_encode_expr(&p.name)
+}
+
+fn build_one_napi_arg(p: &ParamDef, ctx: &NapiArgCtx<'_>) -> String {
+    if let TypeRef::Named(n) = &p.ty {
+        return named_napi_arg(p, n, ctx);
     }
-    if matches!(
-        &p.ty,
-        TypeRef::Primitive(
-            PrimitiveType::U32
-                | PrimitiveType::I32
-                | PrimitiveType::I64
-                | PrimitiveType::U64
-                | PrimitiveType::F32
-                | PrimitiveType::F64
-                | PrimitiveType::I8
-                | PrimitiveType::I16
-                | PrimitiveType::U8
-                | PrimitiveType::U16
-                | PrimitiveType::Isize
-        )
-    ) {
-        return to_napi_value_expr(&p.name);
+    if let Some(expr) = optional_napi_arg(p, ctx) {
+        return expr;
     }
-    if matches!(&p.ty, TypeRef::Primitive(PrimitiveType::Usize)) {
-        return to_napi_value_expr(&format!("{} as u32", p.name));
+    if let Some(expr) = scalar_napi_arg(p) {
+        return expr;
     }
     if let TypeRef::Vec(inner) = &p.ty {
-        if is_napi_encodable(inner) {
-            let owned = if p.is_ref {
-                format!("{}.to_vec()", p.name)
-            } else {
-                format!("{}.clone()", p.name)
-            };
-            return to_napi_value_expr(&owned);
-        }
-        // Vec of a non-natively-encodable element (Bytes, Path, Map, Json, Duration, a
-        // serde-enabled enum, ...): JSON-encode the whole vector. A `Vec<Named>` element must be
-        // a proven-`Serialize` enum, same rule as the bare-`Named` arm above -- an opaque/unknown
-        // element type is a generation-time error rather than a guessed encoding.
-        if let TypeRef::Named(n) = inner.as_ref()
-            && !json_safe_named_types.contains(n.as_str())
-        {
-            unsupported.borrow_mut().push(UnsupportedArg {
-                trait_name: trait_name.to_string(),
-                method_name: method.name.clone(),
-                param_name: p.name.clone(),
-                type_desc: format!("{:?}", p.ty),
-            });
-            return napi_null_expr();
-        }
-        return json_encode_expr(&p.name);
+        return vec_napi_arg(p, inner, ctx);
     }
-
-    unsupported.borrow_mut().push(UnsupportedArg {
-        trait_name: trait_name.to_string(),
-        method_name: method.name.clone(),
-        param_name: p.name.clone(),
-        type_desc: format!("{:?}", p.ty),
-    });
-    napi_null_expr()
+    ctx.record_unsupported(p, format!("{:?}", p.ty))
 }

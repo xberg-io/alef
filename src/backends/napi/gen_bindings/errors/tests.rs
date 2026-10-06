@@ -324,13 +324,8 @@ fn internally_tagged_newtype_variants_declare_discriminated_union() {
     );
 }
 
-/// The `FormatMetadata` defect this task fixes: when `ApiSurface::types` resolves the wrapped
-/// struct, an internally-tagged newtype variant's `.d.ts` union member must flatten that
-/// struct's OWN fields onto the tag object -- `{"format_type":"excel","sheet_count":2,...}` is
-/// the real serde wire, never `{"format_type":"excel","excel":{"sheet_count":2,...}}`.
-#[test]
-fn internally_tagged_newtype_variant_flattens_wrapped_struct_when_type_resolves() {
-    let api = ApiSurface {
+fn excel_flatten_api() -> ApiSurface {
+    ApiSurface {
         enums: vec![EnumDef {
             name: "FormatMetadata".to_string(),
             serde_tag: Some("format_type".to_string()),
@@ -368,7 +363,16 @@ fn internally_tagged_newtype_variant_flattens_wrapped_struct_when_type_resolves(
             ..Default::default()
         }],
         ..Default::default()
-    };
+    }
+}
+
+/// The `FormatMetadata` defect this task fixes: when `ApiSurface::types` resolves the wrapped
+/// struct, an internally-tagged newtype variant's `.d.ts` union member must flatten that
+/// struct's OWN fields onto the tag object -- `{"format_type":"excel","sheet_count":2,...}` is
+/// the real serde wire, never `{"format_type":"excel","excel":{"sheet_count":2,...}}`.
+#[test]
+fn internally_tagged_newtype_variant_flattens_wrapped_struct_when_type_resolves() {
+    let api = excel_flatten_api();
 
     let dts = gen_dts(
         &api,
