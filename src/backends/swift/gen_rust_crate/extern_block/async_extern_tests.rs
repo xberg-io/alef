@@ -101,3 +101,19 @@ fn sync_method_keeps_its_plain_declaration() {
         "got:\n{block}"
     );
 }
+
+/// The template's `lstrip_blocks` setting strips the whitespace in front of a `{% if %}` tag at the
+/// start of a line, which once pulled every declaration out of its `extern "Rust"` block. ~keep
+#[test]
+fn declarations_keep_their_indentation_inside_the_extern_block() {
+    let sync = function_block(&function(false));
+    assert!(
+        sync.contains("\n        fn fetch_status(id: String)"),
+        "sync declaration lost its indentation; got:\n{sync}"
+    );
+    let asynchronous = function_block(&function(true));
+    assert!(
+        asynchronous.contains("\n        async fn fetch_status(id: String)"),
+        "async declaration lost its indentation; got:\n{asynchronous}"
+    );
+}

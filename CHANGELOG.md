@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them directly instead of looping a blocking `next()` inside `Task.detached`. The handle keeps its
   stream behind an async mutex, `next()` takes `&self`, and the start call clones the request
   before spawning the work on the shared runtime.
+- The swift-bridge `extern "Rust"` block keeps its declarations indented: `async` support had
+  stripped the leading whitespace from every free-function and method declaration.
 - FFI error code 5 (`Cancelled`) is no longer reported as an unknown error by Java, C#, Zig or
   Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
   `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error
