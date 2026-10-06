@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.106.0] - 2026-10-06
+
 ### Fixed
 
 - The GNU Make security control probe quotes a normalized marker path and invokes its intended
   target, avoiding Windows path parsing false failures before the security assertion runs.
-
 - Kotlin error exception messages no longer interpolate a positional field marked
   `#[cfg_attr(alef, alef(sensitive))]`; the placeholder renders as `<redacted>`.
 
