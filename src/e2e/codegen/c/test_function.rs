@@ -88,11 +88,11 @@ const SNIPPET_TEST_SKIP_MACRO: &str = concat!(
     "#endif",
 );
 
-const SNIPPET_TEST_PASS_MACRO: &str = concat!(
-    "#ifndef ALEF_TEST_PASS\n",
-    "#define ALEF_TEST_PASS() do { return EXIT_SUCCESS; } while (0)\n",
-    "#endif",
-);
+/// The harness's `ALEF_TEST_PASS()` is a macro defined by the generated test runner; in a published
+/// snippet the same early success is a plain `return` from `main`, which needs no definition. ~keep
+fn standalone_success_exit(body: &str) -> String {
+    body.replace("ALEF_TEST_PASS();", "return EXIT_SUCCESS;")
+}
 
 /// File-scope declarations the emitted snippet needs so that every symbol its
 /// body references resolves inside the emitted translation unit.
@@ -100,9 +100,6 @@ fn snippet_declarations(body: &str) -> String {
     let mut declarations = Vec::new();
     if body.contains("ALEF_TEST_SKIP(") {
         declarations.push(SNIPPET_TEST_SKIP_MACRO);
-    }
-    if body.contains("ALEF_TEST_PASS()") {
-        declarations.push(SNIPPET_TEST_PASS_MACRO);
     }
     declarations.join("\n")
 }
@@ -175,7 +172,7 @@ fn assemble_snippet_body(
         }
         lines.push(line.to_string());
     }
-    Ok(lines.join("\n"))
+    Ok(standalone_success_exit(&lines.join("\n")))
 }
 
 /// Rewrites a rendered client-factory snippet so the client comes from the fixture's
@@ -383,7 +380,7 @@ pub(super) fn render_snippet_body(context: SnippetContext<'_>) -> anyhow::Result
         }
         return Ok(crate::e2e::template_env::render(
             "c/snippet_body.jinja",
-            minijinja::context! { header => header, declarations => "", body => body.trim_end() },
+            minijinja::context! { header => header, declarations => "", body => standalone_success_exit(body.trim_end()) },
         ));
     }
     validate_c_snippet_metadata(
@@ -1850,10 +1847,20 @@ mod snippet_tests {
     }
 
     #[test]
-    fn standalone_snippet_declares_success_guard() {
-        let declarations = snippet_declarations("if (request == 0) { ALEF_TEST_PASS(); }");
+    fn the_harness_success_macro_never_reaches_a_published_snippet() {
+        let function = rendered_function(&[
+            "SAMPLEAlefHandle request = sample_request_from_json(\"{}\");",
+            "if (request == 0) { ALEF_TEST_PASS(); }",
+            "SAMPLEAlefHandle result = sample_default_client_chat(client, request);",
+            "assert(result == 0 && \"expected call to fail\");",
+        ]);
 
-        assert!(declarations.contains("return EXIT_SUCCESS"));
+        let body =
+            assemble_snippet_body(&function, "result", true, "chat_auth_401", "result != 0").expect("body assembles");
+
+        assert!(body.contains("if (request == 0) { return EXIT_SUCCESS; }"), "{body}");
+        assert!(!body.contains("ALEF_TEST_PASS"), "{body}");
+        assert_eq!(snippet_declarations(&body), "", "{body}");
     }
 
     #[test]

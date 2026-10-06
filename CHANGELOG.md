@@ -65,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dart snippets for an expected error catch with an untyped `catch (error)` instead of
   `on Error catch`. The bridge decodes a Rust error as a plain `String`, which is not a Dart
   `Error`, so the typed handler never caught it.
+- C snippets no longer carry the e2e harness's `ALEF_TEST_PASS()` macro and its `#define`: the
+  early success on an expected setup failure is a plain `return EXIT_SUCCESS;` in `main`.
 
 
 ## [0.104.4] - 2026-10-06
