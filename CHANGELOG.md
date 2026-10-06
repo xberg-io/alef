@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.106.1] - 2026-10-06
+
+### Fixed
+
+- Kotlin error variants whose field shares a name and type with an error accessor (for example a
+  `RateLimited { retry_after }` field and the `retryAfter` accessor) now declare it `override val`.
+  Previously kotlinc rejected the generated sealed class with "hides member of supertype".
+
 ## [0.106.0] - 2026-10-06
 
 ### Fixed
