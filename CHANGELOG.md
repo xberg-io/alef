@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Signed downloadable runtime components: `[[crates.component_contracts]]`, `[[crates.components]]` and
+  `[crates.component_distribution]` configuration, generated contract tables and host-side proxies,
+  `alef component build|package|verify|lock`, and component load/prefetch/status/cache-path APIs across
+  the native bindings. WebAssembly, Kotlin Android, Android JNI and Apple mobile report an explicit
+  unsupported error. The `alef-component-abi` and `alef-component-runtime` crates version in lockstep with alef.
+
 ### Changed
 
 - Static-link artifacts now use one FFI-level packaging contract: C FFI archives include
