@@ -239,7 +239,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module-function names again return `(<-chan Item, error)`, while cancellable stream wrappers
   are available through `WithContext`-suffixed variants.
 - `alef verify` compares markerless generated files recorded in `.alef-ownership.toml`, including
-  Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render.
+  Maven and Gradle wrappers and decoded Gradle wrapper JAR bytes, against the current render
+  (#508).
 - Generated Swift memberwise initializers default collection fields whose Rust metadata proves
   the type-zero value, so adding a `#[serde(default)]` list or map remains source-compatible.
 - Generated Zig build scripts are emitted in the same form as `zig fmt`, avoiding regeneration

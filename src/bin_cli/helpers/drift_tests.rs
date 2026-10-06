@@ -302,6 +302,94 @@ result_var = "result"
     assert_eq!(found.drifted, vec![full_path.display().to_string()]);
 }
 
+/// The Kotlin Android wrapper is a create-once seed outside the rewritten E2E roots, so consumers
+/// may upgrade it: even when recorded as owned, it is neither content-verified nor reported as
+/// drifted after mutation (#508 preserves create-once exclusions). ~keep
+#[test]
+fn owned_kotlin_android_wrapper_outside_e2e_roots_stays_create_once() {
+    let Some(_poly) = crate::test_support::tool_available_with_stable_path("poly") else {
+        return;
+    };
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("src")).expect("create source directory");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn noop() {}\n").expect("write source");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"sample_crate\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .expect("write Cargo.toml");
+    let config_toml = r#"
+[workspace]
+languages = ["kotlin_android"]
+
+[workspace.package_metadata]
+repository = "https://github.com/example/sample-crate"
+authors = ["Example Author <author@example.invalid>"]
+license = "MIT"
+
+[[crates]]
+name = "sample_crate"
+sources = ["src/lib.rs"]
+"#;
+    let config_path = dir.path().join("alef.toml");
+    std::fs::write(&config_path, config_toml).expect("write config");
+    let config: crate::core::config::NewAlefConfig = toml::from_str(config_toml).expect("config parses");
+    let resolved = config.resolve().expect("config resolves").remove(0);
+    let _cwd = crate::test_support::CwdGuard::enter(dir.path());
+    let languages = [crate::core::config::Language::KotlinAndroid];
+    let api = crate::cli::pipeline::extract(&resolved, &config_path, false).expect("extract source API");
+    let (surface, stage_failures) = collect_managed_surface(&languages, &api, &resolved, &config_path, dir.path())
+        .expect("collect real managed surface");
+    assert!(
+        stage_failures.is_empty(),
+        "Kotlin Android render must succeed without stage failures"
+    );
+
+    let mut jar_path = None;
+    for suffix in [
+        "gradlew",
+        "gradle/wrapper/gradle-wrapper.properties",
+        "gradle/wrapper/gradle-wrapper.jar",
+    ] {
+        let file = surface
+            .iter()
+            .find(|file| file.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("real Kotlin Android surface must include {suffix}"));
+        let rendered = crate::cli::commands::adopt::managed_outputs(std::slice::from_ref(file), dir.path())
+            .pop()
+            .expect("one managed wrapper output");
+        seed_owned_output(dir.path(), &file.path.to_string_lossy(), rendered.content.as_bytes());
+        if suffix.ends_with(".jar") {
+            jar_path = Some(dir.path().join(&file.path));
+        }
+    }
+    let jar_path = jar_path.expect("wrapper jar located");
+
+    let found = find_missing_and_frozen_generated_files(&languages, &api, &resolved, &config_path, dir.path())
+        .expect("verify unmutated managed surface");
+    assert!(
+        found.drifted.is_empty(),
+        "unmutated owned wrapper must not drift: {:?}",
+        found.drifted
+    );
+    assert!(
+        !found.format_drift_stats.content_verified_paths.contains(&jar_path),
+        "create-once wrapper jar must not be content-verified: {:?}",
+        found.format_drift_stats.content_verified_paths
+    );
+
+    let mut bytes = std::fs::read(&jar_path).expect("read wrapper jar");
+    bytes.truncate(bytes.len() - 1);
+    std::fs::write(&jar_path, bytes).expect("mutate wrapper jar");
+    let found = find_missing_and_frozen_generated_files(&languages, &api, &resolved, &config_path, dir.path())
+        .expect("verify mutated managed surface");
+    assert!(
+        found.drifted.is_empty(),
+        "mutated create-once wrapper jar must stay unreported: {:?}",
+        found.drifted
+    );
+}
+
 /// alef#436's core mechanism: a marked, present file whose bytes are internally
 /// self-consistent (so the per-file `alef:hash:` walk sees nothing wrong) but no
 /// longer match what a fresh render would produce must still be reported.
