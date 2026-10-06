@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running one, as before, but tripping its token ends the wait with the `Cancelled` code within a few
   milliseconds instead of blocking until the first call returns. The primary exports keep their plain
   blocking lock.
+- Go wrappers return the generated typed error when a request or receiver cannot be converted to its
+  native form (for example a request holding a value the native type rejects, such as an unknown enum
+  variant), as `failed to create <type>: <native message>` wrapping the `*Error` the native layer
+  reported, so `errors.As` recovers it and its native code. Previously the message was copied into an
+  untyped `fmt.Errorf`. Constructors of opaque handles do the same.
 
 ## [0.104.4] - 2026-10-06
 

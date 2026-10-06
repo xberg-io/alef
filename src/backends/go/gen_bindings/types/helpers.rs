@@ -189,6 +189,11 @@ pub(in crate::backends::go::gen_bindings) fn primary_go_error<'a>(
         .or_else(|| api.errors.first())
 }
 
+/// Generate the `wrapLastError` helper, emitted only into a package whose conversions call it.
+pub(in crate::backends::go::gen_bindings) fn gen_last_error_wrap_helper() -> String {
+    crate::backends::go::template_env::render("last_error_wrap_helper.jinja", context! {})
+}
+
 /// Generate the lastError() helper function.
 ///
 /// With a `primary` error type the helper builds `*Error` values carrying the variant, the

@@ -1,0 +1,9 @@
+// wrapLastError is lastError for a native call that failed before any Go-side context exists, such
+// as converting a request into its native form. what names the step that failed. The native error
+// is wrapped, not flattened, so errors.As still recovers the typed error and errors.Is its sentinel.
+func wrapLastError(what string) error {
+	if err := lastError(); err != nil {
+		return fmt.Errorf("%s: %w", what, err)
+	}
+	return fmt.Errorf("%s", what)
+}

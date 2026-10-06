@@ -457,10 +457,7 @@ fn gen_method_wrapper_impl(
                 String::new()
             };
             let err_action = format!("return {err_prefix}fmt.Errorf(\"failed to marshal receiver: %w\", err)");
-            let last_error_context_fn = c_symbols::last_error_context_symbol(ffi_prefix);
-            let from_json_err_action = format!(
-                "return {err_prefix}fmt.Errorf(\"failed to create receiver: %s\", C.GoString(C.{last_error_context_fn}()))"
-            );
+            let from_json_err_action = format!("return {err_prefix}wrapLastError(\"failed to create receiver\")");
             out.push_str(&crate::backends::go::template_env::render(
                 "marshal_receiver_to_c.jinja",
                 minijinja::context! {
@@ -843,9 +840,7 @@ pub(super) fn gen_param_to_c(
                     "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
                 };
                 let from_json_err_action = if can_return_error {
-                    format!(
-                        "return {err_return_prefix}fmt.Errorf(\"failed to create {type_snake}: %s\", C.GoString(C.{last_error_context_fn}()))"
-                    )
+                    format!("return {err_return_prefix}wrapLastError(\"failed to create {type_snake}\")")
                 } else {
                     format!("panic(\"failed to create {type_snake}: \" + C.GoString(C.{last_error_context_fn}()))")
                 };
@@ -870,9 +865,7 @@ pub(super) fn gen_param_to_c(
                     "panic(fmt.Sprintf(\"failed to marshal: %v\", err))".to_string()
                 };
                 let from_json_err_action = if can_return_error {
-                    format!(
-                        "return {err_return_prefix}fmt.Errorf(\"failed to create {type_snake}: %s\", C.GoString(C.{last_error_context_fn}()))"
-                    )
+                    format!("return {err_return_prefix}wrapLastError(\"failed to create {type_snake}\")")
                 } else {
                     format!("panic(\"failed to create {type_snake}: \" + C.GoString(C.{last_error_context_fn}()))")
                 };

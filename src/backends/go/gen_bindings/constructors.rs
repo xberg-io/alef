@@ -127,7 +127,6 @@ pub(super) fn gen_go_opaque_constructor(typ: &TypeDef, ffi_prefix: &str, ctor: &
         .collect();
 
     let c_call_args = c_args.join(", ");
-    let last_error_context_fn = c_symbols::last_error_context_symbol(ffi_prefix);
 
     format!(
         "// New{go_name} creates a new {go_name} handle via the FFI constructor.\n\
@@ -135,7 +134,7 @@ pub(super) fn gen_go_opaque_constructor(typ: &TypeDef, ffi_prefix: &str, ctor: &
          {setup}\
          \tptr := C.{new_fn}({c_call_args})\n\
          \tif ptr == 0 {{\n\
-         \t\treturn nil, fmt.Errorf(\"new{go_name}: %s\", C.GoString(C.{last_error_context_fn}()))\n\
+         \t\treturn nil, wrapLastError(\"new{go_name}\")\n\
          \t}}\n\
          \treturn &{go_name}{{ptr: ptr}}, nil\n\
          }}"

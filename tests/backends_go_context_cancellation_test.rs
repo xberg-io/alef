@@ -14,7 +14,8 @@ use alef::core::backend::Backend;
 use alef::core::config::new_config::NewAlefConfig;
 use alef::core::config::{AdapterConfig, AdapterPattern, ResolvedCrateConfig};
 use alef::core::ir::{
-    ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, ReceiverKind,
+    TypeDef, TypeRef,
 };
 
 /// The native stub. `fetch_cancellable` and the stream's second `_next` poll their token every few
@@ -32,13 +33,14 @@ typedef uint64_t TESTEngine;
 typedef uint64_t TESTAlefHandle;
 
 static _Thread_local int32_t test_code = 0;
+static _Thread_local const char *test_context = "native error";
 static atomic_int test_created = 0;
 static atomic_int test_freed = 0;
 static atomic_int test_tripped = 0;
 static atomic_int test_token_state[64];
 
 static inline int32_t test_last_error_code(void) { return test_code; }
-static inline const char *test_last_error_context(void) { return test_code ? "native error" : NULL; }
+static inline const char *test_last_error_context(void) { return test_code ? test_context : NULL; }
 static inline const char *test_last_error_variant(void) { return NULL; }
 
 static inline TESTAlefHandle test_cancel_token_new(void) {
@@ -85,6 +87,23 @@ static inline char *test_engine_fetch_cancellable(TESTEngine self, uint32_t mill
     return test_dup("done");
 }
 
+/* Converting a request body fails with the FFI's code 2 and the serde message, as a real
+ * `_from_json` does for a value the target type does not accept. */
+static inline TESTAlefHandle test_submit_request_from_json(const char *json) {
+    test_code = 0;
+    if (strstr(json, "bogus")) {
+        test_code = 2;
+        test_context = "unknown variant `bogus`, expected `fast` or `slow`";
+        return 0;
+    }
+    return 7;
+}
+static inline void test_submit_request_free(TESTAlefHandle request) {}
+static inline char *test_engine_submit(TESTEngine self, TESTAlefHandle request) {
+    test_code = 0;
+    return test_dup("submitted");
+}
+
 /* Stream handles are 1000 + the token id they were started with; the first `_next` yields a chunk
  * at once, every later one blocks until the token trips. */
 static atomic_int test_stream_reads = 0;
@@ -117,6 +136,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -196,6 +216,30 @@ func TestPlainMethodKeepsItsSignatureAndStillWorks(t *testing.T) {
 	got, err = engine.FetchWithContext(ctx, 10)
 	if err != nil || got != "done" {
 		t.Fatalf("FetchWithContext within its deadline = %q, %v", got, err)
+	}
+}
+
+func TestRequestConversionFailureIsTheTypedNativeError(t *testing.T) {
+	engine := &Engine{ptr: 1}
+	_, err := engine.Submit(SubmitRequest{Kind: "bogus"})
+	if err == nil {
+		t.Fatal("expected the conversion failure to be returned")
+	}
+	var native *Error
+	if !errors.As(err, &native) {
+		t.Fatalf("expected a *Error reachable through errors.As, got %T: %v", err, err)
+	}
+	if native.Code != "2" {
+		t.Fatalf("the native error code must be preserved, got %q", native.Code)
+	}
+	if !strings.Contains(err.Error(), "failed to create submit_request") ||
+		!strings.Contains(err.Error(), "unknown variant `bogus`") {
+		t.Fatalf("the message must name the step and keep the native detail, got %q", err.Error())
+	}
+
+	got, err := engine.Submit(SubmitRequest{Kind: "fast"})
+	if err != nil || got != "submitted" {
+		t.Fatalf("a valid request must still convert and call through, got %q, %v", got, err)
 	}
 }
 
@@ -338,7 +382,19 @@ fn api() -> ApiSurface {
                         }],
                         return_type: TypeRef::String,
                         is_async: true,
-                        error_type: Some("TestError".to_string()),
+                        error_type: Some("CtxtestError".to_string()),
+                        receiver: Some(ReceiverKind::Ref),
+                        ..MethodDef::default()
+                    },
+                    MethodDef {
+                        name: "submit".to_string(),
+                        params: vec![ParamDef {
+                            name: "request".to_string(),
+                            ty: TypeRef::Named("SubmitRequest".to_string()),
+                            ..ParamDef::default()
+                        }],
+                        return_type: TypeRef::String,
+                        error_type: Some("CtxtestError".to_string()),
                         receiver: Some(ReceiverKind::Ref),
                         ..MethodDef::default()
                     },
@@ -350,6 +406,17 @@ fn api() -> ApiSurface {
                         ..MethodDef::default()
                     },
                 ],
+                ..TypeDef::default()
+            },
+            TypeDef {
+                name: "SubmitRequest".to_string(),
+                rust_path: "test_lib::SubmitRequest".to_string(),
+                has_serde: true,
+                fields: vec![FieldDef {
+                    name: "kind".to_string(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                }],
                 ..TypeDef::default()
             },
             TypeDef {
@@ -369,6 +436,20 @@ fn api() -> ApiSurface {
             rust_path: "test_lib::token_stats".to_string(),
             return_type: TypeRef::String,
             ..FunctionDef::default()
+        }],
+        errors: vec![ErrorDef {
+            name: "CtxtestError".to_string(),
+            rust_path: "test_lib::CtxtestError".to_string(),
+            variants: vec![ErrorVariant {
+                name: "Rejected".to_string(),
+                ..ErrorVariant::default()
+            }],
+            original_rust_path: String::new(),
+            doc: String::new(),
+            methods: Vec::new(),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     }
@@ -432,6 +513,7 @@ fn context_cancellation_aborts_blocked_native_calls_and_streams() {
         "TestCancelFromAnotherGoroutineReportsContextCanceled",
         "TestAlreadyDoneContextNeverStartsTheNativeCall",
         "TestPlainMethodKeepsItsSignatureAndStillWorks",
+        "TestRequestConversionFailureIsTheTypedNativeError",
         "TestStreamCancelAbortsTheBlockedNativeRead",
     ] {
         assert!(

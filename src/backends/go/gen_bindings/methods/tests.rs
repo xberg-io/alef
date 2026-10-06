@@ -737,3 +737,55 @@ fn streaming_method_preserves_parameters_in_both_compatibility_surfaces() {
     assert_eq!(out.matches("func (h *Engine) BatchCrawlStreamWithContext(").count(), 1);
     assert_go_syntax_is_valid(&out);
 }
+
+#[test]
+fn a_request_that_fails_to_convert_returns_the_typed_native_error() {
+    let typ = opaque_type("Client");
+    let mut method = simple_method("submit", TypeRef::String, false);
+    method.receiver = Some(ReceiverKind::Ref);
+    method.error_type = Some("ClientError".to_string());
+    method.params = vec![simple_param("request", TypeRef::Named("SubmitRequest".to_string()))];
+
+    let generated = gen_method_wrapper(
+        &typ,
+        &method,
+        "sample",
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+
+    assert!(
+        generated.contains("return \"\", wrapLastError(\"failed to create submit_request\")"),
+        "the conversion failure must go through the typed last-error helper:\n{generated}"
+    );
+    assert!(
+        !generated.contains("last_error_context"),
+        "flattening the native message into fmt.Errorf drops the typed error:\n{generated}"
+    );
+}
+
+#[test]
+fn a_value_receiver_that_fails_to_convert_returns_the_typed_native_error() {
+    let mut typ = opaque_type("Example");
+    typ.is_opaque = false;
+    let mut method = simple_method("describe", TypeRef::String, false);
+    method.receiver = Some(ReceiverKind::Ref);
+
+    let generated = gen_method_wrapper(
+        &typ,
+        &method,
+        "sample",
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
+    );
+
+    assert!(
+        generated.contains("wrapLastError(\"failed to create receiver\")"),
+        "{generated}"
+    );
+    assert!(!generated.contains("last_error_context"), "{generated}");
+}

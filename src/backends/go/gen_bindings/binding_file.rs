@@ -4,9 +4,9 @@ use super::functions::{
 };
 use super::methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use super::types::{
-    gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper, gen_opaque_type,
-    gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper, go_struct_field_names,
-    primary_go_error,
+    gen_config_options, gen_duration_millis_helper, gen_enum_type, gen_last_error_helper, gen_last_error_wrap_helper,
+    gen_opaque_type, gen_opaque_type_free_only, gen_ptr_helper, gen_struct_type, gen_unmarshal_bytes_helper,
+    go_struct_field_names, primary_go_error,
 };
 use crate::codegen::naming::{field_uses_duration_map_wire, go_type_name, to_go_name};
 use crate::core::config::{AdapterPattern, ResolvedCrateConfig, TraitBridgeConfig};
@@ -543,6 +543,10 @@ pub(super) fn gen_go_file(
             context_helper_at,
             &format!("{}\n\n", super::cancellation::gen_last_error_context_helper(ffi_prefix)),
         );
+    }
+
+    if body.contains("wrapLastError(") {
+        body.insert_str(context_helper_at, &format!("{}\n\n", gen_last_error_wrap_helper()));
     }
 
     let has_opaque_types = !emission.opaque.is_empty();

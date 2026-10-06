@@ -837,7 +837,7 @@ fn test_gen_function_wrapper_owned_dto_param_is_unchanged() {
             "\tcRecord := C.krz_record_from_json(tmpStrcRecord)\n",
             "\tC.free(unsafe.Pointer(tmpStrcRecord))\n",
             "\tif cRecord == 0 {\n",
-            "\t\treturn fmt.Errorf(\"failed to create record: %s\", C.GoString(C.krz_last_error_context()))\n",
+            "\t\treturn wrapLastError(\"failed to create record\")\n",
             "\t}\n",
             "\tdefer C.krz_record_free(cRecord)\n",
             "\n",

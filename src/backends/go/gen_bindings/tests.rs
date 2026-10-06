@@ -416,7 +416,10 @@ fn test_gen_go_opaque_constructor_emits_new_function() {
         output.contains("C.test_test_client_new("),
         "should call FFI constructor"
     );
-    assert!(output.contains("return nil, fmt.Errorf"), "should return error on nil");
+    assert!(
+        output.contains("return nil, wrapLastError(\"newTestClient\")"),
+        "should return the typed native error on nil"
+    );
     assert!(
         output.contains("return &TestClient{ptr:"),
         "should return handle on success"
@@ -854,3 +857,71 @@ fn generate_bindings_omits_duration_millis_helper_without_a_duration_field() {
 
 #[cfg(test)]
 mod pipeline_checks;
+
+fn binding_for(functions: Vec<crate::core::ir::FunctionDef>) -> String {
+    use crate::core::ir::{ApiSurface, TypeDef};
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Request".to_string(),
+            rust_path: "test_lib::Request".to_string(),
+            has_serde: true,
+            ..TypeDef::default()
+        }],
+        functions,
+        ..ApiSurface::default()
+    };
+    GoBackend
+        .generate_bindings(&api, &make_config())
+        .unwrap()
+        .into_iter()
+        .find(|file| file.path.to_string_lossy().ends_with("binding.go"))
+        .expect("binding.go present")
+        .content
+}
+
+#[test]
+fn the_last_error_wrapper_is_emitted_once_and_only_where_a_conversion_uses_it() {
+    use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
+    let submit = FunctionDef {
+        name: "submit".to_string(),
+        rust_path: "test_lib::submit".to_string(),
+        params: vec![ParamDef {
+            name: "request".to_string(),
+            ty: TypeRef::Named("Request".to_string()),
+            ..ParamDef::default()
+        }],
+        return_type: TypeRef::String,
+        error_type: Some("TestError".to_string()),
+        ..FunctionDef::default()
+    };
+    let with_conversion = binding_for(vec![submit]);
+    assert_eq!(
+        with_conversion
+            .matches("func wrapLastError(what string) error {")
+            .count(),
+        1,
+        "{with_conversion}"
+    );
+    assert!(
+        with_conversion.contains("wrapLastError(\"failed to create request\")"),
+        "{with_conversion}"
+    );
+    assert!(
+        with_conversion.contains("return fmt.Errorf(\"%s: %w\", what, err)"),
+        "the native error must be wrapped with %w so errors.As keeps working:\n{with_conversion}"
+    );
+
+    let count = FunctionDef {
+        name: "count".to_string(),
+        rust_path: "test_lib::count".to_string(),
+        return_type: TypeRef::Primitive(PrimitiveType::U32),
+        ..FunctionDef::default()
+    };
+    let without_conversion = binding_for(vec![count]);
+    assert!(
+        !without_conversion.contains("wrapLastError"),
+        "a package with no request conversion must not gain an unused helper:\n{without_conversion}"
+    );
+}

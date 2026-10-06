@@ -105,6 +105,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/last_error_context_helper.jinja"),
     ),
     (
+        "last_error_wrap_helper.jinja",
+        include_str!("templates/last_error_wrap_helper.jinja"),
+    ),
+    (
         "c_string_arg_setup.jinja",
         include_str!("templates/c_string_arg_setup.jinja"),
     ),
