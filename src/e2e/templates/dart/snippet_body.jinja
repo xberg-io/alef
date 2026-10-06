@@ -33,7 +33,7 @@ Future<void> main() async {
       stdout.writeln({{ result_var }});
 {% endif %}
 {% endif %}
-    } on {{ error_type }} catch (error) {
+    } catch (error) {
       stderr.writeln('${error.runtimeType}: $error');
     }
 {% else %}

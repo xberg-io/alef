@@ -62,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Ruby RBS stubs declare an async instance method under the name the extension registers
   (`chat_async`, not `chat`), so the signatures match what Ruby code can call. Streaming methods
   keep their own name.
+- Dart snippets for an expected error catch with an untyped `catch (error)` instead of
+  `on Error catch`. The bridge decodes a Rust error as a plain `String`, which is not a Dart
+  `Error`, so the typed handler never caught it.
 
 
 ## [0.104.4] - 2026-10-06

@@ -133,7 +133,6 @@ pub(super) fn render_snippet_body_with_ir(
             needs_io => needs_io,
             needs_typed_data => needs_typed_data,
             expects_error => expects_error,
-            error_type => config.error_type_name(),
             result_var => call.effective_result_var(),
             returns_void => call.returns_void,
             stub_classes => stub_classes,
@@ -428,7 +427,11 @@ mod tests {
         )
         .expect("snippet");
 
-        assert!(body.contains("on Error catch (error)"), "{body}");
+        assert!(
+            body.contains("} catch (error) {"),
+            "the bridge throws the Rust error decoded as a plain String, which only an untyped catch sees: {body}"
+        );
+        assert!(!body.contains(" on "), "no typed handler: {body}");
         assert!(!body.contains("expected call to fail"), "{body}");
     }
 
