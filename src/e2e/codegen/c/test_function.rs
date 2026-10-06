@@ -178,6 +178,55 @@ fn assemble_snippet_body(
     Ok(lines.join("\n"))
 }
 
+/// Rewrites a rendered client-factory snippet so the client comes from the fixture's
+/// `docs.client.config` through the JSON factory.
+///
+/// The three client-owning shapes (plain, byte-buffer, streaming) each spell the same
+/// `AlefHandle client = <prefix>_<factory>(api_key, NULL, ...)` line and the same credential read
+/// before it. Rewriting that one line, instead of threading the configuration through each shape,
+/// keeps the executable-suite emitters untouched; failing when the line is absent is what keeps a
+/// shape that builds its client differently from publishing a plain client under a configured
+/// fixture. ~keep
+fn build_client_from_config(
+    function: &str,
+    fixture: &Fixture,
+    prefix: &str,
+    from_json_factory: &str,
+    json: &str,
+) -> anyhow::Result<String> {
+    let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
+    let prefix_upper = crate::codegen::c_consumer::export_type_prefix(prefix);
+    let creation = format!("    {prefix_upper}AlefHandle client = {prefix}_");
+    let credential_lines = [
+        format!("    const char* api_key = getenv(\"{api_key_var}\");"),
+        format!("    assert(api_key != NULL && \"{api_key_var} must be set\");"),
+    ];
+    let mut rewritten = 0;
+    let lines: Vec<String> = function
+        .lines()
+        .filter(|line| !credential_lines.iter().any(|credential| credential == line))
+        .map(|line| {
+            if line.starts_with(&creation) && line.contains("(api_key,") {
+                rewritten += 1;
+                format!(
+                    "{creation}{from_json_factory}(\"{}\");",
+                    crate::e2e::escape::escape_c(json)
+                )
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if rewritten != 1 {
+        anyhow::bail!(
+            "C snippet `{}` declares `docs.client.config` but its rendered client construction was not \
+             found exactly once ({rewritten} matches), so it cannot be built from the configuration",
+            fixture.id
+        );
+    }
+    Ok(lines.join("\n") + "\n")
+}
+
 pub(super) struct SnippetContext<'a> {
     pub fixture: &'a Fixture,
     pub e2e_config: &'a crate::e2e::config::E2eConfig,
@@ -384,6 +433,12 @@ pub(super) fn render_snippet_body(context: SnippetContext<'_>) -> anyhow::Result
         &config_sources,
         target_params,
     )?;
+    if info.client_factory.is_some()
+        && let Some((from_json_factory, json)) =
+            crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "c")
+    {
+        function = build_client_from_config(&function, fixture, prefix, from_json_factory, &json)?;
+    }
     // A status-code export reports failure as a NON-zero return, so the outcome that
     // contradicts an `expects_error` fixture is `== 0`; every handle/pointer shape reports
     // failure as null, so theirs is `!= 0`. ~keep
@@ -1776,7 +1831,10 @@ mod declared_error_variant_tests {
 
 #[cfg(test)]
 mod snippet_tests {
-    use super::{assemble_snippet_body, declared_variable, is_expected_result_assertion, snippet_declarations};
+    use super::{
+        assemble_snippet_body, build_client_from_config, declared_variable, is_expected_result_assertion,
+        snippet_declarations,
+    };
 
     /// Wrap body lines the way `render_test_function` does, so `assemble_snippet_body`'s
     /// two-line header / one-line footer trim lands on the same rows it does in production. ~keep
@@ -1901,6 +1959,60 @@ mod snippet_tests {
             "{body}"
         );
         assert!(body.contains("sample_chat_response_free(result);"), "{body}");
+    }
+
+    fn client_function(creation: &str) -> String {
+        [
+            "void test_chat(void) {",
+            "    /* chat */",
+            "    const char* api_key = getenv(\"API_KEY\");",
+            "    assert(api_key != NULL && \"API_KEY must be set\");",
+            creation,
+            "    assert(client != 0 && \"failed to create client\");",
+            "}",
+            "",
+        ]
+        .join("\n")
+    }
+
+    #[test]
+    fn a_configured_client_replaces_the_credential_read_and_the_plain_factory_call() {
+        let function = client_function(
+            "    SAMPLEAlefHandle client = sample_create_client(api_key, NULL, (uint64_t)-1, (uint32_t)-1, NULL);",
+        );
+        let rewritten = build_client_from_config(
+            &function,
+            &crate::e2e::fixture::Fixture::default(),
+            "sample",
+            "create_client_from_json",
+            "{\"a\":1}",
+        )
+        .expect("rewrites");
+
+        assert!(
+            rewritten.contains("SAMPLEAlefHandle client = sample_create_client_from_json(\"{\\\"a\\\":1}\");"),
+            "{rewritten}"
+        );
+        assert!(!rewritten.contains("api_key"), "{rewritten}");
+        assert!(
+            rewritten.ends_with("}\n"),
+            "the trailing newline assemble_snippet_body counts on: {rewritten:?}"
+        );
+    }
+
+    #[test]
+    fn a_client_built_some_other_way_is_refused_instead_of_published_unconfigured() {
+        let function = client_function("    SAMPLEAlefHandle client = sample_open(\"test-key\");");
+        let error = build_client_from_config(
+            &function,
+            &crate::e2e::fixture::Fixture::default(),
+            "sample",
+            "create_client_from_json",
+            "{}",
+        )
+        .expect_err("no client construction line to rewrite");
+
+        assert!(error.to_string().contains("0 matches"), "{error}");
     }
 }
 

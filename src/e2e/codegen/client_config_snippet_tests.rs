@@ -11,7 +11,7 @@ use crate::e2e::codegen::all_generators;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::Fixture;
 
-const LANGUAGES: [(&str, &str, &str); 10] = [
+const LANGUAGES: [(&str, &str, &str); 16] = [
     ("python", "create_client", "create_client_from_json"),
     ("go", "CreateClient", "CreateClientFromJSON"),
     ("node", "createClient", "createClientFromJson"),
@@ -22,6 +22,12 @@ const LANGUAGES: [(&str, &str, &str); 10] = [
     ("php", "createClient", "createClientFromJson"),
     ("elixir", "create_client", "create_client_from_json"),
     ("rust", "create_client", "create_client_from_json"),
+    ("c", "create_client", "create_client_from_json"),
+    ("dart", "createClient", "createClientFromJson"),
+    ("swift", "createClient", "createClientFromJson"),
+    ("zig", "create_client", "create_client_from_json"),
+    ("kotlin", "createClient", "createClientFromJson"),
+    ("kotlin_android", "createClient", "createClientFromJson"),
 ];
 
 /// The override key a language's project names its plain client factory under. PHP's e2e suite
@@ -55,6 +61,9 @@ args = [{ name = "prompt", field = "prompt", type = "string" }]
             "[crates.e2e.call.overrides.{language}]\n{} = \"{plain}\"\n",
             plain_factory_key(language)
         ));
+        if language == "c" {
+            toml.push_str("result_type = \"ChatResponse\"\n");
+        }
         if from_json {
             toml.push_str(&format!("client_factory_from_json = \"{from_json_factory}\"\n"));
         }
@@ -84,13 +93,26 @@ fn fixture(client_config: bool) -> Fixture {
     serde_json::from_value(value).expect("fixture parses")
 }
 
+/// C names the client's owner type from the IR; its one opaque type stands in for the client.
+fn type_defs_for(language: &str) -> Vec<crate::core::ir::TypeDef> {
+    if language == "c" {
+        vec![crate::core::ir::TypeDef {
+            name: "DefaultClient".into(),
+            is_opaque: true,
+            ..Default::default()
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
 fn render(language: &str, fixture: &Fixture, e2e: &E2eConfig, resolved: &ResolvedCrateConfig) -> String {
     let generator = all_generators()
         .into_iter()
         .find(|generator| generator.language_name() == language)
         .unwrap_or_else(|| panic!("no generator for {language}"));
     generator
-        .render_snippet_body_with_functions(fixture, e2e, resolved, &[], &[], &[], &[])
+        .render_snippet_body_with_functions(fixture, e2e, resolved, &type_defs_for(language), &[], &[], &[])
         .unwrap_or_else(|error| panic!("{language} snippet failed to render: {error:#}"))
 }
 
@@ -125,6 +147,21 @@ fn expected_call(language: &str) -> &'static str {
         "rust" => {
             r##"create_client_from_json(r#"{"api_key":"your-api-key","budget":{"enforcement":"hard","global_limit":0.0}}"#)"##
         }
+        "c" => {
+            r#"create_client_from_json("{\"api_key\":\"your-api-key\",\"budget\":{\"enforcement\":\"hard\",\"global_limit\":0.0}}")"#
+        }
+        "dart" => {
+            r#"createClientFromJson('{"api_key":"your-api-key","budget":{"enforcement":"hard","global_limit":0.0}}')"#
+        }
+        "swift" => {
+            r#"createClientFromJson(json: "{\"api_key\":\"your-api-key\",\"budget\":{\"enforcement\":\"hard\",\"global_limit\":0.0}}")"#
+        }
+        "zig" => {
+            r#"create_client_from_json("{\"api_key\":\"your-api-key\",\"budget\":{\"enforcement\":\"hard\",\"global_limit\":0.0}}")"#
+        }
+        "kotlin" | "kotlin_android" => {
+            r#"createClientFromJson("{\"api_key\":\"your-api-key\",\"budget\":{\"enforcement\":\"hard\",\"global_limit\":0.0}}")"#
+        }
         other => panic!("no expectation for {other}"),
     }
 }
@@ -140,6 +177,10 @@ fn credential_read(language: &str) -> Option<&'static str> {
         "ruby" => Some("ENV.fetch"),
         "php" => Some("getenv("),
         "elixir" => Some("System.fetch_env!"),
+        "c" | "zig" => Some("getenv"),
+        "dart" => Some("Platform.environment"),
+        "swift" => Some("ProcessInfo"),
+        "kotlin" | "kotlin_android" => Some("System.getenv"),
         _ => None,
     }
 }

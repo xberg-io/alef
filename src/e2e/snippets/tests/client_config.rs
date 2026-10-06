@@ -112,12 +112,12 @@ fn a_language_without_a_json_factory_is_a_recorded_gap_not_a_plain_client_snippe
 fn a_language_whose_generator_cannot_render_client_config_is_a_recorded_gap() {
     let report = report(
         PYTHON_WITH_JSON_FACTORY,
-        &["python", "zig"],
+        &["python", "r"],
         fixture(serde_json::json!({})),
     );
 
     assert_eq!(report.snippets.len(), 1);
-    let reason = missing_reason(&report, "zig");
+    let reason = missing_reason(&report, "r");
     assert!(reason.contains("cannot render"), "{reason}");
 }
 

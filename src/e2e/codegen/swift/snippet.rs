@@ -3,7 +3,7 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::fixture::Fixture;
 use anyhow::{Result, bail};
-use heck::ToUpperCamelCase;
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 
 /// Render a Swift documentation snippet without any core IR to consult.
 ///
@@ -132,6 +132,13 @@ pub(super) fn render_with_ir(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    if let Some(factory) = crate::e2e::codegen::client_factory::plain_factory(e2e_config, call, "swift")
+        && let Some((from_json_factory, json)) =
+            crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, "swift")
+    {
+        let label = from_json_label(from_json_factory, functions);
+        body = build_client_from_config(&body, &fixture.id, factory, from_json_factory, &label, &json)?;
+    }
     if expects_error {
         let indented = body
             .lines()
@@ -185,6 +192,59 @@ pub(super) fn render_with_ir(
     ))
 }
 
+/// The argument label Swift gives the JSON factory's single parameter: the Rust parameter's own
+/// name when the IR carries the function, otherwise `json`.
+fn from_json_label(from_json_factory: &str, functions: &[crate::core::ir::FunctionDef]) -> String {
+    let snake = from_json_factory.to_snake_case();
+    functions
+        .iter()
+        .find(|function| function.name == snake)
+        .and_then(|function| function.params.first())
+        .map_or_else(|| "json".to_string(), |param| param.name.to_lower_camel_case())
+}
+
+/// Rewrites a rendered client-factory snippet so the client comes from the fixture's
+/// `docs.client.config` through the JSON factory.
+///
+/// The renderer is shared with the executable suite, which always builds the client from a
+/// credential and base URL. Replacing that one `let _client = try <factory>(...)` line and
+/// dropping the credential read in front of it keeps the suite untouched; failing when the line
+/// is absent keeps a call that builds its client differently from publishing a plain one. ~keep
+fn build_client_from_config(
+    body: &str,
+    fixture_id: &str,
+    factory: &str,
+    from_json_factory: &str,
+    label: &str,
+    json: &str,
+) -> Result<String> {
+    let creation = format!("let _client = try {factory}(");
+    let mut rewritten = 0;
+    let lines: Vec<String> = body
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("guard let _apiKey ="))
+        .map(|line| {
+            if line.trim_start().starts_with(&creation) {
+                rewritten += 1;
+                let indent = &line[..line.len() - line.trim_start().len()];
+                format!(
+                    "{indent}let _client = try {from_json_factory}({label}: \"{}\")",
+                    values::escape_swift(json)
+                )
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    if rewritten != 1 {
+        bail!(
+            "swift snippet `{fixture_id}` declares `docs.client.config` but its rendered client construction \
+             was not found exactly once ({rewritten} matches), so it cannot be built from the configuration"
+        );
+    }
+    Ok(lines.join("\n"))
+}
+
 /// Whether `body` references `type_name` as a standalone Swift identifier -- a type
 /// annotation (`: Data`), a bare return type (`-> Data`), or a constructor call
 /// (`Data(...)`) -- rather than merely as a substring of some other identifier
@@ -208,6 +268,44 @@ fn swift_body_references_type(body: &str, type_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_configured_client_replaces_the_credential_read_and_the_plain_factory_call() {
+        let body = "guard let _apiKey = ProcessInfo.processInfo.environment[\"API_KEY\"] else { fatalError(\"x\") }\n\
+                    let _client = try createClient(apiKey: _apiKey, baseUrl: nil)\n\
+                    let result = try await _client.chat(_req)";
+        let rewritten =
+            build_client_from_config(body, "f", "createClient", "createClientFromJson", "json", "{\"a\":1}")
+                .expect("rewrites");
+
+        assert_eq!(
+            rewritten,
+            "let _client = try createClientFromJson(json: \"{\\\"a\\\":1}\")\n\
+             let result = try await _client.chat(_req)"
+        );
+    }
+
+    #[test]
+    fn a_client_built_some_other_way_is_refused_instead_of_published_unconfigured() {
+        let error = build_client_from_config("let _client = try open()", "f", "createClient", "x", "json", "{}")
+            .expect_err("no plain factory call to rewrite");
+
+        assert!(error.to_string().contains("0 matches"), "{error}");
+    }
+
+    #[test]
+    fn the_json_label_is_the_ir_parameter_name_when_the_function_is_known() {
+        let function = crate::core::ir::FunctionDef {
+            name: "create_client_from_json".into(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "config_json".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(from_json_label("createClientFromJson", &[function]), "configJson");
+        assert_eq!(from_json_label("createClientFromJson", &[]), "json");
+    }
 
     /// Unit coverage for the word-boundary helper itself: a bare type annotation and a
     /// return-type arrow must count as a reference, but the substring appearing inside a

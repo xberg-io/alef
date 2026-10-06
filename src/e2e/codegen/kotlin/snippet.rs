@@ -213,6 +213,24 @@ pub(crate) fn render_snippet_body_with_ir(
                 .and_then(|value| value.client_factory.as_deref())
                 .or_else(|| e2e_config.call.overrides.get("java")?.client_factory.as_deref())
         });
+    // ~keep Android reads the JSON factory under its own language key, like the plain one, because
+    // `client_config_exclusion` and `ensure_client_config_applied` resolve it by language name.
+    let config_call = client_factory
+        .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
+    let client_args = match &config_call {
+        Some((_, json)) => super::values::kotlin_string_literal(json),
+        None => match crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client()) {
+            Some(base_url) => format!(
+                "apiKey = apiKey, baseUrl = \"{}\"",
+                crate::e2e::escape::escape_kotlin(base_url)
+            ),
+            None => "apiKey = apiKey".to_string(),
+        },
+    };
+    let client_factory = config_call
+        .as_ref()
+        .map(|(from_json_factory, _)| *from_json_factory)
+        .or(client_factory);
     let needs_mapper = args.contains(SNIPPET_MAPPER_REFERENCE)
         || setup_lines.iter().any(|line| line.contains(SNIPPET_MAPPER_REFERENCE));
     let is_streaming = !call.returns_void
@@ -232,8 +250,6 @@ pub(crate) fn render_snippet_body_with_ir(
         .iter()
         .any(|assertion| assertion.assertion_type == "error");
     let api_key_var = FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
-    let base_url = crate::e2e::codegen::client_factory::docs_base_url(fixture.docs_client())
-        .map(crate::e2e::escape::escape_kotlin);
 
     // The template renders the call as `{{ class_name }}.{{ function_name }}(...)`
     // (or, with `client_factory`, constructs a client via
@@ -272,7 +288,8 @@ pub(crate) fn render_snippet_body_with_ir(
             expects_error => expects_error,
             api_key_var => api_key_var,
             presentation => presentation,
-            base_url => base_url,
+            client_args => client_args,
+            reads_api_key => config_call.is_none(),
         },
     ))
 }

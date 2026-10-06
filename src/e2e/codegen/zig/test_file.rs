@@ -528,7 +528,16 @@ fn render_test_fn(
     // matching what `java/snippet_body.jinja` and `csharp/snippet_body.jinja` emit. ~keep
     // When not configured, fall back to calling the top-level package function directly.
     let call_prefix = if let Some(factory) = client_factory {
-        if for_docs {
+        if let Some((from_json_factory, json)) = for_docs
+            .then(|| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, lang))
+            .flatten()
+        {
+            let _ = writeln!(
+                out,
+                "    var _client = try {module_name}.{from_json_factory}(\"{}\");",
+                escape_zig(&json)
+            );
+        } else if for_docs {
             let api_key_var = crate::e2e::fixture::FixtureEnv::api_key_var_or_default(fixture.env.as_ref());
             let _ = writeln!(
                 out,

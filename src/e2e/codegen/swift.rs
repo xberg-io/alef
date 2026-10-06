@@ -253,6 +253,10 @@ impl E2eCodegen for SwiftE2eCodegen {
         snippet::render_with_ir(fixture, e2e_config, config, type_defs, enums, functions)
     }
 
+    fn renders_client_config(&self) -> bool {
+        true
+    }
+
     fn language_name(&self) -> &'static str {
         "swift"
     }

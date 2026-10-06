@@ -176,6 +176,10 @@ impl E2eCodegen for DartE2eCodegen {
         Ok(files)
     }
 
+    fn renders_client_config(&self) -> bool {
+        true
+    }
+
     fn language_name(&self) -> &'static str {
         "dart"
     }

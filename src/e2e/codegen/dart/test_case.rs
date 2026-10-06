@@ -164,6 +164,7 @@ fn apply_fixture_visitor(
 /// `render_test_case`; no emitted string, whitespace, or branch condition changed. ~keep
 fn resolve_dart_receiver(
     client_factory_camel: Option<&str>,
+    config_call: Option<(&str, &str)>,
     is_snippet: bool,
     fixture: &Fixture,
     receiver_class: &str,
@@ -171,6 +172,13 @@ fn resolve_dart_receiver(
     fixture_id: &str,
 ) -> (String, Option<String>) {
     if let Some(factory) = client_factory_camel {
+        if let Some((from_json_factory, json)) = config_call {
+            let create_line = format!(
+                "final client = await {receiver_class}.{from_json_factory}('{}');",
+                escape_dart(json)
+            );
+            return ("client".to_string(), Some(create_line));
+        }
         if is_snippet {
             // Doc snippets are standalone: there is no mock server and no `_fixtureUrl`
             // helper (only the full e2e test-file emitter defines one), so the harness
@@ -465,8 +473,14 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     // When client_factory is set, determine the mock URL and emit client instantiation.
     // Extracted to `resolve_dart_receiver` below; no emitted string, whitespace, or branch
     // condition changed by the move.
+    // ~keep Only a documentation snippet shows the fixture's `docs.client.config`; the executable
+    // suite keeps pointing its client at the mock server (and skips such fixtures upstream).
+    let config_call = is_snippet
+        .then(|| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call_config, lang))
+        .flatten();
     let (receiver, extra_setup): (String, Option<String>) = resolve_dart_receiver(
         client_factory_camel.as_deref(),
+        config_call.as_ref().map(|(factory, json)| (*factory, json.as_str())),
         is_snippet,
         fixture,
         &receiver_class,

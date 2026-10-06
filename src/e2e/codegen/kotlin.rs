@@ -262,6 +262,10 @@ impl E2eCodegen for KotlinE2eCodegen {
         snippet::render_snippet_body_with_ir(fixture, e2e_config, config, type_defs, enums, false, functions)
     }
 
+    fn renders_client_config(&self) -> bool {
+        true
+    }
+
     fn language_name(&self) -> &'static str {
         "kotlin"
     }

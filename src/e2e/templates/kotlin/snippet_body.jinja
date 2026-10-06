@@ -10,11 +10,11 @@ fun main() {% if is_async %}= kotlinx.coroutines.runBlocking {% endif %}{
 {% endif %}
 {% for line in setup_lines %}    {{ line }}
 {% endfor %}
-{% if client_factory %}    val apiKey = requireNotNull(System.getenv("{{ api_key_var }}")) { "{{ api_key_var }} must be set" }
-{% if is_streaming %}    {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client ->
+{% if client_factory %}{% if reads_api_key %}    val apiKey = requireNotNull(System.getenv("{{ api_key_var }}")) { "{{ api_key_var }} must be set" }
+{% endif %}{% if is_streaming %}    {{ class_name }}.{{ client_factory }}({{ client_args }}).use { client ->
         client.{{ function_name }}({{ args }}).collect { {{ stream_item }} ->
-{% elif returns_void %}    {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client -> client.{{ function_name }}({{ args }}) }
-{% else %}    val {{ result_var }} = {{ class_name }}.{{ client_factory }}(apiKey = apiKey{% if base_url %}, baseUrl = "{{ base_url }}"{% endif %}).use { client -> client.{{ function_name }}({{ args }}) }
+{% elif returns_void %}    {{ class_name }}.{{ client_factory }}({{ client_args }}).use { client -> client.{{ function_name }}({{ args }}) }
+{% else %}    val {{ result_var }} = {{ class_name }}.{{ client_factory }}({{ client_args }}).use { client -> client.{{ function_name }}({{ args }}) }
 {% endif %}
 {% elif is_streaming %}    {{ class_name }}.{{ function_name }}({{ args }}).collect { {{ stream_item }} ->
 {% elif returns_void %}    {{ class_name }}.{{ function_name }}({{ args }})
