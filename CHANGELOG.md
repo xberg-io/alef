@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The GNU Make security control probe quotes a normalized marker path and invokes its intended
+  target, avoiding Windows path parsing false failures before the security assertion runs.
+
 ## [0.105.0] - 2026-10-06
 
 ### Added
