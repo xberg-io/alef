@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before spawning the work on the shared runtime.
 - The swift-bridge `extern "Rust"` block keeps its declarations indented: `async` support had
   stripped the leading whitespace from every free-function and method declaration.
+- The generated Swift crate enables swift-bridge's `async` feature for a streaming adapter, whose
+  start and `next` bridge functions are `async fn`, and no longer enables it for a trait bridge's
+  async methods, which are not declared `async fn`.
 - FFI error code 5 (`Cancelled`) is no longer reported as an unknown error by Java, C#, Zig or
   Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
   `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error

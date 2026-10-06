@@ -30,13 +30,16 @@ fn format_features_array(features: &[String]) -> String {
 }
 
 /// Whether any bridged function or method is async, so the crate needs swift-bridge's `async`
-/// feature (the runtime behind `async fn` in `extern "Rust"` blocks).
+/// feature (the runtime behind `async fn` in `extern "Rust"` blocks). A streaming adapter's start
+/// and `next` bridge functions are `async fn` too, but its owner method is not necessarily async
+/// in the IR, so the caller adds adapters separately. Only opaque, non-trait types get bridged
+/// method declarations; a trait bridge's async methods go through a blocking shim. ~keep
 fn api_has_async(api: &ApiSurface) -> bool {
     api.functions.iter().any(|f| f.is_async)
         || api
             .types
             .iter()
-            .any(|t| t.methods.iter().any(|m| m.is_async && !m.sanitized && !m.is_static))
+            .any(|t| t.is_opaque && !t.is_trait && t.methods.iter().any(|m| m.is_async && !m.sanitized && !m.is_static))
 }
 
 fn swift_bridge_dep(version: &str, needs_async: bool) -> String {
@@ -156,7 +159,7 @@ pub(crate) fn emit_cargo_toml(
             tv::cargo::SERDE
         ),
         format!("serde_json = \"{}\"", tv::cargo::SERDE_JSON),
-        swift_bridge_dep(swift_bridge_ver, api_has_async(api)),
+        swift_bridge_dep(swift_bridge_ver, api_has_async(api) || has_streaming_adapters),
         format!(
             "tokio = {{ version = \"{}\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }}",
             tv::cargo::TOKIO
@@ -1023,6 +1026,10 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
     }
 
     fn manifest_for(api: &ApiSurface) -> String {
+        manifest_with_streaming(api, false)
+    }
+
+    fn manifest_with_streaming(api: &ApiSurface, has_streaming_adapters: bool) -> String {
         emit_cargo_toml(
             "sample-lib",
             "sample_lib",
@@ -1034,7 +1041,7 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
             &[],
             "",
             "MIT",
-            false,
+            has_streaming_adapters,
             &[],
             api,
             &[],
@@ -1070,6 +1077,7 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
         let async_method = ApiSurface {
             types: vec![TypeDef {
                 name: "Client".to_string(),
+                is_opaque: true,
                 methods: vec![MethodDef {
                     name: "fetch".to_string(),
                     is_async: true,
@@ -1079,6 +1087,24 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
             }],
             ..Default::default()
         };
+        let async_trait_method = ApiSurface {
+            types: vec![TypeDef {
+                name: "Plugin".to_string(),
+                is_trait: true,
+                methods: vec![MethodDef {
+                    name: "process".to_string(),
+                    is_async: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let trait_manifest = manifest_for(&async_trait_method);
+        assert!(
+            trait_manifest.contains("swift-bridge = \"0.1.59\"\n"),
+            "an async trait-bridge method is not declared `async fn`, so it needs no feature, got:\n{trait_manifest}"
+        );
         for (label, api) in [("function", async_function), ("method", async_method)] {
             let content = manifest_for(&api);
             assert!(
@@ -1087,5 +1113,17 @@ acme-ffi = { version = \"1.1.0\", path = \"../../../crates/acme-ffi\", default-f
             );
             toml::from_str::<toml::Value>(&content).expect("generated Cargo.toml must be valid TOML");
         }
+    }
+
+    /// The stream-start and `next` bridge functions are `async fn`, so a streaming adapter needs
+    /// the feature even when no IR function or method is itself async. ~keep
+    #[test]
+    fn swift_bridge_async_feature_is_enabled_for_a_streaming_adapter() {
+        let content = manifest_with_streaming(&ApiSurface::default(), true);
+        assert!(
+            content.contains("swift-bridge = { version = \"0.1.59\", features = [\"async\"] }"),
+            "a streaming adapter must enable swift-bridge's `async` feature, got:\n{content}"
+        );
+        toml::from_str::<toml::Value>(&content).expect("generated Cargo.toml must be valid TOML");
     }
 }
