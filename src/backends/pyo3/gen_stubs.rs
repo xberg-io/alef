@@ -13,7 +13,7 @@ type OptionsFieldBridges<'a> = std::collections::HashMap<&'a str, (&'a str, Opti
 
 use classes::{gen_opaque_type_stub, gen_type_stub};
 use enums::gen_enum_stub;
-use functions::gen_function_stub;
+use functions::{FunctionStubEnv, gen_function_stub};
 use protocol::gen_visitor_protocol_stub;
 
 /// indented for inclusion inside a class body. Returns `None` when `doc` is
@@ -418,12 +418,14 @@ pub fn gen_stubs(
     for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         body_lines.push(gen_function_stub(
             func,
-            &bridge_param_names,
-            &capsule_names,
-            &options_field_bridges,
-            &active_bridges,
-            &streaming_return_types,
-            &opaque_types,
+            &FunctionStubEnv {
+                bridge_param_names: &bridge_param_names,
+                capsule_names: &capsule_names,
+                options_field_bridges: &options_field_bridges,
+                trait_bridges: &active_bridges,
+                streaming_return_types: &streaming_return_types,
+                opaque_types: &opaque_types,
+            },
         ));
     }
 

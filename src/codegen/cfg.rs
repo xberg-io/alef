@@ -742,16 +742,11 @@ pub fn merge_missing_cfg_features(
     core_declared_features: &BTreeSet<String>,
     excluded_default_features: &HashSet<&str>,
 ) -> anyhow::Result<Option<String>> {
-    for feature in wrapper_default_features {
-        crate::core::config::validation::validate_wrapper_default_feature_name(feature)
-            .map_err(|error| anyhow::anyhow!("invalid wrapper default feature `{feature}`: {error}"))?;
-        if !core_declared_features.contains(feature) {
-            anyhow::bail!("wrapper default feature `{feature}` is not declared by the core crate");
-        }
-        if excluded_default_features.contains(feature.as_str()) {
-            anyhow::bail!("wrapper default feature `{feature}` cannot also be listed in excluded_default_features");
-        }
-    }
+    validate_wrapper_default_features(
+        wrapper_default_features,
+        core_declared_features,
+        excluded_default_features,
+    )?;
     let mut doc = existing
         .parse::<toml_edit::DocumentMut>()
         .context("existing manifest is not valid TOML")?;
@@ -801,24 +796,50 @@ pub fn merge_missing_cfg_features(
     }
 
     if !needs_default.is_empty() {
-        let default_array = features_table
-            .entry("default")
-            .or_insert_with(|| toml_edit::Item::Value(toml_edit::Value::Array(toml_edit::Array::new())))
-            .as_array_mut()
-            .context("features.default exists but is not an array")?;
-        let already_listed: BTreeSet<String> = default_array
-            .iter()
-            .filter_map(toml_edit::Value::as_str)
-            .map(str::to_owned)
-            .collect();
-        for feature in &needs_default {
-            if !already_listed.contains(feature) {
-                default_array.push(feature.clone());
-            }
-        }
+        append_default_features(features_table, &needs_default)?;
     }
 
     Ok(Some(doc.to_string()))
+}
+
+fn append_default_features(
+    features_table: &mut toml_edit::Table,
+    needs_default: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let default_array = features_table
+        .entry("default")
+        .or_insert_with(|| toml_edit::Item::Value(toml_edit::Value::Array(toml_edit::Array::new())))
+        .as_array_mut()
+        .context("features.default exists but is not an array")?;
+    let already_listed: BTreeSet<String> = default_array
+        .iter()
+        .filter_map(toml_edit::Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    for feature in needs_default {
+        if !already_listed.contains(feature) {
+            default_array.push(feature.clone());
+        }
+    }
+    Ok(())
+}
+
+fn validate_wrapper_default_features(
+    wrapper_default_features: &[String],
+    core_declared_features: &BTreeSet<String>,
+    excluded_default_features: &HashSet<&str>,
+) -> anyhow::Result<()> {
+    for feature in wrapper_default_features {
+        crate::core::config::validation::validate_wrapper_default_feature_name(feature)
+            .map_err(|error| anyhow::anyhow!("invalid wrapper default feature `{feature}`: {error}"))?;
+        if !core_declared_features.contains(feature) {
+            anyhow::bail!("wrapper default feature `{feature}` is not declared by the core crate");
+        }
+        if excluded_default_features.contains(feature.as_str()) {
+            anyhow::bail!("wrapper default feature `{feature}` cannot also be listed in excluded_default_features");
+        }
+    }
+    Ok(())
 }
 
 /// Resolve a `GeneratedFile`-style path (relative to the project root) against

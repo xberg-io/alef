@@ -556,7 +556,17 @@ pub fn gen_call_args_with_let_bindings_mutex(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false, true)
+    gen_call_args_with_let_bindings_mutex_inner(
+        params,
+        opaque_types,
+        mutex_types,
+        &LetBindingCallOpts {
+            json_from_str: false,
+            cast_uints_to_i32: false,
+            cast_large_ints_to_f64: false,
+            promote: true,
+        },
+    )
 }
 
 pub fn gen_call_args_with_let_bindings_mutex_no_promote(
@@ -564,7 +574,17 @@ pub fn gen_call_args_with_let_bindings_mutex_no_promote(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false, false)
+    gen_call_args_with_let_bindings_mutex_inner(
+        params,
+        opaque_types,
+        mutex_types,
+        &LetBindingCallOpts {
+            json_from_str: false,
+            cast_uints_to_i32: false,
+            cast_large_ints_to_f64: false,
+            promote: false,
+        },
+    )
 }
 
 /// Like [`gen_call_args_with_let_bindings_mutex`] but parses `String`-typed Json params into
@@ -582,29 +602,35 @@ pub fn gen_call_args_with_let_bindings_mutex_json_str(
         params,
         opaque_types,
         mutex_types,
-        true,
-        cast_uints_to_i32,
-        cast_large_ints_to_f64,
-        true,
+        &LetBindingCallOpts {
+            json_from_str: true,
+            cast_uints_to_i32,
+            cast_large_ints_to_f64,
+            promote: true,
+        },
     )
+}
+
+struct LetBindingCallOpts {
+    json_from_str: bool,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+    promote: bool,
 }
 
 fn gen_call_args_with_let_bindings_mutex_inner(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
-    json_from_str: bool,
-    cast_uints_to_i32: bool,
-    cast_large_ints_to_f64: bool,
-    promote: bool,
+    opts: &LetBindingCallOpts,
 ) -> String {
     let base = gen_call_args_with_let_bindings_inner(
         params,
         opaque_types,
-        json_from_str,
-        cast_uints_to_i32,
-        cast_large_ints_to_f64,
-        promote,
+        opts.json_from_str,
+        opts.cast_uints_to_i32,
+        opts.cast_large_ints_to_f64,
+        opts.promote,
     )
     .join(", ");
 

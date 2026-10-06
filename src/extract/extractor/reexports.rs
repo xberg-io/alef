@@ -259,6 +259,70 @@ fn resolve_dep_path(deps: &toml::map::Map<String, toml::Value>, dep_name: &str, 
     if lib_rs.exists() { Some(lib_rs) } else { None }
 }
 
+/// Where each item list of the surface stood before a module was walked.
+struct SurfaceMarks {
+    types: usize,
+    enums: usize,
+    errors: usize,
+    functions: usize,
+}
+
+/// Re-path the items a `pub use module::{A, B}` re-export names to the re-exporting module and,
+/// when the module itself is private, drop every other item the walk added.
+fn apply_named_reexports(
+    surface: &mut ApiSurface,
+    names: &std::collections::HashSet<String>,
+    marks: &SurfaceMarks,
+    parent_prefix: &str,
+    module_is_pub: bool,
+) {
+    let SurfaceMarks {
+        types: types_before,
+        enums: enums_before,
+        errors: errors_before,
+        functions: fns_before,
+    } = *marks;
+    for ty in &mut surface.types[types_before..] {
+        if names.contains(&ty.name) {
+            ty.rust_path = format!("{parent_prefix}::{}", ty.name);
+        }
+    }
+    for en in &mut surface.enums[enums_before..] {
+        if names.contains(&en.name) {
+            en.rust_path = format!("{parent_prefix}::{}", en.name);
+        }
+    }
+    for error in &mut surface.errors[errors_before..] {
+        if names.contains(&error.name) {
+            error.rust_path = format!("{parent_prefix}::{}", error.name);
+        }
+    }
+    for func in &mut surface.functions[fns_before..] {
+        if names.contains(&func.name) {
+            func.rust_path = format!("{parent_prefix}::{}", func.name);
+        }
+    }
+
+    if !module_is_pub {
+        let new_types: Vec<_> = surface.types.drain(types_before..).collect();
+        surface
+            .types
+            .extend(new_types.into_iter().filter(|ty| names.contains(&ty.name)));
+        let new_enums: Vec<_> = surface.enums.drain(enums_before..).collect();
+        surface
+            .enums
+            .extend(new_enums.into_iter().filter(|en| names.contains(&en.name)));
+        let new_errors: Vec<_> = surface.errors.drain(errors_before..).collect();
+        surface
+            .errors
+            .extend(new_errors.into_iter().filter(|error| names.contains(&error.name)));
+        let new_fns: Vec<_> = surface.functions.drain(fns_before..).collect();
+        surface
+            .functions
+            .extend(new_fns.into_iter().filter(|f| names.contains(&f.name)));
+    }
+}
+
 /// Extract a `mod` declaration and recursively process its contents.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn extract_module(
@@ -384,46 +448,19 @@ pub(crate) fn extract_module(
         } else {
             format!("{crate_name}::{module_path}")
         };
-
-        for ty in &mut surface.types[types_before..] {
-            if names.contains(&ty.name) {
-                ty.rust_path = format!("{parent_prefix}::{}", ty.name);
-            }
-        }
-        for en in &mut surface.enums[enums_before..] {
-            if names.contains(&en.name) {
-                en.rust_path = format!("{parent_prefix}::{}", en.name);
-            }
-        }
-        for error in &mut surface.errors[errors_before..] {
-            if names.contains(&error.name) {
-                error.rust_path = format!("{parent_prefix}::{}", error.name);
-            }
-        }
-        for func in &mut surface.functions[fns_before..] {
-            if names.contains(&func.name) {
-                func.rust_path = format!("{parent_prefix}::{}", func.name);
-            }
-        }
-
-        if !super::helpers::is_pub(&item_mod.vis) {
-            let new_types: Vec<_> = surface.types.drain(types_before..).collect();
-            surface
-                .types
-                .extend(new_types.into_iter().filter(|ty| names.contains(&ty.name)));
-            let new_enums: Vec<_> = surface.enums.drain(enums_before..).collect();
-            surface
-                .enums
-                .extend(new_enums.into_iter().filter(|en| names.contains(&en.name)));
-            let new_errors: Vec<_> = surface.errors.drain(errors_before..).collect();
-            surface
-                .errors
-                .extend(new_errors.into_iter().filter(|error| names.contains(&error.name)));
-            let new_fns: Vec<_> = surface.functions.drain(fns_before..).collect();
-            surface
-                .functions
-                .extend(new_fns.into_iter().filter(|f| names.contains(&f.name)));
-        }
+        let marks = SurfaceMarks {
+            types: types_before,
+            enums: enums_before,
+            errors: errors_before,
+            functions: fns_before,
+        };
+        apply_named_reexports(
+            surface,
+            names,
+            &marks,
+            &parent_prefix,
+            super::helpers::is_pub(&item_mod.vis),
+        );
     }
 
     Ok(())

@@ -5,16 +5,25 @@ use crate::backends::pyo3::type_map::python_type;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::FunctionDef;
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn gen_function_stub(
-    func: &FunctionDef,
-    bridge_param_names: &std::collections::HashSet<&str>,
-    capsule_names: &std::collections::HashSet<&str>,
-    options_field_bridges: &OptionsFieldBridges<'_>,
-    trait_bridges: &[TraitBridgeConfig],
-    streaming_return_types: &std::collections::HashMap<(Option<String>, String), String>,
-    opaque_types: &ahash::AHashSet<String>,
-) -> String {
+/// The name sets and bridge tables `gen_function_stub` consults besides the function itself.
+pub(super) struct FunctionStubEnv<'a> {
+    pub(super) bridge_param_names: &'a std::collections::HashSet<&'a str>,
+    pub(super) capsule_names: &'a std::collections::HashSet<&'a str>,
+    pub(super) options_field_bridges: &'a OptionsFieldBridges<'a>,
+    pub(super) trait_bridges: &'a [TraitBridgeConfig],
+    pub(super) streaming_return_types: &'a std::collections::HashMap<(Option<String>, String), String>,
+    pub(super) opaque_types: &'a ahash::AHashSet<String>,
+}
+
+pub(super) fn gen_function_stub(func: &FunctionDef, env: &FunctionStubEnv<'_>) -> String {
+    let FunctionStubEnv {
+        bridge_param_names,
+        capsule_names,
+        options_field_bridges,
+        trait_bridges,
+        streaming_return_types,
+        opaque_types,
+    } = *env;
     // The native module has no way to synthesize a `Default`, so the stub grants no extra
     // defaults; parameter existence and order still come from the shared decision so this stub
     // and the `api.py` facade cannot drift apart. ~keep
@@ -137,12 +146,14 @@ mod tests {
 
         let stub = gen_function_stub(
             &function,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &OptionsFieldBridges::default(),
-            &[],
-            &std::collections::HashMap::new(),
-            &ahash::AHashSet::new(),
+            &FunctionStubEnv {
+                bridge_param_names: &std::collections::HashSet::new(),
+                capsule_names: &std::collections::HashSet::new(),
+                options_field_bridges: &OptionsFieldBridges::default(),
+                trait_bridges: &[],
+                streaming_return_types: &std::collections::HashMap::new(),
+                opaque_types: &ahash::AHashSet::new(),
+            },
         );
 
         assert!(stub.contains("bytes: builtins.bytes"), "{stub}");
@@ -167,12 +178,14 @@ mod tests {
 
         let stub = gen_function_stub(
             &func,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &OptionsFieldBridges::default(),
-            &[],
-            &streaming_return_types,
-            &ahash::AHashSet::new(),
+            &FunctionStubEnv {
+                bridge_param_names: &std::collections::HashSet::new(),
+                capsule_names: &std::collections::HashSet::new(),
+                options_field_bridges: &OptionsFieldBridges::default(),
+                trait_bridges: &[],
+                streaming_return_types: &streaming_return_types,
+                opaque_types: &ahash::AHashSet::new(),
+            },
         );
 
         assert!(
@@ -198,12 +211,14 @@ mod tests {
 
         let stub = gen_function_stub(
             &func,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &OptionsFieldBridges::default(),
-            &[],
-            &std::collections::HashMap::new(),
-            &ahash::AHashSet::new(),
+            &FunctionStubEnv {
+                bridge_param_names: &std::collections::HashSet::new(),
+                capsule_names: &std::collections::HashSet::new(),
+                options_field_bridges: &OptionsFieldBridges::default(),
+                trait_bridges: &[],
+                streaming_return_types: &std::collections::HashMap::new(),
+                opaque_types: &ahash::AHashSet::new(),
+            },
         );
 
         assert!(
@@ -234,12 +249,14 @@ mod tests {
 
         let stub = gen_function_stub(
             &func,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &OptionsFieldBridges::default(),
-            &[],
-            &std::collections::HashMap::new(),
-            &ahash::AHashSet::new(),
+            &FunctionStubEnv {
+                bridge_param_names: &std::collections::HashSet::new(),
+                capsule_names: &std::collections::HashSet::new(),
+                options_field_bridges: &OptionsFieldBridges::default(),
+                trait_bridges: &[],
+                streaming_return_types: &std::collections::HashMap::new(),
+                opaque_types: &ahash::AHashSet::new(),
+            },
         );
 
         assert_eq!(
@@ -269,12 +286,14 @@ mod tests {
 
         let stub = gen_function_stub(
             &func,
-            &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-            &OptionsFieldBridges::default(),
-            &[],
-            &std::collections::HashMap::new(),
-            &ahash::AHashSet::new(),
+            &FunctionStubEnv {
+                bridge_param_names: &std::collections::HashSet::new(),
+                capsule_names: &std::collections::HashSet::new(),
+                options_field_bridges: &OptionsFieldBridges::default(),
+                trait_bridges: &[],
+                streaming_return_types: &std::collections::HashMap::new(),
+                opaque_types: &ahash::AHashSet::new(),
+            },
         );
 
         assert_eq!(

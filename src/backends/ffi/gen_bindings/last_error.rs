@@ -1,5 +1,5 @@
 use crate::codegen::error_gen::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
-use crate::core::ir::{ApiSurface, MethodDef, PrimitiveType, TypeRef};
+use crate::core::ir::{ApiSurface, ErrorDef, ErrorVariant, MethodDef, PrimitiveType, TypeRef};
 
 #[derive(serde::Serialize)]
 struct FfiErrorVariantCode {
@@ -76,60 +76,61 @@ fn ffi_error_field_capture(method: &MethodDef, kind: &LastErrorFieldKind) -> Ffi
     }
 }
 
+fn ffi_error_variant_code(error: &ErrorDef, error_path: &str, variant: &ErrorVariant) -> FfiErrorVariantCode {
+    let suffix = if variant.is_unit {
+        String::new()
+    } else if variant.is_tuple {
+        "(..)".to_string()
+    } else {
+        " { .. }".to_string()
+    };
+    FfiErrorVariantCode {
+        pattern: format!("{error_path}::{}{suffix}", variant.name),
+        name: variant.name.clone(),
+        code_expression: variant.error_code.map_or_else(
+            || "ALEF_FFI_UNKNOWN_ERROR".to_string(),
+            |_| {
+                let variant_name = crate::codegen::naming::ffi_error_code_variant_name(&error.rust_path, &variant.name);
+                format!("AlefFfiErrorCode::{variant_name} as i32")
+            },
+        ),
+    }
+}
+
+fn ffi_error_code_impl(error: &ErrorDef, core_import: &str, last_error_fields: &[LastErrorField]) -> FfiErrorCodeImpl {
+    let error_path = if error.rust_path.contains("::") {
+        error.rust_path.replace('-', "_")
+    } else {
+        format!("{core_import}::{}", error.name)
+    };
+    let variants = error
+        .variants
+        .iter()
+        .map(|variant| ffi_error_variant_code(error, &error_path, variant))
+        .collect();
+    let fields = error
+        .methods
+        .iter()
+        .filter_map(|method| {
+            let kind = last_error_field_kind(method)?;
+            let declared = last_error_fields.iter().find(|field| field.name == method.name)?;
+            (declared.kind == kind).then(|| ffi_error_field_capture(method, &kind))
+        })
+        .collect();
+    FfiErrorCodeImpl {
+        error_path,
+        variants,
+        fields,
+    }
+}
+
 pub(super) fn gen_last_error(api: &ApiSurface, prefix: &str, core_import: &str) -> String {
     let taxonomy = api.error_taxonomy();
     let last_error_fields = last_error_fields(&api.errors);
     let error_code_impls: Vec<_> = api
         .errors
         .iter()
-        .map(|error| {
-            let error_path = if error.rust_path.contains("::") {
-                error.rust_path.replace('-', "_")
-            } else {
-                format!("{core_import}::{}", error.name)
-            };
-            let variants = error
-                .variants
-                .iter()
-                .map(|variant| {
-                    let suffix = if variant.is_unit {
-                        String::new()
-                    } else if variant.is_tuple {
-                        "(..)".to_string()
-                    } else {
-                        " { .. }".to_string()
-                    };
-                    FfiErrorVariantCode {
-                        pattern: format!("{error_path}::{}{suffix}", variant.name),
-                        name: variant.name.clone(),
-                        code_expression: variant.error_code.map_or_else(
-                            || "ALEF_FFI_UNKNOWN_ERROR".to_string(),
-                            |_| {
-                                let variant_name = crate::codegen::naming::ffi_error_code_variant_name(
-                                    &error.rust_path,
-                                    &variant.name,
-                                );
-                                format!("AlefFfiErrorCode::{variant_name} as i32")
-                            },
-                        ),
-                    }
-                })
-                .collect();
-            let fields = error
-                .methods
-                .iter()
-                .filter_map(|method| {
-                    let kind = last_error_field_kind(method)?;
-                    let declared = last_error_fields.iter().find(|field| field.name == method.name)?;
-                    (declared.kind == kind).then(|| ffi_error_field_capture(method, &kind))
-                })
-                .collect();
-            FfiErrorCodeImpl {
-                error_path,
-                variants,
-                fields,
-            }
-        })
+        .map(|error| ffi_error_code_impl(error, core_import, &last_error_fields))
         .collect();
     let has_error_code_impls = !error_code_impls.is_empty();
     let has_duration_fields = last_error_fields

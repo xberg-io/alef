@@ -275,9 +275,8 @@ mod serde_flattens_newtype_payload_tests {
         bool,
     );
 
-    #[test]
-    fn should_flatten_only_an_internally_tagged_newtype_variant_whose_payload_resolves() {
-        let cases: [FlattenCase<'_>; 8] = [
+    fn flatten_cases() -> [FlattenCase<'static>; 8] {
+        [
             (
                 "internally tagged newtype is the flattened shape",
                 Some("format_type"),
@@ -350,7 +349,12 @@ mod serde_flattens_newtype_payload_tests {
                 excel_metadata_types(),
                 false,
             ),
-        ];
+        ]
+    }
+
+    #[test]
+    fn should_flatten_only_an_internally_tagged_newtype_variant_whose_payload_resolves() {
+        let cases = flatten_cases();
 
         for (case, tag, content, untagged, variant, types, expected) in cases {
             let enum_def = enum_with(tag, content, untagged, variant);
