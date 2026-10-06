@@ -345,11 +345,20 @@ fn sensitive_dataclass_fields_are_excluded_from_repr_without_changing_values() {
         "{generated}"
     );
 
+    // Resolving on PATH is not enough: a version-manager shim resolves, then exits non-zero. ~keep
+    let python_runs = std::process::Command::new("python3")
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !python_runs {
+        return;
+    }
     let directory = tempfile::tempdir().expect("temporary Python module");
     std::fs::write(directory.path().join("options.py"), generated).expect("generated options module must be written");
-    let python = which::which("python3")
-        .or_else(|_| which::which("python"))
-        .expect("Python is required for the generated representation acceptance probe");
+    let python = "python3";
     let probe = r#"
 from dataclasses import asdict
 from options import Credentials

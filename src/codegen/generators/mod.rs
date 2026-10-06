@@ -119,6 +119,57 @@ fn main() {{
         compile_and_run(&source);
     }
 
+    /// Compiles the generated PyO3 `__str__`/`__repr__` pair against a stand-in wrapper whose
+    /// `inner` is `core_enum`, then asserts the planted secret never appears in either result.
+    pub fn assert_pyo3_enum_repr_redacts_secret(generated: &str, type_name: &str, core_enum: &str) {
+        let file = syn::parse_file(generated).expect("generated Rust must parse");
+        let methods: Vec<syn::ImplItemFn> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Impl(item) => Some(item),
+                _ => None,
+            })
+            .flat_map(|item| item.items.iter())
+            .filter_map(|item| match item {
+                syn::ImplItem::Fn(method) if method.sig.ident == "__str__" || method.sig.ident == "__repr__" => {
+                    let mut method = method.clone();
+                    method.attrs.clear();
+                    Some(method)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(methods.len(), 2, "__str__ and __repr__ must both be generated");
+        let source = format!(
+            r#"
+type PyResult<T> = Result<T, String>;
+mod pyo3 {{ pub mod exceptions {{ pub struct PyRuntimeError; impl PyRuntimeError {{
+    pub fn new_err(message: String) -> String {{ message }}
+}} }} }}
+{core_enum}
+struct {type_name} {{ inner: Core }}
+impl {type_name} {{
+{methods}
+}}
+
+fn main() {{
+    let secret = "planted-secret".to_string();
+    let wrapper = {type_name} {{ inner: Core::Bearer {{ token: secret.clone() }} }};
+    let shown = wrapper.__str__().unwrap();
+    let represented = wrapper.__repr__().unwrap();
+    assert!(!shown.contains(&secret), "__str__ leaked: {{shown}}");
+    assert!(!represented.contains(&secret), "__repr__ leaked: {{represented}}");
+}}
+"#,
+            methods = methods
+                .iter()
+                .map(|method| quote!(#method).to_string())
+                .collect::<String>(),
+        );
+        compile_and_run(&source);
+    }
+
     fn runtime_probe_source(generated: &str, type_name: &str) -> String {
         let file = syn::parse_file(generated).expect("generated Rust must parse");
         let mut structure = file

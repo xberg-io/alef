@@ -133,6 +133,19 @@ fn sensitive_data_enum_repr_never_serializes_the_payload() {
 }
 
 #[test]
+fn sensitive_data_enum_repr_never_leaks_a_planted_secret_at_runtime() {
+    let mut secret = field("token");
+    secret.sensitive = true;
+    let generated = gen_pyo3_data_enum(&enum_def("Auth", vec![variant("Bearer", vec![secret])]), "core");
+
+    crate::codegen::generators::sensitive_runtime_test_support::assert_pyo3_enum_repr_redacts_secret(
+        &generated,
+        "Auth",
+        "#[derive(serde::Serialize)] enum Core { Bearer { token: String } }",
+    );
+}
+
+#[test]
 fn sensitive_variant_redacts_the_entire_data_enum_repr() {
     let mut bearer = variant("Bearer", vec![field("token")]);
     bearer.sensitive = true;
