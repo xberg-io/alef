@@ -9,4 +9,6 @@ pub use wrappers::apply_core_wrapper_to_core;
 #[cfg(test)]
 mod field_default_tests;
 #[cfg(test)]
+mod legacy_newtype_tests;
+#[cfg(test)]
 mod tests;
