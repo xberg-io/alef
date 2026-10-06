@@ -462,7 +462,7 @@ fn field_core_conversion(
             match &field.ty {
                 TypeRef::Optional(_) => format!("{}: ({expr}).map({wrapper})", field.name),
                 TypeRef::Vec(_) => {
-                    let inner_expr = type_intermediate_vec_collect(expr);
+                    let inner_expr = crate::codegen::conversions::helpers::type_intermediate_vec_collect(expr);
                     format!("{}: ({inner_expr}).into_iter().map({wrapper}).collect()", field.name)
                 }
                 _ if field.optional => format!("{}: ({expr}).map({wrapper})", field.name),
@@ -547,18 +547,6 @@ fn field_core_conversion(
     } else {
         conversion
     }
-}
-
-pub(super) fn type_intermediate_vec_collect(expr: &str) -> String {
-    if let Some(prefix) = expr.strip_suffix(".collect()") {
-        return format!("{prefix}.collect::<Vec<_>>()");
-    }
-    if let Some(inner) = expr.strip_prefix('(').and_then(|expr| expr.strip_suffix(')'))
-        && let Some(prefix) = inner.strip_suffix(".collect()")
-    {
-        return format!("({prefix}.collect::<Vec<_>>())");
-    }
-    expr.to_string()
 }
 
 fn constructor_field_default_expr(

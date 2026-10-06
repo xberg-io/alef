@@ -151,10 +151,25 @@ fn apply_field_newtype_to_core_with_map_collection(
     let path = decoded.tuple_path().expect("legacy wrapper must have a tuple path");
     match ty {
         TypeRef::Optional(_) => format!("({expr}).map({path})"),
-        TypeRef::Vec(_) => format!("({expr}).into_iter().map({path}).collect()"),
+        TypeRef::Vec(_) => {
+            let inner_expr = type_intermediate_vec_collect(expr);
+            format!("({inner_expr}).into_iter().map({path}).collect()")
+        }
         _ if optional => format!("({expr}).map({path})"),
         _ => format!("{path}({expr})"),
     }
+}
+
+pub(crate) fn type_intermediate_vec_collect(expr: &str) -> String {
+    if let Some(prefix) = expr.strip_suffix(".collect()") {
+        return format!("{prefix}.collect::<Vec<_>>()");
+    }
+    if let Some(inner) = expr.strip_prefix('(').and_then(|expr| expr.strip_suffix(')'))
+        && let Some(prefix) = inner.strip_suffix(".collect()")
+    {
+        return format!("({prefix}.collect::<Vec<_>>())");
+    }
+    expr.to_string()
 }
 
 pub(crate) fn apply_field_newtype_from_core(expr: &str, ty: &TypeRef, optional: bool, wrapper: &str) -> String {

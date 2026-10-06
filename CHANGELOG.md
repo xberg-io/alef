@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.104.4] - 2026-10-06
+
+### Fixed
+
+- PHP bindings type parenthesized intermediate vector collections on explicit transparent-wrapper
+  fields, preventing Rust `E0282` inference failures in generated conversion code.
+
 ## [0.104.3] - 2026-10-06
 
 ### Fixed
