@@ -57,7 +57,20 @@ pub fn gen_magnus_error_methods_struct(error: &ErrorDef, core_import: &str) -> S
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // Not emitted: method `{other}` on `{struct_name}`"));
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    methods.push(format!("    // Not emitted: method `{other}` on `{struct_name}`"));
+                    continue;
+                };
+                let ty = millis_type(optional, "u64");
+                fields.push(format!("    {other}: {ty},"));
+                methods.push(format!(
+                    "    /// `{other}` in whole milliseconds{}.\n    pub fn {other}(&self) -> {ty} {{\n        self.{other}\n    }}",
+                    if optional { " (nil when absent)" } else { "" },
+                ));
+                ctor_assignments.push(format!(
+                    "        {other}: {},",
+                    millis_expr(&format!("e.{other}()"), optional, "u64")
+                ));
             }
         }
     }
@@ -93,11 +106,10 @@ pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
     lines.push(format!(
         "    let {class_var} = module.define_class(\"{struct_name}\", ruby.class_object())?;"
     ));
-    for method in error
-        .methods
-        .iter()
-        .filter(|m| matches!(m.name.as_str(), "status_code" | "is_transient" | "error_type"))
-    {
+    for method in error.methods.iter().filter(|m| {
+        matches!(m.name.as_str(), "status_code" | "is_transient" | "error_type")
+            || super::duration_shape(&m.return_type).is_some()
+    }) {
         let (ruby_name, rust_fn) = if method.name == "is_transient" {
             ("transient?".to_string(), "transient".to_string())
         } else {
@@ -205,7 +217,20 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
-                methods.push(format!("    // Not emitted: method for `{other}` on `{struct_name}`"));
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    methods.push(format!("    // Not emitted: method for `{other}` on `{struct_name}`"));
+                    continue;
+                };
+                let ty = millis_type(optional, "i64");
+                fields.push(format!("    pub {other}: {ty},"));
+                methods.push(format!(
+                    "    /// `{other}` in whole milliseconds{}.\n    pub fn {other}(&self) -> {ty} {{\n        self.{other}\n    }}",
+                    if optional { " (null when absent)" } else { "" },
+                ));
+                ctor_assignments.push(format!(
+                    "        {other}: {},",
+                    millis_expr(&format!("e.{other}()"), optional, "i64")
+                ));
             }
         }
     }
@@ -411,4 +436,6 @@ pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &s
 /// (e.g. `SampleLlmError` in package `samplellm` → exported as `Error`).
 use crate::core::ir::ErrorDef;
 
-use super::shared::{error_variant_wildcard_pattern, to_screaming_snake, to_snake_case};
+use super::shared::{
+    duration_methods, error_variant_wildcard_pattern, millis_expr, millis_type, to_screaming_snake, to_snake_case,
+};

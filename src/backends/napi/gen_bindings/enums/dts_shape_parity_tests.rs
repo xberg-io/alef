@@ -296,3 +296,43 @@ fn dts_declaration_camel_cases_wire_keys_for_fully_flattened_enum() {
         "must never fall back to a plain string enum; got:\n{dts}"
     );
 }
+
+/// An error's `Duration` method is declared as milliseconds, `number | null` when optional, so
+/// the declaration matches what the `#[napi]` info class returns.
+#[test]
+fn dts_declares_error_duration_methods_as_millisecond_numbers() {
+    use crate::core::ir::{ErrorDef, MethodDef, ReceiverKind};
+    let api = ApiSurface {
+        errors: vec![ErrorDef {
+            name: "SampleError".to_string(),
+            rust_path: "sample::SampleError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![MethodDef {
+                name: "retry_after".to_string(),
+                return_type: TypeRef::Optional(Box::new(TypeRef::Duration)),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        ..Default::default()
+    };
+    let dts = gen_dts(
+        &api,
+        "Js",
+        &Default::default(),
+        &[],
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+        "",
+        None,
+    );
+    assert!(dts.contains("export declare class SampleErrorInfo {"), "{dts}");
+    assert!(dts.contains("  retryAfter(): number | null"), "{dts}");
+}

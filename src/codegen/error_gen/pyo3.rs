@@ -51,9 +51,11 @@ pub fn gen_pyo3_error_converter(error: &ErrorDef, core_import: &str) -> String {
     // the newline between successive match arms (the leading `-` on each inner tag eats the
     // newline emitted by the previous iteration), producing a single-line `match` body. A flat
     // loop over pre-rendered arm strings has no such interaction. (~keep)
+    let slots = info_slots(error);
     let ctor_args = |code: u32| -> String {
         if has_methods {
-            format!("(msg, {code}u32, e.status_code(), e.is_transient(), e.error_type().to_string())")
+            let extra: String = slots.iter().map(|slot| format!(", {}", slot.tuple_expr)).collect();
+            format!("(msg, {code}u32{extra})")
         } else {
             "msg".to_string()
         }
@@ -121,22 +123,95 @@ pub fn converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_py_err", to_snake_case(&error.name))
 }
 
+/// One introspection value the exception args tuple carries after `(message, code)`, and the
+/// `{Error}Info` field and getter that read it back. The slot's position in
+/// [`info_slots`] is its tuple index minus 2, so the converter and the info class cannot
+/// disagree about where a value lives.
+struct InfoSlot {
+    name: String,
+    field_ty: String,
+    py_ty: &'static str,
+    doc: String,
+    tuple_expr: String,
+    extract_ty: String,
+    unwrap: &'static str,
+    /// An empty `unwrap` keeps the flattened `Option` as is.
+    flatten: bool,
+}
+
+/// The tuple slots for `error`: the `status_code` / `is_transient` / `error_type` methods it
+/// implements, in that order, then its `Duration` methods as whole milliseconds.
+fn info_slots(error: &ErrorDef) -> Vec<InfoSlot> {
+    let has = |name: &str| error.methods.iter().any(|m| m.name == name);
+    let mut slots = Vec::new();
+    if has("status_code") {
+        slots.push(InfoSlot {
+            name: "status_code".to_string(),
+            field_ty: "u16".to_string(),
+            py_ty: "int",
+            doc: "HTTP status code for this error (0 means no associated status).".to_string(),
+            tuple_expr: "e.status_code()".to_string(),
+            extract_ty: "u16".to_string(),
+            unwrap: "unwrap_or(0)",
+            flatten: false,
+        });
+    }
+    if has("is_transient") {
+        slots.push(InfoSlot {
+            name: "is_transient".to_string(),
+            field_ty: "bool".to_string(),
+            py_ty: "bool",
+            doc: "Returns `true` if the error is transient and a retry may succeed.".to_string(),
+            tuple_expr: "e.is_transient()".to_string(),
+            extract_ty: "bool".to_string(),
+            unwrap: "unwrap_or(false)",
+            flatten: false,
+        });
+    }
+    if has("error_type") {
+        slots.push(InfoSlot {
+            name: "error_type".to_string(),
+            field_ty: "String".to_string(),
+            py_ty: "str",
+            doc: "Machine-readable error category string for matching and logging.".to_string(),
+            tuple_expr: "e.error_type().to_string()".to_string(),
+            extract_ty: "String".to_string(),
+            unwrap: "unwrap_or_default()",
+            flatten: false,
+        });
+    }
+    for (method, optional) in duration_methods(error) {
+        let ty = millis_type(optional, "u64");
+        slots.push(InfoSlot {
+            name: method.name.clone(),
+            field_ty: ty.clone(),
+            py_ty: if optional { "int | None" } else { "int" },
+            doc: format!(
+                "`{}` in whole milliseconds{}.",
+                method.name,
+                if optional { " (`None` when absent)" } else { "" }
+            ),
+            tuple_expr: millis_expr(&format!("e.{}()", method.name), optional, "u64"),
+            extract_ty: ty,
+            unwrap: if optional { "" } else { "unwrap_or(0)" },
+            flatten: optional,
+        });
+    }
+    slots
+}
+
 /// Field specs `(name, Python type annotation)` for the `{Error}Info` companion class,
 /// derived from `error.methods`. `code` is always present; the rest are whitelisted
 /// introspection methods the error type actually implements. Shared by
 /// `gen_pyo3_error_methods_impl` (the native `#[pyclass]`) and the pyo3 backend's `.pyi`
 /// stub generator so the two can never drift on which fields the info class exposes.
-pub fn pyo3_error_info_field_specs(error: &ErrorDef) -> Vec<(&'static str, &'static str)> {
-    let mut specs = vec![("code", "int")];
-    if error.methods.iter().any(|m| m.name == "status_code") {
-        specs.push(("status_code", "int"));
-    }
-    if error.methods.iter().any(|m| m.name == "is_transient") {
-        specs.push(("is_transient", "bool"));
-    }
-    if error.methods.iter().any(|m| m.name == "error_type") {
-        specs.push(("error_type", "str"));
-    }
+pub fn pyo3_error_info_field_specs(error: &ErrorDef) -> Vec<(String, String)> {
+    let mut specs = vec![("code".to_string(), "int".to_string())];
+    specs.extend(
+        info_slots(error)
+            .into_iter()
+            .map(|slot| (slot.name, slot.py_ty.to_string())),
+    );
     specs
 }
 
@@ -148,10 +223,7 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
     let struct_name = format!("{}Info", error.name);
     let snake_name = to_snake_case(&error.name);
     let fn_name = format!("{snake_name}_info");
-    let field_specs = pyo3_error_info_field_specs(error);
-    let has_status_code = field_specs.iter().any(|(name, _)| *name == "status_code");
-    let has_is_transient = field_specs.iter().any(|(name, _)| *name == "is_transient");
-    let has_error_type = field_specs.iter().any(|(name, _)| *name == "error_type");
+    let slots = info_slots(error);
 
     let mut fields = vec!["    pub code: u32,".to_string()];
     let mut getters = vec![
@@ -165,88 +237,49 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
         )
         .to_string(),
     ];
-
-    if has_status_code {
-        fields.push("    pub status_code: u16,".to_string());
-        getters.push(
-            concat!(
-                "    /// HTTP status code for this error (0 means no associated status).\n",
-                "    #[getter]\n",
-                "    fn status_code(&self) -> u16 {\n",
-                "        self.status_code\n",
-                "    }",
-            )
-            .to_string(),
-        );
-    }
-    if has_is_transient {
-        fields.push("    pub is_transient: bool,".to_string());
-        getters.push(
-            concat!(
-                "    /// Returns `true` if the error is transient and a retry may succeed.\n",
-                "    #[getter]\n",
-                "    fn is_transient(&self) -> bool {\n",
-                "        self.is_transient\n",
-                "    }",
-            )
-            .to_string(),
-        );
-    }
-    if has_error_type {
-        fields.push("    pub error_type: String,".to_string());
-        getters.push(
-            concat!(
-                "    /// Machine-readable error category string for matching and logging.\n",
-                "    #[getter]\n",
-                "    fn error_type(&self) -> String {\n",
-                "        self.error_type.clone()\n",
-                "    }",
-            )
-            .to_string(),
-        );
-    }
-    for method in &error.methods {
-        match method.name.as_str() {
-            "status_code" | "is_transient" | "error_type" => {}
-            other => getters.push(format!(
-                "    // Not emitted: getter for method `{other}` on `{struct_name}`"
-            )),
-        }
-    }
-
     let mut ctor_fields = vec![
         "        code: args\n\
          \x20           .as_ref()\n\
          \x20           .and_then(|a| a.get_item(1).ok())\n\
          \x20           .and_then(|v| v.extract::<u32>().ok())\n\
-         \x20           .unwrap_or(0),",
+         \x20           .unwrap_or(0),"
+            .to_string(),
     ];
-    if has_status_code {
-        ctor_fields.push(
-            "        status_code: args\n\
-             \x20           .as_ref()\n\
-             \x20           .and_then(|a| a.get_item(2).ok())\n\
-             \x20           .and_then(|v| v.extract::<u16>().ok())\n\
-             \x20           .unwrap_or(0),",
-        );
+
+    for (position, slot) in slots.iter().enumerate() {
+        let index = position + 2;
+        let name = &slot.name;
+        let ty = &slot.field_ty;
+        fields.push(format!("    pub {name}: {ty},"));
+        let body = if slot.field_ty == "String" {
+            format!("self.{name}.clone()")
+        } else {
+            format!("self.{name}")
+        };
+        getters.push(format!(
+            "    /// {}\n    #[getter]\n    fn {name}(&self) -> {ty} {{\n        {body}\n    }}",
+            slot.doc
+        ));
+        let flatten = if slot.flatten { "\n            .flatten()" } else { "" };
+        let unwrap = if slot.unwrap.is_empty() {
+            String::new()
+        } else {
+            format!("\n            .{}", slot.unwrap)
+        };
+        ctor_fields.push(format!(
+            "        {name}: args\n            .as_ref()\n            .and_then(|a| a.get_item({index}).ok())\n            .and_then(|v| v.extract::<{}>().ok()){flatten}{unwrap},",
+            slot.extract_ty,
+        ));
     }
-    if has_is_transient {
-        ctor_fields.push(
-            "        is_transient: args\n\
-             \x20           .as_ref()\n\
-             \x20           .and_then(|a| a.get_item(3).ok())\n\
-             \x20           .and_then(|v| v.extract::<bool>().ok())\n\
-             \x20           .unwrap_or(false),",
-        );
-    }
-    if has_error_type {
-        ctor_fields.push(
-            "        error_type: args\n\
-             \x20           .as_ref()\n\
-             \x20           .and_then(|a| a.get_item(4).ok())\n\
-             \x20           .and_then(|v| v.extract::<String>().ok())\n\
-             \x20           .unwrap_or_default(),",
-        );
+    for method in &error.methods {
+        let is_slot = matches!(method.name.as_str(), "status_code" | "is_transient" | "error_type")
+            || super::duration_shape(&method.return_type).is_some();
+        if !is_slot {
+            getters.push(format!(
+                "    // Not emitted: getter for method `{}` on `{struct_name}`",
+                method.name
+            ));
+        }
     }
 
     let struct_def = format!(
@@ -256,11 +289,15 @@ pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
 
     let impl_block = format!("#[pymethods]\nimpl {struct_name} {{\n{}\n}}", getters.join("\n\n"));
 
+    let tuple_shape = slots
+        .iter()
+        .fold("message, code".to_string(), |acc, slot| format!("{acc}, {}", slot.name));
+    let last_index = slots.len() + 1;
     let free_fn = format!(
         "/// Build a `{struct_name}` from any exception raised by the `{error_name}` hierarchy.\n\
          ///\n\
-         /// The converter stores `(message, code, status_code, is_transient, error_type)` in\n\
-         /// the exception args tuple; this function extracts those values at indices 1–4.\n\
+         /// The converter stores `({tuple_shape})` in\n\
+         /// the exception args tuple; this function extracts those values at indices 1–{last_index}.\n\
          #[pyfunction]\n\
          pub fn {fn_name}(err: pyo3::Bound<'_, pyo3::types::PyAny>) -> {struct_name} {{\n\
              let args = err.getattr(\"args\").ok();\n\
@@ -298,4 +335,6 @@ use crate::core::ir::ErrorDef;
 /// Returns an empty string when `error.methods` is empty.
 use ahash::AHashSet;
 
-use super::shared::{error_variant_wildcard_pattern, python_exception_name, to_snake_case};
+use super::shared::{
+    duration_methods, error_variant_wildcard_pattern, millis_expr, millis_type, python_exception_name, to_snake_case,
+};

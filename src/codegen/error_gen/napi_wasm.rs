@@ -225,10 +225,22 @@ pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, wasm_prefix: 
                  self.inner.error_type().to_string()\n    }"
                 .to_string(),
             other => {
-                method_bodies.push(format!(
-                    "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`"
-                ));
-                continue;
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    method_bodies.push(format!(
+                        "    // Not emitted: binding for method `{other}` on `{wasm_struct_name}`"
+                    ));
+                    continue;
+                };
+                format!(
+                    "    /// `{other}` in whole milliseconds{}.\n    \
+                     #[wasm_bindgen(js_name = \"{}\")]\n    \
+                     pub fn {other}(&self) -> {} {{\n        \
+                     {}\n    }}",
+                    if optional { " (undefined when absent)" } else { "" },
+                    heck::ToLowerCamelCase::to_lower_camel_case(other),
+                    millis_type(optional, "u64"),
+                    millis_expr(&format!("self.inner.{other}()"), optional, "u64"),
+                )
             }
         };
         method_bodies.push(method_src);
@@ -327,8 +339,22 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
                 ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
             }
             other => {
+                let Some((_, optional)) = duration_methods(error).into_iter().find(|(m, _)| m.name == other) else {
+                    methods.push(format!(
+                        "    // Not emitted: #[napi] method `{other}` on `{struct_name}`"
+                    ));
+                    continue;
+                };
+                let ty = millis_type(optional, "i64");
+                fields.push(format!("    pub {other}: {ty},"));
                 methods.push(format!(
-                    "    // Not emitted: #[napi] method `{other}` on `{struct_name}`"
+                    "    /// `{other}` in whole milliseconds{}.\n    #[napi(js_name = \"{}\")]\n    pub fn {other}(&self) -> {ty} {{\n        self.{other}\n    }}",
+                    if optional { " (null when absent)" } else { "" },
+                    heck::ToLowerCamelCase::to_lower_camel_case(other),
+                ));
+                ctor_assignments.push(format!(
+                    "        {other}: {},",
+                    millis_expr(&format!("e.{other}()"), optional, "i64")
                 ));
             }
         }
@@ -376,4 +402,6 @@ pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
 /// Returns an empty string when `error.methods` is empty.
 use crate::core::ir::ErrorDef;
 
-use super::shared::{error_variant_wildcard_pattern, to_screaming_snake, to_snake_case};
+use super::shared::{
+    duration_methods, error_variant_wildcard_pattern, millis_expr, millis_type, to_screaming_snake, to_snake_case,
+};

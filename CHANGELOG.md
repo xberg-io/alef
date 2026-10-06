@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - An error type's `retry_after()` method is now extracted as an introspection method. Go, the FFI
   layer, Java (`java.time.Duration`, `null` when absent), C# (`TimeSpan?`), Kotlin, Swift, Dart and
-  Elixir carry it; Python, Node, PHP, Ruby and WebAssembly leave it out.
+  Elixir carry it; Python, Node, PHP, Ruby and WebAssembly expose any `Duration`-valued error
+  method as whole milliseconds (`int | None`, `number | null`, `?int`, `Integer?`), with their
+  `.pyi`, `.d.ts`, PHP and RBS stubs.
 - C, Dart, Swift, Zig and Kotlin (JVM and Android) documentation snippets render a fixture's
   `docs.client.config`, building the client with the language's `client_factory_from_json` and no
   credential read, as the other backends already did. Each needs

@@ -851,3 +851,41 @@ fn generate_type_stubs_documents_writeback_return_type() {
         "must not still advertise a void return:\n{stub}"
     );
 }
+
+/// An error's `Duration` method is declared on the exception stub as `?int` milliseconds, named
+/// the way ext-php-rs camel-cases the `#[php_method]`.
+#[test]
+fn generate_type_stubs_declares_error_duration_methods() {
+    use crate::core::backend::Backend;
+    use crate::core::ir::{ApiSurface, ErrorDef, MethodDef, ReceiverKind, TypeRef};
+
+    let api = ApiSurface {
+        crate_name: "my-crate".to_string(),
+        version: "1.0.0".to_string(),
+        errors: vec![ErrorDef {
+            name: "SampleError".to_string(),
+            rust_path: "sample::SampleError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![MethodDef {
+                name: "retry_after".to_string(),
+                return_type: TypeRef::Optional(Box::new(TypeRef::Duration)),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        ..Default::default()
+    };
+    let config = crate::core::config::resolved::ResolvedCrateConfig {
+        name: "my-crate".to_string(),
+        ..crate::core::config::resolved::ResolvedCrateConfig::default()
+    };
+
+    let files = super::PhpBackend.generate_type_stubs(&api, &config).unwrap();
+    let stub = &files[0].content;
+    assert!(stub.contains("public function retryAfter(): ?int"), "{stub}");
+}

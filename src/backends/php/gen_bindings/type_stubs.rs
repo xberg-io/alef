@@ -110,6 +110,7 @@ pub(super) fn generate_type_stubs(
                  public function errorType(): string { throw new \\RuntimeException('Not implemented.'); }\n",
         );
     }
+    content.push_str(&error_methods::duration_error_method_stubs(api));
     content.push_str("}\n\n");
 
     // Derived exactly as `rust_bindings.rs` derives them for the real extension, so the stub's
@@ -976,6 +977,7 @@ fn gen_labeled_string_enum_variant_constructor_stubs(enum_def: &EnumDef, is_host
 }
 
 mod enum_stub;
+mod error_methods;
 use enum_stub::gen_enum_stub;
 
 #[cfg(test)]

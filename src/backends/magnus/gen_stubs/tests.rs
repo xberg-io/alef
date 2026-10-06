@@ -920,3 +920,39 @@ fn opaque_variant_wrapper_new_is_not_stubbed_when_client_constructor_overrides_i
          registers `new` — the stub must not promise it:\n{stub}"
     );
 }
+
+/// An error's `Duration` method is typed `Integer?` (whole milliseconds, nil when absent).
+#[test]
+fn rbs_declares_error_duration_methods_as_integers() {
+    use crate::core::ir::{ApiSurface, ErrorDef, MethodDef, ReceiverKind, TypeRef};
+    let api = ApiSurface {
+        errors: vec![ErrorDef {
+            name: "SampleError".to_string(),
+            rust_path: "sample::SampleError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![MethodDef {
+                name: "retry_after".to_string(),
+                return_type: TypeRef::Optional(Box::new(TypeRef::Duration)),
+                receiver: Some(ReceiverKind::Ref),
+                ..Default::default()
+            }],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        ..Default::default()
+    };
+    let stub = super::gen_stubs(
+        &api,
+        &crate::core::config::ResolvedCrateConfig::default(),
+        "test_lib",
+        false,
+        &ahash::AHashMap::new(),
+        &[],
+        &std::collections::HashSet::new(),
+    );
+    assert!(stub.contains("class SampleErrorInfo"), "{stub}");
+    assert!(stub.contains("    def retry_after: () -> Integer?"), "{stub}");
+}

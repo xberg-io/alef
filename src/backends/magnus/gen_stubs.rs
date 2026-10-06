@@ -212,11 +212,8 @@ pub fn gen_stubs(
         let class_name = format!("{}Info", error.name);
         let mut class_lines = vec![format!("  class {class_name}")];
         for method in &error.methods {
-            let (rbs_name, rbs_ret): (&str, &str) = match method.name.as_str() {
-                "status_code" => ("status_code", "Integer"),
-                "is_transient" => ("transient?", "bool"),
-                "error_type" => ("error_type", "String"),
-                _ => continue,
+            let Some((rbs_name, rbs_ret)) = rbs_error_method(method) else {
+                continue;
             };
             class_lines.push(format!("    def {rbs_name}: () -> {rbs_ret}"));
         }
@@ -228,6 +225,21 @@ pub fn gen_stubs(
     lines.push("end".to_string());
 
     lines.join("\n")
+}
+
+/// RBS name and return type of an error introspection method, `None` when the Magnus info class
+/// does not implement it. A `Duration` method is whole milliseconds, `nil` when optional.
+fn rbs_error_method(method: &crate::core::ir::MethodDef) -> Option<(&str, &'static str)> {
+    use crate::codegen::error_gen::{DurationShape, duration_shape};
+    match method.name.as_str() {
+        "status_code" => Some(("status_code", "Integer")),
+        "is_transient" => Some(("transient?", "bool")),
+        "error_type" => Some(("error_type", "String")),
+        name => match duration_shape(&method.return_type)? {
+            DurationShape::Optional => Some((name, "Integer?")),
+            DurationShape::Bare => Some((name, "Integer")),
+        },
+    }
 }
 
 /// RBS interface name for a plugin-bridge trait. RBS requires interface names to begin with an

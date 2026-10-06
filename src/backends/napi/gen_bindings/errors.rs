@@ -552,11 +552,19 @@ pub(super) fn gen_dts(
         // error type implements (see `gen_napi_error_class`). (~keep)
         lines.push("  code(): number".to_string());
         for method in &error.methods {
-            let (js_name, ret_type): (&str, &str) = match method.name.as_str() {
-                "status_code" => ("statusCode", "number"),
-                "is_transient" => ("isTransient", "boolean"),
-                "error_type" => ("errorType", "string"),
-                _ => continue,
+            let (js_name, ret_type): (String, &str) = match method.name.as_str() {
+                "status_code" => ("statusCode".to_string(), "number"),
+                "is_transient" => ("isTransient".to_string(), "boolean"),
+                "error_type" => ("errorType".to_string(), "string"),
+                name => match crate::codegen::error_gen::duration_shape(&method.return_type) {
+                    Some(crate::codegen::error_gen::DurationShape::Optional) => {
+                        (heck::ToLowerCamelCase::to_lower_camel_case(name), "number | null")
+                    }
+                    Some(crate::codegen::error_gen::DurationShape::Bare) => {
+                        (heck::ToLowerCamelCase::to_lower_camel_case(name), "number")
+                    }
+                    None => continue,
+                },
             };
             lines.push(format!("  {js_name}(): {ret_type}"));
         }

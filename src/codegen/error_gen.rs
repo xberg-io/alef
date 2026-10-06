@@ -5,13 +5,13 @@ mod native;
 mod pyo3;
 mod shared;
 
+pub(crate) use host_langs::{
+    DurationShape, csharp_error_bases_with_last_error_fields, csharp_last_error_getter_name, duration_shape,
+    java_default_value, java_field_name, typeref_to_csharp_type, typeref_to_java_type,
+};
 pub use host_langs::{
     GoErrorMethodField, gen_csharp_error_types, gen_go_error_struct, gen_go_error_types, gen_go_sentinel_errors,
     gen_java_error_types, go_error_method_fields, go_error_sentinel_name,
-};
-pub(crate) use host_langs::{
-    csharp_error_bases_with_last_error_fields, csharp_last_error_getter_name, java_default_value, java_field_name,
-    typeref_to_csharp_type, typeref_to_java_type,
 };
 pub use last_error_fields::{LastErrorField, LastErrorFieldKind, last_error_field_kind, last_error_fields};
 pub use napi_wasm::{

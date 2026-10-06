@@ -100,35 +100,149 @@ fn test_gen_csharp_error_types_maps_duration_methods_without_changing_existing_c
     );
 }
 
-/// Regression: `retry_after` entered the error-method whitelist but Magnus has no implementation
+/// Regression: `retry_after` entered the error-method whitelist but Magnus had no implementation
 /// for it, so the registration list named `ErrorInfo::retry_after` and the generated crate failed
-/// to compile. Registration must cover exactly the methods the struct generator implements. ~keep
+/// to compile. Registration must cover exactly the methods the struct generator implements, and a
+/// `Duration` method is one of them: whole milliseconds, `nil` when absent. ~keep
 #[test]
-fn test_magnus_registrations_only_name_methods_the_struct_implements() {
+fn test_magnus_error_info_carries_duration_methods_as_milliseconds() {
     let error = error_with_duration_methods();
     let struct_src = gen_magnus_error_methods_struct(&error, "sample_app");
     let registrations = magnus_error_methods_registrations(&error).join("\n");
+    assert!(struct_src.contains("    retry_after: Option<u64>,"), "{struct_src}");
+    assert!(struct_src.contains("    timeout: u64,"), "{struct_src}");
     assert!(
-        registrations.contains("magnus::method!(SampleAppErrorInfo::status_code, 0)"),
-        "{registrations}"
+        struct_src.contains("pub fn retry_after(&self) -> Option<u64> {"),
+        "{struct_src}"
     );
-    for name in ["retry_after", "timeout"] {
+    assert!(
+        struct_src.contains("retry_after: e.retry_after().map(|d| d.as_millis() as u64),"),
+        "{struct_src}"
+    );
+    assert!(
+        struct_src.contains("timeout: e.timeout().as_millis() as u64,"),
+        "{struct_src}"
+    );
+    for name in ["status_code", "retry_after", "timeout"] {
         assert!(
-            !registrations.contains(name),
-            "{name} has no Magnus implementation: {registrations}"
+            registrations.contains(&format!("magnus::method!(SampleAppErrorInfo::{name}, 0)")),
+            "{name} must be registered because the struct implements it: {registrations}"
         );
-        assert!(!struct_src.contains(&format!("pub fn {name}(")), "{struct_src}");
     }
 }
 
-/// Regression: a method the wasm emitter does not implement used to be exported as an empty
-/// `pub fn name(&self) {}`, which JS callers saw as a method that always returns `undefined`.
 #[test]
-fn test_wasm_error_methods_do_not_export_unimplemented_methods() {
+fn test_magnus_registrations_skip_methods_the_struct_cannot_implement() {
+    let mut error = error_with_duration_methods();
+    error
+        .methods
+        .push(sample_method("details", TypeRef::Vec(Box::new(TypeRef::String))));
+    let registrations = magnus_error_methods_registrations(&error).join("\n");
+    assert!(!registrations.contains("details"), "{registrations}");
+    assert!(!gen_magnus_error_methods_struct(&error, "sample_app").contains("pub fn details("));
+}
+
+#[test]
+fn test_wasm_error_methods_expose_duration_methods_as_milliseconds() {
     let output = gen_wasm_error_methods(&error_with_duration_methods(), "sample_app", "Wasm");
     assert!(output.contains("pub fn status_code(&self) -> u16"), "{output}");
-    assert!(!output.contains("pub fn retry_after"), "{output}");
-    assert!(!output.contains("pub fn timeout"), "{output}");
+    assert!(output.contains("js_name = \"retryAfter\""), "{output}");
+    assert!(
+        output.contains("pub fn retry_after(&self) -> Option<u64> {"),
+        "{output}"
+    );
+    assert!(
+        output.contains("self.inner.retry_after().map(|d| d.as_millis() as u64)"),
+        "{output}"
+    );
+    assert!(output.contains("pub fn timeout(&self) -> u64 {"), "{output}");
+    assert!(output.contains("self.inner.timeout().as_millis() as u64"), "{output}");
+}
+
+#[test]
+fn test_node_error_class_exposes_duration_methods_as_milliseconds() {
+    let output = gen_napi_error_class(&error_with_duration_methods(), "sample_app");
+    assert!(output.contains("    pub retry_after: Option<i64>,"), "{output}");
+    assert!(output.contains("#[napi(js_name = \"retryAfter\")]"), "{output}");
+    assert!(
+        output.contains("pub fn retry_after(&self) -> Option<i64> {"),
+        "{output}"
+    );
+    assert!(
+        output.contains("retry_after: e.retry_after().map(|d| d.as_millis() as i64),"),
+        "{output}"
+    );
+    assert!(output.contains("timeout: e.timeout().as_millis() as i64,"), "{output}");
+}
+
+#[test]
+fn test_php_error_info_exposes_duration_methods_as_milliseconds() {
+    let output = gen_php_error_methods_impl(&error_with_duration_methods(), "sample_app");
+    assert!(output.contains("    pub retry_after: Option<i64>,"), "{output}");
+    assert!(
+        output.contains("pub fn retry_after(&self) -> Option<i64> {"),
+        "{output}"
+    );
+    assert!(
+        output.contains("retry_after: e.retry_after().map(|d| d.as_millis() as i64),"),
+        "{output}"
+    );
+    assert!(output.contains("timeout: e.timeout().as_millis() as i64,"), "{output}");
+    assert!(!output.contains("Not emitted"), "{output}");
+}
+
+/// The Python converter packs the values into the exception args tuple and the info class
+/// unpacks them by index; both derive from one slot list, so a `Duration` method lands at the
+/// next index after the three scalar methods and reads back as `int | None`.
+#[test]
+fn test_python_error_info_carries_duration_methods_after_the_scalar_slots() {
+    let mut error = error_with_duration_methods();
+    error.variants = sample_error().variants;
+    let converter = gen_pyo3_error_converter(&error, "sample_app");
+    assert!(
+        converter.contains(
+            "u32, e.status_code(), e.is_transient(), e.error_type().to_string(), e.retry_after().map(|d| d.as_millis() as u64), e.timeout().as_millis() as u64)"
+        ),
+        "{converter}"
+    );
+
+    let info = gen_pyo3_error_methods_impl(&error);
+    assert!(info.contains("pub retry_after: Option<u64>,"), "{info}");
+    assert!(info.contains("fn retry_after(&self) -> Option<u64> {"), "{info}");
+    assert!(
+        info.contains(".and_then(|a| a.get_item(5).ok())\n            .and_then(|v| v.extract::<Option<u64>>().ok())\n            .flatten(),"),
+        "{info}"
+    );
+    assert!(info.contains(".and_then(|a| a.get_item(6).ok())"), "{info}");
+    assert!(info.contains("indices 1–6"), "{info}");
+
+    let specs = pyo3_error_info_field_specs(&error);
+    assert!(
+        specs.contains(&("retry_after".to_string(), "int | None".to_string())),
+        "{specs:?}"
+    );
+    assert!(specs.contains(&("timeout".to_string(), "int".to_string())), "{specs:?}");
+}
+
+/// An error whose only introspection method returns a `Duration` must not make the converter
+/// call `status_code()` and friends, which it does not have.
+#[test]
+fn test_python_error_with_only_a_duration_method_packs_only_that_value() {
+    let mut error = error_with_methods();
+    error.variants = sample_error().variants;
+    error.methods = vec![sample_method(
+        "retry_after",
+        TypeRef::Optional(Box::new(TypeRef::Duration)),
+    )];
+    let converter = gen_pyo3_error_converter(&error, "sample_app");
+    assert!(
+        converter.contains("u32, e.retry_after().map(|d| d.as_millis() as u64))"),
+        "{converter}"
+    );
+    assert!(!converter.contains("status_code"), "{converter}");
+    let info = gen_pyo3_error_methods_impl(&error);
+    assert!(info.contains(".and_then(|a| a.get_item(2).ok())"), "{info}");
+    assert!(!info.contains("status_code"), "{info}");
 }
 
 /// A variant class must be able to carry the native error's introspection values: the dispatch

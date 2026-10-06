@@ -229,3 +229,37 @@ pub(super) fn variant_display_message(variant: &ErrorVariant) -> String {
         acronym_aware_snake_phrase(&variant.name)
     }
 }
+
+/// The error methods that return a `Duration` or `Option<Duration>`.
+///
+/// Bindings carry these as whole milliseconds in an integer, the same convention every
+/// `Duration` DTO field uses (`as_millis`/`from_millis` throughout the conversion layer), with
+/// `None` standing for an absent `Option<Duration>`.
+pub(super) fn duration_methods(error: &crate::core::ir::ErrorDef) -> Vec<(&crate::core::ir::MethodDef, bool)> {
+    error
+        .methods
+        .iter()
+        .filter_map(|method| match super::duration_shape(&method.return_type)? {
+            super::DurationShape::Optional => Some((method, true)),
+            super::DurationShape::Bare => Some((method, false)),
+        })
+        .collect()
+}
+
+/// `call` converted to whole milliseconds of integer type `cast` (`u64`, `i64`).
+pub(super) fn millis_expr(call: &str, optional: bool, cast: &str) -> String {
+    if optional {
+        format!("{call}.map(|d| d.as_millis() as {cast})")
+    } else {
+        format!("{call}.as_millis() as {cast}")
+    }
+}
+
+/// The binding-side integer type for a millisecond value.
+pub(super) fn millis_type(optional: bool, cast: &str) -> String {
+    if optional {
+        format!("Option<{cast}>")
+    } else {
+        cast.to_string()
+    }
+}

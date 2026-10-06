@@ -871,6 +871,35 @@ module_name = "test_lib"
         );
     }
 
+    /// An error's `Duration` method is typed in milliseconds, `int | None` when optional.
+    #[test]
+    fn gen_stubs_declares_error_duration_methods_as_optional_ints() {
+        use crate::core::ir::{ErrorDef, MethodDef, TypeRef};
+
+        let api = ApiSurface {
+            errors: vec![ErrorDef {
+                name: "LiterLlmError".to_string(),
+                rust_path: "liter_llm::LiterLlmError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                methods: vec![MethodDef {
+                    name: "retry_after".to_string(),
+                    return_type: TypeRef::Optional(Box::new(TypeRef::Duration)),
+                    ..Default::default()
+                }],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            ..Default::default()
+        };
+
+        let stub = gen_stubs(&api, &[], &python_config(), &ahash::AHashSet::default());
+
+        assert!(stub.contains("    retry_after: int | None"), "{stub}");
+    }
+
     /// An error with no whitelisted introspection methods gets no companion info class or
     /// function -- `gen_stubs` must not invent one either.
     #[test]
