@@ -84,6 +84,7 @@ pub(super) fn emit_streaming_struct(method: &MethodDef, streaming: &StreamingCon
             type_snake => type_snake,
             method_snake => &method_snake,
             item_snake => &item_snake,
+            cancelled_code => crate::core::ir::ApiSurface::FFI_ERROR_CODE_CANCELLED,
         },
     ));
 }
@@ -157,6 +158,7 @@ mod tests {
                 type_snake => "client",
                 method_snake => "stream_records",
                 item_snake => "record",
+                cancelled_code => 5,
             },
         );
 
@@ -167,6 +169,11 @@ mod tests {
         assert!(rendered.contains("sample_client_stream_records_free"));
         assert!(rendered.contains("_handle: u64"));
         assert!(rendered.contains("if (_chunk == 0)"));
+        assert!(
+            rendered.contains("if (_code == 5) return error.Cancelled;"),
+            "a cancelled stream must not surface as UnknownFfiError:\n{rendered}"
+        );
+        assert!(rendered.contains("if (_code != 0) return error.UnknownFfiError;"));
         assert!(rendered.contains("self._handle = 0"));
     }
 }

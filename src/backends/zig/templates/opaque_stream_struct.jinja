@@ -10,7 +10,9 @@ pub const {{ struct_name }} = struct {
         const _chunk = c.{{ prefix }}_{{ type_snake }}_{{ method_snake }}_next(handle);
         if (_chunk == 0) {
             // Check errno: 0 = clean EOS, != 0 = error
-            if (c.{{ prefix }}_last_error_code() != 0) return error.UnknownFfiError;
+            const _code = c.{{ prefix }}_last_error_code();
+            if (_code == {{ cancelled_code }}) return error.Cancelled;
+            if (_code != 0) return error.UnknownFfiError;
             return null;
         }
         defer c.{{ prefix }}_{{ item_snake }}_free(_chunk);
