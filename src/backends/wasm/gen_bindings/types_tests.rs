@@ -83,39 +83,47 @@ fn nested_optional_jsvalue_constructor_matches_storage_without_core_default() {
     let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
     let getter = gen_getter(
         &typ.fields[0],
-        &mapper(),
-        &AHashSet::new(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
     let setter = gen_setter(
         &typ.fields[0],
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashSet::new(),
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
     let segments_getter = gen_getter(
         &typ.fields[1],
-        &mapper(),
-        &AHashSet::new(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
     let segments_setter = gen_setter(
         &typ.fields[1],
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashSet::new(),
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
 
     assert!(
@@ -197,21 +205,25 @@ fn complex_wrapper_does_not_change_ordinary_sibling_with_same_type() {
     let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
     let ordinary_getter = gen_getter(
         &ordinary,
-        &mapper(),
-        &AHashSet::new(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
     let ordinary_setter = gen_setter(
         &ordinary,
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashSet::new(),
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
 
     assert!(
@@ -249,21 +261,25 @@ fn excluded_complex_wrapper_does_not_change_included_sibling_with_same_type() {
     let constructor = gen_new_method(&typ, &mapper(), &[], "Wasm", &AHashSet::new(), &AHashSet::new());
     let ordinary_getter = gen_getter(
         &ordinary,
-        &mapper(),
-        &AHashSet::new(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
     let ordinary_setter = gen_setter(
         &ordinary,
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &AHashMap::new(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashSet::new(),
-        &AHashMap::new(),
-        &AHashSet::new(),
     );
 
     assert!(!declaration.contains("excluded_nested"), "{declaration}");
@@ -362,12 +378,14 @@ fn gen_getter_option_vec_unit_enum_flattens_option() {
     let tagged: AHashSet<String> = AHashSet::new();
     let out = gen_getter(
         &field,
-        &mapper(),
-        &enums,
-        &tagged,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         out.contains("-> Option<Vec<String>>"),
@@ -395,12 +413,14 @@ fn gen_setter_option_vec_unit_enum_wraps_some() {
     let tagged: AHashSet<String> = AHashSet::new();
     let out = gen_setter(
         &field,
-        &mapper(),
-        &enums,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &tagged,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         out.contains("value: Option<Vec<String>>"),
@@ -424,12 +444,14 @@ fn gen_getter_setter_required_vec_unit_enum_unchanged() {
     let tagged: AHashSet<String> = AHashSet::new();
     let getter = gen_getter(
         &field,
-        &mapper(),
-        &enums,
-        &tagged,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         getter.contains("-> Vec<String>"),
@@ -441,12 +463,14 @@ fn gen_getter_setter_required_vec_unit_enum_unchanged() {
     );
     let setter = gen_setter(
         &field,
-        &mapper(),
-        &enums,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &tagged,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         setter.contains("value: Vec<String>"),
@@ -475,21 +499,25 @@ fn optional_u64_vec_accessors_keep_the_wasm_bigint_vector_shape() {
 
     let getter = gen_getter(
         &field,
-        &mapper(),
-        &enums,
-        &tagged,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     let setter = gen_setter(
         &field,
-        &mapper(),
-        &enums,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &tagged,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
 
     assert!(
@@ -653,12 +681,14 @@ fn gen_getter_named_enum_mapped_to_js_value_skips_to_api_str() {
 
     let out = gen_getter(
         &field,
-        &mapper_with_override("Modality", "JsValue"),
-        &enums,
-        &tagged,
+        &AccessorEnv {
+            mapper: &mapper_with_override("Modality", "JsValue"),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         !out.contains("to_api_str"),
@@ -685,12 +715,14 @@ fn gen_getter_named_enum_without_override_still_uses_to_api_str() {
 
     let out = gen_getter(
         &field,
-        &mapper(),
-        &enums,
-        &tagged,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(out.contains("-> String"), "getter must expose the wire string: {out}");
     assert!(
@@ -713,12 +745,14 @@ fn gen_setter_vec_enum_mapped_to_js_value_skips_from_api_str() {
 
     let out = gen_setter(
         &field,
-        &mapper_with_override("Modality", "JsValue"),
-        &enums,
+        &AccessorEnv {
+            mapper: &mapper_with_override("Modality", "JsValue"),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &tagged,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         !out.contains("from_api_str") && !out.contains("WasmModality"),
@@ -727,12 +761,14 @@ fn gen_setter_vec_enum_mapped_to_js_value_skips_from_api_str() {
 
     let control = gen_setter(
         &field,
-        &mapper(),
-        &enums,
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &enums,
+            tagged_data_enum_names: &tagged,
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &tagged,
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         control.contains("WasmModality::from_api_str"),
@@ -794,12 +830,14 @@ fn gen_setter_required_class_field_takes_a_borrow() {
     let field = class_field("palette", "Palette", false);
     let out = gen_setter(
         &field,
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &class_names(&["Palette"]),
+        },
         false,
-        &AHashSet::new(),
-        &no_untagged_ts_types(),
-        &class_names(&["Palette"]),
     );
     assert!(
         out.contains("value: &WasmPalette"),
@@ -819,12 +857,14 @@ fn gen_setter_optional_class_field_takes_a_borrow_and_wraps_in_some() {
     let field = class_field("renderer", "RendererHandle", true);
     let out = gen_setter(
         &field,
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &class_names(&["RendererHandle"]),
+        },
         false,
-        &AHashSet::new(),
-        &no_untagged_ts_types(),
-        &class_names(&["RendererHandle"]),
     );
     assert!(
         out.contains("value: &WasmRendererHandle"),
@@ -845,12 +885,14 @@ fn gen_setter_overridden_class_name_keeps_the_mapped_type() {
     let field = class_field("palette", "Palette", false);
     let out = gen_setter(
         &field,
-        &mapper_with_override("Palette", "JsValue"),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper_with_override("Palette", "JsValue"),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &class_names(&["Palette"]),
+        },
         false,
-        &AHashSet::new(),
-        &no_untagged_ts_types(),
-        &class_names(&["Palette"]),
     );
     assert!(
         out.contains("value: JsValue"),
@@ -863,12 +905,14 @@ fn gen_setter_non_class_named_field_keeps_the_mapped_type() {
     let field = class_field("palette", "Palette", false);
     let out = gen_setter(
         &field,
-        &mapper(),
-        &AHashSet::new(),
+        &AccessorEnv {
+            mapper: &mapper(),
+            enum_names: &AHashSet::new(),
+            tagged_data_enum_names: &AHashSet::new(),
+            untagged_ts_value_types: &no_untagged_ts_types(),
+            class_type_names: &AHashSet::new(),
+        },
         false,
-        &AHashSet::new(),
-        &no_untagged_ts_types(),
-        &AHashSet::new(),
     );
     assert!(
         out.contains("value: WasmPalette") && !out.contains("&WasmPalette"),

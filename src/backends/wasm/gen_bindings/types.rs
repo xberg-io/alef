@@ -27,7 +27,7 @@ mod types_unit_enum;
 #[path = "types_tests.rs"]
 mod types_tests;
 
-use types_accessors::{gen_clear_method, gen_getter, gen_setter};
+use types_accessors::{AccessorEnv, gen_clear_method, gen_getter, gen_setter};
 pub(in crate::backends::wasm::gen_bindings) use types_helpers::filter_cfg_fields_for_features;
 use types_helpers::{
     complex_newtype_field_uses_jsvalue, is_bare_tagged_data_enum, is_option_of_tagged_data_enum,
@@ -629,21 +629,25 @@ pub(super) fn gen_struct_methods(
         emitted_field_names.insert(field.name.as_str());
         impl_builder.add_method(&gen_getter(
             field,
-            mapper,
-            &enum_names,
-            &tagged_data_enum_names,
+            &AccessorEnv {
+                mapper,
+                enum_names: &enum_names,
+                tagged_data_enum_names: &tagged_data_enum_names,
+                untagged_ts_value_types,
+                class_type_names: &class_type_names,
+            },
             typ.has_default,
-            untagged_ts_value_types,
-            &class_type_names,
         ));
         impl_builder.add_method(&gen_setter(
             field,
-            mapper,
-            &enum_names,
+            &AccessorEnv {
+                mapper,
+                enum_names: &enum_names,
+                tagged_data_enum_names: &tagged_data_enum_names,
+                untagged_ts_value_types,
+                class_type_names: &class_type_names,
+            },
             typ.has_default,
-            &tagged_data_enum_names,
-            untagged_ts_value_types,
-            &class_type_names,
         ));
         if let Some(clear) = gen_clear_method(field, mapper, &class_type_names, &reserved_idents) {
             impl_builder.add_method(&clear);

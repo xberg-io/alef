@@ -292,8 +292,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn explicit_nested_optional_conversions_keep_configured_method_names() {
+    fn nested_optional_explicit_type() -> TypeDef {
         let credential_wrapper = NewtypeWrapper::encode_explicit(&[NewtypeWrapperMetadata::transparent_string(
             "fixture::Credential",
             "from_secret",
@@ -310,7 +309,7 @@ mod tests {
                 NewtypeContainer::MapKey,
             ],
         )]);
-        let typ = TypeDef {
+        TypeDef {
             name: "Options".to_string(),
             rust_path: "fixture::Options".to_string(),
             has_default: true,
@@ -349,7 +348,12 @@ mod tests {
                 },
             ],
             ..Default::default()
-        };
+        }
+    }
+
+    #[test]
+    fn explicit_nested_optional_conversions_keep_configured_method_names() {
+        let typ = nested_optional_explicit_type();
         let core_to_binding_typ = suppress_explicit_newtype_flatten_for_core_to_binding(&typ);
         let type_paths = AHashMap::from_iter([("Segment".to_string(), "fixture::Segment".to_string())]);
         let config = ConversionConfig {

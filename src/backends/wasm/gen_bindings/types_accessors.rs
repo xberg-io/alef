@@ -64,95 +64,142 @@ fn stores_option(field: &FieldDef) -> bool {
     field.optional || matches!(field.ty, TypeRef::Optional(_))
 }
 
-/// Generate a getter method for a field.
-pub(super) fn gen_getter(
-    field: &FieldDef,
-    mapper: &WasmMapper,
-    enum_names: &AHashSet<String>,
-    tagged_data_enum_names: &AHashSet<String>,
-    has_default: bool,
-    untagged_ts_value_types: &AHashMap<String, String>,
-    class_type_names: &AHashSet<String>,
-) -> String {
-    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    let complex_newtype = complex_newtype_field_uses_jsvalue(field);
-    let field_type = if complex_newtype {
-        if stores_option(field) {
-            "Option<JsValue>".to_string()
-        } else {
-            "JsValue".to_string()
-        }
-    } else if force_optional {
-        mapper.optional(&mapper.map_type(&field.ty))
-    } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
+/// The per-struct name sets and mapper every accessor generator consults.
+pub(super) struct AccessorEnv<'a> {
+    pub(super) mapper: &'a WasmMapper,
+    pub(super) enum_names: &'a AHashSet<String>,
+    pub(super) tagged_data_enum_names: &'a AHashSet<String>,
+    pub(super) untagged_ts_value_types: &'a AHashMap<String, String>,
+    pub(super) class_type_names: &'a AHashSet<String>,
+}
+
+type Projection = (String, String);
+
+fn js_name_attr(field: &FieldDef) -> String {
+    let js_name = to_node_name(&field.name);
+    if js_name != field.name {
+        format!(", js_name = \"{}\"", js_name)
+    } else {
+        String::new()
+    }
+}
+
+fn option_or_plain_jsvalue(field: &FieldDef) -> String {
+    if stores_option(field) {
+        "Option<JsValue>".to_string()
+    } else {
+        "JsValue".to_string()
+    }
+}
+
+/// The type the stored field is exposed as when no enum/class special case applies.
+fn mapped_field_type(field: &FieldDef, mapper: &WasmMapper) -> String {
+    if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
         mapper.map_type(&field.ty)
     } else if field.optional {
         mapper.optional(&mapper.map_type(&field.ty))
     } else {
         mapper.map_type(&field.ty)
-    };
+    }
+}
 
-    let js_name = to_node_name(&field.name);
-    let js_name_attr = if js_name != field.name {
-        format!(", js_name = \"{}\"", js_name)
+fn getter_field_type(field: &FieldDef, mapper: &WasmMapper, has_default: bool) -> String {
+    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    if complex_newtype_field_uses_jsvalue(field) {
+        option_or_plain_jsvalue(field)
+    } else if force_optional {
+        mapper.optional(&mapper.map_type(&field.ty))
     } else {
-        String::new()
-    };
+        mapped_field_type(field, mapper)
+    }
+}
 
-    let wrapper_enum_names = wrapper_backed_enum_names(mapper, enum_names);
+fn untagged_ts_projection(field: &FieldDef, env: &AccessorEnv<'_>) -> Option<Projection> {
+    let (is_optional, value_type) = untagged_ts_value_type(field, env.untagged_ts_value_types)?;
+    Some(if is_optional {
+        (
+            format!("Option<{value_type}>"),
+            format!("self.{}.clone().map(|v| v.unchecked_into())", field.name),
+        )
+    } else {
+        (value_type, format!("self.{}.clone().unchecked_into()", field.name))
+    })
+}
+
+fn vec_unit_enum_projection(
+    field: &FieldDef,
+    wrapper_enum_names: &AHashSet<String>,
+    env: &AccessorEnv<'_>,
+) -> Option<Projection> {
+    if !is_vec_of_unit_enum(&field.ty, wrapper_enum_names, env.tagged_data_enum_names) {
+        return None;
+    }
+    Some(if field.optional {
+        (
+            "Option<Vec<String>>".to_string(),
+            format!(
+                "self.{}.as_ref().map(|v| v.iter().map(|x| x.to_api_str().to_owned()).collect())",
+                field.name
+            ),
+        )
+    } else {
+        (
+            "Vec<String>".to_string(),
+            format!(
+                "self.{}.iter().map(|v| v.to_api_str().to_owned()).collect()",
+                field.name
+            ),
+        )
+    })
+}
+
+fn tagged_enum_projection(field: &FieldDef, env: &AccessorEnv<'_>) -> Option<Projection> {
+    let tagged = env.tagged_data_enum_names;
+    let clone_expr = format!("self.{}.clone()", field.name);
+    if !field.optional && (is_vec_of_tagged_data_enum(&field.ty, tagged) || is_bare_tagged_data_enum(&field.ty, tagged))
+    {
+        return Some(("JsValue".to_string(), clone_expr));
+    }
+    if field.optional
+        && (is_option_of_tagged_data_enum(&field.ty, tagged) || is_bare_tagged_data_enum(&field.ty, tagged))
+    {
+        return Some(("Option<JsValue>".to_string(), clone_expr));
+    }
+    None
+}
+
+fn wrapper_enum_projection(
+    field: &FieldDef,
+    wrapper_enum_names: &AHashSet<String>,
+    env: &AccessorEnv<'_>,
+) -> Option<Projection> {
+    let is_wrapper_enum = |ty: &TypeRef| matches!(ty, TypeRef::Named(n) if wrapper_enum_names.contains(n) && !env.tagged_data_enum_names.contains(n));
+    if field.optional {
+        is_wrapper_enum(optional_inner(&field.ty)).then(|| {
+            (
+                "Option<String>".to_string(),
+                format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name),
+            )
+        })
+    } else {
+        is_wrapper_enum(&field.ty).then(|| {
+            (
+                "String".to_string(),
+                format!("self.{}.to_api_str().to_owned()", field.name),
+            )
+        })
+    }
+}
+
+fn optional_vec_of_struct_projection(field: &FieldDef, env: &AccessorEnv<'_>) -> Option<Projection> {
     let inner_ty = optional_inner(&field.ty);
-    let is_optional_enum = field.optional
-        && matches!(inner_ty, TypeRef::Named(n) if wrapper_enum_names.contains(n) && !tagged_data_enum_names.contains(n));
-    let is_required_enum = !field.optional
-        && matches!(field.ty, TypeRef::Named(ref n) if wrapper_enum_names.contains(n) && !tagged_data_enum_names.contains(n));
-    let is_required_vec_tagged_enum = !field.optional && is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
-    let is_required_bare_tagged_enum = !field.optional && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
-    let is_optional_tagged_enum = field.optional
-        && (is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names)
-            || is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names));
-    let is_vec_unit_enum =
-        !field.optional && is_vec_of_unit_enum(&field.ty, &wrapper_enum_names, tagged_data_enum_names);
-    let is_optional_vec_unit_enum =
-        field.optional && is_vec_of_unit_enum(&field.ty, &wrapper_enum_names, tagged_data_enum_names);
     let is_optional_vec_of_struct = field.optional
         && matches!(
             inner_ty,
-            TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if !enum_names.contains(n))
+            TypeRef::Vec(elem) if matches!(elem.as_ref(), TypeRef::Named(n) if !env.enum_names.contains(n))
         )
-        && !is_vec_of_tagged_data_enum(inner_ty, tagged_data_enum_names);
-    let untagged_ts = untagged_ts_value_type(field, untagged_ts_value_types);
-
-    let (field_type, return_expr) = if complex_newtype {
-        (field_type, format!("self.{}.clone()", field.name))
-    } else if let Some((true, value_type)) = &untagged_ts {
-        let expr = format!("self.{}.clone().map(|v| v.unchecked_into())", field.name);
-        (format!("Option<{value_type}>"), expr)
-    } else if let Some((false, value_type)) = &untagged_ts {
-        let expr = format!("self.{}.clone().unchecked_into()", field.name);
-        (value_type.clone(), expr)
-    } else if is_vec_unit_enum {
-        let expr = format!(
-            "self.{}.iter().map(|v| v.to_api_str().to_owned()).collect()",
-            field.name
-        );
-        ("Vec<String>".to_string(), expr)
-    } else if is_optional_vec_unit_enum {
-        let expr = format!(
-            "self.{}.as_ref().map(|v| v.iter().map(|x| x.to_api_str().to_owned()).collect())",
-            field.name
-        );
-        ("Option<Vec<String>>".to_string(), expr)
-    } else if is_required_vec_tagged_enum || is_required_bare_tagged_enum {
-        ("JsValue".to_string(), format!("self.{}.clone()", field.name))
-    } else if is_optional_tagged_enum {
-        ("Option<JsValue>".to_string(), format!("self.{}.clone()", field.name))
-    } else if is_optional_enum {
-        let expr = format!("self.{}.map(|v| v.to_api_str().to_owned())", field.name);
-        ("Option<String>".to_string(), expr)
-    } else if is_required_enum {
-        let expr = format!("self.{}.to_api_str().to_owned()", field.name);
-        ("String".to_string(), expr)
-    } else if is_optional_vec_of_struct {
+        && !is_vec_of_tagged_data_enum(inner_ty, env.tagged_data_enum_names);
+    is_optional_vec_of_struct.then(|| {
         let expr = format!(
             "self.{f}.as_ref().map(|items| {{\n        \
              let arr = js_sys::Array::new();\n        \
@@ -163,21 +210,44 @@ pub(super) fn gen_getter(
             f = field.name
         );
         ("Option<js_sys::Array>".to_string(), expr)
-    } else {
-        let copy_enum_names: AHashSet<String> = wrapper_enum_names
-            .iter()
-            .filter(|n| !tagged_data_enum_names.contains(*n))
-            .cloned()
-            .collect();
-        let expr = if is_copy_type(&field.ty, &copy_enum_names) {
-            format!("self.{}", field.name)
-        } else {
-            format!("self.{}.clone()", field.name)
-        };
-        (field_type, expr)
-    };
+    })
+}
 
-    let copy_doc = if class_backed_field_type(field, mapper, class_type_names).is_some() {
+fn default_projection(
+    field: &FieldDef,
+    field_type: String,
+    wrapper_enum_names: &AHashSet<String>,
+    env: &AccessorEnv<'_>,
+) -> Projection {
+    let copy_enum_names: AHashSet<String> = wrapper_enum_names
+        .iter()
+        .filter(|n| !env.tagged_data_enum_names.contains(*n))
+        .cloned()
+        .collect();
+    let expr = if is_copy_type(&field.ty, &copy_enum_names) {
+        format!("self.{}", field.name)
+    } else {
+        format!("self.{}.clone()", field.name)
+    };
+    (field_type, expr)
+}
+
+/// The `(return type, return expression)` pair of the getter for `field`.
+fn getter_projection(field: &FieldDef, env: &AccessorEnv<'_>, field_type: String) -> Projection {
+    if complex_newtype_field_uses_jsvalue(field) {
+        return (field_type, format!("self.{}.clone()", field.name));
+    }
+    let wrapper_enum_names = wrapper_backed_enum_names(env.mapper, env.enum_names);
+    untagged_ts_projection(field, env)
+        .or_else(|| vec_unit_enum_projection(field, &wrapper_enum_names, env))
+        .or_else(|| tagged_enum_projection(field, env))
+        .or_else(|| wrapper_enum_projection(field, &wrapper_enum_names, env))
+        .or_else(|| optional_vec_of_struct_projection(field, env))
+        .unwrap_or_else(|| default_projection(field, field_type, &wrapper_enum_names, env))
+}
+
+fn getter_copy_doc(field: &FieldDef, env: &AccessorEnv<'_>) -> String {
+    if class_backed_field_type(field, env.mapper, env.class_type_names).is_some() {
         format!(
             "/// Returns a detached copy of `{name}`.\n\
              ///\n\
@@ -185,7 +255,7 @@ pub(super) fn gen_getter(
              /// read it, modify the copy, then assign the copy back to `{name}`.\n",
             name = to_node_name(&field.name),
         )
-    } else if class_backed_vec_element_type(field, mapper, class_type_names).is_some() {
+    } else if class_backed_vec_element_type(field, env.mapper, env.class_type_names).is_some() {
         format!(
             "/// Returns detached copies of the elements in `{name}`.\n\
              ///\n\
@@ -195,7 +265,15 @@ pub(super) fn gen_getter(
         )
     } else {
         String::new()
-    };
+    }
+}
+
+/// Generate a getter method for a field.
+pub(super) fn gen_getter(field: &FieldDef, env: &AccessorEnv<'_>, has_default: bool) -> String {
+    let field_type = getter_field_type(field, env.mapper, has_default);
+    let (field_type, return_expr) = getter_projection(field, env, field_type);
+    let js_name_attr = js_name_attr(field);
+    let copy_doc = getter_copy_doc(field, env);
 
     format!(
         "{copy_doc}#[wasm_bindgen(getter{js_name_attr})]\npub fn {}(&self) -> {} {{\n    {}\n}}",
@@ -203,86 +281,62 @@ pub(super) fn gen_getter(
     )
 }
 
-/// Generate a setter method for a field.
-pub(super) fn gen_setter(
-    field: &FieldDef,
-    mapper: &WasmMapper,
-    enum_names: &AHashSet<String>,
-    has_default: bool,
-    tagged_data_enum_names: &AHashSet<String>,
-    untagged_ts_value_types: &AHashMap<String, String>,
-    class_type_names: &AHashSet<String>,
-) -> String {
-    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
-    let complex_newtype = complex_newtype_field_uses_jsvalue(field);
-    let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged_data_enum_names);
-    let is_option_tagged_enum = !is_vec_tagged_enum
-        && (is_option_of_tagged_data_enum(&field.ty, tagged_data_enum_names)
-            || (field.optional && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names)));
-    let is_bare_tagged_enum =
-        !is_vec_tagged_enum && !is_option_tagged_enum && is_bare_tagged_data_enum(&field.ty, tagged_data_enum_names);
-    let wrapper_enum_names = wrapper_backed_enum_names(mapper, enum_names);
-    let is_vec_unit_enum =
-        !field.optional && is_vec_of_unit_enum(&field.ty, &wrapper_enum_names, tagged_data_enum_names);
-    let is_optional_vec_unit_enum =
-        field.optional && is_vec_of_unit_enum(&field.ty, &wrapper_enum_names, tagged_data_enum_names);
-
-    let js_name = to_node_name(&field.name);
-    let js_name_attr = if js_name != field.name {
-        format!(", js_name = \"{}\"", js_name)
+fn ts_bridged_setter(field: &FieldDef, js_name_attr: &str, is_optional: bool, value_type: String) -> String {
+    let (param_type, assign_expr) = if is_optional {
+        (format!("Option<{value_type}>"), "value.map(Into::into)".to_string())
     } else {
-        String::new()
+        (value_type, "value.into()".to_string())
     };
+    crate::backends::wasm::template_env::render(
+        "ts_bridged_setter",
+        minijinja::context! {
+            js_name_attr => js_name_attr,
+            field_name => field.name,
+            param_type => param_type,
+            assign_expr => format!("self.{} = {assign_expr};", field.name),
+        },
+    )
+    .trim_end()
+    .to_string()
+}
 
-    if let Some((is_optional, value_type)) = untagged_ts_value_type(field, untagged_ts_value_types) {
-        let (param_type, assign_expr) = if is_optional {
-            (format!("Option<{value_type}>"), "value.map(Into::into)".to_string())
-        } else {
-            (value_type, "value.into()".to_string())
-        };
-        return crate::backends::wasm::template_env::render(
-            "ts_bridged_setter",
-            minijinja::context! {
-                js_name_attr => js_name_attr,
-                field_name => field.name,
-                param_type => param_type,
-                assign_expr => format!("self.{} = {assign_expr};", field.name),
-            },
-        )
-        .trim_end()
-        .to_string();
+fn vec_unit_enum_setter(
+    field: &FieldDef,
+    env: &AccessorEnv<'_>,
+    wrapper_enum_names: &AHashSet<String>,
+    js_name_attr: &str,
+) -> Option<String> {
+    if !is_vec_of_unit_enum(&field.ty, wrapper_enum_names, env.tagged_data_enum_names) {
+        return None;
     }
-
-    if is_vec_unit_enum {
-        let inner = vec_unit_enum_inner_name(&field.ty, &wrapper_enum_names, tagged_data_enum_names, &mapper.prefix)
-            .expect("is_vec_of_unit_enum implied inner is a named unit enum");
-        return format!(
-            "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{name}(&mut self, value: Vec<String>) {{\n    \
-             self.{name} = value.into_iter().filter_map(|s| {inner}::from_api_str(&s)).collect();\n}}",
-            name = field.name,
-            inner = inner,
-        );
-    }
-
-    if is_optional_vec_unit_enum {
-        let inner = vec_unit_enum_inner_name(&field.ty, &wrapper_enum_names, tagged_data_enum_names, &mapper.prefix)
-            .expect("is_vec_of_unit_enum implied inner is a named unit enum");
-        return format!(
+    let inner = vec_unit_enum_inner_name(
+        &field.ty,
+        wrapper_enum_names,
+        env.tagged_data_enum_names,
+        &env.mapper.prefix,
+    )
+    .expect("is_vec_of_unit_enum implied inner is a named unit enum");
+    Some(if field.optional {
+        format!(
             "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{name}(&mut self, value: Option<Vec<String>>) {{\n    \
              self.{name} = value.map(|v| v.into_iter().filter_map(|s| {inner}::from_api_str(&s)).collect());\n}}",
             name = field.name,
             inner = inner,
-        );
-    }
+        )
+    } else {
+        format!(
+            "#[wasm_bindgen(setter{js_name_attr})]\npub fn set_{name}(&mut self, value: Vec<String>) {{\n    \
+             self.{name} = value.into_iter().filter_map(|s| {inner}::from_api_str(&s)).collect();\n}}",
+            name = field.name,
+            inner = inner,
+        )
+    })
+}
 
-    // wasm-bindgen's JS shim for a by-value exported struct argument calls
-    // `__destroy_into_raw()` on it, so `opts.field = handle` would leave the caller holding a
-    // dead handle ("null pointer passed to rust" on its next use). A borrow is passed as a plain
-    // `__wbg_ptr` and leaves the handle alive. `Option<&T>` has no `OptionFromWasmAbi` impl, so
-    // an optional field takes the same `&T` and wraps it in `Some` — clearing it is not
-    // expressible through this accessor. ~keep
-    if let Some(class_type) = class_backed_field_type(field, mapper, class_type_names) {
-        return crate::backends::wasm::template_env::render(
+fn class_field_setter(field: &FieldDef, env: &AccessorEnv<'_>, js_name_attr: &str) -> Option<String> {
+    let class_type = class_backed_field_type(field, env.mapper, env.class_type_names)?;
+    Some(
+        crate::backends::wasm::template_env::render(
             "gen_class_field_setter",
             minijinja::context! {
                 js_name_attr => js_name_attr,
@@ -293,30 +347,57 @@ pub(super) fn gen_setter(
             },
         )
         .trim_end()
-        .to_string();
-    }
+        .to_string(),
+    )
+}
 
-    let field_type = if complex_newtype {
-        if stores_option(field) {
-            "Option<JsValue>".to_string()
-        } else {
-            "JsValue".to_string()
-        }
+fn setter_field_type(field: &FieldDef, env: &AccessorEnv<'_>, has_default: bool) -> String {
+    let tagged = env.tagged_data_enum_names;
+    let force_optional = has_default && !field.optional && matches!(field.ty, TypeRef::Duration);
+    let is_vec_tagged_enum = is_vec_of_tagged_data_enum(&field.ty, tagged);
+    let is_option_tagged_enum = !is_vec_tagged_enum
+        && (is_option_of_tagged_data_enum(&field.ty, tagged)
+            || (field.optional && is_bare_tagged_data_enum(&field.ty, tagged)));
+    let is_bare_tagged_enum =
+        !is_vec_tagged_enum && !is_option_tagged_enum && is_bare_tagged_data_enum(&field.ty, tagged);
+
+    if complex_newtype_field_uses_jsvalue(field) {
+        option_or_plain_jsvalue(field)
     } else if force_optional {
-        mapper.optional(&mapper.map_type(&field.ty))
+        env.mapper.optional(&env.mapper.map_type(&field.ty))
     } else if is_vec_tagged_enum || is_bare_tagged_enum {
         "JsValue".to_string()
     } else if is_option_tagged_enum {
         "Option<JsValue>".to_string()
-    } else if field.optional && matches!(field.ty, TypeRef::Optional(_)) {
-        mapper.map_type(&field.ty)
-    } else if field.optional {
-        mapper.optional(&mapper.map_type(&field.ty))
     } else {
-        mapper.map_type(&field.ty)
-    };
+        mapped_field_type(field, env.mapper)
+    }
+}
 
-    let ownership_doc = if class_backed_vec_element_type(field, mapper, class_type_names).is_some() {
+/// Generate a setter method for a field.
+pub(super) fn gen_setter(field: &FieldDef, env: &AccessorEnv<'_>, has_default: bool) -> String {
+    let wrapper_enum_names = wrapper_backed_enum_names(env.mapper, env.enum_names);
+    let js_name_attr = js_name_attr(field);
+
+    if let Some((is_optional, value_type)) = untagged_ts_value_type(field, env.untagged_ts_value_types) {
+        return ts_bridged_setter(field, &js_name_attr, is_optional, value_type);
+    }
+    if let Some(setter) = vec_unit_enum_setter(field, env, &wrapper_enum_names, &js_name_attr) {
+        return setter;
+    }
+
+    // wasm-bindgen's JS shim for a by-value exported struct argument calls
+    // `__destroy_into_raw()` on it, so `opts.field = handle` would leave the caller holding a
+    // dead handle ("null pointer passed to rust" on its next use). A borrow is passed as a plain
+    // `__wbg_ptr` and leaves the handle alive. `Option<&T>` has no `OptionFromWasmAbi` impl, so
+    // an optional field takes the same `&T` and wraps it in `Some` — clearing it is not
+    // expressible through this accessor. ~keep
+    if let Some(setter) = class_field_setter(field, env, &js_name_attr) {
+        return setter;
+    }
+
+    let field_type = setter_field_type(field, env, has_default);
+    let ownership_doc = if class_backed_vec_element_type(field, env.mapper, env.class_type_names).is_some() {
         format!(
             "/// Takes ownership of every element in `{}`.\n\
              /// wasm-bindgen cannot borrow class values nested in an array; copy each retained\n\
