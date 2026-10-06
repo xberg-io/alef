@@ -134,8 +134,8 @@ fn internally_tagged_all_unit_variants_declare_object_not_string_enum() {
 /// Regression test: a plain `#[napi(string_enum = "snake_case")]` declaration in `.d.ts` must
 /// use the wire value napi-rs's own `convert_case`-based macro actually emits at runtime, not
 /// the value `wire_variant_value`'s serde-oriented case transform computes. The two disagree for
-/// a variant name with a letter-to-digit boundary (mirrors crawlberg's real
-/// `JsContentFilterKind::Bm25`, whose only variant is `Bm25`): serde's helper gives `"bm25"`,
+/// a variant name with a letter-to-digit boundary (e.g. a
+/// `Bm25` variant): serde's helper gives `"bm25"`,
 /// napi's actual runtime value is `"bm_25"`. Before this fix the `.d.ts` declared `Bm25 = "bm25"`,
 /// so TypeScript accepted a string literal the Rust `FromNapiValue` conversion rejected.
 #[test]

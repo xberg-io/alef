@@ -309,7 +309,7 @@ fn async_named_param_overridden_to_js_value_keeps_serde_round_trip() {
 /// An opaque handle passed by value is consumed by wasm-bindgen's JS glue
 /// (`engine.__destroy_into_raw()` nulls `__wbg_ptr`), so the JS object is dead after one call.
 /// Taking it by reference makes the glue pass `engine.__wbg_ptr` instead, leaving the object
-/// usable. See xberg-io/crawlberg#56. ~keep
+/// usable. ~keep
 #[test]
 fn async_opaque_handle_param_is_taken_by_reference() {
     let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());

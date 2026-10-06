@@ -237,8 +237,8 @@ fn apply_napi_case_matches_convert_case_for_every_supported_case() {
 }
 
 /// Regression test: a single-variant `#[napi(string_enum = "snake_case")]` enum whose lone
-/// variant name has a letter-to-digit boundary (mirrors crawlberg's
-/// `JsContentFilterKind::Bm25`) must report the wire value napi-rs's own macro actually
+/// variant name has a letter-to-digit boundary (e.g. a
+/// `Bm25` variant) must report the wire value napi-rs's own macro actually
 /// emits at runtime (`"bm_25"`), not the value `heck::ToSnakeCase` would compute
 /// (`"bm25"`). Before this fix, `string_enum_js_values` fed `"bm25"` into the generated
 /// `ts_type` union literal, so TypeScript accepted a string the Rust `FromNapiValue`

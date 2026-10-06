@@ -314,14 +314,8 @@ fn lifetime_type_enum_string_field_reports_php_exception_instead_of_panicking() 
         ..ConversionConfig::default()
     };
 
-    let out = gen_from_lifetime_type_constructor(
-        &typ,
-        "html_to_markdown_rs::NodeContext",
-        "NodeContext",
-        "html_to_markdown_rs",
-        &config,
-    )
-    .expect("constructor call must be generated");
+    let out = gen_from_lifetime_type_constructor(&typ, "demo_core::NodeContext", "NodeContext", "demo_core", &config)
+        .expect("constructor call must be generated");
 
     assert!(
         !out.contains(".expect(\"valid NodeType\")"),
@@ -336,7 +330,7 @@ fn lifetime_type_enum_string_field_reports_php_exception_instead_of_panicking() 
         "unit-returning throw must be called directly:\n{out}"
     );
     assert!(
-        out.contains("html_to_markdown_rs::NodeType::Text"),
+        out.contains("demo_core::NodeType::Text"),
         "the conversion must still return a valid Self via the known fallback variant, got:\n{out}"
     );
 }
@@ -356,14 +350,8 @@ fn lifetime_type_optional_enum_string_field_falls_back_to_none_and_reports_excep
         ..ConversionConfig::default()
     };
 
-    let out = gen_from_lifetime_type_constructor(
-        &typ,
-        "html_to_markdown_rs::NodeContext",
-        "NodeContext",
-        "html_to_markdown_rs",
-        &config,
-    )
-    .expect("constructor call must be generated");
+    let out = gen_from_lifetime_type_constructor(&typ, "demo_core::NodeContext", "NodeContext", "demo_core", &config)
+        .expect("constructor call must be generated");
 
     assert!(
         !out.contains(".expect(\"valid NodeType\")"),
@@ -400,14 +388,8 @@ fn lifetime_type_enum_string_field_without_known_fallback_keeps_original_panic()
         ..ConversionConfig::default()
     };
 
-    let out = gen_from_lifetime_type_constructor(
-        &typ,
-        "html_to_markdown_rs::NodeContext",
-        "NodeContext",
-        "html_to_markdown_rs",
-        &config,
-    )
-    .expect("constructor call must be generated");
+    let out = gen_from_lifetime_type_constructor(&typ, "demo_core::NodeContext", "NodeContext", "demo_core", &config)
+        .expect("constructor call must be generated");
 
     assert!(
         out.contains(".expect(\"valid NodeType\")"),

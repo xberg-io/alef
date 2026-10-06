@@ -36,7 +36,7 @@ fn adjacent_tuple_default_uses_tuple_constructor_syntax() {
     syn::parse_file(&code).unwrap_or_else(|error| panic!("generated Rust must parse: {error}\n{code}"));
 }
 
-/// `EntityCategory`/`OutputFormat`/`PiiCategory` (real xberg consumer enums) are
+/// `EntityCategory`/`OutputFormat`/`PiiCategory` (real consumer enums) are
 /// externally-tagged (`#[serde(rename_all = "snake_case")]`, no `tag`/`content`, not
 /// `#[serde(untagged)]`) unit variants plus one newtype `Custom(String)` variant. A tuple
 /// variant is modeled in the IR with BOTH `is_tuple: true` AND fields named `_0`, `_1`, ... --
@@ -47,7 +47,7 @@ fn adjacent_tuple_default_uses_tuple_constructor_syntax() {
 /// Regression: this used to emit STRUCT form for the newtype variant (`Custom { _0: String }`),
 /// so `serde_json::to_value` produced `{"custom": {"_0": "foo"}}` -- an extra level of nesting
 /// versus core's own wire `{"custom": "foo"}` (confirmed against
-/// `crates/xberg/src/types/entity.rs`'s `EntityCategory::Custom(String)` in the consumer repo),
+/// a consumer's `EntityCategory::Custom(String)`),
 /// with `_0` as the most visible symptom. `variant_emits_tuple_form`
 /// (`codegen/conversions/helpers/eligibility.rs`) now emits TUPLE form for externally-tagged
 /// newtype variants too, matching core's wire exactly with no field name on the wire at all.

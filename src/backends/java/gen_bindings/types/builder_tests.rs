@@ -77,7 +77,7 @@ fn boxed_duration_compact_ctor_only_null_checks_not_zero() {
         &AHashSet::default(),
         "SNAKE_CASE",
         &[],
-        "SampleCrawler",
+        "SampleWidget",
         JavaBuilderMode::Auto,
         &ahash::AHashMap::default(),
         &AHashSet::default(),
@@ -262,7 +262,7 @@ fn boxed_long_literal_defaults_compile_without_coercing_zero() {
             &AHashSet::default(),
             "SNAKE_CASE",
             &[],
-            "SampleCrawler",
+            "SampleWidget",
             JavaBuilderMode::Auto,
             &ahash::AHashMap::default(),
             &AHashSet::default(),
@@ -303,7 +303,7 @@ fn duration_field_gets_wire_safe_converter_annotations() {
         &AHashSet::default(),
         "SNAKE_CASE",
         &[],
-        "SampleCrawler",
+        "SampleWidget",
         JavaBuilderMode::Auto,
         &ahash::AHashMap::default(),
         &AHashSet::default(),
@@ -341,7 +341,7 @@ fn duration_field_without_builder_has_no_builder_setter_annotation() {
         &AHashSet::default(),
         "SNAKE_CASE",
         &[],
-        "SampleCrawler",
+        "SampleWidget",
         JavaBuilderMode::Never,
         &ahash::AHashMap::default(),
         &AHashSet::default(),
@@ -369,7 +369,7 @@ fn duration_field_with_builder_annotates_the_setter_too() {
         &AHashSet::default(),
         "SNAKE_CASE",
         &[],
-        "SampleCrawler",
+        "SampleWidget",
         JavaBuilderMode::Always,
         &ahash::AHashMap::default(),
         &AHashSet::default(),
@@ -416,15 +416,15 @@ fn tagged_union_field_type_colliding_with_variant_name_is_package_qualified() {
         ..Default::default()
     };
 
-    let out = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let out = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     assert!(
-        out.contains("io.xberg.literllm.ImageUrl imageUrl"),
+        out.contains("dev.example.sample.ImageUrl imageUrl"),
         "the field whose type name collides with its own variant name must be package-qualified \
          to reach the sibling top-level type, not the shadowing nested record, got:\n{out}"
     );
     assert!(
-        out.contains("Metadata metadata") && !out.contains("io.xberg.literllm.Metadata"),
+        out.contains("Metadata metadata") && !out.contains("dev.example.sample.Metadata"),
         "positive control: a field type that does NOT collide with any variant name must stay \
          unqualified -- qualifying it too would make every generated type needlessly verbose, \
          got:\n{out}"
@@ -463,7 +463,7 @@ fn tagged_union_struct_variant_field_honors_own_serde_rename() {
         ..Default::default()
     };
 
-    let out = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let out = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     assert!(
         out.contains("@JsonProperty(\"type\") String fieldType"),
@@ -508,7 +508,7 @@ fn tagged_union_struct_variant_field_honors_container_rename_all_fields() {
         ..Default::default()
     };
 
-    let out = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let out = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     assert!(
         out.contains("@JsonProperty(\"USER_NAME\") String userName"),
@@ -545,7 +545,7 @@ fn tagged_union_struct_variant_field_serde_rename_wins_over_rename_all_fields() 
         ..Default::default()
     };
 
-    let out = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let out = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     assert!(
         out.contains("@JsonProperty(\"type\") String fieldType"),
@@ -582,7 +582,7 @@ fn simple_enum_constant_is_screaming_snake_case_while_wire_value_is_untouched() 
         ..Default::default()
     };
 
-    let out = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let out = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     assert!(
         out.contains("INLINE(\"Inline\")"),
@@ -625,7 +625,7 @@ fn simple_enum_declaration_and_default_value_reference_agree_on_the_constant_nam
         ],
         ..Default::default()
     };
-    let declaration = gen_enum_class("io.xberg.literllm", &enum_def, "SampleCrawler", &[]);
+    let declaration = gen_enum_class("dev.example.sample", &enum_def, "SampleWidget", &[]);
 
     let mut typ = make_config_type_with_duration_default();
     typ.fields[0].name = "style".to_string();
@@ -644,13 +644,13 @@ fn simple_enum_declaration_and_default_value_reference_agree_on_the_constant_nam
     );
 
     let reference = gen_record_type(
-        "io.xberg.literllm",
+        "dev.example.sample",
         &typ,
         &AHashSet::default(),
         &AHashSet::default(),
         "SNAKE_CASE",
         &[],
-        "SampleCrawler",
+        "SampleWidget",
         JavaBuilderMode::Always,
         &enum_defaults,
         &AHashSet::default(),

@@ -129,13 +129,13 @@ mod enum_declaration_parity_tests {
 
 /// Coverage for the `Custom(String)` label-loss fix: an externally-tagged enum whose only data
 /// variant is a single-field `String` tuple variant (`EntityCategory`/`PiiCategory`/`OutputFormat`
-/// in the xberg core crate) must round-trip the caller-supplied label through a flat PHP class
+/// in a consumer core crate) must round-trip the caller-supplied label through a flat PHP class
 /// instead of being flattened to a bare string constant that can only ever produce
 /// `Custom(Default::default())`. Before this fix, `is_tagged_data_enum` required
 /// `enum_def.serde_tag.is_some()`, so every assertion below that depends on the broadened
 /// predicate failed: `entity_category()` routed through `enum_constant_entries` /
 /// `gen_string_to_enum_expr` instead of `gen_flat_data_enum*`, and the generated binding→core
-/// conversion literally read `"custom" => xberg::EntityCategory::Custom(Default::default())`. ~keep
+/// conversion literally read `"custom" => core::EntityCategory::Custom(Default::default())`. ~keep
 #[cfg(test)]
 mod labeled_string_enum_tests {
     use super::super::{
