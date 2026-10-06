@@ -48,8 +48,10 @@ fn _capture_error_message() void {
 /// No declared variant carries a stable numeric FFI taxonomy code
 /// (`#[alef(error_code = N)]`), so no specific variant can be
 /// substantiated: every failure maps to `error.UnknownFfiError`.
+/// The FFI cancellation code maps to `error.Cancelled` ahead of any variant dispatch.
 inline fn _error_with_message(comptime E: type) E {
     _capture_error_message();
+    if (c.demo_last_error_code() == 5) return error.Cancelled;
     return error.UnknownFfiError;
 }
 
@@ -59,6 +61,7 @@ pub const DemoError = error{
     ProcessingFailed,
     OutOfMemory,
     UnknownFfiError,
+    Cancelled,
 };
 
 /// A demo configuration struct.

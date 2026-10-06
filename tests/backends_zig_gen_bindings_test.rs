@@ -1801,8 +1801,16 @@ type = "CrawlStreamRequest"
         "next() must call _next to fetch the next chunk: {content}"
     );
     assert!(
-        content.contains("if (c.demo_last_error_code() != 0) return error.UnknownFfiError;"),
-        "next() must check error state on null chunk via last_error_code: {content}"
+        content.contains("const _code = c.demo_last_error_code();"),
+        "next() must read the error state on a null chunk via last_error_code: {content}"
+    );
+    assert!(
+        content.contains("if (_code == 5) return error.Cancelled;"),
+        "a cancelled stream must surface as error.Cancelled, not UnknownFfiError: {content}"
+    );
+    assert!(
+        content.contains("if (_code != 0) return error.UnknownFfiError;"),
+        "any other error state on a null chunk must surface as UnknownFfiError: {content}"
     );
     assert!(
         content.contains("return null;"),
