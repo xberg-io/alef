@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.0] - 2026-10-06
+
 ### Changed
 
 - **Breaking:** Zig 0.17.0 is now the minimum and target Zig version. Newly scaffolded and
