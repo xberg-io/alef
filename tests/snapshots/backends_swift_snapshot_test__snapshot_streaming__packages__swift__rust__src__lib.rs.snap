@@ -81,8 +81,8 @@ mod ffi {
         type DefaultClientChatStreamStreamHandle;
 
         #[swift_bridge(swift_name = "defaultClientChatStreamStart")]
-        fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String>;
-        fn next(self: &mut DefaultClientChatStreamStreamHandle) -> Result<String, String>;
+        async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String>;
+        async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, String>;
     }
 
 }
@@ -112,7 +112,7 @@ pub fn default_client_ping(client: &DefaultClient) -> String {
 #[allow(clippy::type_complexity)]
 pub struct DefaultClientChatStreamStreamHandle {
     _rt: ::tokio::runtime::Handle,
-    stream: ::std::sync::Mutex<
+    stream: ::futures_util::lock::Mutex<
         Option<
             ::futures_util::stream::BoxStream<
                 'static,
@@ -124,15 +124,23 @@ pub struct DefaultClientChatStreamStreamHandle {
 /// Start a streaming `DefaultClient::chat_stream` request.
 ///
 /// Returns a fresh `DefaultClientChatStreamStreamHandle` whose ownership transfers to the
-/// Swift caller (swift-bridge boxes the handle internally).
-pub fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String> {
+/// Swift caller (swift-bridge boxes the handle internally). Declared `async fn`
+/// in the bridge module, so the Swift caller suspends while the request opens
+/// instead of parking a thread.
+pub async fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatRequest) -> Result<DefaultClientChatStreamStreamHandle, String> {
     use ::futures_util::StreamExt;
+    let __alef_req = req.0.clone();
+    // SAFETY: Swift keeps the owner alive until this future's task completes.
+    let client: &'static DefaultClient = unsafe { &*(client as *const DefaultClient) };
     let rt = crate::__alef_tokio_runtime();
-    let raw = rt.block_on(async {
-        demo::chat_stream(&client.0, req.0.clone())
+    let __alef_task = rt.spawn(async move {
+        demo::chat_stream(&client.0, __alef_req)
             .await
             .map_err(|e| e.to_string())
-    })?;
+    });
+    let raw = __alef_task
+        .await
+        .unwrap_or_else(|__alef_join_error| Err(format!("alef: spawned async task failed: {__alef_join_error}")))?;
     let erased: ::futures_util::stream::BoxStream<
         'static,
         Result<demo::ChatChunk, Box<dyn ::std::error::Error + Send + Sync + 'static>>,
@@ -141,24 +149,25 @@ pub fn default_client_chat_stream_start(client: &DefaultClient, req: &ChatReques
     );
     Ok(DefaultClientChatStreamStreamHandle {
         _rt: rt.handle().clone(),
-        stream: ::std::sync::Mutex::new(Some(erased)),
+        stream: ::futures_util::lock::Mutex::new(Some(erased)),
     })
 }
 #[allow(clippy::should_implement_trait)]
 impl DefaultClientChatStreamStreamHandle {
     /// Advance the stream and return the next chunk JSON, or `""` on clean
     /// end-of-stream. Returns `Err(message)` on a stream-level error.
-    pub fn next(&mut self) -> Result<String, String> {
-        let mut guard = self
-            .stream
-            .lock()
-            .map_err(|_| "DefaultClientChatStreamStreamHandle::next: stream mutex poisoned".to_string())?;
+    ///
+    /// Declared `async fn` in the bridge module: the Swift caller suspends until a chunk
+    /// arrives instead of parking a thread per open stream. The lock is an async mutex
+    /// because the guard is held across the `.await`.
+    pub async fn next(&self) -> Result<String, String> {
+        let mut guard = self.stream.lock().await;
         let stream = match guard.as_mut() {
             Some(s) => s,
             None => return Ok(String::new()),
         };
         use ::futures_util::StreamExt;
-        match crate::__alef_tokio_runtime().block_on(stream.next()) {
+        match stream.next().await {
             Some(Ok(item)) => ::serde_json::to_string(&item).map_err(|e| e.to_string()),
             Some(Err(e)) => {
                 *guard = None;

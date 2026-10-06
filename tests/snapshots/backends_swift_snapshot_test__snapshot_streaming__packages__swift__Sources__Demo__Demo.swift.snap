@@ -19,16 +19,13 @@ public final class DefaultClient {
         return RustBridge.defaultClientPing(self.inner)
     }
     public func chatStream(_ req: ChatRequest) async throws -> AsyncThrowingStream<ChatChunk, Error> {
-        let inner = self.inner
-        let handle = try await Task.detached(priority: .userInitiated) {
-            try RustBridge.defaultClientChatStreamStart(inner, req)
-        }.value
+        let handle = try await RustBridge.defaultClientChatStreamStart(self.inner, req)
 
         return AsyncThrowingStream<ChatChunk, Error> { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
                     while !Task.isCancelled {
-                        let json = try handle.next().toString()
+                        let json = try await handle.next().toString()
                         if json.isEmpty { break }
                         let chunk = try RustBridge.chatChunkFromJson(json)
                         continuation.yield(chunk)

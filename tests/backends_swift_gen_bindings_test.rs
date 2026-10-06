@@ -1698,8 +1698,12 @@ fn async_bytes_function_emits_async_forwarder() {
         "async bytes forwarder should convert byte parameters: {content}"
     );
     assert!(
-        content.contains("return try await Task.detached(priority: .userInitiated)"),
-        "async bytes forwarder should call through a detached task: {content}"
+        content.contains("let result = try await RustBridge.fetchBytes(_rb_content, config)"),
+        "async bytes forwarder should await the swift-bridge async fn directly: {content}"
+    );
+    assert!(
+        !content.contains("Task.detached"),
+        "async bytes forwarder must suspend on the bridge call, not park a detached task: {content}"
     );
 }
 
@@ -1847,13 +1851,15 @@ fn streaming_adapter_emits_async_throwing_stream_wrapper() {
         swift.content
     );
     assert!(
-        swift.content.contains("RustBridge.defaultClientChatStreamStart(inner"),
-        "streaming wrapper must call defaultClientChatStreamStart with the owner handle; got:\n{}",
+        swift
+            .content
+            .contains("try await RustBridge.defaultClientChatStreamStart(self.inner, req)"),
+        "streaming wrapper must await defaultClientChatStreamStart with the owner handle; got:\n{}",
         swift.content
     );
     assert!(
-        swift.content.contains("handle.next().toString()"),
-        "streaming wrapper must drain via handle.next(); got:\n{}",
+        swift.content.contains("try await handle.next().toString()"),
+        "streaming wrapper must await handle.next() rather than block on it; got:\n{}",
         swift.content
     );
     assert!(

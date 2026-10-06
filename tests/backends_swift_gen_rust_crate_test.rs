@@ -470,7 +470,7 @@ fn lib_rs_has_free_function_shim() {
 }
 
 #[test]
-fn lib_rs_async_function_blocks_on_tokio_runtime() {
+fn lib_rs_async_function_spawns_on_shared_tokio_runtime() {
     // (the build script's parser rejects `#[swift_bridge(async)]`). Async
     let api = ApiSurface {
         unresolved_modules: Vec::new(),
@@ -514,18 +514,29 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
         lib.content
     );
     assert!(
-        lib.content.contains("pub fn load_async("),
-        "wrapper should be sync (block_on a tokio runtime): {}",
+        lib.content.contains("async fn load_async() -> Result<String, String>;"),
+        "bridge module should declare the function as a swift-bridge `async fn`: {}",
         lib.content
     );
     assert!(
-        lib.content.contains("tokio::runtime::Builder"),
-        "wrapper should construct a tokio runtime: {}",
+        lib.content
+            .contains("pub async fn load_async() -> Result<String, String> {"),
+        "wrapper should be an async fn the Swift caller suspends on: {}",
         lib.content
     );
     assert!(
-        lib.content.contains(".block_on("),
-        "wrapper should call block_on on the future: {}",
+        lib.content.contains("crate::__alef_tokio_runtime().spawn(async move {"),
+        "wrapper should spawn the work on the shared tokio runtime: {}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains("__alef_task.await.unwrap_or_else("),
+        "wrapper should await the JoinHandle and map a join failure to Err: {}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains(".block_on("),
+        "wrapper must not block a thread on the future: {}",
         lib.content
     );
 }
@@ -1650,8 +1661,14 @@ type = "ChatCompletionRequest"
     );
     assert!(
         lib.content
-            .contains("fn next(self: &mut DefaultClientChatStreamStreamHandle) -> Result<String, String>"),
-        "extern block must declare `next(&mut self) -> Result<String, String>`; got:\n{}",
+            .contains("async fn default_client_chat_stream_start(client: &DefaultClient"),
+        "_start must be declared as a swift-bridge `async fn`; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("async fn next(self: &DefaultClientChatStreamStreamHandle) -> Result<String, String>"),
+        "extern block must declare `async fn next(self: &Handle) -> Result<String, String>`; got:\n{}",
         lib.content
     );
     assert!(
@@ -1666,8 +1683,8 @@ type = "ChatCompletionRequest"
         lib.content
     );
     assert!(
-        lib.content.contains("pub fn default_client_chat_stream_start("),
-        "lib.rs must emit a concrete _start function; got:\n{}",
+        lib.content.contains("pub async fn default_client_chat_stream_start("),
+        "lib.rs must emit a concrete async _start function; got:\n{}",
         lib.content
     );
     assert!(
@@ -1676,18 +1693,23 @@ type = "ChatCompletionRequest"
         lib.content
     );
     assert!(
-        lib.content.contains("pub fn next(&mut self)"),
-        "handle impl must define `next(&mut self)`; got:\n{}",
+        lib.content.contains("pub async fn next(&self)"),
+        "handle impl must define `async fn next(&self)`; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content.contains("tokio::runtime::Builder"),
-        "stream shim must construct a Tokio runtime; got:\n{}",
+        lib.content.contains("::futures_util::lock::Mutex<"),
+        "the stream must sit behind an async mutex because the guard is held across `.await`; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content.contains(".block_on("),
-        "stream shim must call block_on; got:\n{}",
+        lib.content.contains("self.stream.lock().await"),
+        "next() must await the stream lock rather than block on it; got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains(".block_on("),
+        "stream shims must not block a thread on the runtime; got:\n{}",
         lib.content
     );
     assert!(
