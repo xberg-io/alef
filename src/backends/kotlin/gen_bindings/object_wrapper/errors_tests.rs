@@ -1,5 +1,5 @@
 use super::*;
-use crate::core::ir::{ErrorVariant, FieldDef, TypeRef};
+use crate::core::ir::{ErrorVariant, FieldDef, MethodDef, TypeRef};
 
 fn field(name: &str, sensitive: bool) -> FieldDef {
     FieldDef {
@@ -50,4 +50,29 @@ fn non_sensitive_tuple_field_is_still_interpolated() {
     emit_error_type_with_imports(&error, &mut out, &mut BTreeSet::new());
 
     assert!(out.contains("rejected $field0"), "{out}");
+}
+
+#[test]
+fn variant_field_matching_an_error_accessor_overrides_it() {
+    let mut error = error_with("rate limited: {message}", vec![]);
+    error.variants[0].is_tuple = false;
+    error.variants[0].fields = vec![
+        field("message", false),
+        FieldDef {
+            name: "retry_after".to_string(),
+            ty: TypeRef::Duration,
+            optional: true,
+            ..Default::default()
+        },
+    ];
+    error.methods = vec![MethodDef {
+        name: "retry_after".to_string(),
+        return_type: TypeRef::Optional(Box::new(TypeRef::Duration)),
+        ..Default::default()
+    }];
+    let mut out = String::new();
+    emit_error_type_with_imports(&error, &mut out, &mut BTreeSet::new());
+
+    assert!(out.contains("override val retryAfter: Duration?"), "{out}");
+    assert!(out.contains("open val retryAfter: Duration? = null"), "{out}");
 }

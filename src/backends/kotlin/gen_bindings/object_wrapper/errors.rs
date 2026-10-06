@@ -44,6 +44,17 @@ fn interpolate_error_message_template(template: &str, redacted: &[usize]) -> Str
 }
 
 pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, imports: &mut BTreeSet<String>) {
+    let open_properties: Vec<(String, String)> = error
+        .methods
+        .iter()
+        .filter(|m| !m.sanitized)
+        .map(|m| {
+            (
+                to_lower_camel(&m.name),
+                kotlin_type_with_string_imports(&m.return_type, false, imports),
+            )
+        })
+        .collect();
     emit_cleaned_kdoc(out, &error.doc, "");
     out.push_str(&crate::backends::kotlin::template_env::render(
         "error_sealed_class_header.jinja",
@@ -77,7 +88,15 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             for (idx, f) in variant.fields.iter().enumerate() {
                 let ty_str = kotlin_type_with_string_imports(&f.ty, f.optional, imports);
                 let name = kotlin_field_name(&f.name, idx);
-                let modifier = if name == "message" { "override " } else { "" };
+                // ~keep A variant field that shares a name and type with an `open val` error
+                // accessor declared on the sealed base must override it, or kotlinc rejects
+                // the data class ("hides member of supertype").
+                let overrides_accessor = open_properties.iter().any(|(n, t)| *n == name && *t == ty_str);
+                let modifier = if name == "message" || overrides_accessor {
+                    "override "
+                } else {
+                    ""
+                };
                 err_field_strings.push(format!("{modifier}val {name}: {ty_str}"));
             }
 
@@ -118,9 +137,7 @@ pub(crate) fn emit_error_type_with_imports(error: &ErrorDef, out: &mut String, i
             }
         }
     }
-    for method in error.methods.iter().filter(|m| !m.sanitized) {
-        let prop_name = to_lower_camel(&method.name);
-        let ty_str = kotlin_type_with_string_imports(&method.return_type, false, imports);
+    for (prop_name, ty_str) in open_properties {
         let default = kotlin_zero_value(&ty_str);
         out.push_str(&crate::backends::kotlin::template_env::render(
             "error_open_property.jinja",
