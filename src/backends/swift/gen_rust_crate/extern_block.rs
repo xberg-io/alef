@@ -619,10 +619,10 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
 ///    auto-generates a Swift `class` shadow with `deinit { *_free(ptr) }` so
 ///    Rust's `Drop` runs when the Swift handle goes out of scope — no manual
 ///    `_free` function is required.
-/// 2. A free function `{owner_snake}_{adapter}_start(client, params...) ->
+/// 2. An `async` free function `{owner_snake}_{adapter}_start(client, params...) ->
 ///    Result<{HandleName}, String>` that opens the stream. HTTP-level errors
 ///    (e.g. 401) surface here before any chunks arrive.
-/// 3. A method `next(&mut self) -> Result<String, String>` on the handle.
+/// 3. An `async` method `next(&self) -> Result<String, String>` on the handle.
 ///    Returns the JSON-encoded chunk or `""` on clean EOF; `Err(message)` on a
 ///    stream-level error.
 ///
@@ -706,6 +706,7 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
                 fn_name => &fn_start,
                 params => &start_params_str,
                 return_type => format!("Result<{handle_name}, String>"),
+                is_async => true,
             },
         ));
 
@@ -713,8 +714,9 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(
             "extern_fn_decl.jinja",
             minijinja::context! {
                 fn_name => "next",
-                params => format!("self: &mut {handle_name}"),
+                params => format!("self: &{handle_name}"),
                 return_type => "Result<String, String>",
+                is_async => true,
             },
         ));
     }

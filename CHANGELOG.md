@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Package.swift` builds the `RustBridge` target in Swift 5 language mode because swift-bridge's
   async glue does not pass Swift 6 region-isolation checking. A cancelled Swift `Task` still waits
   for the call to finish. Public Swift signatures are unchanged.
+- Swift streaming no longer parks a thread per open stream. The stream-start bridge function and the
+  handle's `next()` are `async fn` in the swift-bridge module, so `chatStream`-style facades await
+  them directly instead of looping a blocking `next()` inside `Task.detached`. The handle keeps its
+  stream behind an async mutex, `next()` takes `&self`, and the start call clones the request
+  before spawning the work on the shared runtime.
 - FFI error code 5 (`Cancelled`) is no longer reported as an unknown error by Java, C#, Zig or
   Kotlin/Native: Java throws a generated `OperationCancelledException`, C# an
   `OperationCanceledException`, Zig returns `error.Cancelled` (now a member of every declared error

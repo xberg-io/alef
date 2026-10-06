@@ -474,6 +474,7 @@ pub(super) fn emit_streaming_free_functions(
 mod tests {
     use super::*;
     use crate::backends::swift::type_map::SwiftMapper;
+    use crate::core::config::{AdapterConfig, AdapterPattern};
     use crate::core::ir::ParamDef;
     use std::collections::HashSet;
 
@@ -548,5 +549,69 @@ mod tests {
             "got:\n{out}"
         );
         assert!(!out.contains("await"), "got:\n{out}");
+    }
+
+    fn streaming_adapter() -> AdapterConfig {
+        AdapterConfig {
+            name: "chat_stream".to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "chat_stream".to_string(),
+            params: vec![crate::core::config::AdapterParam {
+                name: "req".to_string(),
+                ty: "ChatRequest".to_string(),
+                optional: false,
+            }],
+            returns: None,
+            error_type: Some("String".to_string()),
+            owner_type: Some("Client".to_string()),
+            item_type: Some("Chunk".to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: Some("ChatRequest".to_string()),
+            skip_languages: vec![],
+        }
+    }
+
+    /// Opening the stream and pulling each chunk are `async fn` bridge calls, so the facade awaits
+    /// them directly. A detached task around a synchronous call would pin a pool thread for the
+    /// whole life of every open stream.
+    #[test]
+    fn streaming_method_awaits_the_async_start_and_next_bridge_calls() {
+        let mut out = String::new();
+        emit_streaming_client_method(&streaming_adapter(), "client", &HashSet::new(), &mut out);
+
+        assert!(
+            out.contains("let handle = try await RustBridge.clientChatStreamStart(self.inner, req)"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("let json = try await handle.next().toString()"),
+            "got:\n{out}"
+        );
+        assert!(
+            !out.contains("try RustBridge.clientChatStreamStart"),
+            "the start call must not be a blocking synchronous call, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn streaming_free_function_awaits_the_async_start_and_next_bridge_calls() {
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter()],
+            ..ResolvedCrateConfig::default()
+        };
+        let mut out = String::new();
+        emit_streaming_free_functions(&config, &HashSet::new(), &mut HashSet::new(), &mut out);
+
+        assert!(
+            out.contains("let handle = try await RustBridge.clientChatStreamStart(client, req)"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("let json = try await handle.next().toString()"),
+            "got:\n{out}"
+        );
     }
 }

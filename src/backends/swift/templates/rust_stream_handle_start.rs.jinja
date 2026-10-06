@@ -1,15 +1,22 @@
 /// Start a streaming `{{ owner_type }}::{{ adapter_name }}` request.
 ///
 /// Returns a fresh `{{ handle_name }}` whose ownership transfers to the
-/// Swift caller (swift-bridge boxes the handle internally).
-pub fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, String> {
+/// Swift caller (swift-bridge boxes the handle internally). Declared `async fn`
+/// in the bridge module, so the Swift caller suspends while the request opens
+/// instead of parking a thread.
+pub async fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, String> {
     use ::futures_util::StreamExt;
+{{ param_bindings }}    // SAFETY: Swift keeps the owner alive until this future's task completes.
+    let client: &'static {{ owner_type }} = unsafe { &*(client as *const {{ owner_type }}) };
     let rt = crate::__alef_tokio_runtime();
-    let raw = rt.block_on(async {
+    let __alef_task = rt.spawn(async move {
         {{ core_call }}
             .await
             .map_err(|e| e.to_string())
-    })?;
+    });
+    let raw = __alef_task
+        .await
+        .unwrap_or_else(|__alef_join_error| Err(format!("alef: spawned async task failed: {__alef_join_error}")))?;
     let erased: ::futures_util::stream::BoxStream<
         'static,
         Result<{{ core_item }}, Box<dyn ::std::error::Error + Send + Sync + 'static>>,
@@ -18,6 +25,6 @@ pub fn {{ fn_start }}({{ start_params }}) -> Result<{{ handle_name }}, String> {
     );
     Ok({{ handle_name }} {
         _rt: rt.handle().clone(),
-        stream: ::std::sync::Mutex::new(Some(erased)),
+        stream: ::futures_util::lock::Mutex::new(Some(erased)),
     })
 }

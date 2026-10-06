@@ -12,7 +12,7 @@
 #[allow(clippy::type_complexity)]
 pub struct {{ handle_name }} {
     _rt: ::tokio::runtime::Handle,
-    stream: ::std::sync::Mutex<
+    stream: ::futures_util::lock::Mutex<
         Option<
             ::futures_util::stream::BoxStream<
                 'static,

@@ -79,3 +79,25 @@ fn streaming_extern_block_declares_owner_when_undeclared_elsewhere() {
         "undeclared owner must be declared exactly once across adapters:\n{block}"
     );
 }
+
+/// Both bridge entry points of a stream are `async fn`s: the shims are `pub async fn`, and a
+/// plain `fn` declaration would fail to type-check against them and keep the Swift side blocking.
+#[test]
+fn streaming_extern_block_declares_start_and_next_async() {
+    let adapters = vec![streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle")];
+    let block = emit_extern_block_for_streaming_adapters(&adapters, &HashSet::new())
+        .expect("streaming adapter should produce a block");
+
+    assert!(
+        block.contains("async fn crawl_engine_handle_crawl_stream_start("),
+        "`_start` must be declared `async fn`:\n{block}"
+    );
+    assert!(
+        block.contains("async fn next(self: &CrawlEngineHandleCrawlStreamStreamHandle)"),
+        "`next` must be declared `async fn` over `&self`:\n{block}"
+    );
+    assert!(
+        !block.contains("&mut CrawlEngineHandleCrawlStreamStreamHandle"),
+        "an async `next` shares the handle, it must not take `&mut`:\n{block}"
+    );
+}

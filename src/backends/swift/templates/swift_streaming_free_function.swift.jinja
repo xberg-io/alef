@@ -1,13 +1,11 @@
 public func {{ function_name }}({{ params }}) async throws -> AsyncThrowingStream<{{ item_type }}, Error> {
-    let handle = try await Task.detached(priority: .userInitiated) {
-        try RustBridge.{{ start_fn }}({{ owner_arg }}{{ call_args }})
-    }.value
+    let handle = try await RustBridge.{{ start_fn }}({{ owner_arg }}{{ call_args }})
 
     return AsyncThrowingStream<{{ item_type }}, Error> { continuation in
         let task = Task.detached(priority: .userInitiated) {
             do {
                 while !Task.isCancelled {
-                    let json = try handle.next().toString()
+                    let json = try await handle.next().toString()
                     if json.isEmpty { break }
 {{ chunk_decode }}                    continuation.yield(chunk)
                 }
