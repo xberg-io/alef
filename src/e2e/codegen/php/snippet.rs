@@ -135,9 +135,11 @@ pub(super) fn render_snippet_body_with_ir(
             .collect::<Vec<_>>()
             .join(", ");
     }
+    // ~keep PHP projects name their factory `php_client_factory`; `client_factory` is not read by
+    // the PHP e2e suite, so reading it here left every PHP snippet on the static facade.
+    let client_factory = crate::e2e::codegen::client_factory::php_factory(e2e_config, call);
     let receiver = owner_handle.map(|value| format!("${value}")).unwrap_or_else(|| {
-        override_config
-            .and_then(|value| value.client_factory.as_ref())
+        client_factory
             .map(|_| "$client".to_string())
             .unwrap_or_else(|| class_name.clone())
     });
@@ -145,7 +147,6 @@ pub(super) fn render_snippet_body_with_ir(
     let call_expr = format!("{receiver}{operator}{function_name}({args})");
     let is_streaming =
         crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
-    let client_factory = override_config.and_then(|value| value.client_factory.as_deref());
     let config_call = client_factory
         .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
     let expects_error = fixture
@@ -294,7 +295,7 @@ mod tests {
         e2e.call.overrides.insert(
             "php".into(),
             CallOverride {
-                client_factory: Some("createClient".into()),
+                php_client_factory: Some("createClient".into()),
                 ..CallOverride::default()
             },
         );
@@ -350,7 +351,7 @@ mod tests {
         e2e.call.overrides.insert(
             "php".into(),
             CallOverride {
-                client_factory: Some("createClient".into()),
+                php_client_factory: Some("createClient".into()),
                 ..CallOverride::default()
             },
         );

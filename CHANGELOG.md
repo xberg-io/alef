@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Dart bridge converts a `Duration`-valued error method to milliseconds, the Ruby bridge no
   longer registers an error method it does not implement, and the WebAssembly bridge no longer
   exports an empty stub for one.
+- Ruby and PHP documentation snippets construct their client the way the executable suites do. A named
+  call that repeats none of the file-level overrides now inherits the project's `client_factory`, so it
+  no longer renders a bare module function with no client (Ruby also calls the `_async` method the
+  native extension defines). PHP reads `php_client_factory`, the key PHP projects set, instead of
+  `client_factory`, which its executable suite never reads. This is what lets a fixture's
+  `docs.client.config` reach a Ruby or PHP client.
 
 ## [0.104.4] - 2026-10-06
 

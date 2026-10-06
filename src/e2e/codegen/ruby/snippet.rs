@@ -50,6 +50,17 @@ pub(super) fn render_snippet_body_with_ir(
     let function = override_config
         .and_then(|value| value.function.as_deref())
         .unwrap_or(&call.function);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
+    let client_factory = crate::e2e::codegen::client_factory::plain_factory(e2e_config, call, lang);
+    // ~keep The executable suite (`spec_file.rs`) calls an async function on a client through its
+    // `_async` twin, because that is the method the native extension defines; the snippet has to
+    // name the same one or it documents a method that does not exist.
+    let function = if call.r#async && !is_streaming && client_factory.is_some() && !function.ends_with("_async") {
+        format!("{function}_async")
+    } else {
+        function.to_string()
+    };
     let adapter_lookup_name = call.core_lookup_name(lang);
     let request_type = adapter_lookup_name
         .as_deref()
@@ -84,7 +95,6 @@ pub(super) fn render_snippet_body_with_ir(
             .collect::<Vec<_>>()
             .join(", ");
     }
-    let client_factory = override_config.and_then(|value| value.client_factory.as_deref());
     let config_call = client_factory
         .and_then(|_| crate::e2e::codegen::client_factory::client_config_call(fixture, e2e_config, call, lang));
     let call_receiver = if client_factory.is_some() { "client" } else { &receiver };
@@ -93,8 +103,6 @@ pub(super) fn render_snippet_body_with_ir(
         .and_then(|value| value.name)
         .unwrap_or_else(|| config.name.replace('-', "_"));
     let require_path = package.replace('-', "_");
-    let is_streaming =
-        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call.streaming_enabled());
     let expects_error = fixture
         .assertions
         .iter()

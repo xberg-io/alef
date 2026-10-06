@@ -24,6 +24,16 @@ const LANGUAGES: [(&str, &str, &str); 10] = [
     ("rust", "create_client", "create_client_from_json"),
 ];
 
+/// The override key a language's project names its plain client factory under. PHP's e2e suite
+/// reads `php_client_factory` and ignores `client_factory`, so the snippet must follow it.
+fn plain_factory_key(language: &str) -> &'static str {
+    if language == "php" {
+        "php_client_factory"
+    } else {
+        "client_factory"
+    }
+}
+
 fn config(from_json: bool) -> (E2eConfig, ResolvedCrateConfig) {
     let mut toml = String::from(
         r#"
@@ -42,7 +52,8 @@ args = [{ name = "prompt", field = "prompt", type = "string" }]
     );
     for (language, plain, from_json_factory) in LANGUAGES {
         toml.push_str(&format!(
-            "[crates.e2e.call.overrides.{language}]\nclient_factory = \"{plain}\"\n"
+            "[crates.e2e.call.overrides.{language}]\n{} = \"{plain}\"\n",
+            plain_factory_key(language)
         ));
         if from_json {
             toml.push_str(&format!("client_factory_from_json = \"{from_json_factory}\"\n"));
@@ -200,4 +211,66 @@ fn every_backend_that_renders_client_config_is_exercised_by_the_table() {
             generator.language_name()
         );
     }
+}
+
+/// A named call that overrides only unrelated settings for Ruby and PHP still builds its client
+/// with the project's file-level factory, as the executable suites do. Before, both snippet
+/// generators read only the named call's own override, so such a call rendered a bare module
+/// function with no client for the configuration to reach.
+#[test]
+fn a_named_call_inherits_the_file_level_client_factory() {
+    let toml = r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "example-core"
+sources = ["src/lib.rs"]
+[crates.e2e]
+fixtures = "fixtures"
+[crates.e2e.call]
+function = "chat"
+module = "example_api"
+async = true
+args = [{ name = "prompt", field = "prompt", type = "string" }]
+[crates.e2e.call.overrides.ruby]
+client_factory = "create_client"
+client_factory_from_json = "create_client_from_json"
+[crates.e2e.call.overrides.php]
+php_client_factory = "createClient"
+client_factory_from_json = "createClientFromJson"
+[crates.e2e.calls.chat]
+function = "chat"
+module = "example_api"
+async = true
+args = [{ name = "prompt", field = "prompt", type = "string" }]
+[crates.e2e.calls.chat.overrides.ruby]
+options_type = "ChatRequest"
+[crates.e2e.calls.chat.overrides.php]
+options_type = "ChatRequest"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("config parses");
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config");
+    let resolved = cfg.resolve().expect("config resolves").remove(0);
+    let mut named = fixture(true);
+    named.call = Some("chat".into());
+
+    let ruby = render("ruby", &named, &e2e, &resolved);
+    assert!(ruby.contains("create_client_from_json("), "{ruby}");
+    assert!(ruby.contains("client.chat_async("), "{ruby}");
+    let php = render("php", &named, &e2e, &resolved);
+    assert!(php.contains("::createClientFromJson("), "{php}");
+    assert!(php.contains("$client->chat("), "{php}");
+}
+
+/// PHP projects name their factory `php_client_factory`; a bare `client_factory` under the `php`
+/// key is not what the PHP suite reads, so the snippet must not treat it as a client factory.
+#[test]
+fn php_ignores_a_client_factory_the_php_suite_does_not_read() {
+    let (e2e, resolved) = config(true);
+    let mut e2e = e2e;
+    let php = e2e.call.overrides.get_mut("php").expect("php override");
+    php.php_client_factory = None;
+    php.client_factory = Some("createClient".into());
+    let body = render("php", &fixture(false), &e2e, &resolved);
+    assert!(!body.contains("$client"), "{body}");
 }

@@ -13,7 +13,7 @@
 //! its call site, and the e2e call site names `None` — the docs endpoint cannot reach
 //! a real test by omission.
 
-use crate::e2e::config::{CallConfig, E2eConfig};
+use crate::e2e::config::{CallConfig, CallOverride, E2eConfig};
 use crate::e2e::fixture::{Fixture, FixtureDocsClient};
 
 /// Verbatim argument expressions to emit after the credential and base-URL slots of a
@@ -60,25 +60,50 @@ pub fn docs_base_url(docs_client: Option<&FixtureDocsClient>) -> Option<&str> {
     docs_client.and_then(|client| client.base_url.as_deref())
 }
 
-/// The JSON-string client factory `language` constructs a configured client with, resolved
-/// the way `client_factory` is: the resolved call's override first, then the default
-/// `[e2e.call]` override.
+/// An override value for `language` resolved the way the executable e2e suites resolve their
+/// client factory: the resolved call's own override first, then the default `[e2e.call]`
+/// override. A named call that repeats none of the file-level overrides therefore still gets
+/// the project's client.
+fn call_or_default_override<'a>(
+    e2e_config: &'a E2eConfig,
+    call_config: &'a CallConfig,
+    language: &str,
+    pick: impl Fn(&'a CallOverride) -> Option<&'a str>,
+) -> Option<&'a str> {
+    call_config
+        .overrides
+        .get(language)
+        .and_then(&pick)
+        .or_else(|| e2e_config.call.overrides.get(language).and_then(&pick))
+}
+
+/// The positional client factory `language` constructs a client with for this call
+/// (`client_factory`), resolved by [`call_or_default_override`].
+pub fn plain_factory<'a>(e2e_config: &'a E2eConfig, call_config: &'a CallConfig, language: &str) -> Option<&'a str> {
+    call_or_default_override(e2e_config, call_config, language, |overrides| {
+        overrides.client_factory.as_deref()
+    })
+}
+
+/// The PHP client factory (`php_client_factory`) for this call, resolved by
+/// [`call_or_default_override`]. PHP projects name their factory under this key, and the PHP
+/// e2e suite reads only it, so the snippet must too.
+pub fn php_factory<'a>(e2e_config: &'a E2eConfig, call_config: &'a CallConfig) -> Option<&'a str> {
+    call_or_default_override(e2e_config, call_config, "php", |overrides| {
+        overrides.php_client_factory.as_deref()
+    })
+}
+
+/// The JSON-string client factory `language` constructs a configured client with, resolved by
+/// [`call_or_default_override`].
 pub fn from_json_factory<'a>(
     e2e_config: &'a E2eConfig,
     call_config: &'a CallConfig,
     language: &str,
 ) -> Option<&'a str> {
-    call_config
-        .overrides
-        .get(language)
-        .and_then(|overrides| overrides.client_factory_from_json.as_deref())
-        .or_else(|| {
-            e2e_config
-                .call
-                .overrides
-                .get(language)
-                .and_then(|overrides| overrides.client_factory_from_json.as_deref())
-        })
+    call_or_default_override(e2e_config, call_config, language, |overrides| {
+        overrides.client_factory_from_json.as_deref()
+    })
 }
 
 /// A fixture's `docs.client.config` as the compact JSON text a snippet embeds as a string
@@ -343,6 +368,46 @@ mod tests {
             call,
             ..E2eConfig::default()
         }
+    }
+
+    #[test]
+    fn plain_factories_resolve_the_call_override_then_the_file_level_one() {
+        let e2e_config = config_with_factories(None, Some("Plain"));
+        assert_eq!(
+            plain_factory(&e2e_config, &CallConfig::default(), "go"),
+            Some("Plain"),
+            "a named call without its own override inherits the file-level factory"
+        );
+        let mut named = CallConfig::default();
+        named.overrides.insert(
+            "go".into(),
+            CallOverride {
+                client_factory: Some("CallPlain".into()),
+                ..CallOverride::default()
+            },
+        );
+        assert_eq!(plain_factory(&e2e_config, &named, "go"), Some("CallPlain"));
+        assert_eq!(plain_factory(&e2e_config, &named, "java"), None);
+    }
+
+    #[test]
+    fn the_php_factory_is_read_from_php_client_factory_only() {
+        let mut e2e_config = E2eConfig::default();
+        e2e_config.call.overrides.insert(
+            "php".into(),
+            CallOverride {
+                client_factory: Some("NotRead".into()),
+                ..CallOverride::default()
+            },
+        );
+        assert_eq!(php_factory(&e2e_config, &CallConfig::default()), None);
+        e2e_config
+            .call
+            .overrides
+            .get_mut("php")
+            .expect("php override")
+            .php_client_factory = Some("createClient".into());
+        assert_eq!(php_factory(&e2e_config, &CallConfig::default()), Some("createClient"));
     }
 
     #[test]
