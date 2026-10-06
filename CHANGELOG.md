@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   variant), as `failed to create <type>: <native message>` wrapping the `*Error` the native layer
   reported, so `errors.As` recovers it and its native code. Previously the message was copied into an
   untyped `fmt.Errorf`. Constructors of opaque handles do the same.
+- The Ruby RBS stubs declare an async instance method under the name the extension registers
+  (`chat_async`, not `chat`), so the signatures match what Ruby code can call. Streaming methods
+  keep their own name.
+
 
 ## [0.104.4] - 2026-10-06
 

@@ -346,6 +346,38 @@ fn streaming_method_returns_enumerator_of_adapter_item_type() {
 }
 
 #[test]
+fn async_instance_method_is_declared_under_its_registered_async_name() {
+    let method = |name: &str| MethodDef {
+        name: name.to_string(),
+        is_async: true,
+        ..Default::default()
+    };
+    let mut streaming: ahash::AHashMap<String, String> = ahash::AHashMap::new();
+    streaming.insert("chat_stream".to_string(), "ChatCompletionChunk".to_string());
+    let excluded = std::collections::HashSet::new();
+    let trait_interfaces = std::collections::HashSet::new();
+    let stub = |method: &MethodDef| {
+        super::gen_method_stub(method, false, false, &streaming, &excluded, &trait_interfaces, "Owner")
+    };
+
+    assert!(
+        stub(&method("chat")).contains("    def chat_async: "),
+        "{}",
+        stub(&method("chat"))
+    );
+    assert!(
+        stub(&method("chat_stream")).contains("    def chat_stream: "),
+        "a streaming method is registered by the streaming module under its own name: {}",
+        stub(&method("chat_stream"))
+    );
+    let sync = MethodDef {
+        name: "chat".to_string(),
+        ..Default::default()
+    };
+    assert!(stub(&sync).contains("    def chat: "), "{}", stub(&sync));
+}
+
+#[test]
 fn method_param_of_excluded_type_is_substituted_to_json_value() {
     let method = MethodDef {
         name: "register_document_extractor".to_string(),

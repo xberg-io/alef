@@ -585,10 +585,19 @@ fn gen_method_stub(
 
     let param_list = format!("({})", params.join(", "));
 
-    let sig_line = if is_static {
-        format!("    def self.{}: {} -> {}", method.name, param_list, return_type)
+    // ~keep Mirrors `module_init`, which registers an async instance method under `{name}_async`
+    // (the wrapper `fn` is named that way too) unless it is a streaming method, which the
+    // streaming module registers under its own name. Declaring the bare name promised a method
+    // the runtime never defines.
+    let ruby_name = if method.is_async && !is_static && !streaming_return_types.contains_key(&method.name) {
+        format!("{}_async", method.name)
     } else {
-        format!("    def {}: {} -> {}", method.name, param_list, return_type)
+        method.name.clone()
+    };
+    let sig_line = if is_static {
+        format!("    def self.{ruby_name}: {param_list} -> {return_type}")
+    } else {
+        format!("    def {ruby_name}: {param_list} -> {return_type}")
     };
 
     if !emit_docstrings || method.doc.is_empty() {
