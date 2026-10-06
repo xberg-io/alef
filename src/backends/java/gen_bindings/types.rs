@@ -14,4 +14,6 @@ pub(crate) use serializers::{
 };
 
 #[cfg(test)]
+mod builder_tests;
+#[cfg(test)]
 mod tests;

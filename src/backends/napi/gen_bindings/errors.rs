@@ -838,4 +838,6 @@ pub(super) fn dts_return_type_capsule(
 }
 
 #[cfg(test)]
+mod dts_enum_tests;
+#[cfg(test)]
 mod tests;

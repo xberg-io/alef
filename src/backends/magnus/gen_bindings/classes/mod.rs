@@ -949,6 +949,8 @@ pub(super) fn gen_struct_default_impl_explicit(
 }
 
 #[cfg(test)]
+mod enum_repr_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

@@ -7,6 +7,8 @@ pub use render::{gen_from_binding_to_core, gen_from_binding_to_core_cfg, gen_fro
 pub use wrappers::apply_core_wrapper_to_core;
 
 #[cfg(test)]
+mod builder_field_tests;
+#[cfg(test)]
 mod field_default_tests;
 #[cfg(test)]
 mod legacy_newtype_tests;

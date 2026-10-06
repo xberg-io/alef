@@ -1180,4 +1180,6 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
 }
 
 #[cfg(test)]
+mod declaration_tests;
+#[cfg(test)]
 mod tests;

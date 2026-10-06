@@ -1073,4 +1073,6 @@ pub(crate) fn gen_enum(
 #[cfg(test)]
 mod cfg_gate_tests;
 #[cfg(test)]
+mod tagged_enum_tests;
+#[cfg(test)]
 mod tests;

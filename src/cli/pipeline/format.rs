@@ -969,6 +969,8 @@ mod external_formatter;
 use external_formatter::{formatter_failure, resolve_crate_dir, run_formatter, run_poly_capturing};
 
 #[cfg(test)]
+mod residual_tests;
+#[cfg(test)]
 mod scope_tests;
 #[cfg(test)]
 mod strict_tests;

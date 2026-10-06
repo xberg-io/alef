@@ -20,6 +20,8 @@ mod tests;
 mod validate;
 #[cfg(test)]
 mod validate_php_tests;
+#[cfg(test)]
+mod validate_tests;
 
 pub use validate::validate;
 

@@ -34,6 +34,8 @@ use orchestration::gen_function_with_emitted_dtos;
 use returns::{to_turbofish_from, type_has_default};
 
 #[cfg(test)]
+mod async_wrapper_tests;
+#[cfg(test)]
 #[path = "functions/tests.rs"]
 mod tests;
 

@@ -895,4 +895,6 @@ fn primitive_ts_type(prim: &crate::core::ir::PrimitiveType) -> &'static str {
 }
 
 #[cfg(test)]
+mod flattened_tests;
+#[cfg(test)]
 mod tests;

@@ -966,6 +966,8 @@ pub(super) fn tagged_enum_binding_struct_fields<'a>(
 }
 
 #[cfg(test)]
+mod tagged_enum_tests;
+#[cfg(test)]
 #[allow(clippy::print_stderr)] // test-only debug output ~keep
 mod tests;
 

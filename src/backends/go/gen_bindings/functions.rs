@@ -672,3 +672,5 @@ pub(super) use visitor::{gen_capsule_function_wrapper, gen_convert_with_visitor_
 mod adapter_wrapper_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod visitor_capsule_tests;
