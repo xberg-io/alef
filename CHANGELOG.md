@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.2] - 2026-10-08
+
 ### Fixed
 
 - Generated Zig bindings compile with Zig 0.17 when copying NUL-terminated strings and registering
