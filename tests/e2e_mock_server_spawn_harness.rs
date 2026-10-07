@@ -167,6 +167,23 @@ fn zig_http_fixture_build_spawns_mock_server() {
     );
 }
 
+/// The standalone mock server exits when its stdin reaches EOF, so retaining only
+/// its startup URL is insufficient: the generated build harness must keep the child
+/// and its stdin pipe alive while the test run steps execute. ~keep
+#[test]
+fn zig_http_fixture_build_retains_mock_server_child() {
+    let files = generate(&ZigE2eCodegen, "zig");
+    let build_zig = files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig"))
+        .expect("build.zig is emitted");
+    let content = &build_zig.content;
+    assert!(
+        content.contains("_alloc.create(@TypeOf(_child_value))") && content.contains("_child.* = _child_value"),
+        "zig build must retain the mock-server child and stdin pipe through test execution. Rendered:\n{content}"
+    );
+}
+
 /// Regression for #405: the standalone-mode `_bin` join hard-coded
 /// `../rust/target/release/mock-server` via `b.pathFromRoot`, which breaks under
 /// `CARGO_TARGET_DIR`/a `.cargo/config.toml` `build.target-dir` override. The runner

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generated Zig bindings compile with Zig 0.17 when copying NUL-terminated strings and registering
   trait-bridge vtables.
+- Generated Zig E2E builds keep the standalone mock server alive through test execution.
 
 ## [0.107.1] - 2026-10-07
 

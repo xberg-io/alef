@@ -641,7 +641,12 @@ fn render_zig_mock_server_spawn(alt_host: &str) -> String {
             .stderr = .inherit,
             .environ_map = &_alef_spawn_env,
         });
-        if (_spawned) |_child| {
+        if (_spawned) |_child_value| {
+            // The mock server treats stdin EOF as its shutdown signal. Retain the
+            // child (and therefore its stdin pipe) in the build allocator for the
+            // complete `zig build` process, including execution of test run steps.
+            const _child = _alloc.create(@TypeOf(_child_value)) catch @panic("failed to retain mock-server child");
+            _child.* = _child_value;
             // The child is intentionally not awaited: it lives for the duration
             // of the `zig build` process, which spans test execution.
             const _stdout = _child.stdout.?;
