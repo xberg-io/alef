@@ -16,7 +16,7 @@ buildscript {
 plugins {
     id("com.android.library") version "9.4.1"
     id("com.vanniktech.maven.publish") version "0.37.0"
-    id("com.github.ben-manes.versions") version "0.64.0"
+    id("com.github.ben-manes.versions") version "0.65.0"
 }
 
 android {
