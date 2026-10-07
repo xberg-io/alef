@@ -11,7 +11,9 @@
 use super::*;
 use crate::snippets::types::{SnippetMetadata, SnippetStatus, SourceOrigin};
 
-const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 120;
+// Same budget as `zig/tests.rs`: a cold Zig 0.17 `zig build` translates C inside the build
+// graph and can exceed two minutes on a contended CI host. ~keep
+const TOOLCHAIN_TEST_TIMEOUT_SECS: u64 = 300;
 
 fn package_fingerprint(name: &[u8]) -> u64 {
     let name_crc = crc32_ieee(name);
