@@ -9,7 +9,7 @@
                         return 1;
                     };
                     defer std.heap.c_allocator.free(_json_slice);
-                    const _json_cstr = std.heap.c_allocator.dupeZ(u8, _json_slice) catch {
+                    const _json_cstr = std.heap.c_allocator.dupeSentinel(u8, _json_slice, 0) catch {
                         if (out_error) |ptr| ptr.* = null;
                         return 1;
                     };

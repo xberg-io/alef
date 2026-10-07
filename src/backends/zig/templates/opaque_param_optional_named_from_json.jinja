@@ -1,4 +1,4 @@
-{{ indent }}const {{ name }}_z: ?[:0]u8 = if ({{ name }}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;
+{{ indent }}const {{ name }}_z: ?[:0]u8 = if ({{ name }}) |v| try std.heap.c_allocator.dupeSentinel(u8, v, 0) else null;
 {{ indent }}defer if ({{ name }}_z) |z| std.heap.c_allocator.free(z);
 {{ indent }}const {{ name }}_handle = if ({{ name }}_z) |z| c.{{ prefix }}_{{ snake }}_from_json(z.ptr) else 0;
 {{ indent }}if ({{ name }}_z != null and {{ name }}_handle == 0) {{ json_error_return }}

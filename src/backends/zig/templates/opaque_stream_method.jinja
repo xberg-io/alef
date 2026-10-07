@@ -1,7 +1,7 @@
     pub fn {{ method_name }}(self: *{{ type_name }}, {{ req_param }}: []const u8) ({{ zig_error_type }}||error{OutOfMemory,HandleClosed})!{{ struct_name }} {
         const handle = self._handle;
         if (handle == 0) return error.HandleClosed;
-        const {{ req_param_lower }}_z = try std.heap.c_allocator.dupeZ(u8, {{ req_param_lower }});
+        const {{ req_param_lower }}_z = try std.heap.c_allocator.dupeSentinel(u8, {{ req_param_lower }}, 0);
         const {{ req_param_lower }}_handle = c.{{ prefix }}_{{ req_type_snake }}_from_json({{ req_param_lower }}_z.ptr);
         std.heap.c_allocator.free({{ req_param_lower }}_z);
         if ({{ req_param_lower }}_handle == 0) { return error.UnknownFfiError; }

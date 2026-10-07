@@ -1,12 +1,8 @@
     var _out_error: [*c]u8 = null;
-    // The Zig-side `I{Trait}` and the cimport'd C `{c_vtable_type}` are both
-    // `extern struct` with identical layout, but Zig considers them nominally
-    // distinct and rejects the direct call with `expected type
-    // '[*c]const {c_vtable_type}', found 'I{Trait}'`. `@bitCast` performs the
-    // layout-preserving reinterpretation that crosses the nominal boundary.
-    // The C FFI layer expects a typed pointer to the vtable, so pass `&_c_vtable`.
-    const _c_vtable: {{ c_vtable_type }} = @bitCast(vtable);
-    const _rc = {{ c_register }}(name, &_c_vtable, user_data, @ptrCast(&_out_error));
+    // The Zig and cimport'd vtables are layout-compatible but nominally distinct;
+    // reinterpret the pointer because Zig 0.17 rejects a value `@bitCast`. ~keep
+    const _c_vtable: *const {{ c_vtable_type }} = @ptrCast(&vtable);
+    const _rc = {{ c_register }}(name, _c_vtable, user_data, @ptrCast(&_out_error));
     if (out_error) |ptr| {
         ptr.* = _out_error;
     }

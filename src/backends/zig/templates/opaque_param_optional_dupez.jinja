@@ -1,2 +1,2 @@
-{{ indent }}const {{ name }}_z: ?[:0]u8 = if ({{ name }}) |{{ capture }}| try std.heap.c_allocator.dupeZ(u8, {{ capture }}) else null;
+{{ indent }}const {{ name }}_z: ?[:0]u8 = if ({{ name }}) |{{ capture }}| try std.heap.c_allocator.dupeSentinel(u8, {{ capture }}, 0) else null;
 {{ indent }}defer if ({{ name }}_z) |z| std.heap.c_allocator.free(z);

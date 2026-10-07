@@ -535,7 +535,7 @@ fn make_vtable_owns_callback_strings_and_reports_errors() {
         &[],
     );
 
-    assert!(out.contains("std.heap.c_allocator.dupeZ(u8, std.mem.span(value))"));
+    assert!(out.contains("std.heap.c_allocator.dupeSentinel(u8, std.mem.span(value), 0)"));
     assert!(out.contains("std.heap.c_allocator.free(std.mem.span(ptr))"));
     assert!(out.contains("std.fmt.allocPrintSentinel("));
     assert!(out.contains("@errorName(err)"));

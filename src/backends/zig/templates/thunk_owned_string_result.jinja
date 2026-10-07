@@ -2,7 +2,7 @@
                         if (out_result) |ptr| ptr.* = null;
                         return 0;
                     }
-                    const _owned_result = std.heap.c_allocator.dupeZ(u8, std.mem.span({{ ok_binding }})) catch {
+                    const _owned_result = std.heap.c_allocator.dupeSentinel(u8, std.mem.span({{ ok_binding }}), 0) catch {
 {% if has_out_error %}
                         if (out_error) |ptr| ptr.* = null;
 {% endif %}

@@ -1,2 +1,2 @@
-    const {{ c_name }} = try allocator.dupeZ(u8, {{ param_name }});
+    const {{ c_name }} = try allocator.dupeSentinel(u8, {{ param_name }}, 0);
     defer allocator.free({{ c_name }});

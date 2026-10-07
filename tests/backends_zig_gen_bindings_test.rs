@@ -226,13 +226,13 @@ fn trait_bridge_complex_return_passes_through_as_cstring() {
     let content = &files[0].content;
 
     // Commit f42122826 ("fix(zig): close callback string ownership") replaced the
-    // zero-copy `@constCast` pass-through with an owned `dupeZ` copy: the old path
+    // zero-copy `@constCast` pass-through with an owned sentinel copy: the old path
     // aliased a pointer returned by the Zig callback and handed it to the Rust side,
     // which then freed it with a mismatched allocator. The value is still treated as
     // an already-NUL-terminated C string — it is copied into allocator-matched
     // storage rather than re-serialized as JSON. ~keep
     assert!(
-        content.contains("std.heap.c_allocator.dupeZ(u8, std.mem.span(value))"),
+        content.contains("std.heap.c_allocator.dupeSentinel(u8, std.mem.span(value), 0)"),
         "complex Zig trait-vtable return must copy the callback string into \
          allocator-matched storage rather than alias it: {content}"
     );
@@ -246,8 +246,8 @@ fn trait_bridge_complex_return_passes_through_as_cstring() {
          under zig 0.16: {content}"
     );
     assert!(
-        !content.contains("dupeZ(u8, _json_slice)"),
-        "no dupeZ of a JSON slice — the value is already a NUL-terminated C string: {content}"
+        !content.contains("dupeSentinel(u8, _json_slice, 0)"),
+        "no sentinel copy of a JSON slice — the value is already a NUL-terminated C string: {content}"
     );
     assert!(
         !content.contains("Unsupported: JSON serialization for this complex return type"),

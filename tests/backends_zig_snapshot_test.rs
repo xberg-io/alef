@@ -567,16 +567,12 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         .clone();
 
     assert!(
-        content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
-        "BUG: register_ocr_backend should pass `&_c_vtable` (pointer), not `_c_vtable` (value). Content:\n{}",
+        content.contains("const _c_vtable: *const c.struct_DEMODemoOcrBackendVTable = @ptrCast(&vtable);")
+            && content.contains("c.demo_register_ocr_backend(name, _c_vtable,"),
+        "BUG: register_ocr_backend should reinterpret the vtable pointer without a value @bitCast. Content:\n{}",
         content
     );
-
-    assert!(
-        !content.contains("c.demo_register_ocr_backend(name, _c_vtable,")
-            || content.contains("c.demo_register_ocr_backend(name, &_c_vtable,"),
-        "BUG: register_ocr_backend passing value instead of pointer"
-    );
+    assert!(!content.contains("@bitCast(vtable)"));
 }
 
 #[test]

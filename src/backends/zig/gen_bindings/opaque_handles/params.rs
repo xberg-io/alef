@@ -70,7 +70,7 @@ pub(super) fn ffi_ty_to_zig(rust_ty: &str) -> &'static str {
 }
 
 /// Returns true if a Rust FFI type is a string/CStr pointer that needs
-/// `dupeZ` conversion before passing to the C function.
+/// sentinel-copy conversion before passing to the C function.
 pub(super) fn ffi_ty_needs_dupez(rust_ty: &str) -> bool {
     let normalized = rust_ty.trim();
     normalized.contains("c_char") || normalized.contains("CStr")
