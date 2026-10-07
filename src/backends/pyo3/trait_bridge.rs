@@ -8,6 +8,7 @@ mod generator;
 mod options_field;
 mod registry;
 mod visitor_bridge;
+mod writeback;
 
 pub use crate::codegen::generators::trait_bridge::find_bridge_param;
 pub use bridge_methods::gen_bridge_function;
@@ -178,7 +179,15 @@ pub(crate) fn gen_trait_bridge_with_absent_types(
             error_type: error_type.to_string(),
             error_constructor: error_constructor.to_string(),
         };
-        Ok(gen_bridge_all(&spec, &generator))
+        let mut output = gen_bridge_all(&spec, &generator);
+        output.code.push_str(&writeback::gen_merge_helpers(
+            trait_type,
+            &spec,
+            api,
+            &generator.struct_param_types,
+            pyclass_absent_types,
+        ));
+        Ok(output)
     }
 }
 
@@ -641,13 +650,9 @@ mod tests {
         );
     }
 
-    /// Regression: `PostProcessor::process(&self, result: &mut ExtractedDocument, ..)` cannot be
-    /// implemented from Python at all under the naive bridge — it cloned `result`, handed the
-    /// clone to the host, and discarded whatever the host returned via `.map(|_| ())`, so the
-    /// `&mut` parameter was unfulfillable no matter what the Python plugin did. The bridge must
-    /// instead treat the callback's return value as the (optionally) updated document and write
-    /// it back into `*result` after the call, so Python `PostProcessor` plugins can actually
-    /// modify the extraction result.
+    /// Regression: mutable callback writeback must overlay the foreign-visible fields onto the
+    /// original core value. Replacing the core value wholesale loses private and binding-excluded
+    /// state that the host never received and therefore cannot return. ~keep
     #[test]
     fn async_mut_param_writes_back_host_return_value() {
         use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
@@ -717,8 +722,12 @@ mod tests {
 
         let body = generator.gen_async_method_body(&method, &spec);
         assert!(
-            body.contains("*result = "),
-            "the host's return value must be written back into the &mut param:\n{body}"
+            body.contains("__alef_py_sample_post_processor_bridge_process_merge_public_fields(result, __alef_value)"),
+            "the host's return value must be merged into the original &mut param:\n{body}"
+        );
+        assert!(
+            !body.contains("*result = "),
+            "writeback must not replace private or binding-excluded core state:\n{body}"
         );
         assert!(
             !body.contains(".map(|_| ())"),
@@ -727,6 +736,115 @@ mod tests {
         assert!(
             body.contains("py_result.is_none()"),
             "the host must be allowed to return None to mean \"unchanged\":\n{body}"
+        );
+        assert!(
+            body.contains("py_result.extract::<Doc>()") && body.contains("serde_json::from_str::<sample_core::Doc>"),
+            "native-object and mapping returns must share the preserving merge boundary:\n{body}"
+        );
+    }
+
+    #[test]
+    fn async_mut_param_merge_updates_only_binding_visible_public_fields() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{ApiSurface, FieldDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+
+        let method = MethodDef {
+            name: "process".to_owned(),
+            params: vec![ParamDef {
+                name: "result".to_owned(),
+                ty: TypeRef::Named("Document".to_owned()),
+                is_ref: true,
+                is_mut: true,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::Unit,
+            is_async: true,
+            error_type: Some("SampleError".to_owned()),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+        let trait_def = TypeDef {
+            name: "SampleProcessor".to_owned(),
+            rust_path: "sample_core::SampleProcessor".to_owned(),
+            is_trait: true,
+            is_opaque: true,
+            methods: vec![method],
+            ..TypeDef::default()
+        };
+        let document = TypeDef {
+            name: "Document".to_owned(),
+            rust_path: "sample_core::Document".to_owned(),
+            has_serde: true,
+            has_default: true,
+            has_private_fields: true,
+            fields: vec![
+                FieldDef {
+                    name: "content".to_owned(),
+                    ty: TypeRef::String,
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "pipeline_state".to_owned(),
+                    ty: TypeRef::String,
+                    serde_skip: true,
+                    binding_excluded: true,
+                    binding_exclusion_reason: Some("alef(skip)".to_owned()),
+                    ..FieldDef::default()
+                },
+                FieldDef {
+                    name: "wire_hidden_state".to_owned(),
+                    ty: TypeRef::String,
+                    serde_skip: true,
+                    ..FieldDef::default()
+                },
+            ],
+            ..TypeDef::default()
+        };
+        let api = ApiSurface {
+            types: vec![trait_def.clone(), document],
+            ..ApiSurface::default()
+        };
+        let bridge = TraitBridgeConfig {
+            trait_name: trait_def.name.clone(),
+            register_fn: Some("register_sample".to_owned()),
+            registry_getter: Some("sample_core::registry::get".to_owned()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let output = super::gen_trait_bridge(
+            &trait_def,
+            &bridge,
+            "sample_core",
+            "SampleError",
+            "SampleError::Message { message: {msg} }",
+            &api,
+            &[],
+        )
+        .expect("generate trait bridge");
+        syn::parse_file(&output.code).expect("generated trait bridge must parse as Rust");
+
+        assert!(
+            output
+                .code
+                .contains("std::mem::swap(&mut target.content, &mut updated.content);"),
+            "public binding field must be merged:\n{}",
+            output.code
+        );
+        assert_eq!(
+            output.code.matches("std::mem::swap(&mut target.").count(),
+            1,
+            "only the one binding-visible IR field may be merged:\n{}",
+            output.code
+        );
+        assert!(
+            !output.code.contains("target.pipeline_state"),
+            "the binding-excluded public field must remain on the original core value:\n{}",
+            output.code
+        );
+        assert!(
+            !output.code.contains("target.wire_hidden_state"),
+            "the serde-skipped public field must remain on the original core value:\n{}",
+            output.code
         );
     }
 

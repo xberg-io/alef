@@ -1,0 +1,16 @@
+
+fn {{ merge_fn }}(
+    {% if has_fields %}target{% else %}_target{% endif %}: &mut {{ core_type }},
+    {% if has_fields %}mut updated{% else %}_updated{% endif %}: {{ core_type }},
+) {
+{% for field in fields %}
+{% if field.cfg %}
+    #[cfg({{ field.cfg }})]
+    {
+        std::mem::swap(&mut target.{{ field.name }}, &mut updated.{{ field.name }});
+    }
+{% else %}
+    std::mem::swap(&mut target.{{ field.name }}, &mut updated.{{ field.name }});
+{% endif %}
+{% endfor %}
+}

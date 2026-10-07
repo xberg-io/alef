@@ -41,6 +41,6 @@ let __alef_updated: Option<{{ mut_core_ty }}> = tokio::task::spawn_blocking(move
 .flatten()?;
 
 if let Some(__alef_value) = __alef_updated {
-    *{{ mut_param_name }} = __alef_value;
+    {{ merge_fn }}({{ mut_param_name }}, __alef_value);
 }
 Ok(())

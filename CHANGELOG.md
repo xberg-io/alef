@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated Python mutable trait callbacks preserve private and binding-excluded core state when
+  applying fields returned by the callback.
+
 ## [0.107.0] - 2026-10-06
 
 ### Changed

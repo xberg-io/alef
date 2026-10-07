@@ -74,6 +74,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trait_bridge/async_method_mut_writeback.jinja"),
     ),
     (
+        "trait_bridge/mut_writeback_merge_fn.jinja",
+        include_str!("templates/trait_bridge/mut_writeback_merge_fn.jinja"),
+    ),
+    (
         "trait_bridge/async_param_cloning.jinja",
         include_str!("templates/trait_bridge/async_param_cloning.jinja"),
     ),

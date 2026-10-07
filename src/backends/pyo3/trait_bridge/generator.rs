@@ -2,6 +2,8 @@ use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridge
 use crate::core::ir::{MethodDef, TypeRef};
 use std::collections::HashMap;
 
+use super::writeback;
+
 fn exported_pyfunction_symbol(fn_name: &str) -> String {
     fn_name.to_string()
 }
@@ -139,7 +141,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
 
-        if let Some((mut_param_name, mut_native_ty, mut_core_ty)) = self.mut_writeback_param(method) {
+        if let Some(writeback) = writeback::method_shape(method, spec, &self.struct_param_types) {
             let py_args = self.async_py_args(method);
             let run_args = if py_args.is_empty() {
                 "bound_method,".to_string()
@@ -179,7 +181,9 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
             let json_error_expr =
                 spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
             let deserialize_error_expr = spec.make_error(&format!(
-                "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected type `{mut_native_ty}`: {{}}. The returned value must be the (optionally modified) `{mut_native_ty}`, or None to leave it unchanged.\", cached_name, e)"
+                "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected type `{}`: {{}}. The returned value must be the (optionally modified) `{}`, or None to leave it unchanged.\", cached_name, e)",
+                writeback.binding_type,
+                writeback.binding_type,
             ));
             let spawn_error_expr = spec.make_error("format!(\"spawn_blocking failed: {}\", e)");
             return crate::backends::pyo3::template_env::render(
@@ -189,9 +193,10 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     call => call,
                     run_args => run_args,
                     param_cloning => param_cloning,
-                    mut_param_name => mut_param_name,
-                    mut_native_ty => mut_native_ty,
-                    mut_core_ty => mut_core_ty,
+                    mut_param_name => writeback.param_name,
+                    mut_native_ty => writeback.binding_type,
+                    mut_core_ty => writeback.core_type,
+                    merge_fn => writeback.merge_fn,
                     error_expr => error_expr,
                     json_error_expr => json_error_expr,
                     deserialize_error_expr => deserialize_error_expr,
@@ -444,31 +449,6 @@ impl Pyo3BridgeGenerator {
     /// variants are all unit (fieldless), like `ProcessingStage` or `OcrBackendType`.
     fn is_unit_enum_return(&self, ty: &TypeRef) -> bool {
         matches!(ty, TypeRef::Named(name) if self.unit_enum_return_types.contains(name))
-    }
-
-    /// Detects the "in-place mutation" callback pattern: a `Unit`-returning method with a
-    /// `&mut Named` parameter whose type is native-marshalled (e.g.
-    /// `PostProcessor::process(&self, result: &mut ExtractedDocument, ..)`). Python cannot
-    /// mutate a frozen `#[pyclass]` in place, so the bridge instead treats the callback's
-    /// *return value* as the (optionally) updated value and writes it back into `*param` after
-    /// the call, rather than silently discarding it as the naive `.map(|_| ())` bridge did.
-    ///
-    /// Returns `(param_name, native_binding_type_name, fully_qualified_core_type_path)` when the
-    /// pattern applies. Returns `None` for any other shape (no mut param, non-Unit return, or a
-    /// mut param whose type isn't a known native-marshalled struct) so those keep the existing
-    /// bridge behavior unchanged.
-    fn mut_writeback_param(&self, method: &MethodDef) -> Option<(String, String, String)> {
-        if !matches!(method.return_type, TypeRef::Unit) {
-            return None;
-        }
-        let param = method.params.iter().find(|p| p.is_mut)?;
-        let TypeRef::Named(name) = &param.ty else {
-            return None;
-        };
-        if !self.struct_param_types.contains(name) {
-            return None;
-        }
-        Some((param.name.clone(), name.clone(), self.extract_ty(&param.ty)))
     }
 
     /// True when a `Named(name)` param should be handed to the host as the binding's native
