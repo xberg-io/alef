@@ -217,6 +217,40 @@ fn trait_vtable_includes_free_string_and_status_lifecycle_callbacks() {
 }
 
 #[test]
+fn infallible_complex_return_matches_ffi_out_error_abi() {
+    let trait_def = make_trait_def(
+        "PostProcessor",
+        vec![make_method(
+            "processing_stage",
+            vec![],
+            TypeRef::Named("ProcessingStage".to_string()),
+            None,
+        )],
+    );
+    let bridge_cfg = make_bridge_cfg("PostProcessor", Some("Plugin"));
+    let mut out = String::new();
+
+    emit_trait_bridge(
+        "sample",
+        "SampleError",
+        &bridge_cfg,
+        &trait_def,
+        &HashSet::new(),
+        &mut out,
+    );
+
+    let expected_signature = "processing_stage: ?*const fn (user_data: ?*anyopaque, out_result: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 = null";
+    assert!(
+        out.contains(expected_signature),
+        "infallible complex returns must match the FFI vtable's out_error slot:\n{out}"
+    );
+    assert!(
+        out.contains("fn thunk(ud: ?*anyopaque, out_result: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32"),
+        "generated thunk must use the same callback ABI:\n{out}"
+    );
+}
+
+#[test]
 fn single_method_trait_emits_vtable_and_register() {
     let trait_def = make_trait_def(
         "Validator",

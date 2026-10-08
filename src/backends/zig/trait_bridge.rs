@@ -130,7 +130,7 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
     if method_needs_out_result(method) {
         params.push(("out_result".to_string(), "?*?[*c]u8".to_string()));
     }
-    if method.error_type.is_some() {
+    if method.error_type.is_some() || method_needs_out_result(method) {
         params.push(("out_error".to_string(), "?*?[*c]u8".to_string()));
     }
     params
@@ -315,7 +315,7 @@ pub fn emit_make_vtable(
                 "thunk_owned_string_result.jinja",
                 minijinja::context! {
                     ok_binding => &ok_binding,
-                    has_out_error => false,
+                    has_out_error => true,
                 },
             ));
         } else {
@@ -457,7 +457,7 @@ pub fn emit_trait_bridge(
         if method_needs_out_result(method) {
             params.push("out_result: ?*?[*c]u8".to_string());
         }
-        if method.error_type.is_some() {
+        if method.error_type.is_some() || method_needs_out_result(method) {
             params.push("out_error: ?*?[*c]u8".to_string());
         }
 

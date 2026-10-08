@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated Zig trait bridges match the C ABI for infallible complex return values by including
+  the required error out-parameter, avoiding undefined behavior when native code invokes them.
+
 ## [0.107.2] - 2026-10-08
 
 ### Fixed
