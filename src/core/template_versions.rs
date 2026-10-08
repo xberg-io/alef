@@ -98,7 +98,7 @@ pub mod cargo {
     pub const RB_SYS: &str = ">=0.9.130, <0.10";
 
     // renovate: datasource=crate depName=ext-php-rs
-    pub const EXT_PHP_RS: &str = "0.16.0";
+    pub const EXT_PHP_RS: &str = "0.16.1";
 
     // renovate: datasource=crate depName=js-sys
     pub const JS_SYS: &str = "0.3";
@@ -642,7 +642,7 @@ pub mod cran {
 }
 
 pub mod precommit {
-    pub const ALEF_REV: &str = "v0.107.4";
+    pub const ALEF_REV: &str = "v0.107.5";
 
     /// Codegen format version — bumped only when output-affecting codegen
     /// changes require all generated files to be re-stamped. Unlike
