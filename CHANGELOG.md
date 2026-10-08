@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.4] - 2026-10-08
+
 ### Fixed
 
 - Generated Node bindings heap-pin core async futures before napi-rs creates their JavaScript
