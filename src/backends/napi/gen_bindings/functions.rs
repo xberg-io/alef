@@ -191,7 +191,11 @@ pub(super) fn gen_function(
             }).map(|p| {
                 format!("let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n    ", p.name, p.name)
             }).collect();
-            let core_call = format!("{core_fn_path}({call_args})");
+            let core_call = if func.is_async {
+                format!("Box::pin({core_fn_path}({call_args}))")
+            } else {
+                format!("{core_fn_path}({call_args})")
+            };
             let await_kw = if func.is_async { ".await" } else { "" };
 
             if matches!(func.return_type, TypeRef::Unit) {
@@ -241,7 +245,7 @@ pub(super) fn gen_function(
         let_bindings.push_str(&gen_vec_f32_conversion_bindings(&func.params));
         let_bindings.push_str(&gen_napi_buffer_conversion_bindings(&func.params));
         let_bindings.push_str(&napi_newtype_param_bindings(&func.params));
-        let core_call = format!("{core_fn_path}({call_args})");
+        let core_call = format!("Box::pin({core_fn_path}({call_args}))");
         if let Some(var) = &writeback_var {
             // Async `&mut` DTO write-back: the core future resolves to `()` (or `Result<(), E>`),
             // which the sync writeback branch below discards in favor of the mutated
@@ -435,6 +439,31 @@ mod tests {
             &capsule_types,
             &mutex_types,
         )
+    }
+
+    #[test]
+    fn napi_async_core_futures_are_heap_pinned_for_single_and_batch_functions() {
+        use crate::core::ir::{FunctionDef, TypeRef};
+
+        for (name, return_type) in [
+            ("fetch", TypeRef::String),
+            ("fetch_batch", TypeRef::Vec(Box::new(TypeRef::String))),
+        ] {
+            let func = FunctionDef {
+                name: name.to_owned(),
+                rust_path: format!("sample_core::{name}"),
+                return_type,
+                is_async: true,
+                ..FunctionDef::default()
+            };
+
+            let output = gen_probe_function(&func);
+
+            assert!(
+                output.contains(&format!("Box::pin(sample_core::{name}()).await")),
+                "async core futures must be allocated away from Node's central stack:\n{output}"
+            );
+        }
     }
 
     #[test]
