@@ -261,7 +261,7 @@ pub(crate) fn scaffold_python_cargo(
     // `codegen::cfg::cfg_default_and_forwarding_lines` helper since before pyo3 had any cfg
     // surface to gate at all -- pyo3 simply never grew this block alongside them (alef #464's
     // sibling gap). ~keep
-    let cfg_features = crate::codegen::cfg::native_wrapper_default_features(api, &config.wrapper_default_features);
+    let cfg_features = crate::codegen::cfg::native_wrapper_default_features_for_config(api, config);
     let cfg_forwarding = if cfg_features.is_empty() {
         String::new()
     } else {

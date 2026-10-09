@@ -123,8 +123,10 @@ pub(crate) fn php_declared_features(
     api: &ApiSurface,
     wrapper_default_features: &[String],
     excluded_default_features: &[&str],
+    component_features: &BTreeSet<String>,
 ) -> BTreeSet<String> {
     let mut features = crate::codegen::cfg::native_wrapper_default_features(api, wrapper_default_features);
+    features.retain(|name| !component_features.contains(name));
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features
 }
@@ -307,7 +309,12 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         // sees the same set this table declares. ~keep
         let mut excluded_sorted: Vec<&str> = excluded_default_features.iter().copied().collect();
         excluded_sorted.sort_unstable();
-        let features = php_declared_features(api, &config.wrapper_default_features, &excluded_sorted);
+        let features = php_declared_features(
+            api,
+            &config.wrapper_default_features,
+            &excluded_sorted,
+            &crate::codegen::cfg::component_core_features(config),
+        );
         if features.is_empty() {
             String::new()
         } else {

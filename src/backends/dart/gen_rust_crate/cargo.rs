@@ -394,6 +394,12 @@ pub(crate) fn emit_cargo_toml(
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
     let cfg_features_table: String = {
         let mut features = shared_cfg::collect_cfg_features(api);
+        // A configured component's features gate implementation types the downloaded producer
+        // cdylib compiles, not anything this binding wraps; forwarding them would name a feature
+        // this (possibly core-overridden) crate never declares. See
+        // `codegen::cfg::native_wrapper_default_features_for_config`. ~keep
+        let component_features = crate::codegen::cfg::component_core_features(config);
+        features.retain(|name| !component_features.contains(name));
         // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
         // still get a forwarding entry below -- alef-task #371, regression in
         // `cargo_excluded_features_tests.rs`. ~keep

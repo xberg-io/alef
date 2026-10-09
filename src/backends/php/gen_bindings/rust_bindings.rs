@@ -173,6 +173,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         api,
         &config.wrapper_default_features,
         &php_excluded_default,
+        &crate::codegen::cfg::component_core_features(config),
     );
     let php_declared_features_set: std::collections::HashSet<&str> =
         php_declared_features.iter().map(String::as_str).collect();

@@ -50,7 +50,11 @@ pub(super) fn effective_r_cfg_features(api: &ApiSurface, config: &ResolvedCrateC
         // surface in step with what the generated Cargo.toml actually compiles. ~keep
         return crate::codegen::cfg::expand_configured_features(config, configured);
     }
-    crate::codegen::cfg::collect_cfg_features(api).into_iter().collect()
+    let component_features = crate::codegen::cfg::component_core_features(config);
+    crate::codegen::cfg::collect_cfg_features(api)
+        .into_iter()
+        .filter(|name| !component_features.contains(name))
+        .collect()
 }
 
 /// Apply the R backend's cfg policy before struct, conversion, and wrapper generation.

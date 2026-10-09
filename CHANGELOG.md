@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Binding manifests no longer forward a downloadable component's Cargo features. A component's
+  `features` gate its implementation types, which compile into the downloaded producer cdylib
+  rather than the host binding, so a binding that overrides the core crate (wasm/mobile) forwarded
+  `<override>/<feature>` for a feature that crate never declares and the workspace stopped resolving.
 - Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.
 
 ## [0.107.11] - 2026-10-09

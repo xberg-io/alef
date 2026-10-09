@@ -162,7 +162,12 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
 
     // Collect every feature name referenced by a `#[cfg(feature = "X")]` attribute
     // `#[cfg(feature = "X")]` gates produce `error: unexpected cfg condition value: X`
-    let cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    let mut cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    // A configured component's features gate implementation types the downloaded producer
+    // cdylib compiles, not anything this binding wraps; see
+    // `codegen::cfg::native_wrapper_default_features_for_config`. ~keep
+    let component_features = crate::codegen::cfg::component_core_features(config);
+    cfg_features.retain(|name| !component_features.contains(name));
     let features_block = if cfg_features.is_empty() {
         String::new()
     } else {
