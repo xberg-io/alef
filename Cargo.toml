@@ -72,7 +72,7 @@ unicode-general-category = "=1.1.0"
 ureq = { version = "3", features = ["json"] }
 walkdir = "2"
 which = "8"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # `process::termination` puts every deadline-bounded child in its own process group and then has to
 # forward `SIGINT`/`SIGTERM`/`SIGHUP` to those groups itself, because a detached group never
