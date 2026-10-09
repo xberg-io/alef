@@ -52,7 +52,7 @@ libloading = { version = "0.9", optional = true }
 # ~keep Pinned to 2.x. minijinja 3.0 requires owned/`'static` context values, and the ~474
 # `context!` call sites across `src/scaffold` pass borrowed values, so 3.0 does not compile.
 # 0.107.7 restored 2.24 for exactly this reason; re-bump only alongside a full migration. ~keep
-minijinja = "3.0"
+minijinja = "=2.24.0"
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"

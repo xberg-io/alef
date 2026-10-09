@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.
+
 ## [0.107.11] - 2026-10-09
 
 ### Fixed
