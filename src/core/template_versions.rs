@@ -441,7 +441,7 @@ pub mod maven {
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.2";
 
     // renovate: datasource=maven depName=org.jetbrains.kotlin:kotlin-gradle-plugin
-    pub const KOTLIN_JVM_PLUGIN: &str = "2.4.20";
+    pub const KOTLIN_JVM_PLUGIN: &str = "2.4.21";
 
     // Android Gradle plugin — hosted on Google's Maven repo, not Maven Central.
     // renovate: datasource=maven depName=com.android.tools.build:gradle
