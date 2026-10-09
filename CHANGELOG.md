@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.9] - 2026-10-09
+
+### Added
+
+- `[crates.php] allow_service_handler_callbacks = true` re-enables PHP service handler-bridge
+  generation. The default stays a hard failure, because the generated bridge keeps a
+  request-owned Zend callable reachable from a `Send + Sync` trait object; a consumer that
+  guarantees originating-thread, request-scoped dispatch can opt in.
+
+### Fixed
+
+- Pin minijinja back to 2.24. The v3 bump does not compile: ~474 `context!` call sites in
+  `src/scaffold` pass borrowed values that 3.0 rejects (the same reason 0.107.7 restored 2.24).
+- The Swift backend no longer emits bridge wrappers for top-level functions whose signatures
+  name a type it cannot represent (e.g. `axum::body::Body`, `serde_json::Value`). Since
+  v0.100.0's sibling-module file-resolution fix such `pub fn`s are correctly extracted from
+  incidental `pub mod` trees, and the backend degraded their signatures to `String` while the
+  wrapper body passed the raw value to the real function, producing code that did not compile.
+- Swift service-API externs no longer declare `finalize` entrypoints. A `finalize` entrypoint
+  consumes the builder (`App::into_router(self)`) and returns a host type no `&mut` shim can
+  produce, so declaring it emitted an extern with no matching implementation.
+
 ## [0.107.7] - 2026-10-09
 
 ### Changed
