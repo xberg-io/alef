@@ -1,5 +1,6 @@
+use crate::codegen::generators::binding_helpers::resolve_err_conv;
 use crate::codegen::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg,
+    apply_return_newtype_unwrap, gen_async_body_with_error_type as gen_async_body, gen_call_args, gen_call_args_cfg,
     gen_call_args_with_let_bindings_mutex_json_str, gen_named_let_bindings, gen_named_let_bindings_by_ref,
     gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
 };
@@ -102,43 +103,6 @@ fn cast_return_expr(
             _ => None,
         },
         _ => None,
-    }
-}
-
-/// Resolve the `.map_err(...)` conversion for a free function's core `Result::Err`.
-///
-/// PyO3 free functions whose declared `error_type` has a matching `{error}_to_py_err`
-/// converter in `cfg.error_converters` (populated by the pyo3 backend from the same
-/// `gen_pyo3_error_converter` output the trait-bridge and capsule call sites already route
-/// through) convert through that typed converter, so `except {Variant}Error:` catches the
-/// right exception instead of every error kind collapsing into a generic
-/// `pyo3::exceptions::PyRuntimeError` (alef #452). Every other async pattern, and any pyo3
-/// call site that leaves `error_converters` unset, keeps today's generic conversion
-/// unchanged. ~keep
-fn resolve_err_conv(cfg: &RustBindingConfig<'_>, error_type: Option<&str>) -> String {
-    if cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy
-        && let Some(converters) = cfg.error_converters
-        && let Some(error_type) = error_type
-    {
-        use heck::ToSnakeCase;
-        let short_name = error_type.rsplit("::").next().unwrap_or(error_type);
-        let candidate = format!("{}_to_py_err", short_name.to_snake_case());
-        if converters.iter().any(|c| c == &candidate) {
-            return format!(".map_err({candidate})");
-        }
-    }
-    match cfg.async_pattern {
-        AsyncPattern::Pyo3FutureIntoPy => {
-            ".map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))".to_string()
-        }
-        AsyncPattern::NapiNativeAsync => {
-            ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))".to_string()
-        }
-        AsyncPattern::WasmNativeAsync => ".map_err(|e| JsValue::from_str(&e.to_string()))".to_string(),
-        AsyncPattern::TokioBlockOn => {
-            ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))".to_string()
-        }
-        _ => ".map_err(|e| e.to_string())".to_string(),
     }
 }
 
@@ -362,9 +326,7 @@ pub fn gen_function_with_mutex(
             if is_async_pyo3 {
                 let is_unit = matches!(func.return_type, TypeRef::Unit);
                 let wrapped = wrap_return("result");
-                let core_await = format!(
-                    "{core_call}.await\n            .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?"
-                );
+                let core_await = format!("{core_call}.await\n            {serde_err_conv}?");
                 let inner_body = if is_unit {
                     format!("{serde_bindings}{core_await};\n            Ok(())")
                 } else {
@@ -389,6 +351,7 @@ pub fn gen_function_with_mutex(
                     "",
                     is_unit,
                     Some(&return_type),
+                    func.error_type.as_deref(),
                 );
                 format!("{serde_bindings}{async_body}")
             } else if matches!(func.return_type, TypeRef::Unit) {
@@ -486,7 +449,7 @@ pub fn gen_function_with_mutex(
                 let inner_body = if func.error_type.is_some() {
                     format!(
                         "{let_bindings}{core_call}.await\n            \
-                         .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;\n            \
+                         {serde_err_conv}?;\n            \
                          Ok({var}.into())"
                     )
                 } else {
@@ -498,7 +461,7 @@ pub fn gen_function_with_mutex(
                 let result_handling = if func.error_type.is_some() {
                     format!(
                         "let result = {core_call}.await\n            \
-                         .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;"
+                         {serde_err_conv}?;"
                     )
                 } else if is_unit {
                     format!("{core_call}.await;")
@@ -531,6 +494,7 @@ pub fn gen_function_with_mutex(
                 "",
                 matches!(func.return_type, TypeRef::Unit),
                 Some(&return_type),
+                func.error_type.as_deref(),
             );
             format!("{let_bindings}{async_body}")
         }

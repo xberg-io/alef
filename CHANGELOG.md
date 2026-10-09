@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve registered Python exception categories from async free functions and methods, including serde-converted parameters.
+
 ## [0.107.12] - 2026-10-09
 
 ### Changed
