@@ -11,7 +11,7 @@ use std::path::Path;
 /// Package C FFI artifacts into a distributable tarball.
 ///
 /// Produces: `{name}-ffi-v{version}-{platform}.tar.gz` containing:
-/// - `lib/` — shared and static libraries
+/// - `lib/` — shared and static libraries plus the static library's native-link metadata
 /// - `include/` — C header
 /// - `share/pkgconfig/` — .pc file (if `pkg_config` enabled)
 /// - `lib/cmake/` — CMake find module (if `cmake_config` enabled)
@@ -47,11 +47,7 @@ pub fn package_c_ffi(
 
     super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
 
-    let static_lib = target.static_lib_name(&lib_name);
-    let static_result = super::find_built_artifact(workspace_root, target, &static_lib, super::BuildProfile::Release);
-    if let Ok(static_src) = static_result {
-        fs::copy(&static_src, lib_dir.join(&static_lib))?;
-    }
+    super::copy_static_ffi_artifacts(workspace_root, target, &lib_name, &lib_dir, false)?;
 
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     copy_required_headers(config, &ffi_crate_dir, &include_dir)?;
@@ -198,6 +194,52 @@ mod tests {
     use super::*;
     use crate::core::config::NewAlefConfig;
     use tempfile::TempDir;
+
+    fn minimal_config() -> ResolvedCrateConfig {
+        let config: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .expect("config parses");
+        config.resolve().expect("config resolves").remove(0)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn package_c_ffi_ships_static_link_metadata_with_the_static_library() {
+        let directory = TempDir::new().expect("temporary directory");
+        let workspace = directory.path().join("workspace");
+        let output = directory.path().join("dist");
+        let release = workspace.join("target/x86_64-unknown-linux-gnu/release");
+        let include = workspace.join("crates/sample-ffi/include");
+        fs::create_dir_all(&release).expect("create release directory");
+        fs::create_dir_all(&include).expect("create include directory");
+        fs::create_dir_all(&output).expect("create output directory");
+        fs::write(release.join("libsample_ffi.so"), "shared").expect("write shared library");
+        fs::write(release.join("libsample_ffi.a"), "static").expect("write static library");
+        fs::write(release.join("native-static-libs.txt"), "-lpthread -ldl -lm\n").expect("write link metadata");
+        fs::write(include.join("sample.h"), "#pragma once\n").expect("write header");
+        let target = RustTarget::parse("x86_64-unknown-linux-gnu").expect("parse target");
+
+        let artifact = package_c_ffi(&minimal_config(), &target, &workspace, &output, "1.2.3").expect("package C FFI");
+        let listing = std::process::Command::new("tar")
+            .args(["tzf"])
+            .arg(&artifact.path)
+            .output()
+            .expect("list archive");
+        assert!(listing.status.success());
+        let listing = String::from_utf8(listing.stdout).expect("UTF-8 archive listing");
+
+        assert!(listing.contains("/lib/libsample_ffi.a\n"));
+        assert!(listing.contains("/lib/libsample_ffi.so\n"));
+        assert!(listing.contains("/lib/native-static-libs.txt\n"));
+    }
 
     #[test]
     fn package_header_stage_copies_named_call_headers() {

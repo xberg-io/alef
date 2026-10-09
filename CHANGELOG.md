@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Static-link artifacts now use one FFI-level packaging contract: C FFI archives include
+  `native-static-libs.txt` beside the static library, and FFI-only publish builds record those
+  linker requirements even when Go is not among the configured languages.
+
 ### Fixed
 
 - Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.

@@ -179,6 +179,40 @@ pub fn find_built_artifact(
     find_built_artifact_impl(workspace_root, target, &[filename], profile, &[])
 }
 
+/// Copy the FFI static library and its recorded native-link requirements into a package's
+/// `lib/` directory. Static-link metadata belongs to the FFI artifact itself; language-specific
+/// packagers may consume the same contract without rediscovering linker dependencies. ~keep
+pub(crate) fn copy_static_ffi_artifacts(
+    workspace_root: &Path,
+    target: &crate::publish::platform::RustTarget,
+    lib_name: &str,
+    lib_dir: &Path,
+    required: bool,
+) -> Result<bool> {
+    let filename = target.static_lib_name(lib_name);
+    let found = find_built_artifact(workspace_root, target, &filename, BuildProfile::Release);
+    let source = match (found, required) {
+        (Ok(source), _) => source,
+        (Err(error), true) => return Err(error),
+        (Err(_), false) => return Ok(false),
+    };
+    std::fs::copy(source, lib_dir.join(&filename))?;
+
+    match crate::publish::native_libs::find_recorded(workspace_root, target) {
+        Some(recorded) => {
+            std::fs::copy(
+                recorded,
+                lib_dir.join(crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE),
+            )?;
+        }
+        None => tracing::warn!(
+            "no {} recorded by `alef publish build`; the package ships the static library without its native-link requirements",
+            crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE
+        ),
+    }
+    Ok(true)
+}
+
 /// As [`find_built_artifact`], but also checks `extra_dirs` (in the given order, after the two
 /// canonical uplifted locations and before giving up or falling through to the `deps/`
 /// diagnostic) for callers whose toolchain writes output somewhere cargo does not uplift to on

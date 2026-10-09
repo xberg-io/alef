@@ -196,7 +196,7 @@ pub fn build(
         // `[build_commands.<lang>]` entirely, so there is no second, lower-priority override tier
         // to check here any more -- an unset `build_command` falls straight through to alef's
         // own built-in publish build command. ~keep
-        let captures_native_libs = go_listed && matches!(lang, Language::Ffi | Language::Go);
+        let captures_native_libs = matches!(lang, Language::Ffi | Language::Go);
         let cmd = if let Some(custom) = &lang_config.build_command {
             substitute_target(&custom.commands().join(" && "), target)
         } else if captures_native_libs {

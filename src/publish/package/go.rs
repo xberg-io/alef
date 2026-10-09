@@ -44,8 +44,6 @@ pub fn package_go_ffi(
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    let static_lib = target.static_lib_name(&lib_name);
-    let static_result = super::find_built_artifact(workspace_root, target, &static_lib, super::BuildProfile::Release);
     let static_only = target.triple.contains("-musl");
 
     // Packaging always ships a `--release` build -- nothing here is publishable in `debug`. ~keep
@@ -57,27 +55,7 @@ pub fn package_go_ffi(
         super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
     }
 
-    let static_src = if static_only {
-        Some(static_result?)
-    } else {
-        static_result.ok()
-    };
-    if let Some(static_src) = static_src {
-        fs::copy(&static_src, lib_dir.join(&static_lib))?;
-        match crate::publish::native_libs::find_recorded(workspace_root, target) {
-            Some(recorded) => {
-                fs::copy(
-                    &recorded,
-                    lib_dir.join(crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE),
-                )?;
-            }
-            None => tracing::warn!(
-                "no {} recorded by `alef publish build`; the Go package ships the static library without the \
-                 list of native libraries it links against",
-                crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE
-            ),
-        }
-    }
+    super::copy_static_ffi_artifacts(workspace_root, target, &lib_name, &lib_dir, static_only)?;
 
     let ffi_crate_dir = crate::publish::ffi_stage::find_ffi_crate_dir_pub(config, workspace_root);
     let header_src = ffi_crate_dir.join("include").join(&header_name);
