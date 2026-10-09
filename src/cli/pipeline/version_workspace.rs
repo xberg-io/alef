@@ -152,18 +152,13 @@ fn collect_workspace_cargo_toml_paths(writable: &IgnoreFilter) -> Option<(Vec<St
         .and_then(|w| w.get("members"))
         .and_then(|m| m.as_array())
         .unwrap_or(&empty_vec);
-    let excludes = root_toml
-        .get("workspace")
-        .and_then(|w| w.get("exclude"))
-        .and_then(|m| m.as_array())
-        .unwrap_or(&empty_vec);
 
     let workspace_member_names = crate::publish::workspace::workspace_member_crates(Path::new("."))
         .map(|m| m.names.into_iter().collect())
         .unwrap_or_default();
 
     let mut cargo_toml_paths: Vec<String> = vec![];
-    for pattern_val in members.iter().chain(excludes.iter()) {
+    for pattern_val in members {
         if let Some(pattern) = pattern_val.as_str() {
             for entry in writable.glob(&format!("{pattern}/Cargo.toml")) {
                 cargo_toml_paths.push(entry.to_string_lossy().to_string());

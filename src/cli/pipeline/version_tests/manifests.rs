@@ -813,6 +813,73 @@ fn sync_versions_skips_publish_false_workspace_member_but_updates_others() {
 }
 
 #[test]
+fn sync_versions_keeps_excluded_crate_version_independent() {
+    use crate::core::config::NewAlefConfig;
+
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        concat!(
+            "[workspace.package]\nversion = \"1.10.3\"\n\n",
+            "[workspace]\nresolver = \"2\"\n",
+            "members = [\"crates/core\"]\n",
+            "exclude = [\"vendor/independent\"]\n",
+        ),
+    )
+    .expect("write root Cargo.toml");
+
+    for (dir, manifest) in [
+        (
+            "crates/core",
+            "[package]\nname = \"core-package\"\nversion = \"1.10.2\"\n",
+        ),
+        (
+            "vendor/independent",
+            "[package]\nname = \"independent-package\"\nversion = \"0.9.2\"\n",
+        ),
+    ] {
+        let dir_path = root.join(dir);
+        std::fs::create_dir_all(&dir_path).expect("mkdir crate dir");
+        std::fs::write(dir_path.join("Cargo.toml"), manifest).expect("write crate Cargo.toml");
+    }
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n[[crates]]\nname = \"core-package\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let config: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let resolved = config.resolve().expect("resolve config").remove(0);
+
+    std::env::set_current_dir(root).expect("set cwd");
+    let result = sync_versions(&resolved, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(original_cwd);
+    result.expect("sync versions");
+
+    let member = std::fs::read_to_string(root.join("crates/core/Cargo.toml")).expect("read member manifest");
+    assert!(
+        member.contains("version = \"1.10.3\""),
+        "workspace member must track the workspace version:\n{member}"
+    );
+
+    let excluded = std::fs::read_to_string(root.join("vendor/independent/Cargo.toml")).expect("read excluded manifest");
+    assert!(
+        excluded.contains("version = \"0.9.2\""),
+        "excluded crate must retain its independent version:\n{excluded}"
+    );
+    assert!(
+        !excluded.contains("1.10.3"),
+        "excluded crate must not inherit the workspace release version:\n{excluded}"
+    );
+}
+
+#[test]
 fn sync_versions_bumps_publish_false_rust_registry_test_app_package() {
     use crate::core::config::NewAlefConfig;
 

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Newly scaffolded PHP extension crates use ext-php-rs 0.16.1.
 
+### Fixed
+
+- Version sync preserves independent crate versions for manifests listed in Cargo workspace `exclude`.
+
 ## [0.107.4] - 2026-10-08
 
 ### Fixed
