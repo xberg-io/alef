@@ -82,4 +82,15 @@ pub struct PhpConfig {
     /// `RubyConfig::excluded_default_features` makes for the Magnus crate. ~keep
     #[serde(default)]
     pub excluded_default_features: Vec<String>,
+    /// Acknowledge that generated service handler bridges retain request-scoped Zend
+    /// callables behind `Send + Sync` Rust trait objects.
+    ///
+    /// alef refuses to generate PHP service handler registrations by default: the bridge
+    /// keeps a request-owned `ZendCallable` reachable from a `Send + Sync` trait object, so a
+    /// callback (or the final reference release) can run on a non-PHP thread or after the
+    /// originating request ended. Set this to `true` only when the consumer guarantees that
+    /// every registered callback is dispatched and dropped on the originating PHP thread for
+    /// as long as the request is alive. ~keep
+    #[serde(default)]
+    pub allow_service_handler_callbacks: bool,
 }

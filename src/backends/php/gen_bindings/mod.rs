@@ -100,7 +100,11 @@ impl Backend for PhpBackend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         crate::backends::php::trait_bridge::reject_unsafe_bridges(config)?;
-        service_api::reject_unsafe_handler_bridges(api)?;
+        let allow_service_handler_callbacks = config
+            .php
+            .as_ref()
+            .is_some_and(|php| php.allow_service_handler_callbacks);
+        service_api::reject_unsafe_handler_bridges(api, allow_service_handler_callbacks)?;
         let visitor_filtered = crate::backends::php::without_excluded_visitor_types(api, config);
         let api = visitor_filtered.as_ref().unwrap_or(api);
         // Order the IR once, before anything reads it: every emission loop below concatenates

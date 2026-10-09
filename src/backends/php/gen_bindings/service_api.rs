@@ -31,10 +31,16 @@ use std::path::PathBuf;
 pub(super) use php::gen_service_php;
 pub(super) use rust::gen_service_rs;
 
-pub(super) fn reject_unsafe_handler_bridges(api: &ApiSurface) -> anyhow::Result<()> {
+pub(super) fn reject_unsafe_handler_bridges(
+    api: &ApiSurface,
+    allow_service_handler_callbacks: bool,
+) -> anyhow::Result<()> {
+    if allow_service_handler_callbacks {
+        return Ok(());
+    }
     if let Some(service) = api.services.iter().find(|service| !service.registrations.is_empty()) {
         anyhow::bail!(
-            "PHP service `{}` is disabled because its handler registrations retain request-bound Zend callables behind Send + Sync Rust trait objects; remove PHP from the crate's languages or remove the service handler registrations",
+            "PHP service `{}` is disabled because its handler registrations retain request-bound Zend callables behind Send + Sync Rust trait objects; remove PHP from the crate's languages, remove the service handler registrations, or set `[crates.php] allow_service_handler_callbacks = true` after guaranteeing originating-thread dispatch",
             service.name
         );
     }

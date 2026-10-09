@@ -703,6 +703,27 @@ fn rust_output_still_generates_services_without_handler_registrations() {
     assert!(output.contains("pub fn test_service_run("));
 }
 
+#[test]
+fn backend_generates_service_handler_bridges_when_explicitly_allowed() {
+    use crate::core::backend::Backend;
+    use crate::core::config::languages::PhpConfig;
+
+    let mut config = make_test_config();
+    let php: PhpConfig = toml::from_str("allow_service_handler_callbacks = true").expect("deserialize php config");
+    config.php = Some(php);
+
+    let files = crate::backends::php::PhpBackend
+        .generate_service_api(&make_fixture_surface(), &config)
+        .expect("explicit opt-in must allow PHP service handler generation");
+    assert_eq!(files.len(), 2, "expected service.rs and Service.php");
+    let rust = files
+        .iter()
+        .find(|file| file.path.extension().is_some_and(|ext| ext == "rs"))
+        .expect("service.rs generated");
+    assert!(rust.content.contains("PHP_HANDLER_REGISTRY"));
+    assert!(!rust.content.contains("compile_error!"));
+}
+
 /// Full `generate()` call returns two files when services are non-empty.
 #[test]
 fn generate_returns_two_files_for_non_empty_services() {
