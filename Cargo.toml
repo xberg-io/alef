@@ -49,7 +49,7 @@ heck = "0.5"
 icu_casemap = "=2.3.0"
 jsonschema = { version = "0.58", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
-minijinja = "2"
+minijinja = "3"
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"
