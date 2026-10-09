@@ -1214,6 +1214,8 @@ pylint_max_returns = 10
 # exactly rather than globbed: a glob over the tree would silently exempt every future Python
 # file added under it.
 "src/e2e/codegen/python/visitor_context_runtime_driver.py" = ["CPY001", "INP001"]
+# ~keep Embedded by a Rust test, this driver uses assertions and is not an importable Python package.
+"tests/backends_pyo3_managed_runtime_test/runtime.py" = ["INP001", "S101"]
 "e2e/**" = ["comment", "doc-comment"]
 "**/e2e/**" = ["comment", "doc-comment"]
 "test_apps/**" = ["comment", "doc-comment"]

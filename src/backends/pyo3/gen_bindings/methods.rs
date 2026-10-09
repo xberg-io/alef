@@ -28,14 +28,19 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     let has_async =
         api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
 
-    if has_async {
+    if has_async && !super::managed_runtime::enabled(config) {
         lines.push("    {".to_string());
         lines.push("        let mut __rt_builder = tokio::runtime::Builder::new_multi_thread();".to_string());
         lines.push("        __rt_builder.enable_all();".to_string());
         lines.push("        __rt_builder.thread_stack_size(16 * 1024 * 1024);".to_string());
         lines.push("        pyo3_async_runtimes::tokio::init(__rt_builder);".to_string());
         lines.push("    }".to_string());
+    }
+    if has_async {
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
+        if super::managed_runtime::enabled(config) {
+            lines.push("    m.add_function(wrap_pyfunction!(shutdown_async_runtime, m)?)?;".to_string());
+        }
     }
 
     if let Some(reg) = config.custom_registrations.for_language(Language::Python) {

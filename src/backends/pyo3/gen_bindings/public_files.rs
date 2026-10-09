@@ -20,8 +20,11 @@ pub(super) fn generate_type_stubs(
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
     let active_trait_bridges: Vec<_> = config.trait_bridges_for(Language::Python).cloned().collect();
-    let content =
+    let mut content =
         crate::backends::pyo3::gen_stubs::gen_stubs(api, &active_trait_bridges, config, &stubs_exclude_functions);
+    if super::managed_runtime::enabled(config) && super::managed_runtime::has_async(api) {
+        content.push_str("\ndef shutdown_async_runtime() -> None:\n    \"\"\"Stop the idle async runtime and release its threads and descriptors.\"\"\"\n");
+    }
 
     let stubs_path = resolve_output_dir(
         Some(&stubs_config.output),
@@ -109,11 +112,17 @@ pub(super) fn generate_public_api(
         generated_header: true,
     });
 
-    let extra_init_imports = config
+    let mut extra_init_imports = config
         .python
         .as_ref()
         .map(|c| c.extra_init_imports.clone())
         .unwrap_or_default();
+    if super::managed_runtime::enabled(config) && super::managed_runtime::has_async(api) {
+        extra_init_imports
+            .entry(format!(".{module_name}"))
+            .or_default()
+            .push("shutdown_async_runtime".into());
+    }
     let init_content = errors::gen_init_py(
         api,
         &module_name,

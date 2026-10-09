@@ -14,6 +14,7 @@ mod dataclass_closure_tests;
 pub mod enums;
 pub mod errors;
 pub mod functions;
+mod managed_runtime;
 pub mod methods;
 mod mutex;
 #[cfg(test)]
@@ -843,6 +844,10 @@ impl Backend for Pyo3Backend {
         let mut content = builder.build();
         postprocess::clear_bridge_builder_opaque_params(&mut content, config);
         postprocess::wrap_optional_default_args(&mut content, api, config);
+        if has_async && managed_runtime::enabled(config) {
+            content = managed_runtime::rewrite(content);
+            content.push_str(&managed_runtime::support());
+        }
 
         Ok(vec![GeneratedFile {
             path: PathBuf::from(&output_dir).join("lib.rs"),
@@ -875,7 +880,16 @@ impl Backend for Pyo3Backend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        service_api::generate(&crate::backends::ir_order::with_sorted_items(api), config)
+        let mut files = service_api::generate(&crate::backends::ir_order::with_sorted_items(api), config)?;
+        if managed_runtime::enabled(config) && managed_runtime::has_async(api) {
+            for file in files
+                .iter_mut()
+                .filter(|file| file.path.extension().is_some_and(|ext| ext == "rs"))
+            {
+                file.content = managed_runtime::rewrite(std::mem::take(&mut file.content));
+            }
+        }
+        Ok(files)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
