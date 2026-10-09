@@ -517,6 +517,13 @@ mod tests {
     }
 
     #[test]
+    fn go_java_platform_linux_musl_keeps_libc_suffix() {
+        let t = RustTarget::parse("x86_64-unknown-linux-musl").unwrap();
+        assert_eq!(t.platform_for(Language::Go), "linux-x86_64-musl");
+        assert_eq!(t.platform_for(Language::Java), "linux-x86_64-musl");
+    }
+
+    #[test]
     fn go_java_platform_macos_arm64() {
         let t = RustTarget::parse("aarch64-apple-darwin").unwrap();
         assert_eq!(t.platform_for(Language::Go), "macos-arm64");

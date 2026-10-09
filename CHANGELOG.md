@@ -10,9 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Newly scaffolded PHP extension crates use ext-php-rs 0.16.1.
+- Generated Go setup tools support explicit static linking from the packaged archive and recorded
+  native linker flags, plus automatic or explicit musl release-asset selection.
 
 ### Fixed
 
+- Restore Minijinja 2.24 compatibility after the 3.0 dependency bump broke Alef compilation.
 - Version sync preserves independent crate versions for manifests listed in Cargo workspace `exclude`.
 
 ## [0.107.4] - 2026-10-08

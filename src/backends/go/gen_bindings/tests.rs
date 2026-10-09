@@ -305,6 +305,52 @@ fn test_generate_bindings_emits_cmd_setup_and_native_setup_sentinel() {
         "cmd/setup's shim writer must build the RequireNativeSetup_<versionIdent> reference:\n{}",
         setup.content
     );
+    assert!(
+        setup
+            .content
+            .contains(r#"flag.StringVar(&opts.link, "link", "dynamic""#),
+        "cmd/setup must default to dynamic linking:\n{}",
+        setup.content
+    );
+    assert!(
+        setup
+            .content
+            .contains(r#"archive := filepath.Join(staticDir, staticLibFilename(ffiLibName, runtime.GOOS))"#),
+        "static linking must select the explicit archive:\n{}",
+        setup.content
+    );
+    assert!(
+        setup
+            .content
+            .contains(r#"filepath.Join(cacheDir, "native-static-libs.txt")"#),
+        "static linking must consume the recorded native linker flags:\n{}",
+        setup.content
+    );
+    assert!(
+        setup
+            .content
+            .contains(r#"return fmt.Sprintf("-L%q %q %s", staticDir, archive, nativeFlags), nil"#),
+        "static linker flags must use the archive directly without an rpath:\n{}",
+        setup.content
+    );
+    assert!(
+        setup.content.contains(r#"override == base+"-musl""#)
+            && setup.content.contains(r#"return base + "-musl", nil"#),
+        "cmd/setup must support explicit and detected musl release platforms:\n{}",
+        setup.content
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let setup_path = temp.path().join("main.go");
+    std::fs::write(&setup_path, &setup.content).unwrap();
+    let output = std::process::Command::new("go")
+        .args(["test", setup_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "generated cmd/setup must compile: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let native_setup = files
         .iter()
