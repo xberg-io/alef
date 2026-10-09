@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Component contract traits and implementation types are excluded from the generated binding
+  surface. They reach the extracted API only for the component codegen (`resolve_components`,
+  producer, proxy); a backend that emitted a binding for them produced invalid code — napi
+  bridged the implementation's methods, and a binding that overrides the core crate remapped the
+  contract's error type into that crate where it does not exist.
+- The shared component manager emitted into native bindings spells `std::result::Result`
+  explicitly, so it compiles under napi's prelude, which shadows `Result` with its own
+  `napi::Result` and rejected the bare `Result<_, String>` signatures.
 - Binding manifests no longer forward a downloadable component's Cargo features. A component's
   `features` gate its implementation types, which compile into the downloaded producer cdylib
   rather than the host binding, so a binding that overrides the core crate (wasm/mobile) forwarded

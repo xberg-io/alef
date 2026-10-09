@@ -26,9 +26,9 @@ pub(crate) fn generate(config: &ResolvedCrateConfig, lock_manifest_path: &str) -
         .join(", ");
 
     format!(
-        r#"static ALEF_COMPONENT_MANAGER: std::sync::OnceLock<Result<alef_component_runtime::ComponentManager, String>> = std::sync::OnceLock::new();
+        r#"static ALEF_COMPONENT_MANAGER: std::sync::OnceLock<std::result::Result<alef_component_runtime::ComponentManager, String>> = std::sync::OnceLock::new();
 
-fn alef_component_target() -> Result<&'static str, String> {{
+fn alef_component_target() -> std::result::Result<&'static str, String> {{
     #[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
     {{ return Ok("x86_64-unknown-linux-gnu"); }}
     #[cfg(all(target_arch = "aarch64", target_os = "linux", target_env = "gnu"))]
@@ -64,7 +64,7 @@ fn alef_component_error_message(error: alef_component_runtime::ComponentError) -
     format!("{{}}: {{error}}", error.code())
 }}
 
-fn alef_component_manager() -> Result<&'static alef_component_runtime::ComponentManager, String> {{
+fn alef_component_manager() -> std::result::Result<&'static alef_component_runtime::ComponentManager, String> {{
     ALEF_COMPONENT_MANAGER
         .get_or_init(|| {{
             let lock = serde_json::from_str(include_str!(concat!(
@@ -94,14 +94,14 @@ fn alef_component_manager() -> Result<&'static alef_component_runtime::Component
 /// "load the component" no longer names a single, well-defined dlopen the way
 /// it did for a single-contract component; call `alef_component_activate`
 /// (`component_activate`/`ComponentActivate`) to actually load and register.
-fn alef_component_load(component: &str) -> Result<(), String> {{
+fn alef_component_load(component: &str) -> std::result::Result<(), String> {{
     alef_component_manager()?
         .prefetch(&[component])
         .map(|_| ())
         .map_err(alef_component_error_message)
 }}
 
-fn alef_component_prefetch(components: Option<Vec<String>>) -> Result<Vec<String>, String> {{
+fn alef_component_prefetch(components: Option<Vec<String>>) -> std::result::Result<Vec<String>, String> {{
     let components = components.unwrap_or_else(|| {{
         vec![{component_ids}]
             .into_iter()
@@ -123,7 +123,7 @@ fn alef_component_prefetch(components: Option<Vec<String>>) -> Result<Vec<String
 /// `component`'s status, typed. An unsupported host reports `Unsupported` here rather than
 /// failing outright, unlike every other component operation: a status query should always be
 /// answerable, even when nothing else can run.
-fn alef_component_status_typed(component: &str) -> Result<alef_component_runtime::ComponentStatus, String> {{
+fn alef_component_status_typed(component: &str) -> std::result::Result<alef_component_runtime::ComponentStatus, String> {{
     match alef_component_target() {{
         Err(reason) => Ok(alef_component_runtime::ComponentStatus::Unsupported {{ reason }}),
         Ok(_) => alef_component_manager()?
@@ -159,7 +159,7 @@ fn alef_component_status_numeric_code(status: &alef_component_runtime::Component
 
 /// Return `ready`, `cached`, `not_downloaded`, `bundled`, or `unsupported:<reason>` for a
 /// configured component. `alef_component_status_code` returns the matching numeric code.
-fn alef_component_status(component: &str) -> Result<String, String> {{
+fn alef_component_status(component: &str) -> std::result::Result<String, String> {{
     let status = alef_component_status_typed(component)?;
     Ok(match &status {{
         alef_component_runtime::ComponentStatus::Unsupported {{ reason }} => format!("unsupported:{{reason}}"),
@@ -168,11 +168,11 @@ fn alef_component_status(component: &str) -> Result<String, String> {{
 }}
 
 /// The numeric counterpart to `alef_component_status`, stable across releases.
-fn alef_component_status_code(component: &str) -> Result<i32, String> {{
+fn alef_component_status_code(component: &str) -> std::result::Result<i32, String> {{
     alef_component_status_typed(component).map(|status| alef_component_status_numeric_code(&status))
 }}
 
-fn alef_component_cache_path(component: &str) -> Result<String, String> {{
+fn alef_component_cache_path(component: &str) -> std::result::Result<String, String> {{
     alef_component_manager()?
         .cache_path(component)
         .map(|path| path.display().to_string())
@@ -214,7 +214,7 @@ pub(crate) fn generate_activation(api: &ApiSurface, config: &ResolvedCrateConfig
 fn activation_dispatch(config: &ResolvedCrateConfig, resolved: &[ResolvedComponent]) -> Result<String> {
     let mut out = String::new();
     out.push_str(
-        "fn alef_component_register_providers(component: &str) -> Result<(), String> {\n    let manager = alef_component_manager()?;\n    match component {\n",
+        "fn alef_component_register_providers(component: &str) -> std::result::Result<(), String> {\n    let manager = alef_component_manager()?;\n    match component {\n",
     );
     for component in resolved {
         writeln!(out, "        {:?} => {{", component.component_name)?;
@@ -264,7 +264,7 @@ fn alef_component_activated() -> &'static std::sync::Mutex<std::collections::Has
 /// Ensure `component` is downloaded, loaded, and its contracts registered with
 /// `alef_component_abi`. Safe to call more than once; only the first call for
 /// a given component does the work.
-fn alef_component_activate(component: &str) -> Result<(), String> {
+fn alef_component_activate(component: &str) -> std::result::Result<(), String> {
     let mut activated = alef_component_activated()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -397,7 +397,7 @@ mod tests {
         assert!(generated.contains("fn alef_component_status"));
         assert!(generated.contains("fn alef_component_cache_path"));
         assert!(generated.contains("vec![\"fast\"]"));
-        assert!(generated.contains("fn alef_component_target() -> Result<&'static str, String>"));
+        assert!(generated.contains("fn alef_component_target() -> std::result::Result<&'static str, String>"));
         assert!(generated.contains("downloadable native components are unsupported"));
     }
 
