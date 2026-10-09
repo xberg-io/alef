@@ -6,7 +6,14 @@ pub(crate) fn project(api: &ApiSurface) -> ApiSurface {
 
 pub(crate) fn project_owned(mut api: ApiSurface) -> ApiSurface {
     api.functions.retain(|function| !function.binding_excluded);
-    api.types.retain(|type_def| !type_def.binding_excluded);
+    // ~keep Service-owner types are `binding_excluded` so the plain type pipeline does not emit
+    // a duplicate class beside each backend's own service class. But some backends (napi) build
+    // their service class FROM that same type pipeline, so dropping the owner leaves their
+    // `use crate::Js{Owner}` unresolved. Retain owners here; a backend that emits the class
+    // itself still suppresses the duplicate through its own `binding_excluded` exclusion set. ~keep
+    let service_owners: std::collections::HashSet<String> = api.services.iter().map(|s| s.name.clone()).collect();
+    api.types
+        .retain(|type_def| !type_def.binding_excluded || service_owners.contains(&type_def.name));
     api.enums.retain(|enum_def| !enum_def.binding_excluded);
     api.errors.retain(|error_def| !error_def.binding_excluded);
     crate::cli::pipeline::sanitize_binding_projection(&mut api);

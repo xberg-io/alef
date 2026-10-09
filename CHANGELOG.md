@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Service-owner types are retained in the binding surface. Marking them `binding_excluded`
+  and stripping them from `api.types` left the napi backend's `use crate::Js{Owner}`
+  unresolved, because that backend emits its service class from the type pipeline. Backends
+  that emit the class themselves still suppress the duplicate through their own exclusion set.
+
 ## [0.107.9] - 2026-10-09
 
 ### Added
