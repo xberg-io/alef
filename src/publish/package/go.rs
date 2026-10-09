@@ -11,8 +11,9 @@ use std::path::Path;
 /// Package Go FFI artifacts into a distributable tarball.
 ///
 /// Produces: `{name}-go-v{version}-{platform}.tar.gz` containing:
-/// - `lib/` — shared library (and optionally static library, with `native-static-libs.txt`
-///   listing the native libraries it needs when `alef publish build` recorded them)
+/// - `lib/` — shared library, or a static library for musl targets, with
+///   `native-static-libs.txt` listing the native libraries it needs when
+///   `alef publish build` recorded them
 /// - `include/` — C header
 ///
 /// Uses a `-go-` infix (not `-ffi-`) so that Go and C FFI tarballs do not
@@ -43,17 +44,25 @@ pub fn package_go_ffi(
     fs::create_dir_all(&lib_dir)?;
     fs::create_dir_all(&include_dir)?;
 
-    // Packaging always ships a `--release` build -- nothing here is publishable in `debug`. ~keep
-    let shared_lib = target.shared_lib_name(&lib_name);
-    let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib, super::BuildProfile::Release)?;
-    let shared_dst = lib_dir.join(&shared_lib);
-    fs::copy(&shared_src, &shared_dst)?;
-
-    super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
-
     let static_lib = target.static_lib_name(&lib_name);
     let static_result = super::find_built_artifact(workspace_root, target, &static_lib, super::BuildProfile::Release);
-    if let Ok(static_src) = static_result {
+    let static_only = target.triple.contains("-musl");
+
+    // Packaging always ships a `--release` build -- nothing here is publishable in `debug`. ~keep
+    if !static_only {
+        let shared_lib = target.shared_lib_name(&lib_name);
+        let shared_src = super::find_built_artifact(workspace_root, target, &shared_lib, super::BuildProfile::Release)?;
+        let shared_dst = lib_dir.join(&shared_lib);
+        fs::copy(&shared_src, &shared_dst)?;
+        super::util::fix_macos_dylib_id(target, &shared_dst, &shared_lib)?;
+    }
+
+    let static_src = if static_only {
+        Some(static_result?)
+    } else {
+        static_result.ok()
+    };
+    if let Some(static_src) = static_src {
         fs::copy(&static_src, lib_dir.join(&static_lib))?;
         match crate::publish::native_libs::find_recorded(workspace_root, target) {
             Some(recorded) => {
@@ -229,5 +238,47 @@ sources = ["src/lib.rs"]
         let base = "demo_go-go-v1.2.3-linux-x86_64";
         assert!(archive_entry(&artifact.path, &format!("{base}/lib/libdemo_go_ffi.a")).is_some());
         assert!(archive_entry(&artifact.path, &format!("{base}/lib/native-static-libs.txt")).is_none());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn package_go_ffi_musl_ships_static_library_without_shared_library() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let output_dir = tmp.path().join("dist");
+        fs::create_dir_all(&output_dir).unwrap();
+        let target = RustTarget::parse("x86_64-unknown-linux-musl").unwrap();
+        let release_dir = workspace.join("target/x86_64-unknown-linux-musl/release");
+        fs::create_dir_all(&release_dir).unwrap();
+        fs::write(release_dir.join("libdemo_go_ffi.a"), b"a").unwrap();
+        fs::write(
+            release_dir.join(crate::publish::native_libs::NATIVE_STATIC_LIBS_FILE),
+            "-lunwind -lc\n",
+        )
+        .unwrap();
+
+        let artifact = package_go_ffi(&make_config("demo_go"), &target, &workspace, &output_dir, "1.2.3").unwrap();
+        let base = "demo_go-go-v1.2.3-linux-x86_64-musl";
+
+        assert!(archive_entry(&artifact.path, &format!("{base}/lib/libdemo_go_ffi.a")).is_some());
+        assert!(archive_entry(&artifact.path, &format!("{base}/lib/libdemo_go_ffi.so")).is_none());
+        assert_eq!(
+            archive_entry(&artifact.path, &format!("{base}/lib/native-static-libs.txt")).as_deref(),
+            Some("-lunwind -lc\n")
+        );
+    }
+
+    #[test]
+    fn package_go_ffi_musl_requires_static_library() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let output_dir = tmp.path().join("dist");
+        fs::create_dir_all(&output_dir).unwrap();
+        let target = RustTarget::parse("x86_64-unknown-linux-musl").unwrap();
+
+        let error = package_go_ffi(&make_config("demo_go"), &target, &workspace, &output_dir, "1.2.3")
+            .expect_err("musl packaging must reject a missing static library");
+
+        assert!(error.to_string().contains("libdemo_go_ffi.a not found"));
     }
 }
