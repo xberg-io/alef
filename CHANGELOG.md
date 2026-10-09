@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.10] - 2026-10-09
+
 ### Fixed
 
 - Service-owner types are retained in the binding surface. Marking them `binding_excluded`
