@@ -331,6 +331,7 @@ fn emit_lib_rs(
                 &type_paths,
                 &no_serde_names,
                 &no_serde_enum_names,
+                &visible_type_names,
                 &handle_returned_types,
             )
         })

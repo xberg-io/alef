@@ -189,6 +189,7 @@ fn vec_enum_params_bridge_as_json_strings() {
         &type_paths,
         &no_serde_names,
         &HashSet::new(),
+        &HashSet::from(["PageAction", "InteractionResult"]),
         &handle_returned_types
     ));
 
@@ -406,6 +407,7 @@ fn vec_string_with_ref_inner_converts_to_slice_of_strs() {
         &type_paths,
         &no_serde_names,
         &tagged_enum_names,
+        &HashSet::from(["InteractionResult"]),
         &handle_returned_types
     ));
 

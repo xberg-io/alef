@@ -239,9 +239,13 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
     let entrypoints: Vec<minijinja::Value> = service
         .entrypoints
         .iter()
+        // ~keep Only `run` entrypoints have a free-function shim (see
+        // `rust_service_app_free_fns.rs.jinja`). A `finalize` entrypoint consumes the
+        // builder (`App::into_router(self)`) and returns a host type no `&mut` shim can
+        // produce, so declaring it here emits an extern with no matching impl. ~keep
         .filter(|ep| {
-            !matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize)
-                || entrypoint_return_representable(ep, service, api)
+            matches!(ep.kind, crate::core::ir::EntrypointKind::Run)
+                && entrypoint_return_representable(ep, service, api)
         })
         .map(|ep| {
             let ep_snake = ep.method.to_snake_case();
@@ -530,8 +534,8 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
     }
 
     for ep in &service.entrypoints {
-        if matches!(ep.kind, crate::core::ir::EntrypointKind::Finalize)
-            && !entrypoint_return_representable(ep, service, api)
+        if !matches!(ep.kind, crate::core::ir::EntrypointKind::Run)
+            || !entrypoint_return_representable(ep, service, api)
         {
             continue;
         }

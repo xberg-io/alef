@@ -36,12 +36,47 @@ pub(crate) struct FunctionShimContext<'a> {
 /// any tuple-vec parameter has an unbridgeable inner type (e.g. `Vec<u8>,`), when the
 /// return type requires JSON bridging but the inner Named type lacks serde, or when any
 /// parameter is a Result type (Result types cannot be represented across the C FFI).
+/// Collect every `Named` type appearing anywhere in a `TypeRef` (through
+/// `Optional`/`Vec`/`Map` wrappers).
+fn collect_named_types<'a>(ty: &'a TypeRef, out: &mut Vec<&'a str>) {
+    match ty {
+        TypeRef::Named(n) => out.push(n.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(key, value) => {
+            collect_named_types(key, out);
+            collect_named_types(value, out);
+        }
+        _ => {}
+    }
+}
+
+/// Whether a `TypeRef` contains a `serde_json::Value` (`TypeRef::Json`) anywhere.
+fn contains_json_type(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_json_type(inner),
+        TypeRef::Map(key, value) => contains_json_type(key) || contains_json_type(value),
+        _ => false,
+    }
+}
+
+/// Whether a `TypeRef` contains a `Json` or `Bytes` value anywhere.
+fn contains_json_or_bytes(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Json | TypeRef::Bytes => true,
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_json_or_bytes(inner),
+        TypeRef::Map(key, value) => contains_json_or_bytes(key) || contains_json_or_bytes(value),
+        _ => false,
+    }
+}
+
 pub(crate) fn is_bridgeable_fn(
     f: &FunctionDef,
     unit_enum_names: &std::collections::HashSet<&str>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &std::collections::HashSet<&str>,
     no_serde_enum_names: &std::collections::HashSet<&str>,
+    bridgeable_type_names: &std::collections::HashSet<&str>,
     handle_returned_types: &HashSet<String>,
 ) -> bool {
     for p in &f.params {
@@ -89,6 +124,29 @@ pub(crate) fn is_bridgeable_fn(
         && let Some(inner_name) = inner_named(&f.return_type)
         && (!type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name))
     {
+        return false;
+    }
+    // ~keep A `Named` type absent from the bridgeable type set (the Swift backend's visible
+    // structs + enums) has no bridge mapping: `Body`, `serde_json::Value`, `bytes::Bytes`.
+    // `type_paths` cannot answer this -- it also carries `api.excluded_type_paths`, which
+    // records types like `Body` precisely because they are *not* bridgeable. Without this the
+    // backend degrades the signature to `String` while the wrapper body hands the raw value to
+    // the real function. alef fixed sibling-module file resolution in v0.100.0, so incidental
+    // `pub fn`s buried in a `pub mod` tree now reach here; skip them rather than emit broken
+    // wrappers. ~keep
+    let mut named_types: Vec<&str> = Vec::new();
+    for param in &f.params {
+        collect_named_types(&param.ty, &mut named_types);
+    }
+    collect_named_types(&f.return_type, &mut named_types);
+    if named_types.iter().any(|name| !bridgeable_type_names.contains(*name)) {
+        return false;
+    }
+    // ~keep `Json`/`Bytes` return values and `Json` params have no faithful swift-bridge
+    // mapping for a top-level free function: the backend emits them as `String`/`Vec<u8>`
+    // without the serialize/deserialize (or `Bytes`->`Vec<u8>`) step the real function needs.
+    // Skip such functions rather than emit code that does not compile. ~keep
+    if f.params.iter().any(|param| contains_json_type(&param.ty)) || contains_json_or_bytes(&f.return_type) {
         return false;
     }
     true
