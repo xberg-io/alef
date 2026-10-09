@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Kotlin service registration renders enum variants as `SCREAMING_SNAKE_CASE` (`Method.GET`),
+  matching the generated Java facade enum constants. It previously emitted the Rust variant
+  name verbatim (`Method.Get`), which no longer compiled.
+
 ## [0.107.10] - 2026-10-09
 
 ### Fixed

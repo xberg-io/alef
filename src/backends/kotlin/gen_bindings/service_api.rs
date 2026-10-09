@@ -93,15 +93,16 @@ fn kotlin_return_type(ty: &TypeRef, api: &ApiSurface) -> String {
 /// Translate a Rust enum path expression to a Kotlin/JVM enum access expression.
 ///
 /// The `value_expr` stored on `RegistrationVariantOverride` is a fully-qualified
-/// Rust path (e.g. `my_crate::Method::Get`).  The generated Java/Kotlin enum
-/// keeps the Rust variant name as-is in PascalCase (`Method.Get`) because the
-/// JVM codegen preserves Rust variant casing rather than converting to
-/// `SCREAMING_SNAKE_CASE`.  This function strips the leading crate/module
-/// segments and emits `{TypeName}.{VariantName}`.
+/// Rust path (e.g. `my_crate::Method::Get`).  The generated Java enum uses
+/// `SCREAMING_SNAKE_CASE` constants (`Method.GET`), so the Rust variant name is
+/// converted to match.  This function strips the leading crate/module segments and
+/// emits `{TypeName}.{SCREAMING_SNAKE_VARIANT}`.
 fn rust_enum_expr_to_kotlin(value_expr: &str) -> String {
+    use heck::ToShoutySnakeCase;
+
     let parts: Vec<&str> = value_expr.split("::").collect();
     match parts.as_slice() {
-        [.., type_name, variant] => format!("{}.{}", type_name, variant),
+        [.., type_name, variant] => format!("{}.{}", type_name, variant.to_shouty_snake_case()),
         _ => value_expr.to_owned(),
     }
 }
@@ -762,8 +763,8 @@ mod tests {
         let kt = gen_service_kotlin(&api, service, "com.example.kt", "com.example");
 
         assert!(kt.contains("fun get(handler: (String) -> String, path: String): Int"));
-        assert!(kt.contains("com.example.RouteBuilder.create(Method.Get, path)"));
-        assert!(kt.contains("RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));
-        assert!(kt.contains("addHandler(handler, RouteBuilder(com.example.RouteBuilder.create(Method.Get, path))"));
+        assert!(kt.contains("com.example.RouteBuilder.create(Method.GET, path)"));
+        assert!(kt.contains("RouteBuilder(com.example.RouteBuilder.create(Method.GET, path))"));
+        assert!(kt.contains("addHandler(handler, RouteBuilder(com.example.RouteBuilder.create(Method.GET, path))"));
     }
 }
