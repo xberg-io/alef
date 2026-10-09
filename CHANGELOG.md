@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.107.7] - 2026-10-09
+
 ### Changed
 
 - Newly scaffolded PHP extension crates use ext-php-rs 0.16.1.
