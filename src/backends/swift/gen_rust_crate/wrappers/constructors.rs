@@ -27,6 +27,7 @@ pub(crate) fn emit_type_wrapper(
     type_paths: &HashMap<String, String>,
     enum_names: &HashSet<&str>,
     unit_enum_names: &HashSet<&str>,
+    reconstructible_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     first_class_names: &HashSet<&str>,
     exclude_fields: &HashSet<String>,
@@ -89,7 +90,7 @@ pub(crate) fn emit_type_wrapper(
                     .iter()
                     .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))));
 
-        let enum_kinds = EnumKinds::new(enum_names, unit_enum_names);
+        let enum_kinds = EnumKinds::with_reconstructible(enum_names, unit_enum_names, reconstructible_enum_names);
         let parent_first_class = first_class_names.contains(ty.name.as_str());
         if has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds, parent_first_class) {
             if !needs_default_construction && ty.has_default {
@@ -251,6 +252,7 @@ mod tests {
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
+            &HashSet::new(),
         );
 
         assert!(
@@ -280,6 +282,7 @@ mod tests {
             &ty,
             "sample",
             &HashMap::new(),
+            &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
             &HashSet::new(),
@@ -386,6 +389,7 @@ mod tests {
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
             &exclude_fields,
             &configured_features,
         );
@@ -420,6 +424,7 @@ mod tests {
             ty,
             "test_crate",
             &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),
             &std::collections::HashSet::new(),

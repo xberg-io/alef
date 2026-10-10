@@ -3,7 +3,7 @@ use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
 use alef::core::ir::{ApiSurface, MethodDef, ReceiverKind, TypeDef, TypeRef};
 
-const TEST: &str = r#"
+const TEST_PREFIX: &str = r#"
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -21,7 +21,9 @@ mod tests {
                 let worker = globals.get_item(name).unwrap().unwrap().call0().unwrap().unbind();
                 let bridge = PyWorkerBridge::new(worker).unwrap();
                 let result = py.detach(move || {
-                    crate::alef_async_runtime::get_runtime_checked().unwrap()
+"#;
+
+const TEST_SUFFIX: &str = r#"
                         .block_on(sample_core::Worker::process(&bridge))
                 });
                 if name == "Worker" {
@@ -30,7 +32,9 @@ mod tests {
                     assert!(result.unwrap_err().to_string().contains(expected));
                 }
             }
-            crate::alef_async_runtime::shutdown(py).unwrap();
+"#;
+
+const TEST_END: &str = r#"
         });
     }
 }
@@ -85,7 +89,17 @@ fn verify_mode(directory: &std::path::Path, mode: &str) {
         .find(|file| file.path.ends_with("lib.rs"))
         .unwrap()
         .content;
-    source.push_str(TEST);
+    source.push_str(TEST_PREFIX);
+    if mode == "managed" {
+        source.push_str("                    crate::alef_async_runtime::get_runtime_checked().unwrap()\n");
+    } else {
+        source.push_str("                    pyo3_async_runtimes::tokio::get_runtime()\n");
+    }
+    source.push_str(TEST_SUFFIX);
+    if mode == "managed" {
+        source.push_str("            crate::alef_async_runtime::shutdown(py).unwrap();\n");
+    }
+    source.push_str(TEST_END);
     std::fs::write(binding.join("src/lib.rs"), source).unwrap();
     let target = std::env::var_os("ALEF_LIFECYCLE_TARGET")
         .map(std::path::PathBuf::from)

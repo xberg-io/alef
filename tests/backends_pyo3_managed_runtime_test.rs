@@ -70,7 +70,7 @@ fn generated_managed_runtime_reclaims_resources_and_preserves_cancellation() {
 }
 
 #[test]
-fn default_async_runtime_closes_before_python_finalization() {
+fn default_async_runtime_stays_on_pyo3_async_runtimes() {
     let config = toml::from_str::<NewAlefConfig>(
         "[workspace]\nlanguages=['python']\n[[crates]]\nname='sample-core'\nsources=[]\n",
     )
@@ -91,8 +91,16 @@ fn default_async_runtime_closes_before_python_finalization() {
     let files = Pyo3Backend.generate_bindings(&api, &config).unwrap();
     let native = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
     assert!(
-        native.content.contains("register_exit_hook(m.py())?"),
-        "default async bindings must own and close their executor before finalization"
+        native.content.contains("pyo3_async_runtimes::tokio::future_into_py"),
+        "the default must retain the pyo3-async-runtimes executor"
+    );
+    assert!(
+        !native.content.contains("alef_async_runtime"),
+        "the managed runtime must require async_runtime='managed'"
+    );
+    assert!(
+        !native.content.contains("register_exit_hook(m.py())?"),
+        "the default must not register a managed-runtime exit hook"
     );
     assert!(
         !native.content.contains("wrap_pyfunction!(shutdown_async_runtime, m)"),
@@ -133,7 +141,7 @@ fn sanitized_async_functions_do_not_register_an_absent_executor() {
 }
 
 #[test]
-fn async_service_entrypoints_emit_the_owned_executor() {
+fn async_service_entrypoints_keep_the_default_executor() {
     use alef::core::ir::{EntrypointDef, EntrypointKind, ServiceDef};
     let config =
         toml::from_str::<NewAlefConfig>("[workspace]\nlanguages=['python']\n[[crates]]\nname='sample'\nsources=[]\n")
@@ -164,10 +172,18 @@ fn async_service_entrypoints_emit_the_owned_executor() {
     };
     let files = Pyo3Backend.generate_bindings(&api, &config).unwrap();
     let source = &files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap().content;
+    assert!(!source.contains("mod alef_async_runtime"), "{source}");
+    let service_files = Pyo3Backend.generate_service_api(&api, &config).unwrap();
+    let service = &service_files
+        .iter()
+        .find(|f| f.path.ends_with("service.rs"))
+        .unwrap()
+        .content;
     assert!(
-        source.contains("mod alef_async_runtime"),
-        "async services require owned runtime support"
+        service.contains("pyo3_async_runtimes::tokio::get_runtime()"),
+        "{service}"
     );
+    assert!(!service.contains("alef_async_runtime"), "{service}");
 }
 
 #[path = "backends_pyo3_managed_runtime_test/trait_fixture.rs"]

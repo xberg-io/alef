@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "alef"
-version = "0.109.4"
+version = "0.109.5"
 dependencies = [
  "ahash",
  "alef-component-runtime",
@@ -85,11 +85,11 @@ dependencies = [
 
 [[package]]
 name = "alef-component-abi"
-version = "0.109.4"
+version = "0.109.5"
 
 [[package]]
 name = "alef-component-runtime"
-version = "0.109.4"
+version = "0.109.5"
 dependencies = [
  "alef-component-abi",
  "base64",

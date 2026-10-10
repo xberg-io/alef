@@ -337,7 +337,27 @@ fn emit_lib_rs(
         .filter(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
         .map(|e| e.name.as_str())
         .collect();
-    let enum_kinds = default_construction::EnumKinds::new(&enum_names, &unit_enum_names);
+    let defaultable_names: HashSet<&str> = visible_types
+        .iter()
+        .filter(|ty| ty.has_default)
+        .map(|ty| ty.name.as_str())
+        .chain(
+            visible_enums
+                .iter()
+                .filter(|en| en.has_default)
+                .map(|en| en.name.as_str()),
+        )
+        .collect();
+    let reconstructible_enum_names: HashSet<&str> = visible_enums
+        .iter()
+        .filter(|en| enums::can_reconstruct_legacy_variant(en, &defaultable_names))
+        .map(|en| en.name.as_str())
+        .collect();
+    let enum_kinds = default_construction::EnumKinds::with_reconstructible(
+        &enum_names,
+        &unit_enum_names,
+        &reconstructible_enum_names,
+    );
 
     let visible_type_names: HashSet<&str> = visible_types
         .iter()
@@ -695,6 +715,7 @@ fn emit_lib_rs(
             &type_paths,
             &enum_names,
             &unit_enum_names,
+            &reconstructible_enum_names,
             &no_serde_names,
             &first_class_names,
             exclude_fields,
@@ -743,11 +764,12 @@ fn emit_lib_rs(
     out.push_str(&deferred_noop::emit_shims(&noop_def_types, &visible_types));
 
     for en in &visible_enums {
-        out.push_str(&enums::emit_enum_wrapper(
+        out.push_str(&enums::emit_enum_wrapper_with_defaults(
             en,
             &source_crate,
             &type_paths,
             Some(configured_enum_features.as_slice()),
+            &defaultable_names,
         ));
         out.push('\n');
     }

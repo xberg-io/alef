@@ -18,7 +18,7 @@ impl App {
 }
 "#;
 
-const TEST: &str = r#"
+const TEST_PREFIX: &str = r#"
 #[cfg(test)]
 mod service_tests {
     use super::*;
@@ -32,7 +32,9 @@ mod service_tests {
             assert!(error.is_instance_of::<pyo3::exceptions::PyRuntimeError>(py));
             assert!(error.to_string().contains("service failed"));
             module.getattr("app_finish").unwrap().call1((pyo3::types::PyList::empty(py),)).unwrap();
-            crate::alef_async_runtime::shutdown(py).unwrap();
+"#;
+
+const TEST_SUFFIX: &str = r#"
         });
     }
 }
@@ -109,7 +111,11 @@ fn verify_mode(dir: &std::path::Path, target: &std::path::Path, mode: &str) {
         .find(|file| file.path.ends_with("lib.rs"))
         .unwrap()
         .content;
-    source.push_str(TEST);
+    source.push_str(TEST_PREFIX);
+    if mode == "managed" {
+        source.push_str("            crate::alef_async_runtime::shutdown(py).unwrap();\n");
+    }
+    source.push_str(TEST_SUFFIX);
     std::fs::write(binding.join("src/lib.rs"), source).unwrap();
     let service = Pyo3Backend
         .generate_service_api(&api, &config)

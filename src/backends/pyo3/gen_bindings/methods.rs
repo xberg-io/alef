@@ -26,11 +26,12 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     ];
 
     let has_async = super::managed_runtime::has_async(api);
+    let managed_async = has_async && super::managed_runtime::enabled(config);
 
     if has_async {
-        lines.push("    alef_async_runtime::register_exit_hook(m.py())?;".to_string());
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
-        if super::managed_runtime::enabled(config) {
+        if managed_async {
+            lines.push("    alef_async_runtime::register_exit_hook(m.py())?;".to_string());
             lines.push("    m.add_function(wrap_pyfunction!(shutdown_async_runtime, m)?)?;".to_string());
         }
     }
@@ -236,12 +237,8 @@ module_name = "_test_lib"
         assert!(!result.contains("thread_stack_size"));
     }
 
-    /// When the API has async functions, the module init provisions an enlarged worker-thread
-    /// stack on the pyo3-async-runtimes runtime before the first `future_into_py`. Without it,
-    /// a deep async pipeline (e.g. OCR) overflows the default ~2 MB worker stack and the process
-    /// aborts with SIGBUS.
     #[test]
-    fn gen_module_init_provisions_async_runtime_worker_stack() {
+    fn gen_module_init_keeps_the_default_async_runtime_unmanaged() {
         let api = ApiSurface {
             unresolved_modules: Vec::new(),
             crate_name: "test-lib".to_string(),
@@ -262,10 +259,9 @@ module_name = "_test_lib"
         };
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);
-        assert!(result.contains("register_exit_hook(m.py())?"));
-        let support = super::super::managed_runtime::support();
-        assert!(support.contains("thread_stack_size(16 * 1024 * 1024)"));
-        assert!(!result.contains("pyo3_async_runtimes::tokio::init"));
+        assert!(!result.contains("register_exit_hook(m.py())?"));
+        assert!(!result.contains("shutdown_async_runtime"));
+        assert!(result.contains("init_async_runtime"));
     }
 
     #[test]

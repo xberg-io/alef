@@ -13,16 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declared create-once manifest is not rewritten after the guarded scaffold writer skips it.
 - Generated Python, Ruby, Elixir, WebAssembly, and Swift package manifests preserve configured
   author, maintainer, and email metadata in each registry's native fields.
-- Generated managed Python bindings register only the private executor exit hook, preventing
-  ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.
+- Generated Python bindings select the managed executor and its shutdown helpers only when
+  `async_runtime = "managed"`; the default remains on `pyo3-async-runtimes`.
 - Generated crate manifests emit only one of `license` / `license-file`, preferring the SPDX
   `license` when a workspace declares both, so `cargo` no longer warns that only one is necessary.
 - Generated R constructors now reject invalid enum option strings with field-specific errors instead
   of silently keeping defaults, and generated Swift constructors preserve required and optional
   unit-enum options when converting back to Rust. Swift DTOs with data-carrying enum options now
   use the reversible JSON bridge instead of a payload-erasing initializer.
-- Generated Swift bridge typealiases retain their public convenience initializers when a field uses
-  a data-carrying enum, preserving source compatibility for existing package consumers.
+- Generated Swift bridges retain public convenience initializers and C symbols when fields use
+  data-carrying enums, and those legacy initializers now assign scalar and vector enum selections
+  instead of silently retaining the Rust defaults. First-class Swift DTOs remain lossless through JSON.
 
 ## [0.109.0] - 2026-10-10
 

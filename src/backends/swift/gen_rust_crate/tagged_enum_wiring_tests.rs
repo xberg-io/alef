@@ -8,8 +8,8 @@
 //!
 //! 1. `wrappers::emit_type_method_shims` received `enum_names` for its `unit_enum_names`
 //!    parameter, so a data-carrying enum method parameter was reconstructed with
-//!    `__alef_{enum}_from_swift_string` -- a helper `enums.rs` emits only for fieldless enums
-//!    (`E0425`) -- and forced the shim's return type to `Result` while the paired extern
+//!    `__alef_{enum}_from_swift_string` -- a discriminant-only compatibility helper -- and
+//!    forced the shim's return type to `Result` while the paired extern
 //!    declaration, fed the real `unit_enum_names`, declared the infallible one (`E0308`).
 //! 2. `trait_bridge::emit_trait_bridge_wrapper` received `unit_enum_names`, so a data-carrying
 //!    enum in a trampoline's return position was wrapped with the tuple-struct call
@@ -31,7 +31,7 @@ fn swift_config_with_trait_bridge() -> ResolvedCrateConfig {
 }
 
 /// `Routing` carries a tuple variant, so it is a TAGGED enum: absent from `unit_enum_names`,
-/// present in `enum_names`, and `enums::emit_enum_wrapper` emits no from-string helper for it.
+/// present in `enum_names`, but absent from `unit_enum_names`.
 fn tagged_enum() -> EnumDef {
     EnumDef {
         name: "Routing".to_string(),
@@ -122,11 +122,18 @@ fn api_with_typealiased_tagged_enum_owner() -> ApiSurface {
             is_opaque: true,
             has_default: true,
             has_serde: true,
-            fields: vec![FieldDef {
-                name: "routing".to_string(),
-                ty: TypeRef::Named("Routing".to_string()),
-                ..Default::default()
-            }],
+            fields: vec![
+                FieldDef {
+                    name: "routing".to_string(),
+                    ty: TypeRef::Named("Routing".to_string()),
+                    ..Default::default()
+                },
+                FieldDef {
+                    name: "routes".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("Routing".to_string()))),
+                    ..Default::default()
+                },
+            ],
             ..Default::default()
         }],
         ..Default::default()
@@ -155,15 +162,10 @@ fn swift_source(files: &[crate::core::backend::GeneratedFile]) -> String {
 }
 
 #[test]
-fn data_carrying_enum_method_param_never_references_the_unit_enum_from_string_helper() {
+fn data_carrying_enum_method_param_uses_the_lossless_json_path() {
     let files = emit(&api_with_tagged_enum(), &swift_config_with_trait_bridge()).unwrap();
     let generated = lib_rs(&files);
 
-    assert!(
-        !generated.contains("__alef_routing_from_swift_string"),
-        "no call site may name a from-string helper that is never emitted for a data-carrying \
-         enum, got:\n{generated}"
-    );
     assert!(
         generated.contains("Routing>(&routing).expect(\"valid JSON for routing\")"),
         "the data-carrying enum parameter must be deserialized from JSON, got:\n{generated}"
@@ -211,8 +213,8 @@ fn data_carrying_enum_option_uses_reversible_parent_json_bridge() {
     let generated_swift = swift_source(&files);
 
     assert!(
-        !generated_rust.contains("#[swift_bridge(init)]\n        fn new(routing: Routing) -> Options;"),
-        "a payload-erasing bridge enum must not be exposed as an Options constructor argument:\n{generated_rust}"
+        generated_rust.contains("#[swift_bridge(init)]\n        fn new(routing: Routing) -> Options;"),
+        "the legacy RustBridge initializer and C symbol must remain source compatible:\n{generated_rust}"
     );
     assert!(
         !generated_rust.contains("routing (Routing) is an enum; reverse From not generated — left at default"),
@@ -250,8 +252,24 @@ fn typealiased_dto_keeps_its_public_initializer_when_it_contains_a_data_carrying
         "the compatibility case must exercise a public typealias:\n{generated_swift}"
     );
     assert!(
-        generated_rust.contains("#[swift_bridge(init)]\n        fn new(routing: Routing) -> LegacyOptions;"),
+        generated_rust.contains(
+            "#[swift_bridge(init)]\n        fn new(routing: Routing, routes: Vec<Routing>) -> LegacyOptions;"
+        ),
         "a typealiased DTO must retain the bridge declaration that generates its public Swift convenience init:\n\
          {generated_rust}"
+    );
+    assert!(
+        generated_rust.contains("__target.routing = __alef_routing_from_swift_string(&routing.to_string())"),
+        "the compatibility initializer must assign the selected enum variant:\n{generated_rust}"
+    );
+    assert!(
+        generated_rust.contains(
+            "__target.routes = routes.into_iter().map(|value| __alef_routing_from_swift_string(&value.to_string())"
+        ),
+        "the compatibility initializer must preserve every selected vector element:\n{generated_rust}"
+    );
+    assert!(
+        generated_rust.contains("Routing::Proxy(::std::default::Default::default())"),
+        "a data-variant discriminant must reconstruct its source variant:\n{generated_rust}"
     );
 }

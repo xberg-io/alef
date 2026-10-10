@@ -291,6 +291,14 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/default_field_vec_named_unwrap.jinja"),
     ),
     (
+        "default_field_vec_enum_assign.jinja",
+        include_str!("../templates/default_field_vec_enum_assign.jinja"),
+    ),
+    (
+        "default_field_vec_enum_direct.jinja",
+        include_str!("../templates/default_field_vec_enum_direct.jinja"),
+    ),
+    (
         "default_field_vec_non_primitive_comment.jinja",
         include_str!("../templates/default_field_vec_non_primitive_comment.jinja"),
     ),

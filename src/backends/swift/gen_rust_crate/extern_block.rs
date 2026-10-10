@@ -47,19 +47,15 @@ pub(crate) fn has_constructor_extern(
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
     enum_kinds: EnumKinds<'_, '_>,
-    parent_first_class: bool,
+    _parent_first_class: bool,
 ) -> bool {
     let fields = constructor_fields(ty, exclude_fields, configured_features);
     if fields.is_empty() {
         return false;
     }
-    // ~keep Tagged enums and nested enum containers cannot cross this init ABI without losing
-    // payload or shape. First-class DTOs can omit the init and use their complete Codable JSON
-    // bridge; typealiases have no value facade, so they retain the legacy compatibility init.
-    if parent_first_class
-        && fields
-            .iter()
-            .any(|field| !enum_kinds.supports_constructor_field(&field.ty))
+    if fields
+        .iter()
+        .any(|field| !enum_kinds.supports_compatibility_constructor_field(&field.ty))
     {
         return false;
     }
@@ -88,6 +84,18 @@ pub(crate) fn has_constructor_extern(
             .iter()
             .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
     !needs_default_construction || ty.has_default
+}
+
+pub(crate) fn has_lossless_constructor_extern(
+    ty: &TypeDef,
+    exclude_fields: &HashSet<String>,
+    configured_features: &std::collections::HashSet<&str>,
+    enum_kinds: EnumKinds<'_, '_>,
+) -> bool {
+    has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds, true)
+        && constructor_fields(ty, exclude_fields, configured_features)
+            .iter()
+            .all(|field| enum_kinds.supports_constructor_field(&field.ty))
 }
 
 pub(crate) fn emit_extern_block_for_type(

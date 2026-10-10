@@ -858,7 +858,7 @@ impl Backend for Pyo3Backend {
         let mut content = builder.build();
         postprocess::clear_bridge_builder_opaque_params(&mut content, config);
         postprocess::wrap_optional_default_args(&mut content, api, config);
-        if has_async {
+        if has_async && managed_runtime::enabled(config) {
             content = managed_runtime::rewrite(content);
             content.push_str(&managed_runtime::support());
         }
@@ -895,7 +895,7 @@ impl Backend for Pyo3Backend {
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         let mut files = service_api::generate(&crate::backends::ir_order::with_sorted_items(api), config)?;
-        if managed_runtime::has_async(api) {
+        if managed_runtime::has_async(api) && managed_runtime::enabled(config) {
             for file in files
                 .iter_mut()
                 .filter(|file| file.path.extension().is_some_and(|ext| ext == "rs"))

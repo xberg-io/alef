@@ -1,0 +1,1 @@
+            {{ name }}: {% if optional %}{{ name }}.map(|values| values.into_iter().map(|value| {{ helper }}(&value.to_string()).expect("valid {{ type_name }} bridge value")).collect()){% else %}{{ name }}.into_iter().map(|value| {{ helper }}(&value.to_string()).expect("valid {{ type_name }} bridge value")).collect(){% endif %}

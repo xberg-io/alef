@@ -17,7 +17,8 @@ pub fn run() {
     let target = std::env::var_os("ALEF_LIFECYCLE_TARGET")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| dir.path().join("target"));
-    for mode in ["managed", "default"] {
+    {
+        let mode = "managed";
         let binding = dir.path().join(mode);
         std::fs::create_dir_all(binding.join("src")).unwrap();
         std::fs::write(binding.join("Cargo.toml"), "[package]\nname='sample-py'\nversion='0.1.0'\nedition='2024'\n[lib]\nname='_sample'\ncrate-type=['cdylib']\n[dependencies]\nsample-core={path='../sample-core'}\nserde={version='1',features=['derive']}\nserde_json='1'\npyo3={version='0.29',features=['extension-module','abi3-py310']}\npyo3-async-runtimes={version='0.29',features=['tokio-runtime']}\ntokio={version='1',features=['full']}\nfutures='0.3'\n[build-dependencies]\npyo3-build-config='0.29'\n").unwrap();
@@ -26,11 +27,7 @@ pub fn run() {
             "fn main() { pyo3_build_config::add_extension_module_link_args(); }\n",
         )
         .unwrap();
-        let option = if mode == "managed" {
-            "async_runtime='managed'\n"
-        } else {
-            ""
-        };
+        let option = "async_runtime='managed'\n";
         let config: NewAlefConfig = toml::from_str(&format!("[workspace]\nlanguages=['python']\n[[crates]]\nname='sample-core'\nsources=[]\n[crates.python]\nmodule_name='_sample'\n{option}{}", stream_fixture::ADAPTER)).unwrap();
         let api = stream_fixture::with_stream(ApiSurface {
             functions: vec![FunctionDef {

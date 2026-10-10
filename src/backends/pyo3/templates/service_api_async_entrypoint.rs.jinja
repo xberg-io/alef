@@ -1,4 +1,4 @@
-    let __alef_runtime = crate::alef_async_runtime::get_runtime_checked()?;
+    let __alef_runtime = pyo3_async_runtimes::tokio::get_runtime();
     {{ bind }}_py.detach(move || {
         __alef_runtime.block_on(owner.{{ ep_method }}({{ args }}))
     }){% if has_error %}

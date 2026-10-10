@@ -20,11 +20,28 @@ use std::collections::{HashMap, HashSet};
 pub(crate) struct EnumKinds<'sets, 'names> {
     all: &'sets HashSet<&'names str>,
     unit: &'sets HashSet<&'names str>,
+    reconstructible: &'sets HashSet<&'names str>,
 }
 
 impl<'sets, 'names> EnumKinds<'sets, 'names> {
     pub(crate) fn new(all: &'sets HashSet<&'names str>, unit: &'sets HashSet<&'names str>) -> Self {
-        Self { all, unit }
+        Self {
+            all,
+            unit,
+            reconstructible: unit,
+        }
+    }
+
+    pub(crate) fn with_reconstructible(
+        all: &'sets HashSet<&'names str>,
+        unit: &'sets HashSet<&'names str>,
+        reconstructible: &'sets HashSet<&'names str>,
+    ) -> Self {
+        Self {
+            all,
+            unit,
+            reconstructible,
+        }
     }
 
     pub(crate) fn all(self) -> &'sets HashSet<&'names str> {
@@ -44,6 +61,18 @@ impl<'sets, 'names> EnumKinds<'sets, 'names> {
             TypeRef::Named(name) if self.contains(name) => self.is_unit(name),
             TypeRef::Optional(inner) | TypeRef::Vec(inner) => !self.contains_enum(inner),
             TypeRef::Map(key, value) => !self.contains_enum(key) && !self.contains_enum(value),
+            _ => true,
+        }
+    }
+
+    pub(crate) fn supports_compatibility_constructor_field(self, ty: &TypeRef) -> bool {
+        match ty {
+            TypeRef::Named(name) if self.contains(name) => self.reconstructible.contains(name.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => self.supports_compatibility_constructor_field(inner),
+            TypeRef::Map(key, value) => {
+                self.supports_compatibility_constructor_field(key)
+                    && self.supports_compatibility_constructor_field(value)
+            }
             _ => true,
         }
     }
@@ -168,9 +197,16 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if is_enum {
-                // ~keep A typealiased DTO has no value-level facade that can use the reversible
-                // parent JSON bridge. Keep its legacy initializer available; the payload-erased
-                // enum argument cannot safely replace the source type's default.
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "default_field_enum_assign.jinja",
+                    crate::alef_context! {
+                        name => &name,
+                        param => &param,
+                        type_name => n,
+                        helper => enum_from_string_fn_name(n),
+                        optional => f.optional,
+                    },
+                ));
             } else if f.optional {
                 if f.is_boxed {
                     out.push_str(&crate::backends::swift::template_env::render(
@@ -226,8 +262,16 @@ pub(crate) fn emit_default_construction_body(
             if let TypeRef::Named(inner_n) = inner.as_ref() {
                 let is_enum = enum_kinds.contains(inner_n);
                 if is_enum {
-                    // ~keep See the scalar tagged-enum case above. The compatibility constructor
-                    // cannot reconstruct payload-bearing enum elements from bridge discriminants.
+                    out.push_str(&crate::backends::swift::template_env::render(
+                        "default_field_vec_enum_assign.jinja",
+                        crate::alef_context! {
+                            name => &name,
+                            param => &param,
+                            type_name => inner_n,
+                            helper => enum_from_string_fn_name(inner_n),
+                            optional => f.optional,
+                        },
+                    ));
                 } else {
                     let unwrap_expr = match f.vec_inner_core_wrapper {
                         CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),
@@ -430,7 +474,15 @@ pub(crate) fn emit_direct_field_inits(
                         },
                     )
                 } else if is_enum {
-                    unreachable!("tagged enum field `{name}` must use the parent JSON bridge")
+                    crate::backends::swift::template_env::render(
+                        "default_field_enum_direct.jinja",
+                        crate::alef_context! {
+                            name => &name,
+                            type_name => n,
+                            helper => enum_from_string_fn_name(n),
+                            optional => f.optional,
+                        },
+                    )
                 } else if f.optional {
                     if matches!(f.core_wrapper, CoreWrapper::Arc) {
                         format!("            {name}: {name}.map(|w| std::sync::Arc::new(w.0))")
@@ -446,7 +498,15 @@ pub(crate) fn emit_direct_field_inits(
                 if let TypeRef::Named(inner_n) = inner.as_ref() {
                     let is_enum = enum_kinds.contains(inner_n);
                     if is_enum {
-                        unreachable!("enum collection field `{name}` must use the parent JSON bridge")
+                        crate::backends::swift::template_env::render(
+                            "default_field_vec_enum_direct.jinja",
+                            crate::alef_context! {
+                                name => &name,
+                                type_name => inner_n,
+                                helper => enum_from_string_fn_name(inner_n),
+                                optional => f.optional,
+                            },
+                        )
                     } else {
                         let unwrap_expr = match f.vec_inner_core_wrapper {
                             CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),
@@ -541,6 +601,22 @@ mod enum_option_tests {
             !enum_kinds
                 .supports_constructor_field(&TypeRef::Vec(Box::new(TypeRef::Named("HeadingStyle".to_string(),))))
         );
+    }
+
+    #[test]
+    fn compatibility_constructor_requires_reconstructible_enum_payloads() {
+        let all: HashSet<&str> = ["Routing", "External"].into_iter().collect();
+        let unit = HashSet::new();
+        let reconstructible: HashSet<&str> = ["Routing"].into_iter().collect();
+        let enum_kinds = EnumKinds::with_reconstructible(&all, &unit, &reconstructible);
+
+        assert!(enum_kinds.supports_compatibility_constructor_field(&TypeRef::Named("Routing".to_string())));
+        assert!(
+            enum_kinds.supports_compatibility_constructor_field(&TypeRef::Vec(Box::new(TypeRef::Named(
+                "Routing".to_string(),
+            ))))
+        );
+        assert!(!enum_kinds.supports_compatibility_constructor_field(&TypeRef::Named("External".to_string())));
     }
 
     #[test]
