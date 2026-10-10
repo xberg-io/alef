@@ -120,7 +120,7 @@ fn async_wrapper_awaits_the_core_call_inside_future_into_py() {
     let body = wrapper_body(&lib, "execute").expect("execute wrapper");
 
     assert!(
-        body.contains("pyo3_async_runtimes::tokio::future_into_py(py, async move {"),
+        body.contains("alef_async_runtime::future_into_py(py, async move {"),
         "the async options-field wrapper must return a Python awaitable; body:\n{body}"
     );
     assert!(

@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 scenario, mode = sys.argv[1:]
@@ -17,6 +18,17 @@ def _threads() -> int:
     return len(subprocess.check_output(["/bin/ps", "-M", "-p", str(os.getpid())], text=True).splitlines()) - 1
 
 
+def _await_baseline_threads(timeout: float = 2.0) -> int:
+    # ~keep Runtime teardown can lag the shutdown call on Linux, so the OS reaps a worker a
+    # moment after the exit hook returns; settle before asserting instead of racing it.
+    deadline = time.monotonic() + timeout
+    count = _threads()
+    while count != baseline and time.monotonic() < deadline:
+        time.sleep(0.01)
+        count = _threads()
+    return count
+
+
 baseline = _threads()
 
 
@@ -26,7 +38,7 @@ async def _fetch() -> str:
 
 def _closed_observer() -> None:
     try:
-        assert _threads() == baseline, (_threads(), baseline)
+        assert _await_baseline_threads() == baseline, (_threads(), baseline)
         try:
             asyncio.run(_fetch())
         except RuntimeError as error:
@@ -39,7 +51,7 @@ def _closed_observer() -> None:
             assert "closed" in str(error), error
         else:
             raise AssertionError("producer restarted after exit hook")
-        assert _threads() == baseline
+        assert _await_baseline_threads() == baseline
         sys.stdout.write("LIFECYCLE_OK\n")
         sys.stdout.flush()
     except BaseException as error:
