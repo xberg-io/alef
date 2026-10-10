@@ -1313,7 +1313,7 @@ exclude = [
 [[hooks.sources]]
 id = "ai-rulez"
 git = "https://github.com/Goldziher/ai-rulez.git"
-revision = "v4.9.3"
+revision = "048e4339b889fc7ffdd5ea9ec10406886976ad68"
 hooks = ["ai-rulez-validate"]
 
 
