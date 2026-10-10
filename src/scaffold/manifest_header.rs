@@ -16,6 +16,8 @@ pub(crate) struct WorkspacePackageInheritance {
     pub categories: bool,
     /// `license` is declared in `[workspace.package]`.
     pub license: bool,
+    pub license_file: bool,
+    pub authors: bool,
 }
 
 /// The `[workspace.package]` inheritance fields declared by the `Cargo.toml` at `dir`,
@@ -34,6 +36,8 @@ fn read_workspace_package_fields(dir: &std::path::Path) -> Option<WorkspacePacka
         keywords: pkg.get("keywords").is_some(),
         categories: pkg.get("categories").is_some(),
         license: pkg.get("license").is_some(),
+        license_file: pkg.get("license-file").is_some(),
+        authors: pkg.get("authors").is_some(),
     })
 }
 
@@ -149,8 +153,21 @@ pub(crate) fn cargo_package_header(
         keywords_line,
         categories_line,
     ];
+    if ws.license_file {
+        lines.insert(4, "license-file.workspace = true".to_string());
+    }
     if let Some(license_line) = license_line {
         lines.insert(4, license_line);
+    }
+    if ws.authors {
+        lines.insert(4, "authors.workspace = true".to_string());
+    } else if !meta.authors.is_empty() {
+        let authors = toml::Table::from_iter([(
+            "authors".to_string(),
+            toml::Value::Array(meta.authors.iter().cloned().map(toml::Value::String).collect()),
+        )]);
+        let authors_line = toml::to_string(&authors).expect("string authors metadata serializes to TOML");
+        lines.insert(4, authors_line.trim_end().to_string());
     }
     lines.join("\n")
 }
