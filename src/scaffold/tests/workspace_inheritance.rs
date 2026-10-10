@@ -174,7 +174,6 @@ fn real_workspace_member_still_inherits_from_the_root_workspace_package() {
     for inherited in [
         "version.workspace = true",
         "license.workspace = true",
-        "license-file.workspace = true",
         "authors.workspace = true",
     ] {
         assert!(
@@ -184,4 +183,45 @@ fn real_workspace_member_still_inherits_from_the_root_workspace_package() {
             cargo_toml.content
         );
     }
+    assert!(
+        !cargo_toml.content.contains("license-file.workspace = true"),
+        "a workspace declaring both `license` and `license-file` must emit only the SPDX \
+         `license` field -- Cargo warns that only one of the two is necessary, got:\n{}",
+        cargo_toml.content
+    );
+}
+
+/// When a workspace declares `license-file` but no SPDX `license`, the crate must
+/// inherit `license-file.workspace = true` (the sole field available) rather than
+/// emitting nothing.
+#[test]
+fn workspace_with_only_license_file_inherits_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path().to_path_buf();
+    write_root_cargo_toml(
+        &root,
+        "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nversion = \"4.2.0\"\nlicense-file = \"LICENSE\"\nauthors = [\"Maintainer\"]\n",
+    );
+
+    let mut config = test_config_from_toml("");
+    config.workspace_root = Some(root.clone());
+    config.name = "my-lib".to_string();
+    let api = test_api();
+
+    let all_files = scaffold(&api, &config, &[Language::Ffi]).unwrap();
+    let cargo_toml = language_files(&all_files)
+        .into_iter()
+        .find(|f| f.path.ends_with("Cargo.toml"))
+        .expect("FFI Cargo.toml must be generated");
+
+    assert!(
+        cargo_toml.content.contains("license-file.workspace = true"),
+        "a workspace defining only `license-file` must still inherit it, got:\n{}",
+        cargo_toml.content
+    );
+    assert!(
+        !cargo_toml.content.contains("license.workspace = true"),
+        "no SPDX `license` is defined, so `license.workspace = true` must not be emitted, got:\n{}",
+        cargo_toml.content
+    );
 }

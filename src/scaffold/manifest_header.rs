@@ -119,6 +119,8 @@ pub(crate) fn cargo_package_header(
     let edition_line = format!("edition = \"{edition}\"");
     let license_line = if ws.license {
         Some("license.workspace = true".to_string())
+    } else if ws.license_file {
+        Some("license-file.workspace = true".to_string())
     } else {
         meta.license.as_ref().map(|license| format!("license = \"{license}\""))
     };
@@ -157,9 +159,6 @@ pub(crate) fn cargo_package_header(
     let package_file_filters = render_cargo_package_file_filters(cargo_filters);
     if !package_file_filters.is_empty() {
         lines.push(package_file_filters);
-    }
-    if ws.license_file {
-        lines.insert(4, "license-file.workspace = true".to_string());
     }
     if let Some(license_line) = license_line {
         lines.insert(4, license_line);

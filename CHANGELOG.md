@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Generated managed Python bindings register only the private executor exit hook, preventing
   ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.
+- Generated crate manifests emit only one of `license` / `license-file`, preferring the SPDX
+  `license` when a workspace declares both, so `cargo` no longer warns that only one is necessary.
 
 ## [0.109.0] - 2026-10-10
 
