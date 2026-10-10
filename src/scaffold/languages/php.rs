@@ -123,8 +123,10 @@ pub(crate) fn php_declared_features(
     api: &ApiSurface,
     wrapper_default_features: &[String],
     excluded_default_features: &[&str],
+    component_features: &BTreeSet<String>,
 ) -> BTreeSet<String> {
     let mut features = crate::codegen::cfg::native_wrapper_default_features(api, wrapper_default_features);
+    features.retain(|name| !component_features.contains(name));
     features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));
     features
 }
@@ -204,6 +206,25 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
             all_deps.push('\n');
         }
         all_deps.push_str(&format!("futures-util = \"{}\"", tv::cargo::FUTURES_UTIL));
+    }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for dependency in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if crate::scaffold::cargo_dependency_declared(all_deps.lines(), dependency.0) {
+                continue;
+            }
+            if !all_deps.is_empty() {
+                all_deps.push('\n');
+            }
+            all_deps.push_str(&dependency.1);
+        }
     }
 
     let extra_deps_section = if all_deps.is_empty() {
@@ -288,7 +309,12 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
         // sees the same set this table declares. ~keep
         let mut excluded_sorted: Vec<&str> = excluded_default_features.iter().copied().collect();
         excluded_sorted.sort_unstable();
-        let features = php_declared_features(api, &config.wrapper_default_features, &excluded_sorted);
+        let features = php_declared_features(
+            api,
+            &config.wrapper_default_features,
+            &excluded_sorted,
+            &crate::codegen::cfg::component_core_features(config),
+        );
         if features.is_empty() {
             String::new()
         } else {

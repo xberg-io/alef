@@ -39,6 +39,11 @@ fn scaffold_with_extensions(
     let projected_api = crate::codegen::binding_projection::project(api);
     let api = &projected_api;
     let mut files = crate::scaffold::scaffold(api, config, languages)?;
+    if !config.components.is_empty() {
+        files.extend(crate::codegen::component_producer::generate_component_producers(
+            api, config,
+        )?);
+    }
     let env = crate::core::template_env::TemplateEnv::new();
     for ext in extensions {
         let raw = crate::core::extension::read_extension_config(config_path, ext.name())

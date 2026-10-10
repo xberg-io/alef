@@ -173,6 +173,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         api,
         &config.wrapper_default_features,
         &php_excluded_default,
+        &crate::codegen::cfg::component_core_features(config),
     );
     let php_declared_features_set: std::collections::HashSet<&str> =
         php_declared_features.iter().map(String::as_str).collect();
@@ -296,6 +297,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
     let custom_mods = config.custom_modules.for_language(Language::Php);
     for module in custom_mods {
         builder.add_item(&format!("pub mod {module};"));
+    }
+
+    if !config.components.is_empty() {
+        builder.add_item(&super::components::generate(config));
     }
 
     let has_async =

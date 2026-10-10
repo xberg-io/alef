@@ -177,6 +177,36 @@ pub(crate) fn native_wrapper_default_features(api: &ApiSurface, configured: &[St
     features
 }
 
+/// Every Cargo feature named by a crate's configured downloadable components.
+#[must_use]
+pub(crate) fn component_core_features(config: &ResolvedCrateConfig) -> BTreeSet<String> {
+    config
+        .components
+        .iter()
+        .flat_map(|component| component.features.iter().cloned())
+        .collect()
+}
+
+/// [`native_wrapper_default_features`] minus the core features a configured downloadable
+/// component owns.
+///
+/// A component's `features` gate its implementation types (e.g. `spikard::OpenApiCompiler`),
+/// which the host binding never wraps: the implementation is compiled into the downloaded
+/// producer cdylib, not the host crate. Forwarding those names as `<core>/<feature>`
+/// passthroughs is wrong twice over -- the binding does not need them, and a binding that
+/// overrides the core crate (wasm/mobile set `core_crate_override`, so the passthrough names
+/// a core crate that never declares the feature) stops resolving entirely.
+#[must_use]
+pub(crate) fn native_wrapper_default_features_for_config(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+) -> BTreeSet<String> {
+    let mut features = native_wrapper_default_features(api, &config.wrapper_default_features);
+    let component_features = component_core_features(config);
+    features.retain(|name| !component_features.contains(name));
+    features
+}
+
 /// Whether `rust_path` names an item owned by `host_crate_name`, as opposed to one merged in
 /// from a foreign `[[crates.source_crates]]` crate.
 ///
@@ -403,6 +433,7 @@ pub fn effective_ffi_default_features(api: &ApiSurface, config: &ResolvedCrateCo
         .map(String::as_str)
         .filter(|name| !name.is_empty() && !passthrough.contains(name) && !never_default(name))
         .collect();
+    let component_features = component_core_features(config);
     let emitted: Vec<String> = collect_cfg_features(api)
         .into_iter()
         .filter(|name| {
@@ -411,6 +442,7 @@ pub fn effective_ffi_default_features(api: &ApiSurface, config: &ResolvedCrateCo
                 && !passthrough.contains(&name.as_str())
                 && !wrapper_defaults.contains(&name.as_str())
                 && !never_default(name)
+                && !component_features.contains(name)
         })
         .collect();
     passthrough

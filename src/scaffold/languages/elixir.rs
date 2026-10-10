@@ -118,6 +118,22 @@ pub(crate) fn scaffold_elixir_cargo(
     if has_streaming && !dep_lines.iter().any(|l| l.starts_with("futures-util")) {
         dep_lines.push(format!("futures-util = \"{}\"", versions.get("cargo:futures-util")));
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_owned()),
+        ] {
+            let configured = dep_lines.iter().map(String::as_str).chain(extra_deps.lines());
+            if !crate::scaffold::cargo_dependency_declared(configured, name) {
+                dep_lines.push(dependency);
+            }
+        }
+    }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty()
@@ -177,7 +193,7 @@ pub(crate) fn scaffold_elixir_cargo(
 
     // Collect every upstream feature name referenced via `#[cfg(feature = "X")]` in the
     let referenced_features =
-        crate::codegen::cfg::native_wrapper_default_features(api, &config.wrapper_default_features);
+        crate::codegen::cfg::native_wrapper_default_features_for_config(api, config);
 
     // No `[crates.elixir] nif_features` override -> mirror the core crate's own declared
     // `[features] default = [...]` list rather than any alef-side guess at feature identity.

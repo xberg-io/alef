@@ -22,7 +22,65 @@ fn project_binding_api(
     let projected = crate::codegen::foreign_cfg_variants::project_docs_without_unreachable_foreign_variants(
         api, config, languages,
     )?;
+    let mut projected = projected;
+    exclude_component_contract_types(&mut projected, config);
     Ok(crate::codegen::binding_projection::project_owned(projected))
+}
+
+/// Mark every downloadable component's implementation type and contract error type
+/// `binding_excluded`, so the binding projection drops them before any backend sees them.
+///
+/// The implementation type is compiled into the downloaded producer cdylib and the contract's
+/// error type is only a wire shape; neither is a host-binding type. Left visible, napi emits a
+/// class + service bridge for the implementation's methods (`JsOpenApiCompiler`,
+/// `compile_c_callback`) and a binding that overrides the core crate remaps the contract error
+/// type into that crate (`spikard_http::ComponentError`) where it does not exist. The contract
+/// *trait* itself stays: `resolve_components`/`generate_component_proxies` need it to build the
+/// host proxy, and `project_owned` would otherwise remove it. ~keep
+fn exclude_component_contract_types(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
+    let mut error_type_names: Vec<String> = Vec::new();
+    for contract in &config.component_contracts {
+        let short = contract.trait_path.rsplit("::").next().unwrap_or(contract.trait_path.as_str());
+        if let Some(trait_def) = api
+            .types
+            .iter()
+            .find(|typ| typ.is_trait && (typ.rust_path == contract.trait_path || typ.name == short))
+        {
+            for method in &trait_def.methods {
+                if let Some(error) = &method.error_type {
+                    error_type_names.push(error.clone());
+                }
+            }
+        }
+    }
+
+    let implementations: Vec<String> = config
+        .components
+        .iter()
+        .flat_map(|component| component.provides.iter())
+        .map(|provided| provided.implementation.clone())
+        .collect();
+
+    for typ in &mut api.types {
+        let short = typ.rust_path.rsplit("::").next().unwrap_or(typ.rust_path.as_str());
+        if implementations
+            .iter()
+            .any(|path| *path == typ.rust_path || *path == short || path.rsplit("::").next() == Some(short))
+            || error_type_names.iter().any(|name| *name == typ.name)
+        {
+            typ.binding_excluded = true;
+        }
+    }
+    for enum_def in &mut api.enums {
+        if error_type_names.iter().any(|name| *name == enum_def.name) {
+            enum_def.binding_excluded = true;
+        }
+    }
+    for error in &mut api.errors {
+        if error_type_names.iter().any(|name| *name == error.name) {
+            error.binding_excluded = true;
+        }
+    }
 }
 
 /// `write_cache` controls whether a freshly generated language's output paths are
@@ -945,6 +1003,106 @@ module_name = "test_lib"
             manifest, expected,
             "write_lang_manifest, once called with every phase's contribution, already \
              records the exact full set -- the fix is wiring the call, not this function"
+        );
+    }
+
+    /// A downloadable component's implementation type and contract error type reach the
+    /// extracted API but are compiled into the downloaded cdylib / only a wire shape; a host
+    /// binding must never emit them. Left in, napi bridges the impl's methods
+    /// (`JsOpenApiCompiler`/`compile_c_callback`) and a binding that overrides the core crate
+    /// remaps the contract error type into that crate where it does not exist. The contract
+    /// *trait* must stay, because the proxy generator reads it. Reproduces the spikard
+    /// node/wasm failures.
+    #[test]
+    fn component_implementation_and_error_types_are_excluded_from_bindings() {
+        use crate::core::config::{
+            ComponentConfig, ComponentContractConfig, ComponentProvidesConfig, ResolvedCrateConfig,
+        };
+        use crate::core::ir::{ErrorDef, MethodDef, TypeDef};
+
+        let mut api = ApiSurface {
+            types: vec![
+                TypeDef {
+                    name: "SpecCompiler".to_string(),
+                    rust_path: "hostlib::components::SpecCompiler".to_string(),
+                    is_trait: true,
+                    methods: vec![MethodDef {
+                        name: "compile".to_string(),
+                        error_type: Some("ComponentError".to_string()),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                TypeDef {
+                    name: "OpenApiCompiler".to_string(),
+                    rust_path: "hostlib::components::OpenApiCompiler".to_string(),
+                    ..Default::default()
+                },
+                TypeDef {
+                    name: "App".to_string(),
+                    rust_path: "hostlib::App".to_string(),
+                    ..Default::default()
+                },
+            ],
+            errors: vec![ErrorDef {
+                name: "ComponentError".to_string(),
+                rust_path: "hostlib::ComponentError".to_string(),
+                original_rust_path: String::new(),
+                variants: Vec::new(),
+                doc: String::new(),
+                methods: Vec::new(),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            }],
+            ..Default::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "hostlib".to_string(),
+            component_contracts: vec![ComponentContractConfig {
+                name: "spec".to_string(),
+                trait_path: "hostlib::SpecCompiler".to_string(),
+                interface_version: 1,
+            }],
+            components: vec![ComponentConfig {
+                name: "openapi".to_string(),
+                provides: vec![ComponentProvidesConfig {
+                    contract: "spec".to_string(),
+                    implementation: "hostlib::OpenApiCompiler".to_string(),
+                }],
+                features: vec!["codegen-openapi".to_string()],
+                default_features: false,
+                targets: None,
+                bundled_on: Vec::new(),
+            }],
+            ..Default::default()
+        };
+
+        exclude_component_contract_types(&mut api, &config);
+
+        let type_excluded = |name: &str| {
+            api.types
+                .iter()
+                .find(|typ| typ.name == name)
+                .expect("type present")
+                .binding_excluded
+        };
+        assert!(
+            type_excluded("OpenApiCompiler"),
+            "the implementation type must be excluded from bindings"
+        );
+        assert!(!type_excluded("App"), "an unrelated type must stay in the binding surface");
+        assert!(
+            !type_excluded("SpecCompiler"),
+            "the contract trait must stay for the proxy generator"
+        );
+        assert!(
+            api.errors
+                .iter()
+                .find(|error| error.name == "ComponentError")
+                .expect("error present")
+                .binding_excluded,
+            "the contract error type must be excluded from bindings"
         );
     }
 }

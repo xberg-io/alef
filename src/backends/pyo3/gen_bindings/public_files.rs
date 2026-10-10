@@ -25,6 +25,11 @@ pub(super) fn generate_type_stubs(
     if super::managed_runtime::enabled(config) && super::managed_runtime::has_async(api) {
         content.push_str("\ndef shutdown_async_runtime() -> None:\n    \"\"\"Stop the idle async runtime and release its threads and descriptors.\"\"\"\n");
     }
+    if !config.components.is_empty() {
+        content.push_str(
+            "\n\ndef component_load(component: str) -> None: ...\n\ndef component_prefetch(components: list[str] | None = None) -> list[str]: ...\n\ndef component_status(component: str) -> str: ...\n\ndef component_cache_path(component: str) -> str: ...\n\ndef component_activate(component: str) -> None: ...\n",
+        );
+    }
 
     let stubs_path = resolve_output_dir(
         Some(&stubs_config.output),
@@ -123,7 +128,7 @@ pub(super) fn generate_public_api(
             .or_default()
             .push("shutdown_async_runtime".into());
     }
-    let init_content = errors::gen_init_py(
+    let mut init_content = errors::gen_init_py(
         api,
         &module_name,
         &api.version,
@@ -136,6 +141,33 @@ pub(super) fn generate_public_api(
         &config.opaque_types,
         &exclude_functions,
     );
+    if !config.components.is_empty() {
+        let component_names = [
+            "component_cache_path",
+            "component_load",
+            "component_prefetch",
+            "component_status",
+            "component_activate",
+        ];
+        init_content.push_str("\nfrom .components import (\n");
+        for name in component_names {
+            init_content.push_str(&format!("    {name},\n"));
+        }
+        init_content.push_str(")\n\n__all__.extend([\n");
+        for name in component_names {
+            init_content.push_str(&format!("    \"{name}\",\n"));
+        }
+        init_content.push_str("])\n");
+
+        let component_content = format!(
+            "from .{module_name} import (\n    component_activate,\n    component_cache_path,\n    component_load,\n    component_prefetch,\n    component_status,\n)\n\n__all__ = [\n    \"component_activate\",\n    \"component_cache_path\",\n    \"component_load\",\n    \"component_prefetch\",\n    \"component_status\",\n]\n"
+        );
+        files.push(GeneratedFile {
+            path: output_base.join("components.py"),
+            content: component_content,
+            generated_header: true,
+        });
+    }
     files.push(GeneratedFile {
         path: output_base.join("__init__.py"),
         content: init_content,

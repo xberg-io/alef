@@ -9,11 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Signed downloadable runtime components: `[[crates.component_contracts]]`, `[[crates.components]]` and
+  `[crates.component_distribution]` configuration, generated contract tables and host-side proxies,
+  `alef component build|package|verify|lock`, and component load/prefetch/status/cache-path APIs across
+  the native bindings. WebAssembly, Kotlin Android, Android JNI and Apple mobile report an explicit
+  unsupported error. The `alef-component-abi` and `alef-component-runtime` crates version in lockstep with alef.
 - Python `async_runtime = "managed"` generates a restartable native runtime and `shutdown_async_runtime()` to release idle runtime resources while preserving cancellation and context variables.
 
 ### Fixed
 
+- Component contract traits and implementation types are excluded from the generated binding
+  surface. They reach the extracted API only for the component codegen (`resolve_components`,
+  producer, proxy); a backend that emitted a binding for them produced invalid code — napi
+  bridged the implementation's methods, and a binding that overrides the core crate remapped the
+  contract's error type into that crate where it does not exist.
+- The shared component manager emitted into native bindings spells `std::result::Result`
+  explicitly, so it compiles under napi's prelude, which shadows `Result` with its own
+  `napi::Result` and rejected the bare `Result<_, String>` signatures.
+- Binding manifests no longer forward a downloadable component's Cargo features. A component's
+  `features` gate its implementation types, which compile into the downloaded producer cdylib
+  rather than the host binding, so a binding that overrides the core crate (wasm/mobile) forwarded
+  `<override>/<feature>` for a feature that crate never declares and the workspace stopped resolving.
 - Preserve registered Python exception categories from async free functions and methods, including serde-converted parameters.
+- Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.
 
 ## [0.107.12] - 2026-10-09
 
@@ -22,10 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Static-link artifacts now use one FFI-level packaging contract: C FFI archives include
   `native-static-libs.txt` beside the static library, and FFI-only publish builds record those
   linker requirements even when Go is not among the configured languages.
-
-### Fixed
-
-- Restore the exact Minijinja 2.24 pin after the 3.0 dependency update made Alef fail to compile.
 
 ## [0.107.11] - 2026-10-09
 

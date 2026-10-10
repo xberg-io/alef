@@ -7,6 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::abi_grammar;
+use super::component::{ComponentConfig, ComponentDistributionConfig};
 use super::extras::{Language, is_known_language};
 use super::languages::FfiConfig;
 use super::output::{GeneratedHeaderConfig, ScaffoldConfig, validate_output_path, validate_output_segment};
@@ -77,6 +78,11 @@ pub struct NewAlefConfig {
     /// Workspace-level shared defaults.
     #[serde(default)]
     pub workspace: WorkspaceConfig,
+    /// Default download and signature-verification settings for downloadable native
+    /// components, shared by every crate unless overridden by `[crates.component_distribution]`.
+    /// See [`ComponentDistributionConfig::merge`] for the per-field override rule.
+    #[serde(default)]
+    pub component_distribution: Option<ComponentDistributionConfig>,
     /// One entry per independently published binding package.
     pub crates: Vec<RawCrateConfig>,
     /// Opaque per-extension configuration tables. alef does not interpret these;
@@ -324,6 +330,12 @@ impl NewAlefConfig {
             .map(|raw| validate_crate_attribute(&krate.name, raw))
             .collect::<Result<Vec<String>, ResolveError>>()?;
 
+        let component_distribution = ComponentDistributionConfig::merge(
+            self.component_distribution.as_ref(),
+            krate.component_distribution.as_ref(),
+        );
+        component_validation::validate_components(krate, component_distribution.as_ref())?;
+
         // Deliberately NOT resolved here: rebasing a `from_registry = true` entry shells out to
         // `cargo metadata`, and `resolve()` runs for every subcommand, including ones (e.g.
         // `alef publish package`, a pure archive-the-artifact operation) that never read
@@ -364,6 +376,9 @@ impl NewAlefConfig {
             error_constructor: krate.error_constructor.clone(),
             features: krate.features.clone(),
             wrapper_default_features: krate.wrapper_default_features.clone(),
+            component_contracts: krate.component_contracts.clone(),
+            components: krate.components.clone(),
+            component_distribution,
             path_mappings: krate.path_mappings.clone(),
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
@@ -1172,6 +1187,9 @@ fn merge_generated_header(
 
 #[cfg(test)]
 mod c_abi_tests;
+#[cfg(test)]
+mod component_tests;
+mod component_validation;
 #[cfg(test)]
 mod path_safety_review_tests;
 #[cfg(test)]

@@ -104,8 +104,12 @@ pub(crate) fn effective_swift_codegen_features(
         .as_ref()
         .map(|c| c.excluded_default_features.iter().map(String::as_str).collect())
         .unwrap_or_default();
+    // A configured component's features gate implementation types the downloaded producer cdylib
+    // compiles, not anything this binding wraps; see
+    // `codegen::cfg::native_wrapper_default_features_for_config`. ~keep
+    let component_features = crate::codegen::cfg::component_core_features(config);
     for feature in collect_cfg_features(api) {
-        if !excluded.contains(feature.as_str()) {
+        if !excluded.contains(feature.as_str()) && !component_features.contains(&feature) {
             features.insert(feature);
         }
     }

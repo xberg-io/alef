@@ -75,6 +75,12 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     };
 
     let mut declared_features = collect_cfg_features(api);
+    // A configured component's features gate implementation types that the downloaded producer
+    // cdylib compiles, not anything this binding wraps. Forwarding them would name a feature
+    // this (possibly core-overridden) crate never declares. See
+    // `native_wrapper_default_features_for_config`. ~keep
+    let component_features = crate::codegen::cfg::component_core_features(config);
+    declared_features.retain(|name| !component_features.contains(name));
     if let Some(wasm) = config.wasm.as_ref() {
         declared_features.extend(wasm.extra_features.iter().filter(|name| !name.is_empty()).cloned());
     }

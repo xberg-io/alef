@@ -252,6 +252,24 @@ pub(crate) fn emit_cargo_toml(
         ));
     }
     dep_lines.push(frb_line);
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, line) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if !workspace_extra.contains_key(name) {
+                dep_lines.push(line);
+            }
+        }
+        if !needs_serde_json && !workspace_extra.contains_key("serde_json") {
+            dep_lines.push("serde_json = \"1\"".to_string());
+        }
+    }
     for dep in [
         ahash_dep,
         serde_dep,
@@ -376,6 +394,12 @@ pub(crate) fn emit_cargo_toml(
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
     let cfg_features_table: String = {
         let mut features = shared_cfg::collect_cfg_features(api);
+        // A configured component's features gate implementation types the downloaded producer
+        // cdylib compiles, not anything this binding wraps; forwarding them would name a feature
+        // this (possibly core-overridden) crate never declares. See
+        // `codegen::cfg::native_wrapper_default_features_for_config`. ~keep
+        let component_features = crate::codegen::cfg::component_core_features(config);
+        features.retain(|name| !component_features.contains(name));
         // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
         // still get a forwarding entry below -- alef-task #371, regression in
         // `cargo_excluded_features_tests.rs`. ~keep

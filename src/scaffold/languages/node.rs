@@ -187,6 +187,25 @@ pub(crate) fn scaffold_node_cargo(
         }
         all_deps.push_str(&format!("tracing = \"{}\"", tv::cargo::TRACING));
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for dependency in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_string()),
+        ] {
+            if crate::scaffold::cargo_dependency_declared(all_deps.lines(), dependency.0) {
+                continue;
+            }
+            if !all_deps.is_empty() {
+                all_deps.push('\n');
+            }
+            all_deps.push_str(&dependency.1);
+        }
+    }
 
     let extra_deps_section = if all_deps.is_empty() {
         String::new()
@@ -273,7 +292,7 @@ pub(crate) fn scaffold_node_cargo(
     let _ = extra_deps_section;
 
     // `#[cfg(feature = "X")]` arms emitted by the codegen produce
-    let mut cfg_features = shared_cfg::native_wrapper_default_features(api, &config.wrapper_default_features);
+    let mut cfg_features = shared_cfg::native_wrapper_default_features_for_config(api, config);
     // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
     // still get a forwarding entry below -- alef-task #374, regression in
     // `cargo_excluded_features_tests`. ~keep

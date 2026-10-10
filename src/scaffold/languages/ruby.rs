@@ -132,6 +132,22 @@ pub(crate) fn scaffold_ruby_cargo(
     if has_streaming_adapter && !dep_lines.iter().any(|l| l.starts_with("futures")) {
         dep_lines.push(format!("futures = \"{}\"", tv::cargo::FUTURES));
     }
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_owned()),
+        ] {
+            let configured = dep_lines.iter().map(String::as_str).chain(extra_deps.lines());
+            if !crate::scaffold::cargo_dependency_declared(configured, name) {
+                dep_lines.push(dependency);
+            }
+        }
+    }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty()
@@ -165,7 +181,7 @@ pub(crate) fn scaffold_ruby_cargo(
     let machete_section = format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n");
 
     // core dep. Without this, `#[cfg(feature = "X")]` arms emitted by the
-    let mut cfg_features = crate::codegen::cfg::native_wrapper_default_features(api, &config.wrapper_default_features);
+    let mut cfg_features = crate::codegen::cfg::native_wrapper_default_features_for_config(api, config);
     // A config-only `excluded_default_features` name (gates no `#[cfg(feature = ...)]`) must
     // still get a forwarding entry below -- alef-task #374, regression in `ruby/tests.rs`. ~keep
     cfg_features.extend(excluded_default_features.iter().map(|name| (*name).to_string()));

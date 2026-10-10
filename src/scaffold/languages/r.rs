@@ -139,13 +139,35 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
         dep_lines.push(format!("async-trait = \"{}\"", versions.get("cargo:async-trait")));
         dep_lines.push(format!("tracing = \"{}\"", versions.get("cargo:tracing")));
     }
-    dep_lines.extend(render_extra_deps(config, Language::R).lines().map(ToOwned::to_owned));
+    let extra_deps = render_extra_deps(config, Language::R);
+    if !config.components.is_empty() {
+        let alef_version = env!("CARGO_PKG_VERSION");
+        for (name, dependency) in [
+            ("alef-component-abi", format!("alef-component-abi = \"{alef_version}\"")),
+            (
+                "alef-component-runtime",
+                format!("alef-component-runtime = \"{alef_version}\""),
+            ),
+            ("directories", "directories = \"6\"".to_owned()),
+        ] {
+            let configured = dep_lines.iter().map(String::as_str).chain(extra_deps.lines());
+            if !crate::scaffold::cargo_dependency_declared(configured, name) {
+                dep_lines.push(dependency);
+            }
+        }
+    }
+    dep_lines.extend(extra_deps.lines().map(ToOwned::to_owned));
     crate::scaffold::sort_dependency_lines(&mut dep_lines);
     let deps_section = dep_lines.join("\n");
 
     // Collect every feature name referenced by a `#[cfg(feature = "X")]` attribute
     // `#[cfg(feature = "X")]` gates produce `error: unexpected cfg condition value: X`
-    let cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    let mut cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    // A configured component's features gate implementation types the downloaded producer
+    // cdylib compiles, not anything this binding wraps; see
+    // `codegen::cfg::native_wrapper_default_features_for_config`. ~keep
+    let component_features = crate::codegen::cfg::component_core_features(config);
+    cfg_features.retain(|name| !component_features.contains(name));
     let features_block = if cfg_features.is_empty() {
         String::new()
     } else {
