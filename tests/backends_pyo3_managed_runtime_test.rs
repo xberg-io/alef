@@ -3,6 +3,7 @@ use alef::core::backend::Backend;
 use alef::core::config::NewAlefConfig;
 use alef::core::ir::{ApiSurface, FunctionDef, TypeRef};
 
+#[cfg(unix)]
 #[path = "backends_pyo3_managed_runtime_test/fixture.rs"]
 mod managed_runtime_fixture;
 
@@ -99,6 +100,7 @@ fn default_async_runtime_closes_before_python_finalization() {
     );
 }
 
+#[cfg(unix)]
 #[path = "backends_pyo3_managed_runtime_test/lifecycle.rs"]
 mod lifecycle;
 

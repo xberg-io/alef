@@ -3,6 +3,7 @@ import contextvars
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
@@ -24,6 +25,16 @@ def _thread_count() -> int:
     return len(subprocess.check_output(["/bin/ps", "-M", "-p", str(os.getpid())]).splitlines()) - 1
 
 
+def _await_thread_count(expected: int, timeout: float = 2.0) -> int:
+    # ~keep Linux can retain a joined worker in /proc briefly; a deadline still rejects persistent thread leaks.
+    deadline = time.monotonic() + timeout
+    count = _thread_count()
+    while count != expected and time.monotonic() < deadline:
+        time.sleep(0.01)
+        count = _thread_count()
+    return count
+
+
 def _fd_count() -> int:
     return len(list(Path("/proc/self/fd" if sys.platform == "linux" else "/dev/fd").iterdir()))
 
@@ -33,7 +44,7 @@ async def _verify() -> None:
     threads, fds = _thread_count(), _fd_count()
     assert await native.fetch() == "done"
     native.shutdown_async_runtime()
-    assert _thread_count() == threads
+    assert _await_thread_count(threads) == threads
     # ~keep Tokio's signal registry retains one process-global socket pair, outside runtime ownership.
     assert _fd_count() <= fds + 2, (fds, _fd_count())
     fds = _fd_count()
@@ -41,7 +52,7 @@ async def _verify() -> None:
         assert await native.fetch() == "done"
         assert _thread_count() > threads
         native.shutdown_async_runtime()
-        assert _thread_count() == threads
+        assert _await_thread_count(threads) == threads
         assert _fd_count() == fds, (fds, _fd_count())
     pending = native.fetch()
     try:
@@ -56,7 +67,7 @@ async def _verify() -> None:
         await pending
     await asyncio.sleep(0)
     native.shutdown_async_runtime()
-    assert _thread_count() == threads
+    assert _await_thread_count(threads) == threads
     assert _fd_count() == fds
     assert await native.fetch() == "done"
     native.shutdown_async_runtime()
