@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Decision
+title: Upstream Triage
+x-ai-rulez:
+  kind: rule
+  id: upstream-triage
+  metadata:
+    priority: high
 ---
 
 When a binding gap or codegen issue is surfaced from a consumer repo, triage to the correct upstream repo and execution path.

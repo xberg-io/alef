@@ -1,10 +1,13 @@
 ---
-name: jinja-codegen
-description: >-
-  Mechanics of alef's Minijinja template system: which template_env module to call, how to
-  register a template, inline-template rules, and engine settings. Use this skill when adding or
-  changing generated-code templates in any backend, codegen, or e2e generator module.
-license: MIT
+type: Playbook
+title: Jinja Codegen
+description: 'Mechanics of alef''s Minijinja template system: which template_env module to call, how to register a template, inline-template rules, and engine settings. Use this skill when adding or changing generated-code templates in any backend, codegen, or e2e generator module.'
+x-ai-rulez:
+  kind: skill
+  id: jinja-codegen
+  metadata:
+    license: MIT
+    name: jinja-codegen
 ---
 
 # Jinja Codegen Mechanics

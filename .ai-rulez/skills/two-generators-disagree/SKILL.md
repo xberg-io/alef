@@ -1,10 +1,13 @@
 ---
-name: two-generators-disagree
-description: >-
-  Alef's dominant defect shape: two components read the same config or IR and act on it
-  differently. Use this skill when a generated package fails to build, a generated suite fails
-  wholesale, or a lowering looks wrong in one backend but not others.
-license: MIT
+type: Playbook
+title: Two Generators Disagree
+description: 'Alef''s dominant defect shape: two components read the same config or IR and act on it differently. Use this skill when a generated package fails to build, a generated suite fails wholesale, or a lowering looks wrong in one backend but not others.'
+x-ai-rulez:
+  kind: skill
+  id: two-generators-disagree
+  metadata:
+    license: MIT
+    name: two-generators-disagree
 ---
 
 # Two Generators Disagree

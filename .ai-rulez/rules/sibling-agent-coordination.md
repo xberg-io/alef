@@ -1,5 +1,11 @@
 ---
-priority: medium
+type: Decision
+title: Sibling Agent Coordination
+x-ai-rulez:
+  kind: rule
+  id: sibling-agent-coordination
+  metadata:
+    priority: medium
 ---
 
 Assume other agents are active concurrently on this repo. Coordinate safely by following these rules.

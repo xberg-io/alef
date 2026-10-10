@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Decision
+title: Codegen Structure
+x-ai-rulez:
+  kind: rule
+  id: codegen-structure
+  metadata:
+    priority: high
 ---
 
 Keep code generation structured by responsibility.

@@ -1,5 +1,11 @@
 ---
-priority: critical
+type: Decision
+title: Jinja Templates
+x-ai-rulez:
+  kind: rule
+  id: jinja-templates
+  metadata:
+    priority: critical
 ---
 
 All parameterized generated code in `src/backends/<lang>/`, `src/codegen/`, and

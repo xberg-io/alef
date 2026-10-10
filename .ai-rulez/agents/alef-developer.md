@@ -1,7 +1,13 @@
 ---
-name: alef-developer
+type: Reference
+title: Alef Developer
 description: Alef binding generator development and code generation
-model: sonnet
+x-ai-rulez:
+  kind: agent
+  id: alef-developer
+  metadata:
+    model: sonnet
+    name: alef-developer
 ---
 
 When working on alef:

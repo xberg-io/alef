@@ -1,5 +1,11 @@
 ---
-priority: medium
+type: Decision
+title: Local Alef Install
+x-ai-rulez:
+  kind: rule
+  id: local-alef-install
+  metadata:
+    priority: medium
 ---
 
 When consumer repos test a codegen change, use the local alef binary, not crates.io.

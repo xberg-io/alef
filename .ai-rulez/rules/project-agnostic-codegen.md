@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Decision
+title: Project Agnostic Codegen
+x-ai-rulez:
+  kind: rule
+  id: project-agnostic-codegen
+  metadata:
+    priority: high
 ---
 
 Alef must remain project-agnostic. Do not hard-code consumer project identities, repository names, package names, module names, paths, or product-specific branches in generator, extraction, scaffold, e2e, publish, or CLI behavior.

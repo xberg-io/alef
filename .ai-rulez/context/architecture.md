@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Concept
+title: Architecture
+x-ai-rulez:
+  kind: context
+  id: architecture
+  metadata:
+    priority: high
 ---
 
 # Alef Architecture

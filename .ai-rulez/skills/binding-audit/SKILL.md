@@ -1,14 +1,13 @@
 ---
-name: binding-audit
-description: >-
-  Audit bindings for coverage gaps — verify every public Rust item is exposed
-  across all generated language bindings. Use this skill any time you need to
-  check that a function/type is present in every target language, audit
-  intentional exclusions, or investigate missing bindings in one or more
-  languages. Covers the full audit flow: config review, attribute scan, item
-  enumeration, cross-binding diff, gap reporting, and triage (alef vs
-  Alef-owned workflow/action vs consumer config).
-license: MIT
+type: Playbook
+title: Binding Audit
+description: 'Audit bindings for coverage gaps — verify every public Rust item is exposed across all generated language bindings. Use this skill any time you need to check that a function/type is present in every target language, audit intentional exclusions, or investigate missing bindings in one or more languages. Covers the full audit flow: config review, attribute scan, item enumeration, cross-binding diff, gap reporting, and triage (alef vs Alef-owned workflow/action vs consumer config).'
+x-ai-rulez:
+  kind: skill
+  id: binding-audit
+  metadata:
+    license: MIT
+    name: binding-audit
 ---
 
 # Binding Audit

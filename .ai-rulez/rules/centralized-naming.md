@@ -1,5 +1,11 @@
 ---
-priority: critical
+type: Decision
+title: Centralized Naming
+x-ai-rulez:
+  kind: rule
+  id: centralized-naming
+  metadata:
+    priority: critical
 ---
 
 All casing and naming transformations must be centralized.

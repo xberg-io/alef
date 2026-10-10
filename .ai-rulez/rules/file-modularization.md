@@ -1,5 +1,11 @@
 ---
-priority: high
+type: Decision
+title: File Modularization
+x-ai-rulez:
+  kind: rule
+  id: file-modularization
+  metadata:
+    priority: high
 ---
 
 Backend, codegen, e2e generator, and test source files must stay at or below 1,000 lines of
