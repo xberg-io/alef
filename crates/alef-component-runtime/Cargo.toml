@@ -1,7 +1,7 @@
 [package]
 authors = ["Na'aman Hirschfeld <naaman@xberg.io>", "Tobias Perlstein <tobias@xberg.io>"]
 name = "alef-component-runtime"
-version = "0.109.2"
+version = "0.109.3"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -10,7 +10,7 @@ homepage = "https://github.com/xberg-io/alef"
 repository = "https://github.com/xberg-io/alef"
 
 [dependencies]
-alef-component-abi = { path = "../alef-component-abi", version = "0.109.2" }
+alef-component-abi = { path = "../alef-component-abi", version = "0.109.3" }
 base64 = "0.23"
 ed25519-dalek = { version = "3", features = ["pem", "pkcs8"] }
 flate2 = "1"
