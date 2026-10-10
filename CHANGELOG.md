@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Normalize governance configuration formatting and use the version 5 validator hook for migrated configuration.
+- Align FFI manifest regression coverage with the preference for SPDX licensing when both workspace license fields exist.
 
 - Generated managed Python bindings register only the private executor exit hook, preventing
   ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.

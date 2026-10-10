@@ -842,7 +842,7 @@ authors = ["Na'aman Hirschfeld <nhirschfeld@gmail.com>"]
 }
 
 #[test]
-fn ffi_manifest_should_inherit_workspace_authors_and_license_file() {
+fn ffi_manifest_should_inherit_workspace_authors_and_prefer_spdx_license() {
     let directory = tempfile::tempdir().expect("workspace");
     std::fs::write(
         directory.path().join("Cargo.toml"),
@@ -860,7 +860,8 @@ fn ffi_manifest_should_inherit_workspace_authors_and_license_file() {
         .content;
     let manifest = toml::from_str::<toml::Value>(cargo).expect("valid TOML");
     assert_eq!(manifest["package"]["authors"]["workspace"].as_bool(), Some(true));
-    assert_eq!(manifest["package"]["license-file"]["workspace"].as_bool(), Some(true));
+    assert_eq!(manifest["package"]["license"]["workspace"].as_bool(), Some(true));
+    assert_eq!(manifest["package"].get("license-file"), None);
 }
 
 #[test]
