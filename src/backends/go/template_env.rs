@@ -897,7 +897,7 @@ pub(crate) fn render(template_name: &str, ctx: minijinja::Value) -> String {
 
 #[cfg(test)]
 mod template_registration_tests {
-    use super::TEMPLATES;
+    use super::{TEMPLATES, render};
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -919,6 +919,29 @@ mod template_registration_tests {
             unregistered.is_empty(),
             "found .jinja file(s) in templates/ whose content is not registered in TEMPLATES: {unregistered:?}"
         );
+    }
+
+    #[test]
+    fn trampoline_signature_renders_under_the_supported_minijinja_version() {
+        let explicit = render(
+            "trampoline_signature.jinja",
+            crate::alef_context! {
+                name => "goPluginProcess",
+                params => ["userData unsafe.Pointer"],
+                return_type => "int32_t",
+            },
+        );
+        let defaulted = render(
+            "trampoline_signature.jinja",
+            crate::alef_context! {
+                name => "goPluginProcess",
+                params => ["userData unsafe.Pointer"],
+            },
+        );
+
+        assert!(explicit.contains("func goPluginProcess("));
+        assert!(explicit.contains(") (ret C.int32_t) {"));
+        assert!(defaulted.contains(") (ret C.int32_t) {"));
     }
 
     fn collect_unregistered(
