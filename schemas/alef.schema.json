@@ -5318,6 +5318,7 @@
       "additionalProperties": false,
       "properties": {
         "async_runtime": {
+          "description": "Use `managed` for a restartable Tokio runtime with an explicit idle shutdown API. ~keep",
           "type": [
             "string",
             "null"
@@ -8510,7 +8511,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/xberg-io/alef/releases/download/v0.107.12/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.108.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -8642,6 +8643,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.107.12",
-  "x-alef-version": "0.107.12"
+  "version": "0.108.0",
+  "x-alef-version": "0.108.0"
 }

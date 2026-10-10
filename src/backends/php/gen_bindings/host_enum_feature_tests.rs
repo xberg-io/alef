@@ -144,7 +144,12 @@ pub(super) fn config(root: &Path, enabled: bool) -> ResolvedCrateConfig {
 
 #[test]
 fn shared_function_feature_remains_publicly_forwarded() {
-    let features = crate::scaffold::languages::php::php_declared_features(&surface(true), &[], &[], &std::collections::BTreeSet::new());
+    let features = crate::scaffold::languages::php::php_declared_features(
+        &surface(true),
+        &[],
+        &[],
+        &std::collections::BTreeSet::new(),
+    );
     assert_eq!(features, std::collections::BTreeSet::from(["remote".to_string()]));
 }
 
@@ -164,7 +169,12 @@ fn configured_wrapper_default_remains_in_php_declared_feature_namespace() {
     let configured = vec!["formula-recognition".to_string()];
 
     assert_eq!(
-        crate::scaffold::languages::php::php_declared_features(&api, &configured, &[], &std::collections::BTreeSet::new()),
+        crate::scaffold::languages::php::php_declared_features(
+            &api,
+            &configured,
+            &[],
+            &std::collections::BTreeSet::new()
+        ),
         std::collections::BTreeSet::from(["formula-recognition".to_string()])
     );
 }

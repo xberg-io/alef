@@ -4,7 +4,9 @@
 //! `file-modularization` cap; the shared feature-forwarding formula is a self-contained
 //! concern shared by every Rust-emitting binding scaffolder (ruby, elixir, node, php, python).
 
-use crate::codegen::cfg::{cfg_default_and_forwarding_lines, native_wrapper_default_features, native_wrapper_default_features_for_config};
+use crate::codegen::cfg::{
+    cfg_default_and_forwarding_lines, native_wrapper_default_features, native_wrapper_default_features_for_config,
+};
 use crate::core::config::{ComponentConfig, ComponentProvidesConfig, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
 use std::collections::{BTreeSet, HashSet};

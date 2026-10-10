@@ -192,8 +192,7 @@ pub(crate) fn scaffold_elixir_cargo(
     };
 
     // Collect every upstream feature name referenced via `#[cfg(feature = "X")]` in the
-    let referenced_features =
-        crate::codegen::cfg::native_wrapper_default_features_for_config(api, config);
+    let referenced_features = crate::codegen::cfg::native_wrapper_default_features_for_config(api, config);
 
     // No `[crates.elixir] nif_features` override -> mirror the core crate's own declared
     // `[features] default = [...]` list rather than any alef-side guess at feature identity.

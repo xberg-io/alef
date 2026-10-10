@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.108.0] - 2026-10-10
+
 ### Added
 
 - Signed downloadable runtime components: `[[crates.component_contracts]]`, `[[crates.components]]` and

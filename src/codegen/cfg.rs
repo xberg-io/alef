@@ -190,7 +190,7 @@ pub(crate) fn component_core_features(config: &ResolvedCrateConfig) -> BTreeSet<
 /// [`native_wrapper_default_features`] minus the core features a configured downloadable
 /// component owns.
 ///
-/// A component's `features` gate its implementation types (e.g. `spikard::OpenApiCompiler`),
+/// A component's `features` gate its implementation types (e.g. a downstream `OpenApiCompiler`),
 /// which the host binding never wraps: the implementation is compiled into the downloaded
 /// producer cdylib, not the host crate. Forwarding those names as `<core>/<feature>`
 /// passthroughs is wrong twice over -- the binding does not need them, and a binding that

@@ -34,13 +34,17 @@ fn project_binding_api(
 /// error type is only a wire shape; neither is a host-binding type. Left visible, napi emits a
 /// class + service bridge for the implementation's methods (`JsOpenApiCompiler`,
 /// `compile_c_callback`) and a binding that overrides the core crate remaps the contract error
-/// type into that crate (`spikard_http::ComponentError`) where it does not exist. The contract
+/// type into that crate where it does not exist. The contract
 /// *trait* itself stays: `resolve_components`/`generate_component_proxies` need it to build the
 /// host proxy, and `project_owned` would otherwise remove it. ~keep
 fn exclude_component_contract_types(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
     let mut error_type_names: Vec<String> = Vec::new();
     for contract in &config.component_contracts {
-        let short = contract.trait_path.rsplit("::").next().unwrap_or(contract.trait_path.as_str());
+        let short = contract
+            .trait_path
+            .rsplit("::")
+            .next()
+            .unwrap_or(contract.trait_path.as_str());
         if let Some(trait_def) = api
             .types
             .iter()
@@ -1011,8 +1015,8 @@ module_name = "test_lib"
     /// binding must never emit them. Left in, napi bridges the impl's methods
     /// (`JsOpenApiCompiler`/`compile_c_callback`) and a binding that overrides the core crate
     /// remaps the contract error type into that crate where it does not exist. The contract
-    /// *trait* must stay, because the proxy generator reads it. Reproduces the spikard
-    /// node/wasm failures.
+    /// *trait* must stay, because the proxy generator reads it. Reproduces a downstream
+    /// node/wasm binding failure.
     #[test]
     fn component_implementation_and_error_types_are_excluded_from_bindings() {
         use crate::core::config::{
@@ -1091,7 +1095,10 @@ module_name = "test_lib"
             type_excluded("OpenApiCompiler"),
             "the implementation type must be excluded from bindings"
         );
-        assert!(!type_excluded("App"), "an unrelated type must stay in the binding surface");
+        assert!(
+            !type_excluded("App"),
+            "an unrelated type must stay in the binding surface"
+        );
         assert!(
             !type_excluded("SpecCompiler"),
             "the contract trait must stay for the proxy generator"
