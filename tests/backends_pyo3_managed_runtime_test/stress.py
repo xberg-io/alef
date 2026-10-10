@@ -7,17 +7,30 @@ import concurrent.futures
 import json
 import os
 import random
+import statistics
 import subprocess
 import sys
 from pathlib import Path
 
 CHILD = """
-import asyncio, atexit, os, sys
+import asyncio, atexit, os, sys, time
 if {cpus!r} and hasattr(os, 'sched_setaffinity'):
     os.sched_setaffinity(0, {cpus!r})
+_hook_start_ns = None
+def _finish_hook_timing():
+    elapsed = time.monotonic_ns() - _hook_start_ns
+    sys.stdout.write("EXIT_HOOK_TIMING_NS=" + str(elapsed) + "\\n")
+    sys.stdout.flush()
+def _start_hook_timing():
+    global _hook_start_ns
+    _hook_start_ns = time.monotonic_ns()
+# LIFO observers surround the hook registered by import; controls keep the same observers. ~keep
+atexit.register(_finish_hook_timing)
 import _sample
 if {clear_hook!r}:
     atexit._clear()
+    atexit.register(_finish_hook_timing)
+atexit.register(_start_hook_timing)
 async def _main() -> None:
     for _ in range(20):
         assert await _sample.fetch() == 'done'
@@ -27,7 +40,7 @@ sys.stdout.flush()
 """
 
 
-def _run_case(case: tuple[str, Path, bool, list[int]]) -> tuple[str, int, bool]:
+def _run_case(case: tuple[str, Path, bool, list[int]]) -> tuple[str, int, bool, int | None]:
     label, directory, clear_hook, cpus = case
     result = subprocess.run(
         [sys.executable, "-c", CHILD.format(cpus=cpus, clear_hook=clear_hook)],
@@ -39,7 +52,15 @@ def _run_case(case: tuple[str, Path, bool, list[int]]) -> tuple[str, int, bool]:
     completed = b"ASYNC_WORK_COMPLETED" in result.stdout
     if result.returncode > 0 and not completed:
         raise RuntimeError(f"{label} workload failed before finalization: {result.stderr.decode(errors='replace')}")
-    return label, result.returncode, completed
+    markers = [
+        line.removeprefix(b"EXIT_HOOK_TIMING_NS=")
+        for line in result.stdout.splitlines()
+        if line.startswith(b"EXIT_HOOK_TIMING_NS=")
+    ]
+    if len(markers) > 1:
+        raise RuntimeError(f"{label} reported multiple exit-hook timings")
+    elapsed_ns = int(markers[0]) if markers else None
+    return label, result.returncode, completed, elapsed_ns
 
 
 def _main() -> None:
@@ -66,15 +87,29 @@ def _main() -> None:
     cases = arms * args.runs
     random.Random(525).shuffle(cases)  # noqa: S311 — reproducible scheduling, no security use. ~keep
     counts = {label: {"processes": 0, "completed_work": 0, "nonzero": 0, "signals": 0} for label, *_ in arms}
+    durations = {label: [] for label, *_ in arms}
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for label, code, completed in pool.map(_run_case, cases):
+        for label, code, completed, elapsed_ns in pool.map(_run_case, cases):
             counts[label]["processes"] += 1
             counts[label]["completed_work"] += int(completed)
             counts[label]["nonzero"] += int(code != 0)
             counts[label]["signals"] += int(code < 0)
+            if elapsed_ns is not None:
+                durations[label].append(elapsed_ns)
     if not all(arm["processes"] == args.runs for arm in counts.values()):
         raise RuntimeError(f"unexpected process counts: {counts}")
-    sys.stdout.write(json.dumps({"platform": sys.platform, "cpus": cpus, "results": counts}, sort_keys=True) + "\n")
+    if len(durations["fixed"]) != args.runs:
+        raise RuntimeError(f"expected {args.runs} fixed exit-hook timings, received {len(durations['fixed'])}")
+    summaries = {
+        label: {
+            **counts[label],
+            "exit_hook_samples": len(values),
+            "exit_hook_median_ms": statistics.median(values) / 1_000_000 if values else None,
+            "exit_hook_max_ms": max(values) / 1_000_000 if values else None,
+        }
+        for label, values in durations.items()
+    }
+    sys.stdout.write(json.dumps({"platform": sys.platform, "cpus": cpus, "results": summaries}, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
