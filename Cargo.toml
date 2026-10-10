@@ -12,7 +12,27 @@ description = "Opinionated polyglot binding generator for Rust libraries"
 keywords = ["codegen", "bindings", "ffi", "polyglot", "pyo3"]
 categories = ["development-tools::ffi", "development-tools::build-utils"]
 readme = "README.md"
-exclude = ["tests/**"]
+include = [
+  "Cargo.lock",
+  "LICENSE",
+  "README.md",
+  "assets/**",
+  "build.rs",
+  "src/**",
+  "!src/**/tests.rs",
+  "!src/**/tests/**",
+  "!src/**/*_test.rs",
+  "!src/**/*_tests.rs",
+  "!src/test_support.rs",
+  "!src/test_support/**",
+  "src/backends/jni/gen_shims/backend_tests.rs",
+  "src/backends/jni/gen_shims/target_gate_tests.rs",
+  "src/backends/jni/gen_shims/tests.rs",
+  "src/backends/jni/gen_shims/transparent_string_tests.rs",
+  "src/backends/kotlin_android/gen_seed_test.rs",
+  "src/backends/kotlin/gen_bindings/jni_emitter/tests.rs",
+  "src/e2e/codegen/brew/run_tests.rs",
+]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/alef-{ target }{ archive-suffix }"

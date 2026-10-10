@@ -60,8 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Existing generated Dart manifests raise their SDK floor to the Dart 3.13 minimum required by
   Freezed 4 while preserving consumer-owned manifest content.
 - Published component crates declare their repository and homepage metadata.
-- The published Alef crate excludes repository-only integration tests so its archive remains
-  within crates.io's upload limit.
+- The published Alef crate allowlists only its source, build inputs, and runtime assets, excluding
+  repository and test-only files so its archive remains within crates.io's upload limit.
 
 ### Changed
 
