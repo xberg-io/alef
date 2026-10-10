@@ -574,8 +574,8 @@ fn ffi_manifest_reconciliation_keeps_the_clippy_deny_block_with_no_cargo_lints_c
 }
 
 /// Regression: the `~keep`-worthy rationale explaining why this crate does not use
-/// `[lints]\nworkspace = true` (it would drag in `[workspace.lints.rust]
-/// unsafe_code = "deny"`, which a C-ABI crate cannot satisfy) must appear directly
+/// `[lints]\nworkspace = true` (workspace policies can reject necessary unsafe FFI)
+/// must appear directly
 /// above `[lints.clippy]` on every regeneration -- including reconciliation against
 /// an on-disk manifest that never had it (a stale manifest generated before this
 /// comment existed, or hand-edited to remove it). The comment is emitted by alef
@@ -608,6 +608,14 @@ fn ffi_manifest_reconciliation_restores_the_clippy_workspace_lints_rationale_com
         reconciled.contains("can actually satisfy. ~keep\n[lints.clippy]"),
         "the rationale comment must attach directly above [lints.clippy] with no blank line, \
              got:\n{reconciled}"
+    );
+    assert!(
+        reconciled.contains("Local lint tables") && reconciled.contains("could reject these boundaries"),
+        "the rationale must explain the local binding policy without assuming workspace settings"
+    );
+    assert!(
+        !reconciled.contains("sets `unsafe_code"),
+        "the rationale must not claim every consumer workspace denies unsafe code"
     );
     toml::from_str::<toml::Value>(&reconciled).expect("valid reconciled TOML");
 }

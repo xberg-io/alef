@@ -15,10 +15,9 @@ use crate::core::config::ResolvedCrateConfig;
 /// for `poly.toml`. A `~keep` marker only protects a comment from poly's own uncomment
 /// pass; it does nothing against this full-file regeneration. The only comment that
 /// reliably survives here is one alef itself emits on every run, which is what this
-/// constant is for. `unsafe_code = "deny"` at `[workspace.lints.rust]` is the concrete
-/// reason `[lints]\nworkspace = true` cannot be used: these crates cross a C-ABI / PyO3 /
-/// napi / ext-php-rs / NIF boundary that requires `unsafe`, and that table is
-/// all-or-nothing. ~keep
+/// constant is for. Workspace lint inheritance is all-or-nothing, and consumer policies
+/// can reject the `unsafe` required by C-ABI / PyO3 / napi / ext-php-rs / NIF boundaries.
+/// Local binding policies avoid assuming which lints a consumer configures. ~keep
 ///
 /// The emitted text carries its own `~keep` for the same reason any hand-authored
 /// rationale in a consumer's tree does. Regeneration replaces this comment on every run,
@@ -31,11 +30,9 @@ use crate::core::config::ResolvedCrateConfig;
 /// consumer's Rust source, never on scaffold-emitted TOML. ~keep
 const CLIPPY_WORKSPACE_LINTS_RATIONALE: &str = "\
 # This crate deliberately does not use `[lints]` / `workspace = true`: its C-ABI /\n\
-# PyO3 / napi / ext-php-rs / NIF boundary requires `unsafe` code, and the workspace's\n\
-# `[workspace.lints.rust]` sets `unsafe_code = \"deny\"` -- an all-or-nothing table that\n\
-# would turn every such boundary into a compile error. The `[lints.clippy]` block below\n\
-# instead carries the subset of the workspace's deny-by-default lint policy this crate\n\
-# can actually satisfy. ~keep";
+# PyO3 / napi / ext-php-rs / NIF boundary requires `unsafe` code. Local lint tables\n\
+# avoid inheriting workspace policies that could reject these boundaries, and select\n\
+# the lints this binding can actually satisfy. ~keep";
 
 /// Insert [`CLIPPY_WORKSPACE_LINTS_RATIONALE`] immediately above the first
 /// `[lints.clippy]` header in `rendered` (which may also carry a preceding
