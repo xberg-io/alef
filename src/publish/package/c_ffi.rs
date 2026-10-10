@@ -195,6 +195,7 @@ mod tests {
     use crate::core::config::NewAlefConfig;
     use tempfile::TempDir;
 
+    #[cfg(not(target_os = "windows"))]
     fn minimal_config() -> ResolvedCrateConfig {
         let config: NewAlefConfig = toml::from_str(
             r#"
