@@ -288,7 +288,7 @@ pub mod gem {
     // 0.9.128 mingw guard, and keep the two in lockstep.
     pub const RB_SYS: &str = "\">= 0.9.130\", \"< 0.10\"";
 
-    pub const SORBET_RUNTIME: &str = "~> 0.5";
+    pub const SORBET_RUNTIME: &str = "~> 0.6";
 
     pub const RAKE_COMPILER: &str = "~> 1.2";
 
@@ -306,7 +306,7 @@ pub mod gem {
 
     pub const RUBOCOP_RSPEC_E2E: &str = "~> 3.9";
 
-    pub const STEEP: &str = "~> 1.0";
+    pub const STEEP: &str = "~> 2.1";
 
     pub const FARADAY: &str = "~> 2.0";
 }
@@ -435,7 +435,7 @@ pub mod maven {
     pub const JACKSON_E2E: &str = "2.22.3";
 
     // renovate: datasource=maven depName=org.assertj:assertj-core
-    pub const ASSERTJ: &str = "4.0.0-M1";
+    pub const ASSERTJ: &str = "3.27.7";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:build-helper-maven-plugin
     pub const BUILD_HELPER_MAVEN_PLUGIN: &str = "3.6.2";
@@ -502,7 +502,7 @@ pub mod maven {
 
 pub mod nuget {
     // renovate: datasource=nuget depName=Microsoft.NET.Test.Sdk
-    pub const MICROSOFT_NET_TEST_SDK: &str = "18.9.0";
+    pub const MICROSOFT_NET_TEST_SDK: &str = "18.10.1";
 
     // renovate: datasource=nuget depName=xunit
     pub const XUNIT: &str = "2.9.3";

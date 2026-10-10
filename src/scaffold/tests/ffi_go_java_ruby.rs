@@ -612,8 +612,8 @@ fn test_scaffold_ruby_gemspec_includes_sorbet_runtime_dependency() {
         "gemspec must use spec.add_dependency (not add_development_dependency) for sorbet-runtime; got:\n{gemspec}"
     );
     assert!(
-        gemspec.contains("~> 0.5"),
-        "sorbet-runtime dependency must carry a ~> 0.5 version constraint; got:\n{gemspec}"
+        gemspec.contains("~> 0.6"),
+        "sorbet-runtime dependency must carry a ~> 0.6 version constraint; got:\n{gemspec}"
     );
 }
 

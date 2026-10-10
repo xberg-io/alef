@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block-trimming setters and stopped serializing `context!` values. Template contexts are now
   built through a serialize-by-reference `alef_context!` macro, `configure_env` carries the
   block-trimming syntax, and minijinja's `serde` feature is enabled.
+- Generated Ruby, Java, and C# test manifests now select supported stable Sorbet, Steep, AssertJ,
+  and Microsoft.NET.Test.Sdk release lines instead of stale or prerelease defaults.
 
 ## [0.107.12] - 2026-10-09
 
