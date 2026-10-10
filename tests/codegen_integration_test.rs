@@ -299,6 +299,8 @@ mod method_edge_cases;
 mod methods;
 #[path = "codegen_integration/mutex_return_wrapping.rs"]
 mod mutex_return_wrapping;
+#[path = "codegen_integration/pyo3_async_errors.rs"]
+mod pyo3_async_errors;
 #[path = "codegen_integration/ref_param_borrowed_return_delegation.rs"]
 mod ref_param_borrowed_return_delegation;
 #[path = "codegen_integration/structs.rs"]

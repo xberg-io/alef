@@ -72,6 +72,7 @@ pub struct PythonConfig {
     #[serde(default)]
     pub send_sync_types: Vec<String>,
     pub module_name: Option<String>,
+    /// Use `managed` for a restartable Tokio runtime with an explicit idle shutdown API. ~keep
     pub async_runtime: Option<String>,
     pub stubs: Option<StubsConfig>,
     /// PyPI package name (e.g. `"sample-markdown"`). Used as the `[project] name` in

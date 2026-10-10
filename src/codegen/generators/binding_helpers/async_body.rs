@@ -25,12 +25,38 @@ pub fn gen_async_body(
     is_unit_return: bool,
     return_type: Option<&str>,
 ) -> String {
+    gen_async_body_with_error_type(
+        core_call,
+        cfg,
+        has_error,
+        return_wrap,
+        is_opaque,
+        inner_clone_line,
+        is_unit_return,
+        return_type,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn gen_async_body_with_error_type(
+    core_call: &str,
+    cfg: &RustBindingConfig,
+    has_error: bool,
+    return_wrap: &str,
+    is_opaque: bool,
+    inner_clone_line: &str,
+    is_unit_return: bool,
+    return_type: Option<&str>,
+    error_type: Option<&str>,
+) -> String {
     let pattern_body = match cfg.async_pattern {
         AsyncPattern::Pyo3FutureIntoPy => {
+            let err_conv = super::resolve_err_conv(cfg, error_type);
             let result_handling = if has_error {
                 format!(
                     "let result = {core_call}.await\n            \
-                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;"
+                     {err_conv}?;"
                 )
             } else if is_unit_return {
                 format!("{core_call}.await;")

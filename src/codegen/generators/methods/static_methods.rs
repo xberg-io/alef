@@ -1,6 +1,6 @@
 use super::trait_names::is_trait_method_name;
 use crate::codegen::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg,
+    apply_return_newtype_unwrap, gen_async_body_with_error_type as gen_async_body, gen_call_args, gen_call_args_cfg,
     gen_call_args_with_let_bindings_json_str, gen_named_let_bindings_pub, gen_unimplemented_body, has_named_params,
     wrap_return_with_mutex_mapped,
 };
@@ -151,6 +151,7 @@ pub fn gen_static_method(
             "",
             matches!(method.return_type, TypeRef::Unit),
             Some(&return_type),
+            method.error_type.as_deref(),
         )
     } else {
         let core_call = format!("{core_type_path}::{}({call_args})", actual_method_name);
