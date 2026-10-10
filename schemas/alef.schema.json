@@ -5199,6 +5199,7 @@
       "additionalProperties": false,
       "properties": {
         "async_runtime": {
+          "description": "Use `managed` for a restartable Tokio runtime with an explicit idle shutdown API. ~keep",
           "type": [
             "string",
             "null"
