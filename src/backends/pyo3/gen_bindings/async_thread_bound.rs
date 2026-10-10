@@ -36,17 +36,23 @@ pub(super) struct ThreadBoundAsyncUse {
     pub role: ThreadBoundRole,
 }
 
-/// Every async free function or method whose parameter or receiver is an opaque type that is not
-/// in `send_sync_types`. An empty result means every async call is safe to schedule.
+/// Every async free function or method whose parameter or receiver is an opaque wrapper that is
+/// not in `send_sync_types`. An empty result means every async call is safe to schedule.
 pub(super) fn thread_bound_async_types(
     api: &ApiSurface,
     opaque_types: &AHashSet<String>,
     send_sync_types: &AHashSet<String>,
 ) -> Vec<ThreadBoundAsyncUse> {
+    let trait_types: AHashSet<&str> = api
+        .types
+        .iter()
+        .filter(|typ| typ.is_trait)
+        .map(|typ| typ.name.as_str())
+        .collect();
     let thread_bound: AHashSet<&str> = opaque_types
         .iter()
         .map(String::as_str)
-        .filter(|name| !send_sync_types.contains(*name))
+        .filter(|name| !send_sync_types.contains(*name) && !trait_types.contains(*name))
         .collect();
     let mut uses = Vec::new();
 
@@ -154,6 +160,12 @@ mod tests {
         }
     }
 
+    fn async_trait() -> TypeDef {
+        let mut typ = opaque_handle();
+        typ.is_trait = true;
+        typ
+    }
+
     #[test]
     fn warns_for_a_thread_bound_receiver_and_parameter() {
         let api = ApiSurface {
@@ -195,6 +207,22 @@ mod tests {
         assert!(
             uses.is_empty(),
             "a type listed in send_sync_types is sendable and must not warn: {uses:?}"
+        );
+    }
+
+    #[test]
+    fn async_trait_receivers_and_parameters_do_not_warn() {
+        let api = ApiSurface {
+            types: vec![async_trait()],
+            functions: vec![async_takes_handle()],
+            ..Default::default()
+        };
+
+        let uses = thread_bound_async_types(&api, &names(&["SessionHandle"]), &names(&[]));
+
+        assert!(
+            uses.is_empty(),
+            "trait markers use separately generated sendable bridges and must not warn: {uses:?}"
         );
     }
 

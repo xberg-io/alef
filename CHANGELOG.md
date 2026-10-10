@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Python async-safety diagnostics no longer flag generated trait markers as thread-bound opaque
+  wrappers or recommend the invalid `python.send_sync_types` configuration for traits.
 - Go trampoline signatures render with Minijinja 3, including the default C return type.
 - Dart error classes retain method getter names and return types under Minijinja 3.
 - Component contract traits and implementation types are excluded from the generated binding
