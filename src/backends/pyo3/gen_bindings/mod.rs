@@ -1,5 +1,6 @@
 //! PyO3 (Python) backend: orchestration and `Backend` trait implementation.
 
+mod async_thread_bound;
 pub(crate) mod binding_exclusions;
 pub mod capsule;
 mod capsule_methods;
@@ -275,6 +276,18 @@ impl Backend for Pyo3Backend {
         // a generated class name and must not name one this loop skips. ~keep
         let py_exclude_types = binding_exclusions::pyclass_absent_type_names(config, &api.types, &api.errors);
         let send_sync_types = config_opaque::send_sync_type_names(api, config, &py_exclude_types)?;
+        // An async call that carries a thread-bound opaque type leaks it: pyo3 refuses to drop
+        // it on a runtime thread. The generator cannot make the type sendable for the project,
+        // so it names the option that does (alef #526). ~keep
+        for thread_bound in async_thread_bound::thread_bound_async_types(api, &opaque_types, &send_sync_types) {
+            tracing::warn!(
+                item = %thread_bound.item,
+                type_name = %thread_bound.type_name,
+                role = thread_bound.role.as_str(),
+                "python async call crosses the runtime boundary with a thread-bound opaque type; \
+                 list it in `python.send_sync_types` so pyo3 may drop it off-thread (alef #526)"
+            );
+        }
         // Types listed in capsule_types bypass #[pyclass] generation entirely — they are
         let capsule_types = config
             .python

@@ -40,6 +40,16 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
         if super::managed_runtime::enabled(config) {
             lines.push("    m.add_function(wrap_pyfunction!(shutdown_async_runtime, m)?)?;".to_string());
+            lines.push("    {".to_string());
+            lines.push("        let __shutdown = wrap_pyfunction!(shutdown_async_runtime, m)?;".to_string());
+            lines.push(
+                "        // ~keep Shut the runtime down at interpreter exit, while the interpreter can".to_string(),
+            );
+            lines.push("        // still hold the GIL: its Tokio workers are joined instead of killed by".to_string());
+            lines.push("        // CPython mid-cleanup, which frees their Python objects without the lock".to_string());
+            lines.push("        // (alef #525).".to_string());
+            lines.push("        m.py().import(\"atexit\")?.call_method1(\"register\", (__shutdown,))?;".to_string());
+            lines.push("    }".to_string());
         }
     }
 
@@ -277,6 +287,48 @@ module_name = "_test_lib"
         assert!(
             result.contains("pyo3_async_runtimes::tokio::init"),
             "the enlarged-stack runtime must be installed before first use:\n{result}"
+        );
+    }
+
+    /// A managed-runtime binding must register the runtime shutdown as an interpreter exit hook,
+    /// so its worker threads are joined while the GIL is held instead of killed mid-cleanup
+    /// (alef #525). Without the hook the managed runtime never shuts down at exit.
+    #[test]
+    fn gen_module_init_registers_the_managed_runtime_exit_hook() {
+        let api = ApiSurface {
+            crate_name: "test-lib".to_string(),
+            version: "0.1.0".to_string(),
+            functions: vec![FunctionDef {
+                name: "do_async".to_string(),
+                is_async: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+[crates.python]
+module_name = "_test_lib"
+async_runtime = "managed"
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+
+        let result = gen_module_init("_test_lib", &api, &config);
+
+        assert!(
+            result.contains("shutdown_async_runtime"),
+            "the managed runtime must expose its shutdown:\n{result}"
+        );
+        assert!(
+            result.contains("atexit") && result.contains("call_method1(\"register\""),
+            "the managed runtime shutdown must be registered as an interpreter exit hook:\n{result}"
         );
     }
 }

@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than the host binding, so a binding that overrides the core crate (wasm/mobile) forwarded
   `<override>/<feature>` for a feature that crate never declares and the workspace stopped resolving.
 - Preserve registered Python exception categories from async free functions and methods, including serde-converted parameters.
+- Python: the pyo3 generator warns when an async call passes a thread-bound opaque type — a
+  parameter or receiver not listed in `python.send_sync_types` — across the runtime boundary, where
+  pyo3 refuses the off-thread drop and leaks the value, and names the option that fixes it (#526).
+- Python: a managed async runtime is shut down by an interpreter exit hook, so its worker threads
+  are joined while the interpreter can still hold the GIL instead of being killed mid-cleanup
+  (#525).
 
 ### Changed
 
