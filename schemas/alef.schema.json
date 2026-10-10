@@ -4741,8 +4741,7 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "description": "Cargo package archive filters for generated Rust binding crates."
+          "default": null
         },
         "categories": {
           "default": [],

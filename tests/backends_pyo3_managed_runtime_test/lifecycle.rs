@@ -78,8 +78,10 @@ pub fn run() {
 }
 
 fn verify(binding: &Path, mode: &str) {
+    let mut failures = Vec::new();
     for scenario in ["exit", "unread", "manual", "fork-cold", "fork-warm"] {
         let output = Command::new("python3")
+            .args(["-W", "ignore:This process:DeprecationWarning"])
             .arg(binding.join("lifecycle.py"))
             .arg(scenario)
             .arg(mode)
@@ -87,10 +89,16 @@ fn verify(binding: &Path, mode: &str) {
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            output.status.success() && stdout.contains("LIFECYCLE_OK") && !stdout.contains("LIFECYCLE_FAILED"),
-            "{mode}/{scenario}: {stdout}\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        if !output.status.success()
+            || !stdout.contains("LIFECYCLE_OK")
+            || stdout.contains("LIFECYCLE_FAILED")
+            || !output.stderr.is_empty()
+        {
+            failures.push(format!(
+                "{mode}/{scenario}: {stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
     }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
