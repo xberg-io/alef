@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Swift bridges omit discriminant-only enum reconstruction when a resolved newtype payload
+  has no proven `Default`; empty optional, vector, and map payloads retain the compatibility helper.
+  Lossless first-class DTO conversion continues to use JSON.
 - Scaffold migration and repair passes now honor `[workspace.ownership] user_owned`, so a
   declared create-once manifest is not rewritten after the guarded scaffold writer skips it.
 - Generated Python, Ruby, Elixir, WebAssembly, and Swift package manifests preserve configured
