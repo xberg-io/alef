@@ -12,6 +12,7 @@ description = "Opinionated polyglot binding generator for Rust libraries"
 keywords = ["codegen", "bindings", "ffi", "polyglot", "pyo3"]
 categories = ["development-tools::ffi", "development-tools::build-utils"]
 readme = "README.md"
+exclude = ["tests/**"]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/alef-{ target }{ archive-suffix }"
