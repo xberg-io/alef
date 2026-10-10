@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Stale manifest comments describing the pre-migration minijinja 2.x pin are removed, and the
+  now-obsolete exact `=3.0.0` pin is relaxed to `3.0`.
+
 ## [0.109.0] - 2026-10-10
 
 ### Added

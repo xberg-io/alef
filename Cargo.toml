@@ -50,16 +50,14 @@ ed25519-dalek = { version = "3", features = ["pem", "pkcs8"] }
 flate2 = "1"
 glob = "0.3"
 heck = "0.5"
-# Exactly pinned, not caret: `codegen::coordinates` publishes the pinned Unicode version these
-# two tables carry as part of the NuGet package-ID contract, and a caret bump would move that
-# version silently. See `tests/unicode_dependency_pins.rs`. ~keep
+# Exactly pinned, not caret: the identifier and case-fold sets `codegen::coordinates` and
+# `codegen::identifier_grammar` accept are read from these two Unicode tables, so a caret bump
+# silently changes which identifiers are legal (and the Unicode version `identifier_grammar`
+# states). See `tests/unicode_dependency_pins.rs`. ~keep
 icu_casemap = "=2.3.0"
 jsonschema = { version = "0.58", default-features = false, features = ["resolve-file"] }
 libloading = { version = "0.9", optional = true }
-# ~keep Pinned to 2.x. minijinja 3.0 requires owned/`'static` context values, and the ~474
-# `context!` call sites across `src/scaffold` pass borrowed values, so 3.0 does not compile.
-# 0.107.7 restored 2.24 for exactly this reason; re-bump only alongside a full migration. ~keep
-minijinja = { version = "=3.0.0", features = ["serde"] }
+minijinja = { version = "3.0", features = ["serde"] }
 proc-macro2 = "1"
 quote = "1"
 rayon = "1"

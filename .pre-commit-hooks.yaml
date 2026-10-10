@@ -1,7 +1,3 @@
-#   1. Prefers a pre-installed `alef` binary on PATH whose version matches the
-#      hook's pinned `alef.toml` version (zero-cost when you've already done
-#      `~/.cache/alef-hooks/{version}/` (ideal for CI without a Rust
-
 - id: alef-verify
   name: alef verify
   language: script
