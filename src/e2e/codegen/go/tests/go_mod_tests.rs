@@ -17,7 +17,7 @@ fn render_go_mod_without_extras() {
         "should contain main module require"
     );
     assert!(
-        out.contains("github.com/stretchr/testify v1.11.1"),
+        out.contains("github.com/stretchr/testify v1.12.1"),
         "should contain testify require"
     );
     assert!(
@@ -34,9 +34,8 @@ fn render_go_mod_includes_testify_indirect_deps() {
     // manual tidy (and offline).
     let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", None, None);
     for indirect in [
-        "github.com/davecgh/go-spew v1.1.1 // indirect",
-        "github.com/pmezard/go-difflib v1.0.0 // indirect",
-        "gopkg.in/yaml.v3 v3.0.1 // indirect",
+        "github.com/stretchr/objx v0.5.3 // indirect",
+        "go.yaml.in/yaml/v3 v3.0.5 // indirect",
     ] {
         assert!(
             out.contains(indirect),
@@ -272,11 +271,10 @@ fn render_go_mod_merges_dependency_go_mod_indirect_requires() {
     // (b) indirect block merges testify's pinned indirects with the dependency's own requires,
     // alphabetically.
     let expected_indirect_order = [
-        "github.com/davecgh/go-spew v1.1.1 // indirect",
         "github.com/mattn/go-pointer v0.0.1 // indirect",
-        "github.com/pmezard/go-difflib v1.0.0 // indirect",
+        "github.com/stretchr/objx v0.5.3 // indirect",
         "github.com/tree-sitter/go-tree-sitter v0.25.0 // indirect",
-        "gopkg.in/yaml.v3 v3.0.1 // indirect",
+        "go.yaml.in/yaml/v3 v3.0.5 // indirect",
     ];
     let mut last_idx = None;
     for indirect in expected_indirect_order {
@@ -369,9 +367,8 @@ fn render_go_mod_dependency_with_no_extra_requires_matches_testify_only() {
         "a dependency go.mod with no requires must not change the testify-only indirect output"
     );
     for indirect in [
-        "github.com/davecgh/go-spew v1.1.1 // indirect",
-        "github.com/pmezard/go-difflib v1.0.0 // indirect",
-        "gopkg.in/yaml.v3 v3.0.1 // indirect",
+        "github.com/stretchr/objx v0.5.3 // indirect",
+        "go.yaml.in/yaml/v3 v3.0.5 // indirect",
     ] {
         assert!(
             with_dependency_dir.contains(indirect),

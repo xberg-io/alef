@@ -6,6 +6,8 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 description = "Stable C ABI primitives for Alef native components"
+homepage = "https://github.com/xberg-io/alef"
+repository = "https://github.com/xberg-io/alef"
 
 [lib]
 path = "src/lib.rs"

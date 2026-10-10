@@ -25,8 +25,8 @@ fn write_go_mod(root: &Path, required_version: &str) -> PathBuf {
         &manifest,
         format!(
             "module example.com/demo/sample-pkg-e2e\n\ngo 1.26\n\nrequire (\n\t{GO_MODULE} \
-             {required_version}\n\tgithub.com/stretchr/testify v1.11.1\n)\n\nrequire (\n\t\
-             github.com/davecgh/go-spew v1.1.1 // indirect\n)\n"
+             {required_version}\n\tgithub.com/stretchr/testify v1.12.1\n)\n\nrequire (\n\t\
+             github.com/stretchr/objx v0.5.3 // indirect\n)\n"
         ),
     )
     .expect("write go.mod");
@@ -56,8 +56,8 @@ fn write_go_sum(root: &Path, locked_version: &str) {
         format!(
             "{GO_MODULE} {locked_version} h1:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdead=\n\
              {GO_MODULE} {locked_version}/go.mod h1:cafebabecafebabecafebabecafebabecafebabecafeb=\n\
-             github.com/stretchr/testify v1.11.1 h1:deadbeef00000000000000000000000000000000000=\n\
-             github.com/stretchr/testify v1.11.1/go.mod h1:cafebabe00000000000000000000000000000=\n"
+             github.com/stretchr/testify v1.12.1 h1:deadbeef00000000000000000000000000000000000=\n\
+             github.com/stretchr/testify v1.12.1/go.mod h1:cafebabe00000000000000000000000000000=\n"
         ),
     )
     .expect("write go.sum");
@@ -136,7 +136,7 @@ fn stale_go_sum_findings_ignores_a_replaced_module() {
     // ledger legitimately never sees it.
     std::fs::write(
         go_dir(root).join("go.sum"),
-        "github.com/stretchr/testify v1.11.1 h1:deadbeef=\ngithub.com/stretchr/testify v1.11.1/go.mod h1:cafe=\n",
+        "github.com/stretchr/testify v1.12.1 h1:deadbeef=\ngithub.com/stretchr/testify v1.12.1/go.mod h1:cafe=\n",
     )
     .expect("write go.sum");
 

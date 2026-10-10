@@ -545,6 +545,69 @@ fn is_vacuous_dart_placeholder(content: &str) -> bool {
 /// native FFI libraries from the published pub.dev tarball.
 const STALE_PUBIGNORE: &str = "android/\nios/\nblobs/\nlib/src/native/\nrust/\nexample/\ntest/\n*.so\n*.dylib\n*.dll\n";
 
+const STALE_DART_SDK_LINES: [&str; 2] = ["  sdk: '>=3.11.0 <4.0.0'", "  sdk: \">=3.11.0 <4.0.0\""];
+const STALE_FREEZED_SDK_COMMENT: &str = r#"  # Required by flutter_rust_bridge_codegen 2.x for sealed classes. Pinned to a
+  # stable release: flutter_rust_bridge_codegen 2.12.0 rejects a prerelease
+  # (4.0.0-dev.3 gets "InvalidDep: Please update version of freezed... >=1.0.0"
+  # from its own version gate, which excludes prereleases from a plain
+  # `>=1.0.0` bound) even though pub itself resolves it happily. Stable 4.0.0
+  # needs Dart SDK >=3.13.0, ahead of this package's ">=3.11.0 <4.0.0"
+  # constraint, so stay on the 3.x line until the SDK floor moves.
+"#;
+const CURRENT_FREEZED_COMMENT: &str = "  # Required by flutter_rust_bridge_codegen 2.x for sealed classes.\n";
+
+/// Raise the SDK constraint in an Alef-seeded, create-once Dart manifest to the current
+/// central floor.
+///
+/// `pubspec.yaml` is intentionally create-once because consumers may add package metadata
+/// and dependencies. That also means a package scaffolded with the former Dart 3.11 floor
+/// never receives the Dart 3.13 floor required by Freezed 4. This repair changes only the
+/// exact historical SDK line and requires the distinctive Alef download executable and
+/// dependency set before it will touch a marker-less manifest. The same pass retracts the
+/// exact historical comment that said Freezed 4 could not be used until this floor moved. ~keep
+pub(crate) fn migrate_dart_pubspec_sdk_floor(base_dir: &Path, relative_path: &Path) -> anyhow::Result<bool> {
+    let path = crate::cli::pipeline::generate::write::contained_output_path(base_dir, relative_path)?;
+    let Ok(existing) = std::fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    if !existing.contains("executables:\n  download_libs:")
+        || !existing.contains("  crypto:")
+        || !existing.contains("  freezed:")
+    {
+        return Ok(false);
+    }
+
+    let mut migrated = existing.clone();
+    if let Some(stale_sdk_line) = STALE_DART_SDK_LINES.iter().find(|line| existing.contains(**line)) {
+        let quote = if stale_sdk_line.contains('"') { '"' } else { '\'' };
+        let current_sdk_line = format!(
+            "  sdk: {quote}{}{quote}",
+            crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT
+        );
+        migrated = migrated.replacen(stale_sdk_line, &current_sdk_line, 1);
+    }
+    migrated = migrated.replacen(STALE_FREEZED_SDK_COMMENT, CURRENT_FREEZED_COMMENT, 1);
+    if migrated == existing {
+        return Ok(false);
+    }
+
+    let parent = path.parent().context("pubspec.yaml path has no parent directory")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create temporary file in {}", parent.display()))?;
+    std::io::Write::write_all(&mut temporary, migrated.as_bytes())
+        .with_context(|| format!("failed to write temporary file for {}", path.display()))?;
+    temporary
+        .persist(&path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to replace {}", path.display()))?;
+    tracing::info!(
+        path = %path.display(),
+        sdk = crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT,
+        "raised pre-existing Alef Dart pubspec to the current SDK floor"
+    );
+    Ok(true)
+}
+
 /// Repair a pre-existing `packages/dart/.pubignore` that still excludes `lib/src/native/` and
 /// `*.so`/`*.dylib`/`*.dll` — the exact defect fixed in [`scaffold_dart`]'s `pubignore` literal.
 ///
@@ -1299,6 +1362,114 @@ void main() {
         let changed = migrate_dart_placeholder_test(dir.path(), relative_path, "new content").expect("must not error");
         assert!(!changed);
         assert!(!dir.path().join(relative_path).exists());
+    }
+
+    #[test]
+    fn should_raise_a_pre_existing_alef_pubspec_to_the_central_dart_sdk_floor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let package_dir = dir.path().join("packages/dart");
+        std::fs::create_dir_all(&package_dir).expect("create packages/dart");
+        let stale = r#"name: my_lib
+description: Generated Dart bindings for my-lib
+version: 1.0.0
+environment:
+  sdk: '>=3.11.0 <4.0.0'
+executables:
+  download_libs:
+dependencies:
+  http: '^1.6.0'
+  crypto: '^3.0.7'
+  flutter_rust_bridge: 2.11.1
+  freezed_annotation: '^3.1.0'
+dev_dependencies:
+  freezed: '^4.0.0'
+"#;
+        std::fs::write(package_dir.join("pubspec.yaml"), stale).expect("write stale pubspec");
+
+        let relative_path = std::path::Path::new("packages/dart/pubspec.yaml");
+        let changed = migrate_dart_pubspec_sdk_floor(dir.path(), relative_path).expect("migration must not error");
+        assert!(changed, "the stale Alef pubspec must be reported as changed");
+
+        let on_disk = std::fs::read_to_string(package_dir.join("pubspec.yaml")).expect("read migrated pubspec");
+        assert!(
+            on_disk.contains(&format!(
+                "sdk: '{}'",
+                crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT
+            )),
+            "the migrated pubspec must use Alef's central Dart SDK floor:\n{on_disk}"
+        );
+        assert!(
+            !on_disk.contains(">=3.11.0"),
+            "the incompatible pre-Freezed-4 floor must be removed:\n{on_disk}"
+        );
+
+        let changed_again =
+            migrate_dart_pubspec_sdk_floor(dir.path(), relative_path).expect("second migration must not error");
+        assert!(!changed_again, "the migration must converge in one pass");
+    }
+
+    #[test]
+    fn should_raise_a_double_quoted_alef_pubspec_sdk_floor() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let package_dir = dir.path().join("packages/dart");
+        std::fs::create_dir_all(&package_dir).expect("create packages/dart");
+        let stale = r#"name: xberg
+environment:
+  sdk: ">=3.11.0 <4.0.0"
+executables:
+  download_libs:
+dependencies:
+  crypto: "^3.0.6"
+dev_dependencies:
+  # Required by flutter_rust_bridge_codegen 2.x for sealed classes. Pinned to a
+  # stable release: flutter_rust_bridge_codegen 2.12.0 rejects a prerelease
+  # (4.0.0-dev.3 gets "InvalidDep: Please update version of freezed... >=1.0.0"
+  # from its own version gate, which excludes prereleases from a plain
+  # `>=1.0.0` bound) even though pub itself resolves it happily. Stable 4.0.0
+  # needs Dart SDK >=3.13.0, ahead of this package's ">=3.11.0 <4.0.0"
+  # constraint, so stay on the 3.x line until the SDK floor moves.
+  freezed: "^4.0.0"
+"#;
+        std::fs::write(package_dir.join("pubspec.yaml"), stale).expect("write stale pubspec");
+
+        let relative_path = std::path::Path::new("packages/dart/pubspec.yaml");
+        let changed = migrate_dart_pubspec_sdk_floor(dir.path(), relative_path).expect("migration must not error");
+        assert!(changed, "the double-quoted Alef pubspec must be reported as changed");
+
+        let on_disk = std::fs::read_to_string(package_dir.join("pubspec.yaml")).expect("read migrated pubspec");
+        assert!(
+            on_disk.contains(&format!(
+                "sdk: \"{}\"",
+                crate::core::template_versions::toolchain::DART_SDK_CONSTRAINT
+            )),
+            "the migration must preserve the manifest's double-quote style:\n{on_disk}"
+        );
+        assert!(
+            !on_disk.contains("stay on the 3.x line until the SDK floor moves"),
+            "the migration must retract the now-false SDK-floor comment:\n{on_disk}"
+        );
+        assert!(
+            on_disk.contains("# Required by flutter_rust_bridge_codegen 2.x for sealed classes.\n  freezed:"),
+            "the migration must retain the current dependency rationale:\n{on_disk}"
+        );
+    }
+
+    #[test]
+    fn should_not_touch_a_custom_pubspec_with_the_historical_sdk_constraint() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let package_dir = dir.path().join("packages/dart");
+        std::fs::create_dir_all(&package_dir).expect("create packages/dart");
+        let custom = "name: custom_app\nenvironment:\n  sdk: '>=3.11.0 <4.0.0'\ndependencies:\n  path: ^1.9.0\n";
+        std::fs::write(package_dir.join("pubspec.yaml"), custom).expect("write custom pubspec");
+
+        let relative_path = std::path::Path::new("packages/dart/pubspec.yaml");
+        let changed = migrate_dart_pubspec_sdk_floor(dir.path(), relative_path).expect("migration must not error");
+        assert!(!changed, "a custom manifest must not be reported as changed");
+        assert_eq!(
+            std::fs::read_to_string(package_dir.join("pubspec.yaml")).expect("read custom pubspec"),
+            custom,
+            "a custom manifest must survive byte-for-byte"
+        );
     }
 
     #[test]

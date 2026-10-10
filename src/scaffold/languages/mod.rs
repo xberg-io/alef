@@ -27,7 +27,9 @@ pub use csharp::{
     PUBLISHED_RUNTIME_IDENTIFIERS, render_csharp_csproj, render_csharp_runtime_csproj,
     render_csharp_runtime_json_template,
 };
-pub(crate) use dart::{migrate_dart_placeholder_test, migrate_dart_pubignore, scaffold_dart};
+pub(crate) use dart::{
+    migrate_dart_placeholder_test, migrate_dart_pubignore, migrate_dart_pubspec_sdk_floor, scaffold_dart,
+};
 pub(crate) use elixir::{elixir_native_crate_dir, scaffold_elixir, scaffold_elixir_cargo};
 pub(crate) use ffi::scaffold_ffi;
 pub(crate) use gleam::scaffold_gleam;

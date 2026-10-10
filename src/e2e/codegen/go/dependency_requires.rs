@@ -183,14 +183,13 @@ mod tests {
         assert_eq!(
             resolved,
             vec![
-                ("github.com/davecgh/go-spew".to_string(), "v1.1.1".to_string()),
                 ("github.com/mattn/go-pointer".to_string(), "v0.0.1".to_string()),
-                ("github.com/pmezard/go-difflib".to_string(), "v1.0.0".to_string()),
+                ("github.com/stretchr/objx".to_string(), "v0.5.3".to_string()),
                 (
                     "github.com/tree-sitter/go-tree-sitter".to_string(),
                     "v0.25.0".to_string()
                 ),
-                ("gopkg.in/yaml.v3".to_string(), "v3.0.1".to_string()),
+                ("go.yaml.in/yaml/v3".to_string(), "v3.0.5".to_string()),
             ],
             "expected testify indirects merged alphabetically with the dependency's own requires"
         );

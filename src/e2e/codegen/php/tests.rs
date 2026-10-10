@@ -539,8 +539,8 @@ mod composer_json_tests {
             "registry composer.json must keep phpunit in require-dev, got:\n{content}"
         );
         assert!(
-            content.contains("guzzlehttp/guzzle"),
-            "registry composer.json must keep guzzle in require-dev, got:\n{content}"
+            content.contains(r#""guzzlehttp/guzzle": "^7.15.2 || ^8.0.1""#),
+            "registry composer.json must keep patched guzzle release floors in require-dev, got:\n{content}"
         );
     }
 

@@ -66,6 +66,11 @@ pub mod npm {
     pub const VITE_PLUGIN_WASM: &str = "^3.6.0";
 }
 
+pub mod golang {
+    // renovate: datasource=github-tags depName=stretchr/testify
+    pub const TESTIFY: &str = "v1.12.1";
+}
+
 pub mod cargo {
     // renovate: datasource=crate depName=tracing
     pub const TRACING: &str = "0.1";
@@ -331,15 +336,14 @@ pub mod packagist {
     // renovate: datasource=packagist depName=phpunit/phpunit
     pub const PHPUNIT: &str = "^11.5 || ^12.0 || ^13.1";
 
-    // Accept both ^7 and ^8: a Composer resolver picking guzzle 8.x (e.g. because
-    // a committed composer.lock already resolved to 8.x) must not be rejected by a
-    // stale ^7-only constraint, which makes `composer install` hard-fail on a
-    // require/lock mismatch. If a generated e2e test depends on guzzle 7's
-    // client-side Content-Length validation behavior, gate or rework that test
-    // rather than narrowing this constraint back to ^7 only. Needs the same
+    // Accept patched releases from both supported majors: a Composer resolver picking guzzle 8.x
+    // (e.g. because a committed composer.lock already resolved to 8.x) must not be rejected by a
+    // stale ^7-only constraint, which makes `composer install` hard-fail on a require/lock mismatch.
+    // If a generated e2e test depends on guzzle 7's client-side Content-Length validation behavior,
+    // gate or rework that test rather than narrowing this constraint back to ^7 only. Needs the same
     // `rangeStrategy=widen` packageRule as PHPUNIT above, for the same reason. ~keep
     // renovate: datasource=packagist depName=guzzlehttp/guzzle
-    pub const GUZZLE: &str = "^7.0 || ^8.0";
+    pub const GUZZLE: &str = "^7.15.2 || ^8.0.1";
 }
 
 /// Artifacts fetched straight from a GitHub release by a generated installer script, rather

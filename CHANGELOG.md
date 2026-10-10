@@ -7,11 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- Stale manifest comments describing the pre-migration minijinja 2.x pin are removed, and the
-  now-obsolete exact `=3.0.0` pin is relaxed to `3.0`.
-
 ## [0.109.0] - 2026-10-10
 
 ### Added
@@ -52,9 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS test builds optimize only Alef's test profile to keep Apple's compact-unwind table within its offset limit while preserving panic unwinding.
 - Windows test builds exclude the C FFI packaging helper with its non-Windows-only test.
 - Generated Python async bindings close their owned executor before interpreter finalization in both runtime modes, reject executors inherited after a warm fork, and cancel unread producers during exit.
+- Generated Python service constructors require a mutable owner only when registration actually
+  mutates that owner.
+- Generated PHP test manifests exclude Guzzle releases affected by CVE-2026-69245 and
+  CVE-2026-69246.
+- Generated Go test modules use Testify 1.12.1 and its current transitive dependency graph.
+- Existing generated Dart manifests raise their SDK floor to the Dart 3.13 minimum required by
+  Freezed 4 while preserving consumer-owned manifest content.
+- Published component crates declare their repository and homepage metadata.
 
 ### Changed
 
+- Stale manifest comments describing the pre-migration minijinja 2.x pin are removed, and the
+  now-obsolete exact `=3.0.0` pin is relaxed to `3.0`.
 - `minijinja` moved to 3.x, which removed `Value::from_serialize` and the `Environment`
   block-trimming setters and stopped serializing `context!` values. Template contexts are now
   built through a serialize-by-reference `alef_context!` macro, `configure_env` carries the

@@ -18,6 +18,7 @@ use std::path::Path;
 pub(super) fn apply_pending_migrations(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<()> {
     migrate_zig_build_config(files, base_dir)?;
     migrate_dart_placeholder_test_file(files, base_dir)?;
+    migrate_dart_pubspec_sdk_floor_file(files, base_dir)?;
     migrate_swift_placeholder_test_file(files, base_dir)?;
     migrate_swift_package_manifests(files, base_dir)?;
     migrate_dart_pubignore_file(files, base_dir)?;
@@ -30,6 +31,17 @@ pub(super) fn apply_pending_migrations(files: &[GeneratedFile], base_dir: &Path)
     migrate_wasm_cargo_config_unconditional(base_dir)?;
     migrate_poly_toml_unconditional(base_dir)?;
 
+    Ok(())
+}
+
+fn migrate_dart_pubspec_sdk_floor_file(files: &[GeneratedFile], base_dir: &Path) -> anyhow::Result<()> {
+    if let Some(pubspec) = files
+        .iter()
+        .find(|file| file.path == Path::new("packages/dart/pubspec.yaml"))
+    {
+        crate::scaffold::migrate_dart_pubspec_sdk_floor(base_dir, &pubspec.path)
+            .context("failed to migrate pre-existing packages/dart/pubspec.yaml SDK floor")?;
+    }
     Ok(())
 }
 

@@ -409,7 +409,10 @@ fn render_go_mod(
     // 'x'). Hand-ordering module-then-testify was therefore wrong for every consumer, always.
     let mut direct_requires: Vec<(String, String)> = vec![
         (go_module_path.to_string(), version.to_string()),
-        ("github.com/stretchr/testify".to_string(), "v1.11.1".to_string()),
+        (
+            "github.com/stretchr/testify".to_string(),
+            crate::core::template_versions::golang::TESTIFY.to_string(),
+        ),
     ];
     // Inject extras: Go has no dev/runtime distinction, so merge both buckets
     if let Some(e) = extras
@@ -466,15 +469,12 @@ fn render_go_mod(
     out
 }
 
-/// Transitive (indirect) dependencies of `github.com/stretchr/testify v1.11.1`,
+/// Transitive (indirect) dependencies of `github.com/stretchr/testify v1.12.1`,
 /// pinned to the versions its own `go.mod` selects. These must appear in the
 /// generated test_app's go.mod (as `// indirect`) so `go test` builds without a
 /// manual `go mod tidy` — otherwise Go reports the go.mod as incomplete.
-const TESTIFY_INDIRECT_DEPS: &[(&str, &str)] = &[
-    ("github.com/davecgh/go-spew", "v1.1.1"),
-    ("github.com/pmezard/go-difflib", "v1.0.0"),
-    ("gopkg.in/yaml.v3", "v3.0.1"),
-];
+const TESTIFY_INDIRECT_DEPS: &[(&str, &str)] =
+    &[("github.com/stretchr/objx", "v0.5.3"), ("go.yaml.in/yaml/v3", "v3.0.5")];
 
 /// Emit environment variable setup code for the TestMain function.
 /// Returns a Go code snippet that calls os.Setenv for each env var in the config,

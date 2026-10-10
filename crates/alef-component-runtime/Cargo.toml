@@ -6,6 +6,8 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 description = "Verified downloader and dynamic loader for Alef native components"
+homepage = "https://github.com/xberg-io/alef"
+repository = "https://github.com/xberg-io/alef"
 
 [dependencies]
 alef-component-abi = { path = "../alef-component-abi", version = "0.109.0" }
