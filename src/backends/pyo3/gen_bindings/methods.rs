@@ -25,18 +25,10 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         format!("pub fn {module_name}(m: &Bound<'_, PyModule>) -> PyResult<()> {{"),
     ];
 
-    let has_async =
-        api.functions.iter().any(|f| f.is_async) || api.types.iter().any(|t| t.methods.iter().any(|m| m.is_async));
+    let has_async = super::managed_runtime::has_async(api);
 
-    if has_async && !super::managed_runtime::enabled(config) {
-        lines.push("    {".to_string());
-        lines.push("        let mut __rt_builder = tokio::runtime::Builder::new_multi_thread();".to_string());
-        lines.push("        __rt_builder.enable_all();".to_string());
-        lines.push("        __rt_builder.thread_stack_size(16 * 1024 * 1024);".to_string());
-        lines.push("        pyo3_async_runtimes::tokio::init(__rt_builder);".to_string());
-        lines.push("    }".to_string());
-    }
     if has_async {
+        lines.push("    alef_async_runtime::register_exit_hook(m.py())?;".to_string());
         lines.push("    m.add_function(wrap_pyfunction!(init_async_runtime, m)?)?;".to_string());
         if super::managed_runtime::enabled(config) {
             lines.push("    m.add_function(wrap_pyfunction!(shutdown_async_runtime, m)?)?;".to_string());
@@ -270,13 +262,9 @@ module_name = "_test_lib"
         };
         let config = make_config();
         let result = gen_module_init("_test_lib", &api, &config);
-        assert!(
-            result.contains("thread_stack_size"),
-            "async module init must enlarge the worker-thread stack:\n{result}"
-        );
-        assert!(
-            result.contains("pyo3_async_runtimes::tokio::init"),
-            "the enlarged-stack runtime must be installed before first use:\n{result}"
-        );
+        assert!(result.contains("register_exit_hook(m.py())?"));
+        let support = super::super::managed_runtime::support();
+        assert!(support.contains("thread_stack_size(16 * 1024 * 1024)"));
+        assert!(!result.contains("pyo3_async_runtimes::tokio::init"));
     }
 }

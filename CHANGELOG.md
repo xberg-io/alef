@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated Python async bindings close their owned executor before interpreter finalization in both runtime modes, reject executors inherited after a warm fork, and cancel unread producers during exit.
+
 ## [0.108.0] - 2026-10-10
 
 ### Added

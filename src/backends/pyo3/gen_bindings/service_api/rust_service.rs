@@ -297,11 +297,14 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
     };
 
     if ep.is_async {
-        format!(
-            "    {bind}_py.detach(|| {{\n        \
-             pyo3_async_runtimes::tokio::get_runtime().block_on(owner.{ep_method}({args_str}))\n    \
-             }})\n        \
-             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;\n"
+        crate::backends::pyo3::template_env::render(
+            "service_api_async_entrypoint.rs.jinja",
+            crate::alef_context! {
+                bind => bind,
+                ep_method => ep_method,
+                args => args_str,
+                has_error => ep.error_type.is_some(),
+            },
         )
     } else if ep.error_type.is_some() {
         format!(

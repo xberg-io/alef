@@ -663,6 +663,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_api_unknown_registration_arm.rs.jinja"),
     ),
     (
+        "service_api_async_entrypoint.rs.jinja",
+        include_str!("templates/service_api_async_entrypoint.rs.jinja"),
+    ),
+    (
         "service_api_pyfunction_footer.rs.jinja",
         include_str!("templates/service_api_pyfunction_footer.rs.jinja"),
     ),
