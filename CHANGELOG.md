@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated managed Python bindings register only the private executor exit hook, preventing
+  ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.
+
 ## [0.109.0] - 2026-10-10
 
 ### Added
