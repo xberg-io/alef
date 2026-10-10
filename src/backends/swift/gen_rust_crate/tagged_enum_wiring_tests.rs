@@ -111,6 +111,28 @@ fn api_with_tagged_enum() -> ApiSurface {
     }
 }
 
+fn api_with_typealiased_tagged_enum_owner() -> ApiSurface {
+    ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        enums: vec![tagged_enum()],
+        types: vec![TypeDef {
+            name: "LegacyOptions".to_string(),
+            rust_path: "test_lib::LegacyOptions".to_string(),
+            is_opaque: true,
+            has_default: true,
+            has_serde: true,
+            fields: vec![FieldDef {
+                name: "routing".to_string(),
+                ty: TypeRef::Named("Routing".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
 fn lib_rs(files: &[crate::core::backend::GeneratedFile]) -> String {
     files
         .iter()
@@ -207,5 +229,29 @@ fn data_carrying_enum_option_uses_reversible_parent_json_bridge() {
     assert!(
         !generated_swift.contains("return RustBridge.Options(try self.routing.intoRust())"),
         "the tagged enum's payload-erasing mirror must not feed the Options constructor:\n{generated_swift}"
+    );
+}
+
+#[test]
+fn typealiased_dto_keeps_its_public_initializer_when_it_contains_a_data_carrying_enum() {
+    let config = swift_config_with_trait_bridge();
+    let api = api_with_typealiased_tagged_enum_owner();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    let generated_rust = lib_rs(&files);
+    let generated_swift = files
+        .iter()
+        .find(|file| file.path.extension().is_some_and(|extension| extension == "swift"))
+        .expect("emit must produce the public Swift module")
+        .content
+        .as_str();
+
+    assert!(
+        generated_swift.contains("public typealias LegacyOptions = RustBridge.LegacyOptions"),
+        "the compatibility case must exercise a public typealias:\n{generated_swift}"
+    );
+    assert!(
+        generated_rust.contains("#[swift_bridge(init)]\n        fn new(routing: Routing) -> LegacyOptions;"),
+        "a typealiased DTO must retain the bridge declaration that generates its public Swift convenience init:\n\
+         {generated_rust}"
     );
 }

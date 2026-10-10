@@ -720,7 +720,7 @@ pub(super) fn emit_into_rust_direct_call(
 ) -> Option<String> {
     use crate::backends::swift::gen_rust_crate::extern_block::{constructor_fields, has_constructor_extern};
 
-    if !has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds) {
+    if !has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds, true) {
         return None;
     }
 

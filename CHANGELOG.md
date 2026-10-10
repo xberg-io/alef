@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of silently keeping defaults, and generated Swift constructors preserve required and optional
   unit-enum options when converting back to Rust. Swift DTOs with data-carrying enum options now
   use the reversible JSON bridge instead of a payload-erasing initializer.
+- Generated Swift bridge typealiases retain their public convenience initializers when a field uses
+  a data-carrying enum, preserving source compatibility for existing package consumers.
 
 ## [0.109.0] - 2026-10-10
 

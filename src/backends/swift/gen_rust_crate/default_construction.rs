@@ -168,7 +168,9 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if is_enum {
-                unreachable!("tagged enum field `{name}` must use the parent JSON bridge")
+                // ~keep A typealiased DTO has no value-level facade that can use the reversible
+                // parent JSON bridge. Keep its legacy initializer available; the payload-erased
+                // enum argument cannot safely replace the source type's default.
             } else if f.optional {
                 if f.is_boxed {
                     out.push_str(&crate::backends::swift::template_env::render(
@@ -224,7 +226,8 @@ pub(crate) fn emit_default_construction_body(
             if let TypeRef::Named(inner_n) = inner.as_ref() {
                 let is_enum = enum_kinds.contains(inner_n);
                 if is_enum {
-                    unreachable!("enum collection field `{name}` must use the parent JSON bridge")
+                    // ~keep See the scalar tagged-enum case above. The compatibility constructor
+                    // cannot reconstruct payload-bearing enum elements from bridge discriminants.
                 } else {
                     let unwrap_expr = match f.vec_inner_core_wrapper {
                         CoreWrapper::Arc => "std::sync::Arc::new(w.0)".to_string(),

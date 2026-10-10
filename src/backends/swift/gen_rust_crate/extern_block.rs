@@ -47,17 +47,19 @@ pub(crate) fn has_constructor_extern(
     exclude_fields: &HashSet<String>,
     configured_features: &std::collections::HashSet<&str>,
     enum_kinds: EnumKinds<'_, '_>,
+    parent_first_class: bool,
 ) -> bool {
     let fields = constructor_fields(ty, exclude_fields, configured_features);
     if fields.is_empty() {
         return false;
     }
     // ~keep Tagged enums and nested enum containers cannot cross this init ABI without losing
-    // payload or shape. Omitting the init forces first-class Swift DTOs through their complete
-    // Codable JSON bridge instead of silently substituting the Rust default.
-    if fields
-        .iter()
-        .any(|field| !enum_kinds.supports_constructor_field(&field.ty))
+    // payload or shape. First-class DTOs can omit the init and use their complete Codable JSON
+    // bridge; typealiases have no value facade, so they retain the legacy compatibility init.
+    if parent_first_class
+        && fields
+            .iter()
+            .any(|field| !enum_kinds.supports_constructor_field(&field.ty))
     {
         return false;
     }
@@ -108,7 +110,8 @@ pub(crate) fn emit_extern_block_for_type(
     ));
 
     let constructor_fields = constructor_fields(ty, exclude_fields, configured_features);
-    let emit_constructor = has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds);
+    let emit_constructor =
+        has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds, parent_first_class);
 
     if emit_constructor {
         let params: Vec<String> = constructor_fields

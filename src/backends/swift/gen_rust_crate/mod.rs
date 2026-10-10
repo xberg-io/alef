@@ -406,8 +406,15 @@ fn emit_lib_rs(
     let mut deferred_empty_handle_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for ty in &visible_types {
         let is_handle_returned = handle_returned_types.contains(&ty.name);
+        let parent_first_class = first_class_names.contains(ty.name.as_str());
         let would_be_empty_type_block = ty.fields.is_empty()
-            && !extern_block::has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds)
+            && !extern_block::has_constructor_extern(
+                ty,
+                exclude_fields,
+                configured_features,
+                enum_kinds,
+                parent_first_class,
+            )
             && ty
                 .methods
                 .iter()

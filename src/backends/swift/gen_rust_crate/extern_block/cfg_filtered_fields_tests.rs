@@ -64,6 +64,7 @@ fn constructor_fields_filters_cfg_gated_fields() {
             &exclude_fields,
             &empty_features,
             super::super::default_construction::EnumKinds::new(&HashSet::new(), &HashSet::new()),
+            false,
         ),
         "non-primitive serde DTOs still require Default-based construction"
     );

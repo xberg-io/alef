@@ -90,7 +90,8 @@ pub(crate) fn emit_type_wrapper(
                     .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))));
 
         let enum_kinds = EnumKinds::new(enum_names, unit_enum_names);
-        if has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds) {
+        let parent_first_class = first_class_names.contains(ty.name.as_str());
+        if has_constructor_extern(ty, exclude_fields, configured_features, enum_kinds, parent_first_class) {
             if !needs_default_construction && ty.has_default {
                 out.push_str("    #[allow(clippy::needless_update)]\n");
             }
