@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn ruby_package_metadata_splits_author_names_and_emails() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>", "Grace Hopper <grace@example.com>"]
+"#,
+    );
+    let all_files = scaffold(&test_api(), &config, &[Language::Ruby]).unwrap();
+    let files = language_files(&all_files);
+    let gemspec = files
+        .iter()
+        .find(|file| file.path == Path::new("packages/ruby/my_lib.gemspec"))
+        .expect("Ruby gemspec must be emitted");
+    assert!(
+        gemspec
+            .content
+            .contains(r#"spec.authors       = ["Ada Lovelace", "Grace Hopper"]"#)
+    );
+    assert!(
+        gemspec
+            .content
+            .contains(r#"spec.email         = ["ada@example.com", "grace@example.com"]"#)
+    );
+}
+
+#[test]
 fn test_scaffold_ffi_with_core_import() {
     let config = test_config();
     let api = test_api();

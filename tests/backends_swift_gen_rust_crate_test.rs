@@ -178,6 +178,35 @@ fn cargo_toml_contains_swift_bridge_version() {
 }
 
 #[test]
+fn cargo_toml_preserves_configured_authors() {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+"#,
+    )
+    .unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        ..ApiSurface::default()
+    };
+    let files = gen_rust_crate::emit(&api, &config).unwrap();
+    let cargo = files.iter().find(|file| file.path.ends_with("Cargo.toml")).unwrap();
+    let manifest: toml::Value = toml::from_str(&cargo.content).expect("generated Cargo.toml must be valid TOML");
+    assert_eq!(
+        manifest["package"]["authors"].as_array().expect("authors"),
+        &vec![toml::Value::String("Ada Lovelace <ada@example.com>".into())]
+    );
+}
+
+#[test]
 fn cargo_toml_emits_configured_package_exclude() {
     let config: NewAlefConfig = toml::from_str(
         r#"

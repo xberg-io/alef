@@ -24,6 +24,28 @@ fn test_scaffold_python() {
 }
 
 #[test]
+fn python_package_metadata_splits_author_names_and_emails_and_keeps_maintainers() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>", "Grace Hopper <grace@example.com>"]
+"#,
+    );
+    let all_files = scaffold(&test_api(), &config, &[Language::Python]).unwrap();
+    let pyproject = language_files(&all_files)
+        .iter()
+        .find(|file| file.path == Path::new("packages/python/pyproject.toml"))
+        .expect("Python pyproject must be emitted")
+        .content
+        .clone();
+    let manifest: toml::Value = toml::from_str(&pyproject).expect("generated pyproject must be valid TOML");
+    let project = &manifest["project"];
+    assert_eq!(project["authors"][0]["name"].as_str(), Some("Ada Lovelace"));
+    assert_eq!(project["authors"][0]["email"].as_str(), Some("ada@example.com"));
+    assert_eq!(project["maintainers"], project["authors"]);
+}
+
+#[test]
 fn test_scaffold_python_central_pyproject_ignores_source_output() {
     let config = test_config_from_toml(
         r#"

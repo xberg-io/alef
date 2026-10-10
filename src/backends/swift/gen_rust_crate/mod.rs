@@ -135,12 +135,21 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .map(|c| c.ffi_target_dep_overrides.as_slice())
         .unwrap_or(&[]);
-    let package_file_filters = crate::scaffold::render_cargo_package_file_filters(
+    let mut package_file_filters = crate::scaffold::render_cargo_package_file_filters(
         config
             .package_metadata
             .as_ref()
             .and_then(|metadata| metadata.cargo.as_ref()),
     );
+    let authors = crate::scaffold::scaffold_meta(config).authors;
+    if !authors.is_empty() {
+        let table = toml::Table::from_iter([(
+            "authors".to_string(),
+            toml::Value::Array(authors.into_iter().map(toml::Value::String).collect()),
+        )]);
+        let authors = toml::to_string(&table).expect("author metadata serializes to TOML");
+        package_file_filters = format!("{}{package_file_filters}", authors);
+    }
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,

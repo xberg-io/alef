@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn test_scaffold_elixir_preserves_configured_maintainers() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>", "Grace Hopper <grace@example.com>"]
+"#,
+    );
+    let all_files = scaffold(&test_api(), &config, &[Language::Elixir]).unwrap();
+    let files = language_files(&all_files);
+    let mix = files
+        .iter()
+        .find(|file| file.path == Path::new("packages/elixir/mix.exs"))
+        .expect("Elixir mix.exs must be emitted");
+    assert!(
+        mix.content
+            .contains(r#"maintainers: ["Ada Lovelace <ada@example.com>", "Grace Hopper <grace@example.com>"]"#),
+        "mix.exs must preserve configured maintainers; got:\n{}",
+        mix.content
+    );
+}
+
+#[test]
 fn test_scaffold_elixir_cargo_lib_name_no_path() {
     let config = test_config();
     let api = test_api();

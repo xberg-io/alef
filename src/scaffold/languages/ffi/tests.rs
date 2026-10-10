@@ -847,7 +847,7 @@ fn ffi_manifest_should_inherit_workspace_authors_and_license_file() {
     std::fs::write(
         directory.path().join("Cargo.toml"),
         "[workspace]\nmembers = [\"crates/my-lib-ffi\"]\n[workspace.package]\n\
-         authors = [\"Maintainer\"]\nlicense = \"MIT\"\nlicense-file = \"LICENSE\"\n",
+         authors = [\"Maintainer\"]\nlicense-file = \"LICENSE\"\n",
     )
     .expect("write workspace manifest");
     let mut config = minimal_config();

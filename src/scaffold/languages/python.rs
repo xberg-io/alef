@@ -332,11 +332,23 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let authors_toml = if meta.authors.is_empty() {
         String::new()
     } else {
-        let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
-        format!(
-            "authors = {}\n",
-            format_toml_array_with_prefix(&entries, "authors = ".len())
-        )
+        let entries: Vec<String> = meta
+            .authors
+            .iter()
+            .map(|author| {
+                let (name, email) = crate::scaffold::parse_author(author);
+                let name = toml::Value::String(name.to_string());
+                if email.is_empty() {
+                    format!("{{ name = {name} }}")
+                } else {
+                    let email = toml::Value::String(email.to_string());
+                    format!("{{ name = {name}, email = {email} }}")
+                }
+            })
+            .collect();
+        let authors = format_toml_array_with_prefix(&entries, "authors = ".len());
+        let maintainers = format_toml_array_with_prefix(&entries, "maintainers = ".len());
+        format!("authors = {authors}\nmaintainers = {maintainers}\n")
     };
 
     let keywords_toml = if meta.keywords.is_empty() {

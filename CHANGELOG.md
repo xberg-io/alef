@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Generated Python, Ruby, Elixir, WebAssembly, and Swift package manifests preserve configured
+  author, maintainer, and email metadata in each registry's native fields.
 - Generated managed Python bindings register only the private executor exit hook, preventing
   ignored shutdown exceptions when unread streams remain active or a warm runtime is inherited by a fork.
 - Generated crate manifests emit only one of `license` / `license-file`, preferring the SPDX

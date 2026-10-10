@@ -39,6 +39,16 @@ pub(super) fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         .and_then(|s| s.description.as_deref())
         .unwrap_or(crate_name.as_str());
     let repository = scaffold.and_then(|s| s.repository.as_deref()).unwrap_or("");
+    let authors = crate::scaffold::scaffold_meta(config).authors;
+    let authors_line = if authors.is_empty() {
+        String::new()
+    } else {
+        let table = toml::Table::from_iter([(
+            "authors".to_string(),
+            toml::Value::Array(authors.into_iter().map(toml::Value::String).collect()),
+        )]);
+        toml::to_string(&table).expect("author metadata serializes to TOML")
+    };
 
     let keywords = scaffold.map(|s| s.keywords.as_slice()).unwrap_or(&[]);
     let keywords_toml = if keywords.is_empty() {
@@ -239,7 +249,7 @@ name = "{pkg_prefix}-wasm"
 version = "{version}"
 edition = "2024"
 license = "{license}"
-description = "{description}"
+{authors_line}description = "{description}"
 repository = "{repository}"
 {keywords_toml}
 {package_file_filters_line}
@@ -272,6 +282,7 @@ getrandom_03 = {{ package = "getrandom", version = "0.3", features = ["wasm_js"]
         pkg_prefix = pkg_prefix,
         version = version,
         license = license,
+        authors_line = authors_line,
         description = description,
         repository = repository,
         keywords_toml = keywords_toml,

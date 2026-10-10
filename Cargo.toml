@@ -2,7 +2,7 @@
 [package]
 authors = ["Na'aman Hirschfeld <naaman@xberg.io>", "Tobias Perlstein <tobias@xberg.io>"]
 name = "alef"
-version = "0.109.1"
+version = "0.109.2"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT"
@@ -61,7 +61,7 @@ dylib-loader = ["dep:libloading"]
 
 [dependencies]
 ahash = "0.8"
-alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.109.1" }
+alef-component-runtime = { path = "crates/alef-component-runtime", version = "0.109.2" }
 anyhow = "1"
 base64 = "0.23"
 blake3 = "1"

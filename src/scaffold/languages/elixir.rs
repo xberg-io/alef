@@ -413,6 +413,17 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             "Elixir scaffold requires package metadata license; set package_metadata.license or scaffold.license"
         )
     })?;
+    let maintainers = meta
+        .authors
+        .iter()
+        .map(|author| serde_json::to_string(author).expect("maintainer serializes"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let maintainers_line = if maintainers.is_empty() {
+        String::new()
+    } else {
+        format!("maintainers: [{maintainers}],\n      ")
+    };
 
     let content = format!(
         r#"{version_notice}
@@ -434,7 +445,7 @@ defmodule {module}.MixProject do
   defp package do
     [
       licenses: ["{license}"],
-      {links}
+      {maintainers_line}{links}
       files:{files_keyword}
     ]
   end
@@ -459,6 +470,7 @@ end
         jason_dep = jason_dep,
         description = meta.description,
         license = license,
+        maintainers_line = maintainers_line,
         links = links_line,
         rustler_hex = versions.get("hex:rustler"),
         rustler_precompiled = versions.get("hex:rustler_precompiled"),

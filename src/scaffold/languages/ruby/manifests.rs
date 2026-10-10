@@ -15,13 +15,17 @@ pub(super) struct RubyGemspecParams<'a> {
     pub versions: &'a ManagedVersions<'a>,
 }
 
-fn ruby_authors_literal(meta: &ScaffoldMeta) -> String {
-    if meta.authors.is_empty() {
-        "[]".to_string()
-    } else {
-        let entries: Vec<String> = meta.authors.iter().map(|a| format!("\"{}\"", a)).collect();
-        format!("[{}]", entries.join(", "))
-    }
+fn ruby_person_metadata(meta: &ScaffoldMeta) -> (String, String) {
+    let people = meta.authors.iter().map(|author| crate::scaffold::parse_author(author));
+    let names = people
+        .clone()
+        .map(|(name, _)| serde_json::to_string(name).expect("author name serializes"))
+        .collect::<Vec<_>>();
+    let emails = people
+        .filter_map(|(_, email)| (!email.is_empty()).then_some(email))
+        .map(|email| serde_json::to_string(email).expect("author email serializes"))
+        .collect::<Vec<_>>();
+    (format!("[{}]", names.join(", ")), format!("[{}]", emails.join(", ")))
 }
 
 fn ruby_keywords_metadata(meta: &ScaffoldMeta) -> String {
@@ -82,7 +86,7 @@ pub(super) fn ruby_gemspec_content(params: RubyGemspecParams<'_>) -> String {
         required_ruby_version,
         versions,
     } = params;
-    let authors_ruby = ruby_authors_literal(meta);
+    let (authors_ruby, emails_ruby) = ruby_person_metadata(meta);
     let metadata_ruby = ruby_keywords_metadata(meta);
     let homepage_ruby = ruby_homepage_line(meta);
     let license_ruby = ruby_license_lines(meta);
@@ -94,6 +98,7 @@ Gem::Specification.new do |spec|
   spec.name = "{gem_name}"
   spec.version = "{version}"
   spec.authors       = {authors}
+  spec.email         = {emails}
   spec.summary       = "{description}"
   spec.description   = "{description}"
 {homepage}
@@ -117,6 +122,7 @@ end
         version = version,
         required_ruby_version = required_ruby_version,
         authors = authors_ruby,
+        emails = emails_ruby,
         description = meta.description,
         homepage = homepage_ruby,
         license = license_ruby,
